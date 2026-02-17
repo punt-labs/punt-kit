@@ -2,9 +2,48 @@
 
 Standards, design patterns, and scaffolding for Punt Labs projects.
 
-Punt-kit is the home for everything that applies across projects: coding standards, CLI conventions, plugin structure, naming rules, distribution patterns, design patterns, and the audit checklist. Individual projects reference these standards from their CLAUDE.md rather than duplicating them. Eventually, `punt init` will scaffold new projects using these standards.
+Punt-kit is the home for everything that applies across projects: coding standards, CLI conventions, plugin structure, naming rules, distribution patterns, design patterns, and the audit checklist. Individual projects reference these standards from their CLAUDE.md rather than duplicating them. The `punt` CLI applies these standards automatically.
 
 For the standards index and audit checklist, see [AGENTS.md](AGENTS.md). For language and topic-specific standards, see [standards/](standards/). For reusable Claude Code plugin and MCP design patterns, see [patterns/](patterns/).
+
+---
+
+## punt CLI
+
+### Install
+
+```bash
+uv tool install punt-kit
+# or
+pip install punt-kit
+```
+
+### Commands
+
+| Command | What it does |
+|---------|-------------|
+| `punt init` | Detect project type, generate missing CI/config files, report manual steps |
+| `punt audit` | Check compliance against standards (read-only, no file changes) |
+| `punt version` | Print version |
+
+### Usage
+
+```bash
+# In any Punt Labs project directory:
+punt init          # Generate missing files
+punt audit         # Check compliance
+punt init /path    # Target a specific directory
+```
+
+`punt init` detects the project type (Python, Node.js, Swift, docs) and generates:
+- GitHub Actions CI workflows (lint, test, docs, release)
+- Python tool configs (`[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]`)
+- Beads issue tracking (delegates to `bd init`)
+- `CLAUDE.md` with standards references
+
+After generating files, it reports manual steps (branch protection, Copilot review, Dependabot).
+
+`punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated.
 
 ---
 

@@ -1,0 +1,49 @@
+[project]
+name = "punt-kit"
+version = "0.1.0"
+description = "Standards, scaffolding, and compliance tooling for Punt Labs projects"
+requires-python = ">=3.13"
+authors = [{ name = "Punt Labs" }]
+license = { text = "MIT" }
+dependencies = [
+    "typer>=0.15.0",
+    "rich>=13.0.0",
+    "tomli>=2.0.0;python_version<'3.11'",
+    "tomli-w>=1.0.0",
+    "jinja2>=3.1.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "ruff>=0.11.0",
+    "mypy>=1.15.0",
+    "pyright>=1.1.0",
+]
+
+[project.scripts]
+punt = "punt_kit.__main__:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
