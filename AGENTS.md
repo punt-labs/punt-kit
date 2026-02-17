@@ -1,6 +1,6 @@
 # Agent Instructions
 
-This is **punt-kit** — the standards and scaffolding repo for Punt Labs. When working in any Punt Labs project, consult these standards.
+This is **punt-kit** — the standards, design patterns, and scaffolding repo for Punt Labs. When working in any Punt Labs project, consult these standards and patterns.
 
 ## Beads
 

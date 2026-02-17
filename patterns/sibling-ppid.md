@@ -46,6 +46,11 @@ The MCP server deletes its PPID-keyed file in the lifespan `finally` block on sh
 | Scan all state files | Status line wouldn't know which file is "mine" — showing all sessions is noisy |
 | Session ID from stdin JSON | Available to the status line but not to the MCP server — no way to agree |
 
+## Related Patterns
+
+- [Dynamic Description Notify](dynamic-description-notify.md) — The MCP server writes the state file that Sibling PPID makes addressable. The status line reads it.
+- [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the PPID-keyed file is installed via Stash and Wrap.
+
 ## Known Uses
 
 - **Biff** — MCP server writes unread counts to `~/.biff/unread/{ppid}.json`. Status line reads the same file. Verified across multiple concurrent Claude Code sessions with matching PPIDs.

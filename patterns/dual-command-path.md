@@ -40,6 +40,12 @@ Only remove files whose names match the bundled command filenames. Do not touch 
 - If another plugin deploys a command with the same filename to `~/.claude/commands/`, the last installer wins. Choose distinctive filenames.
 - The doctor command should check user commands as informational (not required) since the namespaced plugin commands are the fallback.
 
+## Related Patterns
+
+- [Two-Phase Install](two-phase-install.md) — Dual Command Path deployment happens during Phase 2 of the Two-Phase Install.
+- [Copy, Not Symlink](copy-not-symlink.md) — The mechanism used to deploy files to both command directories.
+- [Doctor Checks](doctor-checks.md) — User commands are checked as informational (not required) since namespaced plugin commands are the fallback.
+
 ## Known Uses
 
 - **Biff** — Deploys `who.md`, `finger.md`, `write.md`, `read.md`, `plan.md`, `mesg.md`, `tty.md` to both plugin and user command directories. Users type `/who` daily; `/biff:who` exists for disambiguation.

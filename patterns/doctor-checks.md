@@ -51,6 +51,12 @@ Exit code 0 if all required checks pass. Exit code 1 if any required check fails
 - Network checks need timeouts (e.g., 3 seconds) to avoid hanging on unreachable services.
 - The doctor command should resolve configuration the same way the runtime does (same config loading, same fallback chain) to catch config mismatches.
 
+## Related Patterns
+
+- [Two-Phase Install](two-phase-install.md) — Doctor validates the results of both install phases plus external dependencies that neither phase controls.
+- [Dual Command Path](dual-command-path.md) — Doctor checks user commands as informational, since namespaced plugin commands are the fallback.
+- [Stash and Wrap](stash-and-wrap.md) — Doctor checks status line installation as informational (optional feature).
+
 ## Known Uses
 
 - **Biff** — `biff doctor` runs six checks: `gh` CLI (required), MCP server (required), plugin commands (required), NATS relay (required), `.biff` file (informational), status line (informational). NATS connectivity uses a 3-second timeout with `asyncio.run()`.

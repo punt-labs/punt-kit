@@ -41,6 +41,11 @@ The same approach works for user commands — copy individual `.md` files to `~/
 
 Claude Code has a "local marketplace" pattern using symlinks and `marketplace.json`. This was rejected because it requires maintaining a separate manifest, ties the plugin to a specific filesystem path, and adds indirection without benefit. The copy approach is simpler: one step, no manifest, no symlink management.
 
+## Related Patterns
+
+- [Two-Phase Install](two-phase-install.md) — Copy, Not Symlink is the deployment mechanism used during Phase 2 of the Two-Phase Install.
+- [Dual Command Path](dual-command-path.md) — The same copy mechanism deploys command files to both plugin and user command directories.
+
 ## Known Uses
 
 - **Biff** — `biff install` copies from `importlib.resources.files("biff.plugins.biff")` to `~/.claude/plugins/biff/`. The `biff@local` registry key mimics the local plugin convention without the marketplace indirection.

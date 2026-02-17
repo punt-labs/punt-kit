@@ -49,6 +49,13 @@ pip install <package>
 - The `doctor` command validates both phases and external dependencies (GitHub CLI, relay connectivity, etc.) in one shot.
 - The separation means Phase 1 is testable in CI without Claude Code.
 
+## Related Patterns
+
+- [Copy, Not Symlink](copy-not-symlink.md) — Phase 2 deploys plugin files. This pattern determines *how* those files get from the package to `~/.claude/plugins/`.
+- [Dual Command Path](dual-command-path.md) — Phase 2 deploys commands to two locations. This pattern determines *where* those files go.
+- [Doctor Checks](doctor-checks.md) — Validates the results of both phases plus external dependencies that neither phase controls.
+- [Stash and Wrap](stash-and-wrap.md) — An optional third phase for status line integration, separated because it modifies global UI.
+
 ## Known Uses
 
 - **Biff** — `pip install biff-mcp` (Phase 1) + `biff install` (Phase 2) + `biff doctor` (verification). Status line is a third optional phase (`biff install-statusline`) because it modifies global UI.

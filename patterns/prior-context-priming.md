@@ -41,6 +41,10 @@ The skill prompt reinforces the same guidance on the same turn. The `instruction
 - The skill prompt and `instructions` field must agree — contradictions cause unpredictable behavior.
 - This pattern applies to any behavioral guidance the model must follow when handling tool output, not just formatting.
 
+## Related Patterns
+
+- [Two-Channel Display](two-channel-display.md) — The pattern that creates the need for Prior-Context Priming. Data commands route full output through `additionalContext` and instruct the model to emit it verbatim — formatting guidance must be primed in prior context for this to work.
+
 ## Known Uses
 
 - **Biff** — MCP `instructions` field contains output formatting rules (unicode preservation, no code fences, verbatim emission). Discovered after 5 iterations of prompt-only approaches failed. Validated in fresh sessions.

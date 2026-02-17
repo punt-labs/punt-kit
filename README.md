@@ -1,10 +1,10 @@
 # punt-kit
 
-Standards, design guidance, and scaffolding for Punt Labs projects.
+Standards, design patterns, and scaffolding for Punt Labs projects.
 
-Punt-kit is the home for everything that applies across projects: coding standards, CLI conventions, plugin structure, naming rules, distribution patterns, and the audit checklist. Individual projects reference these standards from their CLAUDE.md rather than duplicating them. Eventually, `punt init` will scaffold new projects using these standards.
+Punt-kit is the home for everything that applies across projects: coding standards, CLI conventions, plugin structure, naming rules, distribution patterns, design patterns, and the audit checklist. Individual projects reference these standards from their CLAUDE.md rather than duplicating them. Eventually, `punt init` will scaffold new projects using these standards.
 
-For the standards index and audit checklist, see [AGENTS.md](AGENTS.md). For language and topic-specific standards, see [standards/](standards/).
+For the standards index and audit checklist, see [AGENTS.md](AGENTS.md). For language and topic-specific standards, see [standards/](standards/). For reusable Claude Code plugin and MCP design patterns, see [patterns/](patterns/).
 
 ---
 

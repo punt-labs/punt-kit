@@ -45,6 +45,11 @@ PostToolUse Hook
 - The hook must classify each tool as silent or data — this is a per-tool decision.
 - The skill prompt for each command must match the hook's channel decision (tell the model to be silent or to emit).
 
+## Related Patterns
+
+- [Prior-Context Priming](prior-context-priming.md) — Data commands require the model to emit output verbatim. This only works reliably if formatting guidance is delivered via prior context, not same-turn skill prompts.
+- [Dynamic Description Notify](dynamic-description-notify.md) — Two-Channel Display handles pull (user requests data); Dynamic Description Notify handles push (data arrives while idle). Both solve "how does the user see MCP data?"
+
 ## Known Uses
 
 - **Biff** — `/who`, `/finger`, `/read` use the data channel; `/write`, `/plan`, `/mesg` use the silent channel.

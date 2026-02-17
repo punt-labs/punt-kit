@@ -45,6 +45,12 @@ A background poller writes state to a JSON file (e.g., `~/.biff/unread/{ppid}.js
 - A background poller task must run for the lifetime of the MCP server.
 - The session reference must be captured from the first tool call and reused by the background poller.
 
+## Related Patterns
+
+- [Two-Channel Display](two-channel-display.md) — Handles the pull path (user requests data); Dynamic Description Notify handles the push path (data arrives while idle).
+- [Sibling PPID](sibling-ppid.md) — The status line file (mechanism 3) uses PPID as the shared key between the MCP server that writes it and the status line command that reads it.
+- [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the unread file is installed via the Stash and Wrap pattern.
+
 ## Known Uses
 
 - **Biff** — Background poller (`poll_inbox`) runs every 2 seconds. On unread count change, mutates `read_messages` tool description and fires `tools/list_changed`. Status line shows `biff(2)` for 2 unread messages.

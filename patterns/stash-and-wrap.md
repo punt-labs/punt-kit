@@ -35,6 +35,12 @@ original-output | biff(2) myapp(1)
 - The runtime cost is one subprocess invocation per status line refresh to execute the stashed command.
 - The install command should be separate and optional (not bundled with the main install) because it modifies global UI visible in every session.
 
+## Related Patterns
+
+- [Sibling PPID](sibling-ppid.md) — The wrapped status line command uses PPID to find the correct state file written by its sibling MCP server process.
+- [Two-Phase Install](two-phase-install.md) — Status line installation is a separate optional phase beyond the main Two-Phase Install, because it modifies global UI.
+- [Dynamic Description Notify](dynamic-description-notify.md) — The status line is the human-visible channel of the push notification system. Stash and Wrap is how that channel gets installed.
+
 ## Known Uses
 
 - **Biff** — `biff install-statusline` stashes the original to `~/.biff/statusline-original.json`, replaces with `biff statusline`. At runtime, executes the stashed command and appends unread counts. `biff uninstall` restores the original.
