@@ -24,6 +24,7 @@ Each standard lives in its own document under `standards/`.
 | [CLI](standards/cli.md) | CLI + plugin duality, required subcommands (install, doctor, version, serve), --json flag, shell completion |
 | [Plugins](standards/plugins.md) | plugin.json, extension point selection (skills, commands, agents, hooks, MCP), output suppression, tool restrictions |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
+| [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Beads issue tracking, cross-project integration rules |
 | [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, typer + rich, FastMCP, release workflow |
 | [Node.js](standards/node.md) | Node 20+, npm, @modelcontextprotocol/sdk, zod, ES modules |
@@ -63,6 +64,12 @@ Use this checklist to audit a project for compliance:
 - [ ] **README documents installation** — clear, copy-pasteable install instructions
 - [ ] **Linting and type checking configured** — per language standards ([python](standards/python.md), [node](standards/node.md))
 - [ ] **Tests exist and pass** — `pytest`, `XCTest`, or equivalent
+- [ ] **Branch protection on main** — require PR with 1 approval, require status checks, prevent force push ([github](standards/github.md))
+- [ ] **CI workflow exists** — lint, test, or docs validation per project type ([github](standards/github.md))
+- [ ] **Required status checks configured** — CI must pass before merge ([github](standards/github.md))
+- [ ] **Copilot code review enabled** — automatic review on PRs ([github](standards/github.md))
+- [ ] **Dependabot and secret scanning enabled** — security baseline ([github](standards/github.md))
+- [ ] **Auto-delete head branches enabled** — clean up after merge ([github](standards/github.md))
 - [ ] **Cross-project integrations are optional and one-way** — no circular dependencies ([workflow](standards/workflow.md))
 
 ## Landing the Plane (Session Completion)
