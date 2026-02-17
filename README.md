@@ -1,8 +1,14 @@
-# Punt Labs Project Guide
+# punt-kit
 
-A reference for how each project works, how users install and use it, and how it integrates with the Claude ecosystem.
+Standards, design guidance, and scaffolding for Punt Labs projects.
 
-Standards, design guidance, and language-specific references live in [punt-kit](https://github.com/punt-labs/punt-kit) — see [DESIGN-GUIDANCE.md](DESIGN-GUIDANCE.md), [standards/python.md](standards/python.md), and [standards/node.md](standards/node.md).
+Punt-kit is the home for everything that applies across projects: coding standards, CLI conventions, plugin structure, naming rules, distribution patterns, and the audit checklist. Individual projects reference these standards from their CLAUDE.md rather than duplicating them. Eventually, `punt init` will scaffold new projects using these standards.
+
+For the standards index and audit checklist, see [AGENTS.md](AGENTS.md). For language and topic-specific standards, see [standards/](standards/).
+
+---
+
+## Projects
 
 ---
 
