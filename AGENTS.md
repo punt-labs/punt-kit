@@ -29,6 +29,23 @@ Each standard lives in its own document under `standards/`.
 | [Node.js](standards/node.md) | Node 20+, npm, @modelcontextprotocol/sdk, zod, ES modules |
 | Swift | (planned) — swiftformat, swiftlint, XcodeGen, SwiftUI, XCTest |
 
+## Patterns
+
+Reusable design patterns for Claude Code plugin and MCP server development, extracted from production experience. Each pattern follows the Problem/Forces/Solution/Consequences structure.
+
+| Pattern | What it solves |
+|---------|---------------|
+| [Two-Channel Display](patterns/two-channel-display.md) | MCP output truncated in Claude Code — split into panel summary + model-emitted full output |
+| [Prior-Context Priming](patterns/prior-context-priming.md) | Formatting guidance ignored on same-turn delivery — use MCP `instructions` field |
+| [Dynamic Description Notify](patterns/dynamic-description-notify.md) | No push notifications in MCP — mutate tool descriptions + `tools/list_changed` |
+| [Stash and Wrap](patterns/stash-and-wrap.md) | Status line is a single command — stash original, wrap at runtime |
+| [Two-Phase Install](patterns/two-phase-install.md) | `pip install` can't run `claude mcp add` — separate package install from tool registration |
+| [Copy, Not Symlink](patterns/copy-not-symlink.md) | Plugin files break on package upgrade — copy via `importlib.resources`, not symlink |
+| [Dual Command Path](patterns/dual-command-path.md) | Plugin commands are namespaced — deploy to both plugin and user command directories |
+| [Sibling PPID](patterns/sibling-ppid.md) | MCP server and status line need shared identity — both are children of Claude Code |
+| [Doctor Checks](patterns/doctor-checks.md) | Post-install verification — required vs informational health checks |
+| [Design Decision Log](patterns/design-decision-log.md) | Decisions lost across sessions — structured log prevents re-debating settled issues |
+
 ## Audit Checklist
 
 Use this checklist to audit a project for compliance:
