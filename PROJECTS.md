@@ -2,6 +2,8 @@
 
 A reference for how each project works, how users install and use it, and how it integrates with the Claude ecosystem.
 
+Standards, design guidance, and language-specific references live in [punt-kit](https://github.com/punt-labs/punt-kit) — see [DESIGN-GUIDANCE.md](DESIGN-GUIDANCE.md), [standards/python.md](standards/python.md), and [standards/node.md](standards/node.md).
+
 ---
 
 ## PR/FAQ
@@ -28,7 +30,7 @@ Z Spec is a Claude Code plugin using **nine commands** — one per slash command
 
 Biff is team communication for engineers who work in the terminal. It resurrects the BSD Unix communication vocabulary — `who`, `finger`, `write`, `plan`, `mesg` — as both CLI commands and Claude Code slash commands. Messages travel over a NATS relay, so teams communicate across machines without leaving their coding environment. Humans and AI agents show up side by side in `/who`; there is no distinction between them at the protocol level.
 
-Users install via `pip install biff-mcp` followed by `biff install` and `biff doctor`. The pip package is `biff-mcp` on PyPI. Once installed, the `biff` CLI works standalone from any terminal, and the slash commands (`/who`, `/finger`, `/write`, `/read`, `/plan`, `/mesg`, `/tty`) work inside Claude Code. A `.biff` file in the repo root configures the team roster and relay connection.
+Users install via `pip install biff` followed by `biff install` and `biff doctor`. (Currently published as `biff-mcp` on PyPI, pending rename.) Once installed, the `biff` CLI works standalone from any terminal, and the slash commands (`/who`, `/finger`, `/write`, `/read`, `/plan`, `/mesg`, `/tty`) work inside Claude Code. A `.biff` file in the repo root configures the team roster and relay connection.
 
 Biff uses three Claude ecosystem extension points. It is an **MCP server** (Python, FastMCP) that provides communication tools over stdio transport. It is also a Claude Code **plugin** that wraps those MCP tools as **seven commands** (slash commands). And it has a **PostToolUse hook** that suppresses raw MCP tool output so the conversation stays clean. The plugin layer is what gives users `/who` instead of Claude silently calling an MCP tool.
 
@@ -38,7 +40,7 @@ Biff uses three Claude ecosystem extension points. It is an **MCP server** (Pyth
 
 Quarry is local semantic search for your documents. It indexes PDFs, scanned images, spreadsheets, presentations, source code, HTML, and 30+ other formats, then lets you search by meaning rather than keywords. Everything runs offline — the embedding model downloads once (~500 MB) and all indexing and search happens locally. Named databases keep work and personal content separated, and directory sync watches folders for changes.
 
-Quarry is distributed three ways. On **PyPI** as `quarry-mcp` (`pip install quarry-mcp` or `quarry install` for guided setup). As an **`.mcpb` bundle** for Claude Desktop — download `quarry-mcp.mcpb`, double-click, and Claude Desktop configures itself. And as a standalone **CLI** (`quarry search`, `quarry ingest-file`, `quarry sync`). A companion **macOS menu bar app** ([Quarry Menu Bar](https://github.com/jmf-pobox/quarry-menubar)) provides a native search interface that spawns `quarry serve` as a subprocess. The one-liner `curl | bash` installer handles the CLI path.
+Quarry is distributed three ways. On **PyPI** as `quarry` (`pip install quarry` or `quarry install` for guided setup). (Currently published as `quarry-mcp`, pending rename.) As an **`.mcpb` bundle** for Claude Desktop — download `quarry-mcp.mcpb`, double-click, and Claude Desktop configures itself. And as a standalone **CLI** (`quarry search`, `quarry ingest-file`, `quarry sync`). A companion **macOS menu bar app** ([Quarry Menu Bar](https://github.com/jmf-pobox/quarry-menubar)) provides a native search interface that spawns `quarry serve` as a subprocess. The one-liner `curl | bash` installer handles the CLI path.
 
 Quarry is a pure **MCP server** — no Claude Code plugin manifest, no skills, no commands, no hooks. It exposes 15+ tools via FastMCP (Python) over stdio transport: `search_documents`, `ingest_file`, `ingest_url`, `ingest_content`, `get_documents`, `delete_document`, `register_directory`, `sync_all_registrations`, `use_database`, and more. The `.mcpb` bundle packages the MCP server for one-click installation in Claude Desktop, making it the most broadly accessible project — it works in Claude Code, Claude Desktop, and any other MCP client. The menu bar app communicates with Quarry's HTTP API (`quarry serve`), not MCP. 
 ---
@@ -87,8 +89,8 @@ Koch Trainer does not use any Claude ecosystem extension points. It is included 
 
 | Project | Language | Source files | Notes |
 |---------|----------|-------------|-------|
-| Biff | Python | ~27 | MCP server + CLI (`biff-mcp` on PyPI) |
-| Quarry | Python | ~29 | MCP server + CLI (`quarry-mcp` on PyPI) |
+| Biff | Python | ~27 | MCP server + CLI (`biff` on PyPI, pending rename from `biff-mcp`) |
+| Quarry | Python | ~29 | MCP server + CLI (`quarry` on PyPI, pending rename from `quarry-mcp`) |
 | LangLearn TTS | Python | ~11 | MCP server + CLI (`langlearn-tts` on PyPI) |
 | Quarry Menu Bar | Swift | ~47 | SwiftUI, macOS 14+, XcodeGen |
 | Koch Trainer | Swift | — | iOS, not hosted locally |
@@ -106,8 +108,8 @@ Three projects have real application code in Python. Two are native Swift apps. 
 |---------|--------|--------|--------|----------|-------|------------|-------|------|
 | PR/FAQ | Yes | 1 | 8 | 10 | — | — | — | — |
 | Z Spec | Yes | — | — | 9 | — | — | — | — |
-| Biff | Yes | — | — | 7 | 1 | Yes (Python) | — | `biff-mcp` |
-| Quarry | — | — | — | — | — | Yes (Python) | Yes | `quarry-mcp` |
+| Biff | Yes | — | — | 7 | 1 | Yes (Python) | — | `biff` |
+| Quarry | — | — | — | — | — | Yes (Python) | Yes | `quarry` |
 | LangLearn TTS | — | — | — | — | — | Yes (Python) | Yes | `langlearn-tts` |
 | Dungeon | Yes | 1 | — | — | 1 | Yes (Node.js) | — | — |
 | Quarry Menu Bar | — | — | — | — | — | — | — | — |
