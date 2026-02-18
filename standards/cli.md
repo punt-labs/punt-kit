@@ -9,12 +9,14 @@ Standards for command-line interfaces across all Punt Labs projects. **beads** (
 Most tools should work two ways: as a standalone CLI and as a plugin or MCP server inside Claude. The CLI is for scripted and non-AI workflows. The plugin/MCP layer is for AI-assisted workflows. Users should not need Claude to perform deterministic operations.
 
 **Deterministic operations belong in the CLI:**
+
 - Compilation, formatting, linting
 - Health checks and diagnostics
 - Scaffolding and initialization
 - Dependency verification
 
 **AI-driven operations belong in the plugin:**
+
 - Generation, analysis, review
 - Natural language interaction
 - Multi-step orchestration
@@ -55,6 +57,7 @@ Every project with external dependencies must have a `doctor` command that repor
 **Plugin-only projects:** `/<tool> doctor` slash command or equivalent (e.g., `/z doctor`)
 
 The doctor command must check:
+
 - Required binaries found and executable
 - Required libraries/packages installed
 - Correct versions where applicable
@@ -73,6 +76,7 @@ Pattern: `biff doctor`, `quarry doctor`, `langlearn-tts doctor`.
 Every CLI must support a `--json` global flag that switches output to JSON. This enables agentic integration — scripts, CI pipelines, and other tools can parse the output programmatically.
 
 Rules:
+
 - `--json` is a **global flag**, not per-subcommand
 - When `--json` is set, all output is valid JSON written to stdout
 - Human-readable messages (progress, decoration) go to stderr or are suppressed

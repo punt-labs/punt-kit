@@ -11,6 +11,7 @@ Every project must have a frictionless install path appropriate to its type.
 ### Plugin projects (Claude Code)
 
 Must have a `curl | bash` installer (`install.sh`) that:
+
 - Clones the repo to `~/.claude/plugins/local-plugins/plugins/<name>`
 - Checks out the latest semver tag
 - Registers the plugin in `marketplace.json`

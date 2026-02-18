@@ -25,7 +25,7 @@ Each standard lives in its own document under `standards/`.
 | [Plugins](standards/plugins.md) | plugin.json, extension point selection (skills, commands, agents, hooks, MCP), output suppression, tool restrictions |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
-| [Workflow](standards/workflow.md) | Beads issue tracking, cross-project integration rules |
+| [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
 | [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, typer + rich, FastMCP, release workflow |
 | [Node.js](standards/node.md) | Node 20+, npm, @modelcontextprotocol/sdk, zod, ES modules |
 | Swift | (planned) — swiftformat, swiftlint, XcodeGen, SwiftUI, XCTest |
@@ -61,6 +61,8 @@ Use this checklist to audit a project for compliance:
 - [ ] **plugin.json has version** — if the project is a Claude Code plugin ([plugins](standards/plugins.md))
 - [ ] **PostToolUse hook exists** — if the project uses MCP tools in Claude Code ([plugins](standards/plugins.md))
 - [ ] **Beads initialized** — `.beads/` directory exists and is committed ([workflow](standards/workflow.md))
+- [ ] **Quality gates defined** — project CLAUDE.md lists the quality gate commands for this project type ([workflow](standards/workflow.md))
+- [ ] **Design decision log exists** — `DESIGN.md` if the project has non-trivial architecture decisions ([workflow](standards/workflow.md))
 - [ ] **README documents installation** — clear, copy-pasteable install instructions
 - [ ] **Linting and type checking configured** — per language standards ([python](standards/python.md), [node](standards/node.md))
 - [ ] **Tests exist and pass** — `pytest`, `XCTest`, or equivalent
@@ -80,15 +82,18 @@ Use this checklist to audit a project for compliance:
 2. **Run quality gates** (if code changed) — Tests, linters, builds
 3. **Update issue status** — Close finished work, update in-progress items
 4. **PUSH TO REMOTE**:
+
    ```bash
    git pull --rebase
    bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
+
 5. **Verify** — All changes committed AND pushed
 
 **CRITICAL RULES:**
+
 - Work is NOT complete until `git push` succeeds
 - NEVER stop before pushing — that leaves work stranded locally
 - NEVER say "ready to push when you are" — YOU must push

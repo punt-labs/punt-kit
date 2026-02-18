@@ -15,7 +15,7 @@ Standards for Punt Labs Node.js projects. Currently only Dungeon uses Node.js (a
 
 ## Project Layout
 
-```
+```text
 mcp/
   package.json              # Dependencies and metadata
   package-lock.json         # Locked dependencies
@@ -91,9 +91,11 @@ await server.connect(transport);
 ## Path Resolution
 
 - Resolve paths relative to the module using `import.meta.url`:
+
   ```javascript
   const __dirname = dirname(fileURLToPath(import.meta.url));
   ```
+
 - State files that belong to the user's project go in `process.cwd()`, not the plugin directory.
 - Plugin assets (scripts, art, templates) resolve relative to the plugin root.
 

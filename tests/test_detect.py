@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from punt_kit.detect import detect
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_detect_python_package(tmp_path: Path) -> None:

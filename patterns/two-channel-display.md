@@ -27,7 +27,7 @@ Set `updatedMCPToolOutput` to the full result. Do not set `additionalContext`. T
 
 Set `updatedMCPToolOutput` to a one-line summary. Set `additionalContext` to the full data. The skill prompt says "Emit the tool output exactly as returned."
 
-```
+```text
 PostToolUse Hook
 ├── Silent (/write, /plan, /mesg)
 │   updatedMCPToolOutput = full result     → panel shows all

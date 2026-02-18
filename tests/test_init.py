@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import tomllib
+from typing import TYPE_CHECKING
 
-if sys.version_info < (3, 11):
-    import tomli as tomllib
-else:
-    import tomllib
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from punt_kit.init import run_init
 
@@ -54,9 +52,7 @@ def test_init_creates_node_workflow(tmp_path: Path) -> None:
 def test_init_merges_python_tool_config(tmp_path: Path) -> None:
     """Init adds tool config to existing pyproject.toml without overwriting."""
     pyproject = tmp_path / "pyproject.toml"
-    pyproject.write_text(
-        '[project]\nname = "test-pkg"\nversion = "1.0.0"\n'
-    )
+    pyproject.write_text('[project]\nname = "test-pkg"\nversion = "1.0.0"\n')
 
     run_init(str(tmp_path))
 
@@ -75,9 +71,7 @@ def test_init_preserves_existing_tool_config(tmp_path: Path) -> None:
     """Init does not overwrite existing tool configs."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(
-        '[project]\nname = "test-pkg"\n\n'
-        "[tool.ruff]\n"
-        'target-version = "py312"\n'
+        '[project]\nname = "test-pkg"\n\n[tool.ruff]\ntarget-version = "py312"\n'
     )
 
     run_init(str(tmp_path))
@@ -121,7 +115,9 @@ def test_init_appends_to_existing_claude_md(tmp_path: Path) -> None:
 def test_init_skips_existing_references(tmp_path: Path) -> None:
     """Init does not duplicate standards references."""
     claude_md = tmp_path / "CLAUDE.md"
-    claude_md.write_text("# Agent Instructions\n\n## Standards References\n- Already here\n")
+    claude_md.write_text(
+        "# Agent Instructions\n\n## Standards References\n- Already here\n"
+    )
     (tmp_path / "README.md").write_text("# Test")
 
     run_init(str(tmp_path))

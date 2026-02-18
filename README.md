@@ -36,6 +36,7 @@ punt init /path    # Target a specific directory
 ```
 
 `punt init` detects the project type (Python, Node.js, Swift, docs) and generates:
+
 - GitHub Actions CI workflows (lint, test, docs, release)
 - Python tool configs (`[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]`)
 - Beads issue tracking (delegates to `bd init`)

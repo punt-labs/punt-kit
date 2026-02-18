@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import json
-import sys
+import re
+import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-if sys.version_info < (3, 11):
-    import tomli as tomllib
-else:
-    import tomllib
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dataclass(frozen=True)
@@ -27,8 +26,8 @@ class ProjectInfo:
     is_plugin: bool = False
     pyproject: dict[str, object] | None = None
     package_json: dict[str, object] | None = None
-    workflow_files: list[str] = field(default_factory=list)
-    standards_refs: list[str] = field(default_factory=list)
+    workflow_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    standards_refs: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
 
 def detect(root: Path) -> ProjectInfo:
@@ -56,8 +55,8 @@ def detect(root: Path) -> ProjectInfo:
     # Check package.json
     package_json_path = root / "package.json"
     if package_json_path.exists():
-        with open(package_json_path) as f:
-            package_json_data = json.load(f)
+        with open(package_json_path) as pj:
+            package_json_data = json.load(pj)
         if language is None:
             language = "node"
             project_type = "package"
@@ -66,10 +65,9 @@ def detect(root: Path) -> ProjectInfo:
     # Check Swift
     swift_files = list(root.glob("**/*.swift"))
     xcodegen = root / "project.yml"
-    if swift_files or xcodegen.exists():
-        if language is None:
-            language = "swift"
-            project_type = "app"
+    if (swift_files or xcodegen.exists()) and language is None:
+        language = "swift"
+        project_type = "app"
 
     # Check Claude Code plugin
     plugin_json = root / ".claude-plugin" / "plugin.json"
@@ -129,8 +127,8 @@ def detect(root: Path) -> ProjectInfo:
     )
 
 
-_PYTHON_MCP_RE = __import__("re").compile(r"^(?:from\s+fastmcp|import\s+fastmcp)", __import__("re").MULTILINE)
-_NODE_MCP_RE = __import__("re").compile(r"""^import\s+\{[^}]*McpServer""", __import__("re").MULTILINE)
+_PYTHON_MCP_RE = re.compile(r"^(?:from\s+fastmcp|import\s+fastmcp)", re.MULTILINE)
+_NODE_MCP_RE = re.compile(r"""^import\s+\{[^}]*McpServer""", re.MULTILINE)
 
 
 def _has_mcp_server(root: Path, language: str | None) -> bool:

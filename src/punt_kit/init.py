@@ -5,17 +5,12 @@ from __future__ import annotations
 import importlib.resources
 import shutil
 import subprocess
-import sys
+import tomllib
 from pathlib import Path
 
 import jinja2
 import tomli_w
 from rich.console import Console
-
-if sys.version_info < (3, 11):
-    import tomli as tomllib
-else:
-    import tomllib
 
 from punt_kit.detect import ProjectInfo, detect
 
@@ -97,9 +92,11 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             existing = target_path.read_text(encoding="utf-8")
             if existing == template_content:
                 continue
-            console.print(f"  [yellow]↻[/yellow] Updating {_relpath(target_path, info.root)}")
+            rel = _relpath(target_path, info.root)
+            console.print(f"  [yellow]↻[/yellow] Updating {rel}")
         else:
-            console.print(f"  [green]+[/green] Creating {_relpath(target_path, info.root)}")
+            rel = _relpath(target_path, info.root)
+            console.print(f"  [green]+[/green] Creating {rel}")
 
         workflows_dir.mkdir(parents=True, exist_ok=True)
         target_path.write_text(template_content, encoding="utf-8")
@@ -172,7 +169,7 @@ def _init_python_config(info: ProjectInfo) -> list[str]:
     with open(pyproject_path, "wb") as f:
         tomli_w.dump(data, f)
 
-    console.print(f"  [yellow]↻[/yellow] Updated tool config in pyproject.toml")
+    console.print("  [yellow]↻[/yellow] Updated tool config in pyproject.toml")
     return ["pyproject.toml"]
 
 
@@ -227,10 +224,10 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
         # Append the references section
         updated = existing.rstrip() + "\n\n" + references_block + "\n"
         claude_md_path.write_text(updated, encoding="utf-8")
-        console.print(f"  [yellow]↻[/yellow] Added standards references to CLAUDE.md")
+        console.print("  [yellow]↻[/yellow] Added standards references to CLAUDE.md")
     else:
         claude_md_path.write_text(references_block + "\n", encoding="utf-8")
-        console.print(f"  [green]+[/green] Created CLAUDE.md")
+        console.print("  [green]+[/green] Created CLAUDE.md")
 
     return ["CLAUDE.md"]
 

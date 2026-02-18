@@ -21,6 +21,7 @@ Current Python projects: Biff, Quarry, LangLearn TTS.
 ## Python Version
 
 Target **3.13+**. Use modern PEP conventions:
+
 - `from __future__ import annotations` in every file
 - `X | Y` unions (not `Union[X, Y]`)
 - `Annotated` for metadata
@@ -85,7 +86,7 @@ uvx twine check dist/*
 
 ## Project Layout
 
-```
+```text
 <project>/
   pyproject.toml            # Package metadata, dependencies, tool config
   uv.lock                   # Locked dependencies
