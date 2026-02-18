@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 from punt_kit.audit import run_audit
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 def test_audit_docs_project(tmp_path: Path, capsys: object) -> None:
