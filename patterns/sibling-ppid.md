@@ -17,7 +17,7 @@ Two processes spawned by Claude Code — the MCP server (via stdio transport) an
 
 Use `os.getppid()` as the shared file key. Both the MCP server and the status line command call `os.getppid()` to get the PID of their parent (the Claude Code process). They use this as a filename component:
 
-```
+```text
 Claude Code (PID 30757)
 ├── biff serve --transport stdio   (MCP server, ppid=30757, writes file)
 ├── biff statusline                (status line, ppid=30757, reads file)

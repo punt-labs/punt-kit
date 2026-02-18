@@ -20,7 +20,7 @@ Three complementary mechanisms:
 
 Mutate the tool's `description` field in-place to include the current state:
 
-```
+```text
 "Check messages (2 unread: @kai about auth, @eric about lunch). Marks all as read."
 ```
 

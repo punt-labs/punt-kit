@@ -21,9 +21,9 @@ Use a stash-and-wrap pattern:
 
 3. **Wrap at runtime** — When the status line command runs, it reads the stash, executes the original command as a subprocess, captures its output, and appends the tool's own segment:
 
-```
-original-output | biff(2) myapp(1)
-```
+   ```text
+   original-output | biff(2) myapp(1)
+   ```
 
 4. **Uninstall** — Read the stash, restore the original `statusLine` value, delete the stash file. The user's original configuration is preserved exactly.
 

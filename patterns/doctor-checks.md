@@ -32,7 +32,7 @@ Implement a `doctor` subcommand that runs a checklist of diagnostic checks, each
 
 Each check prints a status indicator and description:
 
-```
+```text
 ✓ GitHub CLI authenticated
 ✓ MCP server registered
 ✓ Plugin commands installed

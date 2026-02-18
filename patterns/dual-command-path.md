@@ -21,7 +21,7 @@ Deploy the same command `.md` files to both locations during installation:
 
 Both are `shutil.copy2()` from the same bundled source. The installer owns both targets.
 
-```
+```text
 ~/.claude/
 ├── plugins/biff/commands/who.md    → /biff:who
 ├── plugins/biff/commands/finger.md → /biff:finger
