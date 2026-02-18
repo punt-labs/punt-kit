@@ -82,15 +82,18 @@ Use this checklist to audit a project for compliance:
 2. **Run quality gates** (if code changed) — Tests, linters, builds
 3. **Update issue status** — Close finished work, update in-progress items
 4. **PUSH TO REMOTE**:
+
    ```bash
    git pull --rebase
    bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
+
 5. **Verify** — All changes committed AND pushed
 
 **CRITICAL RULES:**
+
 - Work is NOT complete until `git push` succeeds
 - NEVER stop before pushing — that leaves work stranded locally
 - NEVER say "ready to push when you are" — YOU must push

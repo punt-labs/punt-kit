@@ -1,0 +1,6 @@
+{
+  // Disable line length — tables, URLs, and pattern descriptions routinely exceed any limit
+  "MD013": false,
+  // Disable table column style — compact pipes are fine
+  "MD060": false
+}

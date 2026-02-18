@@ -23,6 +23,7 @@ Every repo must have beads initialized (`bd init`). The `.beads/` directory is c
 ### Issue Quality
 
 Issues must have:
+
 - A clear title in imperative form
 - A description with enough context for another engineer (or agent) to act on
 - Correct type and priority
@@ -191,6 +192,7 @@ Projects may optionally integrate with other Punt Labs tools. Integrations must 
 - **One-way** — project A may use project B, but B must not know about A
 
 Current integrations:
+
 - **PR/FAQ uses Quarry** — researcher agent searches indexed documents during `/prfaq:research` and Phase 0 discovery
 - **Z Spec should use Quarry** — domain docs could inform spec generation (planned, `claude-z-spec-plugin-p81`)
 
