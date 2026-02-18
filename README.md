@@ -136,8 +136,8 @@ Koch Trainer does not use any Claude ecosystem extension points. It is included 
 
 | Project | Language | Source files | Notes |
 |---------|----------|-------------|-------|
-| Biff | Python | ~27 | MCP server + CLI (`biff` on PyPI, pending rename from `biff-mcp`) |
-| Quarry | Python | ~29 | MCP server + CLI (`quarry` on PyPI, pending rename from `quarry-mcp`) |
+| Biff | Python | ~27 | MCP server + CLI (`punt-biff` on PyPI, pending rename from `biff-mcp`) |
+| Quarry | Python | ~29 | MCP server + CLI (`punt-quarry` on PyPI, pending rename from `quarry-mcp`) |
 | LangLearn TTS | Python | ~11 | MCP server + CLI (`langlearn-tts` on PyPI) |
 | Quarry Menu Bar | Swift | ~47 | SwiftUI, macOS 14+, XcodeGen |
 | Koch Trainer | Swift | — | iOS, not hosted locally |

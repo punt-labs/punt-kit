@@ -26,6 +26,27 @@ Projects that are inherently AI-driven (e.g., Dungeon, where Claude *is* the gam
 
 ---
 
+## Naming and Distribution
+
+### PyPI package names
+
+All Punt Labs packages use the `punt-` prefix on PyPI:
+
+| Repo | PyPI package | Install command |
+|------|-------------|-----------------|
+| `punt-labs/quarry` | `punt-quarry` | `pip install punt-quarry` |
+| `punt-labs/biff` | `punt-biff` | `pip install punt-biff` |
+| `punt-labs/langlearn-tts` | `punt-langlearn-tts` | `pip install punt-langlearn-tts` |
+| `punt-labs/punt-kit` | `punt-kit` | `pip install punt-kit` |
+
+The prefix avoids name collisions on PyPI (which has no namespace/scope mechanism like npm's `@org/pkg`) and makes org affiliation clear.
+
+### CLI entry point names
+
+CLI entry points use the **short name** (no prefix): `quarry`, `biff`, `langlearn-tts`, `punt`. Users type the short name; the package name is only visible during install.
+
+---
+
 ## Structure
 
 - Framework: **typer** + **rich** (Python projects)
