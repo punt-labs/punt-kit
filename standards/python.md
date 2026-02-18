@@ -112,21 +112,39 @@ Required sections:
 
 ```toml
 [project]
-name = "<name>"                    # Matches CLI command, no -mcp suffix
+name = "punt-<name>"               # PyPI uses punt- prefix (see Naming below)
 version = "X.Y.Z"
 description = "..."
 requires-python = ">=3.13"
 authors = [{ name = "...", email = "..." }]
 license = { text = "MIT" }
 
+[project.urls]
+Homepage = "https://github.com/punt-labs/<repo>"
+Repository = "https://github.com/punt-labs/<repo>"
+"Bug Tracker" = "https://github.com/punt-labs/<repo>/issues"
+
 [project.scripts]
-<name> = "<package>.cli:app"       # CLI entry point
+<name> = "<package>.cli:app"       # CLI entry point uses short name (no prefix)
 <name>-server = "<package>.server:run_server"  # MCP server entry point (if applicable)
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 ```
+
+### Naming
+
+PyPI has no namespace mechanism (unlike npm's `@org/pkg`), so all packages use the **`punt-`** prefix to avoid collisions and signal org affiliation. CLI entry points use the **short name** — users type `quarry`, not `punt-quarry`.
+
+| Repo | PyPI package | CLI command | Python import |
+|------|-------------|-------------|---------------|
+| `punt-labs/quarry` | `punt-quarry` | `quarry` | `quarry` |
+| `punt-labs/biff` | `punt-biff` | `biff` | `biff` |
+| `punt-labs/langlearn-tts` | `punt-langlearn-tts` | `langlearn-tts` | `langlearn_tts` |
+| `punt-labs/punt-kit` | `punt-kit` | `punt` | `punt_kit` |
+
+The full naming convention is in [CLI Standards](cli.md#naming-and-distribution).
 
 ## Testing
 
@@ -148,9 +166,20 @@ Default `pytest` runs tiers 1-2 only. Higher tiers are opt-in via markers.
 
 ## Distribution
 
+### PyPI
+
 1. Published to **PyPI** via `uv build && uvx twine upload dist/*`
-2. Installable via `pip install <name>` or `uv tool install <name>`
+2. Installable via `pip install punt-<name>` or `uv tool install punt-<name>`
 3. Version in `pyproject.toml` is the single source of truth (except when plugin.json or manifest.json must match)
+4. `[project.urls]` must include Homepage, Repository, and Bug Tracker pointing to the `punt-labs` GitHub org
+
+### .mcpb bundles
+
+MCP server projects also distribute as `.mcpb` bundles for Claude Desktop. The bundle is built during the release workflow and attached to the GitHub release as a download artifact. The `manifest.json` at the repo root defines the bundle metadata, including the PyPI package name and MCP server configuration.
+
+### CLI tools
+
+CLI-only tools (like `punt-kit`) install via `pip install` or `uv tool install` and register a console script entry point. No `.mcpb` bundle needed.
 
 ## Release Workflow
 
