@@ -162,7 +162,9 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
         (
             PASS if pyright else FAIL,
             r"Type checking configured (\[tool.pyright])",
-            r"in pyproject.toml" if pyright else r"Missing \[tool.pyright]",
+            r"in pyproject.toml"
+            if pyright
+            else r"Missing \[tool.pyright] in pyproject.toml",
         )
     )
 

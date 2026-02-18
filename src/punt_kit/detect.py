@@ -26,8 +26,8 @@ class ProjectInfo:
     is_plugin: bool = False
     pyproject: dict[str, object] | None = None
     package_json: dict[str, object] | None = None
-    workflow_files: list[str] = field(default_factory=lambda: list[str]())
-    standards_refs: list[str] = field(default_factory=lambda: list[str]())
+    workflow_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    standards_refs: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
 
 def detect(root: Path) -> ProjectInfo:
