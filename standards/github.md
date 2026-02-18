@@ -13,7 +13,7 @@ Every repository must protect `main` with a ruleset (preferred) or branch protec
 | Setting | Value | Why |
 |---------|-------|-----|
 | Require pull request | Yes | No direct pushes to main. Creates an audit trail. |
-| Required approvals | 1 | At least one reviewer (human or Copilot) must approve. |
+| Required approvals | 0 | Copilot and Cursor review as advisory (COMMENT, not APPROVE). Revisit when a project has 3+ developers. |
 | Require status checks to pass | Yes | CI must pass before merge. |
 | Prevent force push | Yes | Protects commit history. |
 | Prevent branch deletion | Yes | main is permanent. |
@@ -89,7 +89,7 @@ Every repository must enable GitHub Copilot as a code reviewer. Copilot is assig
 5. CI passes.
 6. Merge.
 
-Copilot review counts toward the required approval when configured as an automatic reviewer. Human review is still encouraged for non-trivial changes.
+Copilot leaves COMMENT reviews (not APPROVE), so it does not count toward approval requirements. With required approvals set to 0, Copilot review serves as an advisory quality check alongside CI. When a project grows to 3+ developers, revisit the approval requirement — set it to 1 and require human approval.
 
 ### Review expectations
 
