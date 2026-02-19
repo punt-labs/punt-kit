@@ -25,7 +25,7 @@ Zero warnings, zero errors. No `# shellcheck disable` without a comment explaini
 
 ### Shebang
 
-Use `#!/usr/bin/env bash` — not `#!/bin/bash`, not `#!/bin/sh`.
+Use `#!/usr/bin/env bash` — not `#!/bin/bash`, not `#!/bin/sh`. Exception: install scripts use `#!/bin/sh` for POSIX portability (see Cross-Platform Install Scripts).
 
 ### Strict mode
 
@@ -66,6 +66,40 @@ set -euo pipefail
 - Max line length: 120 characters.
 - Use `[[ ]]` for conditionals (not `[ ]`).
 - Use `$(command)` for command substitution (not backticks).
+
+## Cross-Platform Install Scripts
+
+Projects that ship an `install.sh` must also ship an `install.ps1` for Windows (PowerShell). This follows the pattern established by Claude Code, Bun, and Deno.
+
+### The dual installer pattern
+
+| Platform | Script | User runs |
+|----------|--------|-----------|
+| macOS / Linux | `install.sh` | `curl -fsSL https://example.com/install.sh \| bash` |
+| Windows | `install.ps1` | `irm https://example.com/install.ps1 \| iex` |
+
+### install.sh conventions
+
+- Target `/bin/sh` (POSIX), not bash — install scripts run on the widest range of systems.
+- Shebang: `#!/bin/sh` (exception to the bash-first rule above).
+- Shellcheck with `--shell=sh` to enforce POSIX compliance.
+- Avoid bash 4+ features (associative arrays, `mapfile`, `${var,,}`). macOS ships bash 3.2.
+
+### install.ps1 conventions
+
+- Use `$ErrorActionPreference = 'Stop'` at the top (equivalent of `set -e`).
+- Download with `Invoke-RestMethod` (aliased as `irm`).
+- Test with PowerShell 5.1 (ships with Windows 10) and PowerShell 7+.
+
+### Fallback (acceptable interim)
+
+If `install.ps1` is not yet implemented, the project README must document the manual Windows installation path (e.g., `pip install`, `npm install`). This is acceptable as a temporary state — the install.ps1 should be tracked as a bead.
+
+### Developer-facing scripts
+
+Build scripts, CI helpers, hooks, and other developer-facing `.sh` files do not need a `.ps1` companion. These target bash and assume a Unix development environment.
+
+---
 
 ## CI Integration
 
