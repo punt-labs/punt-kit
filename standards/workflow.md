@@ -117,6 +117,7 @@ Quality gates must pass before every commit. The specific commands depend on the
 | Node.js | `npm run lint` · `npm test` |
 | Plugin (prompts) | `markdownlint-cli2 "**/*.md"` |
 | Docs/standards | `markdownlint-cli2 "**/*.md"` |
+| Shell scripts (cross-cutting) | `shellcheck <scripts>` — applies to any project with `.sh` files. See [Shell standards](shell.md). |
 
 Zero violations, zero errors, all tests green. No exceptions.
 

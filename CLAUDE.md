@@ -20,3 +20,4 @@ uv run pytest
 - [GitHub](https://github.com/punt-labs/punt-kit/blob/main/standards/github.md)
 - [Workflow](https://github.com/punt-labs/punt-kit/blob/main/standards/workflow.md)
 - [CLI](https://github.com/punt-labs/punt-kit/blob/main/standards/cli.md)
+- [Shell](https://github.com/punt-labs/punt-kit/blob/main/standards/shell.md)
