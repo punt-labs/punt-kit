@@ -45,7 +45,7 @@ set -euo pipefail
 ### Quoting
 
 - Always double-quote variable expansions: `"$var"`, `"${array[@]}"`.
-- Use `"$(command)"` not bare `$(command)`.
+- Always quote command substitutions: `"$(command)"` not `$(command)`.
 - Shellcheck enforces this (SC2086, SC2046).
 
 ### Functions
@@ -57,7 +57,7 @@ set -euo pipefail
 ### Error handling
 
 - `cd` must always have a fallback: `cd "$dir" || exit 1`.
-- Check command existence before use: `command -v tool >/dev/null 2>&1 || { echo "tool not found"; exit 1; }`.
+- Check command existence before use: `command -v tool >/dev/null 2>&1 || { printf '%s\n' "tool not found"; exit 1; }`.
 - Use `printf` over `echo` for portable output. Never use variables in `printf` format strings (SC2059).
 
 ### Style
@@ -108,7 +108,7 @@ Projects with `.sh` files should include shellcheck in their lint CI workflow. A
 ```yaml
 - name: ShellCheck
   run: |
-    find . -name '*.sh' -not -path './.venv/*' -not -path './DerivedData/*' | xargs shellcheck
+    find . -name '*.sh' -not -path './.venv/*' -not -path './DerivedData/*' -exec shellcheck {} +
 ```
 
 For repos that only contain shell scripts (none currently), shellcheck is the primary lint gate.
