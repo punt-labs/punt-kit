@@ -46,6 +46,7 @@ Every repository must have at least one GitHub Actions workflow that runs on pul
 | Node.js (application code) | Lint + test | Dungeon |
 | Plugin (pure prompts) | Markdown lint (markdownlint-cli2) + link validation | PR/FAQ, Z Spec |
 | Standards/docs | Markdown lint (markdownlint-cli2) + link validation | punt-kit, .github |
+| Shell scripts (cross-cutting) | shellcheck on all `.sh` files | Any repo with shell scripts |
 
 ### Workflow naming convention
 
