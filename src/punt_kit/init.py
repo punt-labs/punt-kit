@@ -121,7 +121,11 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             if existing == rendered:
                 continue
             rel = _relpath(target_path, info.root)
-            console.print(f"  [yellow]↻[/yellow] Updating {rel}")
+            console.print(
+                f"  [yellow]⚠[/yellow] {rel} differs from template"
+                " — use [bold]/punt reconcile[/bold] to review"
+            )
+            continue
         else:
             rel = _relpath(target_path, info.root)
             console.print(f"  [green]+[/green] Creating {rel}")
