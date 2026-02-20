@@ -59,6 +59,27 @@ Every repository must have at least one GitHub Actions workflow that runs on pul
 | Release / publish | `release.yml` | tag push (`v*`) or manual dispatch |
 | Manual / special | descriptive name | workflow_dispatch |
 
+### Release workflow (`release.yml`)
+
+Python projects must have a `release.yml` that publishes to PyPI via TestPyPI gate:
+
+```
+Trigger: tag push (v*) or workflow_dispatch
+
+Pipeline: build → testpypi → test-install → pypi
+```
+
+| Job | Environment | Permissions | What it does |
+|-----|-------------|-------------|-------------|
+| `build` | — | — | `uv build` + `uvx twine check dist/*`, uploads artifact |
+| `testpypi` | `testpypi` | `id-token: write` | Publishes to TestPyPI via trusted publishing |
+| `test-install` | — | — | Installs from TestPyPI, verifies CLI entry point |
+| `pypi` | `release` | `id-token: write` | Publishes to production PyPI via trusted publishing |
+
+**Trusted publishing (OIDC):** Uses `pypa/gh-action-pypi-publish` with `id-token: write` permission. No `PYPI_TOKEN` secret needed. Requires one-time setup of trusted publishers on pypi.org and test.pypi.org (see [Python standards](python.md#trusted-publishing-setup-one-time-per-package)).
+
+**Required GitHub environments:** `testpypi` and `release` (no protection rules for solo dev; add approval gates when team grows).
+
 ### Workflow standards
 
 - Pin action versions to full SHA, not tags: `actions/checkout@<sha>` not `actions/checkout@v4`. Tags are mutable.
