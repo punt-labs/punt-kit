@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import tomllib
 from pathlib import Path
+from typing import cast
 
 import jinja2
 import tomli_w
@@ -76,21 +77,48 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
     if info.language == "python":
         templates_to_install.append(("lint-python.yml", "lint.yml"))
         templates_to_install.append(("test-python.yml", "test.yml"))
-        templates_to_install.append(("release-python.yml", "release.yml"))
     elif info.language == "node":
         templates_to_install.append(("lint-node.yml", "lint.yml"))
+
+    # Release workflow requires package metadata (name + CLI entry point)
+    if info.language == "python":
+        template_vars = _get_template_vars(info)
+        if "package_name" in template_vars and "cli_command" in template_vars:
+            templates_to_install.append(("release-python.yml.j2", "release.yml"))
+        else:
+            missing = [
+                k for k in ("package_name", "cli_command") if k not in template_vars
+            ]
+            console.print(
+                f"  [yellow]⚠[/yellow] Skipping release.yml — "
+                f"missing {', '.join(missing)} in pyproject.toml"
+            )
+    else:
+        template_vars = {}
 
     # All repos get docs.yml for markdown linting
     templates_to_install.append(("docs.yml", "docs.yml"))
 
     for template_name, target_name in templates_to_install:
         template_ref = TEMPLATES / "workflows" / template_name
-        template_content = template_ref.read_text(encoding="utf-8")
+        raw_content = template_ref.read_text(encoding="utf-8")
+
+        if template_name.endswith(".j2"):
+            env = jinja2.Environment(
+                autoescape=False,
+                keep_trailing_newline=True,
+                undefined=jinja2.StrictUndefined,
+            )
+            template = env.from_string(raw_content)
+            rendered = template.render(template_vars)
+        else:
+            rendered = raw_content
+
         target_path = workflows_dir / target_name
 
         if target_path.exists():
             existing = target_path.read_text(encoding="utf-8")
-            if existing == template_content:
+            if existing == rendered:
                 continue
             rel = _relpath(target_path, info.root)
             console.print(f"  [yellow]↻[/yellow] Updating {rel}")
@@ -99,10 +127,35 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             console.print(f"  [green]+[/green] Creating {rel}")
 
         workflows_dir.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(template_content, encoding="utf-8")
+        target_path.write_text(rendered, encoding="utf-8")
         changed.append(_relpath(target_path, info.root))
 
     return changed
+
+
+def _get_template_vars(info: ProjectInfo) -> dict[str, str]:
+    """Extract template variables from project metadata."""
+    variables: dict[str, str] = {}
+
+    if info.pyproject is None:
+        return variables
+
+    project_raw = info.pyproject.get("project")
+    if not isinstance(project_raw, dict):
+        return variables
+
+    project = cast("dict[str, object]", project_raw)
+
+    name = project.get("name")
+    if isinstance(name, str):
+        variables["package_name"] = name
+
+    scripts = project.get("scripts")
+    if isinstance(scripts, dict) and scripts:
+        first_key = next(iter(cast("dict[str, object]", scripts)))
+        variables["cli_command"] = first_key
+
+    return variables
 
 
 def _init_python_config(info: ProjectInfo) -> list[str]:

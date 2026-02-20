@@ -140,3 +140,51 @@ def test_init_idempotent(tmp_path: Path) -> None:
 
     assert first_docs == second_docs
     assert first_claude == second_claude
+
+
+def test_init_creates_release_workflow_with_metadata(tmp_path: Path) -> None:
+    """Init creates release.yml with package name and CLI command substituted."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "punt-quarry"\n\n'
+        '[project.scripts]\nquarry = "quarry.cli:app"\n'
+    )
+
+    run_init(str(tmp_path))
+
+    release_yml = tmp_path / ".github" / "workflows" / "release.yml"
+    assert release_yml.exists()
+    content = release_yml.read_text()
+    assert "punt-quarry" in content
+    assert "quarry --help" in content
+    # Jinja2 placeholders must not appear in rendered output
+    assert "{{ package_name }}" not in content
+    assert "{{ cli_command }}" not in content
+
+
+def test_init_skips_release_without_cli_entry_point(tmp_path: Path) -> None:
+    """Init skips release.yml when pyproject.toml has no scripts entry."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    release_yml = tmp_path / ".github" / "workflows" / "release.yml"
+    assert not release_yml.exists()
+
+
+def test_init_release_workflow_idempotent(tmp_path: Path) -> None:
+    """Running init twice with release metadata produces the same result."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        '[project]\nname = "punt-biff"\n\n'
+        '[project.scripts]\nbiff = "biff.__main__:app"\n'
+    )
+
+    run_init(str(tmp_path))
+    first = (tmp_path / ".github" / "workflows" / "release.yml").read_text()
+
+    run_init(str(tmp_path))
+    second = (tmp_path / ".github" / "workflows" / "release.yml").read_text()
+
+    assert first == second
