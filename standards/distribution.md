@@ -23,7 +23,7 @@ Pattern: `prfaq/install.sh`, `claude-dungeon/install.sh`.
 
 ### MCP server projects (Claude Code + Claude Desktop)
 
-Must be published to **PyPI** and installable via `pip install <name>` or `uv tool install <name>`.
+Must be published to **PyPI** via the automated `release.yml` workflow (tag push triggers build → TestPyPI → install-test → PyPI). Installable via `pip install <name>` or `uv tool install <name>`.
 
 Must have an `install` subcommand that configures the MCP server for Claude Code (`claude mcp add ...`).
 

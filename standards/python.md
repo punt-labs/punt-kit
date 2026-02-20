@@ -168,7 +168,7 @@ Default `pytest` runs tiers 1-2 only. Higher tiers are opt-in via markers.
 
 ### PyPI
 
-1. Published to **PyPI** via `uv build && uvx twine upload dist/*`
+1. Published to **PyPI** via automated `release.yml` workflow (see Release Workflow below)
 2. Installable via `pip install punt-<name>` or `uv tool install punt-<name>`
 3. Version in `pyproject.toml` is the single source of truth (except when plugin.json or manifest.json must match)
 4. `[project.urls]` must include Homepage, Repository, and Bug Tracker pointing to the `punt-labs` GitHub org
@@ -183,18 +183,40 @@ CLI-only tools (like `punt-kit`) install via `pip install` or `uv tool install` 
 
 ## Release Workflow
 
+Releases are automated via `release.yml`. A tag push (`v*`) triggers the full pipeline:
+
+```
+build → testpypi → test-install → pypi
+```
+
+1. **build** — `uv build` + `uvx twine check dist/*`, uploads artifact
+2. **testpypi** — Publishes to TestPyPI via trusted publishing (OIDC)
+3. **test-install** — Installs the package from TestPyPI and verifies the CLI entry point
+4. **pypi** — Publishes to production PyPI via trusted publishing (OIDC)
+
+TestPyPI failure blocks PyPI publish. This catches packaging issues before they reach production.
+
+### Developer steps
+
 1. Bump version in `pyproject.toml` (and any mirrors: `plugin.json`, `manifest.json`, `__init__.py`)
 2. Move `[Unreleased]` entries in `CHANGELOG.md` to new version section with date
 3. Run all quality gates
 4. Commit: `chore: release vX.Y.Z`
-5. Build: `rm -rf dist/ && uv build && uvx twine check dist/*`
-6. Upload to PyPI: `uvx twine upload dist/*`
-7. Tag: `git tag vX.Y.Z`
-8. Push: `git push origin main vX.Y.Z`
-9. GitHub release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file -`
-10. Verify: `uv tool install --upgrade <name> && <name> doctor`
+5. Tag and push: `git tag vX.Y.Z && git push origin main vX.Y.Z`
+6. CI handles build, TestPyPI, install verification, and PyPI upload
+7. Create GitHub release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file -`
+8. Verify: `uv tool install --upgrade punt-<name> && <name> --version`
 
-A release is not complete until all 10 steps are done.
+### Trusted publishing setup (one-time per package)
+
+Authentication uses [trusted publishing](https://docs.pypi.org/trusted-publishers/) (OIDC) — no tokens or secrets needed. Configure each package on both pypi.org and test.pypi.org:
+
+- Owner: `punt-labs`
+- Repository: `<repo-name>`
+- Workflow: `release.yml`
+- Environment: `release` (PyPI) or `testpypi` (TestPyPI)
+
+This is a manual step in the PyPI/TestPyPI web UI. See [GitHub standards](github.md) for workflow details.
 
 ## Secrets
 
