@@ -5,10 +5,14 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+permissions: {}
+
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - name: Validate tag ref
         run: |
@@ -58,21 +62,21 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           for attempt in 1 2 3 4 5; do
-            echo "Attempt $attempt: installing PACKAGE_NAME==$VERSION from TestPyPI..."
+            echo "Attempt $attempt: installing {{ package_name }}==$VERSION from TestPyPI..."
             if uv pip install --system \
               --index-url https://test.pypi.org/simple/ \
               --extra-index-url https://pypi.org/simple/ \
-              "PACKAGE_NAME==$VERSION"; then
-              echo "Successfully installed PACKAGE_NAME==$VERSION"
+              "{{ package_name }}==$VERSION"; then
+              echo "Successfully installed {{ package_name }}==$VERSION"
               exit 0
             fi
             echo "Attempt $attempt failed, waiting 30s..."
             sleep 30
           done
-          echo "Failed to install PACKAGE_NAME==$VERSION after 5 attempts"
+          echo "Failed to install {{ package_name }}==$VERSION after 5 attempts"
           exit 1
       - name: Verify CLI
-        run: CLI_COMMAND --help
+        run: {{ cli_command }} --help
 
   pypi:
     needs: test-install
