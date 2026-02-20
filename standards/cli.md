@@ -63,9 +63,28 @@ Every CLI must implement:
 | Subcommand | Purpose |
 |-----------|---------|
 | `install` | Configure the tool for the current environment (MCP registration, data directories, models) |
+| `init` | Set up per-repo configuration (if the tool has repo-scoped state) |
 | `doctor` | Check installation health — pass/fail per dependency |
 | `version` | Print the version |
 | `serve` | Start the MCP server (if the project has one) |
+
+### `install` vs `init`
+
+`install` is **machine-scoped** — run once per machine to register the MCP server, download models, or create global data directories. It makes the tool available system-wide.
+
+`init` is **repo-scoped** — run once per repository to create project-specific configuration. It makes the tool active in a particular codebase.
+
+Not every tool needs `init`. If the tool has no per-repo state (e.g., `punt-kit` is purely global), omit it. If the tool needs per-repo activation (e.g., biff needs a `.biff` team config, quarry needs a collection registration), `init` is required.
+
+### `init` rules
+
+1. **Idempotent.** If config already exists, report it and exit (do not overwrite). Users edit config directly after creation.
+2. **Interactive.** Prompt for required values with sensible defaults. Use `typer.prompt()` for each configurable field.
+3. **Git-aware.** Auto-detect the repo root. Fail clearly if not inside a git repository.
+4. **Creates minimal config.** One config file (e.g., `.biff`, `quarry.toml`) at the repo root. Document its format in the project README.
+5. **Updates `.gitignore`** if the config contains user-specific values that should not be committed.
+
+Reference implementation: `biff init` creates a `.biff` file with team members, relay URL, and identity.
 
 ---
 
