@@ -120,7 +120,7 @@ judgment. Report drift with a clear recommendation. Example:
 
 After all checks, print a structured summary:
 
-```
+```text
 ## Reconciliation Report
 
 ### Applied (safe fixes)
