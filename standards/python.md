@@ -2,9 +2,65 @@
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
-Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS.
+Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS, LangLearn, LangLearn Types, LangLearn Anki, LangLearn Imagegen.
 
 ---
+
+## Package Architecture
+
+Punt Labs Python packages expose **three interfaces** — a Python library, a CLI, and an MCP server. The library is the core; CLI and MCP are thin frontends to it.
+
+```text
+┌──────────────┐   ┌──────────────┐
+│   CLI (typer) │   │  MCP (FastMCP)│
+└──────┬───────┘   └──────┬───────┘
+       │                  │
+       ▼                  ▼
+┌─────────────────────────────────┐
+│         Library Layer           │
+│  (core logic, types, protocols) │
+└─────────────────────────────────┘
+```
+
+### Rules
+
+1. **`__init__.py` is the public API.** Export core functions, classes, and types via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
+
+2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward: CLI → core, MCP → core, never the reverse.
+
+3. **Types and protocols in their own modules.** `types.py` or a `types/` package for dataclasses, `Protocol` classes, and type aliases. These are importable without pulling in heavy dependencies.
+
+4. **CLI and MCP are thin.** `cli.py` parses arguments, calls core functions, formats output. `server.py` registers MCP tools, calls core functions, returns results. Neither contains business logic.
+
+### Reference implementation
+
+Quarry is the current gold standard:
+
+```python
+# quarry/__init__.py — the public library API
+from quarry.collections import derive_collection
+from quarry.config import Settings, load_settings
+from quarry.database import get_db, search
+from quarry.pipeline import ingest_content, ingest_document, ingest_url
+
+__all__ = [
+    "Settings",
+    "derive_collection",
+    "get_db",
+    "ingest_content",
+    "ingest_document",
+    "ingest_url",
+    "load_settings",
+    "search",
+]
+```
+
+A downstream Python app can `from quarry import search, get_db` and run queries without any CLI or MCP dependency.
+
+### Exceptions
+
+- **Pure contract libraries** (e.g., `langlearn-types`) have no CLI or MCP — they export only protocols and dataclasses. This is correct; the tri-modal rule applies to packages that contain logic.
+- **Internal tooling** (e.g., `punt-kit`) is not a shipping library. The library API standard applies to products, not build tools.
 
 ## Toolchain
 
@@ -91,11 +147,13 @@ uvx twine check dist/*
   pyproject.toml            # Package metadata, dependencies, tool config
   uv.lock                   # Locked dependencies
   src/<package>/
-    __init__.py             # Version
+    __init__.py             # Public API (__all__, re-exports from core modules)
     __main__.py             # CLI entry point
     py.typed                # PEP 561 marker
-    cli.py                  # Typer app
-    server.py               # FastMCP server
+    cli.py                  # Typer app (thin — delegates to core)
+    server.py               # FastMCP server (thin — delegates to core)
+    core.py                 # Core logic (or split across domain modules)
+    types.py                # Protocols, dataclasses, type aliases
     ...
   tests/
     conftest.py             # Shared fixtures
@@ -141,7 +199,11 @@ PyPI has no namespace mechanism (unlike npm's `@org/pkg`), so all packages use t
 |------|-------------|-------------|---------------|
 | `punt-labs/quarry` | `punt-quarry` | `quarry` | `quarry` |
 | `punt-labs/biff` | `punt-biff` | `biff` | `biff` |
+| `punt-labs/langlearn` | `punt-langlearn` | `langlearn` | `langlearn` |
 | `punt-labs/langlearn-tts` | `punt-langlearn-tts` | `langlearn-tts` | `langlearn_tts` |
+| `punt-labs/langlearn-anki` | `punt-langlearn-anki` | `langlearn-anki` | `langlearn_anki` |
+| `punt-labs/langlearn-imagegen` | `punt-langlearn-imagegen` | `langlearn-imagegen` | `langlearn_imagegen` |
+| `punt-labs/langlearn-types` | `punt-langlearn-types` | — | `langlearn_types` |
 | `punt-labs/punt-kit` | `punt-kit` | `punt` | `punt_kit` |
 
 The full naming convention is in [CLI Standards](cli.md#naming-and-distribution).
