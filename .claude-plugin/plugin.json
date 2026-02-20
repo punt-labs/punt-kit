@@ -1,0 +1,10 @@
+{
+  "name": "punt",
+  "description": "Punt Labs standards enforcement — LLM-powered reconciliation of workflows, configs, and project structure",
+  "version": "0.1.0",
+  "author": {
+    "name": "jfreeman",
+    "email": "jfreeman@example.com",
+    "organization": "Punt Labs"
+  }
+}

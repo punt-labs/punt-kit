@@ -188,3 +188,24 @@ def test_init_release_workflow_idempotent(tmp_path: Path) -> None:
     second = (tmp_path / ".github" / "workflows" / "release.yml").read_text()
 
     assert first == second
+
+
+def test_init_skips_existing_workflow_files(tmp_path: Path, capsys: object) -> None:
+    """Init skips workflow files that already exist with different content."""
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text('[project]\nname = "test-pkg"\n')
+
+    # First run creates the workflows
+    run_init(str(tmp_path))
+
+    lint_yml = tmp_path / ".github" / "workflows" / "lint.yml"
+    assert lint_yml.exists()
+
+    # Simulate a project-specific customization
+    customized = lint_yml.read_text() + "\n# custom cache config\n"
+    lint_yml.write_text(customized)
+
+    # Second run should skip the customized file, not overwrite it
+    run_init(str(tmp_path))
+
+    assert lint_yml.read_text() == customized
