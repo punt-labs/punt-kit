@@ -26,11 +26,12 @@ def init(
 @app.command()
 def audit(
     path: str = typer.Argument(".", help="Path to the project root"),
+    fix: bool = typer.Option(False, "--fix", help="Create missing mechanical files"),
 ) -> None:
-    """Check compliance against Punt Labs standards (read-only)."""
+    """Check compliance against Punt Labs standards."""
     from punt_kit.audit import run_audit
 
-    run_audit(path)
+    run_audit(path, fix=fix)
 
 
 @app.command()

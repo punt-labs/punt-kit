@@ -1,12 +1,14 @@
-"""punt audit — read-only compliance check against Punt Labs standards."""
+"""punt audit — compliance check against Punt Labs standards."""
 
 from __future__ import annotations
 
+import importlib.resources
 import json
 import shutil
 import subprocess
 import tomllib
 from pathlib import Path
+from typing import cast
 
 from rich.console import Console
 
@@ -14,13 +16,19 @@ from punt_kit.detect import ProjectInfo, detect
 
 console = Console()
 
+TEMPLATES = importlib.resources.files("punt_kit") / "templates"
+
 PASS = "[green]✓[/green]"
 FAIL = "[red]✗[/red]"
+FIXED = "[yellow]⚡[/yellow]"
 INFO = "[dim]○[/dim]"
 
 
-def run_audit(path: str) -> None:
-    """Check compliance against Punt Labs standards."""
+def run_audit(path: str, *, fix: bool = False) -> None:
+    """Check compliance against Punt Labs standards.
+
+    When *fix* is True, create missing mechanical files from templates.
+    """
     root = Path(path).resolve()
     if not root.is_dir():
         console.print(f"[red]Error:[/red] {root} is not a directory")
@@ -28,31 +36,27 @@ def run_audit(path: str) -> None:
 
     info = detect(root)
 
-    console.print(f"\n[bold]punt audit[/bold] — {root.name}")
+    mode = "[bold]punt audit --fix[/bold]" if fix else "[bold]punt audit[/bold]"
+    console.print(f"\n{mode} — {root.name}")
     lang = info.language or "none"
     ptype = info.project_type or "unknown"
     console.print(f"  Language: {lang}  Type: {ptype}\n")
 
     results: list[tuple[str, str, str]] = []
 
-    # CI checks
     results.extend(_check_ci(info))
-
-    # Tool config checks
     results.extend(_check_tool_config(info))
-
-    # Beads check
+    results.extend(_check_markdownlint(info, fix=fix))
+    results.extend(_check_py_typed(info, fix=fix))
+    results.extend(_check_changelog(info, fix=fix))
     results.extend(_check_beads(info))
-
-    # CLAUDE.md check
     results.extend(_check_claude_md(info))
-
-    # GitHub API checks (if gh available)
     results.extend(_check_github_settings(info))
 
     # Print results
     passes = 0
     failures = 0
+    fixes = 0
     for status, label, detail in results:
         console.print(f"  {status} {label}")
         if detail:
@@ -61,8 +65,16 @@ def run_audit(path: str) -> None:
             passes += 1
         elif status == FAIL:
             failures += 1
+        elif status == FIXED:
+            fixes += 1
 
-    console.print(f"\n  [bold]{passes} passed[/bold], [bold]{failures} failed[/bold]\n")
+    summary = f"  [bold]{passes} passed[/bold], [bold]{failures} failed[/bold]"
+    if fixes:
+        summary += f", [bold yellow]{fixes} fixed[/bold yellow]"
+    console.print(f"\n{summary}\n")
+
+    if failures > 0:
+        raise SystemExit(1)
 
 
 def _check_ci(info: ProjectInfo) -> list[tuple[str, str, str]]:
@@ -182,6 +194,79 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
+def _check_markdownlint(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, str]]:
+    """Check markdownlint configuration files."""
+    results: list[tuple[str, str, str]] = []
+
+    # Template files stored without dot prefix to avoid setuptools dotfile issues
+    configs = {
+        ".markdownlint.jsonc": "markdownlint.jsonc",
+        ".markdownlint-cli2.jsonc": "markdownlint-cli2.jsonc",
+    }
+
+    for filename, template_name in configs.items():
+        target = info.root / filename
+        if target.exists():
+            results.append((PASS, f"{filename} exists", ""))
+        elif fix:
+            template_ref = TEMPLATES / template_name
+            content = template_ref.read_text(encoding="utf-8")
+            target.write_text(content, encoding="utf-8")
+            results.append((FIXED, f"{filename} created", ""))
+        else:
+            results.append(
+                (FAIL, f"{filename} exists", "Missing — run punt audit --fix")
+            )
+
+    return results
+
+
+def _check_py_typed(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, str]]:
+    """Check py.typed marker file for Python packages."""
+    if info.language != "python":
+        return []
+
+    pkg_dir = _find_package_dir(info)
+    if pkg_dir is None:
+        return [(INFO, "py.typed marker", "Could not determine package directory")]
+
+    py_typed = pkg_dir / "py.typed"
+    if py_typed.exists():
+        return [(PASS, "py.typed marker exists", str(_relpath(py_typed, info.root)))]
+
+    if fix:
+        py_typed.write_text("")
+        return [(FIXED, "py.typed marker created", str(_relpath(py_typed, info.root)))]
+
+    return [
+        (
+            FAIL,
+            "py.typed marker exists",
+            f"Missing {_relpath(py_typed, info.root)} — run punt audit --fix",
+        )
+    ]
+
+
+def _check_changelog(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, str]]:
+    """Check CHANGELOG.md exists."""
+    changelog = info.root / "CHANGELOG.md"
+    if changelog.exists():
+        return [(PASS, "CHANGELOG.md exists", "")]
+
+    if fix:
+        project_name = _get_project_name(info)
+        changelog.write_text(
+            f"# Changelog\n\nAll notable changes to {project_name} "
+            "will be documented in this file.\n\n"
+            "The format is based on "
+            "[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n",
+            encoding="utf-8",
+        )
+        return [(FIXED, "CHANGELOG.md created", "")]
+
+    return [(FAIL, "CHANGELOG.md exists", "Missing — run punt audit --fix")]
+
+
 def _check_beads(info: ProjectInfo) -> list[tuple[str, str, str]]:
     """Check if beads is initialized."""
     return [
@@ -199,7 +284,7 @@ def _check_claude_md(info: ProjectInfo) -> list[tuple[str, str, str]]:
         (
             PASS if info.has_claude_md else FAIL,
             "CLAUDE.md exists",
-            "" if info.has_claude_md else "Missing CLAUDE.md",
+            "" if info.has_claude_md else "Missing CLAUDE.md — run punt init",
         )
     ]
 
@@ -284,6 +369,41 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append((INFO, "Dependabot alerts (could not check)", ""))
 
     return results
+
+
+def _find_package_dir(info: ProjectInfo) -> Path | None:
+    """Find the Python package directory (src layout)."""
+    src_dir = info.root / "src"
+    if not src_dir.is_dir():
+        return None
+
+    # Look for directories with __init__.py under src/
+    for child in sorted(src_dir.iterdir()):
+        if child.is_dir() and (child / "__init__.py").exists():
+            return child
+
+    return None
+
+
+def _get_project_name(info: ProjectInfo) -> str:
+    """Extract human-readable project name from metadata."""
+    if info.pyproject is not None:
+        project_raw = info.pyproject.get("project")
+        if isinstance(project_raw, dict):
+            project = cast("dict[str, object]", project_raw)
+            name = project.get("name")
+            if isinstance(name, str):
+                return name
+
+    return info.root.name
+
+
+def _relpath(path: Path, root: Path) -> str:
+    """Return path relative to root as a string."""
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 def _get_github_repo(root: Path) -> str | None:
