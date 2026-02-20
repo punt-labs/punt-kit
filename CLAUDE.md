@@ -14,6 +14,10 @@ uv run pyright
 uv run pytest
 ```
 
+## Beads: Dual Role
+
+punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, standards doc updates) and **org-wide** cross-project work (CI rollouts, security enablement, multi-repo changes). See the [parent CLAUDE.md](../CLAUDE.md#where-to-create-a-bead) for the full placement scheme.
+
 ## Standards References
 
 - [Python](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md)
