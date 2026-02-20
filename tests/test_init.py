@@ -190,7 +190,7 @@ def test_init_release_workflow_idempotent(tmp_path: Path) -> None:
     assert first == second
 
 
-def test_init_skips_existing_workflow_files(tmp_path: Path, capsys: object) -> None:
+def test_init_skips_existing_workflow_files(tmp_path: Path) -> None:
     """Init skips workflow files that already exist with different content."""
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text('[project]\nname = "test-pkg"\n')
