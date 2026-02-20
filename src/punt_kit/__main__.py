@@ -35,6 +35,36 @@ def audit(
 
 
 @app.command()
+def install() -> None:
+    """Install the punt Claude Code plugin."""
+    from punt_kit.installer import install as do_install
+
+    result = do_install()
+    for step in result.steps:
+        symbol = "\u2713" if step.passed else "\u2717"
+        console.print(f"  {symbol} {step.name}: {step.message}")
+    console.print()
+    console.print(result.message)
+    if not result.installed:
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def uninstall() -> None:
+    """Uninstall the punt Claude Code plugin."""
+    from punt_kit.installer import uninstall as do_uninstall
+
+    result = do_uninstall()
+    for step in result.steps:
+        symbol = "\u2713" if step.passed else "\u2717"
+        console.print(f"  {symbol} {step.name}: {step.message}")
+    console.print()
+    console.print(result.message)
+    if not result.uninstalled:
+        raise typer.Exit(code=1)
+
+
+@app.command()
 def version() -> None:
     """Print the punt-kit version."""
     console.print(f"punt-kit {__version__}")
