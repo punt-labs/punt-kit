@@ -63,7 +63,7 @@ Every repository must have at least one GitHub Actions workflow that runs on pul
 
 Python projects must have a `release.yml` that publishes to PyPI via TestPyPI gate:
 
-```
+```text
 Trigger: tag push (v*) or workflow_dispatch
 
 Pipeline: build → testpypi → test-install → pypi

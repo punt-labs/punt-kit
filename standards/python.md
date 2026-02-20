@@ -185,7 +185,7 @@ CLI-only tools (like `punt-kit`) install via `pip install` or `uv tool install` 
 
 Releases are automated via `release.yml`. A tag push (`v*`) triggers the full pipeline:
 
-```
+```text
 build → testpypi → test-install → pypi
 ```
 
