@@ -1,10 +1,23 @@
 {
   "name": "punt",
   "description": "Punt Labs standards enforcement — LLM-powered reconciliation of workflows, configs, and project structure",
-  "version": "0.1.0",
+  "version": "0.1.1-test",
   "author": {
     "name": "jfreeman",
     "email": "hello@punt-labs.com",
     "organization": "Punt Labs"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/test-session-start.sh"
+          }
+        ]
+      }
+    ]
   }
 }
