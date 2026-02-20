@@ -2,7 +2,7 @@
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
-Current Python projects: Biff, Quarry, LangLearn TTS.
+Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS.
 
 ---
 

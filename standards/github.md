@@ -41,12 +41,13 @@ Every repository must have at least one GitHub Actions workflow that runs on pul
 
 | Project type | Required CI | Examples |
 |-------------|-------------|---------|
-| Python (application code) | Lint (ruff check, ruff format --check) + type check (mypy, pyright) + test (pytest) | Biff, Quarry, LangLearn TTS |
+| Python (application code) | Lint (ruff check, ruff format --check) + type check (mypy, pyright) + test (pytest) | punt-kit, Biff, Quarry, LangLearn TTS |
 | Swift (iOS/macOS) | Build + unit tests + lint (SwiftLint) | Koch Trainer, Quarry Menu Bar |
-| Node.js (application code) | Lint + test | Dungeon |
-| Plugin (pure prompts) | Markdown lint (markdownlint-cli2) + link validation | PR/FAQ, Z Spec |
-| Standards/docs | Markdown lint (markdownlint-cli2) + link validation | punt-kit, .github |
+| Plugin (pure prompts) | Markdown lint (markdownlint-cli2) | Dungeon, Feature Forge, PR/FAQ, Z Spec |
+| Standards/docs | Markdown lint (markdownlint-cli2) | punt-kit, .github |
 | Shell scripts (cross-cutting) | shellcheck on all `.sh` files | Any repo with shell scripts |
+
+**All repos** also run a `docs.yml` workflow with markdownlint-cli2. This is in addition to any project-type-specific CI.
 
 ### Workflow naming convention
 
@@ -88,6 +89,43 @@ Pipeline: build → testpypi → test-install → pypi
 - Set timeout for jobs (default: 10 minutes for lint, 20 minutes for tests).
 - Use matrix strategy for multi-version testing only when the project supports multiple Python/Node versions.
 
+### Markdownlint configuration
+
+Every repo has two config files at the root:
+
+**`.markdownlint.jsonc`** — rule configuration (org standard):
+
+```json
+{
+  "MD013": false,
+  "MD060": false,
+  "MD024": { "siblings_only": true },
+  "MD033": { "allowed_elements": ["img", "p"] }
+}
+```
+
+**`.markdownlint-cli2.jsonc`** — CLI configuration with ignore patterns:
+
+```json
+{
+  "ignores": [".beads/", ".claude/", ".venv/"]
+}
+```
+
+Add project-specific overrides in `.markdownlint-cli2.jsonc` when certain directories need relaxed rules (e.g., test fixtures, generated files). Use the `overrides` array:
+
+```json
+{
+  "ignores": [".beads/", ".claude/", ".venv/"],
+  "overrides": [
+    {
+      "files": ["tests/fixtures/*.md"],
+      "config": { "MD025": false }
+    }
+  ]
+}
+```
+
 ---
 
 ## 3. Code Review
@@ -127,12 +165,11 @@ Branch protection must require the following status checks to pass before merge:
 
 | Project type | Required checks |
 |-------------|----------------|
-| Python | `lint`, `test` |
-| Swift | `build`, `test`, `swiftlint` |
-| Node.js | `lint`, `test` |
-| Docs/prompts | `docs` (markdown lint) |
+| Python | `lint`, `test`, `docs` |
+| Swift | `Build and Unit Tests`, `Lint`, `docs` |
+| Plugin / docs | `docs` |
 
-Status check names must match the job names in the workflow files so GitHub can match them.
+Status check names must match the job names in the workflow files so GitHub can match them. Every repo requires the `docs` check (markdownlint).
 
 ---
 
@@ -168,11 +205,13 @@ Use this checklist when creating a new repo:
 
 1. Create with `main` as default branch
 2. Add `.gitignore` appropriate for the language
-3. Add CI workflow(s) per project type (section 2)
-4. Configure branch protection ruleset (section 1)
-5. Enable Copilot code review (section 3)
-6. Enable Dependabot and secret scanning (section 5)
-7. Verify with a test PR that CI runs and protection works
+3. Add `.markdownlint.jsonc` and `.markdownlint-cli2.jsonc` (org standard, section 2)
+4. Add CI workflow(s) per project type, including `docs.yml` (section 2)
+5. Configure branch protection ruleset with required status checks (sections 1, 4)
+6. Enable Copilot code review (section 3)
+7. Enable Dependabot and secret scanning (section 5)
+8. Enable auto-merge and auto-delete head branches (section 5)
+9. Verify with a test PR that CI runs and protection works
 
 ### Existing repositories
 
