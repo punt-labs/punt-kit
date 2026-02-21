@@ -32,8 +32,13 @@ need with a single command. Every Python project that requires multiple steps
 `install.sh` that collapses them into a single `curl | sh`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh | sh
 ```
+
+The URL is **pinned to a commit SHA**, not `main`. This ensures the script
+content is immutable — even if the repo is compromised later, the pinned URL
+returns the original trusted version. READMEs and the org profile advertise the
+pinned URL; users who want the latest can substitute `main` at their own risk.
 
 The `install.sh` is the user-facing entry point. The CLI `install` subcommand
 is still useful — it's what the script calls, and it's what users run if they
@@ -41,8 +46,8 @@ already have the binary on PATH.
 
 | Use case | What the user runs |
 |----------|--------------------|
-| CLI + MCP server | `curl -fsSL .../quarry/.../install.sh \| sh` |
-| CLI + plugin (hybrid) | `curl -fsSL .../biff/.../install.sh \| sh` |
+| CLI + MCP server | `curl -fsSL .../quarry/<SHA>/install.sh \| sh` |
+| CLI + plugin (hybrid) | `curl -fsSL .../biff/<SHA>/install.sh \| sh` |
 | Pure plugin | `claude plugin install dungeon@punt-labs` |
 | Python library | `uv add punt-quarry` |
 | Claude Desktop | Double-click `.mcpb` bundle |
@@ -60,6 +65,16 @@ scripts:
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
 Pattern: `biff/install.sh`, `quarry/install.sh`.
+
+### Updating the pinned SHA
+
+When `install.sh` changes, update the SHA in all places that reference it:
+
+1. Commit the `install.sh` change and push
+2. Copy the commit SHA: `git log -1 --format='%H' -- install.sh`
+3. Update the project README, the org profile README, and the marketplace README
+   (if applicable) with the new SHA
+4. Commit the README updates separately
 
 ### Marketplace registration
 
