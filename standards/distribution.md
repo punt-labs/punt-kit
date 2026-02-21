@@ -10,16 +10,33 @@ Every project must have a frictionless install path appropriate to its type.
 
 ### Plugin projects (Claude Code)
 
-Must have a `curl | bash` installer (`install.sh`) that:
+Distributed via the **punt-labs marketplace** (`punt-labs/claude-plugins`).
 
-- Clones the repo to `~/.claude/plugins/local-plugins/plugins/<name>`
-- Checks out the latest semver tag
-- Registers the plugin in `marketplace.json`
-- Checks for runtime dependencies (or prompts to install them)
-- Clears the plugin cache
-- Prints a success message with the entry-point command
+**Pure plugins** (no CLI binary — e.g., dungeon, prfaq):
 
-Pattern: `prfaq/install.sh`, `claude-dungeon/install.sh`.
+```bash
+claude plugin marketplace add punt-labs/claude-plugins   # one-time
+claude plugin install <name>@punt-labs                   # install
+# Restart → SessionStart hook runs first-time setup
+# Restart again → top-level commands active
+```
+
+**CLI + plugin hybrids** (e.g., biff, quarry):
+
+These projects have two artifacts: a CLI tool (PyPI/git) and a plugin
+(marketplace). The CLI must be installed first because the plugin's MCP server
+references the CLI binary.
+
+```bash
+uv tool install punt-<name>     # Step 1: CLI on PATH
+<name> install                  # Step 2: registers marketplace + installs plugin
+# Restart twice as above
+```
+
+The project's `install` subcommand handles marketplace registration and
+`claude plugin install`. The user never runs `claude plugin install` directly.
+
+Pattern: `biff/src/biff/installer.py`, `dungeon/.claude-plugin/plugin.json`.
 
 ### MCP server projects (Claude Code + Claude Desktop)
 
@@ -29,13 +46,32 @@ Must have an `install` subcommand that configures the MCP server for Claude Code
 
 Should have a **`.mcpb` bundle** for one-click Claude Desktop installation. Build with `@anthropic-ai/mcpb` via a `scripts/build-mcpb.sh` script. The `.mcpb` must be attached to GitHub releases.
 
-Should have a `curl | bash` installer for the CLI path.
-
 Pattern: `quarry`, `langlearn-tts`.
 
 ### Native apps
 
 Distributed through platform-appropriate channels (App Store, TestFlight, Homebrew, or source build). Document build steps in the README.
+
+---
+
+## Dependency Pinning for CLI Tools
+
+`uv sync` respects the lockfile. `uv tool install` does **not** — it resolves
+dependencies from scratch against pyproject.toml constraints. This means a
+constraint like `fastmcp>=2.0.0` will happily install 3.x for end users even if
+the lockfile pins 2.x in development.
+
+**Rule**: Pin major versions for libraries with breaking changes in CLI tools
+that end users install via `uv tool install`. The lockfile protects dev; the
+pyproject.toml constraint protects production.
+
+```toml
+# Bad — allows any major version
+"fastmcp>=2.0.0"
+
+# Good — locks to compatible major version
+"fastmcp>=3.0.0,<4"
+```
 
 ---
 
@@ -45,15 +81,15 @@ MCP servers and tools have different installation scopes. Choosing the wrong sco
 
 ### Principles
 
-1. **MCP servers install per-project by default.** Use `claude mcp add <name>` (no `--scope` flag) which defaults to local/project scope. This keeps API keys, relay tokens, and server configurations scoped to the project that needs them.
+1. **Marketplace plugins install globally (`--scope user`).** Plugin commands, hooks, and MCP servers are team infrastructure that should be available in every project.
 
-2. **Global installation is opt-in.** Use `claude mcp add --scope user <name>` only when the tool is genuinely global (e.g., a utility with no per-project configuration). The user must explicitly choose global scope.
+2. **Standalone MCP servers install per-project by default.** Use `claude mcp add <name>` (no `--scope` flag) for MCP-only projects. This keeps API keys, relay tokens, and server configurations scoped to the project that needs them.
 
 3. **Per-project activation via `init`.** Projects with per-repo configuration (team rosters, relay URLs, database names, API keys) should have an `init` subcommand that creates the repo-level config file. This is distinct from `install` (which sets up the tool globally).
 
 | Subcommand | Scope | What it does |
 |-----------|-------|-------------|
-| `install` | Global (one-time) | Download models, register MCP server, install plugin, verify dependencies |
+| `install` | Global (one-time) | Register marketplace, install plugin, verify dependencies |
 | `init` | Per-repo | Create the repo-level config file (e.g., `.biff`, `.quarry.toml`), prompt for project-specific settings |
 
 ### Per-repo config files
@@ -73,3 +109,22 @@ The config file should be committed to git (minus secrets). Secrets belong in en
 - **Never embed API keys in MCP config files** (`claude_desktop_config.json`, `.mcp.json`). Use environment variables.
 - **Never commit secrets to git.** Use `.env` files (gitignored) or system keychain.
 - `doctor` should verify that required secrets are available without printing them.
+
+---
+
+## Uninstall Requirements
+
+`claude plugin uninstall` only removes the plugin from the registry and cache.
+It does **not** clean up side effects created by install commands or hooks.
+
+Every project with an `install` subcommand must also have `uninstall` that
+handles all cleanup:
+
+| Artifact | Created by | Cleaned up by |
+|----------|-----------|---------------|
+| Plugin registration | `claude plugin install` | `claude plugin uninstall` |
+| Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
+| Permission entries in `~/.claude/settings.json` | SessionStart hook | Project `uninstall` |
+| Status line wrapping | `install-statusline` | Project `uninstall` |
+| Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
+| Orphaned local plugin dirs | Previous install method | `uninstall` (migration cleanup) |
