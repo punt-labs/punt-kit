@@ -3,8 +3,7 @@
   "description": "Punt Labs standards enforcement — LLM-powered reconciliation of workflows, configs, and project structure",
   "version": "0.1.1",
   "author": {
-    "name": "jfreeman",
-    "email": "hello@punt-labs.com",
-    "organization": "Punt Labs"
+    "name": "Punt Labs",
+    "email": "hello@punt-labs.com"
   }
 }
