@@ -20,9 +20,9 @@ Each standard lives in its own document under `standards/`.
 
 | Standard | What it covers |
 |----------|---------------|
-| [Distribution](standards/distribution.md) | Install paths (curl\|bash, PyPI, .mcpb), installation scope (per-project vs global), init vs install, API keys and secrets |
+| [Distribution](standards/distribution.md) | Install paths (marketplace, PyPI, .mcpb), dependency pinning, installation scope, init vs install, uninstall requirements |
 | [CLI](standards/cli.md) | CLI + plugin duality, required subcommands (install, doctor, version, serve), --json flag, shell completion |
-| [Plugins](standards/plugins.md) | plugin.json, extension point selection (skills, commands, agents, hooks, MCP), output suppression, tool restrictions |
+| [Plugins](standards/plugins.md) | plugin.json, MCP server declaration, extension points, required hooks (SessionStart + PostToolUse), tool naming, gitignore checklist |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
@@ -51,15 +51,16 @@ Reusable design patterns for Claude Code plugin and MCP server development, extr
 
 Use this checklist to audit a project for compliance:
 
-- [ ] **Install path exists** — `curl | bash`, PyPI, `.mcpb`, or documented build steps ([distribution](standards/distribution.md))
+- [ ] **Install path exists** — marketplace, PyPI, `.mcpb`, or documented build steps ([distribution](standards/distribution.md))
 - [ ] **Doctor command exists** — if the project has external dependencies ([cli](standards/cli.md))
 - [ ] **CLI available** — for deterministic operations; exempt: purely AI-driven projects ([cli](standards/cli.md))
 - [ ] **CLI supports `--json`** — global flag for machine-readable output ([cli](standards/cli.md))
 - [ ] **PyPI name matches CLI name** — no `-mcp` suffix on dual CLI+MCP tools ([naming](standards/naming.md))
-- [ ] **MCP scope is per-project** — `claude mcp add` without `--scope user` unless justified ([distribution](standards/distribution.md))
+- [ ] **MCP scope is correct** — plugins use `--scope user`; standalone MCP servers default to per-project ([distribution](standards/distribution.md))
 - [ ] **`init` command exists** — if the project has per-repo configuration ([distribution](standards/distribution.md))
 - [ ] **plugin.json has version** — if the project is a Claude Code plugin ([plugins](standards/plugins.md))
-- [ ] **PostToolUse hook exists** — if the project uses MCP tools in Claude Code ([plugins](standards/plugins.md))
+- [ ] **Required hooks exist** — SessionStart + PostToolUse for marketplace plugins with MCP tools ([plugins](standards/plugins.md))
+- [ ] **`.mcp.json` is gitignored** — if the project is a Claude Code plugin ([plugins](standards/plugins.md))
 - [ ] **Beads initialized** — `.beads/` directory exists and is committed ([workflow](standards/workflow.md))
 - [ ] **Quality gates defined** — project CLAUDE.md lists the quality gate commands for this project type ([workflow](standards/workflow.md))
 - [ ] **Design decision log exists** — `DESIGN.md` if the project has non-trivial architecture decisions ([workflow](standards/workflow.md))
