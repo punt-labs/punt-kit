@@ -52,6 +52,51 @@ already have the binary on PATH.
 | Python library | `uv add punt-quarry` |
 | Claude Desktop | Double-click `.mcpb` bundle |
 
+### Trust tiers
+
+Every project README must present three install tiers so users choose their
+own trust level:
+
+| Tier | What the user does | Trust model |
+|------|--------------------|-------------|
+| **Convenience** | `curl -fsSL .../<SHA>/install.sh \| sh` | Trusts the pinned SHA + HTTPS + GitHub |
+| **Inspect** | Download, `cat install.sh`, then `sh install.sh` | Reads the script before executing |
+| **Verify** | Download, `shasum -a 256`, compare hash, then run | Cryptographic verification against published hash |
+
+The README should use the convenience tier as the primary code block, with
+the other two tiers in expandable `<details>` sections:
+
+```markdown
+## Quick Start
+
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh | sh
+\`\`\`
+
+<details>
+<summary>Manual install (if you already have uv)</summary>
+
+\`\`\`bash
+uv tool install punt-<name>
+<name> install
+<name> doctor
+\`\`\`
+
+</details>
+
+<details>
+<summary>Verify before running</summary>
+
+\`\`\`bash
+curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh -o install.sh
+shasum -a 256 install.sh
+cat install.sh
+sh install.sh
+\`\`\`
+
+</details>
+```
+
 ### install.sh requirements
 
 Every `install.sh` must follow the [shell standards](shell.md) for install
