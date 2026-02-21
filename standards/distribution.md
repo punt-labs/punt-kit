@@ -27,23 +27,39 @@ callers.
 ## Install Principle
 
 **One command per use case.** A user should be able to install exactly what they
-need with a single command. When that's not physically possible (e.g., a CLI
-binary must exist before a plugin can reference it), the minimum is two commands
-and the second command must handle all remaining setup.
+need with a single command. Every Python project that requires multiple steps
+(install binary, register MCP server, configure plugin) must ship an
+`install.sh` that collapses them into a single `curl | sh`:
 
-| Use case | Commands | What the user runs |
-|----------|----------|-------------------|
-| Python library | 1 | `uv add punt-quarry` |
-| CLI tool | 1 | `uv tool install punt-quarry` |
-| Claude Code MCP server | 2 | `uv tool install punt-quarry && quarry install` |
-| Claude Code plugin (pure) | 1 | `claude plugin install dungeon@punt-labs` |
-| Claude Code plugin (hybrid) | 2 | `uv tool install punt-biff && biff install` |
-| Claude Desktop | 1 | Double-click `.mcpb` bundle |
+```bash
+curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/main/install.sh | sh
+```
 
-The `install` subcommand is the seam that hides complexity. It handles
-marketplace registration, `claude mcp add`, plugin installation, and dependency
-verification. The user never runs `claude plugin install` or `claude mcp add`
-directly for Punt Labs tools.
+The `install.sh` is the user-facing entry point. The CLI `install` subcommand
+is still useful — it's what the script calls, and it's what users run if they
+already have the binary on PATH.
+
+| Use case | What the user runs |
+|----------|--------------------|
+| CLI + MCP server | `curl -fsSL .../quarry/.../install.sh \| sh` |
+| CLI + plugin (hybrid) | `curl -fsSL .../biff/.../install.sh \| sh` |
+| Pure plugin | `claude plugin install dungeon@punt-labs` |
+| Python library | `uv add punt-quarry` |
+| Claude Desktop | Double-click `.mcpb` bundle |
+
+### install.sh requirements
+
+Every `install.sh` must follow the [shell standards](shell.md) for install
+scripts:
+
+- **POSIX sh** (`#!/bin/sh`) — not bash. Shellcheck with `--shell=sh`.
+- **Pre-flight checks** — verify Python 3.13+, install uv if missing, verify
+  `claude` CLI for projects that need it.
+- **Idempotent** — safe to re-run. Upgrades if already installed.
+- **Transparent** — print each step before executing it.
+- **Ends with `doctor`** — run the project's health check to verify the install.
+
+Pattern: `biff/install.sh`, `quarry/install.sh`.
 
 ### Marketplace registration
 
@@ -84,13 +100,13 @@ registers the MCP server with Claude Code. No plugin shell — no hooks, no slas
 commands, no marketplace involvement.
 
 ```bash
-uv tool install punt-quarry    # CLI on PATH
-quarry install                 # registers MCP server
+curl -fsSL https://raw.githubusercontent.com/punt-labs/quarry/main/install.sh | sh
 ```
 
-Should also have a **`.mcpb` bundle** for one-click Claude Desktop installation.
-Build with `@anthropic-ai/mcpb` via `scripts/build-mcpb.sh`. Attach to GitHub
-releases.
+The script installs the CLI via uv, runs `quarry install` (registers MCP
+server), and runs `quarry doctor`. Should also have a **`.mcpb` bundle** for
+one-click Claude Desktop installation. Build with `@anthropic-ai/mcpb` via
+`scripts/build-mcpb.sh`. Attach to GitHub releases.
 
 ### CLI + plugin hybrids
 
@@ -98,13 +114,15 @@ Examples: biff.
 
 Two artifacts: a CLI tool (PyPI) and a plugin shell (marketplace). The plugin's
 MCP server declaration references the CLI binary, so the CLI must be installed
-first. The `install` subcommand sequences the rest.
+first. The `install.sh` sequences everything:
 
 ```bash
-uv tool install punt-biff      # CLI on PATH
-biff install                   # registers marketplace + installs plugin
-# Restart twice (SessionStart hook, then commands active)
+curl -fsSL https://raw.githubusercontent.com/punt-labs/biff/main/install.sh | sh
+# Restart Claude Code twice (SessionStart hook, then commands active)
 ```
+
+The script installs the CLI via uv, runs `biff install` (registers marketplace,
+installs plugin), and runs `biff doctor`.
 
 Use the plugin shell only when the project needs hooks (output formatting,
 session setup) or slash commands. If it's just MCP tools, use the simpler
