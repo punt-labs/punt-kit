@@ -58,12 +58,13 @@ Tool names are deterministic based on registration method:
 
 | Method | Pattern | Example |
 |--------|---------|---------|
-| Plugin `mcpServers` | `mcp__plugin_{plugin}_{server}__{tool}` | `mcp__plugin_biff_biff__who` |
+| Plugin `mcpServers` | `mcp__plugin_{plugin}_{server}__{tool}` | `mcp__plugin_biff_tty__who` |
 | `claude mcp add` | `mcp__{server}__{tool}` | `mcp__quarry__search` |
 
-When the plugin name and server name are the same (e.g., biff/biff), the tool
-prefix is `mcp__plugin_biff_biff__`. All command files, hook matchers, and
-permission entries must use this full prefix.
+Choose a **server key that adds meaning** rather than repeating the plugin name.
+For example, biff uses `tty` (the MCP server is the terminal interface), and
+dungeon uses `grimoire` (the game state engine). All command files, hook
+matchers, and permission entries must use the full prefix.
 
 ---
 
@@ -97,7 +98,7 @@ The SessionStart hook should:
    require deployment to the user's command directory.
 
 2. **Auto-allow MCP tool permissions** — Add the plugin's tool pattern (e.g.,
-   `mcp__plugin_biff_biff__*`) to `permissions.allow` in
+   `mcp__plugin_biff_tty__*`) to `permissions.allow` in
    `~/.claude/settings.json` via jq. Without this, users get permission prompts
    on every tool call.
 
@@ -124,7 +125,7 @@ The hook matcher must use the full plugin tool prefix:
 
 ```json
 {
-  "matcher": "mcp__plugin_biff_biff__.*",
+  "matcher": "mcp__plugin_biff_tty__.*",
   "hooks": [{
     "type": "command",
     "command": "${CLAUDE_PLUGIN_ROOT}/hooks/suppress-output.sh"
