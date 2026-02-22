@@ -21,6 +21,11 @@ dev = [
     "pyright>=1.1.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/punt-labs/punt-kit"
+Repository = "https://github.com/punt-labs/punt-kit"
+"Bug Tracker" = "https://github.com/punt-labs/punt-kit/issues"
+
 [project.scripts]
 punt = "punt_kit.__main__:app"
 

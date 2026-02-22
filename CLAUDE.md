@@ -10,7 +10,7 @@ Run before every commit. Zero violations, zero errors, all tests green.
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src/ tests/
-uv run pyright
+uv run pyright src/ tests/
 uv run pytest
 ```
 
