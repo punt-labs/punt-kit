@@ -54,7 +54,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_beads(info))
     results.extend(_check_claude_md(info))
     results.extend(_check_permissions(info))
-    results.extend(_check_plugin_dual_manifest(info))
+    results.extend(_check_plugin_dev_commands(info))
     results.extend(_check_github_settings(info))
 
     # Print results
@@ -496,71 +496,46 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
-def _check_plugin_dual_manifest(
+def _check_plugin_dev_commands(
     info: ProjectInfo,
 ) -> list[tuple[str, str, str]]:
-    """Check plugin repos have dev/prod manifest isolation."""
+    """Check plugin repos have -dev command variants for local development."""
     if not info.is_plugin:
         return []
 
     results: list[tuple[str, str, str]] = []
-    dev_path = info.root / ".claude-plugin" / "plugin.json"
-    dist_path = info.root / ".claude-plugin" / "plugin-dist.json"
+    commands_dir = info.root / "commands"
 
-    if not dev_path.exists():
+    if not commands_dir.is_dir():
         return []
 
-    try:
-        dev_data = json.loads(dev_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        results.append((FAIL, "plugin.json is valid JSON", "Parse error"))
-        return results
+    prod_commands = sorted(
+        f.stem for f in commands_dir.glob("*.md") if not f.stem.endswith("-dev")
+    )
+    dev_commands = sorted(
+        f.stem.removesuffix("-dev") for f in commands_dir.glob("*-dev.md")
+    )
 
-    dev_name = dev_data.get("name", "")
-    if not isinstance(dev_name, str) or not dev_name.endswith("-dev"):
-        results.append((FAIL, "plugin.json name ends with -dev", f"Got: {dev_name!r}"))
-    else:
-        results.append((PASS, "plugin.json name ends with -dev", dev_name))
+    if not prod_commands:
+        return []
 
-    if not dist_path.exists():
-        results.append(
-            (FAIL, "plugin-dist.json exists", "Missing — create prod manifest")
-        )
-        return results
-
-    results.append((PASS, "plugin-dist.json exists", ""))
-
-    try:
-        dist_data = json.loads(dist_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        results.append((FAIL, "plugin-dist.json is valid JSON", "Parse error"))
-        return results
-
-    dist_name = dist_data.get("name", "")
-    expected_prod = dev_name.removesuffix("-dev") if dev_name.endswith("-dev") else ""
-    if dist_name != expected_prod:
+    missing = [c for c in prod_commands if c not in dev_commands]
+    if missing:
         results.append(
             (
                 FAIL,
-                "plugin-dist.json name matches",
-                f"Expected {expected_prod!r}, got {dist_name!r}",
+                "Dev command variants exist",
+                f"Missing: {', '.join(f'{c}-dev.md' for c in missing)}",
             )
         )
     else:
-        results.append((PASS, "plugin-dist.json name matches", dist_name))
-
-    dev_ver = dev_data.get("version", "")
-    dist_ver = dist_data.get("version", "")
-    if dev_ver != dist_ver:
         results.append(
             (
-                FAIL,
-                "Plugin versions match",
-                f"dev={dev_ver}, dist={dist_ver}",
+                PASS,
+                "Dev command variants exist",
+                f"{len(dev_commands)} dev commands",
             )
         )
-    else:
-        results.append((PASS, "Plugin versions match", str(dev_ver)))
 
     return results
 

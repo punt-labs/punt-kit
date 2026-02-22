@@ -4,82 +4,53 @@ Standards for Claude Code plugins across all Punt Labs projects.
 
 ---
 
-## Dev/Prod Namespace Isolation
+## Dev/Prod Command Isolation
 
-Plugin authors working inside their plugin's source repo face a conflict: the
-marketplace-installed plugin and the CWD auto-discovered plugin both have the
-same name, which Claude Code treats as an error.
+Plugin authors working inside their plugin's source repo need to test local
+changes without waiting for a marketplace publish cycle. Claude Code's CWD
+auto-discovery overrides the marketplace plugin when you're in the source repo,
+so all commands come from the working tree.
 
-Every plugin repo maintains **two manifests** with different names:
+Every prod command has a **`-dev` variant** that runs against the local source:
 
-| File | Name field | Loaded by |
-|------|-----------|-----------|
-| `.claude-plugin/plugin.json` | `{name}-dev` | CWD auto-discovery (developers) |
-| `.claude-plugin/plugin-dist.json` | `{name}` | Marketplace (consumers, via release tag) |
+| File | Command | What it runs |
+|------|---------|-------------|
+| `commands/init.md` | `/punt init` | Installed `punt` CLI |
+| `commands/init-dev.md` | `/punt init-dev` | `uv run --directory ${CLAUDE_PLUGIN_ROOT} punt init` |
 
-Commands, hooks, and agents are defined once — both manifests auto-discover the
-same `commands/`, `hooks/`, and `agents/` directories. Only the JSON name
-differs.
+The `-dev` commands use `uv run` to execute the working tree code directly,
+bypassing the installed CLI. This gives immediate feedback when developing.
 
 ### Developer experience
 
-Inside the plugin repo:
+Inside the plugin repo (CWD overrides marketplace):
 
-- `/punt-dev audit` runs the working-tree version (immediate feedback)
-- `/punt audit` runs the cached marketplace version (if installed)
-- Both coexist without collision
+- `/punt init-dev` runs the working-tree version via `uv run`
+- `/punt init` runs the installed CLI (may be older)
+- Both are available in the same session
 
-Outside the plugin repo:
+Outside the plugin repo (marketplace loads):
 
-- `/punt audit` runs the marketplace version
-- `punt-dev` does not appear (no CWD manifest)
+- `/punt init` runs the marketplace version
+- `-dev` commands do not appear (not in marketplace cache)
 
 ### Release flow
 
-At release time, `scripts/release-plugin.sh` copies `plugin-dist.json` over
-`plugin.json` (setting the prod name), commits, and the release workflow tags
-that commit. Then `scripts/restore-dev-plugin.sh` restores the dev name on
-main. The marketplace cache clones from the tagged commit which has the prod
-name.
-
-### MCP tool naming with -dev suffix
-
-Hyphens in plugin names become underscores in MCP tool prefixes:
-
-- `biff-dev` with server `tty` produces `mcp__plugin_biff_dev_tty__*`
-
-Hook matchers must cover both forms: `mcp__plugin_biff(_dev)?_tty__.*`
-
-SessionStart permission grants must allow both patterns.
+At release time, `scripts/release-plugin.sh` removes `-dev` command files from
+the tagged commit. The marketplace cache clones from the tag, so consumers never
+see `-dev` commands. Then `scripts/restore-dev-plugin.sh` restores them on main.
 
 ### Audit enforcement
 
-`punt audit` checks:
-
-- `.claude-plugin/plugin.json` name ends with `-dev`
-- `.claude-plugin/plugin-dist.json` exists with matching version
-- Names match except for the `-dev` suffix
+`punt audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a
+corresponding `-dev` variant.
 
 ---
 
 ## plugin.json
 
 Every Claude Code plugin must have `.claude-plugin/plugin.json` at the repo
-root. In the working tree, the name must use the `-dev` suffix:
-
-```json
-{
-  "name": "<project-name>-dev",
-  "description": "<one-line description> — DEV (working tree)",
-  "version": "<semver>",
-  "author": {
-    "name": "Punt Labs",
-    "email": "hello@punt-labs.com"
-  }
-}
-```
-
-The matching `plugin-dist.json` has the prod name:
+root with at minimum:
 
 ```json
 {
@@ -93,8 +64,7 @@ The matching `plugin-dist.json` has the prod name:
 }
 ```
 
-The `version` field is required in both files and must match. Omitting it is a
-defect.
+The `version` field is required. Omitting it is a defect.
 
 Use the **org name** (`"Punt Labs"`) as the author, not a personal name. This
 establishes consistent org identity in the marketplace catalog.

@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Swap dev plugin manifest for prod before tagging a release.
-# The tagged commit gets the prod name; the marketplace cache clones from it.
+# Remove -dev commands before tagging a release.
+# The tagged commit has only prod commands; the marketplace cache clones from it.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-DEV_MANIFEST="${REPO_ROOT}/.claude-plugin/plugin.json"
-DIST_MANIFEST="${REPO_ROOT}/.claude-plugin/plugin-dist.json"
+COMMANDS_DIR="${REPO_ROOT}/commands"
 
-if [[ ! -f "$DIST_MANIFEST" ]]; then
-  echo "ERROR: ${DIST_MANIFEST} not found" >&2
+dev_files=()
+while IFS= read -r -d '' f; do
+  dev_files+=("$f")
+done < <(find "$COMMANDS_DIR" -name '*-dev.md' -print0)
+
+if [[ ${#dev_files[@]} -eq 0 ]]; then
+  echo "No -dev commands found in ${COMMANDS_DIR}" >&2
   exit 1
 fi
 
-dev_ver="$(jq -r .version "$DEV_MANIFEST")"
-dist_ver="$(jq -r .version "$DIST_MANIFEST")"
-if [[ "$dev_ver" != "$dist_ver" ]]; then
-  echo "ERROR: version mismatch — plugin.json=${dev_ver}, plugin-dist.json=${dist_ver}" >&2
-  exit 1
-fi
+for f in "${dev_files[@]}"; do
+  echo "Removing: $(basename "$f")"
+done
 
-cp "$DIST_MANIFEST" "$DEV_MANIFEST"
-git -C "$REPO_ROOT" add .claude-plugin/plugin.json
-git -C "$REPO_ROOT" commit --no-verify -m "chore: set plugin name for release [skip ci]"
+git -C "$REPO_ROOT" rm "${dev_files[@]}"
+git -C "$REPO_ROOT" commit --no-verify -m "chore: remove dev commands for release [skip ci]"
