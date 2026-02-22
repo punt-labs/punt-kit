@@ -17,7 +17,7 @@ langlearn-anki, langlearn-imagegen, langlearn-types
 
 **Swift**: quarry-menubar, koch-trainer-swift
 
-**Claude Code Plugins**: prfaq, dungeon, feature-forge, z-spec
+**Claude Code Plugins**: prfaq, dungeon, z-spec
 
 **Org Infrastructure**: .github, claude-plugins
 
@@ -74,7 +74,6 @@ For each project, check:
 | koch-trainer-swift | Y | Y | Y | Y | Y |
 | prfaq | Y | Y | Y | Y | Y |
 | dungeon | Y | Y | Y | Y | Y |
-| feature-forge | Y | Y | Y | Y | Y |
 | z-spec | Y | Y | Y | Y | Y |
 | .github | Y | Y | Y | Y | . |
 | claude-plugins | Y | Y | Y | Y | . |
@@ -95,7 +94,6 @@ For each project, check:
 | koch-trainer-swift | Y | ~ | ~ | - |
 | prfaq | Y | . | . | . |
 | dungeon | Y | . | . | . |
-| feature-forge | Y | . | . | . |
 | z-spec | Y | . | . | . |
 | .github | Y | . | . | . |
 | claude-plugins | Y | . | . | . |
@@ -131,7 +129,6 @@ For each project, check:
 | koch-trainer-swift | . | . | . | . |
 | prfaq | Y | Y | Y | Y (prfaq) |
 | dungeon | Y | Y | Y | Y (dungeon) |
-| feature-forge | . | . | . | - |
 | z-spec | . | . | . | - |
 | .github | . | . | . | . |
 | claude-plugins | Y | Y | Y | . |
@@ -154,7 +151,7 @@ For each project, check:
 | Blocker | Impact | Workaround |
 |---------|--------|------------|
 | PyPI org prefix approval pending | All `punt-*` packages not on PyPI | install.sh uses git URLs |
-| feature-forge, z-spec not on marketplace | Has plugin.json but not in catalog | Publish when ready |
+| z-spec not on marketplace | Has plugin.json but not in catalog | Publish when ready |
 
 ---
 
@@ -162,10 +159,10 @@ For each project, check:
 
 | Category | Compliant | Partial | Missing | N/A |
 |----------|:---------:|:-------:|:-------:|:---:|
-| Project files (5 items x 16 repos) | 72 | 0 | 4 | 4 |
-| CI workflows (4 items x 16 repos) | 28 | 6 | 8 | 22 |
+| Project files (5 items x 15 repos) | 67 | 0 | 4 | 4 |
+| CI workflows (4 items x 15 repos) | 27 | 6 | 8 | 19 |
 | Quality gates (4 items x 8 repos) | 32 | 0 | 0 | 0 |
-| Distribution (4 items x 16 repos) | 18 | 0 | 7 | 39 |
+| Distribution (4 items x 15 repos) | 18 | 0 | 6 | 36 |
 
-**Overall**: 150 compliant, 6 partial, 19 missing, 65 N/A out of 240 checks.
+**Overall**: 144 compliant, 6 partial, 18 missing, 59 N/A out of 227 checks.
 All missing items are tracked in open beads.

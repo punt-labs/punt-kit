@@ -45,19 +45,17 @@ Match the workflow to the scope. The deciding factor is **design ambiguity**, no
 
 | Tier | Tool | When | Tracking |
 |------|------|------|----------|
-| **T1: Forge** | `/feature-forge` | Epics, cross-cutting work, competing design approaches | Beads with dependencies |
-| **T2: Feature Dev** | `/feature-dev` | Features, multi-file, clear goal but needs exploration | Beads + TodoWrite (internal) |
-| **T3: Direct** | Plan mode or manual | Tasks, bugs, obvious implementation path | Beads |
+| **T1: Feature Dev** | `/feature-dev` | Features, multi-file, clear goal but needs exploration | Beads + TodoWrite (internal) |
+| **T2: Direct** | Plan mode or manual | Tasks, bugs, obvious implementation path | Beads |
 
 ### Decision flow
 
-1. Is there design ambiguity needing multi-perspective input? → **T1: Forge**
-2. Does it touch multiple files and benefit from codebase exploration? → **T2: Feature Dev**
-3. Otherwise → **T3: Direct** (plan mode if >3 files, manual if fewer)
+1. Does it touch multiple files and benefit from codebase exploration? → **T1: Feature Dev**
+2. Otherwise → **T2: Direct** (plan mode if >3 files, manual if fewer)
 
 ### Escalation
 
-Escalation only goes up. If T3 reveals unexpected scope, escalate to T2. If T2 reveals competing design approaches, escalate to T1. Never demote mid-flight.
+Escalation only goes up. If T2 reveals unexpected scope, escalate to T1. Never demote mid-flight.
 
 ---
 
