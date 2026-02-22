@@ -275,6 +275,30 @@ def test_init_creates_permissions_node(tmp_path: Path) -> None:
     assert "Bash(npm:*)" in allow
 
 
+def test_init_permissions_include_plugin_mcp_servers(tmp_path: Path) -> None:
+    """Init adds MCP permission patterns for plugin servers."""
+    (tmp_path / "README.md").write_text("# Test")
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "myplug",
+                "description": "Test plugin",
+                "mcpServers": {"grimoire": {"command": "node", "args": ["server.js"]}},
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    assert "mcp__plugin_myplug_grimoire__*" in allow
+
+
 def test_init_permissions_include_cli_commands(tmp_path: Path) -> None:
     """Init adds Bash permissions for CLI entry points from pyproject scripts."""
     (tmp_path / "pyproject.toml").write_text(

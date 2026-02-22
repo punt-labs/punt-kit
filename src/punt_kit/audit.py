@@ -456,8 +456,24 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append((FAIL, "settings.json is valid JSON", "Parse error"))
         return results
 
-    allow: list[object] = data.get("permissions", {}).get("allow", [])
-    allow_strs = [str(x) for x in allow]
+    if not isinstance(data, dict):
+        results.append((FAIL, "settings.json is valid JSON", "Expected object"))
+        return results
+
+    typed_data = cast("dict[str, object]", data)
+
+    perms_raw = typed_data.get("permissions")
+    if not isinstance(perms_raw, dict):
+        results.append((FAIL, "Standard permissions present", "No permissions key"))
+        return results
+
+    perms = cast("dict[str, object]", perms_raw)
+    allow_raw = perms.get("allow")
+    if not isinstance(allow_raw, list):
+        results.append((FAIL, "Standard permissions present", "Missing allow array"))
+        return results
+
+    allow_strs = [str(x) for x in cast("list[object]", allow_raw)]
 
     standard = build_standard_permissions(info)
     missing = [p for p in standard if p not in allow_strs]
