@@ -4,41 +4,53 @@ Standards for Claude Code plugins across all Punt Labs projects.
 
 ---
 
-## Dev/Prod Command Isolation
+## Dev/Prod Namespace Isolation
 
 Plugin authors working inside their plugin's source repo need to test local
-changes without waiting for a marketplace publish cycle. Claude Code's CWD
-auto-discovery overrides the marketplace plugin when you're in the source repo,
-so all commands come from the working tree.
+changes without waiting for a marketplace publish cycle. The `--plugin-dir`
+flag loads a plugin directly from a local directory for the current session,
+alongside any marketplace-installed plugins.
 
-Every prod command has a **`-dev` variant** that runs against the local source:
+### How it works
 
-| File | Command | What it runs |
-|------|---------|-------------|
-| `commands/init.md` | `/punt init` | Installed `punt` CLI |
-| `commands/init-dev.md` | `/punt init-dev` | `uv run --directory ${CLAUDE_PLUGIN_ROOT} punt init` |
+The working tree's `plugin.json` uses `name: "<project>-dev"` (e.g.
+`punt-dev`). The marketplace uses `name: "<project>"` (e.g. `punt`). Because
+the names differ, both load simultaneously — developers see production commands
+and dev commands side by side.
 
-The `-dev` commands use `uv run` to execute the working tree code directly,
-bypassing the installed CLI. This gives immediate feedback when developing.
+```bash
+# Developer launch (from the plugin's repo root)
+claude --plugin-dir .
+```
 
-### Developer experience
+This gives you:
 
-Inside the plugin repo (CWD overrides marketplace):
+| Source | Commands | What they run |
+|--------|----------|---------------|
+| Marketplace `punt` | `/punt init`, `/punt audit` | Installed CLI |
+| Local `punt-dev` | `/punt-dev init-dev`, `/punt-dev audit-dev` | `uv run` against working tree |
 
-- `/punt init-dev` runs the working-tree version via `uv run`
-- `/punt init` runs the installed CLI (may be older)
-- Both are available in the same session
+The `-dev` commands use `uv run --directory ${CLAUDE_PLUGIN_ROOT}` to execute
+the working tree code directly, bypassing the installed CLI.
 
-Outside the plugin repo (marketplace loads):
+### Namespace scope
 
-- `/punt init` runs the marketplace version
-- `-dev` commands do not appear (not in marketplace cache)
+The plugin name prefixes **everything**: commands, MCP server tools, skills,
+agents, hooks. Using a `-dev` suffix at the plugin name level isolates all
+extension points automatically.
+
+| Layer | Production | Development |
+|-------|-----------|-------------|
+| Commands | `/punt init` | `/punt-dev init-dev` |
+| MCP tools | `mcp__plugin_punt_*` | `mcp__plugin_punt_dev_*` |
+| Skills | `punt:reconcile` | `punt-dev:reconcile-dev` |
 
 ### Release flow
 
-At release time, `scripts/release-plugin.sh` removes `-dev` command files from
-the tagged commit. The marketplace cache clones from the tag, so consumers never
-see `-dev` commands. Then `scripts/restore-dev-plugin.sh` restores them on main.
+At release time, `scripts/release-plugin.sh` swaps `plugin.json` to
+`name: "punt"` and removes `-dev` command files from the tagged commit.
+The marketplace cache clones from the tag, so consumers never see `-dev`
+artifacts. Then `scripts/restore-dev-plugin.sh` restores them on main.
 
 ### Audit enforcement
 

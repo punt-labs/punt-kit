@@ -1,5 +1,4 @@
 {
-  "enabledPlugins": {},
   "permissions": {
     "allow": [
       "Bash(git:*)",

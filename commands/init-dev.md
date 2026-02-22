@@ -1,5 +1,5 @@
 ---
-description: "[DEV] Scaffold missing files using the working tree
+description: "[DEV] Scaffold missing files using the working tree"
 argument-hint: "[project-path]"
 allowed-tools: Bash(uv:*), Bash(punt:*)
 ---
