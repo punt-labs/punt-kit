@@ -100,7 +100,7 @@ Every repo has two config files at the root:
   "MD013": false,
   "MD060": false,
   "MD024": { "siblings_only": true },
-  "MD033": { "allowed_elements": ["img", "p"] }
+  "MD033": { "allowed_elements": ["img", "p", "details", "summary"] }
 }
 ```
 
