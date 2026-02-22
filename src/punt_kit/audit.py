@@ -54,6 +54,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_beads(info))
     results.extend(_check_claude_md(info))
     results.extend(_check_permissions(info))
+    results.extend(_check_plugin_dual_manifest(info))
     results.extend(_check_github_settings(info))
 
     # Print results
@@ -491,6 +492,75 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append(
             (PASS, "Standard permissions present", f"{len(standard)} standard entries")
         )
+
+    return results
+
+
+def _check_plugin_dual_manifest(
+    info: ProjectInfo,
+) -> list[tuple[str, str, str]]:
+    """Check plugin repos have dev/prod manifest isolation."""
+    if not info.is_plugin:
+        return []
+
+    results: list[tuple[str, str, str]] = []
+    dev_path = info.root / ".claude-plugin" / "plugin.json"
+    dist_path = info.root / ".claude-plugin" / "plugin-dist.json"
+
+    if not dev_path.exists():
+        return []
+
+    try:
+        dev_data = json.loads(dev_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        results.append((FAIL, "plugin.json is valid JSON", "Parse error"))
+        return results
+
+    dev_name = dev_data.get("name", "")
+    if not isinstance(dev_name, str) or not dev_name.endswith("-dev"):
+        results.append((FAIL, "plugin.json name ends with -dev", f"Got: {dev_name!r}"))
+    else:
+        results.append((PASS, "plugin.json name ends with -dev", dev_name))
+
+    if not dist_path.exists():
+        results.append(
+            (FAIL, "plugin-dist.json exists", "Missing — create prod manifest")
+        )
+        return results
+
+    results.append((PASS, "plugin-dist.json exists", ""))
+
+    try:
+        dist_data = json.loads(dist_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        results.append((FAIL, "plugin-dist.json is valid JSON", "Parse error"))
+        return results
+
+    dist_name = dist_data.get("name", "")
+    expected_prod = dev_name.removesuffix("-dev") if dev_name.endswith("-dev") else ""
+    if dist_name != expected_prod:
+        results.append(
+            (
+                FAIL,
+                "plugin-dist.json name matches",
+                f"Expected {expected_prod!r}, got {dist_name!r}",
+            )
+        )
+    else:
+        results.append((PASS, "plugin-dist.json name matches", dist_name))
+
+    dev_ver = dev_data.get("version", "")
+    dist_ver = dist_data.get("version", "")
+    if dev_ver != dist_ver:
+        results.append(
+            (
+                FAIL,
+                "Plugin versions match",
+                f"dev={dev_ver}, dist={dist_ver}",
+            )
+        )
+    else:
+        results.append((PASS, "Plugin versions match", str(dev_ver)))
 
     return results
 

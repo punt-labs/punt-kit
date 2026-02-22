@@ -4,10 +4,82 @@ Standards for Claude Code plugins across all Punt Labs projects.
 
 ---
 
+## Dev/Prod Namespace Isolation
+
+Plugin authors working inside their plugin's source repo face a conflict: the
+marketplace-installed plugin and the CWD auto-discovered plugin both have the
+same name, which Claude Code treats as an error.
+
+Every plugin repo maintains **two manifests** with different names:
+
+| File | Name field | Loaded by |
+|------|-----------|-----------|
+| `.claude-plugin/plugin.json` | `{name}-dev` | CWD auto-discovery (developers) |
+| `.claude-plugin/plugin-dist.json` | `{name}` | Marketplace (consumers, via release tag) |
+
+Commands, hooks, and agents are defined once — both manifests auto-discover the
+same `commands/`, `hooks/`, and `agents/` directories. Only the JSON name
+differs.
+
+### Developer experience
+
+Inside the plugin repo:
+
+- `/punt-dev audit` runs the working-tree version (immediate feedback)
+- `/punt audit` runs the cached marketplace version (if installed)
+- Both coexist without collision
+
+Outside the plugin repo:
+
+- `/punt audit` runs the marketplace version
+- `punt-dev` does not appear (no CWD manifest)
+
+### Release flow
+
+At release time, `scripts/release-plugin.sh` copies `plugin-dist.json` over
+`plugin.json` (setting the prod name), commits, and the release workflow tags
+that commit. Then `scripts/restore-dev-plugin.sh` restores the dev name on
+main. The marketplace cache clones from the tagged commit which has the prod
+name.
+
+### MCP tool naming with -dev suffix
+
+Hyphens in plugin names become underscores in MCP tool prefixes:
+
+- `biff-dev` with server `tty` produces `mcp__plugin_biff_dev_tty__*`
+
+Hook matchers must cover both forms: `mcp__plugin_biff(_dev)?_tty__.*`
+
+SessionStart permission grants must allow both patterns.
+
+### Audit enforcement
+
+`punt audit` checks:
+
+- `.claude-plugin/plugin.json` name ends with `-dev`
+- `.claude-plugin/plugin-dist.json` exists with matching version
+- Names match except for the `-dev` suffix
+
+---
+
 ## plugin.json
 
 Every Claude Code plugin must have `.claude-plugin/plugin.json` at the repo
-root with at minimum:
+root. In the working tree, the name must use the `-dev` suffix:
+
+```json
+{
+  "name": "<project-name>-dev",
+  "description": "<one-line description> — DEV (working tree)",
+  "version": "<semver>",
+  "author": {
+    "name": "Punt Labs",
+    "email": "hello@punt-labs.com"
+  }
+}
+```
+
+The matching `plugin-dist.json` has the prod name:
 
 ```json
 {
@@ -21,7 +93,8 @@ root with at minimum:
 }
 ```
 
-The `version` field is required. Omitting it is a defect.
+The `version` field is required in both files and must match. Omitting it is a
+defect.
 
 Use the **org name** (`"Punt Labs"`) as the author, not a personal name. This
 establishes consistent org identity in the marketplace catalog.
@@ -121,11 +194,12 @@ Any project that uses MCP tools inside Claude Code must have a **PostToolUse
 hook** that suppresses raw MCP tool output. Without this, JSON payloads from
 tool calls pollute the conversation.
 
-The hook matcher must use the full plugin tool prefix:
+The hook matcher must use the full plugin tool prefix and cover both dev and
+prod names:
 
 ```json
 {
-  "matcher": "mcp__plugin_biff_tty__.*",
+  "matcher": "mcp__plugin_biff(_dev)?_tty__.*",
   "hooks": [{
     "type": "command",
     "command": "${CLAUDE_PLUGIN_ROOT}/hooks/suppress-output.sh"
