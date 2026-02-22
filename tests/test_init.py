@@ -415,3 +415,41 @@ def test_init_gitignore_adds_missing_exceptions(tmp_path: Path) -> None:
     assert "!.claude/hooks/" in content
     # Should still have only one .claude/ line
     assert content.count(".claude/\n") == 1
+
+
+def test_init_language_override_on_empty_repo(tmp_path: Path) -> None:
+    """Init with --language scaffolds language-specific files for empty repos."""
+    # Empty repo — no pyproject.toml, no package.json, nothing
+    (tmp_path / ".git").mkdir()  # make it look like a git repo
+
+    run_init(str(tmp_path), language="python")
+
+    # Should create Python-specific workflows
+    lint_yml = tmp_path / ".github" / "workflows" / "lint.yml"
+    test_yml = tmp_path / ".github" / "workflows" / "test.yml"
+    assert lint_yml.exists()
+    assert test_yml.exists()
+    assert "ruff" in lint_yml.read_text()
+
+    # Should create CLAUDE.md with Python standards reference
+    claude_md = tmp_path / "CLAUDE.md"
+    assert claude_md.exists()
+    assert "Python" in claude_md.read_text()
+
+    # Should create permissions with Python tools
+    settings = tmp_path / ".claude" / "settings.json"
+    assert settings.exists()
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+    assert "Bash(uv:*)" in allow
+    assert "Bash(python3:*)" in allow
+
+
+def test_init_language_override_invalid(tmp_path: Path) -> None:
+    """Init rejects unsupported language values."""
+    import pytest
+
+    (tmp_path / "README.md").write_text("# Test")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_init(str(tmp_path), language="rust")

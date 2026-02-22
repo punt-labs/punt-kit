@@ -32,14 +32,35 @@ STANDARD_DISPLAY_NAMES: dict[str, str] = {
 }
 
 
-def run_init(path: str) -> None:
-    """Detect project type, generate/update missing files, report manual steps."""
+SUPPORTED_LANGUAGES = ("python", "node", "swift")
+
+
+def run_init(path: str, *, language: str | None = None) -> None:
+    """Detect project type, generate/update missing files, report manual steps.
+
+    *language* overrides auto-detection. When detection returns no language
+    and no override is given, prompts interactively (if stdin is a tty).
+    """
     root = Path(path).resolve()
     if not root.is_dir():
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
     info = detect(root)
+
+    # Apply language override or prompt when detection fails
+    if language is not None:
+        if language not in SUPPORTED_LANGUAGES:
+            console.print(
+                f"[red]Error:[/red] unsupported language '{language}'"
+                f" — choose from: {', '.join(SUPPORTED_LANGUAGES)}"
+            )
+            raise SystemExit(1)
+        info = _with_language(info, language)
+    elif info.language is None:
+        prompted = _prompt_language()
+        if prompted is not None:
+            info = _with_language(info, prompted)
 
     console.print(f"\n[bold]punt init[/bold] — {root.name}")
     console.print(f"  Language:     {info.language or 'none'}")
@@ -68,6 +89,74 @@ def run_init(path: str) -> None:
         console.print("\n[dim]No files needed updating.[/dim]")
 
     _report_manual_steps(info)
+
+
+def _prompt_language() -> str | None:
+    """Prompt the user to choose a language if stdin is a tty."""
+    import sys
+
+    if not sys.stdin.isatty():
+        return None
+
+    console.print(
+        "[yellow]No language detected.[/yellow] Choose one (or press Enter to skip):"
+    )
+    for i, lang in enumerate(SUPPORTED_LANGUAGES, 1):
+        console.print(f"  {i}. {lang}")
+
+    try:
+        choice = input("> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+    if not choice:
+        return None
+
+    if choice in SUPPORTED_LANGUAGES:
+        return choice
+
+    try:
+        idx = int(choice) - 1
+        if 0 <= idx < len(SUPPORTED_LANGUAGES):
+            return SUPPORTED_LANGUAGES[idx]
+    except ValueError:
+        pass
+
+    console.print(f"[red]Invalid choice:[/red] '{choice}'")
+    return None
+
+
+def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
+    """Return a new ProjectInfo with the language and project_type set."""
+    project_type = info.project_type
+    if project_type is None:
+        if language in ("python", "node"):
+            project_type = "package"
+        elif language == "swift":
+            project_type = "app"
+
+    standards_refs = list(info.standards_refs)
+    if language not in standards_refs:
+        standards_refs.append(language)
+    if language == "python" and "cli" not in standards_refs:
+        standards_refs.append("cli")
+
+    return ProjectInfo(
+        root=info.root,
+        language=language,
+        project_type=project_type,
+        has_ci=info.has_ci,
+        has_claude_md=info.has_claude_md,
+        has_beads=info.has_beads,
+        is_mcp_server=info.is_mcp_server,
+        is_plugin=info.is_plugin,
+        pyproject=info.pyproject,
+        package_json=info.package_json,
+        workflow_files=info.workflow_files,
+        standards_refs=standards_refs,
+        cli_commands=info.cli_commands,
+        plugin_mcp_servers=info.plugin_mcp_servers,
+    )
 
 
 def _init_workflows(info: ProjectInfo) -> list[str]:

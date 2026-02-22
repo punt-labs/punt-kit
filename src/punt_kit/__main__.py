@@ -16,11 +16,17 @@ console = Console()
 @app.command()
 def init(
     path: str = typer.Argument(".", help="Path to the project root"),
+    language: str = typer.Option(
+        "",
+        "--language",
+        "-l",
+        help="Override detected language (python, node, swift)",
+    ),
 ) -> None:
     """Detect project type, generate missing files, and report manual steps."""
     from punt_kit.init import run_init
 
-    run_init(path)
+    run_init(path, language=language or None)
 
 
 @app.command()
