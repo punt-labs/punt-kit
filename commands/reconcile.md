@@ -116,75 +116,7 @@ judgment. Report drift with a clear recommendation. Example:
 > `[tool.ruff] target-version` is `"py312"` but standard is `"py313"`. This may be
 > intentional if the project supports Python 3.12. Confirm before updating.
 
-### 6. Clean Permission Bloat
-
-Read `.claude/settings.local.json` in the target project. If it doesn't exist, skip this
-phase. This file accumulates bloat as Claude Code appends narrow permission patterns over
-time — capturing commit messages, stale paths, and shell loop fragments as approval entries.
-
-Focus on the `allow` and `deny` arrays (typically under keys like `"permissions"`). Preserve
-all non-permission fields (`enableAllProjectMcpServers`, `enabledPlugins`, etc.) untouched.
-
-#### 6a. Remove corrupt entries
-
-Delete any permission entry that contains:
-
-- Literal newlines or `\n` sequences within the pattern
-- `EOF` or heredoc markers
-- `Co-Authored-By`
-- Shell control keywords used as line content: `for`, `do`, `done`, `then`, `else`,
-  `fi`, `if [`, `while` (match as word prefixes, not substrings)
-- Embedded commit messages (lines containing `git commit -m` followed by 50+ characters)
-
-These are artifacts of Claude Code capturing multi-line shell commands or commit operations
-as single permission entries.
-
-#### 6b. Remove stale absolute paths
-
-Delete entries containing absolute paths that don't match the current project. Specifically:
-
-- `/Users/*/Coding/*/` paths where the project name doesn't match the target project
-- `/Users/*/.claude/plugins/cache/local/*/` version-specific plugin cache paths
-- Any path referencing a directory that no longer exists
-
-Preserve paths that correctly reference the current project directory.
-
-#### 6c. Collapse redundant patterns
-
-When multiple narrow patterns exist for the same tool family, collapse them to a single
-wildcard. Apply these standard collapses:
-
-| Narrow patterns (examples) | Collapse to |
-|----------------------------|-------------|
-| `Bash(git add:*)`, `Bash(git commit:*)`, `Bash(git push:*)` | `Bash(git:*)` |
-| `Bash(gh pr:*)`, `Bash(gh issue:*)`, `Bash(gh api:*)` | `Bash(gh:*)` |
-| `Bash(uv run:*)`, `Bash(uv sync:*)`, `Bash(uv build:*)` | `Bash(uv:*)` |
-| `Bash(bd create:*)`, `Bash(bd update:*)`, `Bash(bd sync:*)` | `Bash(bd:*)` |
-| `Bash(python3 -c:*)`, `Bash(python3 -m:*)` | `Bash(python3:*)` |
-| `Bash(make build:*)`, `Bash(make test:*)` | `Bash(make:*)` |
-| `Bash(curl -s:*)`, `Bash(curl -X:*)` | `Bash(curl:*)` |
-| Multiple specific `mcp__plugin_github_github__*` tools | `mcp__plugin_github_github__*` |
-
-**Collapse rule**: If 3+ entries share the same tool prefix, collapse to the wildcard. If
-only 1–2 entries exist, leave them as-is (they may be intentionally scoped).
-
-**Do NOT collapse** project-specific tools — entries like `Bash(quarry:*)`, `Bash(ffmpeg:*)`,
-`Bash(pdflatex:*)`, or `Bash(swift:*)` should be preserved as-is.
-
-#### 6d. Flag stale MCP tool names
-
-If permission entries reference MCP tool prefixes that don't match any currently installed
-plugin (check `.claude/settings.local.json` `enabledPlugins` and the project's
-`.claude-plugin/plugin.json` if present), flag them for review rather than auto-removing.
-
-#### 6e. Apply and report
-
-- Write the cleaned file using the Edit tool (or Write if the changes are extensive)
-- Report the before/after entry count
-- List removed entries grouped by reason (corrupt, stale path, collapsed)
-- List any entries flagged for review
-
-### 7. Report Summary
+### 6. Report Summary
 
 After all checks, print a structured summary:
 
@@ -195,14 +127,10 @@ After all checks, print a structured summary:
 - ✓ Added timeout-minutes to lint.yml
 - ✓ Created release.yml from template
 - ✓ Added Standards References section to CLAUDE.md
-- ✓ Permissions: removed 12 corrupt entries (commit messages, shell fragments)
-- ✓ Permissions: collapsed 18 narrow git patterns → Bash(git:*)
-- ✓ Permissions: 47 → 15 entries (68% reduction)
 
 ### Needs Review (human judgment required)
 - ⚠ pyproject.toml: ruff target-version is py312, standard is py313
 - ⚠ lint.yml: uses actions/checkout@abc123 but template uses @def456
-- ⚠ Permissions: 3 entries reference unknown MCP prefix mcp__plugin_old_tool__
 
 ### Already Compliant
 - ✓ docs.yml matches template
