@@ -54,7 +54,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_beads(info))
     results.extend(_check_claude_md(info))
     results.extend(_check_permissions(info))
-    results.extend(_check_plugin_dev_commands(info))
+    results.extend(_check_plugin_dev_isolation(info))
     results.extend(_check_github_settings(info))
 
     # Print results
@@ -496,48 +496,96 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
-def _check_plugin_dev_commands(
+def _check_plugin_dev_isolation(
     info: ProjectInfo,
 ) -> list[tuple[str, str, str]]:
-    """Check plugin repos have -dev command variants for local development."""
+    """Check plugin repos follow the dev/prod namespace isolation standard.
+
+    Checks:
+    1. plugin.json name ends in -dev (working tree is the dev namespace)
+    2. Every prod command has a -dev variant
+    3. Release/restore scripts exist
+    """
     if not info.is_plugin:
         return []
 
     results: list[tuple[str, str, str]] = []
-    commands_dir = info.root / "commands"
 
-    if not commands_dir.is_dir():
-        return []
-
-    prod_commands = sorted(
-        f.stem for f in commands_dir.glob("*.md") if not f.stem.endswith("-dev")
-    )
-    dev_commands = sorted(
-        f.stem.removesuffix("-dev") for f in commands_dir.glob("*-dev.md")
-    )
-
-    if not prod_commands:
-        return []
-
-    missing = [c for c in prod_commands if c not in dev_commands]
-    if missing:
-        results.append(
-            (
-                FAIL,
-                "Dev command variants exist",
-                f"Missing: {', '.join(f'{c}-dev.md' for c in missing)}",
+    # Check plugin name has -dev suffix
+    plugin_name = _read_plugin_name(info)
+    if plugin_name is not None:
+        if plugin_name.endswith("-dev"):
+            results.append((PASS, "Plugin name has -dev suffix", plugin_name))
+        else:
+            results.append(
+                (
+                    FAIL,
+                    "Plugin name has -dev suffix",
+                    f"'{plugin_name}' — should be '{plugin_name}-dev'",
+                )
             )
-        )
+
+    # Check release/restore scripts exist
+    release_script = info.root / "scripts" / "release-plugin.sh"
+    restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
+    if release_script.exists() and restore_script.exists():
+        results.append((PASS, "Release/restore scripts exist", ""))
     else:
-        results.append(
-            (
-                PASS,
-                "Dev command variants exist",
-                f"{len(dev_commands)} dev commands",
-            )
+        missing_scripts: list[str] = []
+        if not release_script.exists():
+            missing_scripts.append("scripts/release-plugin.sh")
+        if not restore_script.exists():
+            missing_scripts.append("scripts/restore-dev-plugin.sh")
+        detail = f"Missing: {', '.join(missing_scripts)}"
+        results.append((FAIL, "Release/restore scripts exist", detail))
+
+    # Check -dev command variants
+    commands_dir = info.root / "commands"
+    if commands_dir.is_dir():
+        prod_commands = sorted(
+            f.stem for f in commands_dir.glob("*.md") if not f.stem.endswith("-dev")
         )
+        dev_commands = sorted(
+            f.stem.removesuffix("-dev") for f in commands_dir.glob("*-dev.md")
+        )
+
+        if prod_commands:
+            missing = [c for c in prod_commands if c not in dev_commands]
+            if missing:
+                results.append(
+                    (
+                        FAIL,
+                        "Dev command variants exist",
+                        f"Missing: {', '.join(f'{c}-dev.md' for c in missing)}",
+                    )
+                )
+            else:
+                results.append(
+                    (
+                        PASS,
+                        "Dev command variants exist",
+                        f"{len(dev_commands)} dev commands",
+                    )
+                )
 
     return results
+
+
+def _read_plugin_name(info: ProjectInfo) -> str | None:
+    """Read plugin name from plugin.json."""
+    for pj_path in (
+        info.root / ".claude-plugin" / "plugin.json",
+        info.root / "plugin.json",
+    ):
+        if pj_path.exists():
+            try:
+                data = json.loads(pj_path.read_text(encoding="utf-8"))
+                name = data.get("name")
+                if isinstance(name, str):
+                    return name
+            except (json.JSONDecodeError, OSError):
+                pass
+    return None
 
 
 def _find_package_dir(info: ProjectInfo) -> Path | None:

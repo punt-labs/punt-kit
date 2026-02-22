@@ -273,7 +273,7 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
     (plugin_dir / "plugin.json").write_text(
         json.dumps(
             {
-                "name": "test",
+                "name": "test-dev",
                 "description": "Test plugin",
                 "version": "1.0.0",
                 "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
@@ -288,10 +288,14 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
     (commands_dir / "audit-dev.md").write_text("---\ndescription: Audit dev\n---\n")
     (commands_dir / "init.md").write_text("---\ndescription: Init\n---\n")
     (commands_dir / "init-dev.md").write_text("---\ndescription: Init dev\n---\n")
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
 
 
-def test_audit_plugin_dev_commands_passes(tmp_path: Path) -> None:
-    """Audit passes when every prod command has a -dev variant."""
+def test_audit_plugin_dev_isolation_passes(tmp_path: Path) -> None:
+    """Audit passes when plugin follows full dev/prod isolation standard."""
     _make_compliant_plugin(tmp_path)
     run_audit(str(tmp_path))
 
@@ -305,8 +309,31 @@ def test_audit_plugin_fails_missing_dev_command(tmp_path: Path) -> None:
         run_audit(str(tmp_path))
 
 
+def test_audit_plugin_fails_missing_dev_suffix(tmp_path: Path) -> None:
+    """Audit fails when plugin name lacks -dev suffix."""
+    _make_compliant_plugin(tmp_path)
+    plugin_json = tmp_path / ".claude-plugin" / "plugin.json"
+    data = json.loads(plugin_json.read_text())
+    data["name"] = "test"  # no -dev suffix
+    plugin_json.write_text(json.dumps(data, indent=2) + "\n")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_plugin_fails_missing_release_scripts(tmp_path: Path) -> None:
+    """Audit fails when release/restore scripts are missing."""
+    _make_compliant_plugin(tmp_path)
+    (tmp_path / "scripts" / "release-plugin.sh").unlink()
+    (tmp_path / "scripts" / "restore-dev-plugin.sh").unlink()
+    (tmp_path / "scripts").rmdir()
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
 def test_audit_plugin_non_plugin_skips_check(tmp_path: Path) -> None:
-    """Audit skips dev command check for non-plugin projects."""
+    """Audit skips dev isolation check for non-plugin projects."""
     _make_compliant_python(tmp_path)
     # No .claude-plugin/ — should not fail on missing dev commands
     run_audit(str(tmp_path))

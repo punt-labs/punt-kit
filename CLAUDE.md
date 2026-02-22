@@ -145,6 +145,11 @@ These are available within a running Claude Code session, not from the shell:
 | `/doctor` | Diagnose issues |
 | `/compact` | Compact conversation context |
 
+## Design Decisions
+
+Consult [DESIGN.md](DESIGN.md) before proposing changes to settled
+architecture. Log new decisions there when they involve rejected alternatives.
+
 ## Standards References
 
 - [Python](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md)
