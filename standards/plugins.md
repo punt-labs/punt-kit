@@ -4,6 +4,61 @@ Standards for Claude Code plugins across all Punt Labs projects.
 
 ---
 
+## Dev/Prod Namespace Isolation
+
+Plugin authors working inside their plugin's source repo need to test local
+changes without waiting for a marketplace publish cycle. The `--plugin-dir`
+flag loads a plugin directly from a local directory for the current session,
+alongside any marketplace-installed plugins.
+
+### How it works
+
+The working tree's `plugin.json` uses `name: "<project>-dev"` (e.g.
+`punt-dev`). The marketplace uses `name: "<project>"` (e.g. `punt`). Because
+the names differ, both load simultaneously — developers see production commands
+and dev commands side by side.
+
+```bash
+# Developer launch (from the plugin's repo root)
+claude --plugin-dir .
+```
+
+This gives you:
+
+| Source | Commands | What they run |
+|--------|----------|---------------|
+| Marketplace `punt` | `/punt init`, `/punt audit` | Installed CLI |
+| Local `punt-dev` | `/punt-dev init-dev`, `/punt-dev audit-dev` | `uv run` against working tree |
+
+The `-dev` commands use `uv run --directory ${CLAUDE_PLUGIN_ROOT}` to execute
+the working tree code directly, bypassing the installed CLI.
+
+### Namespace scope
+
+The plugin name prefixes **everything**: commands, MCP server tools, skills,
+agents, hooks. Using a `-dev` suffix at the plugin name level isolates all
+extension points automatically.
+
+| Layer | Production | Development |
+|-------|-----------|-------------|
+| Commands | `/punt init` | `/punt-dev init-dev` |
+| MCP tools | `mcp__plugin_punt_*` | `mcp__plugin_punt_dev_*` |
+| Skills | `punt:reconcile` | `punt-dev:reconcile-dev` |
+
+### Release flow
+
+At release time, `scripts/release-plugin.sh` swaps `plugin.json` to
+`name: "punt"` and removes `-dev` command files from the tagged commit.
+The marketplace cache clones from the tag, so consumers never see `-dev`
+artifacts. Then `scripts/restore-dev-plugin.sh` restores them on main.
+
+### Audit enforcement
+
+`punt audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a
+corresponding `-dev` variant.
+
+---
+
 ## plugin.json
 
 Every Claude Code plugin must have `.claude-plugin/plugin.json` at the repo
@@ -121,11 +176,12 @@ Any project that uses MCP tools inside Claude Code must have a **PostToolUse
 hook** that suppresses raw MCP tool output. Without this, JSON payloads from
 tool calls pollute the conversation.
 
-The hook matcher must use the full plugin tool prefix:
+The hook matcher must use the full plugin tool prefix and cover both dev and
+prod names:
 
 ```json
 {
-  "matcher": "mcp__plugin_biff_tty__.*",
+  "matcher": "mcp__plugin_biff(_dev)?_tty__.*",
   "hooks": [{
     "type": "command",
     "command": "${CLAUDE_PLUGIN_ROOT}/hooks/suppress-output.sh"

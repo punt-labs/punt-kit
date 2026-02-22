@@ -234,3 +234,79 @@ def test_audit_passes_with_extra_permissions(tmp_path: Path) -> None:
 
     # Should still pass — extra permissions are fine
     run_audit(str(tmp_path))
+
+
+# --- Plugin dev-command tests ---
+
+
+def _make_compliant_plugin(tmp_path: Path) -> None:
+    """Create a compliant plugin project scaffold with dev commands."""
+    (tmp_path / "README.md").write_text("# Test Plugin\n")
+    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
+    (tmp_path / ".beads").mkdir()
+    (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
+    (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "docs.yml").write_text("name: Docs\n")
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [
+                        "Bash(git:*)",
+                        "Bash(gh:*)",
+                        "Bash(bd:*)",
+                        "Bash(punt:*)",
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "test",
+                "description": "Test plugin",
+                "version": "1.0.0",
+                "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    commands_dir = tmp_path / "commands"
+    commands_dir.mkdir()
+    (commands_dir / "audit.md").write_text("---\ndescription: Audit\n---\n")
+    (commands_dir / "audit-dev.md").write_text("---\ndescription: Audit dev\n---\n")
+    (commands_dir / "init.md").write_text("---\ndescription: Init\n---\n")
+    (commands_dir / "init-dev.md").write_text("---\ndescription: Init dev\n---\n")
+
+
+def test_audit_plugin_dev_commands_passes(tmp_path: Path) -> None:
+    """Audit passes when every prod command has a -dev variant."""
+    _make_compliant_plugin(tmp_path)
+    run_audit(str(tmp_path))
+
+
+def test_audit_plugin_fails_missing_dev_command(tmp_path: Path) -> None:
+    """Audit fails when a prod command is missing its -dev variant."""
+    _make_compliant_plugin(tmp_path)
+    (tmp_path / "commands" / "init-dev.md").unlink()
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_plugin_non_plugin_skips_check(tmp_path: Path) -> None:
+    """Audit skips dev command check for non-plugin projects."""
+    _make_compliant_python(tmp_path)
+    # No .claude-plugin/ — should not fail on missing dev commands
+    run_audit(str(tmp_path))

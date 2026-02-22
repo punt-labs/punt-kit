@@ -54,6 +54,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_beads(info))
     results.extend(_check_claude_md(info))
     results.extend(_check_permissions(info))
+    results.extend(_check_plugin_dev_commands(info))
     results.extend(_check_github_settings(info))
 
     # Print results
@@ -490,6 +491,50 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     else:
         results.append(
             (PASS, "Standard permissions present", f"{len(standard)} standard entries")
+        )
+
+    return results
+
+
+def _check_plugin_dev_commands(
+    info: ProjectInfo,
+) -> list[tuple[str, str, str]]:
+    """Check plugin repos have -dev command variants for local development."""
+    if not info.is_plugin:
+        return []
+
+    results: list[tuple[str, str, str]] = []
+    commands_dir = info.root / "commands"
+
+    if not commands_dir.is_dir():
+        return []
+
+    prod_commands = sorted(
+        f.stem for f in commands_dir.glob("*.md") if not f.stem.endswith("-dev")
+    )
+    dev_commands = sorted(
+        f.stem.removesuffix("-dev") for f in commands_dir.glob("*-dev.md")
+    )
+
+    if not prod_commands:
+        return []
+
+    missing = [c for c in prod_commands if c not in dev_commands]
+    if missing:
+        results.append(
+            (
+                FAIL,
+                "Dev command variants exist",
+                f"Missing: {', '.join(f'{c}-dev.md' for c in missing)}",
+            )
+        )
+    else:
+        results.append(
+            (
+                PASS,
+                "Dev command variants exist",
+                f"{len(dev_commands)} dev commands",
+            )
         )
 
     return results
