@@ -2,7 +2,23 @@
 
 This project follows [Punt Labs standards](https://github.com/punt-labs/punt-kit).
 
+## Quality Gates
+
+Run before every commit. Zero violations, zero errors, all tests green.
+
+```bash
+{{ quality_gates }}
+```
+
 ## Standards References
 {% for ref in standards_refs -%}
 - [{{ display_names[ref] }}](https://github.com/punt-labs/punt-kit/blob/main/standards/{{ ref }}.md)
-{% endfor -%}
+{% endfor %}
+## Available Tooling
+
+| Tool | What It Does |
+|------|-------------|
+| `punt init` | Scaffold missing files (CI, config, permissions, beads) |
+| `punt audit` | Check compliance against Punt Labs standards |
+| `punt audit --fix` | Auto-create missing mechanical files |
+| `/punt reconcile` | LLM-powered contextual reconciliation (workflows, CLAUDE.md, permissions) |

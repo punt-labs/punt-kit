@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import json
 import shutil
 import subprocess
 import tomllib
@@ -56,6 +57,8 @@ def run_init(path: str) -> None:
     changed.extend(_init_python_config(info))
     changed.extend(_init_beads(info))
     changed.extend(_init_claude_md(info))
+    changed.extend(_init_permissions(info))
+    changed.extend(_init_gitignore_claude(info))
 
     if changed:
         console.print("\n[bold green]Files generated/updated:[/bold green]")
@@ -257,6 +260,20 @@ def _init_beads(info: ProjectInfo) -> list[str]:
         return []
 
 
+def _build_quality_gates(info: ProjectInfo) -> str:
+    """Build the quality gates command string for the project type."""
+    if info.language == "python":
+        return (
+            "uv run ruff check . && uv run ruff format --check . "
+            "&& uv run mypy src/ tests/ && uv run pyright && uv run pytest"
+        )
+    if info.language == "swift":
+        return "make format && make lint && make test"
+    if info.language == "node":
+        return "npm run lint && npm test"
+    return "# No language-specific quality gates"
+
+
 def _init_claude_md(info: ProjectInfo) -> list[str]:
     """Generate or update CLAUDE.md with standards references."""
     claude_md_path = info.root / "CLAUDE.md"
@@ -269,6 +286,7 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
     references_block = template.render(
         standards_refs=info.standards_refs,
         display_names=STANDARD_DISPLAY_NAMES,
+        quality_gates=_build_quality_gates(info),
     ).strip()
 
     if claude_md_path.exists():
@@ -287,6 +305,161 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
         console.print("  [green]+[/green] Created CLAUDE.md")
 
     return ["CLAUDE.md"]
+
+
+def build_standard_permissions(info: ProjectInfo) -> list[str]:
+    """Build the standard permission list for a detected project type.
+
+    Public so that both init and audit can share the same logic.
+    """
+    perms: list[str] = [
+        "Bash(git:*)",
+        "Bash(gh:*)",
+        "Bash(bd:*)",
+        "Bash(punt:*)",
+    ]
+
+    if info.language == "python":
+        perms.extend(["Bash(uv:*)", "Bash(python3:*)"])
+    elif info.language == "node":
+        perms.extend(["Bash(npx:*)", "Bash(npm:*)"])
+    elif info.language == "swift":
+        perms.extend(["Bash(make:*)", "Bash(swift:*)", "Bash(xcodebuild:*)"])
+
+    for cmd in info.cli_commands:
+        perm = f"Bash({cmd}:*)"
+        if perm not in perms:
+            perms.append(perm)
+
+    # Plugin MCP server permissions
+    plugin_name = _get_plugin_name(info)
+    for server in info.plugin_mcp_servers:
+        perms.append(f"mcp__plugin_{plugin_name}_{server}__*")
+
+    return perms
+
+
+def _get_plugin_name(info: ProjectInfo) -> str:
+    """Extract plugin name from plugin.json for MCP permission patterns."""
+    for pj_path in (
+        info.root / ".claude-plugin" / "plugin.json",
+        info.root / "plugin.json",
+    ):
+        if pj_path.exists():
+            try:
+                data = json.loads(pj_path.read_text(encoding="utf-8"))
+                name = data.get("name")
+                if isinstance(name, str):
+                    return name
+            except (json.JSONDecodeError, OSError):
+                pass
+    return info.root.name
+
+
+def _init_permissions(info: ProjectInfo) -> list[str]:
+    """Generate or merge .claude/settings.json with standard permissions."""
+    settings_path = info.root / ".claude" / "settings.json"
+    standard_perms = build_standard_permissions(info)
+
+    existing: dict[str, object]
+    if settings_path.exists():
+        try:
+            raw = json.loads(settings_path.read_text(encoding="utf-8"))
+            existing = cast("dict[str, object]", raw) if isinstance(raw, dict) else {}
+        except (json.JSONDecodeError, OSError):
+            existing = {}
+    else:
+        existing = {}
+
+    perms_raw = existing.get("permissions")
+    permissions: dict[str, object] = (
+        cast("dict[str, object]", perms_raw) if isinstance(perms_raw, dict) else {}
+    )
+    existing["permissions"] = permissions
+
+    allow_raw = permissions.get("allow")
+    allow: list[object] = (
+        cast("list[object]", allow_raw) if isinstance(allow_raw, list) else []
+    )
+    permissions["allow"] = allow
+
+    # Merge: add missing permissions, never remove existing
+    allow_strs = [str(x) for x in allow]
+    added: list[str] = []
+    for perm in standard_perms:
+        if perm not in allow_strs:
+            allow.append(perm)
+            added.append(perm)
+
+    if not added:
+        return []
+
+    settings_path.parent.mkdir(parents=True, exist_ok=True)
+    settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+
+    rel = _relpath(settings_path, info.root)
+    if len(added) == len(allow):
+        console.print(f"  [green]+[/green] Created {rel} ({len(added)} permissions)")
+    else:
+        console.print(f"  [yellow]↻[/yellow] Updated {rel} (+{len(added)} permissions)")
+
+    return [rel]
+
+
+_CLAUDE_GITIGNORE_LINES = [
+    ".claude/",
+    "!.claude/settings.json",
+    "!.claude/hooks/",
+]
+
+
+def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
+    """Ensure .gitignore has the .claude/ pattern with settings.json exception."""
+    gitignore_path = info.root / ".gitignore"
+
+    existing = ""
+    if gitignore_path.exists():
+        existing = gitignore_path.read_text(encoding="utf-8")
+
+    # Check if the pattern is already present (all three lines)
+    if all(line in existing for line in _CLAUDE_GITIGNORE_LINES):
+        return []
+
+    # Find which lines are missing
+    missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in existing]
+    if not missing:
+        return []
+
+    # Append the full block if the anchor line (.claude/) is missing,
+    # otherwise just append the missing exception lines
+    block = "\n".join(_CLAUDE_GITIGNORE_LINES)
+    if ".claude/" not in existing:
+        # Append the full block
+        separator = "\n" if existing and not existing.endswith("\n") else ""
+        extra_newline = "\n" if existing else ""
+        updated = existing + separator + extra_newline + block + "\n"
+    else:
+        # .claude/ exists but exceptions are missing — append them after .claude/ line
+        lines = existing.split("\n")
+        insert_idx = None
+        for i, line in enumerate(lines):
+            if line.strip() == ".claude/":
+                insert_idx = i + 1
+                break
+        if insert_idx is not None:
+            for m in missing:
+                lines.insert(insert_idx, m)
+                insert_idx += 1
+            updated = "\n".join(lines)
+        else:
+            separator = "\n" if existing and not existing.endswith("\n") else ""
+            updated = existing + separator + "\n".join(missing) + "\n"
+
+    gitignore_path.write_text(updated, encoding="utf-8")
+
+    rel = _relpath(gitignore_path, info.root)
+    console.print(f"  [yellow]↻[/yellow] Updated {rel} (.claude/ exceptions)")
+    return [rel]
 
 
 def _report_manual_steps(info: ProjectInfo) -> None:

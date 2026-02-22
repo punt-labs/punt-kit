@@ -10,3 +10,10 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Session scratch files (not part of the project)
+session.md
+
+.claude/
+!.claude/settings.json
+!.claude/hooks/

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -36,6 +37,27 @@ def _make_compliant_python(tmp_path: Path) -> None:
     (workflows / "lint.yml").write_text("name: Lint\n")
     (workflows / "test.yml").write_text("name: Test\n")
     (workflows / "docs.yml").write_text("name: Docs\n")
+    # Standard permissions
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir(exist_ok=True)
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [
+                        "Bash(git:*)",
+                        "Bash(gh:*)",
+                        "Bash(bd:*)",
+                        "Bash(punt:*)",
+                        "Bash(uv:*)",
+                        "Bash(python3:*)",
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 
 def test_audit_docs_project(tmp_path: Path) -> None:
@@ -152,6 +174,63 @@ def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
     workflows.mkdir(parents=True)
     (workflows / "lint.yml").write_text("name: Lint\n")
     (workflows / "docs.yml").write_text("name: Docs\n")
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [
+                        "Bash(git:*)",
+                        "Bash(gh:*)",
+                        "Bash(bd:*)",
+                        "Bash(punt:*)",
+                        "Bash(npx:*)",
+                        "Bash(npm:*)",
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
     # Should pass — no Python-specific checks apply
+    run_audit(str(tmp_path))
+
+
+# --- Permission check tests ---
+
+
+def test_audit_fails_without_settings_json(tmp_path: Path) -> None:
+    """Audit fails when .claude/settings.json is missing."""
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.json").unlink()
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_fails_with_missing_permissions(tmp_path: Path) -> None:
+    """Audit fails when settings.json is missing standard permissions."""
+    _make_compliant_python(tmp_path)
+    # Overwrite with incomplete permissions
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Bash(git:*)"]}}, indent=2) + "\n"
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_passes_with_extra_permissions(tmp_path: Path) -> None:
+    """Audit passes when settings.json has extra permissions beyond standard."""
+    _make_compliant_python(tmp_path)
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    data["permissions"]["allow"].append("Bash(custom:*)")
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps(data, indent=2) + "\n"
+    )
+
+    # Should still pass — extra permissions are fine
     run_audit(str(tmp_path))

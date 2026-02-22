@@ -13,6 +13,7 @@ from typing import cast
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.init import build_standard_permissions
 
 console = Console()
 
@@ -47,10 +48,12 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_ci(info))
     results.extend(_check_tool_config(info))
     results.extend(_check_markdownlint(info, fix=fix))
+    results.extend(_check_markdownlint_content(info))
     results.extend(_check_py_typed(info, fix=fix))
     results.extend(_check_changelog(info, fix=fix))
     results.extend(_check_beads(info))
     results.extend(_check_claude_md(info))
+    results.extend(_check_permissions(info))
     results.extend(_check_github_settings(info))
 
     # Print results
@@ -221,6 +224,65 @@ def _check_markdownlint(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str,
     return results
 
 
+def _check_markdownlint_content(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Run markdownlint-cli2 on tracked markdown files to catch content errors."""
+    npx = shutil.which("npx")
+    if npx is None:
+        return [(INFO, "Markdown lint (npx not available)", "Install Node.js to run")]
+
+    # Only lint git-tracked files to avoid scratch file noise
+    tracked_md = _get_tracked_markdown(info.root)
+    if not tracked_md:
+        return [(INFO, "Markdown lint (no tracked .md files)", "")]
+
+    try:
+        result = subprocess.run(
+            [npx, "--yes", "markdownlint-cli2", *tracked_md],
+            cwd=str(info.root),
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            return [
+                (PASS, "Markdown lint passes", f"{len(tracked_md)} file(s) checked")
+            ]
+        # Count errors from output
+        error_lines = [
+            line
+            for line in result.stdout.splitlines()
+            if " error " in line or "MD0" in line
+        ]
+        return [
+            (
+                FAIL,
+                "Markdown lint passes",
+                f"{len(error_lines)} error(s) — run: npx markdownlint-cli2 '**/*.md'",
+            )
+        ]
+    except subprocess.TimeoutExpired:
+        return [(INFO, "Markdown lint (timed out)", "")]
+    except OSError:
+        return [(INFO, "Markdown lint (could not run)", "")]
+
+
+def _get_tracked_markdown(root: Path) -> list[str]:
+    """Get list of git-tracked markdown files relative to root."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "*.md", "**/*.md"],
+            cwd=str(root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return []
+        return [f for f in result.stdout.strip().splitlines() if f.endswith(".md")]
+    except (subprocess.TimeoutExpired, OSError):
+        return []
+
+
 def _check_py_typed(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, str]]:
     """Check py.typed marker file for Python packages."""
     if info.language != "python":
@@ -367,6 +429,52 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
     except (subprocess.TimeoutExpired, OSError):
         results.append((INFO, "Dependabot alerts (could not check)", ""))
+
+    return results
+
+
+def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check .claude/settings.json has standard permissions for this project type."""
+    results: list[tuple[str, str, str]] = []
+    settings_path = info.root / ".claude" / "settings.json"
+
+    if not settings_path.exists():
+        results.append(
+            (
+                FAIL,
+                ".claude/settings.json exists",
+                "Missing — run punt init",
+            )
+        )
+        return results
+
+    results.append((PASS, ".claude/settings.json exists", ""))
+
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        results.append((FAIL, "settings.json is valid JSON", "Parse error"))
+        return results
+
+    allow: list[object] = data.get("permissions", {}).get("allow", [])
+    allow_strs = [str(x) for x in allow]
+
+    standard = build_standard_permissions(info)
+    missing = [p for p in standard if p not in allow_strs]
+
+    if missing:
+        results.append(
+            (
+                FAIL,
+                "Standard permissions present",
+                f"Missing {len(missing)}: {', '.join(missing[:5])}"
+                + ("..." if len(missing) > 5 else ""),
+            )
+        )
+    else:
+        results.append(
+            (PASS, "Standard permissions present", f"{len(standard)} standard entries")
+        )
 
     return results
 
