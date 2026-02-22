@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import tomllib
 from typing import TYPE_CHECKING
 
@@ -209,3 +210,208 @@ def test_init_skips_existing_workflow_files(tmp_path: Path) -> None:
     run_init(str(tmp_path))
 
     assert lint_yml.read_text() == customized
+
+
+# --- Permission scaffolding tests ---
+
+
+def test_init_creates_permissions_python(tmp_path: Path) -> None:
+    """Init creates .claude/settings.json with Python-specific permissions."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    assert settings.exists()
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    # Base permissions
+    assert "Bash(git:*)" in allow
+    assert "Bash(gh:*)" in allow
+    assert "Bash(bd:*)" in allow
+    assert "Bash(punt:*)" in allow
+
+    # Python-specific
+    assert "Bash(uv:*)" in allow
+    assert "Bash(python3:*)" in allow
+
+    # Should NOT have Swift or Node
+    assert "Bash(make:*)" not in allow
+    assert "Bash(npx:*)" not in allow
+
+
+def test_init_creates_permissions_swift(tmp_path: Path) -> None:
+    """Init creates .claude/settings.json with Swift-specific permissions."""
+    (tmp_path / "project.yml").write_text("name: TestApp\n")
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    assert settings.exists()
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    assert "Bash(make:*)" in allow
+    assert "Bash(swift:*)" in allow
+    assert "Bash(xcodebuild:*)" in allow
+
+    # Should NOT have Python-specific
+    assert "Bash(uv:*)" not in allow
+
+
+def test_init_creates_permissions_node(tmp_path: Path) -> None:
+    """Init creates .claude/settings.json with Node-specific permissions."""
+    (tmp_path / "package.json").write_text('{"name": "test"}')
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    assert settings.exists()
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    assert "Bash(npx:*)" in allow
+    assert "Bash(npm:*)" in allow
+
+
+def test_init_permissions_include_plugin_mcp_servers(tmp_path: Path) -> None:
+    """Init adds MCP permission patterns for plugin servers."""
+    (tmp_path / "README.md").write_text("# Test")
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "myplug",
+                "description": "Test plugin",
+                "mcpServers": {"grimoire": {"command": "node", "args": ["server.js"]}},
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    assert "mcp__plugin_myplug_grimoire__*" in allow
+
+
+def test_init_permissions_include_cli_commands(tmp_path: Path) -> None:
+    """Init adds Bash permissions for CLI entry points from pyproject scripts."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "punt-quarry"\n\n'
+        '[project.scripts]\nquarry = "quarry.cli:app"\n'
+    )
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    assert "Bash(quarry:*)" in allow
+
+
+def test_init_permissions_merge_existing(tmp_path: Path) -> None:
+    """Init merges permissions into existing settings.json without removing entries."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    # Pre-existing settings with custom permission and other config
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {"allow": ["Bash(custom:*)", "Bash(git:*)"]},
+                "env": {"MY_VAR": "value"},
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    data = json.loads((settings_dir / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+
+    # Existing entries preserved
+    assert "Bash(custom:*)" in allow
+    assert "Bash(git:*)" in allow
+    # New entries added
+    assert "Bash(uv:*)" in allow
+    # Non-permission fields preserved
+    assert data["env"]["MY_VAR"] == "value"
+
+
+def test_init_permissions_no_duplicates(tmp_path: Path) -> None:
+    """Init does not duplicate permissions that already exist."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+    first = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+
+    run_init(str(tmp_path))
+    second = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+
+    assert first == second
+
+
+# --- Gitignore tests ---
+
+
+def test_init_creates_gitignore_claude_pattern(tmp_path: Path) -> None:
+    """Init adds .claude/ gitignore pattern with exceptions."""
+    (tmp_path / "README.md").write_text("# Test")
+
+    run_init(str(tmp_path))
+
+    gitignore = tmp_path / ".gitignore"
+    assert gitignore.exists()
+    content = gitignore.read_text()
+    assert ".claude/" in content
+    assert "!.claude/settings.json" in content
+    assert "!.claude/hooks/" in content
+
+
+def test_init_appends_gitignore_to_existing(tmp_path: Path) -> None:
+    """Init appends .claude/ pattern to existing .gitignore."""
+    (tmp_path / ".gitignore").write_text("*.pyc\n__pycache__/\n")
+    (tmp_path / "README.md").write_text("# Test")
+
+    run_init(str(tmp_path))
+
+    content = (tmp_path / ".gitignore").read_text()
+    assert "*.pyc" in content
+    assert ".claude/" in content
+    assert "!.claude/settings.json" in content
+
+
+def test_init_gitignore_idempotent(tmp_path: Path) -> None:
+    """Init does not duplicate .claude/ gitignore pattern."""
+    (tmp_path / "README.md").write_text("# Test")
+
+    run_init(str(tmp_path))
+    first = (tmp_path / ".gitignore").read_text()
+
+    run_init(str(tmp_path))
+    second = (tmp_path / ".gitignore").read_text()
+
+    assert first == second
+    # Count only the bare ".claude/" line, not substrings in exception lines
+    assert second.split("\n").count(".claude/") == 1
+
+
+def test_init_gitignore_adds_missing_exceptions(tmp_path: Path) -> None:
+    """Init adds missing exception lines when .claude/ already in gitignore."""
+    (tmp_path / ".gitignore").write_text(".claude/\n")
+    (tmp_path / "README.md").write_text("# Test")
+
+    run_init(str(tmp_path))
+
+    content = (tmp_path / ".gitignore").read_text()
+    assert "!.claude/settings.json" in content
+    assert "!.claude/hooks/" in content
+    # Should still have only one .claude/ line
+    assert content.count(".claude/\n") == 1

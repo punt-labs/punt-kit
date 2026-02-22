@@ -6,7 +6,7 @@ import json
 import re
 import tomllib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -28,6 +28,8 @@ class ProjectInfo:
     package_json: dict[str, object] | None = None
     workflow_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     standards_refs: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    cli_commands: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    plugin_mcp_servers: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
 
 def detect(root: Path) -> ProjectInfo:
@@ -105,6 +107,29 @@ def detect(root: Path) -> ProjectInfo:
         if md_files:
             project_type = "docs"
 
+    # Extract CLI entry points from pyproject.toml [project.scripts]
+    cli_commands: list[str] = []
+    if pyproject_data is not None:
+        project_raw = pyproject_data.get("project")
+        if isinstance(project_raw, dict):
+            project_dict = cast("dict[str, object]", project_raw)
+            scripts = project_dict.get("scripts")
+            if isinstance(scripts, dict):
+                cli_commands = list(cast("dict[str, object]", scripts).keys())
+
+    # Extract MCP server names from plugin.json
+    plugin_mcp_servers: list[str] = []
+    for pj_path in (plugin_json, plugin_json_alt):
+        if pj_path.exists():
+            try:
+                pj_data = json.loads(pj_path.read_text(encoding="utf-8"))
+                servers = pj_data.get("mcpServers")
+                if isinstance(servers, dict):
+                    plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
+            except (json.JSONDecodeError, OSError):
+                pass
+            break
+
     # All projects get these standard refs
     standards_refs.append("github")
     standards_refs.append("workflow")
@@ -124,6 +149,8 @@ def detect(root: Path) -> ProjectInfo:
         package_json=package_json_data,
         workflow_files=workflow_files,
         standards_refs=standards_refs,
+        cli_commands=cli_commands,
+        plugin_mcp_servers=plugin_mcp_servers,
     )
 
 
