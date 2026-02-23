@@ -26,7 +26,7 @@ Mutate the tool's `description` field in-place to include the current state:
 
 When the description changes, fire `notifications/tools/list_changed` so Claude Code re-reads the tool list. The model then sees the updated description and can proactively act on it.
 
-### 2. tools/list_changed notification
+### 2. notifications/tools/list_changed
 
 The notification must be sent through two code paths because MCP tool handlers and background tasks have different access to the session:
 
@@ -35,7 +35,7 @@ The notification must be sent through two code paths because MCP tool handlers a
 
 ### 3. Status line file
 
-A background poller writes state to a JSON file (e.g., `~/.biff/unread/{ppid}.json`). The status line script reads and displays it. This is the **human-visible** channel — the model cannot read the status line, and the human cannot easily read tool descriptions.
+A background poller writes state to a JSON file (e.g., `~/.biff/unread/{key}.json`, where `key` is the topmost `claude` ancestor PID — see [Sibling PPID](sibling-ppid.md)). The status line script reads and displays it. This is the **human-visible** channel — the model cannot read the status line, and the human cannot easily read tool descriptions.
 
 ## Consequences
 
@@ -48,9 +48,10 @@ A background poller writes state to a JSON file (e.g., `~/.biff/unread/{ppid}.js
 ## Related Patterns
 
 - [Two-Channel Display](two-channel-display.md) — Handles the pull path (user requests data); Dynamic Description Notify handles the push path (data arrives while idle).
-- [Sibling PPID](sibling-ppid.md) — The status line file (mechanism 3) uses PPID as the shared key between the MCP server that writes it and the status line command that reads it.
+- [Sibling PPID](sibling-ppid.md) — The status line file (mechanism 3) uses the topmost `claude` ancestor PID as the shared key between the MCP server that writes it and the status line command that reads it.
 - [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the unread file is installed via the Stash and Wrap pattern.
 
 ## Known Uses
 
-- **Biff** — Background poller (`poll_inbox`) runs every 2 seconds. On unread count change, mutates `read_messages` tool description and fires `tools/list_changed`. Status line shows `biff(2)` for 2 unread messages.
+- **Biff (inbox)** — Background poller (`poll_inbox`) runs every 2 seconds. On unread count change, mutates `read_messages` tool description and fires `notifications/tools/list_changed`. Status line shows `biff(2)` for 2 unread messages.
+- **Biff (wall)** — Same poller monitors team wall broadcasts. On wall change, mutates `wall` tool description to show the banner text, remaining duration, and author. Wall text content is sanitized (control chars and ANSI escapes stripped); the status line renderer then applies bold red formatting to the clean text, showing `WALL: release freeze`.
