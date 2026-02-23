@@ -53,4 +53,5 @@ A background poller writes state to a JSON file (e.g., `~/.biff/unread/{ppid}.js
 
 ## Known Uses
 
-- **Biff** — Background poller (`poll_inbox`) runs every 2 seconds. On unread count change, mutates `read_messages` tool description and fires `tools/list_changed`. Status line shows `biff(2)` for 2 unread messages.
+- **Biff (inbox)** — Background poller (`poll_inbox`) runs every 2 seconds. On unread count change, mutates `read_messages` tool description and fires `tools/list_changed`. Status line shows `biff(2)` for 2 unread messages.
+- **Biff (wall)** — Same poller monitors team wall broadcasts. On wall change, mutates `wall` tool description to show the banner text, remaining duration, and author. Status line shows `WALL: release freeze` in bold red. Wall text is sanitized (control chars and ANSI escapes stripped) before display.
