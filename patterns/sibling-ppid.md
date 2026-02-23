@@ -21,8 +21,8 @@ Walk the process tree upward to find the **topmost `claude` ancestor PID** and u
 
 1. Run `ps -eo pid=,ppid=,comm=` to snapshot the full process table.
 2. Walk from `os.getpid()` upward through the parent chain.
-3. Track the highest PID whose `comm` basename is `claude`.
-4. Return that PID. If no `claude` ancestor is found, fall back to `os.getppid()`.
+3. Track the topmost ancestor whose `comm` basename is `claude` (the last `claude` encountered while walking toward PID 1).
+4. Return that ancestor's PID. If no `claude` ancestor is found, fall back to `os.getppid()`.
 
 ### Why not `os.getppid()`
 
@@ -70,7 +70,7 @@ The MCP server deletes its keyed file in the lifespan `finally` block on shutdow
 ## Related Patterns
 
 - [Dynamic Description Notify](dynamic-description-notify.md) — The MCP server writes the state file that Sibling PPID makes addressable. The status line reads it.
-- [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the PPID-keyed file is installed via Stash and Wrap.
+- [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the ancestor-keyed file is installed via Stash and Wrap.
 
 ## Known Uses
 
