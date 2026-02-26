@@ -58,6 +58,7 @@ set -euo pipefail
 
 - `cd` must always have a fallback: `cd "$dir" || exit 1`.
 - Check command existence before use: `command -v tool >/dev/null 2>&1 || { printf '%s\n' "tool not found"; exit 1; }`.
+- Under `set -eu`, subcommands that may fail must be wrapped in `if !` guards so failures produce error messages instead of silent script death: `if ! "$BINARY" install; then fail "Install failed"; fi`.
 - Use `printf` over `echo` for portable output. Never use variables in `printf` format strings (SC2059).
 
 ### Style

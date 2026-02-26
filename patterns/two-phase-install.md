@@ -29,7 +29,7 @@ An explicit CLI subcommand that registers everything with Claude Code:
 4. Register in plugin registry (`installed_plugins.json`)
 5. Enable in settings (`settings.json`)
 
-Phase 2 is idempotent — every step checks for existing state and overwrites or skips as appropriate. Running it twice is safe and handles upgrades.
+Phase 2 is idempotent — every step checks for existing state and overwrites or skips as appropriate. Running it twice is safe and handles upgrades. For marketplace plugins, `claude plugin install` fails if the plugin is already installed. The install function must detect this (check for "already" in stderr) and fall through to `claude plugin update` to pull the latest version.
 
 ### Bootstrap script
 

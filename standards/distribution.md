@@ -107,6 +107,9 @@ scripts:
   `claude` CLI for projects that need it.
 - **Idempotent** — safe to re-run. Upgrades if already installed.
 - **Transparent** — print each step before executing it.
+- **SSH fallback** — `claude plugin install` clones via SSH. Detect missing
+  SSH keys and temporarily rewrite git URLs to HTTPS. Clean up the rewrite
+  after both success and failure paths.
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
 Pattern: `biff/install.sh`, `quarry/install.sh`.
