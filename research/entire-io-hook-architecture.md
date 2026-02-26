@@ -9,6 +9,7 @@
 Entire.io captures the *reasoning* behind AI-generated code. Git tracks the "what" (final code). Entire tracks the "why" (the prompts, decisions, and context that produced it). Founded by former GitHub CEO Thomas Dohmke, launched February 2026 with $60M.
 
 Key concepts:
+
 - **Checkpoints** — save points within a session, stored on a separate git branch
 - **Sessions** — one AI coding session, tied to commits
 - **Rewind** — restore project state to any checkpoint, keeping good progress
@@ -74,7 +75,7 @@ Four hooks on the git lifecycle:
 
 ### 3. Local Data (`.entire/`)
 
-```
+```text
 .entire/
   .gitignore          # Excludes tmp/, settings.local.json, metadata/, logs/
   logs/               # Debug logs
@@ -96,6 +97,7 @@ Four hooks on the git lifecycle:
 ### Pattern 1: Dual-Layer Capture
 
 Entire hooks into **both** Claude Code lifecycle and git lifecycle. This gives complete coverage:
+
 - Claude Code hooks capture *agent behavior* (what the AI did and why)
 - Git hooks capture *code lifecycle* (when commits happen, when pushes happen)
 
@@ -106,15 +108,18 @@ Neither layer alone is sufficient. Claude Code hooks miss manual git operations.
 Entire is selective about which events it hooks:
 
 **Broad matchers (all occurrences):**
+
 - SessionStart, SessionEnd — session boundaries
 - UserPromptSubmit — every human message
 - Stop — every agent turn completion
 
 **Narrow matchers (specific tools):**
+
 - PreToolUse/PostToolUse on `Task` — subagent lifecycle only
 - PostToolUse on `TodoWrite` — work planning changes only
 
-**Deliberately unhoooked:**
+**Deliberately unhooked:**
+
 - Edit, Write, Bash, Read — too noisy for session recording; file changes are captured by git diff instead
 - Notification, SubagentStart, PreCompact — low-value for provenance
 
@@ -133,6 +138,7 @@ Prevents the AI from reading its own session recordings. Avoids recursive self-r
 ### Pattern 5: CLI as Hook Dispatcher
 
 All hooks call `entire hooks <agent> <event>` — the CLI binary is the single entry point. This means:
+
 - Hook scripts don't contain logic — they're one-liners
 - All logic lives in the compiled CLI, versioned and testable
 - Updating the CLI updates all hook behavior without reinstalling hooks
@@ -140,7 +146,7 @@ All hooks call `entire hooks <agent> <event>` — the CLI binary is the single e
 
 ### Pattern 6: Settings Files — Shared vs. Local
 
-```
+```text
 .entire/settings.json        # Committed — team-shared strategy
 .entire/settings.local.json  # Gitignored — personal overrides
 ```
@@ -174,6 +180,7 @@ As of Claude Code 2.1.50, 16 hook events exist:
 ### Output Capabilities
 
 All hooks can output:
+
 - `additionalContext` — text injected as context for Claude
 - `updatedMCPToolOutput` — replaces tool result panel text (PostToolUse only)
 - `permissionDecision` — allow/deny/ask (PreToolUse, PermissionRequest)
