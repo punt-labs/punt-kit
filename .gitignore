@@ -13,6 +13,7 @@ dist/
 
 # Session scratch files (not part of the project)
 session.md
+.bin/
 
 .claude/
 !.claude/settings.json
