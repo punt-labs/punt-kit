@@ -5,8 +5,7 @@
 # This is a thin orchestrator. Each CLI tool has its own installer that handles
 # pre-flight checks, uv setup, and plugin registration independently. This
 # script curls them in sequence and adds the pure-plugin installs that have no
-# standalone installer. Child installer URLs use main (not pinned SHAs) so this
-# script always fetches the latest version of each individual installer.
+# standalone installer. Child installer URLs are pinned to auditable SHAs.
 set -eu
 
 # --- Colors (disabled when not a terminal) ---
@@ -37,22 +36,22 @@ fi
 # --- Step 1: Marketplace ---
 
 banner "Marketplace"
-curl -fsSL "$GH/claude-plugins/main/install.sh" | sh
+curl -fsSL "$GH/claude-plugins/8ba82a3/install.sh" | sh
 
 # --- Step 2: CLI tools ---
 # Each installer handles its own pre-flight (Python, uv, SSH fallback).
 
 banner "punt-kit"
-curl -fsSL "$GH/punt-kit/main/install.sh" | sh
+curl -fsSL "$GH/punt-kit/7bf2735/install.sh" | sh
 
 banner "biff"
-curl -fsSL "$GH/biff/main/install.sh" | sh
+curl -fsSL "$GH/biff/419ac99/install.sh" | sh
 
 banner "quarry"
-curl -fsSL "$GH/quarry/main/install.sh" | sh
+curl -fsSL "$GH/quarry/0e4e6d1/install.sh" | sh
 
 banner "tts"
-curl -fsSL "$GH/tts/main/install.sh" | sh
+curl -fsSL "$GH/tts/2d8922f/install.sh" | sh
 
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
