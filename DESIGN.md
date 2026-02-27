@@ -139,16 +139,8 @@ Pinning `source.ref` in the remote marketplace.json only helps when the local cl
 
 The installer must refresh the marketplace clone before running `claude plugin install`, using the supported CLI command:
 
-```python
-def _refresh_marketplace() -> StepResult:
-    claude = shutil.which("claude")
-    if not claude:
-        return StepResult("Marketplace refresh", False, "claude CLI not found on PATH")
-    result = subprocess.run(
-        [claude, "plugin", "marketplace", "update", MARKETPLACE_KEY],
-        capture_output=True, text=True, check=False,
-    )
-    ...
+```bash
+claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true
 ```
 
 This uses `claude plugin marketplace update` rather than operating on the clone directly, consistent with DES-002 (CLI over config file editing). New users get a fresh clone. Existing users get the latest `source.ref` pins.

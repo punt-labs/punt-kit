@@ -31,7 +31,10 @@ This gives you:
 | Local `punt-dev` | `/punt-dev init-dev`, `/punt-dev audit-dev` | `uv run` against working tree |
 
 The `-dev` commands use `uv run --directory ${CLAUDE_PLUGIN_ROOT}` to execute
-the working tree code directly, bypassing the installed CLI.
+the working tree code directly, bypassing the installed CLI. For editable-install
+projects (tts, biff), the installed binary already points to the working tree, so
+dev commands can use the binary name directly. The key invariant is that dev
+commands always execute the working tree.
 
 ### Namespace scope
 
@@ -100,6 +103,10 @@ Plugins that expose MCP tools must declare them in `plugin.json` using the
   }
 }
 ```
+
+The `"command"` field must reference the installed CLI binary name (e.g.
+`"biff"`, `"tts"`), not `uv run`. Plugin consumers install via the marketplace
+and do not have a uv project directory — `uv run` would fail.
 
 **Do not use `.mcp.json` for plugin MCP servers.** The marketplace cache is a
 full git clone — any `.mcp.json` committed to the repo will be loaded as a

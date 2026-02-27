@@ -2,50 +2,66 @@
 
 ## Problem
 
-A PyPI package bundles plugin files (command prompts, hooks, manifests) that must be deployed to `~/.claude/plugins/<name>/`. The files need to survive package upgrades, virtualenv moves, and `pip uninstall` without breaking the plugin.
+Claude Code marketplace plugins provide namespaced commands (`/biff:who`) but
+users want top-level shortcuts (`/who`). The marketplace cache is read-only and
+managed by `claude plugin install` — plugins cannot write to it. Top-level
+commands must be deployed to `~/.claude/commands/`, which is outside the plugin's
+directory.
 
 ## Forces
 
-- Symlinks point to a specific filesystem location. If the virtualenv moves, the package upgrades to a new version, or `pip uninstall` runs, the symlinks break and the plugin silently stops working.
-- `importlib.resources` provides a stable, version-correct path to package data regardless of installation method (editable install, wheel, sdist).
-- Claude Code loads plugin files from `~/.claude/plugins/<name>/` at startup. Broken files mean broken commands with no clear error message.
-- Upgrades should update plugin files to match the new package version.
+- The marketplace cache (`~/.claude/plugins/cache/...`) is a git clone managed
+  by Claude Code. Plugins should not modify it.
+- User commands in `~/.claude/commands/` are top-level (`/<command>`).
+- Symlinks from `~/.claude/commands/` into the cache would break if the cache is
+  updated, moved, or cleaned.
+- The deployment must be idempotent — safe to re-run on every session start.
 
 ## Solution
 
-Use `importlib.resources.files("<package>.plugins")` to locate the bundled plugin source, then `shutil.copytree()` to copy the entire directory to `~/.claude/plugins/<name>/`. On upgrade, remove the target directory first and re-copy.
+The SessionStart hook copies command `.md` files from the plugin's commands
+directory (`${CLAUDE_PLUGIN_ROOT}/commands/`) to `~/.claude/commands/`. Files
+that already exist are skipped (the user may have customized them).
 
-```python
-import importlib.resources
-import shutil
+```bash
+# In hooks/session-start.sh
+COMMANDS_DIR="$HOME/.claude/commands"
+mkdir -p "$COMMANDS_DIR"
 
-source = importlib.resources.files("mypackage.plugins.mypackage")
-target = Path.home() / ".claude" / "plugins" / "mypackage"
-
-if target.exists():
-    shutil.rmtree(target)
-shutil.copytree(str(source), str(target))
+for cmd in "${CLAUDE_PLUGIN_ROOT}/commands/"*.md; do
+  name="$(basename "$cmd")"
+  # Skip dev commands — only deploy prod commands
+  case "$name" in *-dev.md) continue ;; esac
+  target="$COMMANDS_DIR/$name"
+  [ -f "$target" ] || cp "$cmd" "$target"
+done
 ```
 
-The same approach works for user commands — copy individual `.md` files to `~/.claude/commands/`.
+Copies are self-contained and survive cache updates, reinstalls, and plugin
+removal. The plugin is the source of truth — hand-edits to deployed commands
+are preserved until the user deletes them and restarts (triggering re-copy).
 
 ## Consequences
 
-- Plugin files are self-contained and survive package lifecycle changes.
-- Upgrades get new plugin files by re-running the install command.
-- No symlink management, no marketplace manifest, no filesystem coupling.
-- Hand-edits to deployed plugin files are overwritten on next install. This is intentional — the package is the source of truth.
-- The install command must be rerun after package upgrades to pick up new plugin files.
-
-## Rejected Alternative: Local Marketplace Symlinks
-
-Claude Code has a "local marketplace" pattern using symlinks and `marketplace.json`. This was rejected because it requires maintaining a separate manifest, ties the plugin to a specific filesystem path, and adds indirection without benefit. The copy approach is simpler: one step, no manifest, no symlink management.
+- Top-level commands survive marketplace cache operations.
+- No symlink management, no filesystem coupling between cache and user dir.
+- SessionStart is the deployment mechanism — commands activate on restart.
+- First install requires two restarts: install → restart 1 (hook runs, copies
+  commands) → restart 2 (commands active).
+- The `uninstall` subcommand must clean up deployed commands by matching
+  filenames against the plugin's bundled command list.
 
 ## Related Patterns
 
-- [Two-Phase Install](two-phase-install.md) — Copy, Not Symlink is the deployment mechanism used during Phase 2 of the Two-Phase Install.
-- [Dual Command Path](dual-command-path.md) — The same copy mechanism deploys command files to both plugin and user command directories.
+- [Two-Phase Install](two-phase-install.md) — Copy, Not Symlink is the
+  deployment mechanism that runs after Phase 2 (plugin install), triggered by
+  the SessionStart hook.
+- [Dual Command Path](dual-command-path.md) — Explains why commands exist in
+  two locations (namespaced in plugin, top-level in user dir).
 
 ## Known Uses
 
-- **Biff** — `biff install` copies from `importlib.resources.files("biff.plugins.biff")` to `~/.claude/plugins/biff/`. The `biff@local` registry key mimics the local plugin convention without the marketplace indirection.
+- **Biff** — `hooks/session-start.sh` copies `who.md`, `finger.md`, `write.md`,
+  etc. to `~/.claude/commands/`. Skips `*-dev.md` files.
+- **TTS** — Same pattern for `notify.md`, `say.md`, `recap.md`, etc.
+- **punt-kit** — Same pattern for `audit.md`, `init.md`, etc.

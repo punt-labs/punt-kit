@@ -337,3 +337,165 @@ def test_audit_plugin_non_plugin_skips_check(tmp_path: Path) -> None:
     _make_compliant_python(tmp_path)
     # No .claude-plugin/ — should not fail on missing dev commands
     run_audit(str(tmp_path))
+
+
+# --- Hybrid install.sh tests ---
+
+
+def _make_compliant_hybrid(tmp_path: Path) -> None:
+    """Create a compliant hybrid project (CLI + plugin) scaffold."""
+    _make_compliant_python(tmp_path)
+
+    # Add CLI entry point and version to pyproject.toml
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "test"\nversion = "1.0.0"\n\n'
+        "[project.scripts]\ntest-cli = 'test_pkg:main'\n\n"
+        "[tool.ruff]\nline-length = 88\n\n"
+        "[tool.ruff.lint]\nselect = ['E']\n\n"
+        "[tool.mypy]\nstrict = true\n\n"
+        '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+    )
+
+    # Update permissions to include CLI command
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [
+                        "Bash(git:*)",
+                        "Bash(gh:*)",
+                        "Bash(bd:*)",
+                        "Bash(punt:*)",
+                        "Bash(uv:*)",
+                        "Bash(python3:*)",
+                        "Bash(test-cli:*)",
+                    ]
+                }
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+    # Plugin structure
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir(exist_ok=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps(
+            {
+                "name": "test-dev",
+                "description": "Test hybrid plugin",
+                "version": "1.0.0",
+                "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+    # Commands with dev variants
+    commands_dir = tmp_path / "commands"
+    commands_dir.mkdir(exist_ok=True)
+    (commands_dir / "audit.md").write_text("---\ndescription: Audit\n---\n")
+    (commands_dir / "audit-dev.md").write_text("---\ndescription: Audit dev\n---\n")
+
+    # Release/restore scripts
+    scripts_dir = tmp_path / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
+
+    # Compliant install.sh
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\nset -eu\n"
+        "# marketplace update\n"
+        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
+        "# SSH fallback\n"
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
+        "# verify\n"
+        '"$BINARY" doctor\n'
+    )
+
+    # README with SHA-pinned URLs
+    readme_url = "https://raw.githubusercontent.com/punt-labs/test/abc1234/install.sh"
+    (tmp_path / "README.md").write_text(
+        f"# Test\n\n```bash\ncurl -fsSL {readme_url} | sh\n```\n"
+    )
+
+
+def test_audit_hybrid_install_sh_passes(tmp_path: Path) -> None:
+    """Audit passes for compliant hybrid project with install.sh."""
+    _make_compliant_hybrid(tmp_path)
+    run_audit(str(tmp_path))
+
+
+def test_audit_hybrid_install_sh_fails_missing(tmp_path: Path) -> None:
+    """Audit fails when hybrid project is missing install.sh."""
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").unlink()
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_hybrid_install_sh_fails_no_marketplace_refresh(tmp_path: Path) -> None:
+    """Audit fails when install.sh is missing marketplace update step."""
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\nset -eu\n"
+        "# SSH fallback\n"
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
+        '"$BINARY" doctor\n'
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+# --- README SHA pin tests ---
+
+
+def test_audit_readme_sha_pins_pass(tmp_path: Path) -> None:
+    """Audit passes when README has SHA-pinned raw GitHub URLs."""
+    _make_compliant_hybrid(tmp_path)
+    run_audit(str(tmp_path))
+
+
+def test_audit_readme_sha_pins_fail_branch(tmp_path: Path) -> None:
+    """Audit fails when README has branch name instead of SHA in raw GitHub URL."""
+    _make_compliant_hybrid(tmp_path)
+    readme_url = "https://raw.githubusercontent.com/punt-labs/test/main/install.sh"
+    (tmp_path / "README.md").write_text(
+        f"# Test\n\n```bash\ncurl -fsSL {readme_url} | sh\n```\n"
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+# --- Plugin version sync tests ---
+
+
+def test_audit_plugin_version_sync_passes(tmp_path: Path) -> None:
+    """Audit passes when plugin.json and pyproject.toml versions match."""
+    _make_compliant_hybrid(tmp_path)
+    run_audit(str(tmp_path))
+
+
+def test_audit_plugin_version_sync_fails(tmp_path: Path) -> None:
+    """Audit fails when plugin.json and pyproject.toml versions differ."""
+    _make_compliant_hybrid(tmp_path)
+    # Mismatch: plugin.json=1.0.0, pyproject.toml=2.0.0
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "test"\nversion = "2.0.0"\n\n'
+        "[project.scripts]\ntest-cli = 'test_pkg:main'\n\n"
+        "[tool.ruff]\nline-length = 88\n\n"
+        "[tool.ruff.lint]\nselect = ['E']\n\n"
+        "[tool.mypy]\nstrict = true\n\n"
+        '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
