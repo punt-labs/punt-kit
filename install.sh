@@ -108,6 +108,7 @@ if command -v claude >/dev/null 2>&1; then
     ok "marketplace registered"
   fi
 
+  claude plugin uninstall punt@punt-labs 2>/dev/null || true
   if claude plugin install punt@punt-labs --scope user 2>/dev/null; then
     ok "Claude Code plugin installed"
   else
