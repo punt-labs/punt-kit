@@ -14,7 +14,7 @@ Each projection has its own distribution channel:
 |------------|--------|---------|
 | Library | Python code (same process) | PyPI (`uv add punt-<name>`) |
 | CLI | Human at terminal | PyPI (`uv tool install punt-<name>`) |
-| MCP server | AI agent (same machine) | `<name> install` → `claude mcp add` |
+| MCP server | AI agent (same machine) | `claude mcp add` (standalone) or plugin `mcpServers` (hybrid) |
 | Plugin shell | AI agent (enhanced UX) | Marketplace (`claude plugin install`) |
 | Desktop bundle | Claude Desktop user | `.mcpb` one-click install |
 | Native app | End user | App Store, TestFlight, Homebrew |
@@ -110,6 +110,8 @@ scripts:
 - **SSH fallback** — `claude plugin install` clones via SSH. Detect missing
   SSH keys and temporarily rewrite git URLs to HTTPS. Clean up the rewrite
   after both success and failure paths.
+- **Marketplace refresh** — run `claude plugin marketplace update` before
+  `claude plugin install` so existing users pick up `source.ref` pins (DES-003).
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
 Pattern: `biff/install.sh`, `quarry/install.sh`.
@@ -131,10 +133,16 @@ hybrid projects, the `install` subcommand handles this automatically. For users
 who only want pure plugins, a one-time setup:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/claude-plugins/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/claude-plugins/<SHA>/install.sh | sh
 ```
 
 Or manually: `claude plugin marketplace add punt-labs/claude-plugins`.
+
+Every marketplace entry must have `source.ref` pinned to the release tag. Without
+it, `claude plugin install` clones HEAD of the default branch, which may include
+dev artifacts. See DES-003 in DESIGN.md for the full root cause analysis. The
+release workflow must update both `version` and `source.ref` in the marketplace
+entry.
 
 ---
 
@@ -156,36 +164,36 @@ claude plugin install dungeon@punt-labs
 
 ### CLI + MCP server projects
 
-Examples: quarry, langlearn-tts.
+Examples: langlearn-tts.
 
 The library and CLI are the primary artifacts (PyPI). The `install` subcommand
 registers the MCP server with Claude Code. No plugin shell — no hooks, no slash
 commands, no marketplace involvement.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/quarry/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/langlearn-tts/<SHA>/install.sh | sh
 ```
 
-The script installs the CLI via uv, runs `quarry install` (registers MCP
-server), and runs `quarry doctor`. Should also have a **`.mcpb` bundle** for
+The script installs the CLI via uv, runs `<tool> install` (registers MCP
+server), and runs `<tool> doctor`. Should also have a **`.mcpb` bundle** for
 one-click Claude Desktop installation. Build with `@anthropic-ai/mcpb` via
 `scripts/build-mcpb.sh`. Attach to GitHub releases.
 
 ### CLI + plugin hybrids
 
-Examples: biff.
+Examples: biff, quarry, tts, punt-kit.
 
 Two artifacts: a CLI tool (PyPI) and a plugin shell (marketplace). The plugin's
 MCP server declaration references the CLI binary, so the CLI must be installed
 first. The `install.sh` sequences everything:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/biff/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/biff/<SHA>/install.sh | sh
 # Restart Claude Code twice (SessionStart hook, then commands active)
 ```
 
-The script installs the CLI via uv, runs `biff install` (registers marketplace,
-installs plugin), and runs `biff doctor`.
+The `install.sh` is the user-facing entry point. It chains: uv install →
+marketplace register → marketplace refresh → plugin install → doctor.
 
 Use the plugin shell only when the project needs hooks (output formatting,
 session setup) or slash commands. If it's just MCP tools, use the simpler

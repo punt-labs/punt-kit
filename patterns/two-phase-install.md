@@ -2,60 +2,86 @@
 
 ## Problem
 
-A PyPI package that provides both a CLI tool and a Claude Code integration (MCP server, plugin, commands, hooks) cannot complete its Claude Code setup during `pip install`. The `claude` CLI may not be on PATH during installation (CI, virtualenvs, Docker), the user may install the package before installing Claude Code, and writing to `~/.claude/` from a pip post-install hook is fragile and non-standard.
+A PyPI package that provides both a CLI tool and a Claude Code integration (MCP
+server, plugin, commands, hooks) cannot complete its Claude Code setup during
+`uv tool install`. The `claude` CLI may not be on PATH during installation (CI,
+containers), the user may install the package before installing Claude Code, and
+modifying `~/.claude/` from a package installer is fragile and non-standard.
 
 ## Forces
 
-- `pip install` runs in unpredictable environments where `claude` may not exist.
-- Claude Code integration requires writing to `~/.claude.json` (MCP registration), `~/.claude/plugins/` (plugin files), `~/.claude/settings.json` (plugin enablement), and `~/.claude/plugins/installed_plugins.json` (registry).
+- `uv tool install` runs in unpredictable environments where `claude` may not
+  exist.
+- Claude Code integration requires marketplace registration, plugin installation,
+  and permission configuration — all via the `claude` CLI.
 - The user expects a single clear setup path, not a maze of manual steps.
-- The CLI tool itself should work immediately after `pip install`, even without Claude Code.
+- The CLI tool itself should work immediately after `uv tool install`, even
+  without Claude Code.
 
 ## Solution
 
 Split installation into two explicit phases:
 
-### Phase 1: `pip install <package>`
+### Phase 1: `uv tool install punt-<name>`
 
-Installs the Python package, CLI entry point, and all bundled data (plugin source files, credentials, etc.) into site-packages. The CLI works immediately. No Claude Code dependency.
+Installs the Python package and CLI entry point. The CLI works immediately. No
+Claude Code dependency.
 
-### Phase 2: `<tool> install`
+### Phase 2: `claude plugin install <name>@punt-labs`
 
-An explicit CLI subcommand that registers everything with Claude Code:
+The marketplace handles plugin distribution. Claude Code clones the plugin from
+the marketplace repository, which includes hooks, commands, skills, and MCP
+server declarations. The plugin's `mcpServers` field references the CLI binary
+installed in Phase 1.
 
-1. Register MCP server (`claude mcp add`)
-2. Copy plugin files to `~/.claude/plugins/<name>/`
-3. Copy user commands to `~/.claude/commands/`
-4. Register in plugin registry (`installed_plugins.json`)
-5. Enable in settings (`settings.json`)
-
-Phase 2 is idempotent — every step checks for existing state and overwrites or skips as appropriate. Running it twice is safe and handles upgrades. For marketplace plugins, `claude plugin install` fails if the plugin is already installed. The install function must detect this (check for "already" in stderr) and fall through to `claude plugin update` to pull the latest version.
+Phase 2 is idempotent — `claude plugin install` fails gracefully if the plugin
+is already installed.
 
 ### Bootstrap script
 
-A one-liner chains everything for zero-thought setup:
+A single `install.sh` chains everything for zero-thought setup:
+
+1. Verify prerequisites (Python 3.13+, uv, claude CLI)
+2. `uv tool install punt-<name>` (Phase 1)
+3. Register marketplace (`claude plugin marketplace add`)
+4. Refresh marketplace (`claude plugin marketplace update`) — ensures existing
+   users pick up `source.ref` pins (DES-003)
+5. `claude plugin install <name>@punt-labs` (Phase 2)
+6. `<tool> doctor` (verification)
+
+Users run:
 
 ```bash
-pip install <package>
-<tool> install
-<tool> doctor
+curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh | sh
 ```
 
 ## Consequences
 
 - The CLI works immediately after Phase 1, even without Claude Code installed.
 - Phase 2 runs when the user is ready and Claude Code is present.
-- Upgrades rerun Phase 2 to update plugin files and registry entries.
-- The `doctor` command validates both phases and external dependencies (GitHub CLI, relay connectivity, etc.) in one shot.
+- Upgrades reinstall the CLI (`--force`) and the plugin picks up changes on next
+  marketplace refresh.
+- The `doctor` command validates both phases and external dependencies (API keys,
+  relay connectivity, etc.) in one shot.
 - The separation means Phase 1 is testable in CI without Claude Code.
 
 ## Related Patterns
 
-- [Copy, Not Symlink](copy-not-symlink.md) — Phase 2 deploys plugin files. This pattern determines *how* those files get from the package to `~/.claude/plugins/`.
-- [Dual Command Path](dual-command-path.md) — Phase 2 deploys commands to two locations. This pattern determines *where* those files go.
-- [Doctor Checks](doctor-checks.md) — Validates the results of both phases plus external dependencies that neither phase controls.
-- [Stash and Wrap](stash-and-wrap.md) — An optional third phase for status line integration, separated because it modifies global UI.
+- [Dual Command Path](dual-command-path.md) — The SessionStart hook deploys
+  top-level commands after the plugin is installed.
+- [Doctor Checks](doctor-checks.md) — Validates the results of both phases plus
+  external dependencies that neither phase controls.
+- [Stash and Wrap](stash-and-wrap.md) — An optional third phase for status line
+  integration, separated because it modifies global UI.
 
 ## Known Uses
 
-- **Biff** — `pip install biff-mcp` (Phase 1) + `biff install` (Phase 2) + `biff doctor` (verification). Status line is a third optional phase (`biff install-statusline`) because it modifies global UI.
+- **Biff** — `uv tool install punt-biff` (Phase 1) + `claude plugin install
+  biff@punt-labs` (Phase 2) + `biff doctor` (verification). All sequenced by
+  `install.sh`.
+- **Quarry** — Same pattern. `install.sh` handles marketplace registration,
+  refresh, plugin install, and doctor.
+- **TTS** — Same pattern. `install.sh` also prints post-install hints for
+  `/notify` and `/recap` commands.
+- **punt-kit** — Same pattern. The `punt` CLI provides `audit` and `init`; the
+  plugin provides slash commands and dev commands.

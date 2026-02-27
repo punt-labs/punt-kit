@@ -31,6 +31,11 @@ class ProjectInfo:
     cli_commands: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     plugin_mcp_servers: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
+    @property
+    def is_hybrid(self) -> bool:
+        """True when the project has both a CLI binary and a plugin shell."""
+        return self.is_plugin and len(self.cli_commands) > 0
+
 
 def detect(root: Path) -> ProjectInfo:
     """Scan a directory and return detected project info."""

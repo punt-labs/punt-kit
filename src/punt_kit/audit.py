@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.resources
 import json
+import re
 import shutil
 import subprocess
 import tomllib
@@ -55,6 +56,9 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_claude_md(info))
     results.extend(_check_permissions(info))
     results.extend(_check_plugin_dev_isolation(info))
+    results.extend(_check_install_sh(info))
+    results.extend(_check_readme_sha_pins(info))
+    results.extend(_check_plugin_version_sync(info))
     results.extend(_check_github_settings(info))
 
     # Print results
@@ -512,7 +516,7 @@ def _check_plugin_dev_isolation(
     results: list[tuple[str, str, str]] = []
 
     # Check plugin name has -dev suffix
-    plugin_name = _read_plugin_name(info)
+    plugin_name = _read_plugin_field(info, "name")
     if plugin_name is not None:
         if plugin_name.endswith("-dev"):
             results.append((PASS, "Plugin name has -dev suffix", plugin_name))
@@ -571,8 +575,130 @@ def _check_plugin_dev_isolation(
     return results
 
 
-def _read_plugin_name(info: ProjectInfo) -> str | None:
-    """Read plugin name from plugin.json."""
+def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check that hybrid projects have a compliant install.sh."""
+    if not info.is_hybrid:
+        return []
+
+    results: list[tuple[str, str, str]] = []
+    install_sh = info.root / "install.sh"
+
+    if not install_sh.exists():
+        results.append(
+            (FAIL, "install.sh exists", "Hybrid project requires install.sh")
+        )
+        return results
+
+    results.append((PASS, "install.sh exists", ""))
+
+    content = install_sh.read_text(encoding="utf-8")
+
+    if "set -eu" in content:
+        results.append((PASS, "install.sh has strict mode", "set -eu"))
+    else:
+        results.append((FAIL, "install.sh has strict mode", "Missing set -eu"))
+
+    if "marketplace update" in content or "marketplace_update" in content:
+        results.append((PASS, "install.sh refreshes marketplace", ""))
+    else:
+        results.append(
+            (
+                FAIL,
+                "install.sh refreshes marketplace",
+                "Missing marketplace update step (DES-003)",
+            )
+        )
+
+    if "insteadOf" in content:
+        results.append((PASS, "install.sh has SSH fallback", ""))
+    else:
+        results.append(
+            (FAIL, "install.sh has SSH fallback", "Missing HTTPS fallback for SSH")
+        )
+
+    if "doctor" in content:
+        results.append((PASS, "install.sh runs doctor", ""))
+    else:
+        results.append(
+            (FAIL, "install.sh runs doctor", "Missing doctor verification step")
+        )
+
+    return results
+
+
+_RAW_GH_URL_RE = re.compile(r"raw\.githubusercontent\.com/punt-labs/[^/]+/([^/]+)/")
+
+
+def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check that README.md raw GitHub URLs use SHA pins, not branch names."""
+    readme = info.root / "README.md"
+    if not readme.exists():
+        return []
+
+    content = readme.read_text(encoding="utf-8")
+    matches = _RAW_GH_URL_RE.findall(content)
+    if not matches:
+        return []
+
+    bad_refs: list[str] = []
+    for ref in matches:
+        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
+            bad_refs.append(ref)
+
+    if bad_refs:
+        return [
+            (
+                FAIL,
+                "README raw GitHub URLs use SHA pins",
+                f"Branch refs found: {', '.join(sorted(set(bad_refs)))}",
+            )
+        ]
+
+    return [
+        (PASS, "README raw GitHub URLs use SHA pins", f"{len(matches)} URL(s) checked")
+    ]
+
+
+def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check that plugin.json version matches pyproject.toml version."""
+    if not info.is_plugin:
+        return []
+
+    plugin_version = _read_plugin_field(info, "version")
+    if plugin_version is None:
+        return []
+
+    # Skip if no pyproject.toml (pure plugins)
+    pyproject_path = info.root / "pyproject.toml"
+    if not pyproject_path.exists():
+        return []
+
+    with open(pyproject_path, "rb") as f:
+        data = tomllib.load(f)
+
+    project_raw = data.get("project")
+    if not isinstance(project_raw, dict):
+        return []
+
+    project = cast("dict[str, object]", project_raw)
+    pyproject_version = project.get("version")
+    if not isinstance(pyproject_version, str):
+        return []
+
+    if plugin_version == pyproject_version:
+        return [(PASS, "Plugin version matches pyproject.toml", f"v{plugin_version}")]
+
+    return [
+        (
+            FAIL,
+            "Plugin version matches pyproject.toml",
+            f"plugin.json={plugin_version}, pyproject.toml={pyproject_version}",
+        )
+    ]
+
+
+def _read_plugin_field(info: ProjectInfo, field: str) -> str | None:
+    """Read a string field from plugin.json."""
     for pj_path in (
         info.root / ".claude-plugin" / "plugin.json",
         info.root / "plugin.json",
@@ -580,9 +706,9 @@ def _read_plugin_name(info: ProjectInfo) -> str | None:
         if pj_path.exists():
             try:
                 data = json.loads(pj_path.read_text(encoding="utf-8"))
-                name = data.get("name")
-                if isinstance(name, str):
-                    return name
+                value = data.get(field)
+                if isinstance(value, str):
+                    return value
             except (json.JSONDecodeError, OSError):
                 pass
     return None
