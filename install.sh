@@ -100,8 +100,12 @@ if command -v claude >/dev/null 2>&1; then
     fi
   fi
 
-  if ! claude plugin marketplace list 2>/dev/null | grep -q "punt-labs"; then
+  if claude plugin marketplace list 2>/dev/null | grep -q "punt-labs"; then
+    ok "marketplace already registered"
+    claude plugin marketplace update "punt-labs" 2>/dev/null || true
+  else
     claude plugin marketplace add "punt-labs/claude-plugins" || warn "Failed to register marketplace"
+    ok "marketplace registered"
   fi
 
   if claude plugin install punt@punt-labs --scope user 2>/dev/null; then
