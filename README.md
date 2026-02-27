@@ -12,30 +12,6 @@ Individual projects reference these standards from their CLAUDE.md rather than d
 
 **Platforms:** macOS, Linux
 
-## Install Everything
-
-Install all Punt Labs tools and Claude Code plugins with a single command:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/34873ab/install-all.sh | sh
-```
-
-This installs the `punt`, `biff`, `quarry`, and `tts` CLIs, registers the [Punt Labs marketplace](https://github.com/punt-labs/claude-plugins), and installs all Claude Code plugins (prfaq, dungeon, z-spec).
-
-<details>
-<summary>Verify before running</summary>
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/34873ab/install-all.sh -o install-all.sh
-shasum -a 256 install-all.sh
-cat install-all.sh
-sh install-all.sh
-```
-
-</details>
-
----
-
 ## punt CLI
 
 ### Install
