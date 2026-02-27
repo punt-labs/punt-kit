@@ -41,6 +41,18 @@ def audit(
 
 
 @app.command()
+def pii(
+    path: str = typer.Argument(".", help="Path to the project root"),
+    staged: bool = typer.Option(False, "--staged", help="Scan only staged files"),
+    config: str = typer.Option("", "--config", help="Config file path override"),
+) -> None:
+    """Scan for personally identifiable information."""
+    from punt_kit.pii import run_pii
+
+    run_pii(path, staged=staged, config=config or None)
+
+
+@app.command()
 def version() -> None:
     """Print the punt-kit version."""
     console.print(f"punt-kit {__version__}")
