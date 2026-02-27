@@ -53,5 +53,8 @@ warn_unused_configs = true
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 
+[tool.punt.pii]
+allow_emails = ["hello@punt-labs.com"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

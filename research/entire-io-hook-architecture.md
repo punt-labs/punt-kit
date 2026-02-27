@@ -208,4 +208,4 @@ Any tool that wants deep integration with Claude Code sessions should consider:
 - [AI-Native Version Control — blog.ni18.in](https://blog.ni18.in/ai-native-version-control-entire-io/)
 - [Claude Code Hooks Reference](https://code.claude.com/docs/en/hooks)
 - [Automate workflows with hooks — Guide](https://code.claude.com/docs/en/hooks-guide)
-- Observed installation: `/Users/jfreeman/Coding/punt-labs/langlearn-tts/.claude/settings.json`
+- Observed installation: `.claude/settings.json` (e.g. in langlearn-tts)
