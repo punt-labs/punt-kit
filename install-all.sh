@@ -51,7 +51,7 @@ banner "quarry"
 curl -fsSL "$GH/quarry/0e4e6d1/install.sh" | sh
 
 banner "tts"
-curl -fsSL "$GH/tts/11bea6b/install.sh" | sh
+curl -fsSL "$GH/tts/f9b05e2/install.sh" | sh
 
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
