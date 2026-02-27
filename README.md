@@ -69,7 +69,7 @@ After scaffolding, it reports manual steps that require GitHub access (branch pr
 
 ## Standards
 
-Nine standards documents covering the full development lifecycle:
+Ten standards documents covering the full development lifecycle:
 
 | Standard | Covers |
 |----------|--------|
@@ -82,6 +82,7 @@ Nine standards documents covering the full development lifecycle:
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Node](standards/node.md) | Node.js MCP servers, `@modelcontextprotocol/sdk` |
+| [README](standards/readme.md) | Badge set, section order, anti-patterns for project READMEs |
 
 ---
 
