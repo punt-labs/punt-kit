@@ -39,7 +39,8 @@ Check for `.claude-plugin/plugin.json`. Classify:
 - **plugin-only**: has `.claude-plugin/plugin.json` but no `pyproject.toml`
 - **CLI-only**: has `pyproject.toml` but no `.claude-plugin/plugin.json`
 
-Check for `scripts/release-plugin.sh` — needed for plugin swap in Phase 4.
+Check for `scripts/release-plugin.sh` and `scripts/restore-dev-plugin.sh` — needed for
+plugin swap/restore in Phase 4.
 
 Print the detected configuration to the user.
 
@@ -164,8 +165,10 @@ Extract the version section from CHANGELOG.md (everything between `## [X.Y.Z]` a
 next `## [` heading). Create the release:
 
 ```bash
-gh release create vX.Y.Z --title "vX.Y.Z" --notes "<changelog-section>"
+gh release create vX.Y.Z --title "vX.Y.Z" --notes-file -  <<< "$changelog_section"
 ```
+
+Use a heredoc or variable to avoid shell escaping issues with the changelog content.
 
 ## Phase 7: Verify PyPI install
 
@@ -215,7 +218,7 @@ git push origin main
 claude plugin marketplace update punt-labs
 ```
 
-1. Return to the project directory.
+1. Return to the project directory (`cd -`).
 
 ### If not found
 
@@ -232,7 +235,7 @@ Look for `../public-website/src/data/projects.json` relative to the project root
 1. Read the file and find the entry matching this project (by `id` or `pypiUrl`)
 1. Update `"version"` to `"X.Y.Z"`
 1. If the project has an `install.sh` and it changed in this release
-   (`git log v<prev>..vX.Y.Z -- install.sh` has output), update the `"installCommand"`
+   (`git log v<prev-version>..vX.Y.Z -- install.sh` has output), update the `"installCommand"`
    with the new commit SHA: `curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<new-SHA>/install.sh | sh`
 1. Commit and push in the public-website repo:
 
@@ -243,7 +246,7 @@ git commit -m "chore: bump <project-name> to vX.Y.Z"
 git push origin main
 ```
 
-1. Return to the project directory.
+1. Return to the project directory (`cd -`).
 
 ### If not found
 
@@ -291,7 +294,7 @@ git commit -m "chore: update <project> install SHA to vX.Y.Z"
 git push origin main
 ```
 
-Return to the project directory.
+Return to the project directory (`cd -`).
 
 If the sibling directories are not found, print manual instructions listing which SHAs
 need updating and where.
