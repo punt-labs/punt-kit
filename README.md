@@ -8,15 +8,46 @@ For the standards index and audit checklist, see [AGENTS.md](AGENTS.md). For lan
 
 ---
 
+## Install Everything
+
+Install all Punt Labs tools and Claude Code plugins with a single command:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/34873ab/install-all.sh | sh
+```
+
+This installs the `punt`, `biff`, `quarry`, and `tts` CLIs, registers the [Punt Labs marketplace](https://github.com/punt-labs/claude-plugins), and installs all Claude Code plugins (prfaq, dungeon, z-spec).
+
+<details>
+<summary>Verify before running</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/34873ab/install-all.sh -o install-all.sh
+shasum -a 256 install-all.sh
+cat install-all.sh
+sh install-all.sh
+```
+
+</details>
+
+---
+
 ## punt CLI
 
 ### Install
 
 ```bash
-uv tool install punt-kit
-# or
-pip install punt-kit
+curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/34873ab/install.sh | sh
 ```
+
+<details>
+<summary>Manual install (if you already have uv)</summary>
+
+```bash
+uv tool install punt-kit
+```
+
+</details>
 
 ### Commands
 
