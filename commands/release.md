@@ -78,10 +78,10 @@ Present the suggestion to the user via AskUserQuestion and let them confirm or o
 
 ### 2b. Bump version in all locations
 
-For the target version X.Y.Z, update:
+For the target version X.Y.Z, update each file that exists:
 
-1. `pyproject.toml` → `version = "X.Y.Z"` under `[project]`
-2. `src/<package>/__init__.py` → `__version__ = "X.Y.Z"`
+1. `pyproject.toml` → `version = "X.Y.Z"` under `[project]` (if hybrid or CLI-only)
+2. `src/<package>/__init__.py` → `__version__ = "X.Y.Z"` (if hybrid or CLI-only)
    - Derive the package directory from `pyproject.toml` `[project].name` (replace `-` with `_`)
 3. `.claude-plugin/plugin.json` → `"version": "X.Y.Z"` (if hybrid or plugin-only)
 

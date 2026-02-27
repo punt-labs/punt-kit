@@ -6,9 +6,15 @@ allowed-tools: Bash(git:*), Bash(gh:*), Bash(uv:*), Bash(uvx:*), Bash(punt:*), B
 
 # Release a Punt Labs Project (Dev)
 
-This is the **working tree** version of `/punt release`. It uses the local
-punt-kit source (via `uv run`) instead of the installed CLI. Use this when
-developing punt-kit to test release workflow changes before publishing.
+This is the **working tree** version of `/punt release`. Use this when
+developing punt-kit itself — it ensures the release workflow reads command
+definitions from the local checkout rather than the installed plugin cache.
+
+The current release workflow uses `git`, `gh`, `uv`, and `claude` directly
+(no `punt` CLI calls). The dev variant exists so that when future phases add
+`punt` subcommands (e.g., `punt release-check`), the dev path is already
+wired to use `uv run --directory ${CLAUDE_PLUGIN_ROOT} punt <subcommand>`
+instead of the installed binary.
 
 ## Input
 
@@ -16,14 +22,12 @@ Version: $ARGUMENTS (if empty, ask user in Phase 2)
 
 ## Process
 
-Follow the same process as `/punt release`, but replace any `punt` CLI calls with:
+Follow the full release workflow in `${CLAUDE_PLUGIN_ROOT}/commands/release.md`
+(11 phases: pre-flight, version bump, build, tag, CI, GitHub release, PyPI
+verify, marketplace, website, install-all, summary).
+
+If any phase calls the `punt` CLI, replace with:
 
 ```bash
 uv run --directory ${CLAUDE_PLUGIN_ROOT} punt <subcommand> $ARGUMENTS
 ```
-
-This ensures the working tree code is exercised, not the installed release.
-
-Refer to the full release workflow in `${CLAUDE_PLUGIN_ROOT}/commands/release.md`
-for the complete 11-phase process (pre-flight, version bump, build, tag, CI, GitHub
-release, PyPI verify, marketplace, website, install-all, summary).
