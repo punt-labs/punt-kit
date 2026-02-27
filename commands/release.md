@@ -28,11 +28,13 @@ git fetch origin && git diff HEAD origin/main --stat  # Must be empty (up to dat
 ### 1b. Detect project type
 
 Read `pyproject.toml` to get:
+
 - `[project].name` — the package name (e.g., `punt-tts`)
 - `[project].version` — the current version
 - `[project].scripts` — CLI entry points (e.g., `tts`)
 
 Check for `.claude-plugin/plugin.json`. Classify:
+
 - **hybrid**: has both `pyproject.toml` and `.claude-plugin/plugin.json`
 - **plugin-only**: has `.claude-plugin/plugin.json` but no `pyproject.toml`
 - **CLI-only**: has `pyproject.toml` but no `.claude-plugin/plugin.json`
@@ -67,6 +69,7 @@ All must pass with zero errors. If any fail, stop.
 If `$ARGUMENTS` contains a version string (e.g., `1.2.3`), use it.
 
 Otherwise, analyze the `[Unreleased]` section of CHANGELOG.md:
+
 - If it contains `### Added` entries → suggest minor bump
 - If it contains only `### Fixed` entries → suggest patch bump
 - If it contains `### Changed` with breaking changes → suggest major bump
@@ -192,12 +195,12 @@ uv tool install --force --editable .
 
 Look for `../claude-plugins/.claude-plugin/marketplace.json` relative to the project root.
 
-### If found:
+### If found
 
 1. Read the file and find the entry matching this project's plugin name
-2. Update `"version"` to `"X.Y.Z"`
-3. Update `"source"."ref"` to `"vX.Y.Z"`
-4. Commit and push in the claude-plugins repo:
+1. Update `"version"` to `"X.Y.Z"`
+1. Update `"source"."ref"` to `"vX.Y.Z"`
+1. Commit and push in the claude-plugins repo:
 
 ```bash
 cd ../claude-plugins
@@ -206,15 +209,15 @@ git commit -m "chore: bump <plugin-name> to vX.Y.Z"
 git push origin main
 ```
 
-5. Run marketplace update:
+1. Run marketplace update:
 
 ```bash
 claude plugin marketplace update punt-labs
 ```
 
-6. Return to the project directory.
+1. Return to the project directory.
 
-### If not found:
+### If not found
 
 Print manual instructions:
 > Update marketplace.json in claude-plugins: set version to X.Y.Z, source.ref to vX.Y.Z,
@@ -224,14 +227,14 @@ Print manual instructions:
 
 Look for `../public-website/src/data/projects.json` relative to the project root.
 
-### If found:
+### If found
 
 1. Read the file and find the entry matching this project (by `id` or `pypiUrl`)
-2. Update `"version"` to `"X.Y.Z"`
-3. If the project has an `install.sh` and it changed in this release
+1. Update `"version"` to `"X.Y.Z"`
+1. If the project has an `install.sh` and it changed in this release
    (`git log v<prev>..vX.Y.Z -- install.sh` has output), update the `"installCommand"`
    with the new commit SHA: `curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<new-SHA>/install.sh | sh`
-4. Commit and push in the public-website repo:
+1. Commit and push in the public-website repo:
 
 ```bash
 cd ../public-website
@@ -240,9 +243,9 @@ git commit -m "chore: bump <project-name> to vX.Y.Z"
 git push origin main
 ```
 
-5. Return to the project directory.
+1. Return to the project directory.
 
-### If not found:
+### If not found
 
 Print manual instructions:
 > Update projects.json in public-website: set version to X.Y.Z. If install.sh changed,
