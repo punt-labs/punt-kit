@@ -49,8 +49,9 @@ extension points automatically.
 
 At release time, `scripts/release-plugin.sh` swaps `plugin.json` to
 `name: "punt"` and removes `-dev` command files from the tagged commit.
-The marketplace cache clones from the tag, so consumers never see `-dev`
-artifacts. Then `scripts/restore-dev-plugin.sh` restores them on main.
+The marketplace entry's `source.ref` must be pinned to the release tag (see
+DES-003 in DESIGN.md) — without it, `claude plugin install` clones HEAD, not
+the tag. Then `scripts/restore-dev-plugin.sh` restores dev state on main.
 
 ### Audit enforcement
 
