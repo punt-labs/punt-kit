@@ -1,0 +1,739 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ── Geometry ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+
+% ── Pagination ────────────────────────────────────────────────────────────────
+\usepackage[all]{nowidow}    % Require ≥2 lines on each side of a page break
+\brokenpenalty=10000         % No hyphenated words across page breaks
+\raggedbottom                % Allow uneven page bottoms rather than stretching
+
+% ── Fonts ─────────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{newpxtext}     % Palatino-based serif (TeX Gyre Pagella)
+\usepackage{newpxmath}     % Matching math font
+
+% ── Colors ────────────────────────────────────────────────────────────────────
+\usepackage[dvipsnames]{xcolor}
+\definecolor{SectionBlue}{HTML}{1B3A5C}
+\definecolor{AccentGray}{HTML}{4A4A4A}
+\definecolor{QuoteBorder}{HTML}{8B9DAF}
+\definecolor{RiskRed}{HTML}{C0392B}
+\definecolor{RiskAmber}{HTML}{E67E22}
+\definecolor{RiskGreen}{HTML}{27AE60}
+\definecolor{BoxBg}{HTML}{F7F8FA}
+
+% ── Tables ────────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+% ── Boxes ─────────────────────────────────────────────────────────────────────
+\usepackage[framemethod=tikz]{mdframed}
+
+% ── Lists ─────────────────────────────────────────────────────────────────────
+\usepackage{enumitem}
+\usepackage{needspace}
+
+% ── Hyperlinks ────────────────────────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=SectionBlue,
+  urlcolor=SectionBlue,
+  citecolor=SectionBlue,
+  pdfauthor={Punt Labs},
+  pdftitle={PR/FAQ: punt-kit},
+  pdfsubject={Working Backwards — Product Discovery},
+}
+
+% ── Bibliography ─────────────────────────────────────────────────────────────
+\usepackage[style=numeric,backend=biber,sorting=none]{biblatex}
+\addbibresource{prfaq.bib}
+
+% ── Section styling ───────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\section}
+  {\needspace{6\baselineskip}\Large\bfseries\color{SectionBlue}}
+  {}
+  {0pt}
+  {}
+
+\titleformat{\subsection}
+  {\needspace{5\baselineskip}\large\bfseries\color{AccentGray}}
+  {}
+  {0pt}
+  {}
+
+\titleformat{\subsubsection}
+  {\normalsize\bfseries\color{AccentGray}}
+  {}
+  {0pt}
+  {}
+\titlespacing*{\subsubsection}{0pt}{1em}{0.5em}[0pt]
+
+% ── Document stage ───────────────────────────────────────────────────────────
+\newcommand{\prfaqstage}[1]{\def\theprfaqstage{#1}}
+\prfaqstage{hypothesis}
+
+% ── Document version ─────────────────────────────────────────────────────────
+\newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
+\prfaqversion{1}{0}
+
+% ── Header/footer ────────────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{AccentGray}{Stage: \theprfaqstage{} \enspace\textbar\enspace v\theprfaqmajor.\theprfaqminor}}
+\fancyhead[R]{\footnotesize\textcolor{AccentGray}{\thepage}}
+\renewcommand{\headrulewidth}{0pt}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Custom environments
+% ══════════════════════════════════════════════════════════════════════════════
+
+% ── \prsection{title} — styled press release section header ──────────────────
+\newcommand{\prsection}[1]{%
+  \vspace{1em}%
+  {\large\bfseries\color{SectionBlue}#1}%
+  \vspace{0.3em}\par%
+}
+
+% ── customerquote — indented, italic customer quote ──────────────────────────
+\newmdenv[
+  topline=false,
+  bottomline=false,
+  rightline=false,
+  linewidth=3pt,
+  linecolor=QuoteBorder,
+  backgroundcolor=BoxBg,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=\baselineskip,
+  skipbelow=\baselineskip,
+]{customerquote}
+
+% ── spokespersonquote — indented spokesperson quote ──────────────────────────
+\newmdenv[
+  topline=false,
+  bottomline=false,
+  rightline=false,
+  linewidth=3pt,
+  linecolor=SectionBlue,
+  backgroundcolor=BoxBg,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=\baselineskip,
+  skipbelow=\baselineskip,
+]{spokespersonquote}
+
+% ── faqpair — numbered Q&A pair with bold question ─────────────────────────
+\newcounter{faqnum}
+\newenvironment{faqpair}[1]{%
+  \needspace{4\baselineskip}%
+  \vspace{0.5em}%
+  \refstepcounter{faqnum}%
+  \noindent\textbf{\color{SectionBlue}Q\thefaqnum: #1}\par\nopagebreak[4]%
+  \vspace{0.2em}%
+  \begin{adjustwidth}{1em}{0pt}%
+  \setlength{\parindent}{0pt}%
+}{%
+  \end{adjustwidth}%
+  \vspace{0.5em}%
+}
+% ── \faqref{faq:slug} — clickable "FAQ 3" reference ──────────────────────────
+\newcommand{\faqref}[1]{\hyperref[#1]{FAQ~\ref*{#1}}}
+
+% ── \featureitem — numbered, referenceable feature entry ──────────────────────
+\newcounter{featurenum}
+\newcommand{\featureitem}[2]{%
+  \refstepcounter{featurenum}%
+  \item[\textbf{\color{SectionBlue}F\thefeaturenum.}]%
+  \textbf{#1} --- #2%
+}
+\newcommand{\featureref}[1]{\hyperref[#1]{Feature~\ref*{#1}}}
+
+% ── adjustwidth (for faqpair indentation) ────────────────────────────────────
+\usepackage{changepage}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Document
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{document}
+
+% ── Headline block ───────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries\color{SectionBlue}
+  Free CLI Turns Engineering Standards Into\\Executable Checks Across Every Repo} \\[0.8em]
+  {\large\color{AccentGray}
+  punt-kit reads a team's conventions from markdown documents and enforces them
+  as deterministic audits, scaffolding, and cross-repo rollouts} \\[0.3em]
+  {\large\color{AccentGray}
+  Same engine projects through four surfaces --- terminal CLI, Claude Code
+  plugin, MCP server, and REST API --- so humans, AI agents, and CI systems
+  all enforce the same rules}
+\end{center}
+
+\vspace{0.5em}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% PRESS RELEASE
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Press Release}
+
+SAN FRANCISCO --- October 1, 2026 --- Punt Labs today released punt-kit, a
+free, open-source development lifecycle engine that reads engineering standards
+from markdown documents and enforces them as executable checks across every
+repository. Unlike linters that check syntax or developer portals that require
+a dedicated platform team, punt-kit gives small engineering teams (5--50
+engineers) a single tool that audits compliance, scaffolds new projects, and
+rolls out standard changes across multiple repos. The same engine projects
+through four surfaces --- a terminal CLI, a Claude Code plugin, an MCP server
+for any AI agent, and a REST API for CI and dashboards --- so every actor in
+the development loop enforces the same rules
+(see \faqref{faq:what-is-it}).
+
+\prsection{Problem}
+
+Engineering teams with multiple repositories maintain standards in wikis,
+READMEs, and the heads of senior engineers. Enforcement happens through code
+review --- a process that consumes an average of four hours per week per
+engineer on rote standards checks alone~\cite{deepsource2025staticanalysis}.
+When a standard changes, someone manually updates every repo. When a new
+project starts, someone copies config files from the last project and hopes
+they are current~\cite{githubactions2020workflowtemplates}. For multi-repo
+organizations --- the norm for teams that do not want Google-scale monorepo
+infrastructure --- configuration drift is the default
+state~\cite{trunk2024multirepo}.
+
+AI coding agents make this worse. A study of 253 CLAUDE.md files found that
+these manifests are optimized for code execution, not organizational
+conventions --- only 8.7\% include security
+guidance~\cite{arxiv2509.14744}. Each new agent session begins with no memory
+of what came before~\cite{anthropic2025contextengineering}, and static context
+files have no feedback loop to detect when the repo has drifted from the
+standards they describe~\cite{claudecodememory}
+(see \faqref{faq:customer-evidence}).
+
+\prsection{Solution}
+
+punt-kit treats standards as data, not documents. Teams write their conventions
+in markdown --- badge ordering, CI template structure, release pipeline
+patterns, naming rules --- and punt-kit reads those documents, extracts
+checkable assertions, and runs them against any repository. A single command,
+\texttt{punt audit}, checks a repo against all applicable standards and reports
+every violation with its source rule. A second command, \texttt{punt init},
+scaffolds a new project that satisfies those standards from the start. A third,
+\texttt{punt rollout}, applies a standard change to every repo in the org at
+once (see \faqref{faq:competitors}).
+
+The engine projects through four surfaces: a terminal CLI (\texttt{punt}), a
+Claude Code plugin (\texttt{/punt}), an MCP server that any AI agent can call,
+and a REST API for CI pipelines and dashboards. All four surfaces call the same
+engine, so the same checks run whether a human types \texttt{punt audit}, an AI
+agent calls the MCP tool, or a CI job hits the API. The agent session gets the
+standards as context automatically, and \texttt{/punt preflight} validates
+compliance before every commit (see \faqref{faq:why-now}).
+
+\prsection{Customer Quote}
+
+\begin{customerquote}
+\textit{``Before punt-kit, I spent every Monday morning auditing our twelve
+repos by hand --- checking that CI workflows matched our template, that badges
+were in the right order, that new projects had the right pyproject.toml
+settings. I would find three or four repos that had drifted, fix them, and know
+they would drift again by next month. Now I run \texttt{punt audit} across the
+org in thirty seconds and \texttt{punt rollout} fixes everything that has
+drifted. That Monday morning is gone.''}
+
+\raggedleft --- \textbf{Maria Chen}, Engineering Lead at a 20-person startup
+\end{customerquote}
+
+\prsection{Getting Started}
+
+Getting started with punt-kit takes three steps. First, install with
+\texttt{pip install punt-kit} (or \texttt{uv tool install punt-kit}). Second,
+run \texttt{punt audit} in any repository to see how it measures against the
+default standards. Third, customize the standards directory to match the team's
+conventions. Within five minutes, a team has a baseline compliance report for
+every repo. No account, no configuration server, no credit card.
+
+\prsection{Spokesperson Quote}
+
+\begin{spokespersonquote}
+``We built punt-kit because we kept solving the same problem by hand across our
+own repos --- auditing badge order, checking CI templates, rolling out config
+changes one repo at a time. The insight was that every one of those checks was
+a testable assertion, and if we treated our standards as data instead of
+documents, we could automate the entire loop. The second insight was that
+the engine should project through every surface --- CLI, plugin, MCP server,
+REST API --- so the same checks run whether a human, an AI agent, or a CI
+pipeline is doing the work. The engine reads your rules; it does not decide
+what `good' looks like. That means any team, using any tool, can bring their
+own conventions and get the same enforcement.''
+
+\raggedleft --- \textbf{J. Freeman}, Creator, Punt Labs
+\end{spokespersonquote}
+
+\prsection{Call to Action}
+
+punt-kit is available today at
+{\small\texttt{github.com/punt-labs/punt-kit}}
+and on PyPI as \texttt{punt-kit}. The tool is free and open-source under the
+MIT license. Documentation, standards templates, and a quickstart guide are at
+{\small\texttt{punt-labs.github.io/punt-kit}}.
+
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FREQUENTLY ASKED QUESTIONS
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Frequently Asked Questions}
+
+% ── External FAQs (Customer-facing) ──────────────────────────────────────────
+
+\subsection*{External FAQs}
+
+\begin{faqpair}{What is punt-kit and who is it for?}\label{faq:what-is-it}
+  punt-kit is a development lifecycle engine that reads engineering standards
+  from a directory of markdown documents and enforces them as executable checks.
+  It is designed for engineering leads and platform-minded engineers at teams of
+  5--50 people who maintain multiple repositories and want their standards
+  enforced automatically --- not just documented. The engine projects through
+  four surfaces: a CLI (\texttt{punt}) for terminal use, a Claude Code plugin
+  (\texttt{/punt}) for AI coding sessions, an MCP server so any AI agent can
+  call the same checks, and a REST API for CI pipelines and dashboards
+  (see \faqref{faq:projection}).
+\end{faqpair}
+
+\begin{faqpair}{How is this different from projen, Backstage, or Trunk?}\label{faq:how-different}
+  Each of these tools solves a narrower problem:
+  \begin{itemize}[nosep]
+    \item \textbf{projen}~\cite{projen2024github} enforces project
+      configuration through TypeScript project types. It is the strongest prior
+      art for ``standards as code across repos.'' punt-kit differs in three
+      ways: it reads standards from existing markdown rather than requiring
+      TypeScript; it integrates with AI coding agent sessions as a first-class
+      citizen; and it targets teams that already have standards in docs, not
+      greenfield CDK infrastructure teams.
+    \item \textbf{Backstage}~\cite{backstage2025fiveyears} is a developer
+      portal for large enterprises (3,000+ adopters, but adoption stalls below
+      10\% in most non-Spotify organizations). It requires a dedicated
+      full-time team to run. punt-kit targets 5--50 engineer teams that cannot
+      staff a platform team.
+    \item \textbf{Trunk}~\cite{trunkio2024codequality} is a metalinter that
+      orchestrates 100+ linting tools with unified output. It covers the
+      linting layer. punt-kit covers the layer above it: project structure, CI
+      templates, release pipelines, naming conventions, and cross-repo rollout.
+  \end{itemize}
+  No existing tool unifies audit, scaffold, rollout, and release under a single
+  standards-as-data model with AI agent integration
+  (see \faqref{faq:competitors}).
+\end{faqpair}
+
+\begin{faqpair}{How do I get started?}
+  Install with \texttt{pip install punt-kit} or
+  \texttt{uv tool install punt-kit}. Run \texttt{punt audit} in a repository.
+  Review the findings. Customize the standards directory if the defaults do not
+  match your team's conventions. Most teams see their first compliance report
+  within five minutes.
+\end{faqpair}
+
+\begin{faqpair}{How much does it cost?}
+  punt-kit is free and open-source under the MIT license. There are no paid
+  tiers, no usage limits, and no telemetry. The tool runs entirely on your
+  machine; it does not phone home (see \faqref{faq:revenue-model}).
+\end{faqpair}
+
+\begin{faqpair}{What happens to my data?}
+  punt-kit runs locally. It reads files from your repositories and your
+  standards directory. It does not transmit data to any external server. The MCP
+  server and REST API run on your machine (or your infrastructure); findings
+  are never sent elsewhere. When used as a Claude Code plugin, the standards
+  context is provided to the AI agent session but never stored by punt-kit
+  itself.
+\end{faqpair}
+
+\begin{faqpair}{Why does punt-kit have four surfaces (CLI, plugin, MCP, API)?}\label{faq:projection}
+  Standards enforcement only works if every actor in the development loop uses
+  the same checks. A human typing in a terminal needs a CLI. An AI coding agent
+  in Claude Code needs a plugin. A different AI agent (Cursor, Windsurf,
+  Codex) needs an MCP server it can call. A CI pipeline or internal dashboard
+  needs a REST API. All four call the same engine --- the checks, the standards,
+  and the findings are identical regardless of which surface invoked them. This
+  projection pattern means adopting punt-kit does not lock a team into any
+  single agent or workflow.
+\end{faqpair}
+
+\begin{faqpair}{Can I use punt-kit with my own standards instead of the defaults?}
+  Yes. The engine and the standards pack are separable. punt-kit ships with the
+  punt-labs conventions as the default, but any team can point it to their own
+  standards directory --- a local folder, a git repository, or a URL. The engine
+  reads the rules; it does not decide what ``good'' looks like
+  (see \featureref{feat:custom-standards}).
+\end{faqpair}
+
+% ── Internal FAQs (Business-facing) ──────────────────────────────────────────
+
+\newpage
+\subsection*{Internal FAQs}
+
+\subsubsection*{Value \& Market}
+
+\begin{faqpair}{What is the total addressable market?}\label{faq:tam}
+  \textbf{Bottom-up estimate (with caveats):}
+
+  The platform engineering services market was valued at \$7.19 billion in 2024
+  and is projected to reach \$40.17 billion by 2032, growing at 23.99\%
+  CAGR~\cite{snsconsulting2024platformmarket}. Gartner predicts that 80\% of
+  large software engineering organizations will have platform engineering teams
+  by 2026, up from 45\% in 2022~\cite{gartnerplatformeng2022}. Google Cloud
+  found that 55\% of global organizations have already adopted platform
+  engineering, with 86\% saying it is essential to realizing the full business
+  value of AI~\cite{googlecloud2024platformengineering}.
+
+  \textbf{Honest gap:} These numbers describe large organizations with
+  dedicated platform teams --- the opposite of punt-kit's target segment.
+  No public data source directly measures how many 5--50 engineer teams
+  maintain multiple repos with codified standards. GitHub hosts 3+ million
+  organizations, but there is no breakdown by team size or standards maturity.
+
+  \textbf{Hypothesis:} Smaller teams have the same standards-enforcement pain
+  but cannot afford Backstage or a dedicated platform engineer. punt-kit's
+  bet is that this segment is underserved precisely because existing solutions
+  require enterprise-scale investment. This hypothesis is unvalidated and is the
+  highest-priority item to test (see \faqref{faq:next-step}).
+\end{faqpair}
+
+\begin{faqpair}{What evidence do we have that customers want this?}\label{faq:customer-evidence}
+  \textbf{At hypothesis stage, we have no primary customer evidence.} What we
+  have instead:
+
+  \begin{itemize}[nosep]
+    \item \textbf{Dogfooding:} punt-kit was built to solve a real problem
+      across 14 repositories in the punt-labs org. The tool exists because the
+      manual alternative was unsustainable.
+    \item \textbf{Academic evidence:} Four arXiv papers from 2025--2026
+      validate the context problem. A study of 283 development sessions found
+      that single-file agent manifests ``do not scale beyond modest
+      codebases''~\cite{arxiv2602.20478}. A study of 2,303 context files found
+      security specified in only 14.5\%~\cite{arxiv2511.12884}. Agent sessions
+      without context files consume 28.64\% more runtime and 16.58\% more
+      tokens~\cite{arxiv2601.20404}.
+    \item \textbf{Industry signals:} Code review consumes an estimated 4 hours
+      per week per engineer on standards enforcement that could be
+      automated~\cite{deepsource2025staticanalysis}. 88\% of developers cite
+      negative impacts from AI-generated code~\cite{sonar2026stateofcode}. 23\%
+      of developers use AI agents at least weekly and that number is
+      growing~\cite{stackoverflow2025survey}.
+    \item \textbf{Competitor existence:} projen, Trunk, Copier, and Backstage
+      each solve a slice of this problem, confirming market demand for at least
+      partial solutions.
+  \end{itemize}
+
+  The missing evidence is direct conversations with 5--50 engineer teams
+  outside punt-labs confirming that they prioritize this problem highly enough
+  to adopt a new tool.
+\end{faqpair}
+
+\begin{faqpair}{Who are the competitors and why will we win?}\label{faq:competitors}
+  \renewcommand{\arraystretch}{1.4}
+  \begin{tabularx}{\linewidth}{@{} l X X @{}}
+  \toprule
+  \textbf{Tool} & \textbf{What It Does Well} & \textbf{Gap punt-kit Fills} \\
+  \midrule
+  projen & Standards-as-code for project config across N
+    repos~\cite{projen2024github} & Requires TypeScript; AWS-centric; no AI
+    agent integration; high learning curve \\
+  Backstage & Developer portal with golden path
+    scaffolding~\cite{backstage2025fiveyears} & Requires dedicated team to run;
+    stalls at under 10\% adoption outside Spotify \\
+  Trunk & Metalinter orchestrating 100+
+    tools~\cite{trunkio2024codequality} & Covers linting only; no scaffolding,
+    rollout, or release management \\
+  Copier & Template scaffolding with lifecycle
+    updates~\cite{copier2024comparisons} & No enforcement/audit; no AI
+    integration; template-only \\
+  MegaLinter & Open-source CI linting orchestrator & CI-focused; no scaffolding
+    or release; similar scope to Trunk \\
+  \bottomrule
+  \end{tabularx}
+  \renewcommand{\arraystretch}{1.0}
+
+  \medskip
+  punt-kit's structural advantage is the combination of four properties no
+  competitor has together: (1) standards from existing markdown, not new
+  TypeScript or YAML; (2) unified lifecycle (audit + scaffold + rollout +
+  release) under one data model; (3) a projection architecture that serves
+  CLI, plugin, MCP, and REST from the same engine; (4) agent-agnostic
+  integration --- any tool that speaks MCP can enforce standards, not just
+  Claude Code. If a competitor copies one of these, the remaining three still
+  differentiate.
+\end{faqpair}
+
+\begin{faqpair}{What is the customer acquisition strategy?}
+  \textbf{Primary channel:} Claude Code plugin marketplace. punt-kit is already
+  published on the punt-labs marketplace. Engineers who use Claude Code discover
+  \texttt{/punt audit} in their workflow and adopt the CLI for terminal use.
+
+  \textbf{Secondary channels:}
+  \begin{itemize}[nosep]
+    \item PyPI discovery (\texttt{pip install punt-kit})
+    \item GitHub search and stars (open-source visibility)
+    \item Blog posts and conference talks on ``standards as executable
+      assertions''
+    \item Word of mouth from dogfooding across punt-labs projects
+  \end{itemize}
+
+  \textbf{Conversion assumption:} Free, open-source, no signup friction.
+  Adoption is limited by awareness and by whether the problem is painful enough
+  to motivate a tool switch, not by pricing barriers.
+\end{faqpair}
+
+\begin{faqpair}{What is the next step to validate the vision?}\label{faq:next-step}
+  Interview 15--20 engineering leads at Series~A/B companies with 5--50
+  engineers and 5+ repositories. The interview should answer three questions:
+  \begin{enumerate}[nosep]
+    \item Is standards enforcement a top-3 pain point for you?
+    \item How do you currently propagate standard changes across repos?
+    \item Would you adopt a CLI that audits and fixes standards compliance
+      automatically?
+  \end{enumerate}
+  If fewer than 8 of 20 interviewees identify this as a top-3 pain, the target
+  segment hypothesis is wrong and we should either broaden the customer
+  definition or narrow to a more specific persona.
+\end{faqpair}
+
+\subsubsection*{Technical}
+
+\begin{faqpair}{What are the major technical risks?}
+  \begin{enumerate}[nosep]
+    \item \textbf{Standards parsing ambiguity.} Markdown is not a schema
+      language. Extracting checkable assertions from prose requires either
+      structured conventions in the markdown or LLM-assisted parsing. Mitigation:
+      the engine uses deterministic parsing first and falls back to LLM only for
+      genuinely ambiguous cases (see \featureref{feat:deterministic-audit}).
+    \item \textbf{Cross-repo rollout safety.} Automatically modifying files
+      across N repos risks breaking things at scale. Mitigation: dry-run mode
+      previews every change before applying; rollout never force-pushes or
+      merges without green CI (see \featureref{feat:rollout}).
+    \item \textbf{Claude Code plugin API stability.} The plugin hooks and slash
+      commands depend on Claude Code's extension API, which is evolving.
+      Mitigation: punt-kit already ships a working plugin (v0.2.0) and tracks
+      API changes as part of ongoing development.
+  \end{enumerate}
+\end{faqpair}
+
+\begin{faqpair}{What dependencies exist on other teams or systems?}
+  punt-kit depends on Claude Code for plugin distribution and on PyPI for CLI
+  distribution. Both are stable, public infrastructure. There are no
+  dependencies on internal services, proprietary APIs, or third-party SaaS.
+  The LLM-powered reconciliation feature (\texttt{/punt reconcile}) requires an
+  Anthropic API key, but all deterministic features work without one.
+\end{faqpair}
+
+\begin{faqpair}{What is the estimated development timeline?}
+  punt-kit v0.1.0 shipped February 2026 with \texttt{/punt audit},
+  \texttt{/punt reconcile}, \texttt{/punt init}, and \texttt{/punt pii}. The
+  vision document describes ten additional commands. Phased delivery:
+  \begin{itemize}[nosep]
+    \item \textbf{Phase 1 (shipped):} Audit, reconcile, init, PII scan
+    \item \textbf{Phase 2 (Q2 2026):} Preflight, per-standard audit
+      subcommands, doctor
+    \item \textbf{Phase 3 (Q3 2026):} Release automation, changelog, status
+    \item \textbf{Phase 4 (Q4 2026):} Cross-repo rollout, PR workflow
+    \item \textbf{Phase 5 (2027):} Autopilot (autonomous backlog execution)
+  \end{itemize}
+  If timeline compresses, Phase 5 is cut. Phase 2 is the minimum viable next
+  milestone; it validates the ``standards as data'' engine pattern with
+  deterministic, per-rule checks.
+\end{faqpair}
+
+\subsubsection*{Business}
+
+\begin{faqpair}{What is the revenue model?}\label{faq:revenue-model}
+  punt-kit is free and open-source with no planned paid tiers. The strategic
+  value is:
+  \begin{itemize}[nosep]
+    \item \textbf{Ecosystem presence:} punt-kit establishes Punt Labs as a
+      credible voice in developer tooling, driving awareness for adjacent
+      products (quarry, biff).
+    \item \textbf{Dogfooding infrastructure:} punt-kit enforces standards
+      across all punt-labs projects, reducing maintenance cost for the org's own
+      tools.
+    \item \textbf{Platform engineering credibility:} The standards-as-data
+      approach, if validated, positions Punt Labs to offer consulting or
+      enterprise features later. But monetization is explicitly not the goal
+      for v1.
+  \end{itemize}
+\end{faqpair}
+
+\begin{faqpair}{What are the key metrics for success?}
+  \begin{enumerate}[nosep]
+    \item \textbf{Adoption:} 50 GitHub stars and 5 non-punt-labs organizations
+      using punt-kit within 6 months of v1.0. Measurement: GitHub stars, PyPI
+      download counts, Claude Code plugin install count.
+    \item \textbf{Retention:} Of adopting orgs, 3+ run \texttt{punt audit}
+      at least weekly after 3 months.
+    \item \textbf{Standards pack diversity:} At least 2 non-punt-labs standards
+      packs contributed or published within 12 months (evidence that the
+      engine/pack separation works).
+    \item \textbf{Decision threshold:} If after 6 months, fewer than 3 non-punt-labs
+      organizations are using punt-kit actively, revisit the customer
+      definition and consider whether the tool should remain internal-only.
+  \end{enumerate}
+\end{faqpair}
+
+\begin{faqpair}{Why now? What has changed?}\label{faq:why-now}
+  Three shifts converged:
+  \begin{enumerate}[nosep]
+    \item \textbf{AI agents are generating more code faster.} 23\% of
+      developers use AI agents at least weekly~\cite{stackoverflow2025survey},
+      and developers use AI in 60\% of their
+      work~\cite{anthropic2026agentictrendsreport}. More code, generated
+      faster, with no awareness of organizational conventions means standards
+      enforcement scales worse than ever.
+    \item \textbf{Agent context infrastructure is maturing.} CLAUDE.md,
+      AGENTS.md, and Claude Code plugins now provide hooks to inject standards
+      context into every agent session. This infrastructure did not exist 18
+      months ago.
+    \item \textbf{Platform engineering is going mainstream but tools assume
+      enterprise scale.} 55\% of organizations have adopted platform
+      engineering~\cite{googlecloud2024platformengineering}, but the leading
+      tools (Backstage, projen) require dedicated teams. Small teams need
+      the same enforcement without the overhead.
+  \end{enumerate}
+\end{faqpair}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FOUR RISKS ASSESSMENT
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Risk Assessment}
+
+\renewcommand{\arraystretch}{1.6}
+\begin{tabularx}{\textwidth}{@{} l l X @{}}
+\toprule
+\textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
+\midrule
+Value & \textcolor{RiskAmber}{Medium} &
+  The problem is real and well-evidenced by academic research and industry
+  signals. The risk is whether 5--50 engineer teams consider standards
+  enforcement a top-3 pain point worth adopting a new tool for. No primary
+  customer evidence exists outside dogfooding. The ``Why now'' argument
+  (AI agents amplifying drift) is strong but untested with the target
+  segment. \\
+Usability & \textcolor{RiskGreen}{Low} &
+  Three-step onboarding with zero configuration. The tool fits into existing
+  terminal and Claude Code workflows rather than replacing them. Time-to-value
+  is under five minutes. The main usability risk is standards parsing:
+  if teams' existing markdown documents are too unstructured for the engine
+  to parse, the setup cost increases. \\
+Feasibility & \textcolor{RiskGreen}{Low} &
+  Core technology is proven. v0.1.0 is shipped and running across 14
+  repositories. The team has domain expertise (the tool was built to solve
+  the team's own problem). The hardest unsolved problem is cross-repo rollout
+  safety, which is deferred to Phase 4. No dependencies on unproven
+  technology. \\
+Viability & \textcolor{RiskAmber}{Medium} &
+  punt-kit is free with no direct revenue plan. Strategic value (ecosystem
+  presence, dogfooding infrastructure) is real but hard to measure.
+  The risk is opportunity cost: time spent on punt-kit is time not spent on
+  revenue-generating products. Mitigated by the fact that punt-kit directly
+  reduces maintenance cost across all other punt-labs projects. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FEATURE APPENDIX
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Feature Appendix}
+
+Defines the scope boundary for the product. Every feature is explicitly
+categorized to prevent scope creep and force prioritization decisions upfront.
+
+\subsection*{Must Do}
+
+Features that are essential for launch. Without these, the product does not
+solve the core problem.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Standards-as-data engine}{reads a directory of markdown
+    documents, extracts checkable assertions, and runs them against a
+    repository}\label{feat:standards-engine}
+  \featureitem{Deterministic audit}{per-standard checks (README badges, Python
+    config, CI templates, shell scripts, naming conventions) that exit 0 or 1
+    with structured findings}\label{feat:deterministic-audit}
+  \featureitem{Preflight}{run quality gates and PII scan on staged files before
+    commit --- the daily-use entry point}\label{feat:preflight}
+  \featureitem{Custom standards directory}{teams point the engine at their own
+    rules, not just punt-labs defaults}\label{feat:custom-standards}
+  \featureitem{Claude Code plugin}{slash commands (\texttt{/punt audit},
+    \texttt{/punt preflight}) that inject standards context into AI agent
+    sessions}\label{feat:plugin}
+  \featureitem{MCP server}{exposes audit, init, and preflight as MCP tools so
+    any AI agent (Cursor, Windsurf, Codex, custom agents) can enforce the same
+    standards without a plugin}\label{feat:mcp}
+\end{enumerate}
+
+\subsection*{Should Do}
+
+Features that meaningfully improve the product but are not launch-blocking.
+Candidates for fast follow-up.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Release automation}{bump version, tag, push, and monitor the
+    full pipeline (build, TestPyPI, test-install, PyPI) in one
+    command}\label{feat:release}
+  \featureitem{Cross-repo rollout}{detect which repos need a standard change,
+    preview the delta, apply, commit, push, and report across N
+    repos}\label{feat:rollout}
+  \featureitem{Project doctor}{health check that verifies MCP wiring, plugin
+    installation, quality gate configuration, and beads
+    initialization}\label{feat:doctor}
+  \featureitem{Status dashboard}{combined view of beads in-progress, git state,
+    CI status, and unreleased commits}\label{feat:status}
+  \featureitem{REST API}{HTTP interface for CI pipelines and internal dashboards
+    to query audit findings programmatically}\label{feat:rest-api}
+\end{enumerate}
+
+\subsection*{Won't Do}
+
+Features explicitly excluded. Naming what we will not build prevents scope
+creep and clarifies the product's identity.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{GUI or web dashboard}{punt-kit is a terminal tool and a Claude
+    Code plugin. A web interface would split focus and target a different user.
+    Teams that want a portal should use
+    Backstage}\label{feat:no-gui}
+  \featureitem{CI system replacement}{punt-kit generates and validates CI
+    workflows. It does not replace GitHub Actions, GitLab CI, or any CI
+    runner}\label{feat:no-ci}
+  \featureitem{Code parsing or linting}{punt-kit orchestrates linters (ruff,
+    mypy, shellcheck) and validates their configuration. It does not parse
+    source code. Teams that want a metalinter should use Trunk or
+    MegaLinter}\label{feat:no-linting}
+  \featureitem{Package management}{validates distribution config and automates
+    release pipelines; does not replace PyPI, npm, or
+    uv}\label{feat:no-package-mgmt}
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% REFERENCES
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\printbibliography[title={References}]
+
+\end{document}
