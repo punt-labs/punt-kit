@@ -312,7 +312,7 @@ def run_pii(
     for file_path, file_findings in sorted(by_file.items()):
         console.print(f"\n  [bold]{file_path}[/bold]")
         for f in file_findings:
-            console.print(f"    [red]✗[/red] line {f.line}: [{f.category}] {f.match}")
+            console.print(f"    [red]✗[/red] line {f.line}: \\[{f.category}] {f.match}")
 
     console.print(
         f"\n  [red]{len(all_findings)} finding(s)[/red]"
