@@ -137,28 +137,26 @@ This is required for any project where HEAD of main may diverge from the release
 
 Pinning `source.ref` in the remote marketplace.json only helps when the local clone has the pin. Existing users whose marketplace clone predates the pin see the old marketplace.json without `source.ref` — and `claude plugin install` resolves HEAD again.
 
-The installer must `git pull` the marketplace clone before running `claude plugin install`:
+The installer must refresh the marketplace clone before running `claude plugin install`, using the supported CLI command:
 
 ```python
 def _refresh_marketplace() -> StepResult:
-    if not MARKETPLACE_CLONE.is_dir():
-        return StepResult("Marketplace refresh", True, "not yet cloned")
-    git = shutil.which("git")
-    if not git:
-        return StepResult("Marketplace refresh", False, "git not found")
+    claude = shutil.which("claude")
+    if not claude:
+        return StepResult("Marketplace refresh", False, "claude CLI not found on PATH")
     result = subprocess.run(
-        [git, "-C", str(MARKETPLACE_CLONE), "pull", "--ff-only"],
+        [claude, "plugin", "marketplace", "update", MARKETPLACE_KEY],
         capture_output=True, text=True, check=False,
     )
     ...
 ```
 
-New users (no clone yet) skip this — `claude plugin install` clones fresh. Existing users get the latest `source.ref` pins.
+This uses `claude plugin marketplace update` rather than operating on the clone directly, consistent with DES-002 (CLI over config file editing). New users get a fresh clone. Existing users get the latest `source.ref` pins.
 
 ### Rules
 
 1. **Every marketplace entry MUST have `source.ref` pinned to the release tag.** The release workflow marketplace bump step must update both `version` and `ref`.
-2. **Every installer MUST refresh the marketplace clone before `claude plugin install`.** Run `git pull --ff-only` on `~/.claude/plugins/marketplaces/punt-labs/` so existing users pick up ref pins.
+2. **Every installer MUST refresh the marketplace clone before `claude plugin install`.** Run `claude plugin marketplace update punt-labs` so existing users pick up ref pins.
 
 ### Alternatives Considered
 
