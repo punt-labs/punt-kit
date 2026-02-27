@@ -33,7 +33,7 @@ uv tool install punt-kit
 
 | Command | What it does |
 |---------|-------------|
-| `punt init` | Detect project type, generate missing CI/config files, report manual steps |
+| `punt init` | Scaffold a new Punt Labs project (CI, linter config, CLAUDE.md, permissions, beads) |
 | `punt audit` | Check compliance against standards (read-only, no file changes) |
 | `punt pii` | Scan repo for PII (emails, home paths, hostnames). Supports `--staged` for pre-commit |
 | `punt version` | Print version |
@@ -49,14 +49,16 @@ punt pii --staged  # Pre-commit: scan only staged files
 punt init /path    # Target a specific directory
 ```
 
-`punt init` detects the project type (Python, Node.js, Swift, docs) and generates:
+`punt init` detects the project type (Python, Node.js, Swift, docs) and scaffolds everything a Punt Labs project needs to pass `punt audit`:
 
-- GitHub Actions CI workflows (lint, test, docs, release)
-- Python tool configs (`[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]`)
-- Beads issue tracking (delegates to `bd init`)
-- `CLAUDE.md` with standards references
+- **CI workflows** — lint, test, docs, and release workflows from Jinja2 templates
+- **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]` sections merged into `pyproject.toml`
+- **CLAUDE.md** — standards references and quality gates tailored to the detected language
+- **Claude Code permissions** — `.claude/settings.json` with tool allowlists for the project's quality gates
+- **Gitignore** — `.claude/` exceptions appended to `.gitignore`
+- **Beads** — issue tracking initialized via `bd init`
 
-After generating files, it reports manual steps (branch protection, Copilot review, Dependabot).
+After scaffolding, it reports manual steps that require GitHub access (branch protection rulesets, Copilot code review, Dependabot). Init is idempotent — re-running it updates existing files without overwriting customizations.
 
 `punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated.
 
