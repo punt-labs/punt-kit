@@ -176,7 +176,8 @@ def get_files(root: Path, *, staged: bool) -> list[str]:
 def is_binary(path: Path) -> bool:
     """Check if a file is binary by looking for null bytes in the first 8KB."""
     try:
-        chunk = path.read_bytes()[:8192]
+        with path.open("rb") as f:
+            chunk = f.read(8192)
         return b"\x00" in chunk
     except OSError:
         return True
@@ -200,12 +201,20 @@ def scan_file(
 
     try:
         content = full_path.read_text(errors="replace")
-    except OSError:
+    except (OSError, UnicodeError):
         return []
 
     findings: list[Finding] = []
     allow_email_set = _BUILTIN_ALLOW_EMAILS | set(config.allow_emails)
-    allow_regexes = [re.compile(p) for p in config.allow_patterns]
+    allow_regexes: list[re.Pattern[str]] = []
+    for p in config.allow_patterns:
+        try:
+            allow_regexes.append(re.compile(p))
+        except re.error as exc:
+            console.print(
+                f"[yellow]Warning:[/yellow] invalid allow_pattern skipped:"
+                f" {p!r} ({exc})"
+            )
 
     for line_num, line in enumerate(content.splitlines(), start=1):
         # --- Email detector ---

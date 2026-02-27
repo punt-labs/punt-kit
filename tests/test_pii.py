@@ -144,24 +144,17 @@ def test_ignores_files(tmp_path: Path) -> None:
     _init_git(tmp_path)
     (tmp_path / "data.lock").write_text("secret@email.com\n")
     (tmp_path / "clean.py").write_text("x = 1\n")
-    subprocess.run(["git", "add", "."], cwd=str(tmp_path), capture_output=True)
+    # Config that ignores *.lock files
+    (tmp_path / ".punt-pii.toml").write_text('ignore_files = ["*.lock"]\n')
     _add_and_commit(tmp_path)
 
+    # scan_file should still find it if called directly (no filtering)
     config = PiiConfig(ignore_files=["*.lock"])
-    # scan_file should still find it if called directly
     findings = scan_file("data.lock", tmp_path, config)
     assert len(findings) == 1
 
-    # But run_pii with ignore_files should skip it
-    # We test via the filtering logic — ignore_files filters at run_pii level
-    import fnmatch
-
-    files = ["data.lock", "clean.py"]
-    filtered = [
-        f for f in files if not any(fnmatch.fnmatch(f, g) for g in config.ignore_files)
-    ]
-    assert "data.lock" not in filtered
-    assert "clean.py" in filtered
+    # run_pii should skip it via ignore_files and not raise SystemExit
+    run_pii(str(tmp_path))
 
 
 def test_binary_files_skipped(tmp_path: Path) -> None:
