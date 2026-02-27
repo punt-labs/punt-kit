@@ -110,7 +110,11 @@ if command -v claude >/dev/null 2>&1; then
 
   claude plugin uninstall punt@punt-labs 2>/dev/null || true
   if claude plugin install punt@punt-labs --scope user 2>/dev/null; then
-    ok "Claude Code plugin installed"
+    if claude plugin list 2>/dev/null | grep -q "punt@punt-labs"; then
+      ok "Claude Code plugin installed"
+    else
+      warn "Plugin install reported success but plugin not found (install manually: claude plugin install punt@punt-labs)"
+    fi
   else
     warn "Failed to install plugin (install manually: claude plugin install punt@punt-labs)"
   fi
