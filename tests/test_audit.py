@@ -453,6 +453,46 @@ def test_audit_hybrid_install_sh_fails_no_marketplace_refresh(tmp_path: Path) ->
         run_audit(str(tmp_path))
 
 
+def test_audit_hybrid_install_sh_fails_no_strict_mode(tmp_path: Path) -> None:
+    """Audit fails when install.sh is missing set -eu."""
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\n"
+        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
+        '"$BINARY" doctor\n'
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_hybrid_install_sh_fails_no_ssh_fallback(tmp_path: Path) -> None:
+    """Audit fails when install.sh is missing SSH/HTTPS fallback."""
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\nset -eu\n"
+        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
+        '"$BINARY" doctor\n'
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_hybrid_install_sh_fails_no_doctor(tmp_path: Path) -> None:
+    """Audit fails when install.sh is missing doctor verification."""
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\nset -eu\n"
+        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
 # --- README SHA pin tests ---
 
 

@@ -516,7 +516,7 @@ def _check_plugin_dev_isolation(
     results: list[tuple[str, str, str]] = []
 
     # Check plugin name has -dev suffix
-    plugin_name = _read_plugin_name(info)
+    plugin_name = _read_plugin_field(info, "name")
     if plugin_name is not None:
         if plugin_name.endswith("-dev"):
             results.append((PASS, "Plugin name has -dev suffix", plugin_name))
@@ -642,7 +642,7 @@ def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
     bad_refs: list[str] = []
     for ref in matches:
-        if not re.fullmatch(r"[0-9a-f]{7,40}", ref):
+        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
             bad_refs.append(ref)
 
     if bad_refs:
@@ -664,7 +664,7 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not info.is_plugin:
         return []
 
-    plugin_version = _read_plugin_version(info)
+    plugin_version = _read_plugin_field(info, "version")
     if plugin_version is None:
         return []
 
@@ -697,8 +697,8 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     ]
 
 
-def _read_plugin_version(info: ProjectInfo) -> str | None:
-    """Read version from plugin.json."""
+def _read_plugin_field(info: ProjectInfo, field: str) -> str | None:
+    """Read a string field from plugin.json."""
     for pj_path in (
         info.root / ".claude-plugin" / "plugin.json",
         info.root / "plugin.json",
@@ -706,26 +706,9 @@ def _read_plugin_version(info: ProjectInfo) -> str | None:
         if pj_path.exists():
             try:
                 data = json.loads(pj_path.read_text(encoding="utf-8"))
-                version = data.get("version")
-                if isinstance(version, str):
-                    return version
-            except (json.JSONDecodeError, OSError):
-                pass
-    return None
-
-
-def _read_plugin_name(info: ProjectInfo) -> str | None:
-    """Read plugin name from plugin.json."""
-    for pj_path in (
-        info.root / ".claude-plugin" / "plugin.json",
-        info.root / "plugin.json",
-    ):
-        if pj_path.exists():
-            try:
-                data = json.loads(pj_path.read_text(encoding="utf-8"))
-                name = data.get("name")
-                if isinstance(name, str):
-                    return name
+                value = data.get(field)
+                if isinstance(value, str):
+                    return value
             except (json.JSONDecodeError, OSError):
                 pass
     return None
