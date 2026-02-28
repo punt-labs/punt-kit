@@ -51,13 +51,13 @@ banner "punt-kit"
 curl -fsSL "$GH/punt-kit/d63f814/install.sh" | sh
 
 banner "biff"
-curl -fsSL "$GH/biff/9faea7c/install.sh" | sh
+curl -fsSL "$GH/biff/78134ef/install.sh" | sh
 
 banner "quarry"
-curl -fsSL "$GH/quarry/cab9a08/install.sh" | sh
+curl -fsSL "$GH/quarry/40b30b1/install.sh" | sh
 
 banner "tts"
-curl -fsSL "$GH/tts/ec12cf6/install.sh" | sh
+curl -fsSL "$GH/tts/ecbc0d7/install.sh" | sh
 
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
