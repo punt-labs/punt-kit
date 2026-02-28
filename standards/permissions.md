@@ -295,6 +295,12 @@ unrelated files. Include the plugin name or a domain-specific identifier:
 Define rules as a JSON array. Use `jq` for atomic, order-preserving merge.
 Fall back to manual instructions when `jq` is unavailable.
 
+**Note on Bash rule syntax.** Project-level settings (section 3) use broad
+patterns like `Bash(bash:*)` because the developer trusts their own project.
+Plugin-distributed permissions use narrow patterns like
+`Bash(bash */compile_prfaq.sh *)` because they are injected into the user's
+global settings and should match only the specific commands the plugin needs.
+
 ```sh
 PLUGIN_RULES='[
   "Bash(bash */compile_prfaq.sh *)",
@@ -324,6 +330,15 @@ if command -v jq >/dev/null 2>&1; then
     (.permissions.allow // []) as $orig
     | .permissions.allow = $orig + [$new[] | select(. as $r | $orig | index($r) | not)]
   ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+
+  if [ "$ADDED" -gt 0 ]; then
+    echo "$ADDED permission rule(s) added to $SETTINGS_FILE"
+  else
+    echo "permissions already configured"
+  fi
+else
+  echo "jq not found — add these rules manually to $SETTINGS_FILE under permissions.allow:"
+  printf '%s\n' "$PLUGIN_RULES"
 fi
 ```
 
@@ -333,7 +348,7 @@ The uninstaller must remove only the rules the plugin added:
 
 ```sh
 jq --argjson remove "$PLUGIN_RULES" '
-  .permissions.allow = [.permissions.allow[] | select(. as $r | $remove | index($r) | not)]
+  .permissions.allow = [(.permissions.allow // [])[] | select(. as $r | $remove | index($r) | not)]
 ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
 ```
 
