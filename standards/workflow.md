@@ -143,10 +143,13 @@ Do **not** merge immediately after creating a PR. The full flow is:
 1. **Create PR** — push branch, open PR.
 2. **Trigger GitHub Copilot code review** — request review so Copilot analyzes the diff.
 3. **Watch for feedback** — background the watch so you stay productive:
+
    ```bash
    gh pr checks <number> --watch         # Background this — blocks until all checks resolve
    ```
+
 4. **Read feedback** — when the watch completes, read review comments:
+
    ```bash
    gh pr view <number> --comments        # Copilot feedback and inline comments
    ```

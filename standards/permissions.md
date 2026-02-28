@@ -279,7 +279,7 @@ write/edit patterns, and web access.
 Permission patterns must be narrow enough that they don't grant access to
 unrelated files. Include the plugin name or a domain-specific identifier:
 
-```
+```text
 # Good — scoped to plugin output
 "Write(*prfaq*.tex)"
 "Write(.tts/**)"
