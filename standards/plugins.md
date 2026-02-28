@@ -221,8 +221,52 @@ __pycache__/
 
 ---
 
-## Command Tool Restrictions
+## Plugin Installer Permissions
 
-Commands that invoke external tools (compilers, linters, test runners) should declare `allowed-tools` in their frontmatter to restrict what Claude can execute. This prevents unintended side effects.
+The SessionStart hook handles MCP tool wildcards (section above). Plugins that
+use Bash commands, file writes/edits, or web access in their commands and
+skills need additional permissions injected by the **installer** (not the
+SessionStart hook — the installer runs once with user attention, making it the
+right place for explicit permission setup).
 
-Pattern: Z Spec commands restrict Bash to `fuzz:*` and `probcli:*` calls only.
+### Requirements
+
+1. **Every installer must include a permission injection step.** Define the
+   plugin's permission rules as a JSON array and merge them into
+   `~/.claude/settings.json` using the order-preserving `jq` pattern from
+   [permissions.md § 6](permissions.md#6-plugin-distributed-permissions).
+
+2. **Every uninstaller must remove injected permissions.** Use the same JSON
+   array to selectively remove only the plugin's rules.
+
+3. **Rules must be pattern-specific.** Include the plugin name or a
+   domain-specific identifier in every Write/Edit pattern. See
+   [permissions.md § 6](permissions.md#6-plugin-distributed-permissions) for
+   examples.
+
+4. **Dangerous operations stay at the prompt tier.** Never auto-allow `curl`,
+   `rm`, broad file patterns, or commands with side effects.
+
+Pattern: `prfaq/install.sh` (Step 5: Configure permissions).
+
+---
+
+## Command and Skill Frontmatter
+
+### allowed-tools
+
+Every command and skill that invokes tools must declare `allowed-tools` in its
+YAML frontmatter. This restricts what Claude can execute when running the
+command and serves as documentation of the command's tool requirements.
+
+```yaml
+---
+description: Run a simulated review meeting
+allowed-tools: Bash(mkdir -p meetings), Read, Write, Glob, Grep
+---
+```
+
+List only the tools the command actually uses. Do not include tools the command
+does not need.
+
+Pattern: `prfaq/commands/*.md`, `z-spec/commands/*.md`.

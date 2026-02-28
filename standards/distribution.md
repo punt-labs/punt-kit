@@ -289,7 +289,8 @@ handles all cleanup:
 |----------|-----------|---------------|
 | Plugin registration | `claude plugin install` | `claude plugin uninstall` |
 | Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
-| Permission entries in `~/.claude/settings.json` | SessionStart hook | Project `uninstall` |
+| MCP tool permissions in `~/.claude/settings.json` | SessionStart hook | Project `uninstall` |
+| Non-MCP permissions in `~/.claude/settings.json` | Installer (permission step) | Project `uninstall` |
 | Status line wrapping | `install-statusline` | Project `uninstall` |
 | Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
 | Orphaned local plugin dirs | Previous install method | `uninstall` (migration cleanup) |

@@ -241,7 +241,105 @@ Allow read/edit/write across the punt-labs workspace using both path forms:
 
 ---
 
-## 6. Applying These Standards
+## 6. Plugin-Distributed Permissions
+
+Plugins installed via the marketplace operate in arbitrary projects — not just
+the plugin's own repo. They need permissions in the **user's**
+`~/.claude/settings.json` so commands, skills, and hooks can run without
+constant approval prompts.
+
+The SessionStart hook (see [plugins.md](plugins.md)) handles MCP tool
+wildcards. This section covers everything else: Bash commands, file
+write/edit patterns, and web access.
+
+### What to auto-allow
+
+| Category | Auto-allow when... | Example |
+|----------|-------------------|---------|
+| Bash (build tools) | Deterministic, non-destructive | `Bash(bash */compile_prfaq.sh *)` |
+| Bash (scaffolding) | Creates empty directories only | `Bash(mkdir -p meetings)` |
+| Bash (utilities) | No side effects, no network | `Bash(uuidgen)` |
+| Write (plugin output) | Pattern contains plugin name or is plugin-owned | `Write(*prfaq*.tex)` |
+| Write (plugin config) | Plugin's own config directory | `Write(.tts/**)` |
+| Edit (plugin output) | Same constraint as Write | `Edit(*prfaq*.tex)` |
+| WebSearch | Plugin performs research as core functionality | `WebSearch` |
+| WebFetch | Plugin fetches from arbitrary domains as core functionality | `WebFetch` |
+
+### What to never auto-allow
+
+| Category | Rationale |
+|----------|-----------|
+| `Bash(curl *)`, `Bash(wget *)` | Network requests to external endpoints |
+| `Bash(rm *)` | File deletion — users approve every delete |
+| Broad `Write(*)` / `Edit(*)` | Patterns that match files outside the plugin's domain |
+| Bash with side effects | Package installs, process management, system config |
+
+### Pattern specificity
+
+Permission patterns must be narrow enough that they don't grant access to
+unrelated files. Include the plugin name or a domain-specific identifier:
+
+```
+# Good — scoped to plugin output
+"Write(*prfaq*.tex)"
+"Write(.tts/**)"
+"Edit(*prfaq*.bib)"
+
+# Bad — matches any .tex file
+"Write(*.tex)"
+"Edit(*.tex)"
+```
+
+### Implementation pattern
+
+Define rules as a JSON array. Use `jq` for atomic, order-preserving merge.
+Fall back to manual instructions when `jq` is unavailable.
+
+```sh
+PLUGIN_RULES='[
+  "Bash(bash */compile_prfaq.sh *)",
+  "Write(*prfaq*.tex)",
+  "Edit(*prfaq*.tex)"
+]'
+
+SETTINGS_FILE="$HOME/.claude/settings.json"
+
+if command -v jq >/dev/null 2>&1; then
+  # Ensure valid JSON exists
+  if [ ! -f "$SETTINGS_FILE" ]; then
+    mkdir -p "$(dirname "$SETTINGS_FILE")"
+    printf '{}' > "$SETTINGS_FILE"
+  elif ! jq -e . "$SETTINGS_FILE" >/dev/null 2>&1; then
+    cp "$SETTINGS_FILE" "${SETTINGS_FILE}.bak" 2>/dev/null || true
+    printf '{}' > "$SETTINGS_FILE"
+  fi
+
+  # Count new rules, then merge (order-preserving, idempotent)
+  ADDED=$(jq -r --argjson new "$PLUGIN_RULES" '
+    (.permissions.allow // []) as $orig
+    | [$new[] | select(. as $r | $orig | index($r) | not)] | length
+  ' "$SETTINGS_FILE")
+
+  jq --argjson new "$PLUGIN_RULES" '
+    (.permissions.allow // []) as $orig
+    | .permissions.allow = $orig + [$new[] | select(. as $r | $orig | index($r) | not)]
+  ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+fi
+```
+
+### Uninstall cleanup
+
+The uninstaller must remove only the rules the plugin added:
+
+```sh
+jq --argjson remove "$PLUGIN_RULES" '
+  .permissions.allow = [.permissions.allow[] | select(. as $r | $remove | index($r) | not)]
+' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+```
+
+---
+
+## 7. Applying These Standards
 
 ### New repositories
 
