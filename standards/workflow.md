@@ -153,6 +153,7 @@ Do **not** merge immediately after creating a PR. The full flow is:
    ```bash
    gh pr view <number> --comments        # Copilot feedback and inline comments
    ```
+
 5. **Evaluate feedback** — read each comment; decide which are valid and actionable.
 6. **Address valid issues** — commit fixes; push; ensure quality gates pass on each change.
 7. **Merge only when** — all review feedback has been evaluated (addressed or explicitly declined), GitHub Actions are green, and local quality gates pass.
