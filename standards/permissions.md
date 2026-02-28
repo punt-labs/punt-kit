@@ -1,0 +1,268 @@
+# Permissions Standards
+
+Rules for Claude Code permission configuration across all Punt Labs projects.
+Defines what agents can do automatically, what requires approval, and what is
+blocked entirely.
+
+---
+
+## 1. Permission Tiers
+
+Claude Code uses a three-tier permission model:
+
+| Tier | Behavior | Where defined |
+|------|----------|---------------|
+| **Allow** | Auto-approved, no prompt | `settings.json` (checked in) or `settings.local.json` (gitignored) |
+| **Prompt** | User approves or rejects each time | Default for anything not in allow or deny |
+| **Deny** | Blocked entirely, cannot be approved | `settings.json` (checked in) |
+
+The prompt tier is the safety net. Most tools fall here by default. Only
+promote to allow when the tool is safe for autonomous use; only promote to
+deny when the tool should never run, even with explicit approval.
+
+---
+
+## 2. File Split
+
+Permissions are split across two files based on portability:
+
+### `settings.json` (checked in)
+
+Portable permissions that apply to all collaborators on the project.
+
+Contains:
+
+- MCP plugin tool wildcards
+- Build tool Bash commands
+- Skill permissions
+- WebFetch domain allowlist
+- Deny rules
+- Project-specific entries (hooks, env, additionalDirectories)
+
+### `settings.local.json` (gitignored)
+
+Machine-specific permissions tied to local paths or OS-specific tools.
+
+Contains:
+
+- `Read`/`Edit`/`Write` with absolute or `~` paths
+- OS-specific commands (e.g., `Bash(say:*)` on macOS)
+
+**Every project must gitignore `settings.local.json`.** Add to `.gitignore`:
+
+```gitignore
+.claude/settings.local.json
+```
+
+---
+
+## 3. Required Allow Rules
+
+### MCP plugin wildcards
+
+Every project must allow all Punt Labs plugin MCP tools:
+
+```json
+"mcp__plugin_biff_tty__*",
+"mcp__plugin_github_github__*",
+"mcp__plugin_quarry_quarry__*",
+"mcp__github__*",
+"mcp__quarry__*"
+```
+
+Projects with their own MCP servers add project-specific wildcards (e.g.,
+`"mcp__plugin_tts_vox__*"`).
+
+### Build tools
+
+Every project must allow these generic Bash commands:
+
+```json
+"Bash(bash:*)",
+"Bash(bd:*)",
+"Bash(cat:*)",
+"Bash(chmod +x:*)",
+"Bash(claude mcp:*)",
+"Bash(claude plugin:*)",
+"Bash(export:*)",
+"Bash(find:*)",
+"Bash(gh:*)",
+"Bash(git:*)",
+"Bash(ls:*)",
+"Bash(pip index:*)",
+"Bash(punt:*)",
+"Bash(sed:*)",
+"Bash(shellcheck:*)",
+"Bash(tail:*)",
+"Bash(test:*)"
+```
+
+Projects add their own build tools as needed:
+
+| Project type | Additional allows |
+|-------------|-------------------|
+| Python | `Bash(uv:*)`, `Bash(uvx:*)`, `Bash(python3:*)` |
+| Node.js | `Bash(npx:*)`, `Bash(npm:*)` |
+| Swift | `Bash(make:*)`, `Bash(xcodebuild:*)` |
+| CLI project | `Bash(<cli-name>:*)`, `Bash(<cli-name>-server:*)` |
+
+### Skills
+
+Every project must allow all Punt Labs plugin skills. This includes both
+short names and fully qualified names for each plugin:
+
+- **biff**: `biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
+  `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
+  (plus short names: `biff`, `finger`, `last`, `mesg`, `plan`, `read`, `talk`,
+  `tty`, `wall`, `who`, `write`)
+- **dungeon**: `d`
+- **prfaq**: `prfaq:prfaq`, `prfaq:vote`, `prfaq:meeting`,
+  `prfaq:meeting-hive`, `prfaq:streamline`, `prfaq:research`, `prfaq:review`,
+  `prfaq:feedback`, `prfaq:feedback-to-us`, `prfaq:externalize`, `prfaq:import`
+- **punt-kit**: `punt:audit`, `punt:init`, `punt:pii`, `punt:reconcile`,
+  `punt:release`
+- **quarry**: `quarry`, `quarry:find`, `quarry:explain`, `quarry:ingest`,
+  `quarry:quarry`, `quarry:source` (plus short names: `find`, `explain`,
+  `ingest`, `source`)
+- **tts**: `tts:notify`, `tts:recap`, `tts:say`, `tts:speak`, `tts:vibe`,
+  `tts:voice` (plus short names: `notify`, `recap`, `say`, `speak`, `vibe`,
+  `voice`)
+- **local commands**: `autopilot`
+- **z-spec**: `z-spec:audit`, `z-spec:check`, `z-spec:cleanup`,
+  `z-spec:code2model`, `z-spec:elaborate`, `z-spec:help`, `z-spec:model2code`,
+  `z-spec:partition`, `z-spec:setup`, `z-spec:test`
+
+### WebFetch domains
+
+Allow research domains relevant to org work:
+
+```json
+"WebFetch(domain:claude.com)",
+"WebFetch(domain:docs.anthropic.com)",
+"WebFetch(domain:elevenlabs.io)",
+"WebFetch(domain:ics.uci.edu)",
+"WebFetch(domain:survey.stackoverflow.co)",
+"WebFetch(domain:venturebeat.com)",
+"WebFetch(domain:www.anthropic.com)",
+"WebFetch(domain:www.cartesia.ai)"
+```
+
+---
+
+## 4. Required Deny Rules
+
+Every project must deny these operations. Deny rules block the operation
+entirely — the user cannot approve them even if prompted.
+
+### Destructive operations
+
+| Rule | Rationale |
+|------|-----------|
+| `Bash(rm -rf /:*)` | System destruction |
+| `Bash(rm -rf ~:*)` | Home directory destruction |
+| `Bash(dd:*)` | Raw disk writes, can overwrite devices |
+
+### Privilege escalation
+
+| Rule | Rationale |
+|------|-----------|
+| `Bash(sudo:*)` | No agent should have root access |
+| `Bash(su:*)` | No agent should switch users |
+
+### Network access
+
+| Rule | Rationale |
+|------|-----------|
+| `Bash(curl:*)` | Arbitrary HTTP requests |
+| `Bash(wget:*)` | Arbitrary HTTP downloads |
+| `Bash(ssh:*)` | Remote shell access |
+| `Bash(scp:*)` | Remote file transfer |
+| `Bash(ftp:*)` | Remote file transfer |
+| `Bash(tftp:*)` | Remote file transfer |
+| `Bash(nc:*)` | Raw network connections, reverse shells |
+| `Bash(netcat:*)` | Raw network connections |
+| `Bash(ncat:*)` | Raw network connections |
+| `Bash(telnet:*)` | Plain text remote access |
+| `Bash(socat:*)` | Advanced network proxy |
+
+### Secrets and environment
+
+| Rule | Rationale |
+|------|-----------|
+| `Edit(.env)` | Prevent modifying environment secrets |
+| `Write(.env)` | Prevent creating/overwriting environment secrets |
+| `Edit(.envrc)` | Prevent modifying direnv configuration |
+| `Write(.envrc)` | Prevent creating/overwriting direnv configuration |
+| `Bash(direnv allow:*)` | Prevent trusting untrusted `.envrc` files |
+
+### Known limitations
+
+Deny rules match on command prefixes. Flags placed after arguments (e.g.,
+`git push origin main --force`) may not match a deny rule for
+`Bash(git push --force:*)`. These rules are guardrails against common
+mistakes, not a sandbox.
+
+Allowed interpreters (`python3`, `uv run`) can bypass network deny rules
+programmatically. The deny list prevents direct invocation of network tools,
+not all possible network access.
+
+---
+
+## 5. Local-Only Permissions
+
+The `settings.local.json` file contains machine-specific entries. These are
+not checked in because they contain local paths.
+
+### Cross-project file access
+
+Allow read/edit/write across the punt-labs workspace using both path forms:
+
+```json
+"Read(~/Coding/punt-labs/**)",
+"Read(/Users/<username>/Coding/punt-labs/**)",
+"Edit(~/Coding/punt-labs/**)",
+"Edit(/Users/<username>/Coding/punt-labs/**)",
+"Write(~/Coding/punt-labs/**)",
+"Write(/Users/<username>/Coding/punt-labs/**)"
+```
+
+### Temporary file access
+
+```json
+"Read(/tmp/**)",
+"Write(/tmp/**)"
+```
+
+### OS-specific commands
+
+| OS | Rule |
+|----|------|
+| macOS | `Bash(say:*)` |
+
+---
+
+## 6. Applying These Standards
+
+### New repositories
+
+1. Create `settings.json` with shared allow rules (sections 3) and deny rules
+   (section 4), plus any project-specific build tool allows.
+2. Create `settings.local.json` with local path permissions (section 5).
+3. Add `.claude/settings.local.json` to `.gitignore`.
+4. Verify with `punt audit`.
+
+### Existing repositories
+
+Run `punt audit` to check compliance. The audit checks:
+
+- All required deny rules are present
+- All required MCP wildcards are present
+- All required skill permissions are present
+- `settings.local.json` is gitignored
+- No local paths appear in `settings.json`
+
+### Adding new deny rules
+
+When adding a new deny rule, apply it to all projects simultaneously. Use a
+script to merge the rule into every project's `settings.json` to maintain
+consistency.
