@@ -83,6 +83,11 @@ ok "$BINARY $(command -v "$BINARY")"
 if command -v claude >/dev/null 2>&1; then
   info "Setting up Claude Code plugin..."
 
+  if ! command -v git >/dev/null 2>&1; then
+    warn "'git' not found — skipping plugin install"
+    printf '  Install git (https://git-scm.com/downloads), then run: claude plugin install punt@punt-labs\n'
+  else
+
   NEED_HTTPS_REWRITE=0
   cleanup_https_rewrite() {
     if [ "$NEED_HTTPS_REWRITE" = "1" ]; then
@@ -120,6 +125,8 @@ if command -v claude >/dev/null 2>&1; then
   fi
 
   cleanup_https_rewrite
+
+  fi
 else
   warn "Claude Code not found — skipping plugin install"
   printf '  Install Claude Code, then run: claude plugin install punt@punt-labs\n'
