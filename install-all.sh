@@ -82,6 +82,7 @@ fi
 
 for plugin in prfaq dungeon z-spec; do
   info "Installing $plugin plugin..."
+  claude plugin uninstall "$plugin@punt-labs" < /dev/null 2>/dev/null || true
   if claude plugin install "$plugin@punt-labs" --scope user < /dev/null 2>/dev/null; then
     ok "$plugin"
   else
