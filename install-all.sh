@@ -42,22 +42,22 @@ fi
 # --- Step 1: Marketplace ---
 
 banner "Marketplace"
-curl -fsSL "$GH/claude-plugins/8ba82a3/install.sh" | sh
+curl -fsSL "$GH/claude-plugins/25b2d44/install.sh" | sh
 
 # --- Step 2: CLI tools ---
 # Each installer handles its own pre-flight (Python, uv, SSH fallback).
 
 banner "punt-kit"
-curl -fsSL "$GH/punt-kit/d63f814/install.sh" | sh
+curl -fsSL "$GH/punt-kit/e97de30/install.sh" | sh
 
 banner "biff"
-curl -fsSL "$GH/biff/78134ef/install.sh" | sh
+curl -fsSL "$GH/biff/a0ea7ab/install.sh" | sh
 
 banner "quarry"
-curl -fsSL "$GH/quarry/40b30b1/install.sh" | sh
+curl -fsSL "$GH/quarry/2fe8299/install.sh" | sh
 
 banner "tts"
-curl -fsSL "$GH/tts/6683b5d/install.sh" | sh
+curl -fsSL "$GH/tts/61f3db0/install.sh" | sh
 
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
