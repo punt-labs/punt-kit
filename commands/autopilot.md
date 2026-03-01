@@ -78,7 +78,7 @@ Use `gh pr create` with a summary and test plan. Keep title under 70 chars. Neve
 
 ### 8. CI and Copilot review
 
-This step is blocking. Do not proceed to merge until both CI and Copilot review are complete.
+This step is **hard-blocking**. Do not proceed to merge until both CI passes and Copilot review arrives. No exceptions. No theories about why a review might not come. Copilot always reviews — it just takes 5-10 minutes.
 
 1. Request Copilot review:
 
@@ -87,19 +87,27 @@ This step is blocking. Do not proceed to merge until both CI and Copilot review 
    mcp__github__request_copilot_review(owner="punt-labs", repo="<repo>", pullNumber=<N>)
    ```
 
-2. Wait for CI and review to complete (background this so you're notified when done):
+2. Wait for CI checks to pass:
 
    ```bash
    gh pr checks <number> --watch    # Blocks until all checks resolve
    ```
 
-3. Read Copilot feedback:
+3. Wait for Copilot review. CI passing does NOT mean Copilot has reviewed — those are independent. Poll until the review appears:
+
+   ```bash
+   gh pr view <number> --json reviews --jq '.reviews[] | select(.author.login == "copilot-pull-request-reviewer") | .submittedAt'
+   ```
+
+   If empty, wait 60 seconds and poll again. **Keep polling for at least 15 minutes.** Do not invent theories about why the review is absent (e.g., "Copilot doesn't review markdown files" — wrong). If no review after 15 minutes, ask the user whether to continue waiting or merge without review.
+
+4. Read Copilot feedback:
 
    ```bash
    gh pr view <number> --comments
    ```
 
-4. Address feedback:
+5. Address feedback:
    - **0 issues**: proceed to merge
    - **1-3 issues**: fix, push, request another review (up to 2 rounds)
    - **4+ issues**: fix, push, request another review (up to 3 rounds)
