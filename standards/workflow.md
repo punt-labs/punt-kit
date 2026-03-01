@@ -125,18 +125,49 @@ Fix the issue immediately. Do not commit with known failures. Do not skip gates 
 
 ---
 
-## 6. Pre-PR Checklist
+## 6. CHANGELOG Discipline
+
+Projects that maintain a CHANGELOG follow [Keep a Changelog](https://keepachangelog.com/) format.
+
+### Timing
+
+CHANGELOG entries are written **in the PR branch, before merge** — not retroactively on main. The entry is part of the diff that gets reviewed. If a PR changes user-facing behavior and the diff does not include a CHANGELOG entry, the PR is not ready to merge.
+
+### What gets an entry
+
+- New commands, features, agents, or reference guides → `### Added`
+- Behavior changes to existing commands → `### Changed`
+- Bug fixes → `### Fixed`
+- Removed features or commands → `### Removed`
+
+### What does NOT get an entry
+
+- Internal-only changes (CLAUDE.md, CI config, dev tooling, test-only changes)
+- Dependency updates with no user-visible effect
+- Plugin cache, session transcripts, research files
+
+### Format
+
+- Entries go under `## Unreleased` (or `## [Unreleased]` for semver projects)
+- Group under `### Added`, `### Changed`, `### Fixed`, `### Removed` (in that order, omit empty groups)
+- Each entry starts with the component name (e.g., `` `/prfaq:vote` ``, `Installer`, `Status line`)
+- One logical change per bullet — sub-bullets for supporting detail
+- At release time, move `Unreleased` entries to a versioned heading
+
+---
+
+## 7. Pre-PR Checklist
 
 Before creating a pull request, verify:
 
 - [ ] Quality gates pass (see section 5)
 - [ ] README updated if user-facing behavior changed (new flags, commands, defaults, config)
-- [ ] CHANGELOG entry added for notable changes (if the project maintains one)
+- [ ] **CHANGELOG entry included in the PR diff** for notable changes (see section 6)
 - [ ] Version bumped if user-facing behavior changed (if the project uses semver)
 
 ---
 
-## 7. Code Review Flow
+## 8. Code Review Flow
 
 Do **not** merge immediately after creating a PR. The full flow is:
 
@@ -164,7 +195,7 @@ Quality gates apply at every step. Each commit that addresses review feedback mu
 
 ---
 
-## 8. Session Close Protocol
+## 9. Session Close Protocol
 
 Before ending any session, run this checklist:
 
@@ -181,7 +212,7 @@ Work is **not** complete until `git push` succeeds.
 
 ---
 
-## 9. Design Decision Logs
+## 10. Design Decision Logs
 
 Projects with non-trivial architecture should maintain a design decision log. See [Design Decision Log](../patterns/design-decision-log.md) for the full pattern.
 
@@ -195,7 +226,7 @@ Projects with non-trivial architecture should maintain a design decision log. Se
 
 ---
 
-## 10. Cross-Project Integration
+## 11. Cross-Project Integration
 
 Projects may optionally integrate with other Punt Labs tools. Integrations must be:
 
