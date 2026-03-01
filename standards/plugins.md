@@ -56,6 +56,19 @@ The marketplace entry's `source.ref` must be pinned to the release tag (see
 DES-003 in DESIGN.md) — without it, `claude plugin install` clones HEAD, not
 the tag. Then `scripts/restore-dev-plugin.sh` restores dev state on main.
 
+### Release flow for pure plugins
+
+Pure plugins (dungeon, prfaq, z-spec) have no PyPI artifact and may lack
+`scripts/release-plugin.sh`. They still need properly tagged releases for the
+marketplace to install them.
+
+The release sequence is: swap name to prod → commit → tag → restore dev name →
+commit → push. See DES-007 in DESIGN.md for the full rationale.
+
+**Critical**: the marketplace `source.ref` must point to an existing tag where
+`plugin.json` has the prod name. If the tag doesn't exist or has the dev name,
+`claude plugin install` fails silently.
+
 ### Audit enforcement
 
 `punt audit` checks that every prod command (`*.md` excluding `*-dev.md`) has a

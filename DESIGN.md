@@ -350,3 +350,158 @@ allow rules eliminate permission prompts for the operations autopilot needs. The
 command's `allowed-tools` frontmatter is the final layer — it declares exactly
 which allowed tools the agent will use during the loop, making the scope of
 autonomous action explicit and auditable.
+
+## DES-006: Stdin Protection in `curl | sh` Installers
+
+**Date:** 2026-02-28
+**Status:** SETTLED
+**Topic:** Why `curl | sh` installers silently stop executing after certain commands
+
+### Root Cause
+
+When a shell script runs via `curl -fsSL ... | sh`, the shell reads the script
+from stdin (the pipe). Child processes inherit the shell's stdin by default. Any
+child that reads from stdin — even one byte — consumes bytes from the pipe,
+starving the shell of the remaining script.
+
+The script silently stops executing at the point where a child consumed stdin.
+There is no error, no signal, no indication that the script was truncated. The
+exit code is 0 if the consuming command succeeded.
+
+### Commands That Consume Stdin
+
+| Command | Why it reads stdin | Evidence |
+|---------|-------------------|----------|
+| `claude` (any subcommand) | Claude CLI checks for interactive input, reads pipe data | Confirmed: `echo \| { claude plugin list; cat; }` hangs |
+| `ssh` | Reads passphrase, host key confirmation, or pipe data | Standard behavior; `-n` flag exists for this reason |
+| `read` | Explicitly reads from stdin | Shell builtin |
+| `cat` (no args) | Reads from stdin when no file argument | Standard behavior |
+
+### The Failure Pattern
+
+A typical installer runs marketplace operations (which call `claude`) before
+the plugin install step:
+
+```bash
+claude plugin marketplace update "$NAME"    # ← consumes remaining script bytes
+claude plugin install "$PLUGIN@$NAME"       # ← never reached
+<tool> doctor                               # ← never reached
+```
+
+The marketplace update succeeds and exits 0. The shell tries to read the next
+line of the script from stdin, but the pipe is exhausted. The script ends.
+
+### Fix
+
+Redirect stdin to `/dev/null` on every command that may consume stdin:
+
+```bash
+claude plugin marketplace update "$NAME" < /dev/null
+claude plugin install "$PLUGIN@$NAME" < /dev/null
+claude plugin list < /dev/null | grep -q "$PLUGIN"
+ssh -n -o BatchMode=yes -T git@github.com 2>&1 | grep -q "authenticated"
+```
+
+The `< /dev/null` redirect is per-command, not global. A global redirect
+(`exec < /dev/null`) would break commands that legitimately need stdin (though
+install scripts typically have none).
+
+For `ssh` specifically, the `-n` flag is equivalent to `< /dev/null` and is the
+idiomatic way to prevent stdin consumption.
+
+### Rules
+
+1. **Every `claude` command in an install script MUST have `< /dev/null`.**
+   This includes `claude plugin list`, `claude plugin install`,
+   `claude plugin uninstall`, `claude plugin marketplace add`,
+   `claude plugin marketplace update`, and `claude plugin marketplace list`.
+2. **Every `ssh` command in an install script MUST use `-n`.**
+3. **Test install scripts via `curl | sh`**, not `sh install.sh`. Direct
+   execution does not reproduce the stdin consumption failure because stdin is
+   a terminal, not a pipe.
+
+### Discovery Chain
+
+1. User ran `curl | sh` installer for tts — installed the binary but plugin
+   install step never executed
+2. Compared working installer (punt-kit, where SSH check came before `claude`
+   commands) to broken ones (tts/biff/quarry, where `claude marketplace update`
+   came first)
+3. Confirmed: running `sh install.sh` directly worked fine (stdin is terminal)
+4. Confirmed: `echo | { claude plugin list; cat; }` produced no output from
+   `cat` — `claude` consumed the pipe
+5. Applied `< /dev/null` to all `claude` and `ssh` commands across 6 repos
+6. Verified: full `curl | sh` install-all now completes all steps
+
+### Affected Projects
+
+All projects with `install.sh`: tts, biff, quarry, punt-kit, claude-plugins.
+Also `install-all.sh` in punt-kit (calls `claude` directly for pure plugin
+installs).
+
+## DES-007: Pure Plugin Release Tags
+
+**Date:** 2026-02-28
+**Status:** SETTLED
+**Topic:** Why marketplace installs fail for pure plugins that use dev/prod naming without release tags
+
+### Root Cause
+
+DES-001 established the dev/prod namespace pattern: working tree uses
+`name: "<project>-dev"`, release tags use `name: "<project>"`. DES-003
+established that marketplace entries must pin `source.ref` to the release tag.
+
+For CLI + plugin hybrids (tts, biff, punt-kit), `scripts/release-plugin.sh`
+handles the name swap and tagging as part of the release workflow. Pure plugins
+(dungeon, prfaq, z-spec) have no PyPI artifact and no release scripts — the
+version was bumped manually but the tag was never created.
+
+When the marketplace entry pins `source.ref: "v0.1.3"` but the tag `v0.1.3`
+does not exist in the repo, `claude plugin install` fails silently. The error
+is suppressed by the `2>/dev/null` in install-all.sh's pure-plugin loop.
+
+### Fix
+
+Pure plugins that use dev/prod naming must follow the same swap-tag-restore
+pattern as hybrid projects, even without release scripts:
+
+```bash
+# 1. Swap to prod name
+# Edit plugin.json: "name": "<project>"
+git add .claude-plugin/plugin.json
+git commit -m "chore: swap plugin name <project>-dev → <project> for release"
+
+# 2. Tag
+git tag vX.Y.Z
+
+# 3. Restore dev name
+# Edit plugin.json: "name": "<project>-dev"
+git add .claude-plugin/plugin.json
+git commit -m "chore: restore dev plugin state"
+
+# 4. Push both commits and the tag
+git push origin main vX.Y.Z
+```
+
+The tag points to the swap commit (prod name). HEAD points to the restore
+commit (dev name). The marketplace clones at the tag and gets the correct name.
+
+### Rules
+
+1. **Every marketplace `source.ref` MUST point to an existing tag.** If the
+   tag does not exist, the marketplace install fails silently.
+2. **Pure plugins using dev/prod naming MUST create tags with the prod name.**
+   The tag commit must have `plugin.json` with `name: "<project>"`, not
+   `name: "<project>-dev"`.
+3. **The release workflow for pure plugins is: swap → tag → restore → push.**
+   This is the same as hybrid projects, minus the PyPI steps.
+4. **Consider adding `scripts/release-plugin.sh` to pure plugins** if the
+   project will have multiple releases. The manual swap is error-prone.
+
+### Discovery Chain
+
+1. `install-all.sh` reported dungeon install failure
+2. Added `uninstall` before `install` (idempotency) — still failed
+3. Checked dungeon repo: zero tags existed
+4. Marketplace entry referenced `v0.1.3` — tag did not exist
+5. Created tag with prod name at HEAD, pushed — install succeeded

@@ -112,6 +112,9 @@ scripts:
   after both success and failure paths.
 - **Marketplace refresh** — run `claude plugin marketplace update` before
   `claude plugin install` so existing users pick up `source.ref` pins (DES-003).
+- **Stdin protection** — every `claude` command must have `< /dev/null` and
+  every `ssh` command must use `-n`. Without this, `curl | sh` execution
+  silently stops when a child process consumes pipe bytes (DES-006).
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
 Pattern: `biff/install.sh`, `quarry/install.sh`.

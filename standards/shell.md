@@ -86,6 +86,29 @@ Projects that ship an `install.sh` must also ship an `install.ps1` for Windows (
 - Shellcheck with `--shell=sh` to enforce POSIX compliance.
 - Avoid bash 4+ features (associative arrays, `mapfile`, `${var,,}`). macOS ships bash 3.2.
 
+### Stdin protection in piped scripts
+
+When a script runs via `curl | sh`, stdin is the pipe — not a terminal. Any
+child process that reads from stdin consumes bytes from the pipe, silently
+truncating the script. The shell sees EOF and exits 0.
+
+Commands that consume stdin: `claude` (any subcommand), `ssh`, `read`, `cat`
+(no args), `docker run -i`, any interactive CLI tool.
+
+**Rule**: Every command that may read from stdin must have `< /dev/null`:
+
+```sh
+claude plugin install "$PLUGIN" < /dev/null
+ssh -n -o BatchMode=yes -T git@github.com 2>&1 | grep -q "authenticated"
+```
+
+For `ssh`, use `-n` (idiomatic equivalent of `< /dev/null`).
+
+**Testing**: Always test install scripts via `curl | sh`, not `sh install.sh`.
+Direct execution uses a terminal for stdin and does not reproduce the failure.
+
+See DES-006 in DESIGN.md for the full root cause analysis.
+
 ### install.ps1 conventions
 
 - Use `$ErrorActionPreference = 'Stop'` at the top (equivalent of `set -e`).
