@@ -72,7 +72,7 @@ cleanup_https_rewrite() {
 }
 trap cleanup_https_rewrite EXIT INT TERM
 
-if ! ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+if ! ssh -n -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
   if ! git config --global --get url."https://github.com/".insteadOf >/dev/null 2>&1; then
     warn "SSH auth to GitHub unavailable, using HTTPS fallback"
     git config --global url."https://github.com/".insteadOf "git@github.com:"
@@ -82,7 +82,7 @@ fi
 
 for plugin in prfaq dungeon z-spec; do
   info "Installing $plugin plugin..."
-  if claude plugin install "$plugin@punt-labs" --scope user 2>/dev/null; then
+  if claude plugin install "$plugin@punt-labs" --scope user < /dev/null 2>/dev/null; then
     ok "$plugin"
   else
     warn "Failed to install $plugin (install manually: claude plugin install $plugin@punt-labs)"

@@ -99,7 +99,7 @@ if command -v claude >/dev/null 2>&1; then
   }
   trap cleanup_https_rewrite EXIT INT TERM
 
-  if ! ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
+  if ! ssh -n -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeout=5 -T git@github.com 2>&1 | grep -q "successfully authenticated"; then
     if ! git config --global --get url."https://github.com/".insteadOf >/dev/null 2>&1; then
       warn "SSH auth to GitHub unavailable, using HTTPS fallback"
       git config --global url."https://github.com/".insteadOf "git@github.com:"
@@ -107,17 +107,17 @@ if command -v claude >/dev/null 2>&1; then
     fi
   fi
 
-  if claude plugin marketplace list 2>/dev/null | grep -q "punt-labs"; then
+  if claude plugin marketplace list < /dev/null 2>/dev/null | grep -q "punt-labs"; then
     ok "marketplace already registered"
-    claude plugin marketplace update "punt-labs" 2>/dev/null || true
+    claude plugin marketplace update "punt-labs" < /dev/null 2>/dev/null || true
   else
-    claude plugin marketplace add "punt-labs/claude-plugins" || warn "Failed to register marketplace"
+    claude plugin marketplace add "punt-labs/claude-plugins" < /dev/null || warn "Failed to register marketplace"
     ok "marketplace registered"
   fi
 
-  claude plugin uninstall punt@punt-labs 2>/dev/null || true
-  if claude plugin install punt@punt-labs --scope user 2>/dev/null; then
-    if claude plugin list 2>/dev/null | grep -q "punt@punt-labs"; then
+  claude plugin uninstall punt@punt-labs < /dev/null 2>/dev/null || true
+  if claude plugin install punt@punt-labs --scope user < /dev/null 2>/dev/null; then
+    if claude plugin list < /dev/null 2>/dev/null | grep -q "punt@punt-labs"; then
       ok "Claude Code plugin installed"
     else
       warn "Plugin install reported success but plugin not found (install manually: claude plugin install punt@punt-labs)"
