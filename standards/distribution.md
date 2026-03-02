@@ -17,6 +17,7 @@ Each projection has its own distribution channel:
 | MCP server | AI agent (same machine) | `claude mcp add` (standalone) or plugin `mcpServers` (hybrid) |
 | Plugin shell | AI agent (enhanced UX) | Marketplace (`claude plugin install`) |
 | Desktop bundle | Claude Desktop user | `.mcpb` one-click install |
+| REST API | Native apps, external clients | `<tool> serve` (HTTP) |
 | Native app | End user | App Store, TestFlight, Homebrew |
 
 Not every project needs every projection. Only build the projections that have
