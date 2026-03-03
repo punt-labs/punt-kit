@@ -500,7 +500,13 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     # Check deny rules
     deny_raw = perms.get("deny")
     if not isinstance(deny_raw, list):
-        results.append((FAIL, "Standard deny rules present", "Missing deny array"))
+        results.append(
+            (
+                FAIL,
+                "Standard deny rules present",
+                "Missing permissions.deny — run punt init",
+            )
+        )
         return results
 
     deny_strs = [str(x) for x in cast("list[object]", deny_raw)]

@@ -429,7 +429,7 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
 
 
 def build_standard_deny_rules() -> list[str]:
-    """Build the standard deny rules from permissions.md §4.
+    """Build the standard deny rules from standards/permissions.md §4.
 
     Deny rules are identical for all project types — no project info needed.
     Public so that both init and audit can share the same logic.
