@@ -10,16 +10,26 @@ Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS, LangLearn, LangL
 
 Punt Labs Python packages expose **three interfaces** — a Python library, a CLI, and an MCP server. The library is the core; CLI and MCP are thin frontends to it.
 
+Simple projects delegate directly from CLI/MCP to core functions. Complex projects add a **commands layer** between CLI and core when individual commands orchestrate multiple core calls.
+
 ```text
-┌──────────────┐   ┌──────────────┐
-│   CLI (typer) │   │  MCP (FastMCP)│
-└──────┬───────┘   └──────┬───────┘
-       │                  │
-       ▼                  ▼
-┌─────────────────────────────────┐
-│         Library Layer           │
-│  (core logic, types, protocols) │
-└─────────────────────────────────┘
+Direct delegation (quarry):        Commands layer (biff):
+
+┌─────────┐   ┌─────────┐         ┌─────────┐   ┌─────────┐
+│   CLI   │   │   MCP   │         │   CLI   │   │   MCP   │
+└────┬────┘   └────┬────┘         └────┬────┘   └────┬────┘
+     │             │                   │             │
+     ▼             ▼                   ▼             ▼
+┌───────────────────────┐         ┌────────────┐    │
+│     Library Layer     │         │  Commands  │    │
+│ (core, types, protos) │         │ (pure fns) │    │
+└───────────────────────┘         └─────┬──────┘    │
+                                        │           │
+                                        ▼           ▼
+                                  ┌───────────────────────┐
+                                  │     Library Layer     │
+                                  │ (core, types, protos) │
+                                  └───────────────────────┘
 ```
 
 ### Rules
@@ -32,9 +42,22 @@ Punt Labs Python packages expose **three interfaces** — a Python library, a CL
 
 4. **CLI and MCP are thin.** `cli.py` parses arguments, calls core functions, formats output. `server.py` registers MCP tools, calls core functions, returns results. Neither contains business logic.
 
-### Reference implementation
+5. **Extract commands when CLI orchestrates.** When a CLI command does more than delegate to one core function — combining multiple calls, managing session state, or formatting composite results — extract it to a `commands/` package as a pure async function returning `CommandResult`. Use `CommandResult(error=True, ...)` for expected user-facing failures (invalid input, missing resources, service errors) that should be reported cleanly. Programmer errors and violated invariants still raise exceptions per the Error Handling section. See [Humble Object Commands](../patterns/humble-object-commands.md).
 
-Quarry is the current gold standard:
+### When to add a commands layer
+
+| Signal | Architecture |
+|--------|-------------|
+| Each CLI command maps to one core function | **Direct delegation** — no commands layer needed |
+| CLI commands combine multiple core calls, manage sessions, or format composite output | **Commands layer** — extract to `commands/` |
+| MCP tools and CLI commands share orchestration logic | **Commands layer** — both surfaces call command functions |
+| MCP tools call core directly while CLI has its own orchestration | **Commands layer** for CLI only; MCP stays thin |
+
+Most projects start with direct delegation and never need more. Add the commands layer when the CLI grows beyond simple dispatch.
+
+### Reference: direct delegation
+
+Quarry is the gold standard for direct delegation:
 
 ```python
 # quarry/__init__.py — the public library API
@@ -56,6 +79,22 @@ __all__ = [
 ```
 
 A downstream Python app can `from quarry import search, get_db` and run queries without any CLI or MCP dependency.
+
+### Reference: commands layer
+
+Biff is the reference for the commands pattern (see [DES-022](https://github.com/punt-labs/biff/blob/main/DESIGN.md)):
+
+```python
+# biff/commands/__init__.py — command functions as library API
+from biff.commands._result import CommandResult
+from biff.commands.who import who
+from biff.commands.finger import finger
+from biff.commands.wall import wall
+
+__all__ = ["CommandResult", "who", "finger", "wall", ...]
+```
+
+A downstream Python app can `from biff.commands import who, CommandResult` and invoke commands without CLI plumbing.
 
 ### Exceptions
 
@@ -154,10 +193,15 @@ uvx twine check dist/*
     server.py               # FastMCP server (thin — delegates to core)
     core.py                 # Core logic (or split across domain modules)
     types.py                # Protocols, dataclasses, type aliases
+    commands/               # (optional) Command functions — see Rule 5
+      __init__.py           #   Re-exports command functions
+      _result.py            #   CommandResult dataclass
+      <command>.py           #   One module per command
     ...
   tests/
     conftest.py             # Shared fixtures
     test_*.py               # Test modules mirror source
+    test_commands/          # (if commands/ exists) One test file per command
   CLAUDE.md                 # Project-specific instructions (references this doc)
   CHANGELOG.md              # Keep a Changelog format
   README.md                 # User-facing documentation
@@ -225,6 +269,18 @@ The full naming convention is in [CLI Standards](cli.md#naming-and-distribution)
 | **4. SDK** | End-to-end with Claude (optional, costs money) | Very slow (~30s) |
 
 Default `pytest` runs tiers 1-2 only. Higher tiers are opt-in via markers.
+
+### Humble Object Testing
+
+When a project uses the [commands layer](#rules), command functions are testable without mocks, subprocesses, or network:
+
+1. **Construct context** with an in-memory protocol implementation (e.g., `LocalRelay(tmp_path)` instead of `NatsRelay`).
+2. **Call the command function** directly: `result = await who(ctx)`.
+3. **Assert on result fields**: `result.text`, `result.json_data`, `result.error`.
+
+This runs in milliseconds and covers the full command logic. Reserve subprocess and E2E tests for wire protocol and process lifecycle concerns.
+
+See [Humble Object Commands](../patterns/humble-object-commands.md) for the full pattern.
 
 ## Distribution
 

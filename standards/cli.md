@@ -114,6 +114,86 @@ Exception: batch variants may use a suffix when the interface genuinely differs 
 
 ---
 
+## Command Architecture
+
+CLI commands follow one of two patterns depending on complexity. See [Python standards](python.md#rules) for the decision criteria.
+
+### Pattern 1: Direct Delegation
+
+Each CLI command calls one core function and formats the result. This is the default for most projects.
+
+```python
+@app.command()
+def search(query: str) -> None:
+    """Search the knowledge base."""
+    results = quarry.search(query)
+    for r in results:
+        print(f"{r.score:.2f}  {r.title}")
+```
+
+### Pattern 2: Humble Object Commands
+
+When a CLI command orchestrates multiple core calls, manages session state, or formats composite results, extract the logic into a pure async function returning `CommandResult`:
+
+```python
+# src/<package>/commands/_result.py
+@dataclass(frozen=True)
+class CommandResult:
+    text: str
+    json_data: object | None = field(default=None)
+    error: bool = False
+```
+
+```python
+# src/<package>/commands/who.py
+async def who(ctx: CliContext) -> CommandResult:
+    sessions = await ctx.relay.get_sessions()
+    return CommandResult(text=format_who(sessions), json_data=[...])
+```
+
+The CLI entry point uses a single `_run()` adapter for all plumbing:
+
+```python
+# src/<package>/__main__.py
+def _run(coro_factory: Callable[[CliContext], Awaitable[CommandResult]]) -> None:
+    async def _inner() -> None:
+        async with cli_context() as ctx:
+            result = await coro_factory(ctx)
+            if json_output:
+                print_json(result.json_data if result.json_data is not None else result.text)
+            elif result.error:
+                print(result.text, file=sys.stderr)
+            else:
+                print(result.text)
+            if result.error:
+                raise typer.Exit(code=1)
+    asyncio.run(_inner())
+
+@app.command()
+def who() -> None:
+    _run(commands.who)
+
+@app.command()
+def finger(user: Annotated[str, typer.Argument(...)]) -> None:
+    _run(lambda ctx: commands.finger(ctx, user))
+```
+
+`_run()` owns the context lifecycle, JSON/text branching, and exit codes. Command functions are pure — no I/O, no `sys.exit`, no framework imports.
+
+### `CommandResult` specification
+
+| Field | Type | Default | Purpose |
+|-------|------|---------|---------|
+| `text` | `str` | (required) | Human-readable output |
+| `json_data` | `object` | `None` | JSON-serializable payload; `None` means use `text` |
+| `error` | `bool` | `False` | `True` → exit code 1 in CLI, inspectable in library |
+
+**Validation stays at the boundary.** CLI parses strings (`on/off`) into typed values (`bool`) before calling the command function. Command functions accept typed parameters, not raw CLI strings.
+
+See [Humble Object Commands](../patterns/humble-object-commands.md) for the full pattern.
+
+---
+
 ## Global Flags
 
 Every CLI supports these global flags, following beads:
@@ -262,3 +342,25 @@ The CLI is the source of truth. Other surfaces project it:
 | **Plugin hooks** | Hooks call `<tool> hook <event>` --- the CLI is the dispatcher. |
 
 When adding a new capability, implement it in the CLI first. Then project it to the MCP server and slash commands. Never add a capability to the plugin that the CLI cannot do.
+
+### Projection by architecture
+
+How CLI and MCP reach core logic depends on whether the project uses direct delegation or a commands layer:
+
+**Direct delegation** (quarry): Both CLI and MCP call core functions directly. No commands layer exists — each surface is a thin adapter over the same library calls.
+
+```text
+CLI  ──▶ quarry.search(query)
+MCP  ──▶ quarry.search(query)
+Lib  ──▶ quarry.search(query)
+```
+
+**Commands layer** (biff): CLI calls `_run(commands.X)`. MCP tools may call core functions directly (when the orchestration differs) or reuse command functions. Library consumers import command functions.
+
+```text
+CLI  ──▶ _run(commands.who)   ──▶ relay.get_sessions()
+MCP  ──▶ relay.get_sessions()    (MCP tools call core directly)
+Lib  ──▶ commands.who(ctx)    ──▶ relay.get_sessions()
+```
+
+The commands layer gives library consumers the same orchestrated behavior as the CLI without going through CLI plumbing.
