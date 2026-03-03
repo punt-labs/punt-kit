@@ -14,7 +14,7 @@ from typing import cast
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
-from punt_kit.init import build_standard_permissions
+from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
 console = Console()
 
@@ -487,14 +487,42 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append(
             (
                 FAIL,
-                "Standard permissions present",
+                "Standard allow rules present",
                 f"Missing {len(missing)}: {', '.join(missing[:5])}"
                 + ("..." if len(missing) > 5 else ""),
             )
         )
     else:
         results.append(
-            (PASS, "Standard permissions present", f"{len(standard)} standard entries")
+            (PASS, "Standard allow rules present", f"{len(standard)} standard entries")
+        )
+
+    # Check deny rules
+    deny_raw = perms.get("deny")
+    if not isinstance(deny_raw, list):
+        results.append((FAIL, "Standard deny rules present", "Missing deny array"))
+        return results
+
+    deny_strs = [str(x) for x in cast("list[object]", deny_raw)]
+    standard_deny = build_standard_deny_rules()
+    missing_deny = [r for r in standard_deny if r not in deny_strs]
+
+    if missing_deny:
+        results.append(
+            (
+                FAIL,
+                "Standard deny rules present",
+                f"Missing {len(missing_deny)}: {', '.join(missing_deny[:5])}"
+                + ("..." if len(missing_deny) > 5 else ""),
+            )
+        )
+    else:
+        results.append(
+            (
+                PASS,
+                "Standard deny rules present",
+                f"{len(standard_deny)} standard entries",
+            )
         )
 
     return results
