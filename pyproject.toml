@@ -5,6 +5,9 @@ description = "Standards, scaffolding, and compliance tooling for Punt Labs proj
 requires-python = ">=3.13"
 authors = [{ name = "Punt Labs" }]
 license = { text = "MIT" }
+classifiers = [
+    "Development Status :: 4 - Beta",
+]
 dependencies = [
     "typer>=0.15.0",
     "rich>=13.0.0",
