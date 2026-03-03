@@ -69,7 +69,7 @@ All packages use the `punt-` prefix on PyPI:
 |------|-------------|-----------------|
 | `punt-labs/quarry` | `punt-quarry` | `pip install punt-quarry` |
 | `punt-labs/biff` | `punt-biff` | `pip install punt-biff` |
-| `punt-labs/tts` | `punt-tts` | `pip install punt-tts` |
+| `punt-labs/tts` | `punt-vox` | `pip install punt-vox` |
 | `punt-labs/langlearn-tts` | `punt-langlearn-tts` | `pip install punt-langlearn-tts` |
 | `punt-labs/punt-kit` | `punt-kit` | `pip install punt-kit` |
 
