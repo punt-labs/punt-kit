@@ -399,17 +399,45 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
 def build_standard_permissions(info: ProjectInfo) -> list[str]:
     """Build the standard permission list for a detected project type.
 
+    Includes all required rules from standards/permissions.md §3:
+    MCP wildcards, generic Bash commands, and language-specific tools.
     Public so that both init and audit can share the same logic.
     """
+    # MCP plugin wildcards (§3)
     perms: list[str] = [
-        "Bash(git:*)",
-        "Bash(gh:*)",
-        "Bash(bd:*)",
-        "Bash(punt:*)",
+        "mcp__plugin_biff_tty__*",
+        "mcp__plugin_github_github__*",
+        "mcp__plugin_quarry_quarry__*",
+        "mcp__github__*",
+        "mcp__quarry__*",
     ]
 
+    # Generic Bash commands required for all projects (§3)
+    perms.extend(
+        [
+            "Bash(bash:*)",
+            "Bash(bd:*)",
+            "Bash(cat:*)",
+            "Bash(chmod +x:*)",
+            "Bash(claude mcp:*)",
+            "Bash(claude plugin:*)",
+            "Bash(export:*)",
+            "Bash(find:*)",
+            "Bash(gh:*)",
+            "Bash(git:*)",
+            "Bash(ls:*)",
+            "Bash(pip index:*)",
+            "Bash(punt:*)",
+            "Bash(sed:*)",
+            "Bash(shellcheck:*)",
+            "Bash(tail:*)",
+            "Bash(test:*)",
+        ]
+    )
+
+    # Language-specific tools (§3)
     if info.language == "python":
-        perms.extend(["Bash(uv:*)", "Bash(python3:*)"])
+        perms.extend(["Bash(uv:*)", "Bash(uvx:*)", "Bash(python3:*)"])
     elif info.language == "node":
         perms.extend(["Bash(npx:*)", "Bash(npm:*)"])
     elif info.language == "swift":

@@ -8,7 +8,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit.audit import run_audit
-from punt_kit.init import build_standard_deny_rules
+from punt_kit.detect import detect
+from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -38,21 +39,15 @@ def _make_compliant_python(tmp_path: Path) -> None:
     (workflows / "lint.yml").write_text("name: Lint\n")
     (workflows / "test.yml").write_text("name: Test\n")
     (workflows / "docs.yml").write_text("name: Docs\n")
-    # Standard permissions
+    # Standard permissions — use detect() to get the right set for this project
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir(exist_ok=True)
+    info = detect(tmp_path)
     (claude_dir / "settings.json").write_text(
         json.dumps(
             {
                 "permissions": {
-                    "allow": [
-                        "Bash(git:*)",
-                        "Bash(gh:*)",
-                        "Bash(bd:*)",
-                        "Bash(punt:*)",
-                        "Bash(uv:*)",
-                        "Bash(python3:*)",
-                    ],
+                    "allow": build_standard_permissions(info),
                     "deny": build_standard_deny_rules(),
                 }
             },
@@ -178,18 +173,12 @@ def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
     (workflows / "docs.yml").write_text("name: Docs\n")
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
+    info = detect(tmp_path)
     (claude_dir / "settings.json").write_text(
         json.dumps(
             {
                 "permissions": {
-                    "allow": [
-                        "Bash(git:*)",
-                        "Bash(gh:*)",
-                        "Bash(bd:*)",
-                        "Bash(punt:*)",
-                        "Bash(npx:*)",
-                        "Bash(npm:*)",
-                    ],
+                    "allow": build_standard_permissions(info),
                     "deny": build_standard_deny_rules(),
                 }
             },
@@ -253,25 +242,6 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
     (workflows / "docs.yml").write_text("name: Docs\n")
-    claude_dir = tmp_path / ".claude"
-    claude_dir.mkdir()
-    (claude_dir / "settings.json").write_text(
-        json.dumps(
-            {
-                "permissions": {
-                    "allow": [
-                        "Bash(git:*)",
-                        "Bash(gh:*)",
-                        "Bash(bd:*)",
-                        "Bash(punt:*)",
-                    ],
-                    "deny": build_standard_deny_rules(),
-                }
-            },
-            indent=2,
-        )
-        + "\n"
-    )
     plugin_dir = tmp_path / ".claude-plugin"
     plugin_dir.mkdir()
     (plugin_dir / "plugin.json").write_text(
@@ -281,6 +251,21 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
                 "description": "Test plugin",
                 "version": "1.0.0",
                 "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    info = detect(tmp_path)
+    (claude_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": build_standard_permissions(info),
+                    "deny": build_standard_deny_rules(),
+                }
             },
             indent=2,
         )
@@ -361,29 +346,7 @@ def _make_compliant_hybrid(tmp_path: Path) -> None:
         "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
     )
 
-    # Update permissions to include CLI command
-    (tmp_path / ".claude" / "settings.json").write_text(
-        json.dumps(
-            {
-                "permissions": {
-                    "allow": [
-                        "Bash(git:*)",
-                        "Bash(gh:*)",
-                        "Bash(bd:*)",
-                        "Bash(punt:*)",
-                        "Bash(uv:*)",
-                        "Bash(python3:*)",
-                        "Bash(test-cli:*)",
-                    ],
-                    "deny": build_standard_deny_rules(),
-                }
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-
-    # Plugin structure
+    # Plugin structure (before detect so MCP servers are picked up)
     plugin_dir = tmp_path / ".claude-plugin"
     plugin_dir.mkdir(exist_ok=True)
     (plugin_dir / "plugin.json").write_text(
@@ -393,6 +356,21 @@ def _make_compliant_hybrid(tmp_path: Path) -> None:
                 "description": "Test hybrid plugin",
                 "version": "1.0.0",
                 "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+    # Re-detect after pyproject.toml rewrite (now has CLI entry point + plugin)
+    info = detect(tmp_path)
+    (tmp_path / ".claude" / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": build_standard_permissions(info),
+                    "deny": build_standard_deny_rules(),
+                }
             },
             indent=2,
         )
