@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit.audit import run_audit
+from punt_kit.init import build_standard_deny_rules
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,7 +52,8 @@ def _make_compliant_python(tmp_path: Path) -> None:
                         "Bash(punt:*)",
                         "Bash(uv:*)",
                         "Bash(python3:*)",
-                    ]
+                    ],
+                    "deny": build_standard_deny_rules(),
                 }
             },
             indent=2,
@@ -187,7 +189,8 @@ def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
                         "Bash(punt:*)",
                         "Bash(npx:*)",
                         "Bash(npm:*)",
-                    ]
+                    ],
+                    "deny": build_standard_deny_rules(),
                 }
             },
             indent=2,
@@ -261,7 +264,8 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
                         "Bash(gh:*)",
                         "Bash(bd:*)",
                         "Bash(punt:*)",
-                    ]
+                    ],
+                    "deny": build_standard_deny_rules(),
                 }
             },
             indent=2,
@@ -370,7 +374,8 @@ def _make_compliant_hybrid(tmp_path: Path) -> None:
                         "Bash(uv:*)",
                         "Bash(python3:*)",
                         "Bash(test-cli:*)",
-                    ]
+                    ],
+                    "deny": build_standard_deny_rules(),
                 }
             },
             indent=2,

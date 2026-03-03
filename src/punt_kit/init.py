@@ -428,6 +428,41 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
     return perms
 
 
+def build_standard_deny_rules() -> list[str]:
+    """Build the standard deny rules from standards/permissions.md §4.
+
+    Deny rules are identical for all project types — no project info needed.
+    Public so that both init and audit can share the same logic.
+    """
+    return [
+        # Destructive operations
+        "Bash(rm -rf /:*)",
+        "Bash(rm -rf ~:*)",
+        "Bash(dd:*)",
+        # Privilege escalation
+        "Bash(sudo:*)",
+        "Bash(su:*)",
+        # Network access
+        "Bash(curl:*)",
+        "Bash(wget:*)",
+        "Bash(ssh:*)",
+        "Bash(scp:*)",
+        "Bash(ftp:*)",
+        "Bash(tftp:*)",
+        "Bash(nc:*)",
+        "Bash(netcat:*)",
+        "Bash(ncat:*)",
+        "Bash(telnet:*)",
+        "Bash(socat:*)",
+        # Secrets and environment
+        "Edit(.env)",
+        "Write(.env)",
+        "Edit(.envrc)",
+        "Write(.envrc)",
+        "Bash(direnv allow:*)",
+    ]
+
+
 def _get_plugin_name(info: ProjectInfo) -> str:
     """Extract plugin name from plugin.json for MCP permission patterns."""
     for pj_path in (
@@ -472,7 +507,7 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
     )
     permissions["allow"] = allow
 
-    # Merge: add missing permissions, never remove existing
+    # Merge allow: add missing permissions, never remove existing
     allow_strs = [str(x) for x in allow]
     added: list[str] = []
     for perm in standard_perms:
@@ -480,17 +515,41 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
             allow.append(perm)
             added.append(perm)
 
-    if not added:
+    # Merge deny: add missing deny rules, never remove existing
+    standard_deny = build_standard_deny_rules()
+    deny_raw = permissions.get("deny")
+    deny: list[object] = (
+        cast("list[object]", deny_raw) if isinstance(deny_raw, list) else []
+    )
+    permissions["deny"] = deny
+
+    deny_strs = [str(x) for x in deny]
+    added_deny: list[str] = []
+    for rule in standard_deny:
+        if rule not in deny_strs:
+            deny.append(rule)
+            added_deny.append(rule)
+
+    if not added and not added_deny:
         return []
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
     settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
 
     rel = _relpath(settings_path, info.root)
-    if len(added) == len(allow):
-        console.print(f"  [green]+[/green] Created {rel} ({len(added)} permissions)")
+    is_new = len(added) == len(allow) and len(added_deny) == len(deny)
+    if is_new:
+        console.print(
+            f"  [green]+[/green] Created {rel}"
+            f" ({len(added)} allow, {len(added_deny)} deny)"
+        )
     else:
-        console.print(f"  [yellow]↻[/yellow] Updated {rel} (+{len(added)} permissions)")
+        parts: list[str] = []
+        if added:
+            parts.append(f"+{len(added)} allow")
+        if added_deny:
+            parts.append(f"+{len(added_deny)} deny")
+        console.print(f"  [yellow]↻[/yellow] Updated {rel} ({', '.join(parts)})")
 
     return [rel]
 
