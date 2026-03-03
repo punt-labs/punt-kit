@@ -56,7 +56,7 @@ punt init /path    # Target a specific directory
 - **CI workflows** — lint, test, docs, and release workflows from Jinja2 templates
 - **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]` sections merged into `pyproject.toml`
 - **CLAUDE.md** — standards references and quality gates tailored to the detected language
-- **Claude Code permissions** — `.claude/settings.json` with tool allowlists for the project's quality gates
+- **Claude Code permissions** — `.claude/settings.json` with tool allowlists and standard deny rules
 - **Gitignore** — `.claude/` exceptions appended to `.gitignore`
 - **Beads** — issue tracking initialized via `bd init`
 

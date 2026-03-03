@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `punt init` scaffolds standard deny rules (21 rules from `permissions.md` §4) alongside allow rules
+- `punt audit` validates deny rules are present and complete
+
 ### Fixed
 
 - `/autopilot` step 8: separate CI wait from Copilot review wait (they are independent), add explicit polling loop with 15-minute minimum, prevent rationalization of missing reviews
