@@ -133,14 +133,14 @@ def search(query: str) -> None:
 
 ### Pattern 2: Humble Object Commands
 
-When a CLI command orchestrates multiple core calls, manage sessions, or format composite results, extract the logic into a pure async function returning `CommandResult`:
+When a CLI command orchestrates multiple core calls, manages session state, or formats composite results, extract the logic into a pure async function returning `CommandResult`:
 
 ```python
 # src/<package>/commands/_result.py
 @dataclass(frozen=True)
 class CommandResult:
     text: str
-    json_data: object = field(default=None)
+    json_data: object | None = field(default=None)
     error: bool = False
 ```
 

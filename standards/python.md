@@ -42,7 +42,7 @@ Direct delegation (quarry):        Commands layer (biff):
 
 4. **CLI and MCP are thin.** `cli.py` parses arguments, calls core functions, formats output. `server.py` registers MCP tools, calls core functions, returns results. Neither contains business logic.
 
-5. **Extract commands when CLI orchestrates.** When a CLI command does more than delegate to one core function — combining multiple calls, managing session state, or formatting composite results — extract it to a `commands/` package as a pure async function returning `CommandResult`. See [Humble Object Commands](../patterns/humble-object-commands.md).
+5. **Extract commands when CLI orchestrates.** When a CLI command does more than delegate to one core function — combining multiple calls, managing session state, or formatting composite results — extract it to a `commands/` package as a pure async function returning `CommandResult`. Use `CommandResult(error=True, ...)` for expected user-facing failures (invalid input, missing resources, service errors) that should be reported cleanly. Programmer errors and violated invariants still raise exceptions per the Error Handling section. See [Humble Object Commands](../patterns/humble-object-commands.md).
 
 ### When to add a commands layer
 

@@ -23,12 +23,12 @@ A frozen dataclass returned by every command function:
 ```python
 @dataclass(frozen=True)
 class CommandResult:
-    text: str                          # Human-readable output
-    json_data: object = field(default=None)  # JSON payload; None means use text
-    error: bool = False                # True → exit code 1 in CLI
+    text: str                                # Human-readable output
+    json_data: object | None = field(default=None)  # JSON payload; None means use text
+    error: bool = False                      # True → exit code 1 in CLI
 ```
 
-Commands return errors as `CommandResult(error=True)` rather than raising. This keeps error paths testable with `assert result.error` instead of `pytest.raises`.
+Commands return expected user-facing errors as `CommandResult(text="User not found", error=True)` rather than raising. This keeps error paths testable with `assert result.error` instead of `pytest.raises`. Programmer errors and violated invariants still raise exceptions.
 
 ### Command functions
 
