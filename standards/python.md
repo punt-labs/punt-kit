@@ -127,12 +127,17 @@ Target **3.13+**. Use modern PEP conventions:
 Run before every commit. All must pass with zero violations.
 
 ```bash
-uv run ruff check .                    # Lint
-uv run ruff format --check .           # Format check
-uv run mypy src/ tests/                # Type check (strict)
-uv run pyright src/ tests/             # Type check (strict)
-uv run pytest                          # All tests pass
+make check
 ```
+
+This runs lint, type checking, and tests via the project [Makefile](makefile.md). The individual targets:
+
+| Target | Command | What it checks |
+|--------|---------|----------------|
+| `make lint` | `uv run ruff check .` + `uv run ruff format --check .` | Lint rules, formatting |
+| `make type` | `uv run mypy src/ tests/` + `uv run pyright src/ tests/` | Static types (strict) |
+| `make test` | `uv run pytest` | All tests pass |
+| `make check` | All of the above | Full quality gate |
 
 Build validation (before release):
 
