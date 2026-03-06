@@ -169,9 +169,24 @@ it does not run post-install scripts.
 The SessionStart hook should:
 
 1. **Deploy top-level commands** — Copy from `${CLAUDE_PLUGIN_ROOT}/commands/`
-   to `~/.claude/commands/`. Skip files that already exist. Marketplace plugins
-   only provide namespaced commands (`biff:who`); top-level commands (`/who`)
-   require deployment to the user's command directory.
+   to `~/.claude/commands/`. **Update files that have changed** — compare with
+   `diff -q` and overwrite when content differs. Never skip-if-exists; stale
+   deployed commands persist across releases and silently break the plugin.
+   Marketplace plugins only provide namespaced commands (`biff:who`); top-level
+   commands (`/who`) require deployment to the user's command directory.
+
+   ```bash
+   # CORRECT: always update changed commands
+   mkdir -p "$COMMANDS_DIR"
+   if [[ ! -f "$dest" ]] || ! diff -q "$cmd_file" "$dest" >/dev/null 2>&1; then
+     cp "$cmd_file" "$dest"
+   fi
+
+   # WRONG: skip-if-exists leaves stale commands forever
+   if [[ ! -f "$dest" ]]; then
+     cp "$cmd_file" "$dest"
+   fi
+   ```
 
 2. **Auto-allow MCP tool permissions** — Add the plugin's tool pattern (e.g.,
    `mcp__plugin_biff_tty__*`) to `permissions.allow` in
@@ -211,6 +226,64 @@ prod names:
 ```
 
 Pattern: `biff/hooks/suppress-output.sh`, `dungeon/hooks/suppress-output.sh`.
+
+---
+
+## Command Deployment
+
+Marketplace plugins provide namespaced commands automatically (`biff:who`), but
+top-level commands (`/who`) must be deployed to `~/.claude/commands/` by the
+SessionStart hook. This section defines how that deployment works.
+
+### Lifecycle
+
+1. **First install**: SessionStart hook copies command files from
+   `${CLAUDE_PLUGIN_ROOT}/commands/` to `~/.claude/commands/`.
+2. **Plugin update**: SessionStart hook detects content differences and
+   overwrites stale files. Commands are always current after one restart.
+3. **Plugin uninstall**: No automatic cleanup — stale files remain. The
+   uninstaller (if present) should remove deployed commands.
+
+### Deployment logic
+
+The canonical pattern for command deployment in a SessionStart hook:
+
+```bash
+COMMANDS_DIR="$HOME/.claude/commands"
+DEPLOYED=()
+for cmd_file in "$PLUGIN_ROOT/commands/"*.md; do
+  name="$(basename "$cmd_file")"
+  [[ "$name" == *-dev.md ]] && continue
+  dest="$COMMANDS_DIR/$name"
+  mkdir -p "$COMMANDS_DIR"
+  if [[ ! -f "$dest" ]] || ! diff -q "$cmd_file" "$dest" >/dev/null 2>&1; then
+    cp "$cmd_file" "$dest"
+    DEPLOYED+=("/${name%.md}")
+  fi
+done
+```
+
+**Key rules:**
+
+- **Always diff before skipping.** `diff -q` compares content; copy when
+  different. Never use bare `[[ ! -f "$dest" ]]` — this leaves stale commands
+  forever across plugin upgrades.
+- **Skip `-dev.md` files.** Dev commands use plugin namespace
+  (`vox-dev:say-dev`); they are never deployed to the global commands directory.
+- **Skip deployment in dev mode.** When `plugin.json` has a `-dev` name, the
+  prod plugin handles top-level commands.
+- **Report what changed.** Collect deployed command names and include them in
+  the `hookSpecificOutput` message so the user knows what was updated.
+
+### Why not skip-if-exists
+
+The skip-if-exists pattern (`if [[ ! -f "$dest" ]]`) was the original
+implementation. It broke silently: commands deployed on first install persisted
+unchanged across every subsequent release. Users accumulated stale files with
+old `allowed-tools`, old MCP tool names, and old implementation logic. The bug
+was invisible to developers because dev mode skips deployment entirely.
+
+See `vox/DESIGN.md` DES-016 for the full incident record.
 
 ---
 
