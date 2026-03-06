@@ -6,12 +6,16 @@ How Punt Labs projects are named, versioned, and identified.
 
 ## General Rule
 
-The project name is the CLI command name. That same name is used for the GitHub repo, the PyPI package, and the local directory. Do **not** add a `-mcp` suffix — it implies the project is only an MCP server when most of our tools are dual CLI+MCP.
+The project name is the CLI command name. The GitHub repo uses the same name.
+PyPI packages use a `punt-` prefix to claim the org namespace; the CLI command
+drops the prefix. Do **not** add a `-mcp` suffix — it implies the project is
+only an MCP server when most of our tools are dual CLI+MCP.
 
 | Component | Convention | Examples |
 |-----------|-----------|---------|
 | GitHub repo | `<org>/<name>` | `punt-labs/biff`, `punt-labs/quarry` |
-| PyPI package | `<name>` (matches CLI) | `biff`, `quarry`, `langlearn-tts` |
+| PyPI package | `punt-<name>` | `punt-biff`, `punt-quarry`, `punt-vox` |
+| CLI command | Short, lowercase, no prefix | `biff`, `quarry`, `vox` |
 | MCP server only (no CLI) | `<name>-mcp` | — (no current examples; avoid this pattern) |
 
 ---
@@ -20,7 +24,6 @@ The project name is the CLI command name. That same name is used for the GitHub 
 
 | Component | Convention | Examples |
 |-----------|-----------|---------|
-| CLI command | Short, lowercase, no prefix | `biff`, `quarry`, `langlearn-tts` |
 | Slash command | `/<name>` or `/<name>:<subcommand>` | `/prfaq`, `/prfaq:review`, `/z check` |
 | Plugin directory | Match the plugin name | `plugins/prfaq/`, `plugins/z-spec/` |
 | Bead ID prefix | Auto-detected from directory name | `biff-*`, `prfaq-*`, `quarry-*` |
