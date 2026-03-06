@@ -32,3 +32,6 @@ session.md
 research/research-*.md
 .biff.local
 .envrc
+
+# Scratch/temp directory (TMPDIR set via .envrc)
+.tmp/
