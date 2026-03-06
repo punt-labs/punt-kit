@@ -23,10 +23,10 @@ Organize subcommands into three layers. Product commands come first in `--help`.
 The reason the tool exists. These are verbs that do the tool's core job.
 
 ```text
-quarry search <query>        biff who              tts say <text>
-quarry ingest <path-or-url>  biff finger <user>    tts speak on/off
-quarry explain <topic>       biff talk <user>      tts vibe <mood>
-quarry sync                  biff write <user>     tts voice <name>
+quarry search <query>        biff who              vox unmute <text>
+quarry ingest <path-or-url>  biff finger <user>    vox notify y/n/c
+quarry explain <topic>       biff talk <user>      vox speak y/n
+quarry sync                  biff write <user>     vox voice <name>
 ```
 
 Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. The CLI command is the source of truth; the MCP tool and slash command call it or mirror its logic.
@@ -77,7 +77,7 @@ The prefix avoids name collisions on PyPI (no namespace mechanism like npm's `@o
 
 ### CLI entry point names
 
-CLI entry points use the **short name** (no prefix): `quarry`, `biff`, `tts`, `punt`. Users type the short name; the package name is only visible during install.
+CLI entry points use the **short name** (no prefix): `quarry`, `biff`, `vox`, `punt`. Users type the short name; the package name is only visible during install.
 
 ---
 
@@ -256,7 +256,7 @@ Current state summary --- what the tool knows right now. Not health (that's `doc
 |------|---------------|
 | quarry | Active database, document count, registered directories, model info |
 | biff | Connection state, active sessions, pending messages |
-| tts | Current provider, voice, vibe, character usage |
+| vox | Current provider, voice, vibe, character usage |
 
 ### `install`
 
@@ -338,10 +338,37 @@ The CLI is the source of truth. Other surfaces project it:
 | Surface | How it projects the CLI |
 |---------|------------------------|
 | **MCP tools** | Each MCP tool wraps a CLI capability. The MCP server calls the same functions the CLI calls. |
-| **Slash commands** | Each slash command maps to a CLI command. The command `.md` file instructs Claude to call the corresponding MCP tool or CLI command. |
+| **Slash commands** | Each slash command maps to a CLI command. The command `.md` file instructs Claude to call the **MCP tool** (not Bash → CLI). |
 | **Plugin hooks** | Hooks call `<tool> hook <event>` --- the CLI is the dispatcher. |
 
 When adding a new capability, implement it in the CLI first. Then project it to the MCP server and slash commands. Never add a capability to the plugin that the CLI cannot do.
+
+### Call path performance
+
+Two fast paths exist for plugin operations. Choose based on who initiates:
+
+```text
+Model-initiated:    LLM ──► MCP server (persistent, structured)
+Event-driven:       Hook ──► CLI (no LLM, direct execution)
+```
+
+| Path | Avg latency | Use when |
+|------|------------|----------|
+| **LLM → MCP tool** | ~3.2s | Model initiates: synthesis, queries, config changes. Persistent stdio server — zero startup cost. |
+| **Hook → CLI** | ~110ms | Event-driven: stop notifications, chimes, signal tracking. No model round-trip. |
+| ~~LLM → Bash → CLI~~ | ~4.6s | **Avoid.** Combines model round-trip + process spawn. Use only when no MCP tool exists. |
+| ~~LLM → Read/Write~~ | — | **Never.** Couples the model to file format details, bypasses validation. |
+
+**Rule:** Slash commands call MCP tools. Hooks call CLI. The model never
+touches config files directly — use the MCP or CLI layer.
+
+**Blocking rule:** MCP tools that perform I/O-heavy work (network API calls,
+audio encoding, file downloads) must return immediately and process in a
+background thread. The tool returns predicted metadata (paths, voices, status)
+synchronously; the actual work completes asynchronously. Tools that only
+read/write local config or compute in-memory results may block.
+
+Pattern: `vox/DESIGN.md` DES-017. Reference implementation: `vox/src/punt_vox/server.py`.
 
 ### Projection by architecture
 

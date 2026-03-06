@@ -199,7 +199,8 @@ The SessionStart hook should:
 4. **Notify Claude** — Output JSON with `hookSpecificOutput` describing what was
    set up. Silent on subsequent sessions when everything is already configured.
 
-Pattern: `biff/hooks/session-start.sh`, `dungeon/hooks/session-start.sh`.
+Pattern: `biff/hooks/session-start.sh`, `dungeon/hooks/session-start.sh`,
+`vox/hooks/session-start.sh`.
 
 **Restart penalty**: SessionStart runs when Claude Code starts, but on first
 install the hook hasn't run yet. Deployed commands activate on the next restart.
@@ -225,7 +226,13 @@ prod names:
 }
 ```
 
-Pattern: `biff/hooks/suppress-output.sh`, `dungeon/hooks/suppress-output.sh`.
+Pattern: `biff/hooks/suppress-output.sh`, `dungeon/hooks/suppress-output.sh`,
+`vox/hooks/suppress-output.sh`.
+
+**Handler completeness:** When adding a new MCP tool, add a corresponding
+handler to `suppress-output.sh`. Missing handlers cause raw JSON to leak into
+the conversation panel. Every MCP tool must have a panel format — no exceptions.
+See `vox` v1.1.1 for the bug and fix.
 
 ---
 
@@ -355,4 +362,19 @@ allowed-tools: Bash(mkdir -p meetings), Read, Write, Glob, Grep
 List only the tools the command actually uses. Do not include tools the command
 does not need.
 
-Pattern: `prfaq/commands/*.md`, `z-spec/commands/*.md`.
+**MCP-first commands:** Commands that set config, query state, or trigger
+operations should list MCP tools in `allowed-tools` — not `Bash`, `Read`, or
+`Write`. The model calling an MCP tool is faster than calling Bash → CLI
+(see [CLI standards § Call path performance](cli.md#call-path-performance))
+and eliminates file-format coupling.
+
+```yaml
+# CORRECT: MCP-first (vox /vox command)
+allowed-tools: ["mcp__plugin_vox_mic__notify", "mcp__plugin_vox_mic__who"]
+
+# WRONG: Bash for operations that have MCP equivalents
+allowed-tools: ["Bash"]
+```
+
+Pattern: `vox/commands/*.md` (MCP-first), `prfaq/commands/*.md`,
+`z-spec/commands/*.md`.
