@@ -362,13 +362,108 @@ Event-driven:       Hook ──► CLI (no LLM, direct execution)
 **Rule:** Slash commands call MCP tools. Hooks call CLI. The model never
 touches config files directly — use the MCP or CLI layer.
 
-**Blocking rule:** MCP tools that perform I/O-heavy work (network API calls,
-audio encoding, file downloads) must return immediately and process in a
-background thread. The tool returns predicted metadata (paths, voices, status)
-synchronously; the actual work completes asynchronously. Tools that only
-read/write local config or compute in-memory results may block.
+---
 
-Pattern: `vox/DESIGN.md` DES-017. Reference implementation: `vox/src/punt_vox/server.py`.
+## Sync vs Async
+
+The core question is not "sync or async" as a library property — it is **"does
+the caller need the return value to proceed?"** The answer depends on both the
+operation type and the projection surface.
+
+### Operation types
+
+| Type | Caller needs result? | Examples |
+|------|---------------------|----------|
+| **Query** | Yes — the result IS the point | `search`, `status`, `list`, `show` |
+| **Transform** | Yes — the output IS the point | `encode`, `convert`, `export` |
+| **Side-effect** | No — confirmation is nice, not essential | `ingest`, `speak`, `send`, `delete`, `sync` |
+
+### Surface behavior
+
+| Surface | Process lifetime | Implication |
+|---------|-----------------|-------------|
+| **CLI** | Ephemeral (exits) | Must wait — needs exit code |
+| **MCP** | Long-lived (server) | Can fire-and-forget side-effects |
+| **REST** | Long-lived (server) | Can 202 + poll for side-effects |
+
+### Decision tree
+
+```text
+Does the caller need the return value to proceed?
+├── YES (query / transform)
+│   └── Block on all surfaces. No choice.
+│
+└── NO (side-effect)
+    ├── CLI   → Block anyway. Process must exit with correct code.
+    ├── MCP   → Fire-and-forget. Return optimistic result immediately.
+    │           Background thread does the real work.
+    └── REST  → 202 Accepted + job ID. Client polls or gets webhook.
+```
+
+### MCP fire-and-forget pattern
+
+For side-effect MCP tools, return predicted metadata immediately and process
+in a background thread:
+
+```python
+# Predict what the result will be (paths, status, metadata)
+predicted = _predict_results(requests, provider, dir_path)
+
+# Do the real work in a background thread
+threading.Thread(
+    target=_process,
+    args=(requests, provider, dir_path),
+    daemon=True,
+).start()
+
+# Return immediately — caller doesn't wait for I/O
+return json.dumps([result_to_dict(r) for r in predicted])
+```
+
+The daemon thread ensures cleanup on server exit. The predicted result gives
+the caller enough information to continue (file paths, voice names, status
+fields) without waiting for network calls, encoding, or disk writes.
+
+Reference implementation: `vox/src/punt_vox/server.py`.
+
+### Eventual consistency
+
+Side-effects processed in background threads create eventual consistency.
+If the caller ingests a document and immediately searches for it, the search
+may return stale results. Two options:
+
+1. **Documented eventual consistency** — caller knows results may lag.
+   Simple and honest. Preferred for MCP, where the LLM rarely chains
+   side-effect → query in the same turn.
+
+2. **Completion signal** — background thread updates a status field or emits
+   a log entry. Caller can check if it needs to.
+
+Prefer option 1 unless the operation has a strong chain-then-query pattern.
+
+### Library determines the ceiling
+
+The library's concurrency model sets the upper bound:
+
+| Library | CLI | MCP | REST |
+|---------|-----|-----|------|
+| **Async-native** (biff/NATS) | `asyncio.run()` | Native async handlers | Native async routes |
+| **Sync + I/O-heavy** (vox/ElevenLabs) | Sync call, wait | Fire-and-forget thread | 202 + thread |
+| **Sync + fast** (quarry/LanceDB reads) | Sync call, wait | Sync return | Sync response |
+| **Sync + slow side-effects** (quarry/ingest) | Sync call, wait | Fire-and-forget thread | 202 + thread |
+
+A sync library can still have non-blocking MCP tools — wrap the blocking call
+in `threading.Thread(daemon=True)`. An async library gets this naturally.
+
+### Per-project summary
+
+| Project | Library style | MCP queries | MCP side-effects |
+|---------|--------------|-------------|-----------------|
+| **quarry** | Sync (LanceDB) | Block (search, list) | Should fire-and-forget (ingest, sync) |
+| **biff** | Async (NATS) | Await (who, finger, read) | Could fire-and-forget (write, wall) |
+| **vox** | Sync (ElevenLabs) | Block (status, who) | Fire-and-forget (unmute, record) |
+| **langlearn-tts** | Sync (delegates to vox) | Block (status) | Should fire-and-forget (synthesize) |
+| **punt-kit** | Sync (local ops) | Block (all ops are queries) | N/A |
 
 ### Projection by architecture
 
