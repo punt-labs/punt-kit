@@ -159,12 +159,18 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         _fail(f"Working tree is not clean:\n{status}")
     _ok("Working tree clean (no modified or untracked files)")
 
-    _run(["git", "fetch", "origin"], cwd=str(info.root))
+    fetch = _run(["git", "fetch", "origin"], cwd=str(info.root), check=False)
+    if fetch.returncode != 0:
+        _fail(f"git fetch origin failed:\n{fetch.stderr.strip()}")
     diff = _run(
-        ["git", "diff", "HEAD", "origin/main", "--stat"], cwd=str(info.root)
-    ).stdout.strip()
-    if diff:
-        _fail(f"Not up to date with origin/main:\n{diff}")
+        ["git", "diff", "HEAD", "origin/main", "--stat"],
+        cwd=str(info.root),
+        check=False,
+    )
+    if diff.returncode != 0:
+        _fail(f"git diff failed:\n{diff.stderr.strip()}")
+    if diff.stdout.strip():
+        _fail(f"Not up to date with origin/main:\n{diff.stdout.strip()}")
     _ok("Up to date with origin/main")
 
     # 1b. Project type (already detected)
@@ -423,29 +429,27 @@ def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     time.sleep(5)
 
-    result = _run(
-        [
+    # Try release workflow first, fall back to any recent run
+    release_run = None
+    runs: list[dict[str, object]] = []
+    for workflow in ["release.yml", ""]:
+        cmd = [
             gh,
             "run",
             "list",
             "--limit",
-            "5",
+            "3",
             "--json",
             "databaseId,headBranch,event,status,name",
-        ],
-        cwd=str(info.root),
-        check=False,
-    )
-    if result.returncode != 0:
-        _fail(f"Failed to list runs: {result.stderr}")
-
-    runs = json.loads(result.stdout)
-    # Find a release workflow run
-    release_run = None
-    for run in runs:
-        name = run.get("name", "").lower()
-        if "release" in name:
-            release_run = run
+        ]
+        if workflow:
+            cmd.extend(["--workflow", workflow])
+        result = _run(cmd, cwd=str(info.root), check=False)
+        if result.returncode != 0:
+            continue
+        runs = json.loads(result.stdout)
+        if runs:
+            release_run = runs[0]
             break
 
     if release_run is None:
@@ -758,6 +762,8 @@ def run_release(
 
     # Determine version
     if version is None:
+        if info.pyproject is None:
+            _fail("Version required for plugin-only projects (no pyproject.toml)")
         current = _get_project_version(info)
         changelog = _read_changelog(root)
         version = _suggest_version(changelog, current)
