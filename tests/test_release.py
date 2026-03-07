@@ -121,6 +121,12 @@ def test_suggest_version_major_bump() -> None:
     assert _suggest_version(cl, "1.2.3") == "2.0.0"
 
 
+def test_suggest_version_breaking_in_fixed_not_major() -> None:
+    """'breaking' in Fixed section does not trigger major bump."""
+    cl = "## [Unreleased]\n\n### Fixed\n\n- Fixed breaking regression\n\n## [1.2.3]\n"
+    assert _suggest_version(cl, "1.2.3") == "1.2.4"
+
+
 # --- extract_version_notes ---
 
 
@@ -152,6 +158,19 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     (root / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(root))
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    with pytest.raises(SystemExit):
+        _phase1_preflight(info, dry_run=False)
+
+
+def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
+    """Pre-flight fails when there is an untracked file."""
+    root = _make_release_project(tmp_path)
+    (root / "untracked.txt").write_text("untracked")
 
     from punt_kit.detect import detect
 

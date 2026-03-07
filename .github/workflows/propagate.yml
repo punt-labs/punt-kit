@@ -88,7 +88,6 @@ jobs:
           fi
         env:
           MARKETPLACE: .claude-plugin/marketplace.json
-          SHORT: ${{ inputs.repo }}
 
       - name: Update install-all.sh SHA
         run: |
@@ -100,11 +99,22 @@ jobs:
 
           SHORT="${INPUT_REPO#*/}"
 
-          # Get the SHA of the tag in the source repo
-          TAG_SHA=$(gh api "repos/$INPUT_REPO/git/ref/tags/$INPUT_TAG" --jq '.object.sha' 2>/dev/null || echo "")
-          if [ -z "$TAG_SHA" ]; then
-            echo "Could not resolve tag SHA for $INPUT_TAG in $INPUT_REPO — skipping"
+          # Get the SHA of the tag in the source repo (handle annotated tags)
+          TAG_INFO=$(gh api "repos/$INPUT_REPO/git/ref/tags/$INPUT_TAG" --jq '.object.sha + " " + .object.type' 2>/dev/null || echo "")
+          if [ -z "$TAG_INFO" ]; then
+            echo "Could not resolve tag info for $INPUT_TAG in $INPUT_REPO — skipping"
             exit 0
+          fi
+          TAG_SHA=$(echo "$TAG_INFO" | cut -d' ' -f1)
+          TAG_TYPE=$(echo "$TAG_INFO" | cut -d' ' -f2)
+
+          # Annotated tags point to a tag object; dereference to get commit SHA
+          if [ "$TAG_TYPE" = "tag" ]; then
+            TAG_SHA=$(gh api "repos/$INPUT_REPO/git/tags/$TAG_SHA" --jq '.object.sha' 2>/dev/null || echo "")
+            if [ -z "$TAG_SHA" ]; then
+              echo "Could not dereference annotated tag $INPUT_TAG — skipping"
+              exit 0
+            fi
           fi
           SHORT_SHA="${TAG_SHA:0:7}"
 

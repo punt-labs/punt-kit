@@ -154,12 +154,10 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         _fail(f"Must be on main branch (currently on '{branch}')")
     _ok("On main branch")
 
-    status = _run(
-        ["git", "status", "--porcelain", "-uno"], cwd=str(info.root)
-    ).stdout.strip()
+    status = _run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout.strip()
     if status:
         _fail(f"Working tree is not clean:\n{status}")
-    _ok("Working tree clean")
+    _ok("Working tree clean (no modified or untracked files)")
 
     _run(["git", "fetch", "origin"], cwd=str(info.root))
     diff = _run(
@@ -231,7 +229,11 @@ def _suggest_version(changelog: str, current: str) -> str:
 
     major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
 
-    has_breaking = "### Changed" in content and "breaking" in content.lower()
+    # Check for breaking changes only within the ### Changed subsection
+    changed_match = re.search(r"### Changed\n(.*?)(?=\n### |\Z)", content, re.DOTALL)
+    has_breaking = (
+        changed_match is not None and "breaking" in changed_match.group(1).lower()
+    )
     if has_breaking:
         return f"{major + 1}.0.0"
     if "### Added" in content:
@@ -338,14 +340,16 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
 
     _run(["uv", "build"], cwd=str(info.root), capture=False)
 
-    # twine check with glob — need shell
-    result = subprocess.run(
-        "uvx twine check dist/*",
+    # twine check on all built artifacts (expand glob in Python, no shell)
+    artifacts = sorted((info.root / "dist").glob("*"))
+    if not artifacts:
+        _fail("No build artifacts found in dist/ for twine check")
+
+    result = _run(
+        ["uvx", "twine", "check", *[str(p) for p in artifacts]],
         cwd=str(info.root),
-        shell=True,
-        capture_output=True,
-        text=True,
         timeout=60,
+        check=False,
     )
     if result.returncode != 0:
         _fail(f"twine check failed:\n{result.stdout}\n{result.stderr}")
@@ -400,16 +404,16 @@ def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 5: Wait for CI."""
     console.print("\n[bold]Phase 5: Wait for CI[/bold]")
 
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found — install from https://cli.github.com")
-
     tag = f"v{version}"
 
     if dry_run:
         _dry("gh run list --branch main --limit 5")
         _dry("gh run watch <run-id>")
         return
+
+    gh = shutil.which("gh")
+    if gh is None:
+        _fail("gh CLI not found — install from https://cli.github.com")
 
     # Find the run triggered by the tag push
     _info(f"Looking for CI run triggered by {tag}...")
@@ -467,17 +471,18 @@ def _phase6_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
     """Phase 6: Create GitHub release."""
     console.print(f"\n[bold]Phase 6: GitHub release v{version}[/bold]")
 
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found")
-
     tag = f"v{version}"
-    changelog = _read_changelog(info.root)
-    notes = _extract_version_notes(changelog, version)
 
     if dry_run:
         _dry(f'gh release create {tag} --title "{tag}" --notes "..."')
         return
+
+    gh = shutil.which("gh")
+    if gh is None:
+        _fail("gh CLI not found")
+
+    changelog = _read_changelog(info.root)
+    notes = _extract_version_notes(changelog, version)
 
     result = _run(
         [gh, "release", "create", tag, "--title", tag, "--notes", notes],
@@ -564,10 +569,6 @@ def _phase8_trigger_propagation(
 
     console.print("\n[bold]Phase 8: Cross-repo propagation[/bold]")
 
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found")
-
     repo = _get_github_repo(info.root)
     if repo is None:
         _info("No GitHub remote detected — skipping propagation")
@@ -594,6 +595,10 @@ def _phase8_trigger_propagation(
         _dry(f"gh run list -R {propagate_repo} --workflow=propagate.yml --limit 1")
         _dry(f"gh run watch <run-id> -R {propagate_repo}")
         return
+
+    gh = shutil.which("gh")
+    if gh is None:
+        _fail("gh CLI not found")
 
     # Trigger the propagation workflow
     result = _run(
@@ -702,9 +707,10 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     gh_status = "✓" if not dry_run else "skipped (dry run)"
     console.print(f"  GitHub Release: {gh_status}")
 
-    if info.is_plugin and not dry_run:
+    has_propagation = info.is_plugin or info.language == "python"
+    if has_propagation and not dry_run:
         prop = "✓ triggered"
-    elif not info.is_plugin:
+    elif not has_propagation:
         prop = "N/A"
     else:
         prop = "skipped (dry run)"

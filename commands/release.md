@@ -29,8 +29,9 @@ If `punt release` fails, read the error output carefully.
 - **Quality gate failure**: Fix the issue, then re-run `punt release $ARGUMENTS`.
 - **CI failure**: The tag is already pushed. Wait for the user to fix CI, then resume
   from Phase 5 onward by running the remaining steps manually.
-- **PyPI propagation timeout**: Re-run `punt release $ARGUMENTS` — it will skip
-  completed phases and retry from where it left off.
+- **PyPI propagation timeout**: Re-run `punt release $ARGUMENTS`. If it fails
+  early because the version has already been bumped or tagged, resume from the
+  appropriate later phase manually.
 
 ### Non-recoverable failures
 
@@ -46,8 +47,8 @@ If the CLI is not installed or crashes unexpectedly, fall back to the guided wor
 1. **Stop on failure.** Every phase is a gate. If quality gates fail, CI fails, or a build
    fails — stop and report. Do not skip phases.
 
-2. **Confirm before pushing.** The CLI confirms before `git push`. In guided mode,
-   ask the user before any push.
+2. **Confirm before pushing.** In guided mode, ask the user before any `git push`.
+   The CLI prints a warning before pushing but does not prompt interactively.
 
 3. **One project at a time.** Release the project in the current working directory.
 
