@@ -11,12 +11,10 @@ Use `.tmp/` at the project root for scratch and temporary files — never `/tmp`
 Run before every commit. Zero violations, zero errors, all tests green.
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src/ tests/
-uv run pyright src/ tests/
-uv run pytest
+make check
 ```
+
+The Makefile is the source of truth for what `check` means (`make help` lists targets).
 
 ## Beads: Dual Role
 
