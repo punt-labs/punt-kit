@@ -568,10 +568,72 @@ def _phase7_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
     _ok("Editable install restored")
 
 
+def _trigger_and_wait(
+    gh: str, target_repo: str, fields: list[tuple[str, str]], label: str
+) -> bool:
+    """Trigger a propagation workflow and wait for it to complete.
+
+    Returns True on success, False on failure (non-fatal).
+    """
+    cmd = [gh, "workflow", "run", "propagate.yml", "-R", target_repo]
+    for key, val in fields:
+        cmd.extend(["-f", f"{key}={val}"])
+
+    result = _run(cmd, check=False)
+    if result.returncode != 0:
+        _info(f"{label}: workflow not available ({result.stderr.strip()})")
+        return False
+
+    _ok(f"{label}: triggered")
+
+    import time
+
+    time.sleep(5)
+
+    result = _run(
+        [
+            gh,
+            "run",
+            "list",
+            "-R",
+            target_repo,
+            "--workflow=propagate.yml",
+            "--limit",
+            "1",
+            "--json",
+            "databaseId,status",
+        ],
+        check=False,
+    )
+    if result.returncode != 0:
+        _info(f"{label}: could not find run — check manually")
+        return False
+
+    runs = json.loads(result.stdout)
+    if not runs:
+        _info(f"{label}: no runs found — check manually")
+        return False
+
+    run_id = runs[0]["databaseId"]
+    _info(f"{label}: watching run {run_id}...")
+    watch = _run(
+        [gh, "run", "watch", str(run_id), "--exit-status", "-R", target_repo],
+        check=False,
+        capture=False,
+        timeout=300,
+    )
+    if watch.returncode != 0:
+        _info(f"{label}: run {run_id} failed")
+        return False
+
+    _ok(f"{label}: complete")
+    return True
+
+
 def _phase8_trigger_propagation(
     info: ProjectInfo, version: str, *, dry_run: bool
 ) -> None:
-    """Phase 8: Trigger cross-repo propagation Action and wait."""
+    """Phase 8: Trigger cross-repo propagation Actions and wait."""
     if not info.is_plugin and info.language != "python":
         return
 
@@ -582,108 +644,59 @@ def _phase8_trigger_propagation(
         _info("No GitHub remote detected — skipping propagation")
         return
 
-    if info.language == "python":
-        package_name = _get_package_name(info)
-    else:
-        package_name = info.root.name
     tag = f"v{version}"
 
-    # Check if propagation workflow exists in punt-kit
-    propagate_repo = "punt-labs/punt-kit"
+    # Determine which propagations apply
+    # 1. punt-kit: update install-all.sh SHAs (any CLI project)
+    # 2. claude-plugins: update marketplace.json (any plugin project)
+    # 3. .github: update profile README install-all.sh URL (punt-kit only)
+    targets: list[tuple[str, list[tuple[str, str]], str]] = []
+
+    targets.append(
+        (
+            "punt-labs/punt-kit",
+            [("repo", repo), ("tag", tag)],
+            "install-all.sh",
+        )
+    )
+
+    if info.is_plugin or info.is_hybrid:
+        targets.append(
+            (
+                "punt-labs/claude-plugins",
+                [("repo", repo), ("version", version), ("tag", tag)],
+                "marketplace",
+            )
+        )
+
+    if repo == "punt-labs/punt-kit":
+        targets.append(
+            (
+                "punt-labs/.github",
+                [("repo", repo), ("tag", tag)],
+                "org profile README",
+            )
+        )
 
     if dry_run:
-        _dry(
-            f"gh workflow run propagate.yml"
-            f" -R {propagate_repo}"
-            f" -f repo={repo}"
-            f" -f version={version}"
-            f" -f tag={tag}"
-            f" -f package={package_name}"
-        )
-        _dry(f"gh run list -R {propagate_repo} --workflow=propagate.yml --limit 1")
-        _dry(f"gh run watch <run-id> -R {propagate_repo}")
+        for target_repo, fields, _label in targets:
+            field_str = " ".join(f"-f {k}={v}" for k, v in fields)
+            _dry(f"gh workflow run propagate.yml -R {target_repo} {field_str}")
         return
 
     gh = shutil.which("gh")
     if gh is None:
         _fail("gh CLI not found")
 
-    # Trigger the propagation workflow
-    result = _run(
-        [
-            gh,
-            "workflow",
-            "run",
-            "propagate.yml",
-            "-R",
-            propagate_repo,
-            "-f",
-            f"repo={repo}",
-            "-f",
-            f"version={version}",
-            "-f",
-            f"tag={tag}",
-            "-f",
-            f"package={package_name}",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
-        _info(f"Propagation workflow not available: {result.stderr.strip()}")
-        _info("Cross-repo updates must be done manually:")
-        _info(f"  - Update marketplace.json: version={version}, ref={tag}")
-        _info(f"  - Update install-all.sh SHA for {package_name}")
-        _info("  - Update org profile README if needed")
-        return
+    failures: list[str] = []
+    for target_repo, fields, label in targets:
+        if not _trigger_and_wait(gh, target_repo, fields, label):
+            failures.append(label)
 
-    _ok("Propagation workflow triggered")
-
-    # Wait for it
-    import time
-
-    time.sleep(5)  # Give GitHub a moment to register the run
-
-    result = _run(
-        [
-            gh,
-            "run",
-            "list",
-            "-R",
-            propagate_repo,
-            "--workflow=propagate.yml",
-            "--limit",
-            "1",
-            "--json",
-            "databaseId,status",
-        ],
-        check=False,
-    )
-    if result.returncode == 0:
-        runs = json.loads(result.stdout)
-        if runs:
-            run_id = runs[0]["databaseId"]
-            _info(f"Watching propagation run {run_id}...")
-            watch_result = _run(
-                [
-                    gh,
-                    "run",
-                    "watch",
-                    str(run_id),
-                    "--exit-status",
-                    "-R",
-                    propagate_repo,
-                ],
-                check=False,
-                capture=False,
-                timeout=300,
-            )
-            if watch_result.returncode == 0:
-                _ok("Cross-repo propagation complete")
-            else:
-                _fail(f"Propagation run {run_id} failed")
-            return
-
-    _info("Could not find propagation run — check manually")
+    if failures:
+        _info(f"Some propagations need manual attention: {', '.join(failures)}")
+    else:
+        _ok("All propagations complete")
 
 
 def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -717,7 +730,13 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     has_propagation = info.is_plugin or info.language == "python"
     if has_propagation and not dry_run:
-        prop = "✓ triggered"
+        prop = "✓ (install-all.sh"
+        if info.is_plugin or info.is_hybrid:
+            prop += " + marketplace"
+        repo = _get_github_repo(info.root)
+        if repo == "punt-labs/punt-kit":
+            prop += " + org profile"
+        prop += ")"
     elif not has_propagation:
         prop = "N/A"
     else:

@@ -7,16 +7,8 @@ on:
         description: "Source repo (e.g. punt-labs/biff)"
         required: true
         type: string
-      version:
-        description: "Release version (e.g. 0.3.0)"
-        required: true
-        type: string
       tag:
         description: "Git tag (e.g. v0.3.0)"
-        required: true
-        type: string
-      package:
-        description: "Package name (e.g. punt-biff)"
         required: true
         type: string
 
@@ -30,9 +22,7 @@ jobs:
       contents: write
     env:
       INPUT_REPO: ${{ inputs.repo }}
-      INPUT_VERSION: ${{ inputs.version }}
       INPUT_TAG: ${{ inputs.tag }}
-      INPUT_PACKAGE: ${{ inputs.package }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
@@ -42,52 +32,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Update marketplace.json
-        run: |
-          MARKETPLACE=".claude-plugin/marketplace.json"
-          if [ ! -f "$MARKETPLACE" ]; then
-            echo "No marketplace.json found — skipping"
-            exit 0
-          fi
-
-          # Extract short name from repo (punt-labs/biff → biff)
-          export SHORT="${INPUT_REPO#*/}"
-
-          python3 -c "
-          import json, os, sys
-          path = os.environ['MARKETPLACE']
-          version = os.environ['INPUT_VERSION']
-          tag = os.environ['INPUT_TAG']
-          short = os.environ['SHORT']
-          data = json.loads(open(path).read())
-          plugins = data if isinstance(data, list) else data.get('plugins', [])
-          found = False
-          for p in plugins:
-              src = p.get('source', {})
-              repo = src.get('repo', '')
-              if repo.endswith('/' + short) or p.get('name') == short:
-                  p['version'] = version
-                  src['ref'] = tag
-                  found = True
-                  break
-          if not found:
-              print(f'Warning: no marketplace entry for {short}', file=sys.stderr)
-              sys.exit(0)
-          with open(path, 'w') as f:
-              json.dump(data if isinstance(data, list) else data, f, indent=2)
-              f.write('\n')
-          print(f'Updated {path}: version={version}, ref={tag}')
-          "
-
-          if git diff --quiet "$MARKETPLACE"; then
-            echo "No marketplace changes needed"
-          else
-            git add "$MARKETPLACE"
-            git commit -m "chore: bump $SHORT to $INPUT_TAG in marketplace"
-          fi
-        env:
-          MARKETPLACE: .claude-plugin/marketplace.json
 
       - name: Update install-all.sh SHA
         run: |
