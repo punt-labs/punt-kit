@@ -55,6 +55,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     results.extend(_check_beads(info))
     results.extend(_check_claude_md(info))
     results.extend(_check_permissions(info))
+    results.extend(_check_makefile(info))
     results.extend(_check_plugin_dev_isolation(info))
     results.extend(_check_install_sh(info))
     results.extend(_check_readme_sha_pins(info))
@@ -530,6 +531,68 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
                 f"{len(standard_deny)} standard entries",
             )
         )
+
+    return results
+
+
+_REQUIRED_MAKE_TARGETS = {"help", "test", "lint", "check", "format"}
+
+
+def _check_makefile(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check Makefile existence and required targets per makefile.md standard."""
+    if info.language is None:
+        return []
+
+    results: list[tuple[str, str, str]] = []
+    makefile = info.root / "Makefile"
+
+    if not makefile.exists():
+        results.append((FAIL, "Makefile exists", "Missing — see standards/makefile.md"))
+        return results
+
+    results.append((PASS, "Makefile exists", ""))
+
+    content = makefile.read_text(encoding="utf-8")
+
+    # Check required targets — look for "target:" at line start
+    target_re = re.compile(r"^([a-zA-Z_-]+)\s*:", re.MULTILINE)
+    found_targets = {m.group(1) for m in target_re.finditer(content)}
+
+    missing = _REQUIRED_MAKE_TARGETS - found_targets
+    if missing:
+        results.append(
+            (
+                FAIL,
+                "Required Makefile targets present",
+                f"Missing: {', '.join(sorted(missing))}",
+            )
+        )
+    else:
+        results.append(
+            (
+                PASS,
+                "Required Makefile targets present",
+                f"{len(_REQUIRED_MAKE_TARGETS)} required targets found",
+            )
+        )
+
+    # Check that all targets have ## comments for help extraction
+    targets_with_help = {
+        line.split(":")[0]
+        for line in content.splitlines()
+        if "##" in line and ":" in line.split("##")[0]
+    }
+    targets_without_help = (found_targets & _REQUIRED_MAKE_TARGETS) - targets_with_help
+    if targets_without_help:
+        results.append(
+            (
+                FAIL,
+                "Makefile targets have ## help comments",
+                f"Missing ## on: {', '.join(sorted(targets_without_help))}",
+            )
+        )
+    else:
+        results.append((PASS, "Makefile targets have ## help comments", ""))
 
     return results
 

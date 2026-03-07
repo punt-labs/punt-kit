@@ -27,6 +27,20 @@ def _make_compliant_python(tmp_path: Path) -> None:
     )
     (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: help test lint type check format\n\n"
+        "help: ## Show targets\n"
+        "\t@echo help\n\n"
+        "test: ## Run tests\n"
+        "\tuv run pytest\n\n"
+        "lint: ## Lint\n"
+        "\tuv run ruff check .\n\n"
+        "type: ## Type check\n"
+        "\tuv run mypy src/\n\n"
+        "check: lint type test ## All gates\n\n"
+        "format: ## Format\n"
+        "\tuv run ruff format .\n"
+    )
     (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
@@ -164,6 +178,18 @@ def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text('{"name": "test"}')
     (tmp_path / "CLAUDE.md").write_text("# Agent\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: help test lint check format\n\n"
+        "help: ## Show targets\n"
+        "\t@echo help\n\n"
+        "test: ## Run tests\n"
+        "\tnpx jest\n\n"
+        "lint: ## Lint\n"
+        "\tnpx eslint .\n\n"
+        "check: lint test ## All gates\n\n"
+        "format: ## Format\n"
+        "\tnpx prettier --write .\n"
+    )
     (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
