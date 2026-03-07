@@ -9,7 +9,7 @@ All notable changes to this project will be documented in this file.
 - CLI: `punt release` deterministic release workflow (phases 1-8: preflight, version bump, build, tag/push, CI wait, GitHub release, PyPI verify, cross-repo propagation)
 - CLI: `--dry-run` flag shows exact commands without side effects
 - CLI: auto-detects version from CHANGELOG.md when not specified
-- GitHub Action: `propagate.yml` for cross-repo marketplace.json and install SHA updates
+- GitHub Action: three `propagate.yml` workflows for cross-repo updates (install-all.sh SHAs in punt-kit, marketplace.json in claude-plugins, org profile README in .github)
 - `punt init` scaffolds standard deny rules (21 rules from `permissions.md` §4) alongside allow rules
 - `punt audit` validates deny rules are present and complete
 
@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - `/autopilot` step 8: separate CI wait from Copilot review wait (they are independent), add explicit polling loop with 15-minute minimum, prevent rationalization of missing reviews
+- `punt audit` no longer fails on GitHub checks when run in subdirectories of another git repo (e.g. test tmp dirs)
 
 ## [0.2.2] - 2026-02-28
 

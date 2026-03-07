@@ -372,7 +372,25 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
         return results
 
-    # Detect repo from git remote
+    # Detect repo from git remote — verify we're in a git repo rooted here
+    try:
+        git_root = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(info.root),
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if (
+            git_root.returncode != 0
+            or Path(git_root.stdout.strip()).resolve() != info.root.resolve()
+        ):
+            results.append((INFO, "GitHub settings (no git repo at root)", ""))
+            return results
+    except (subprocess.TimeoutExpired, OSError):
+        results.append((INFO, "GitHub settings (no git repo at root)", ""))
+        return results
+
     repo = _get_github_repo(info.root)
     if repo is None:
         results.append((INFO, "GitHub settings (no remote detected)", ""))
