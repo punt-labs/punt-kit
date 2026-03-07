@@ -442,7 +442,14 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
     elif info.language == "node":
         perms.extend(["Bash(npx:*)", "Bash(npm:*)"])
     elif info.language == "swift":
-        perms.extend(["Bash(swift:*)", "Bash(xcodebuild:*)"])
+        perms.extend(
+            [
+                "Bash(swiftformat:*)",
+                "Bash(swiftlint:*)",
+                "Bash(xcodebuild:*)",
+                "Bash(xcodegen:*)",
+            ]
+        )
 
     for cmd in info.cli_commands:
         perm = f"Bash({cmd}:*)"

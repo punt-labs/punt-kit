@@ -253,8 +253,10 @@ def test_init_creates_permissions_swift(tmp_path: Path) -> None:
     allow = data["permissions"]["allow"]
 
     assert "Bash(make:*)" in allow
-    assert "Bash(swift:*)" in allow
+    assert "Bash(swiftformat:*)" in allow
+    assert "Bash(swiftlint:*)" in allow
     assert "Bash(xcodebuild:*)" in allow
+    assert "Bash(xcodegen:*)" in allow
 
     # Should NOT have Python-specific
     assert "Bash(uv:*)" not in allow
