@@ -419,6 +419,10 @@ def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _info(f"Looking for CI run triggered by {tag}...")
 
     # Give CI a moment to start
+    import time
+
+    time.sleep(5)
+
     result = _run(
         [
             gh,

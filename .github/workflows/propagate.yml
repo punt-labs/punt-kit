@@ -52,7 +52,7 @@ jobs:
           fi
 
           # Extract short name from repo (punt-labs/biff → biff)
-          SHORT="${INPUT_REPO#*/}"
+          export SHORT="${INPUT_REPO#*/}"
 
           python3 -c "
           import json, os, sys
@@ -97,7 +97,7 @@ jobs:
             exit 0
           fi
 
-          SHORT="${INPUT_REPO#*/}"
+          export SHORT="${INPUT_REPO#*/}"
 
           # Get the SHA of the tag in the source repo (handle annotated tags)
           TAG_INFO=$(gh api "repos/$INPUT_REPO/git/ref/tags/$INPUT_TAG" --jq '.object.sha + " " + .object.type' 2>/dev/null || echo "")
