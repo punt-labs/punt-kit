@@ -346,8 +346,9 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
 
     _run(["uv", "build"], cwd=str(info.root), capture=False)
 
-    # twine check on all built artifacts (expand glob in Python, no shell)
-    artifacts = sorted((info.root / "dist").glob("*"))
+    # twine check on built artifacts only (.whl and .tar.gz)
+    dist_dir = info.root / "dist"
+    artifacts = sorted(p for p in dist_dir.iterdir() if p.suffix in {".whl", ".gz"})
     if not artifacts:
         _fail("No build artifacts found in dist/ for twine check")
 
