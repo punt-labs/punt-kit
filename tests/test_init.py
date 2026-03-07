@@ -236,8 +236,8 @@ def test_init_creates_permissions_python(tmp_path: Path) -> None:
     assert "Bash(uv:*)" in allow
     assert "Bash(python3:*)" in allow
 
-    # Should NOT have Swift or Node
-    assert "Bash(make:*)" not in allow
+    # make is universal; should NOT have Swift or Node specific
+    assert "Bash(make:*)" in allow
     assert "Bash(npx:*)" not in allow
 
 
