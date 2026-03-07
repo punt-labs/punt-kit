@@ -577,11 +577,8 @@ def _check_makefile(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
 
     # Check that all targets have ## comments for help extraction
-    targets_with_help = {
-        line.split(":")[0]
-        for line in content.splitlines()
-        if "##" in line and ":" in line.split("##")[0]
-    }
+    help_re = re.compile(r"^([a-zA-Z_-]+)\s*:.*##", re.MULTILINE)
+    targets_with_help = {m.group(1) for m in help_re.finditer(content)}
     targets_without_help = (found_targets & _REQUIRED_MAKE_TARGETS) - targets_with_help
     if targets_without_help:
         results.append(

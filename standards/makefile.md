@@ -33,6 +33,7 @@ Add these when the project needs them.
 | `build` | Build artifacts | Release-ready projects |
 | `clean` | Remove build artifacts | Projects with generated files |
 | `coverage` | Test with coverage report | When tracking coverage |
+| `prfaq` | Compile `.tex` → `.pdf` and clean artifacts | Projects with LaTeX documents (prfaq, press releases) |
 
 ## Template: Python projects
 
@@ -60,11 +61,57 @@ format: ## Auto-format code
 	uv run ruff check --fix .
 ```
 
+## Template: `prfaq` target
+
+Most projects have LaTeX documents via the prfaq plugin. Add `make prfaq` to
+compile `.tex` files and sweep up intermediate artifacts, leaving only the PDF.
+
+```makefile
+# LaTeX intermediate files to remove after compilation
+LATEX_ARTIFACTS = *.aux *.log *.out *.bbl *.bcf *.blg *.run.xml *.fls \
+                  *.fdb_latexmk *.synctex.gz *.toc
+
+TEX_FILES = prfaq.tex
+
+prfaq: ## Compile .tex to .pdf and clean artifacts
+	@for f in $(TEX_FILES); do \
+	  echo "Compiling $$f ..."; \
+	  dir=$$(dirname "$$f"); base=$$(basename "$$f" .tex); \
+	  pdflatex -interaction=nonstopmode -output-directory="$$dir" "$$f" > /dev/null 2>&1; \
+	  if [ -f "$$dir/$$base.bib" ] && command -v biber > /dev/null 2>&1; then \
+	    (cd "$$dir" && biber "$$base") > /dev/null 2>&1 || true; \
+	    pdflatex -interaction=nonstopmode -output-directory="$$dir" "$$f" > /dev/null 2>&1; \
+	  fi; \
+	  pdflatex -interaction=nonstopmode -output-directory="$$dir" "$$f" > /dev/null 2>&1; \
+	  if [ -f "$$dir/$$base.pdf" ]; then \
+	    echo "  $$dir/$$base.pdf"; \
+	  else \
+	    echo "Error: $$f failed to compile" >&2; exit 1; \
+	  fi; \
+	done
+	@rm -f $(LATEX_ARTIFACTS)
+
+clean-tex: ## Remove LaTeX intermediate files
+	@rm -f $(LATEX_ARTIFACTS)
+```
+
+Customize `TEX_FILES` per project. For projects with multiple documents
+(e.g., prfaq repo with both `prfaq.tex` and `assets/prfaq-template.tex`),
+list all files. The artifact cleanup runs once after all files compile.
+
+In the prfaq repo itself, `test` and `check` compose around the `prfaq`
+target since compilation IS the quality gate:
+
+```makefile
+test: prfaq ## Verify all documents compile
+check: test ## Run all quality gates
+```
+
 ## Rules
 
 1. **All targets in `.PHONY`.** Make targets are commands, not files.
 2. **Every target has a `## ` comment** for `make help` extraction.
-3. **`check` composes, never duplicates.** It calls other targets via `$(MAKE)`, never repeats their commands.
+3. **`check` composes, never duplicates.** It lists other targets as prerequisites (e.g., `check: lint type test`), never repeats their commands.
 4. **`lint` never mutates.** It checks and fails — `format` is the one that writes.
 5. **`test` runs the default suite.** Slow or integration tests are opt-in (`make test-slow` or `uv run pytest -m slow`).
 6. **No secrets in Makefiles.** Credentials come from environment variables.
