@@ -1,0 +1,130 @@
+name: Propagate Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo:
+        description: "Source repo (e.g. punt-labs/biff)"
+        required: true
+        type: string
+      version:
+        description: "Release version (e.g. 0.3.0)"
+        required: true
+        type: string
+      tag:
+        description: "Git tag (e.g. v0.3.0)"
+        required: true
+        type: string
+      package:
+        description: "Package name (e.g. punt-biff)"
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  propagate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      INPUT_REPO: ${{ inputs.repo }}
+      INPUT_VERSION: ${{ inputs.version }}
+      INPUT_TAG: ${{ inputs.tag }}
+      INPUT_PACKAGE: ${{ inputs.package }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Update marketplace.json
+        run: |
+          MARKETPLACE=".claude-plugin/marketplace.json"
+          if [ ! -f "$MARKETPLACE" ]; then
+            echo "No marketplace.json found — skipping"
+            exit 0
+          fi
+
+          # Extract short name from repo (punt-labs/biff → biff)
+          SHORT="${INPUT_REPO#*/}"
+
+          python3 -c "
+          import json, os, sys
+          path = os.environ['MARKETPLACE']
+          version = os.environ['INPUT_VERSION']
+          tag = os.environ['INPUT_TAG']
+          short = os.environ['SHORT']
+          data = json.loads(open(path).read())
+          plugins = data if isinstance(data, list) else data.get('plugins', [])
+          found = False
+          for p in plugins:
+              src = p.get('source', {})
+              repo = src.get('repo', '')
+              if repo.endswith('/' + short) or p.get('name') == short:
+                  p['version'] = version
+                  src['ref'] = tag
+                  found = True
+                  break
+          if not found:
+              print(f'Warning: no marketplace entry for {short}', file=sys.stderr)
+              sys.exit(0)
+          with open(path, 'w') as f:
+              json.dump(data if isinstance(data, list) else data, f, indent=2)
+              f.write('\n')
+          print(f'Updated {path}: version={version}, ref={tag}')
+          "
+
+          if git diff --quiet "$MARKETPLACE"; then
+            echo "No marketplace changes needed"
+          else
+            git add "$MARKETPLACE"
+            git commit -m "chore: bump $SHORT to $INPUT_TAG in marketplace"
+          fi
+        env:
+          MARKETPLACE: .claude-plugin/marketplace.json
+          SHORT: ${{ inputs.repo }}
+
+      - name: Update install-all.sh SHA
+        run: |
+          INSTALL_ALL="install-all.sh"
+          if [ ! -f "$INSTALL_ALL" ]; then
+            echo "No install-all.sh found — skipping"
+            exit 0
+          fi
+
+          SHORT="${INPUT_REPO#*/}"
+
+          # Get the SHA of the tag in the source repo
+          TAG_SHA=$(gh api "repos/$INPUT_REPO/git/ref/tags/$INPUT_TAG" --jq '.object.sha' 2>/dev/null || echo "")
+          if [ -z "$TAG_SHA" ]; then
+            echo "Could not resolve tag SHA for $INPUT_TAG in $INPUT_REPO — skipping"
+            exit 0
+          fi
+          SHORT_SHA="${TAG_SHA:0:7}"
+
+          # Replace the SHA in the curl URL for this project
+          # Pattern: $GH/<project>/<SHA>/install.sh
+          sed -i "s|\(\$GH/$SHORT/\)[a-f0-9]\{7,40\}\(/install.sh\)|\1${SHORT_SHA}\2|g" "$INSTALL_ALL"
+
+          if git diff --quiet "$INSTALL_ALL"; then
+            echo "No install-all.sh changes needed"
+          else
+            git add "$INSTALL_ALL"
+            git commit -m "chore: update $SHORT install SHA to $INPUT_TAG"
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Push changes
+        run: |
+          if git diff --quiet HEAD origin/main; then
+            echo "Nothing to push"
+          else
+            git push origin main
+          fi

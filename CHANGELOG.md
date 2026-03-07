@@ -6,8 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- CLI: `punt release` deterministic release workflow (phases 1-8: preflight, version bump, build, tag/push, CI wait, GitHub release, PyPI verify, cross-repo propagation)
+- CLI: `--dry-run` flag shows exact commands without side effects
+- CLI: auto-detects version from CHANGELOG.md when not specified
+- GitHub Action: `propagate.yml` for cross-repo marketplace.json and install SHA updates
 - `punt init` scaffolds standard deny rules (21 rules from `permissions.md` §4) alongside allow rules
 - `punt audit` validates deny rules are present and complete
+
+### Changed
+
+- `/punt release` simplified to thin wrapper: calls `punt release` CLI, falls back to guided mode on failure
 
 ### Fixed
 
