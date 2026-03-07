@@ -53,6 +53,22 @@ def pii(
 
 
 @app.command()
+def release(
+    version_arg: str = typer.Argument(
+        "", help="Target version (e.g. 1.2.3). Auto-detected if omitted."
+    ),
+    path: str = typer.Option(".", "--path", "-p", help="Path to the project root"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n", help="Show what would happen without changes"
+    ),
+) -> None:
+    """Run the deterministic release workflow (phases 1-8)."""
+    from punt_kit.release import run_release
+
+    run_release(path, version=version_arg or None, dry_run=dry_run)
+
+
+@app.command()
 def version() -> None:
     """Print the punt-kit version."""
     console.print(f"punt-kit {__version__}")
