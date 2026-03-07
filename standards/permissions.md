@@ -89,6 +89,7 @@ Every project must allow these generic Bash commands:
 "Bash(gh:*)",
 "Bash(git:*)",
 "Bash(ls:*)",
+"Bash(make:*)",
 "Bash(pip index:*)",
 "Bash(punt:*)",
 "Bash(sed:*)",
@@ -103,7 +104,7 @@ Projects add their own build tools as needed:
 |-------------|-------------------|
 | Python | `Bash(uv:*)`, `Bash(uvx:*)`, `Bash(python3:*)` |
 | Node.js | `Bash(npx:*)`, `Bash(npm:*)` |
-| Swift | `Bash(make:*)`, `Bash(xcodebuild:*)` |
+| Swift | `Bash(xcodebuild:*)`, `Bash(xcodegen:*)`, `Bash(swiftformat:*)`, `Bash(swiftlint:*)` |
 | CLI project | `Bash(<cli-name>:*)`, `Bash(<cli-name>-server:*)` |
 
 ### Skills

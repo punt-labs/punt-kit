@@ -27,6 +27,23 @@ def _make_compliant_python(tmp_path: Path) -> None:
     )
     (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: help test lint type check format\n\n"
+        "help: ## Show targets\n"
+        "\t@echo help\n\n"
+        "test: ## Run tests\n"
+        "\tuv run pytest\n\n"
+        "lint: ## Lint\n"
+        "\tuv run ruff check .\n"
+        "\tuv run ruff format --check .\n\n"
+        "type: ## Type check\n"
+        "\tuv run mypy src/ tests/\n"
+        "\tuv run pyright src/ tests/\n\n"
+        "check: lint type test ## All gates\n\n"
+        "format: ## Format\n"
+        "\tuv run ruff format .\n"
+        "\tuv run ruff check --fix .\n"
+    )
     (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
@@ -164,6 +181,18 @@ def test_audit_non_python_skips_python_checks(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text('{"name": "test"}')
     (tmp_path / "CLAUDE.md").write_text("# Agent\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: help test lint check format\n\n"
+        "help: ## Show targets\n"
+        "\t@echo help\n\n"
+        "test: ## Run tests\n"
+        "\tnpx jest\n\n"
+        "lint: ## Lint\n"
+        "\tnpx eslint .\n\n"
+        "check: lint test ## All gates\n\n"
+        "format: ## Format\n"
+        "\tnpx prettier --write .\n"
+    )
     (tmp_path / ".beads").mkdir()
     (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
     (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
@@ -518,6 +547,59 @@ def test_audit_plugin_version_sync_fails(tmp_path: Path) -> None:
         "[tool.mypy]\nstrict = true\n\n"
         '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
         "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_fails_missing_makefile(tmp_path: Path) -> None:
+    """Audit fails when Makefile is missing."""
+    _make_compliant_python(tmp_path)
+    (tmp_path / "Makefile").unlink()
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_fails_missing_makefile_target(tmp_path: Path) -> None:
+    """Audit fails when a required Makefile target is missing."""
+    _make_compliant_python(tmp_path)
+    # Makefile without 'format' target
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: help test lint type check\n\n"
+        "help: ## Show targets\n"
+        "\t@echo help\n\n"
+        "test: ## Run tests\n"
+        "\tuv run pytest\n\n"
+        "lint: ## Lint\n"
+        "\tuv run ruff check .\n\n"
+        "type: ## Type check\n"
+        "\tuv run mypy src/\n\n"
+        "check: lint type test ## All gates\n"
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_fails_missing_help_comment(tmp_path: Path) -> None:
+    """Audit fails when a required target lacks a ## help comment."""
+    _make_compliant_python(tmp_path)
+    # 'format' target exists but has no ## comment
+    (tmp_path / "Makefile").write_text(
+        ".PHONY: help test lint type check format\n\n"
+        "help: ## Show targets\n"
+        "\t@echo help\n\n"
+        "test: ## Run tests\n"
+        "\tuv run pytest\n\n"
+        "lint: ## Lint\n"
+        "\tuv run ruff check .\n\n"
+        "type: ## Type check\n"
+        "\tuv run mypy src/\n\n"
+        "check: lint type test ## All gates\n\n"
+        "format:\n"
+        "\tuv run ruff format .\n"
     )
 
     with pytest.raises(SystemExit, match="1"):
