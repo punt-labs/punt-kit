@@ -60,7 +60,7 @@ banner "vox"
 curl -fsSL "$GH/vox/342504c/install.sh" | sh
 
 banner "lux"
-curl -fsSL "$GH/lux/d7679bd/install.sh" | sh
+curl -fsSL "$GH/lux/e07bb6c/install.sh" | sh
 
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
