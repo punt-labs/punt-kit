@@ -59,6 +59,9 @@ curl -fsSL "$GH/quarry/996c44b/install.sh" | sh
 banner "vox"
 curl -fsSL "$GH/vox/342504c/install.sh" | sh
 
+banner "lux"
+curl -fsSL "$GH/lux/d7679bd/install.sh" | sh
+
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
 banner "Plugins"
@@ -95,6 +98,6 @@ cleanup_https_rewrite
 # --- Done ---
 
 printf '\n%b%bAll Punt Labs tools are installed!%b\n\n' "$GREEN" "$BOLD" "$NC"
-printf 'CLIs:    punt, biff, quarry, vox\n'
-printf 'Plugins: biff, dungeon, prfaq, punt, quarry, vox, z-spec\n\n'
+printf 'CLIs:    punt, biff, quarry, vox, lux\n'
+printf 'Plugins: biff, dungeon, lux, prfaq, punt, quarry, vox, z-spec\n\n'
 printf 'Restart Claude Code twice to activate all plugins.\n\n'
