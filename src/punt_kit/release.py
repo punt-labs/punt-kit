@@ -25,7 +25,7 @@ def _run(
     cmd: list[str],
     *,
     cwd: str | None = None,
-    timeout: int = 120,
+    timeout: int = 7200,
     check: bool = True,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
@@ -469,7 +469,7 @@ def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         cwd=str(info.root),
         check=False,
         capture=False,
-        timeout=600,
+        timeout=7200,
     )
     if result.returncode != 0:
         _fail(f"CI run {run_id} failed — fix before continuing")
@@ -621,7 +621,7 @@ def _trigger_and_wait(
         [gh, "run", "watch", str(run_id), "--exit-status", "-R", target_repo],
         check=False,
         capture=False,
-        timeout=300,
+        timeout=7200,
     )
     if watch.returncode != 0:
         _info(f"{label}: run {run_id} failed")
