@@ -565,3 +565,169 @@ VERSION pin are left unchanged (the regex does not match).
 4. Same issue confirmed in lux: `VERSION="0.5.1"` instead of `0.5.2`
 5. Fixed `release.py`, added tests, manually fixed vox and lux install.sh files
 6. Updated `release.md` verification to check VERSION pins at tagged SHAs
+
+## DES-009: Building Block Hook Ownership
+
+**Date:** 2026-03-09
+**Status:** SETTLED
+**Topic:** Which plugin owns the hook reaction to a shared Claude Code event
+
+### Design
+
+Each building block owns its own sensory reaction to generic Claude Code
+lifecycle events. Consumers add domain-specific context, not duplicate
+generic reactions.
+
+| Building block | Owns | Does NOT own |
+|---------------|------|-------------|
+| **Vox** | Audio reactions: Stop summary, prompt ack, subagent announce, session farewell, permission chimes | Speaking biff messages, narrating z-spec results |
+| **Lux** | Display mode toggle, scene lifecycle, interaction handling | Deciding what to display — consumers call `show()` |
+| **Biff** | Messaging reactions: PR announce via /wall + /write, unread message check, plan enforcement | Speaking or displaying anything — uses vox/lux as renderers |
+| **Quarry** | Knowledge capture: codebase index, WebFetch ingest, compaction transcript, knowledge hints | Rendering search results visually — uses lux as renderer |
+
+**Rule 1: Each building block reacts independently to shared events.**
+PR creation is a generic Claude Code event. Vox may speak "PR created."
+Biff may suggest `/wall`. Lux waits for a consumer to call `show()`.
+These reactions fire in parallel and are additive.
+
+**Rule 2: Building blocks do not call each other for generic events.**
+Biff does not call vox to speak on PR creation. Vox speaks on its own
+if it's enabled. This prevents duplicate announcements.
+
+**Rule 3: Consumers add domain-specific narration and display.**
+Only z-spec can say "Model check passed: 10K states, all visited" —
+that's domain knowledge vox doesn't have. Only quarry can compose search
+result tables for lux. Domain context flows from consumer to building
+block, not the other way.
+
+### Why
+
+During Z specification modeling of biff, vox, quarry, and lux, we
+discovered that multiple plugins hook the same Claude Code events
+(e.g., PostToolUse on `create_pull_request`). Without ownership rules:
+
+- Biff's `pr-announce.sh` suggests `/wall` + `/write`
+- Vox could speak "PR created"
+- If biff ALSO tried to speak via vox, we'd get duplicate announcements
+
+The ownership model eliminates this class of bug by giving each building
+block a clear lane: vox owns audio, biff owns messaging, quarry owns
+knowledge, lux owns display (when asked).
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Single orchestrator for shared events | Over-couples plugins. Each plugin should work independently. |
+| Consumers own all reactions (building blocks are passive) | Vox without consumers does nothing on `/vox y` — bad user experience. Building blocks need their own default behaviors. |
+| Building blocks coordinate with each other | Violates integration.md: arrows are unidirectional, building blocks never know about consumers. |
+
+### Impact
+
+Three beads were moved from lux (building block) to their correct
+consumer projects: beads board refresh → biff, PR dashboard → biff,
+quarry search display → quarry. Lux retains only `lux-t1p` (display
+mode toggle).
+
+New standard bead `punt-kit-qcs` tracks updating hooks.md and
+integration.md with this decision.
+
+## DES-010: Vox vs Lux Activation Asymmetry
+
+**Date:** 2026-03-09
+**Status:** SETTLED
+**Topic:** Why `/vox y` activates vox's own behavior but `/lux y` only signals consumers
+
+### Design
+
+Vox and lux have asymmetric activation semantics despite both being
+building blocks.
+
+**`/vox y`** means "vox, do your thing." Vox has default behaviors that
+fire automatically: Stop summary speech, permission chimes, vibe signal
+accumulation. A user who installs only vox and types `/vox y` gets a
+working product.
+
+**`/lux y`** means "consumers, render visually." Lux has no default
+behavior — an empty display window isn't useful. Lux needs a consumer
+(biff for beads board, quarry for search results, z-spec for state
+diagrams) to call `show()`. The mode flag is an L3 state signal that
+consumers check before rendering.
+
+### Why
+
+The asymmetry reflects a fundamental difference in the building blocks:
+
+- **Audio has useful defaults.** Speaking a summary when Claude finishes
+  is valuable regardless of what Claude was doing. The content is
+  generic (Claude writes it), the rendering is vox's job.
+
+- **Display has no useful defaults.** Showing an empty window, a blank
+  dashboard, or a random table is not useful. The content must come from
+  a domain owner who knows what data to show and how to structure it.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Symmetric: both activate own behavior | Lux has no own behavior to activate. An empty window is not a product. |
+| Symmetric: both only signal consumers | `/vox y` with no reaction is confusing. Users expect voice when they enable voice. |
+| Lux auto-displays a session dashboard | Requires lux to know about beads, git, biff — violates building block boundary. |
+
+## DES-011: Formal Z Specification for Hook State Machines
+
+**Date:** 2026-03-09
+**Status:** SETTLED
+**Topic:** Using Z specifications to model and verify hook integration state machines
+
+### Design
+
+Each Punt Labs tool with non-trivial hook state maintains a Z
+specification that models its state machine as a Layer 2 extension of
+the base Claude Code state machine. Specifications are type-checked with
+fuzz and model-checked with probcli.
+
+The base model (`z-spec/examples/claude-code.tex`) captures Claude
+Code's session lifecycle, tool execution pipeline, subagent
+coordination, and hook events. Layer 2 models extend it per tool:
+
+| Model | File | States | Transitions | Key Property |
+|-------|------|--------|-------------|-------------|
+| Base | `claude-code.tex` | 329K | 1.1M | All 8 invariants hold |
+| Biff | `claude-code-biff.tex` | 161K | 789K | Plan + bead before editing |
+| Vox | `claude-code-vox.tex` | 11K | 48K | No infinite Stop loop |
+| Quarry | `claude-code-quarry.tex` | 5K | 23K | WebFetch dedup, compaction lifecycle |
+| Lux | `claude-code-lux.tex` | 10K | 56K | Scene requires display |
+
+Each spec includes an **Implementation Validation** section that
+cross-references every Z operation against its hook/script/handler,
+identifying gaps.
+
+### Why
+
+During the first round of modeling, we found:
+
+- **3 dead handlers in quarry** — Python handlers implemented but never
+  wired to hooks.json. All three were P1 bugs (SessionStart sync,
+  WebFetch capture, PreCompact transcript capture).
+- **1 invariant bug in vox** — `stopHookActive` constraint was too
+  strict, preventing the decision-block speak phase. Found in seconds
+  by the model checker.
+- **2 ghost states in the base model** — `spStarting` and `spEnding`
+  declared but unreachable. Caused spurious deadlocks in model checking.
+- **1 context overflow deadlock** — context-appending operations could
+  deadlock when the context window was full. Fixed with truncating
+  append.
+
+These bugs are invisible to testing (the hooks don't have tests) and
+to manual review (the wiring gaps span multiple files). The Z spec
+catches them structurally.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Informal state diagrams | Cannot verify invariants. Box-and-arrow diagrams miss edge cases. |
+| Property-based testing | Tests the implementation, not the design. We need to verify the design *before* building. |
+| No formal model | The wiring bugs in quarry would have remained undiscovered. |
+| Full composition (all tools in one spec) | State space explosion. Per-tool Layer 2 models keep model checking feasible (~5min per spec). |

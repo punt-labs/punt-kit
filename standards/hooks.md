@@ -443,7 +443,9 @@ the event:
 ## 9. Cross-Tool Hook Coordination
 
 Hooks from different plugins fire independently on the same event.
-Order is not guaranteed. Design accordingly:
+Order is not guaranteed. Design accordingly.
+
+### Hook independence
 
 - **No dependency between hooks**: Biff's SessionStart and quarry's
   SessionStart must not depend on each other's output.
@@ -452,6 +454,36 @@ Order is not guaranteed. Design accordingly:
 - **Shared state via files**: If hooks need shared state, use the
   integration protocol (L3: state files). See
   [integration.md](integration.md).
+
+### Building block hook ownership (DES-009)
+
+When multiple plugins hook the same Claude Code event, each building
+block owns its own sensory reaction. See
+[DESIGN.md § DES-009](../DESIGN.md#des-009-building-block-hook-ownership)
+for the full decision record.
+
+**Rules:**
+
+1. **Each building block reacts independently.** PR creation fires
+   PostToolUse. Vox may speak. Biff may `/wall`. Quarry may ingest.
+   These are parallel, additive reactions.
+2. **Building blocks do not call each other for generic events.** Biff
+   does not call vox to speak on PR creation. Vox speaks on its own.
+3. **Consumers add domain-specific context.** Only z-spec can narrate
+   "Model check: 10K states, all visited." Only quarry can compose
+   search result tables for lux.
+4. **File beads in the consumer, not the building block.** If biff
+   wants a lux display on PR creation, the bead goes in biff. Lux has
+   no upstream awareness.
+
+### Activation asymmetry (DES-010)
+
+Vox and lux have different activation semantics:
+
+- **`/vox y`** activates vox's own behavior (Stop summary, chimes,
+  signals). A user with only vox installed gets a working product.
+- **`/lux y`** signals consumers to render visually. Lux has no
+  default behavior — consumers must call `show()`.
 
 ---
 

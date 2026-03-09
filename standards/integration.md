@@ -91,12 +91,27 @@ React to peer activity through **Claude Code hooks** — specifically
 
 Examples:
 
-- Vox listens for PR-related `Bash` calls via `PostToolUse` to announce merges.
-- Biff's `Stop` hook triggers a spoken recap via vox if voice mode is active.
+- Vox speaks a summary on Stop (vox's own behavior, not triggered by a consumer).
+- Biff suggests `/wall` on PR creation (biff's own messaging reaction).
+- Quarry ingests URLs on WebFetch completion (quarry's own capture behavior).
 
-**Rule**: Event integrations must be **additive only**. A hook may enrich
-output or trigger a side effect, but must never block or modify the primary
-tool's operation. If the peer is absent, the hook is a no-op.
+**Rule 1: Additive only.** A hook may enrich output or trigger a side
+effect, but must never block or modify the primary tool's operation. If
+the peer is absent, the hook is a no-op.
+
+**Rule 2: Each building block owns its reaction to shared events.**
+When multiple plugins hook the same Claude Code event (e.g., PostToolUse
+on `create_pull_request`), each reacts independently in its own domain:
+vox speaks, biff messages, quarry captures. Building blocks do not call
+each other for generic lifecycle events — this prevents duplicate
+reactions. See [hooks.md § 9](hooks.md#9-cross-tool-hook-coordination)
+and [DES-009](../DESIGN.md#des-009-building-block-hook-ownership).
+
+**Rule 3: Consumers add domain-specific context.** Only the domain
+owner has the context for meaningful content. Z-spec narrating model
+check results via vox is consumer behavior. Quarry rendering search
+results via lux is consumer behavior. These beads belong in the
+consumer project, not the building block.
 
 #### L3: State
 
