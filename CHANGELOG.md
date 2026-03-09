@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-09
+
 ### Added
 
 - Plugin: `/punt claude2cursor` command converts plugin commands to Cursor-compatible skills, slash commands, and rules
