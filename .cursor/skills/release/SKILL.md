@@ -1,7 +1,7 @@
 ---
+name: release
 description: Guided release workflow for a Punt Labs project
-argument-hint: "[version]"
-allowed-tools: Bash(punt:*), Bash(git:*), Bash(gh:*), Bash(uv:*), Bash(uvx:*), Bash(rm:*), Bash(bash:*), Bash(curl:*), Bash(python3:*), Read, Edit, Write, Glob, Grep, AskUserQuestion
+disable-model-invocation: true
 ---
 
 # Release a Punt Labs Project
@@ -12,13 +12,17 @@ verification passes.
 
 ## Input
 
-Version: $ARGUMENTS (if empty, auto-detected from CHANGELOG.md)
+If the user provided a version as an argument, use it. Otherwise it will be auto-detected from CHANGELOG.md.
 
 ## Step 1: Run the CLI
 
+Run in the shell:
+
 ```bash
-punt release $ARGUMENTS
+punt release <version>
 ```
+
+Replace `<version>` with the user-provided version, or omit for auto-detection.
 
 This handles Phases 1-8: pre-flight, version bump (including install.sh VERSION pin),
 build validation, tag and push, CI wait, GitHub release, PyPI verification, and
@@ -29,6 +33,7 @@ If `punt release` fails, see **Failure Recovery** at the bottom.
 ## Step 2: Merge propagation PRs
 
 The CLI triggers GitHub Actions that create PRs in:
+
 - **punt-labs/punt-kit** — updates the project's SHA in `install-all.sh`
 - **punt-labs/claude-plugins** — updates version in `marketplace.json` (hybrid/plugin projects)
 - **punt-labs/.github** — updates profile README install-all.sh URL (punt-kit releases only)
@@ -70,8 +75,8 @@ If found:
 2. Update `"version"` to the release version
 3. If install.sh changed in this release, update `"installCommand"` with the new SHA:
    - Get the SHA: the tag commit short SHA (`git rev-parse --short vX.Y.Z`)
-   - Update the curl URL: `curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh | sh`
-4. Commit and push:
+   - Update the curl URL accordingly
+4. Commit and push (confirm with user first):
 
 ```bash
 cd ../public-website
@@ -90,7 +95,7 @@ the new punt-kit SHA so that the one-liner install command is current.
 
 1. Get the latest punt-kit main SHA: `git -C ../punt-kit rev-parse --short HEAD`
 2. Update the curl URL in `../.github/profile/README.md`
-3. Commit and push:
+3. Commit and push (confirm with user first):
 
 ```bash
 cd ../.github
@@ -100,9 +105,7 @@ git push origin main
 cd -
 ```
 
-Skip this step if:
-- The `.github` directory is not present
-- No install-all.sh changes were made (punt-kit SHA unchanged)
+Skip this step if the `.github` directory is not present or no install-all.sh changes were made.
 
 ## Step 5: Verification
 
@@ -131,60 +134,28 @@ install), warn: `"WARNING: install.sh has no VERSION pin — install is non-dete
 
 ### 5c. Marketplace version
 
-For hybrid/plugin projects, verify marketplace.json:
-
-```bash
-python3 -c "
-import json
-data = json.load(open('../claude-plugins/.claude-plugin/marketplace.json'))
-plugins = data.get('plugins', []) if isinstance(data, dict) else data
-for p in plugins:
-    if p.get('name') == '<plugin-name>':
-        print(f\"version={p['version']} ref={p['source']['ref']}\")
-"
-```
-
-Version must match. Ref must be `vX.Y.Z`.
+For hybrid/plugin projects, verify marketplace.json — version must match and ref must be `vX.Y.Z`.
 
 ### 5d. Website version
 
-If `../public-website/src/data/projects.json` exists, verify the project's version:
-
-```bash
-python3 -c "
-import json
-data = json.load(open('../public-website/src/data/projects.json'))
-for p in data:
-    if p.get('id') == '<project-id>' or p.get('name') == '<project-name>':
-        print(f\"version={p.get('version')} install={p.get('installCommand', 'N/A')}\")
-"
-```
-
-Version must match.
+If `../public-website/src/data/projects.json` exists, verify the project's version matches.
 
 ### 5e. .github profile SHA
 
-Verify the profile README points to the current punt-kit main:
-
-```bash
-grep 'punt-kit/.*install-all.sh' ../.github/profile/README.md
-git -C ../punt-kit rev-parse --short HEAD
-```
-
-The SHAs must match.
+Verify the profile README points to the current punt-kit main SHA.
 
 ### 5f. Print verification summary
 
-Print a table showing each check and its result. Every row must show ✓.
-If any row shows ✗, stop and fix before declaring the release complete.
+Print a table showing each check and its result. Every row must show a pass.
+If any row fails, stop and fix before declaring the release complete.
 
 ## Failure Recovery
 
 ### CLI failure modes
 
-- **Quality gate failure**: Fix the issue, then re-run `punt release $ARGUMENTS`.
+- **Quality gate failure**: Fix the issue, then re-run `punt release <version>`.
 - **CI failure**: The tag is already pushed. Fix CI, then resume from Step 2.
-- **PyPI propagation timeout**: Re-run `punt release $ARGUMENTS`. If it fails because
+- **PyPI propagation timeout**: Re-run `punt release <version>`. If it fails because
   the version was already bumped or tagged, resume from Step 2.
 - **CLI not installed or crashes**: Fall back to running each phase manually, using
   `punt release --dry-run` to see the phase structure.

@@ -1,0 +1,54 @@
+---
+description: Punt Labs project context (from CLAUDE.md)
+alwaysApply: true
+---
+
+# Agent Instructions
+
+This project follows [Punt Labs standards](https://github.com/punt-labs/punt-kit).
+
+## Scratch Files
+
+Use `.tmp/` at the project root for scratch and temporary files — never `/tmp`. The `TMPDIR` environment variable is set via `.envrc` so that `tempfile` and subprocesses automatically use it. Contents are gitignored; only `.gitkeep` is tracked.
+
+## Quality Gates
+
+Run before every commit. Zero violations, zero errors, all tests green.
+
+```bash
+make check
+```
+
+The Makefile is the source of truth for what `check` means (`make help` lists targets).
+
+## Beads: Dual Role
+
+punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, standards doc updates) and **org-wide** cross-project work (CI rollouts, security enablement, multi-repo changes). See the [parent CLAUDE.md](../../../CLAUDE.md#where-to-create-a-bead) for the full placement scheme.
+
+## Plugin Lifecycle
+
+punt-kit is both a Python package (`punt` CLI) and a Claude Code plugin
+(`punt@punt-labs` on the marketplace). The plugin wraps the CLI with slash
+commands (`/punt init`, `/punt audit`, `/punt reconcile`, `/punt claude2cursor`, etc.).
+
+### Key rules
+
+- **Plugin changes require a publish cycle**: bump version in `.claude-plugin/plugin.json` →
+  push → update marketplace catalog (`punt-labs/claude-plugins`) → user runs
+  `/plugin update`.
+- **Dev/prod isolation**: the working tree uses `name: "punt-dev"` so
+  developers see both `punt:*` (marketplace) and `punt-dev:*` (local) commands
+  side by side.
+
+## Design Decisions
+
+Consult [DESIGN.md](../../DESIGN.md) before proposing changes to settled
+architecture. Log new decisions there when they involve rejected alternatives.
+
+## Standards References
+
+- [Python](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md)
+- [GitHub](https://github.com/punt-labs/punt-kit/blob/main/standards/github.md)
+- [Workflow](https://github.com/punt-labs/punt-kit/blob/main/standards/workflow.md)
+- [CLI](https://github.com/punt-labs/punt-kit/blob/main/standards/cli.md)
+- [Shell](https://github.com/punt-labs/punt-kit/blob/main/standards/shell.md)
