@@ -23,7 +23,7 @@ The Makefile is the source of truth for what `check` means (`make help` lists ta
 
 ## Beads: Dual Role
 
-punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, standards doc updates) and **org-wide** cross-project work (CI rollouts, security enablement, multi-repo changes). See the [parent CLAUDE.md](../CLAUDE.md#where-to-create-a-bead) for the full placement scheme.
+punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, standards doc updates) and **org-wide** cross-project work (CI rollouts, security enablement, multi-repo changes). See the [parent CLAUDE.md](../../CLAUDE.md#where-to-create-a-bead) for the full placement scheme.
 
 ## Plugin Lifecycle
 
@@ -33,7 +33,7 @@ commands (`/punt init`, `/punt audit`, `/punt reconcile`, `/punt claude2cursor`,
 
 ### Key rules
 
-- **Plugin changes require a publish cycle**: bump version in `plugin.json` →
+- **Plugin changes require a publish cycle**: bump version in `.claude-plugin/plugin.json` →
   push → update marketplace catalog (`punt-labs/claude-plugins`) → user runs
   `/plugin update`.
 - **Dev/prod isolation**: the working tree uses `name: "punt-dev"` so
@@ -42,7 +42,7 @@ commands (`/punt init`, `/punt audit`, `/punt reconcile`, `/punt claude2cursor`,
 
 ## Design Decisions
 
-Consult [DESIGN.md](DESIGN.md) before proposing changes to settled
+Consult [DESIGN.md](../../DESIGN.md) before proposing changes to settled
 architecture. Log new decisions there when they involve rejected alternatives.
 
 ## Standards References

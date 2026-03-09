@@ -16,6 +16,8 @@ On first iteration only:
 2. If other sessions are active, work in a separate git worktree to avoid interfering. Create one worktree and branch freely inside it for each PR.
 3. If no other sessions are active, work directly on feature branches.
 
+Never remove a worktree from inside it — the session cwd becomes invalid.
+
 ## Loop
 
 Repeat continuously until the user interrupts or no beads remain:
@@ -37,8 +39,12 @@ Read the bead, identify affected files, and classify:
 Create a feature branch from latest main:
 
 ```bash
-git fetch origin main
-git checkout -b <prefix>/<short-name> origin/main
+# In a worktree (detached HEAD):
+git fetch origin main && git checkout origin/main
+git checkout -b <prefix>/<short-name>
+
+# On main directly:
+git checkout -b <prefix>/<short-name> main
 ```
 
 Use the appropriate prefix: `feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `chore/`.
@@ -63,12 +69,13 @@ Use `gh pr create` with a summary and test plan. Keep title under 70 chars. Neve
 
 ### 8. CI and Copilot review
 
-This step is **hard-blocking**. Do not proceed to merge until both CI passes and Copilot review arrives.
+This step is **hard-blocking**. Do not proceed to merge until both CI passes and Copilot review arrives. No exceptions.
 
-1. Request Copilot review:
+1. Request Copilot review. Use the GitHub API:
 
    ```bash
-   gh api repos/punt-labs/<repo>/pulls/<N>/requested_reviewers -f '{"reviewers":["copilot-pull-request-reviewer"]}'
+   gh api repos/punt-labs/<repo>/pulls/<N>/requested_reviewers \
+     --method POST -f 'reviewers[]=copilot-pull-request-reviewer'
    ```
 
 2. Wait for CI checks to pass:
@@ -77,10 +84,11 @@ This step is **hard-blocking**. Do not proceed to merge until both CI passes and
    gh pr checks <number> --watch
    ```
 
-3. Wait for Copilot review (poll until it appears):
+3. Wait for Copilot review. CI passing does NOT mean Copilot has reviewed — those are independent. Poll until the review appears:
 
    ```bash
-   gh pr view <number> --json reviews --jq '.reviews[] | select(.author.login == "copilot-pull-request-reviewer") | .submittedAt'
+   gh pr view <number> --json reviews \
+     --jq '.reviews[] | select(.author.login == "copilot-pull-request-reviewer") | .submittedAt'
    ```
 
    If empty, wait 60 seconds and poll again. Keep polling for at least 15 minutes. If no review after 15 minutes, ask the user whether to continue waiting or merge without review.
@@ -100,13 +108,20 @@ If issues persist after max rounds, summarize remaining items and ask the user w
 
 ### 9. Merge
 
+**Never use `gh pr merge`** — it tries to checkout main locally, which fails in worktrees. Use the GitHub API instead:
+
 ```bash
-gh pr merge <number> --squash --delete-branch
+gh api repos/punt-labs/<repo>/pulls/<N>/merge \
+  --method PUT -f merge_method=squash
 ```
 
-Then update local state:
+Then update local state for the next branch:
 
 ```bash
+# In a worktree (can't checkout main branch):
+git fetch origin main && git checkout origin/main
+
+# On main directly:
 git checkout main && git pull
 ```
 
@@ -125,6 +140,7 @@ git status    # Must be clean
 
 - Never push directly to main. All changes go through PRs.
 - Never skip Copilot review. Always wait for CI and review before merging.
+- Never use `gh pr merge` — use the GitHub API merge endpoint.
 - Do not ask for permission for routine operations (git, tests, lint, PR creation).
 - Do ask the user before: architectural decisions not covered by the bead, or anything that changes project scope.
 - If blocked, diagnose the root cause. Do not retry blindly.
