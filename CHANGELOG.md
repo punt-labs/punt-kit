@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Plugin: `/punt claude2cursor` command converts plugin commands to Cursor-compatible skills, slash commands, and rules
+- Plugin: `/punt claude2cursor` dev variant for local working tree conversion
+- Generated Cursor artifacts: 6 skills, 6 commands, context rule, and manifest for safe cleanup
+- Standards: hooks.md — Claude Code hook state machine, blocking vs non-blocking handlers, ownership model
+- Standards: logging.md — structured logging with dictConfig, rotating files, PII-free correlation
+- Docs: DES-009/010/011 design decisions (hook ownership, vox/lux asymmetry, Z specs)
+
+### Changed
+
+- `/punt release` propagation merges now use GitHub API instead of `gh pr merge` (worktree-safe)
+- `/punt release` checks all 3 propagation target repos (.github was missing)
+- `/punt autopilot` Copilot review gate tightened: no merge without review or explicit override
+- `install.sh` VERSION pinning codified in standards and DESIGN.md
+- Markdownlint path exclusions expanded (`.tmp/`, `research/`, `session.md`, `standards/makefile.md`)
+- Adopted Makefile standard (make check, make help)
+
+### Fixed
+
+- `/punt release` branch deletion URL-encodes slashes in branch names
+- install-all.sh SHAs updated for biff v0.17.0, quarry v1.0.2, vox v1.2.4, lux v0.5.2
+- Marketplace install SHA fixed for stale punt-labs/tts reference
+- `punt release` subprocess timeouts increased to 2 hours
+- CI propagation creates PR with auto-merge instead of direct push
+
 ## [0.3.0] - 2026-03-06
 
 ### Added
