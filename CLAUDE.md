@@ -24,7 +24,7 @@ punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, stan
 
 punt-kit is both a Python package (`punt` CLI) and a Claude Code plugin
 (`punt@punt-labs` on the marketplace). The plugin wraps the CLI with slash
-commands (`/punt init`, `/punt audit`, `/punt reconcile`).
+commands (`/punt init`, `/punt audit`, `/punt reconcile`, `/punt claude2cursor`, etc.).
 
 ### Key rules
 
@@ -39,6 +39,7 @@ commands (`/punt init`, `/punt audit`, `/punt reconcile`).
   side by side. Launch with `claude --plugin-dir .` from the repo root.
 - **Can't run `claude` inside a session** — ask the user to run plugin CLI
   commands in a separate terminal when needed.
+- **`/punt claude2cursor [path]`** — Write Cursor skills (and optional rules) from this plugin's commands into the workspace or the given path. Safe to run repeatedly; overwrites and cleans up obsolete artifacts.
 
 ### Developer launch
 
@@ -146,6 +147,27 @@ These are available within a running Claude Code session, not from the shell:
 | `/permissions` | Manage permission rules |
 | `/doctor` | Diagnose issues |
 | `/compact` | Compact conversation context |
+
+## Pre-PR Checklist
+
+- [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` (not retroactively on main)
+- [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
+- [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
+- [ ] **Quality gates pass** — `make check`
+
+## Code Review
+
+See [Workflow standards §8](standards/workflow.md) for the full specification. Key rules inlined here:
+
+1. **Create PR** via `mcp__github__create_pull_request`. Prefer MCP GitHub tools over `gh` CLI where possible.
+2. **Request Copilot review** via `mcp__github__request_copilot_review`.
+3. **Watch for CI/Copilot/Bugbot feedback in the background** — run `gh pr checks <number> --watch` as a background task. Do not stop waiting. Copilot and Bugbot may take 1–3 minutes to post after CI completes. Do not assume silence means approval.
+4. **Read all feedback** using MCP tools:
+   - `mcp__github__pull_request_read` with `get_reviews` — check review verdicts
+   - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
+5. **Take every comment seriously.** Do not dismiss feedback as "unrelated to the change" or "pre-existing." If a reviewer flags it, it matters. If you genuinely disagree, explain why in a reply — do not silently ignore.
+6. **Fix, re-push, repeat.** Each fix commit triggers a new review cycle. Expect **2–6 review cycles** before merging.
+7. **Merge only when the last review cycle is uneventful** — zero new comments, all checks green. Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
 
 ## Design Decisions
 
