@@ -160,6 +160,11 @@ Choose the right extension point for each capability:
 
 ## Required Hooks
 
+See **[hooks.md](hooks.md)** for the full hook standard, including the
+Claude Code state machine, event patterns, shell/Python dispatch
+architecture, common bugs, and audit checklist. This section covers
+plugin-specific requirements.
+
 ### SessionStart hook
 
 Every marketplace plugin must have a SessionStart hook that handles first-run

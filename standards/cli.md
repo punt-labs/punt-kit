@@ -276,52 +276,19 @@ Start the MCP server. Required for projects that expose MCP tools. `serve` for H
 
 ## Hook Architecture
 
-### Principle
+See **[hooks.md](hooks.md)** for the full hook standard, including Claude
+Code's state machine, event patterns, the decision-block pattern, workflow
+gates, common bugs, and the audit checklist.
 
-Hooks are plumbing, not product. They integrate the CLI with Claude Code's lifecycle but do not contain business logic themselves.
+Summary of the three-layer dispatch pattern:
 
-### Structure
+1. **hooks.json** — registration (what events, what matchers)
+2. **Shell script** — thin gate (check config, pass stdin)
+3. **CLI handler** — business logic (`<tool> hook <event>`)
 
-```text
-hooks/
-  hooks.json              # Hook event registrations
-  session-start.sh        # Thin shell gate -> <tool> hook session-start
-  suppress-output.sh      # Output suppression for MCP tool calls
-
-src/<package>/
-  hooks.py                # Pure handler functions (testable)
-  __main__.py             # CLI entry point, includes hook subcommands
-```
-
-### Shell scripts are thin gates
-
-Shell scripts check preconditions (config file exists, tool is enabled) and delegate to the CLI:
-
-```bash
-#!/usr/bin/env bash
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-[[ -f "$REPO_ROOT/.biff" ]] || exit 0
-biff hook post-bash 2>/dev/null || true
-```
-
-### Python handlers are pure functions
-
-Business logic lives in `hooks.py` as functions that take structured input and return structured output:
-
-```python
-def handle_post_bash(data: dict[str, Any]) -> str | None:
-    """PostToolUse Bash -- detect events and return context."""
-    ...
-```
-
-The CLI subcommand reads stdin, calls the handler, and writes output.
-
-### Fail-open on observation, fail-closed on mutation
-
-Following entire's pattern:
-
-- Hooks that **observe** (PostToolUse, SessionStart) use `|| true` --- if the tool crashes, Claude Code continues normally.
-- Hooks that **mutate** (PreToolUse that blocks execution) fail closed to preserve safety.
+Shell scripts fail-open on observation (`|| true`), fail-closed on
+mutation (propagate errors). Business logic lives in `hooks.py` as
+testable pure functions.
 
 ---
 
