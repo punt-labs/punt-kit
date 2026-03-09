@@ -56,7 +56,7 @@ For **each** prod command you converted to a skill (same slug set as in step 1):
 
 After writing all skills, write the command files.
 
-After writing all commands, write a **manifest** at `<output-base>/.cursor/punt-generated.json` listing the current slug set, e.g. `{"generated_slugs": ["audit", "init", "pii", "reconcile", "release", "autopilot"]}`. This manifest is used for safe cleanup — only artifacts listed in a previous manifest are candidates for removal.
+After writing all commands, run the **Cleanup** step below. Then write the **manifest** at `<output-base>/.cursor/punt-generated.json` with the current slug set, e.g. `{"generated_slugs": ["audit", "init", "pii", "reconcile", "release", "autopilot"]}`. The manifest must be written **after** cleanup completes so the previous manifest is still readable during cleanup.
 
 ### 3. Rules (optional)
 
@@ -69,7 +69,7 @@ If you read CLAUDE.md or AGENTS.md:
 
 ## Cleanup (repeatability)
 
-After writing all skills, commands, and the manifest:
+After writing all skills and commands:
 
 1. Read the **previous manifest** at `<output-base>/.cursor/punt-generated.json` (if it exists). Extract the previous slug set.
 2. Compute **removed slugs**: slugs in the previous manifest but NOT in the current slug set.

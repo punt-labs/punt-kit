@@ -31,34 +31,34 @@ Convert this Punt Labs plugin's prod commands (and optionally CLAUDE.md/AGENTS.m
 
 For **each** prod command file (from the list above):
 
-- **Path:** `<output-base>/.cursor/skills/`<slug>`/SKILL.md`
+- **Path:** `<output-base>/.cursor/skills/<slug>/SKILL.md`
 - **Create** the directory if it does not exist. **Overwrite** `SKILL.md` if it already exists (never skip-if-exists).
 - **Frontmatter** (YAML at top of SKILL.md):
-  - `name: `<slug>``
+  - `name: <slug>`
   - `description: <from the command's description or first heading>`
   - `disable-model-invocation: true`
   - Do **not** include `allowed-tools`, `model`, `argument-hint`, or any other Claude-only frontmatter.
 - **Body:** Same structure and steps as the source command, but **rewrite** Claude-specific syntax as follows:
   - **$ARGUMENTS / $1 / $2:** Replace with instructions to the Cursor agent, e.g. "If the user provided a project path (or first/second argument), use it; otherwise use `.` (or ask the user)."
   - **@path / @file:** Replace with "Read the file the user specified, or ask for the path if missing."
-  - **Bash / shell blocks:** Keep the command text but wrap in instructions, e.g. "Run in the shell: `punt audit `<path>`` using the path from above."
+  - **Bash / shell blocks:** Keep the command text but wrap in instructions, e.g. "Run in the shell: `punt audit <path>` using the path from above."
   - **Preserve:** All substantive steps, lists, tables, and workflow logic; only the syntax of arguments and tool use is adapted for Cursor.
 
 ### 2. Commands (required) — slash commands that invoke the skills
 
 For **each** prod command you converted to a skill (same slug set as in step 1):
 
-- **Path:** `<output-base>/.cursor/commands/`<slug>`.md`
+- **Path:** `<output-base>/.cursor/commands/<slug>.md`
 - **Format:** Plain Markdown only — **no YAML frontmatter**. Cursor commands are prompt-only.
 - **Content:** A short prompt (one to three sentences) that instructs the agent to run the corresponding skill. Use this pattern:
-  - First line: `# `<Title>`` (e.g. `# Punt Audit`) — this is the label shown in the `/` menu.
-  - Next line(s): "Apply the **`<slug>`** skill. Follow the full procedure in `.cursor/skills/`<slug>`/SKILL.md`." Optionally add one line: "If the user provided a path or arguments, use them; otherwise use `.` (or ask)."
+  - First line: `# <Title>` (e.g. `# Punt Audit`) — this is the label shown in the `/` menu.
+  - Next line(s): "Apply the **`<slug>`** skill. Follow the full procedure in `.cursor/skills/<slug>/SKILL.md`." Optionally add one line: "If the user provided a path or arguments, use them; otherwise use `.` (or ask)."
 - **Overwrite** if the file already exists. Create `.cursor/commands/` if needed.
 - **Purpose:** So the user can type `/audit`, `/init`, `/reconcile`, etc. and have the agent run the same workflow as the skill (by reading and following the skill file).
 
 After writing all skills, write the command files.
 
-After writing all commands, write a **manifest** at `<output-base>/.cursor/punt-generated.json` listing the current slug set, e.g. `{"generated_slugs": ["audit", "init", "pii", "reconcile", "release", "autopilot"]}`. This manifest is used for safe cleanup — only artifacts listed in a previous manifest are candidates for removal.
+After writing all commands, run the **Cleanup** step below. Then write the **manifest** at `<output-base>/.cursor/punt-generated.json` with the current slug set, e.g. `{"generated_slugs": ["audit", "init", "pii", "reconcile", "release", "autopilot"]}`. The manifest must be written **after** cleanup completes so the previous manifest is still readable during cleanup.
 
 ### 3. Rules (optional)
 
@@ -71,7 +71,7 @@ If you read CLAUDE.md or AGENTS.md:
 
 ## Cleanup (repeatability)
 
-After writing all skills, commands, and the manifest:
+After writing all skills and commands:
 
 1. Read the **previous manifest** at `<output-base>/.cursor/punt-generated.json` (if it exists). Extract the previous slug set.
 2. Compute **removed slugs**: slugs in the previous manifest but NOT in the current slug set.
