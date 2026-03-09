@@ -35,3 +35,12 @@ research/research-*.md
 
 # Scratch/temp directory (TMPDIR set via .envrc)
 .tmp/
+
+# Editor/tool local state
+.vscode/
+.cursor/
+!.cursor/skills/
+!.cursor/commands/
+!.cursor/rules/
+!.cursor/punt-generated.json
+.vox/
