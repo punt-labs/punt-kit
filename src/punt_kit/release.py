@@ -301,6 +301,24 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             plugin_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             _ok(f'plugin.json: version = "{version}"')
 
+    # Bump install.sh VERSION pin
+    install_sh = root / "install.sh"
+    if install_sh.exists():
+        content = install_sh.read_text(encoding="utf-8")
+        new_content = re.sub(
+            r'^(VERSION=")[^"]*(")',
+            rf"\g<1>{version}\2",
+            content,
+            count=1,
+            flags=re.MULTILINE,
+        )
+        if new_content != content:
+            if dry_run:
+                _dry(f'install.sh: VERSION="{version}"')
+            else:
+                install_sh.write_text(new_content, encoding="utf-8")
+                _ok(f'install.sh: VERSION="{version}"')
+
     # 2c. Update CHANGELOG.md
     changelog_path = root / "CHANGELOG.md"
     if changelog_path.exists():

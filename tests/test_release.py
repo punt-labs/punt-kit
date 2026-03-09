@@ -82,6 +82,11 @@ def _make_release_project(tmp_path: Path) -> Path:
         ' -m "chore: restore dev plugin state"\n'
     )
 
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n"
         "## [Unreleased]\n\n"
@@ -251,10 +256,38 @@ def test_version_bump_updates_all_files(tmp_path: Path) -> None:
     plugin_data = json.loads(pj.read_text())
     assert plugin_data["version"] == "0.2.0"
 
+    # Check install.sh VERSION pin
+    install_content = (root / "install.sh").read_text()
+    assert 'VERSION="0.2.0"' in install_content
+
     # Check CHANGELOG.md
     cl = (root / "CHANGELOG.md").read_text()
     assert "## [0.2.0] - " in cl
     assert "## [Unreleased]" in cl
+
+
+def test_version_bump_install_sh_no_version_pin(tmp_path: Path) -> None:
+    """Version bump is a no-op for install.sh without VERSION pin."""
+    root = _make_release_project(tmp_path)
+
+    # Replace install.sh with an unpinned version
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nuv tool install --force "$PACKAGE"\n'
+    )
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "unpin install.sh"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    # install.sh should be unchanged (no VERSION to bump)
+    install_content = (root / "install.sh").read_text()
+    assert "VERSION" not in install_content
 
 
 def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
@@ -281,8 +314,10 @@ def test_dry_run_no_side_effects(tmp_path: Path) -> None:
 
     original_pyproject = (root / "pyproject.toml").read_text()
     original_changelog = (root / "CHANGELOG.md").read_text()
+    original_install = (root / "install.sh").read_text()
 
     run_release(str(root), version="0.2.0", dry_run=True)
 
     assert (root / "pyproject.toml").read_text() == original_pyproject
     assert (root / "CHANGELOG.md").read_text() == original_changelog
+    assert (root / "install.sh").read_text() == original_install
