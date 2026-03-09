@@ -319,6 +319,22 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                 install_sh.write_text(new_content, encoding="utf-8")
                 _ok(f'install.sh: VERSION="{version}"')
 
+    # Bump install.sh version references in README.md
+    readme_path = root / "README.md"
+    if readme_path.exists() and install_sh.exists():
+        content = readme_path.read_text(encoding="utf-8")
+        new_content = re.sub(
+            r"(raw\.githubusercontent\.com/[^/]+/[^/]+/)v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
+            rf"\g<1>v{version}\2",
+            content,
+        )
+        if new_content != content:
+            if dry_run:
+                _dry(f"README.md: install URLs → v{version}")
+            else:
+                readme_path.write_text(new_content, encoding="utf-8")
+                _ok(f"README.md: install URLs → v{version}")
+
     # 2c. Update CHANGELOG.md
     changelog_path = root / "CHANGELOG.md"
     if changelog_path.exists():

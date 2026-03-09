@@ -87,6 +87,13 @@ def _make_release_project(tmp_path: Path) -> Path:
         'uv tool install --force "$PACKAGE==$VERSION"\n'
     )
 
+    install_url = (
+        "https://raw.githubusercontent.com/punt-labs/test-pkg/v0.1.0/install.sh"
+    )
+    (root / "README.md").write_text(
+        f"# test-pkg\n\n```bash\ncurl -fsSL {install_url} | sh\n```\n"
+    )
+
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n"
         "## [Unreleased]\n\n"
@@ -259,6 +266,11 @@ def test_version_bump_updates_all_files(tmp_path: Path) -> None:
     # Check install.sh VERSION pin
     install_content = (root / "install.sh").read_text()
     assert 'VERSION="0.2.0"' in install_content
+
+    # Check README.md install URLs
+    readme_content = (root / "README.md").read_text()
+    assert "v0.2.0/install.sh" in readme_content
+    assert "v0.1.0/install.sh" not in readme_content
 
     # Check CHANGELOG.md
     cl = (root / "CHANGELOG.md").read_text()
