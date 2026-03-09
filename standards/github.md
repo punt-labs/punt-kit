@@ -108,9 +108,11 @@ Every repo has two config files at the root:
 
 ```json
 {
-  "ignores": [".beads/", ".claude/", ".venv/"]
+  "ignores": [".beads/", ".claude/", ".venv/", ".tmp/"]
 }
 ```
+
+Use `.tmp/` so scratch and CI temp output (e.g. pytest `.tmp/`) are not linted. Add project-specific paths (e.g. `research/`, `session.md`) as needed.
 
 Add project-specific overrides in `.markdownlint-cli2.jsonc` when certain directories need relaxed rules (e.g., test fixtures, generated files). Use the `overrides` array:
 
