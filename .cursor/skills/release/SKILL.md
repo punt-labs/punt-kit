@@ -159,7 +159,7 @@ If any row fails, stop and fix before declaring the release complete.
 - **Propagation PR has merge conflicts**: Rebase locally, force-push the branch, wait
   for CI, then merge.
 - **Sibling repo not checked out**: Print manual instructions for the user.
-- **Branch protection blocks merge**: Use `--admin` flag.
+- **Branch protection blocks merge**: Use admin privileges or repository admin bypass.
 
 ## Rules
 
