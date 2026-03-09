@@ -120,7 +120,8 @@ Then verify the install.sh at that SHA pins the correct version:
 git -C ../<project> show <SHA>:install.sh | grep 'VERSION='
 ```
 
-The VERSION must equal the release version.
+The VERSION must equal the release version. If install.sh has no VERSION pin (unpinned
+install), warn: `"WARNING: install.sh has no VERSION pin — install is non-deterministic"`.
 
 ### 5c. Marketplace version
 
