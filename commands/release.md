@@ -47,8 +47,14 @@ For each open propagation PR:
 2. Check for merge conflicts: `gh pr view <number> --repo <repo> --json mergeable`
 3. If conflicting, rebase locally or update the branch
 4. Merge via API: `gh api repos/<owner>/<repo>/pulls/<number>/merge --method PUT -f merge_method=squash`
-   Then delete the branch: `gh api repos/<owner>/<repo>/git/refs/heads/<branch> --method DELETE`
-   Use `--admin` equivalent permissions if branch protection blocks the merge.
+   Then delete the branch (URL-encode slashes in branch names):
+
+   ```bash
+   branch=$(gh pr view <number> --repo <repo> --json headRefName --jq '.headRefName | @uri')
+   gh api "repos/<owner>/<repo>/git/refs/heads/$branch" --method DELETE
+   ```
+
+   Use admin privileges if branch protection blocks the merge.
 
 **All propagation PRs must be merged before proceeding.**
 
