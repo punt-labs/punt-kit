@@ -22,5 +22,5 @@ Follow the full release workflow in `${CLAUDE_PLUGIN_ROOT}/commands/release.md`
 If any step calls the `punt` CLI, replace with:
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT} punt release $ARGUMENTS
+uv run --directory ${CLAUDE_PLUGIN_ROOT} punt <subcommand> $ARGUMENTS
 ```
