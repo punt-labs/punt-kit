@@ -174,10 +174,10 @@ Do **not** merge immediately after creating a PR. Expect **2–6 review cycles**
 
 1. **Create PR** — push branch, open PR via `mcp__github__create_pull_request` (prefer MCP GitHub tools over `gh` CLI where possible).
 2. **Request Copilot review** — use `mcp__github__request_copilot_review` so Copilot analyzes the diff.
-3. **Watch for feedback in the background** — run the watch as a background task so you stay productive while it polls:
+3. **Watch for feedback without blocking your main shell** — run `gh pr checks <number> --watch` in a background task or separate session so it streams CI status while you work:
 
    ```bash
-   gh pr checks <number> --watch         # Run in background — notifies when checks resolve
+   gh pr checks <number> --watch         # Run in background task — notifies when checks resolve
    ```
 
    **Do not stop waiting for feedback.** Copilot and Bugbot may take 1–3 minutes to post after CI completes. Do not assume silence means approval.

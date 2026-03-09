@@ -161,7 +161,7 @@ See [Workflow standards §8](standards/workflow.md) for the full specification. 
 
 1. **Create PR** via `mcp__github__create_pull_request`. Prefer MCP GitHub tools over `gh` CLI where possible.
 2. **Request Copilot review** via `mcp__github__request_copilot_review`.
-3. **Watch for CI/Copilot/Bugbot feedback in the background** — run `gh pr checks <number> --watch` as a background task. Do not stop waiting. Copilot and Bugbot may take 1–3 minutes to post after CI completes. Do not assume silence means approval.
+3. **Watch for CI/Copilot/Bugbot feedback without blocking your main shell** — run `gh pr checks <number> --watch` in a background task or separate session. Do not stop waiting. Copilot and Bugbot may take 1–3 minutes to post after CI completes. Do not assume silence means approval.
 4. **Read all feedback** using MCP tools:
    - `mcp__github__pull_request_read` with `get_reviews` — check review verdicts
    - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
