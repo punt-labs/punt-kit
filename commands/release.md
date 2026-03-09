@@ -38,6 +38,7 @@ For each target repo, check for open propagation PRs:
 ```bash
 gh pr list --repo punt-labs/punt-kit --state open --search "propagate"
 gh pr list --repo punt-labs/claude-plugins --state open --search "propagate"
+gh pr list --repo punt-labs/.github --state open --search "propagate"
 ```
 
 For each open propagation PR:
@@ -45,7 +46,9 @@ For each open propagation PR:
 1. Wait for CI: `gh pr checks <number> --repo <repo> --watch`
 2. Check for merge conflicts: `gh pr view <number> --repo <repo> --json mergeable`
 3. If conflicting, rebase locally or update the branch
-4. Merge: `gh pr merge <number> --repo <repo> --squash --delete-branch --admin`
+4. Merge via API: `gh api repos/<owner>/<repo>/pulls/<number>/merge --method PUT -f merge_method=squash`
+   Then delete the branch: `gh api repos/<owner>/<repo>/git/refs/heads/<branch> --method DELETE`
+   Use `--admin` equivalent permissions if branch protection blocks the merge.
 
 **All propagation PRs must be merged before proceeding.**
 

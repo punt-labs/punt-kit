@@ -91,7 +91,7 @@ This step is **hard-blocking**. Do not proceed to merge until both CI passes and
      --jq '.reviews[] | select(.author.login == "copilot-pull-request-reviewer") | .submittedAt'
    ```
 
-   If empty, wait 60 seconds and poll again. Keep polling for at least 15 minutes. If no review after 15 minutes, ask the user whether to continue waiting or merge without review.
+   If empty, wait 60 seconds and poll again. Keep polling for at least 15 minutes. If no review after 15 minutes, ask the user whether to continue waiting or to invoke an explicit override; do not merge without either a Copilot review or user-approved override.
 
 4. Read Copilot feedback:
 
