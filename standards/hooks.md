@@ -207,6 +207,45 @@ def handle_post_bash(data: dict[str, Any]) -> str | None:
 - **Testable**: Every handler should have unit tests that pass dicts
   and assert on return values.
 
+### Blocking vs non-blocking handlers
+
+The Python handler should only do synchronous (blocking) work when the
+**return value drives a decision**. If the hook's output is a side
+effect (audio playback, file write, background ingest), do the work
+asynchronously and return immediately.
+
+| Return value purpose | Handler behavior | Example |
+|---------------------|-----------------|---------|
+| **Decision** (allow/deny/block) | Synchronous — must compute before returning | PreToolUse gate checks plan state |
+| **Context injection** (additionalContext) | Synchronous — Claude needs the text | SessionStart injects project standards |
+| **Side effect only** (audio, ingest, log) | Fire-and-forget — subprocess or thread, return immediately | Notification plays chime, PreCompact ingests transcript |
+| **Nothing** (observation) | Return `None` immediately | Most PostToolUse signal classification |
+
+**Rule**: Match the handler's blocking behavior to whether the caller
+(Claude Code) needs the return value to proceed. This follows the same
+principle as [cli.md § Sync vs Async](cli.md#sync-vs-async): "Does the
+caller need the return value to proceed?"
+
+For side-effect handlers, use `subprocess.Popen` (not `subprocess.run`)
+or a daemon thread to avoid blocking the hook timeout:
+
+```python
+# CORRECT: fire-and-forget for side effects
+subprocess.Popen(["vox", "play", chime_path],
+                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+return None  # Don't wait
+
+# WRONG: blocks until audio finishes playing
+subprocess.run(["vox", "play", chime_path])
+return None  # Waited for nothing
+```
+
+The hook registration's `async` flag controls whether **Claude Code**
+waits for the shell script to exit. The handler's blocking behavior
+controls whether the **Python process** waits for side effects. Both
+should be non-blocking when the return value isn't needed — they are
+independent knobs at different layers of the dispatch chain.
+
 ### CLI dispatcher
 
 The CLI exposes hook handlers as hidden subcommands:
