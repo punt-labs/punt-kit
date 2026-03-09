@@ -116,6 +116,11 @@ scripts:
 - **Stdin protection** — every `claude` command must have `< /dev/null` and
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
+- **VERSION pin** — scripts that install a specific version must declare
+  `VERSION="X.Y.Z"` near the top and use `uv tool install --force "$PACKAGE==$VERSION"`.
+  The `punt release` CLI bumps this pin automatically during Phase 2. Scripts without a
+  VERSION pin install the latest version from PyPI, which is non-deterministic and may
+  install a version that doesn't match the pinned SHA in `install-all.sh`.
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
 Pattern: `biff/install.sh`, `quarry/install.sh`.

@@ -505,3 +505,63 @@ commit (dev name). The marketplace clones at the tag and gets the correct name.
 3. Checked dungeon repo: zero tags existed
 4. Marketplace entry referenced `v0.1.3` — tag did not exist
 5. Created tag with prod name at HEAD, pushed — install succeeded
+
+## DES-008: install.sh VERSION Pinning
+
+**Date:** 2026-03-09
+**Status:** SETTLED
+**Topic:** Why `install.sh` must declare `VERSION="X.Y.Z"` and how the release CLI bumps it
+
+### Root Cause
+
+The `punt release` CLI (Phase 2: version bump) updated `pyproject.toml`, `__init__.py`,
+`plugin.json`, and `CHANGELOG.md` — but never touched `install.sh`. After a release,
+`install.sh` still contained the previous version's `VERSION="X.Y.Z"` pin.
+
+This caused two problems:
+
+1. **install-all.sh SHA pinning installs the wrong version.** `install-all.sh` pins each
+   project's `curl` URL to a specific commit SHA. The SHA points to the tag commit, which
+   includes the updated `pyproject.toml` but the stale `install.sh`. Users who run
+   `install-all.sh` get the old version.
+
+2. **The "prepare plugin for release" commit has stale install.sh.** The release workflow
+   creates a "prepare" commit (swap plugin name to prod), tags it, then creates a "restore"
+   commit. The prepare commit bumps `plugin.json` version but not `install.sh` VERSION —
+   so the tagged install script installs the wrong version.
+
+### Fix
+
+Added `install.sh` VERSION bump to `_phase2_version_bump()` in `release.py`:
+
+```python
+# Bump install.sh VERSION pin
+content = install_sh.read_text()
+new_content = re.sub(
+    r'^(VERSION=")[^"]*(")',
+    rf"\g<1>{version}\2",
+    content, count=1, flags=re.MULTILINE,
+)
+```
+
+The regex matches `VERSION="..."` and replaces the version string. Scripts without a
+VERSION pin are left unchanged (the regex does not match).
+
+### Rules
+
+1. **Every `install.sh` that uses `uv tool install "$PACKAGE==$VERSION"` must declare
+   `VERSION="X.Y.Z"` near the top.** The release CLI bumps this automatically.
+2. **Scripts without a VERSION pin are non-deterministic.** They install whatever is latest
+   on PyPI, which may not match the SHA pinned in `install-all.sh`. This is a known gap
+   for biff, quarry, and punt-kit — tracked for future fix.
+3. **The release workflow verification step (Step 5b in `release.md`) checks that the
+   VERSION pin at the tagged SHA matches the release version.**
+
+### Discovery Chain
+
+1. `install-all.sh` output showed vox installing 1.2.3 instead of 1.2.4
+2. Checked vox `install.sh` at the tagged SHA — `VERSION="1.2.3"` (stale)
+3. Traced to `release.py` `_phase2_version_bump()` — no install.sh handling
+4. Same issue confirmed in lux: `VERSION="0.5.1"` instead of `0.5.2`
+5. Fixed `release.py`, added tests, manually fixed vox and lux install.sh files
+6. Updated `release.md` verification to check VERSION pins at tagged SHAs

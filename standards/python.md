@@ -321,7 +321,7 @@ TestPyPI failure blocks PyPI publish. This catches packaging issues before they 
 
 ### Developer steps
 
-1. Bump version in `pyproject.toml` (and any mirrors: `plugin.json`, `manifest.json`, `__init__.py`)
+1. Bump version in `pyproject.toml` (and any mirrors: `plugin.json`, `manifest.json`, `__init__.py`, `install.sh` VERSION pin)
 2. Move `[Unreleased]` entries in `CHANGELOG.md` to new version section with date
 3. Run all quality gates
 4. Commit: `chore: release vX.Y.Z`
