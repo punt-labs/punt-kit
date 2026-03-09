@@ -57,10 +57,10 @@ banner "quarry"
 curl -fsSL "$GH/quarry/3f2cf59/install.sh" | sh
 
 banner "vox"
-curl -fsSL "$GH/vox/e4dcc4f/install.sh" | sh
+curl -fsSL "$GH/vox/f4a694d/install.sh" | sh
 
 banner "lux"
-curl -fsSL "$GH/lux/4c92b29/install.sh" | sh
+curl -fsSL "$GH/lux/bafbae0/install.sh" | sh
 
 # --- Step 3: Pure plugins (no CLI, marketplace-only) ---
 
