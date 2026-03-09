@@ -1,3 +1,11 @@
 {
-  "ignores": [".beads/", ".claude/", ".venv/"]
+  "ignores": [
+    ".beads/",
+    ".claude/",
+    ".venv/",
+    ".tmp/",
+    "research/",
+    "session.md",
+    "standards/makefile.md"
+  ]
 }
