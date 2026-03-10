@@ -62,8 +62,12 @@ jobs:
       - name: Install from TestPyPI
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          for attempt in 1 2 3 4 5; do
-            echo "Attempt $attempt: installing punt-kit==$VERSION from TestPyPI..."
+          TIMEOUT=1800
+          DELAY=15
+          ELAPSED=0
+          ATTEMPT=1
+          while [ "$ELAPSED" -lt "$TIMEOUT" ]; do
+            echo "Attempt $ATTEMPT (${ELAPSED}s/${TIMEOUT}s): installing punt-kit==$VERSION from TestPyPI..."
             if uv pip install --system \
               --index-url https://test.pypi.org/simple/ \
               --extra-index-url https://pypi.org/simple/ \
@@ -72,10 +76,14 @@ jobs:
               echo "Successfully installed punt-kit==$VERSION"
               exit 0
             fi
-            echo "Attempt $attempt failed, waiting 30s..."
-            sleep 30
+            echo "Attempt $ATTEMPT failed, retrying in ${DELAY}s..."
+            sleep "$DELAY"
+            ELAPSED=$((ELAPSED + DELAY))
+            DELAY=$((DELAY * 2))
+            if [ "$DELAY" -gt 120 ]; then DELAY=120; fi
+            ATTEMPT=$((ATTEMPT + 1))
           done
-          echo "Failed to install punt-kit==$VERSION after 5 attempts"
+          echo "Failed to install punt-kit==$VERSION after ${ELAPSED}s"
           exit 1
       - name: Verify CLI
         run: punt --help
