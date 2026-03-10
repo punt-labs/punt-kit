@@ -55,7 +55,7 @@ Detect whether a peer tool is configured in the current project by checking for
 |------|----------|
 | Biff | `.biff` |
 | Vox | `.vox/config.md` |
-| Lux | (TBD) |
+| Lux | `.lux/config.md` |
 | Beads | `.beads/` |
 | Quarry | `.quarry.toml` (proposed) |
 
