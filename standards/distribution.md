@@ -116,24 +116,87 @@ scripts:
 - **Stdin protection** — every `claude` command must have `< /dev/null` and
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
-- **VERSION pin** — scripts that install a specific version must declare
-  `VERSION="X.Y.Z"` near the top and use `uv tool install --force "$PACKAGE==$VERSION"`.
-  The `punt release` CLI bumps this pin automatically during Phase 2. Scripts without a
-  VERSION pin install the latest version from PyPI, which is non-deterministic and may
-  install a version that doesn't match the pinned SHA in `install-all.sh`.
+- **VERSION pin (mandatory)** — every `install.sh` MUST declare `VERSION="X.Y.Z"`
+  near the top and use `uv tool install --force "$PACKAGE==$VERSION"`. The `punt release`
+  CLI bumps this pin automatically during Phase 2. Without a VERSION pin, install is
+  non-deterministic: `uv tool install` fetches latest from PyPI, which may not match the
+  SHA pinned in `install-all.sh` or the project README. This has caused real version
+  downgrade bugs in production.
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
-Pattern: `biff/install.sh`, `quarry/install.sh`.
+Pattern: `biff/install.sh`, `vox/install.sh`.
 
 ### Updating the pinned SHA
 
-When `install.sh` changes, update the SHA in all places that reference it:
+SHA pins appear in four places. The release workflow automates most of these; manual
+updates follow the same sequence.
+
+| Location | What's pinned | Updated by |
+|----------|--------------|------------|
+| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release` Phase 4e (automatic after tagging) |
+| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `propagate.yml` GitHub Action (automatic on child release) |
+| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `propagate-profile.yml` → `.github/propagate.yml` (automatic on `install-all.sh` change) |
+| `public-website` `projects.json` | `installCommand` field per project | Manual during release Step 3 |
+
+**Manual fallback** (when automation fails or for ad-hoc changes):
 
 1. Commit the `install.sh` change and push
-2. Copy the commit SHA: `git log -1 --format='%H' -- install.sh`
-3. Update the project README, the org profile README, and the marketplace README
-   (if applicable) with the new SHA
-4. Commit the README updates separately
+2. Copy the commit SHA: `git rev-parse --short HEAD`
+3. Update the project README, `install-all.sh`, the org profile README, and
+   `public-website/src/data/projects.json` with the new SHA
+4. Commit and push each update separately
+
+### README install SHA auto-update (Phase 4e)
+
+During `punt release`, the project README's `install.sh` URL is automatically updated
+after tagging:
+
+1. Phase 4 creates the tag (`v{version}`)
+2. Phase 4e resolves the tag's commit SHA via `git rev-parse --short v{version}`
+3. Replaces both SHA-pinned (`/<hex>/install.sh`) and version-tagged
+   (`/v1.2.3/install.sh`) URLs with the new SHA
+4. Commits and pushes the change
+
+This solves the chicken-and-egg problem: the SHA is only known after the commit that
+contains the version bump, so README URLs can't be updated in the same commit as the
+version bump. Phase 4e runs after the tag exists.
+
+### Cross-repo propagation chain
+
+A child project release triggers a multi-hop SHA propagation:
+
+```text
+Child release (e.g. vox v1.3.0)
+  → punt-kit: propagate.yml bumps install-all.sh SHA, creates PR
+    → punt-kit: PR merges to main
+      → punt-kit: propagate-profile.yml fires (install-all.sh changed)
+        → .github: propagate.yml updates profile README SHA, creates PR
+          → .github: PR auto-merges
+            → Public install URL serves current install-all.sh
+```
+
+A punt-kit release adds one more hop:
+
+```text
+punt-kit release
+  → punt-kit: propagate.yml bumps its own install-all.sh SHA
+  → claude-plugins: propagate.yml bumps marketplace version + ref
+  → .github: propagate.yml updates profile README SHA
+```
+
+**`PROPAGATE_TOKEN` requirement.** Cross-repo workflow dispatch and cascade triggering
+both require a fine-grained PAT stored as `secrets.PROPAGATE_TOKEN`:
+
+- **Cross-repo dispatch**: `github.token` is scoped to the current repo only.
+  Dispatching workflows in other repos requires a PAT with `actions:write` on the
+  target repo.
+- **Cascade triggering**: GitHub suppresses workflow triggers from events created by
+  `GITHUB_TOKEN`. When a propagation PR auto-merges, the merge push must come from a
+  PAT (not `github.token`) for downstream workflows to fire.
+- **Auto-merge**: The PAT needs `pull-requests:write` on repos where propagation PRs
+  use `gh pr merge --auto`.
+
+See DES-012 in DESIGN.md for the full root cause analysis.
 
 ### Marketplace registration
 
