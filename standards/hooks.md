@@ -256,6 +256,7 @@ session resume/startup.
 Use `os.read()` in a `select` loop with short timeouts:
 
 ```python
+import json
 import os
 import select
 import sys
