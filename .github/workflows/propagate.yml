@@ -28,6 +28,10 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 0
+          # Use PROPAGATE_TOKEN for checkout so `git push` authenticates with
+          # the PAT. Pushes from GITHUB_TOKEN suppress workflow triggers, which
+          # prevents CI (lint/test/docs) from running on the PR.
+          token: ${{ secrets.PROPAGATE_TOKEN }}
 
       - name: Configure git
         run: |
@@ -86,6 +90,9 @@ jobs:
           SHORT="${INPUT_REPO#*/}"
           BRANCH="propagate/${SHORT}-${INPUT_TAG}"
           git checkout -b "$BRANCH"
+
+          # Delete stale remote branch from a previous failed run (if any)
+          git push origin --delete "$BRANCH" 2>/dev/null || true
           git push origin "$BRANCH"
 
           PR_URL=$(gh pr create \
@@ -97,7 +104,7 @@ jobs:
           echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROPAGATE_TOKEN }}
 
       - name: Auto-merge PR
         if: steps.pr.outputs.pr_url
