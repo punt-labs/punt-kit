@@ -438,7 +438,10 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
 
     tag = f"v{version}"
     github_repo = _get_github_repo(root)
-    repo_name = github_repo.split("/")[-1] if github_repo else root.name
+    if github_repo:
+        owner, repo_name = github_repo.split("/", 1)
+    else:
+        owner, repo_name = "punt-labs", root.name
 
     # Get the short SHA of the tagged commit
     if dry_run:
@@ -451,17 +454,19 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
         short_sha = result.stdout.strip()
 
     content = readme_path.read_text(encoding="utf-8")
+    esc_owner = re.escape(owner)
+    esc_repo = re.escape(repo_name)
 
-    # Replace SHA-pinned install URLs: <repo>/<hex-sha>/install.sh
+    # Replace SHA-pinned install URLs: <owner>/<repo>/<hex-sha>/install.sh
     new_content = re.sub(
-        rf"(raw\.githubusercontent\.com/punt-labs/{re.escape(repo_name)}/)[0-9a-fA-F]{{7,40}}(/install\.sh)",
+        rf"(raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/)[0-9a-fA-F]{{7,40}}(/install\.sh)",
         rf"\g<1>{short_sha}\2",
         content,
     )
 
-    # Also replace version-tag install URLs: <repo>/v1.2.3/install.sh
+    # Also replace version-tag install URLs: <owner>/<repo>/v1.2.3/install.sh
     new_content = re.sub(
-        rf"(raw\.githubusercontent\.com/punt-labs/{re.escape(repo_name)}/)v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
+        rf"(raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/)v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
         rf"\g<1>{short_sha}\2",
         new_content,
     )

@@ -395,6 +395,17 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
 def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
     """Dry run does not modify README."""
     root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Use a URL that matches the repo name (proj) so dry-run is exercised
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "matching readme"], cwd=d)
 
     original = (root / "README.md").read_text()
 
