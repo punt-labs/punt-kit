@@ -23,4 +23,4 @@ jobs:
             -f repo=punt-labs/punt-kit \
             -f sha="$SHORT_SHA"
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROPAGATE_TOKEN }}

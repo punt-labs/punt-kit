@@ -775,6 +775,10 @@ This fires on every `install-all.sh` change — whether from `/punt release`
 propagation PRs or manual edits. The trigger is change-driven, not
 release-driven.
 
+The workflow uses `secrets.PROPAGATE_TOKEN` (a PAT with `actions:write` on
+`punt-labs/.github`) because `github.token` is scoped to the current repo
+and cannot dispatch workflows cross-repo.
+
 **Part 2: Modified `.github` propagate.yml to accept SHA input.**
 
 Added optional `sha` input alongside existing `tag` input. SHA takes
