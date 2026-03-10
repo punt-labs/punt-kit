@@ -16,6 +16,7 @@ warn() { printf '  %b!%b %s\n' "$YELLOW" "$NC" "$1"; }
 fail() { printf '  %b✗%b %s\n' "$YELLOW" "$NC" "$1"; exit 1; }
 
 PACKAGE="punt-kit"
+VERSION="0.6.0"
 BINARY="punt"
 
 # --- Step 1: uv ---
@@ -68,8 +69,8 @@ fi
 info "Installing $PACKAGE..."
 
 # shellcheck disable=SC2086
-uv tool install --force $PYTHON_FLAG "$PACKAGE" || fail "Failed to install $PACKAGE"
-ok "$PACKAGE installed"
+uv tool install --force $PYTHON_FLAG "$PACKAGE==$VERSION" || fail "Failed to install $PACKAGE==$VERSION"
+ok "$PACKAGE==$VERSION installed"
 
 if ! command -v "$BINARY" >/dev/null 2>&1; then
   export PATH="$HOME/.local/bin:$PATH"
