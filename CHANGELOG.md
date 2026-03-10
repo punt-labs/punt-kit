@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- GitHub Action: `propagate-profile.yml` auto-updates `.github` profile README SHA when `install-all.sh` changes on main (closes propagation gap between child releases and punt-kit releases)
+
+### Fixed
+
+- Public install URL served stale `install-all.sh` between punt-kit releases, causing child version downgrades (DES-012)
+
 ## [0.5.0] - 2026-03-09
 
 ## [0.4.0] - 2026-03-09

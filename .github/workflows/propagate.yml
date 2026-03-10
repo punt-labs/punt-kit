@@ -94,7 +94,16 @@ jobs:
             --head "$BRANCH" \
             --base main)
           echo "Created PR: $PR_URL"
-
-          gh pr merge "$PR_URL" --auto --squash
+          echo "pr_url=$PR_URL" >> "$GITHUB_OUTPUT"
+        id: pr
         env:
           GH_TOKEN: ${{ github.token }}
+
+      - name: Auto-merge PR
+        if: steps.pr.outputs.pr_url
+        run: |
+          # Use PROPAGATE_TOKEN so the merge push triggers downstream
+          # workflows (GITHUB_TOKEN events are suppressed by GitHub).
+          gh pr merge "${{ steps.pr.outputs.pr_url }}" --auto --squash
+        env:
+          GH_TOKEN: ${{ secrets.PROPAGATE_TOKEN }}

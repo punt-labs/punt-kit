@@ -731,3 +731,107 @@ catches them structurally.
 | Property-based testing | Tests the implementation, not the design. We need to verify the design *before* building. |
 | No formal model | The wiring bugs in quarry would have remained undiscovered. |
 | Full composition (all tools in one spec) | State space explosion. Per-tool Layer 2 models keep model checking feasible (~5min per spec). |
+
+## DES-012: Change-Driven Profile Propagation
+
+**Date:** 2026-03-09
+**Status:** SETTLED
+**Topic:** Why the public install URL went stale between punt-kit releases and the automated fix
+
+### Root Cause
+
+The propagation chain for the public install URL has three hops:
+
+```text
+Child release (biff, vox, lux, quarry)
+  → punt-kit: /punt release bumps install-all.sh SHAs, merges PR to main
+    → .github: propagate.yml updates profile README with new install-all.sh SHA
+```
+
+Hop 3 only fired when punt-kit itself released — the `.github` repo's
+`propagate.yml` required a `tag` input pointing to a punt-kit release tag.
+Between punt-kit releases, child project SHA bumps landed on main but the
+profile README still pointed to the old punt-kit release SHA.
+
+Result: users who followed the public install URL got stale `install-all.sh`
+with old child SHAs, causing version downgrades (e.g. vox 1.2.4 → 1.2.0,
+lux 0.5.2 → 0.4.0).
+
+### Fix (Two Parts)
+
+**Part 1: New workflow in punt-kit (`propagate-profile.yml`).**
+
+Triggers on push to main when `install-all.sh` changes. Dispatches the
+`.github` repo's `propagate.yml` with the commit SHA:
+
+```yaml
+on:
+  push:
+    branches: [main]
+    paths: [install-all.sh]
+```
+
+This fires on every `install-all.sh` change — whether from `/punt release`
+propagation PRs or manual edits. The trigger is change-driven, not
+release-driven.
+
+Both workflows use `secrets.PROPAGATE_TOKEN` (a PAT with `actions:write`
+on `punt-labs/.github`) for two reasons:
+
+1. **Cross-repo dispatch**: `github.token` is scoped to the current repo
+   and cannot dispatch workflows in other repos.
+2. **Cascade triggering**: GitHub suppresses workflow triggers from events
+   created by `GITHUB_TOKEN`. The existing `propagate.yml` auto-merges
+   child release PRs — if that merge uses `github.token`, the resulting
+   push to main won't trigger `propagate-profile.yml`. Using a PAT for
+   the merge step ensures the cascade fires.
+
+**Part 2: Modified `.github` propagate.yml to accept SHA input.**
+
+Added optional `sha` input alongside existing `tag` input. SHA takes
+precedence when both are provided. Branch naming uses tag if available,
+otherwise SHA prefix.
+
+The tag path still works for punt-kit releases. The SHA path handles
+inter-release propagation from child projects.
+
+### Why Change-Driven, Not Release-Driven
+
+The previous model assumed the profile only needed updating on punt-kit
+releases. This was wrong — child project releases change `install-all.sh`
+on main without a punt-kit release. The gap window between a child release
+and the next punt-kit release could be days or weeks, during which the public
+URL served stale content.
+
+Change-driven propagation closes this gap by reacting to the actual file
+change, regardless of what caused it.
+
+### Propagation Chain (Complete)
+
+```text
+Child release (e.g. vox v1.3.0)
+  → punt-kit: /punt release Phase 8 bumps install-all.sh SHA, creates PR
+    → punt-kit CI: PR merges to main
+      → punt-kit: propagate-profile.yml fires (install-all.sh changed)
+        → .github: propagate.yml creates PR to update profile README SHA
+          → .github CI: PR auto-merges
+            → Public URL serves current install-all.sh
+```
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Bundle profile update into `/punt release` Phase 8 | Only fires on punt-kit releases, same gap. Child releases still orphaned. |
+| Cron job to sync profile SHA | Unnecessary polling. The change event is available — react to it. |
+| Single workflow that does both install-all.sh bump and profile update | Mixes concerns across repos. Each repo owns its own propagation step. |
+| Manual profile updates | Error-prone, already proved unreliable (the bug we're fixing). |
+
+### Discovery Chain
+
+1. User ran `install-all.sh` from the profile README URL — got vox 1.2.0 and lux 0.4.0 instead of 1.3.0 and 0.6.0
+2. Traced profile README: SHA pointed to punt-kit v0.5.0 tag commit
+3. v0.5.0 `install-all.sh` had old child SHAs — correct at release time, stale now
+4. PR #50 fixed SHAs on main, but `.github` profile never updated
+5. Root cause: `.github` `propagate.yml` only triggered on punt-kit release tags
+6. Fix: new `propagate-profile.yml` in punt-kit, modified `propagate.yml` in `.github`

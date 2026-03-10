@@ -1,0 +1,26 @@
+name: Propagate Profile SHA
+
+on:
+  push:
+    branches: [main]
+    paths: [install-all.sh]
+
+permissions: {}
+
+jobs:
+  propagate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Dispatch .github profile update
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          echo "Dispatching .github profile update with SHA $SHORT_SHA"
+          gh workflow run propagate.yml \
+            --repo punt-labs/.github \
+            -f repo=punt-labs/punt-kit \
+            -f sha="$SHORT_SHA"
+        env:
+          GH_TOKEN: ${{ secrets.PROPAGATE_TOKEN }}
