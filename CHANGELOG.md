@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release workflow: increase TestPyPI propagation retry from 5×30s (2.5min) to 30min exponential backoff (15s→120s cap)
+- Release template: add missing `skip-existing: true` and `--index-strategy unsafe-best-match` (drift from live workflow)
+
 ## [0.6.2] - 2026-03-10
 
 ## [0.6.1] - 2026-03-10
