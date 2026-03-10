@@ -319,22 +319,6 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                 install_sh.write_text(new_content, encoding="utf-8")
                 _ok(f'install.sh: VERSION="{version}"')
 
-    # Bump install.sh version references in README.md
-    readme_path = root / "README.md"
-    if readme_path.exists() and install_sh.exists():
-        content = readme_path.read_text(encoding="utf-8")
-        new_content = re.sub(
-            r"(raw\.githubusercontent\.com/[^/]+/[^/]+/)v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
-            rf"\g<1>v{version}\2",
-            content,
-        )
-        if new_content != content:
-            if dry_run:
-                _dry(f"README.md: install URLs → v{version}")
-            else:
-                readme_path.write_text(new_content, encoding="utf-8")
-                _ok(f"README.md: install URLs → v{version}")
-
     # 2c. Update CHANGELOG.md
     changelog_path = root / "CHANGELOG.md"
     if changelog_path.exists():
@@ -439,6 +423,64 @@ def _phase4_tag_push(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             _run(["bash", str(restore_script)], cwd=str(root), capture=False)
             _run(["git", "push", "origin", "main"], cwd=str(root), capture=False)
             _ok("Dev plugin state restored and pushed")
+
+    # 4e. Bump README install URL SHAs to point to the tagged commit
+    _bump_readme_install_sha(info, version, dry_run=dry_run)
+
+
+def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Update SHA-pinned install.sh URLs in README.md to the tagged commit."""
+    root = info.root
+    readme_path = root / "README.md"
+    install_sh = root / "install.sh"
+    if not readme_path.exists() or not install_sh.exists():
+        return
+
+    tag = f"v{version}"
+    github_repo = _get_github_repo(root)
+    repo_name = github_repo.split("/")[-1] if github_repo else root.name
+
+    # Get the short SHA of the tagged commit
+    if dry_run:
+        short_sha = "<SHA>"
+    else:
+        result = _run(
+            ["git", "rev-parse", "--short", tag],
+            cwd=str(root),
+        )
+        short_sha = result.stdout.strip()
+
+    content = readme_path.read_text(encoding="utf-8")
+
+    # Replace SHA-pinned install URLs: <repo>/<hex-sha>/install.sh
+    new_content = re.sub(
+        rf"(raw\.githubusercontent\.com/punt-labs/{re.escape(repo_name)}/)[0-9a-fA-F]{{7,40}}(/install\.sh)",
+        rf"\g<1>{short_sha}\2",
+        content,
+    )
+
+    # Also replace version-tag install URLs: <repo>/v1.2.3/install.sh
+    new_content = re.sub(
+        rf"(raw\.githubusercontent\.com/punt-labs/{re.escape(repo_name)}/)v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
+        rf"\g<1>{short_sha}\2",
+        new_content,
+    )
+
+    if new_content == content:
+        return
+
+    if dry_run:
+        _dry(f"README.md: install URLs → {short_sha} ({tag})")
+        return
+
+    readme_path.write_text(new_content, encoding="utf-8")
+    _run(["git", "add", "README.md"], cwd=str(root))
+    _run(
+        ["git", "commit", "-m", f"chore: bump README install URL to {tag}"],
+        cwd=str(root),
+    )
+    _run(["git", "push", "origin", "main"], cwd=str(root), capture=False)
+    _ok(f"README.md: install URLs → {short_sha} ({tag})")
 
 
 def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
