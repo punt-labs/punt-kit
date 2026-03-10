@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-09
+
 ### Added
 
 - GitHub Action: `propagate-profile.yml` auto-updates `.github` profile README SHA when `install-all.sh` changes on main (closes propagation gap between child releases and punt-kit releases)
