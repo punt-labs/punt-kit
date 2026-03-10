@@ -775,9 +775,16 @@ This fires on every `install-all.sh` change — whether from `/punt release`
 propagation PRs or manual edits. The trigger is change-driven, not
 release-driven.
 
-The workflow uses `secrets.PROPAGATE_TOKEN` (a PAT with `actions:write` on
-`punt-labs/.github`) because `github.token` is scoped to the current repo
-and cannot dispatch workflows cross-repo.
+Both workflows use `secrets.PROPAGATE_TOKEN` (a PAT with `actions:write`
+on `punt-labs/.github`) for two reasons:
+
+1. **Cross-repo dispatch**: `github.token` is scoped to the current repo
+   and cannot dispatch workflows in other repos.
+2. **Cascade triggering**: GitHub suppresses workflow triggers from events
+   created by `GITHUB_TOKEN`. The existing `propagate.yml` auto-merges
+   child release PRs — if that merge uses `github.token`, the resulting
+   push to main won't trigger `propagate-profile.yml`. Using a PAT for
+   the merge step ensures the cascade fires.
 
 **Part 2: Modified `.github` propagate.yml to accept SHA input.**
 

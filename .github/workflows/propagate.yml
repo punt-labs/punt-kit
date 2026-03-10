@@ -95,6 +95,8 @@ jobs:
             --base main)
           echo "Created PR: $PR_URL"
 
+          # Use PROPAGATE_TOKEN so the merge push triggers downstream
+          # workflows (GITHUB_TOKEN events are suppressed by GitHub).
           gh pr merge "$PR_URL" --auto --squash
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.PROPAGATE_TOKEN }}
