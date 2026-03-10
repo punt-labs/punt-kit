@@ -827,6 +827,44 @@ Child release (e.g. vox v1.3.0)
 | Single workflow that does both install-all.sh bump and profile update | Mixes concerns across repos. Each repo owns its own propagation step. |
 | Manual profile updates | Error-prone, already proved unreliable (the bug we're fixing). |
 
+### `PROPAGATE_TOKEN` Requirements
+
+Cross-repo propagation workflows use `secrets.PROPAGATE_TOKEN`, a fine-grained
+PAT with these permissions on all target repos:
+
+| Permission | Access | Why |
+|------------|--------|-----|
+| Actions | Read and write | Dispatch workflows in other repos (`workflow_dispatch`) |
+| Pull requests | Read and write | Create PRs, enable auto-merge |
+
+The PAT must be fine-grained (not classic) and scoped to `All repositories`
+in the org, since propagation targets multiple repos.
+
+**Critical org setting:** GitHub organizations have a policy for fine-grained
+PATs under Settings → Third-party Access → Personal access tokens →
+Fine-grained personal access tokens. If this is set to **"Require
+administrator approval"**, the PAT silently fails on operations that require
+elevated access — specifically, the `enablePullRequestAutoMerge` GraphQL
+mutation returns:
+
+```
+Resource not accessible by personal access token
+```
+
+This fails even when the PAT has correct permissions (Pull requests: Read and
+write) and the token owner is an org admin. The error is misleading — the
+token *has* access to the resource, but the org policy blocks the mutation
+until the token is explicitly approved in the org's pending requests queue.
+
+**Fix:** Change the org setting to **"Do not require administrator approval"**
+for fine-grained tokens. This is safe for single-owner orgs where the token
+creator is the admin. For multi-admin orgs, use the pending approval queue
+instead.
+
+**Verification:** After changing the policy, re-trigger a child release
+propagation. The `enablePullRequestAutoMerge` mutation should succeed and the
+PR should auto-merge after CI passes.
+
 ### Discovery Chain
 
 1. User ran `install-all.sh` from the profile README URL — got vox 1.2.0 and lux 0.4.0 instead of 1.3.0 and 0.6.0
@@ -835,3 +873,8 @@ Child release (e.g. vox v1.3.0)
 4. PR #50 fixed SHAs on main, but `.github` profile never updated
 5. Root cause: `.github` `propagate.yml` only triggered on punt-kit release tags
 6. Fix: new `propagate-profile.yml` in punt-kit, modified `propagate.yml` in `.github`
+7. Propagation PR auto-merge failed: `enablePullRequestAutoMerge` returned "Resource not accessible by personal access token"
+8. Confirmed PAT had correct permissions (Actions R/W, Pull requests R/W, All repos)
+9. Root cause: org policy "Require administrator approval" for fine-grained PATs blocks the GraphQL mutation
+10. Fix: changed org setting to "Do not require administrator approval"
+11. Re-triggered vox propagation — auto-merge succeeded

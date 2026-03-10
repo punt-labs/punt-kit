@@ -9,6 +9,7 @@ All notable changes to this project will be documented in this file.
 - `install.sh` now pins `VERSION="X.Y.Z"` for deterministic installs (was missing, installed latest from PyPI)
 - Standards: `distribution.md` updated with propagation chain, README SHA auto-update, `PROPAGATE_TOKEN` requirements, mandatory VERSION pin
 - Standards: `DESIGN.md` DES-008 known gap list updated (punt-kit and biff fixed; quarry and langlearn-tts remain)
+- Standards: `DESIGN.md` DES-012 updated with `PROPAGATE_TOKEN` fine-grained PAT requirements and org approval policy gotcha
 
 ## [0.6.0] - 2026-03-09
 
