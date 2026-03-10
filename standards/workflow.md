@@ -188,7 +188,7 @@ Do **not** merge immediately after creating a PR. Expect **2–6 review cycles**
    - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
    - `gh pr view <number> --comments` — fallback for threaded discussion
 
-5. **Take every comment seriously** — read each comment and address it. Do not dismiss feedback as "unrelated to the change" or "pre-existing." If a reviewer flags it, it matters. If you genuinely disagree, explain why in a reply — do not silently ignore.
+5. **Take every comment seriously** — read each comment and address it. There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. Fix it. If you genuinely disagree, explain why in a reply — do not silently ignore.
 6. **Fix and re-push** — commit fixes, push, and re-run quality gates. Each fix commit triggers a new review cycle.
 7. **Repeat steps 3–6** until the latest review cycle is **uneventful** — no new comments, no requested changes, all checks green.
 8. **Merge only when the last review was clean** — use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects). A PR is ready to merge when:

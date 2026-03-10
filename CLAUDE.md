@@ -2,6 +2,10 @@
 
 This project follows [Punt Labs standards](https://github.com/punt-labs/punt-kit).
 
+## No "Pre-existing" Excuse
+
+There is no such thing as a "pre-existing" issue. If you see a problem — in code you wrote, code a reviewer flagged, or code you happen to be reading — you fix it. Do not classify issues as "pre-existing" to justify ignoring them. Do not suggest that something is "outside the scope of this change." If it is broken and you can see it, it is your problem now.
+
 ## Scratch Files
 
 Use `.tmp/` at the project root for scratch and temporary files — never `/tmp`. The `TMPDIR` environment variable is set via `.envrc` so that `tempfile` and subprocesses automatically use it. Contents are gitignored; only `.gitkeep` is tracked.
@@ -165,7 +169,7 @@ See [Workflow standards §8](standards/workflow.md) for the full specification. 
 4. **Read all feedback** using MCP tools:
    - `mcp__github__pull_request_read` with `get_reviews` — check review verdicts
    - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
-5. **Take every comment seriously.** Do not dismiss feedback as "unrelated to the change" or "pre-existing." If a reviewer flags it, it matters. If you genuinely disagree, explain why in a reply — do not silently ignore.
+5. **Take every comment seriously.** If a reviewer flags it, you fix it. There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. If you genuinely disagree, explain why in a reply — do not silently ignore.
 6. **Fix, re-push, repeat.** Each fix commit triggers a new review cycle. Expect **2–6 review cycles** before merging.
 7. **Merge only when the last review cycle is uneventful** — zero new comments, all checks green. Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
 
