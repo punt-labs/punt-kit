@@ -553,7 +553,7 @@ VERSION pin are left unchanged (the regex does not match).
    `VERSION="X.Y.Z"` near the top.** The release CLI bumps this automatically.
 2. **Scripts without a VERSION pin are non-deterministic.** They install whatever is latest
    on PyPI, which may not match the SHA pinned in `install-all.sh`. As of v0.6.0, quarry
-   and langlearn-tts still lack VERSION pins — tracked for future fix.
+   is the only remaining project without a VERSION pin.
 3. **The release workflow verification step (Step 5b in `release.md`) checks that the
    VERSION pin at the tagged SHA matches the release version.**
 
