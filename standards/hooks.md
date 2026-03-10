@@ -246,6 +246,79 @@ controls whether the **Python process** waits for side effects. Both
 should be non-blocking when the return value isn't needed — they are
 independent knobs at different layers of the dispatch chain.
 
+### Reading stdin: non-blocking reads only
+
+**Never call `sys.stdin.read()` in a hook handler.** It blocks until
+EOF. Claude Code pipes JSON to hook subprocesses but does not always
+close the pipe promptly — causing an indefinite hang that freezes
+session resume/startup.
+
+Use `os.read()` in a `select` loop with short timeouts:
+
+```python
+import os
+import select
+import sys
+
+def _read_hook_input() -> dict[str, object]:
+    """Read JSON hook payload from stdin (non-blocking).
+
+    Uses select + os.read to avoid blocking forever when
+    Claude Code does not close the stdin pipe.  See biff DES-027.
+    """
+    try:
+        fd = sys.stdin.fileno()
+        # Wait up to 100ms for initial data.
+        if not select.select([fd], [], [], 0.1)[0]:
+            return {}
+        # Read available data in chunks (50ms inter-chunk timeout).
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(fd, 65536)
+            if not chunk:  # EOF
+                break
+            chunks.append(chunk)
+            if not select.select([fd], [], [], 0.05)[0]:
+                break
+        raw = b"".join(chunks).decode()
+        if not raw.strip():
+            return {}
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+        return {}
+    except (json.JSONDecodeError, OSError, ValueError):
+        return {}
+```
+
+**Why not `sys.stdin.read()`?** `select()` returning readable only
+guarantees one byte won't block — it does not guarantee EOF has
+arrived. `sys.stdin.read()` after `select()` still blocks when data
+exists without EOF. `os.read(fd, 65536)` returns available bytes
+immediately without waiting for EOF.
+
+**Handlers that don't use stdin data should not read it.** The
+"consume stdin to avoid pipe backpressure" pattern is the exact
+vector for this hang. Remove `_read_hook_input()` calls from
+handlers that discard the result.
+
+**Test the non-blocking behavior.** Every project that reads stdin
+in hooks must have a regression test for the open-pipe-no-EOF case:
+
+```python
+def test_no_eof_does_not_hang(self) -> None:
+    """Stdin with data but no EOF returns data without blocking."""
+    r_fd, w_fd = os.pipe()
+    os.write(w_fd, b'{"event": "resume"}\n')
+    # Do NOT close w_fd — simulates open pipe without EOF.
+    r = os.fdopen(r_fd, "r")
+    with patch("sys.stdin", r):
+        result = _read_hook_input()
+    r.close()
+    os.close(w_fd)
+    assert result == {"event": "resume"}
+```
+
 ### CLI dispatcher
 
 The CLI exposes hook handlers as hidden subcommands:
@@ -256,7 +329,7 @@ hook_app = typer.Typer(hidden=True)
 @hook_app.command("post-bash")
 def cc_post_bash() -> None:
     """PostToolUse Bash — internal hook dispatcher."""
-    data = json.loads(sys.stdin.read())
+    data = _read_hook_input()  # non-blocking, never sys.stdin.read()
     result = handle_post_bash(data)
     if result:
         print(json.dumps(result))
@@ -543,6 +616,7 @@ quarry:
 | **Invariant too strict** | z-spec vox | `stopHookActive` cleared on wrong phase boundary | Model check catches immediately; fix invariant, re-verify |
 | **Context overflow deadlock** | z-spec base | Context append exceeds maxContext bound | Truncate on append: `(1 ↟ max) ◁ (context ⌢ ⟨chunk⟩)` |
 | **Silent deny reason** | biff | PreToolUse deny used `"reason"` instead of `"permissionDecisionReason"` — field silently ignored, agent sees generic denial with no self-correction instructions | Always use `"permissionDecisionReason"` (see § 6 workflow gate pattern). Test that deny output contains the field. See biff DES-026. |
+| **Stdin hang on session resume** | biff, vox, lux | `sys.stdin.read()` blocks until EOF. Claude Code does not always close the stdin pipe for SessionStart resume/compact events, causing hooks to hang forever and freezing session load. Also triggered by "consume stdin" drain calls in handlers that discard the data. | Never use `sys.stdin.read()` in hooks. Use `os.read()` + `select` loop (see § 4). Remove stdin reads from handlers that don't use the data. Test with open-pipe-no-EOF regression test. See biff DES-027. |
 
 ---
 
@@ -560,5 +634,11 @@ For every Punt Labs plugin, verify:
 - [ ] **Matchers cover dev and prod** (`(-dev)?` regex)
 - [ ] **Async flag set** on fire-and-forget hooks
 - [ ] **Two-channel display** for all MCP tool output
+- [ ] **No `sys.stdin.read()` in hook handlers** — use `os.read()` +
+  `select` loop (see § 4). Grep for `stdin.read` in hooks.py.
+- [ ] **No unnecessary stdin reads** — handlers that discard the data
+  must not call `_read_hook_input()`
+- [ ] **Open-pipe regression test exists** — test that reads stdin
+  without EOF and returns within 200ms
 - [ ] **Quality gates include hook tests** (`make test` runs handler
   unit tests)
