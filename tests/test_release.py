@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit.release import (
+    _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
     _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
@@ -267,10 +268,9 @@ def test_version_bump_updates_all_files(tmp_path: Path) -> None:
     install_content = (root / "install.sh").read_text()
     assert 'VERSION="0.2.0"' in install_content
 
-    # Check README.md install URLs
-    readme_content = (root / "README.md").read_text()
-    assert "v0.2.0/install.sh" in readme_content
-    assert "v0.1.0/install.sh" not in readme_content
+    # README install URLs are NOT updated in Phase 2 — they are updated
+    # in Phase 4e (_bump_readme_install_sha) after tagging, when the SHA
+    # is known.
 
     # Check CHANGELOG.md
     cl = (root / "CHANGELOG.md").read_text()
@@ -315,6 +315,106 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     # Files should be unchanged
     content = (root / "pyproject.toml").read_text()
     assert 'version = "0.1.0"' in content
+
+
+# --- phase 4e: README install SHA bump ---
+
+
+def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
+    """SHA-pinned install URLs in README are updated to the tag SHA."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Rewrite README with SHA-pinned URL using the directory name (proj)
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "sha-pinned readme"], cwd=d)
+
+    # Create a tag so git rev-parse works
+    _git(["tag", "v0.2.0"], cwd=d)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+
+    readme_content = (root / "README.md").read_text()
+    # Old SHA should be gone
+    assert "abc1234" not in readme_content
+    # New SHA (from the tag) should be present
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "v0.2.0"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    expected_sha = result.stdout.strip()
+    assert f"{expected_sha}/install.sh" in readme_content
+
+
+def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
+    """Version-tagged install URLs in README are replaced with SHA."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Rewrite README with version-tag URL using directory name (proj)
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/v0.1.0/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "version-tag readme"], cwd=d)
+    _git(["tag", "v0.2.0"], cwd=d)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+
+    readme_content = (root / "README.md").read_text()
+    assert "v0.1.0" not in readme_content
+    result = subprocess.run(
+        ["git", "rev-parse", "--short", "v0.2.0"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    expected_sha = result.stdout.strip()
+    assert f"{expected_sha}/install.sh" in readme_content
+
+
+def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
+    """Dry run does not modify README."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Use a URL that matches the repo name (proj) so dry-run is exercised
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "matching readme"], cwd=d)
+
+    original = (root / "README.md").read_text()
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _bump_readme_install_sha(info, "0.2.0", dry_run=True)
+
+    assert (root / "README.md").read_text() == original
 
 
 # --- dry run integration ---

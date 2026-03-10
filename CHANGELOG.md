@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` now auto-updates project README install.sh SHA pins after tagging (previously required manual update)
 - Public install URL served stale `install-all.sh` between punt-kit releases, causing child version downgrades (DES-012)
 
 ## [0.5.0] - 2026-03-09
