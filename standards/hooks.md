@@ -382,6 +382,12 @@ def handle_pre_tool_use(data: dict) -> dict | None:
     return None  # Allow
 ```
 
+**Critical: the field name is `permissionDecisionReason`, not `reason`.**
+Claude Code silently ignores `"reason"` — the tool is still denied, but the
+model receives no explanation. This breaks the self-correction loop: the
+agent cannot read *why* it was blocked or *how* to unblock. There is no
+error or warning when the wrong field name is used. See biff DES-026.
+
 ---
 
 ## 7. Fail-Open vs Fail-Closed
@@ -536,6 +542,7 @@ quarry:
 | **Unbounded accumulation** | vox | Vibe signals grow without pruning | Bound collections in the Z spec; implement pruning in handler |
 | **Invariant too strict** | z-spec vox | `stopHookActive` cleared on wrong phase boundary | Model check catches immediately; fix invariant, re-verify |
 | **Context overflow deadlock** | z-spec base | Context append exceeds maxContext bound | Truncate on append: `(1 ↟ max) ◁ (context ⌢ ⟨chunk⟩)` |
+| **Silent deny reason** | biff | PreToolUse deny used `"reason"` instead of `"permissionDecisionReason"` — field silently ignored, agent sees generic denial with no self-correction instructions | Always use `"permissionDecisionReason"` (see § 6 workflow gate pattern). Test that deny output contains the field. See biff DES-026. |
 
 ---
 
