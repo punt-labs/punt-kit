@@ -120,15 +120,15 @@ short names and fully qualified names for each plugin:
 - **prfaq**: `prfaq:prfaq`, `prfaq:vote`, `prfaq:meeting`,
   `prfaq:meeting-hive`, `prfaq:streamline`, `prfaq:research`, `prfaq:review`,
   `prfaq:feedback`, `prfaq:feedback-to-us`, `prfaq:externalize`, `prfaq:import`
-- **punt-kit**: `punt:audit`, `punt:init`, `punt:pii`, `punt:reconcile`,
-  `punt:release`
+- **punt-kit**: `punt:audit`, `punt:auto`, `punt:init`, `punt:pii`,
+  `punt:reconcile`, `punt:release`
 - **quarry**: `quarry`, `quarry:find`, `quarry:explain`, `quarry:ingest`,
   `quarry:quarry`, `quarry:source` (plus short names: `find`, `explain`,
   `ingest`, `source`)
 - **tts**: `tts:notify`, `tts:recap`, `tts:say`, `tts:speak`, `tts:vibe`,
   `tts:voice` (plus short names: `notify`, `recap`, `say`, `speak`, `vibe`,
   `voice`)
-- **local commands**: `autopilot`
+- **local commands**: `auto`, `autopilot`
 - **z-spec**: `z-spec:audit`, `z-spec:check`, `z-spec:cleanup`,
   `z-spec:code2model`, `z-spec:elaborate`, `z-spec:help`, `z-spec:model2code`,
   `z-spec:partition`, `z-spec:setup`, `z-spec:test`

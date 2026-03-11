@@ -1,0 +1,111 @@
+name: permissions-rollout
+description: Roll out permission rule changes to all project settings.json files
+mode: once
+
+parameters:
+  - name: rules
+    type: list
+    required: true
+    description: >
+      Permission rules to add (e.g. 'Read(../**)', 'Bash(make:*)')
+  - name: section
+    type: string
+    default: allow
+    enum: [allow, deny]
+    description: Permission section to modify
+  - name: commit_message
+    type: string
+    default: "chore: update permissions in settings.json"
+    description: Commit message for child repo changes
+
+preconditions:
+  - description: Working directory is the punt-labs workspace root
+    check: test -d punt-kit && test -d quarry
+  - description: punt-kit standards are accessible
+    check: test -f punt-kit/standards/permissions.md
+
+steps:
+  - id: update-standard
+    description: Update permissions.md with the new rules
+    type: llm
+    context: |
+      Read punt-kit/standards/permissions.md. Add the new rules to the
+      appropriate section (allow rules go in §3, deny rules in §4). Follow
+      the existing formatting — tables for deny rules, code blocks for allow
+      rules. Place new rules in the most logical subsection.
+    postcondition:
+      check: grep -q "${rules[0]}" punt-kit/standards/permissions.md
+
+  - id: update-init
+    description: Update build_standard_permissions() or build_standard_deny_rules() in init.py
+    type: llm
+    context: |
+      Read punt-kit/src/punt_kit/init.py. For allow rules, add them to
+      build_standard_permissions(). For deny rules, add them to
+      build_standard_deny_rules(). Follow the existing code style — group
+      related rules with a comment referencing the permissions.md section.
+    postcondition:
+      check: >
+        cd punt-kit && uv run python -c "
+        from punt_kit.init import build_standard_permissions, build_standard_deny_rules;
+        rules = build_standard_permissions({}) if '${section}' == 'allow' else build_standard_deny_rules();
+        assert '${rules[0]}' in rules, f'Rule not found in {len(rules)} rules'
+        "
+    on_failure: diagnose
+
+  - id: run-quality-gates
+    description: Verify punt-kit passes quality gates after the code change
+    type: script
+    command: cd punt-kit && make check
+    on_failure: diagnose
+
+  - id: commit-punt-kit
+    description: Commit the standard and code changes in punt-kit
+    type: script
+    command: >
+      cd punt-kit &&
+      git add standards/permissions.md src/punt_kit/init.py &&
+      git commit -m "feat(permissions): add ${rules[0]} to standard"
+
+  - id: patch-child-repos
+    description: Add rules to each child project's settings.json
+    type: llm
+    context: |
+      For each project directory that has a .claude/settings.json, read the
+      file, add the new rules to the permissions.${section} array (avoiding
+      duplicates), and write it back. Use jq-style ordering — keep existing
+      rules, append new ones.
+
+      Projects to patch: biff, quarry, vox, langlearn-tts, langlearn,
+      langlearn-anki, langlearn-imagegen, langlearn-types, prfaq, dungeon,
+      z-spec, public-website, quarry-menubar, koch-trainer-swift.
+
+      Skip any project that doesn't have .claude/settings.json.
+
+      If a settings.json is not tracked by git (gitignored via .claude/
+      directory ignore), use `git add -f .claude/settings.json` to force-track it.
+    postcondition:
+      check: grep -q "${rules[0]}" quarry/.claude/settings.json
+
+  - id: commit-child-repos
+    description: Commit and push changes in each child repo
+    type: script
+    command: |
+      for d in biff quarry vox langlearn-tts langlearn langlearn-anki \
+               langlearn-imagegen langlearn-types prfaq dungeon z-spec \
+               public-website quarry-menubar koch-trainer-swift; do
+        if [ -f "$d/.claude/settings.json" ] && git -C "$d" diff --quiet .claude/settings.json 2>/dev/null; then
+          continue
+        fi
+        if [ -f "$d/.claude/settings.json" ]; then
+          echo "=== $d ==="
+          git -C "$d" add -f .claude/settings.json
+          git -C "$d" commit -m "${commit_message}" || true
+          git -C "$d" push || true
+        fi
+      done
+
+  - id: push-punt-kit
+    description: Push punt-kit changes
+    type: script
+    command: cd punt-kit && git push -u origin HEAD

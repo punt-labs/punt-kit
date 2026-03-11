@@ -1,6 +1,9 @@
 {
   "permissions": {
     "allow": [
+      "Read(../**)",
+      "Edit(../**)",
+      "Write(../**)",
       "Bash(bash:*)",
       "Bash(bd:*)",
       "Bash(cat:*)",
@@ -20,7 +23,9 @@
       "Bash(tail:*)",
       "Bash(test:*)",
       "Bash(uv:*)",
+      "Skill(auto)",
       "Skill(autopilot)",
+      "Skill(punt:auto)",
       "Skill(biff)",
       "Skill(biff:biff)",
       "Skill(biff:finger)",
