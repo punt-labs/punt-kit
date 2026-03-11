@@ -412,6 +412,15 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
         "mcp__quarry__*",
     ]
 
+    # Cross-project file access (§3)
+    perms.extend(
+        [
+            "Read(../**)",
+            "Edit(../**)",
+            "Write(../**)",
+        ]
+    )
+
     # Generic Bash commands required for all projects (§3)
     perms.extend(
         [

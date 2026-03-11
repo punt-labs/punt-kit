@@ -133,6 +133,19 @@ short names and fully qualified names for each plugin:
   `z-spec:code2model`, `z-spec:elaborate`, `z-spec:help`, `z-spec:model2code`,
   `z-spec:partition`, `z-spec:setup`, `z-spec:test`
 
+### Cross-project file access
+
+Every project must allow file operations across the monorepo workspace.
+Relative paths (`../**`) are portable — they work regardless of where the
+workspace is cloned. This eliminates the need for manual `settings.local.json`
+setup for cross-project access.
+
+```json
+"Read(../**)",
+"Edit(../**)",
+"Write(../**)"
+```
+
 ### WebFetch domains
 
 Allow research domains relevant to org work:
@@ -212,20 +225,7 @@ not all possible network access.
 ## 5. Local-Only Permissions
 
 The `settings.local.json` file contains machine-specific entries. These are
-not checked in because they contain local paths.
-
-### Cross-project file access
-
-Allow read/edit/write across the punt-labs workspace using both path forms:
-
-```json
-"Read(~/Coding/punt-labs/**)",
-"Read(/Users/<username>/Coding/punt-labs/**)",
-"Edit(~/Coding/punt-labs/**)",
-"Edit(/Users/<username>/Coding/punt-labs/**)",
-"Write(~/Coding/punt-labs/**)",
-"Write(/Users/<username>/Coding/punt-labs/**)"
-```
+not checked in because they contain local paths or OS-specific commands.
 
 ### Temporary file access
 
