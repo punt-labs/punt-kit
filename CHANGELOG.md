@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-03-11
+
 ### Fixed
 
 - Release workflow: increase TestPyPI propagation retry from 5×30s (2.5min) to 30min exponential backoff (15s→120s cap)
