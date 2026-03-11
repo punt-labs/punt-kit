@@ -7,8 +7,8 @@ parameters:
     type: string
     required: true
     description: >
-      Permission rules to add, space-separated
-      (e.g. 'Read(../**) Edit(../**) Write(../**)').
+      Permission rules to add, comma-separated
+      (e.g. 'Read(../**),Edit(../**),Write(../**)').
       For a single rule, just pass the rule string.
   - name: section
     type: string

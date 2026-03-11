@@ -69,8 +69,14 @@ steps:
 
   - id: quality-gates
     description: Run quality gates
-    type: script
-    command: make check
+    type: llm
+    context: |
+      Run the project's quality gates. Check what's available:
+      - If a Makefile exists with a `check` target: run `make check`
+      - Otherwise, read CLAUDE.md for the project's quality gate command
+      - If neither exists, skip this step
+
+      All gates must pass before proceeding.
     on_failure: diagnose
 
   - id: commit-and-push

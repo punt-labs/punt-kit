@@ -130,7 +130,7 @@ command: punt release ${version}
 
 - **Scalar types** (`string`, `int`, `bool`): substituted directly as their
   string representation.
-- **List parameters**: use `type: string` with space-separated values instead
+- **List parameters**: use `type: string` with comma-separated values instead
   of `type: list` for shell compatibility. The executor does not support
   indexing syntax (`${param[0]}`).
 - **LLM steps**: all parameter values are passed as context. The LLM reads
@@ -146,10 +146,12 @@ Script step postconditions should use simple, self-contained shell commands.
 
 The executor searches for playbooks in order:
 
-1. `./playbooks/<name>.yaml` — project-local playbooks
-2. `<punt-kit>/playbooks/<name>.yaml` — org-wide playbooks (found via `../punt-kit/`)
+1. `./playbooks/<name>.yaml` — project-local playbooks (current working directory)
+2. `${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml` — punt-kit plugin root (when invoked as a command)
+3. `../punt-kit/playbooks/<name>.yaml` — org-wide fallback (when run from a sibling repo)
 
 Project-local playbooks take precedence over org-wide playbooks with the same name.
+When `${CLAUDE_PLUGIN_ROOT}` is not set, path 2 is skipped.
 
 ## Example: Minimal Playbook
 

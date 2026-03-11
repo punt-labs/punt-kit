@@ -25,11 +25,12 @@ Parse the first argument as the playbook name. Remaining arguments are
 
 Search for playbooks in order:
 
-1. `./playbooks/<name>.yaml` — project-local (when run from a repo)
-2. `./punt-kit/playbooks/<name>.yaml` — workspace-local (when `./punt-kit/` exists)
-3. `../punt-kit/playbooks/<name>.yaml` — org-wide (when run from a repo under the workspace)
+1. `./playbooks/<name>.yaml` — project-local (current working directory)
+2. `${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml` — punt-kit plugin root (when invoked as a command)
+3. `../punt-kit/playbooks/<name>.yaml` — org-wide fallback (when run from a sibling repo)
 
-If the working directory IS punt-kit, only check `./playbooks/`.
+Project-local playbooks take precedence over org-wide playbooks with the same name.
+When `${CLAUDE_PLUGIN_ROOT}` is not set, skip path 2.
 
 For `list`, scan all applicable locations and print a table:
 
