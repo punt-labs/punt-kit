@@ -53,7 +53,7 @@ steps:
   - id: run-quality-gates
     description: Verify punt-kit passes quality gates after the code change
     type: script
-    command: cd punt-kit && make check
+    command: make -C punt-kit check
     on_failure: diagnose
 
   - id: commit-punt-kit
@@ -98,4 +98,4 @@ steps:
   - id: push-punt-kit
     description: Push punt-kit changes
     type: script
-    command: cd punt-kit && git push -u origin HEAD
+    command: git -C punt-kit push -u origin HEAD
