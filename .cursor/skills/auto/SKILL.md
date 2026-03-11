@@ -25,19 +25,22 @@ Parse the first argument as the playbook name. Remaining arguments are
 
 Search for playbooks in order:
 
-1. `./playbooks/<name>.yaml` — project-local
-2. `../punt-kit/playbooks/<name>.yaml` — org-wide (relative to cwd)
+1. `./playbooks/<name>.yaml` — project-local (when run from a repo)
+2. `./punt-kit/playbooks/<name>.yaml` — workspace-local (when `./punt-kit/` exists)
+3. `../punt-kit/playbooks/<name>.yaml` — org-wide (when run from a repo under the workspace)
 
 If the working directory IS punt-kit, only check `./playbooks/`.
 
-For `list`, scan both locations and print a table:
+For `list`, scan all applicable locations and print a table:
 
 ```
-Name              Source      Description
-─────────────────────────────────────────────
-autopilot         org         Autonomous bead-driven development loop
-permissions       org         Roll out permission changes to all projects
-<name>            local       <description>
+Name                Source      Description
+───────────────────────────────────────────────────────────────────
+autopilot           org         Autonomous bead-driven development loop
+permissions-rollout org         Roll out permission changes to all projects
+release             org         Release a Punt Labs project
+standards-rollout   org         Roll out a standards change across all projects
+<name>              local       <description>
 ```
 
 ## Execution Protocol

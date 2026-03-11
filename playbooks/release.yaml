@@ -9,10 +9,6 @@ parameters:
     description: >
       Semantic version to release (e.g. 1.2.3). If omitted, auto-detected
       from the topmost ## [X.Y.Z] heading in CHANGELOG.md.
-  - name: dry_run
-    type: bool
-    default: false
-    description: Preview commands without executing
 
 preconditions:
   - description: In a project with pyproject.toml
@@ -28,7 +24,7 @@ steps:
     type: script
     command: punt release ${version}
     postcondition:
-      check: git tag --list "v*" --sort=-version:refname | head -1
+      check: git tag --list "v${version}" | grep -q "v${version}"
     on_failure: diagnose
 
   - id: merge-propagation-prs
@@ -102,8 +98,11 @@ steps:
     description: Verify install-all.sh SHA and VERSION pin
     type: llm
     context: |
-      Read ../punt-kit/install-all.sh and find this project's curl line.
-      Extract the SHA. Then verify:
+      Determine the correct path to install-all.sh:
+        if [ -f ./install-all.sh ]; then use ./install-all.sh
+        else use ../punt-kit/install-all.sh
+
+      Find this project's curl line. Extract the SHA. Then verify:
         git show <SHA>:install.sh | grep 'VERSION='
       The VERSION must equal the release version. Warn if no VERSION pin.
 

@@ -1,12 +1,18 @@
 ---
 description: "Execute an automation playbook"
 allowed-tools:
+  - "Read"
+  - "Edit"
+  - "Write"
+  - "Glob"
+  - "Grep"
   - "Bash(git:*)"
   - "Bash(gh:*)"
   - "Bash(bd:*)"
   - "Bash(uv:*)"
   - "Bash(make:*)"
   - "Bash(punt:*)"
+  - "Bash(python3:*)"
   - "Bash(shellcheck:*)"
   - "Bash(npx:*)"
   - "Bash(npm:*)"

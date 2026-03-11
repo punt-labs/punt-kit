@@ -1,12 +1,18 @@
 ---
 description: "[DEV] Execute an automation playbook using the working tree"
 allowed-tools:
+  - "Read"
+  - "Edit"
+  - "Write"
+  - "Glob"
+  - "Grep"
   - "Bash(git:*)"
   - "Bash(gh:*)"
   - "Bash(bd:*)"
   - "Bash(uv:*)"
   - "Bash(make:*)"
   - "Bash(punt:*)"
+  - "Bash(python3:*)"
   - "Bash(shellcheck:*)"
   - "Bash(npx:*)"
   - "Bash(npm:*)"

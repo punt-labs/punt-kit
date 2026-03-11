@@ -4,10 +4,12 @@ mode: once
 
 parameters:
   - name: rules
-    type: list
+    type: string
     required: true
     description: >
-      Permission rules to add (e.g. 'Read(../**)', 'Bash(make:*)')
+      Permission rules to add, space-separated
+      (e.g. 'Read(../**) Edit(../**) Write(../**)').
+      For a single rule, just pass the rule string.
   - name: section
     type: string
     default: allow
@@ -33,8 +35,8 @@ steps:
       appropriate section (allow rules go in §3, deny rules in §4). Follow
       the existing formatting — tables for deny rules, code blocks for allow
       rules. Place new rules in the most logical subsection.
-    postcondition:
-      check: grep -q "$(echo '${rules}' | head -1)" punt-kit/standards/permissions.md
+
+      After editing, verify the first rule appears in the file.
 
   - id: update-init
     description: Update build_standard_permissions() or build_standard_deny_rules() in init.py

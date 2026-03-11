@@ -61,9 +61,6 @@ steps:
     description: Run the project's quality gates
     type: script
     command: make check
-    postcondition:
-      check: echo $?
-      expect: "0"
     on_failure: diagnose
 
   - id: update-changelog
@@ -109,9 +106,8 @@ postcondition:
   check: grep -q "Read(../**)" .claude/settings.json
 ```
 
-A postcondition has a `check` (shell command) and optionally an `expect` value.
-If `check` exits non-zero (or its output doesn't match `expect`), the step is
-considered failed.
+A postcondition has a required `check` (shell command). The executor runs this
+command and considers the step failed if it exits with a non-zero status.
 
 ### Failure Strategies
 
