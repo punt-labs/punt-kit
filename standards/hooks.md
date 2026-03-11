@@ -590,9 +590,8 @@ For hooks with complex state (decision-block, workflow gates), maintain
 a Z specification that models the hook's state machine. Use probcli to
 model-check that invariants hold:
 
-```makefile
-test: ## Model-check all Z specs
-	probcli docs/<spec>.tex -model_check -p DEFAULT_SETSIZE 1
+```bash
+make test  # Model-check all Z specs via probcli
 ```
 
 Reference implementations:
@@ -618,10 +617,169 @@ quarry:
 | **Context overflow deadlock** | z-spec base | Context append exceeds maxContext bound | Truncate on append: `(1 ↟ max) ◁ (context ⌢ ⟨chunk⟩)` |
 | **Silent deny reason** | biff | PreToolUse deny used `"reason"` instead of `"permissionDecisionReason"` — field silently ignored, agent sees generic denial with no self-correction instructions | Always use `"permissionDecisionReason"` (see § 6 workflow gate pattern). Test that deny output contains the field. See biff DES-026. |
 | **Stdin hang on session resume** | biff, vox, lux | `sys.stdin.read()` blocks until EOF. Claude Code does not always close the stdin pipe for SessionStart resume/compact events, causing hooks to hang forever and freezing session load. Also triggered by "consume stdin" drain calls in handlers that discard the data. | Never use `sys.stdin.read()` in hooks. Use `os.read()` + `select` loop (see § 4). Remove stdin reads from handlers that don't use the data. Test with open-pipe-no-EOF regression test. See biff DES-027. |
+| **Import tax on hook startup** | biff, quarry | Hook shell script calls `<tool> hook <event>`, routing through `__main__.py` and importing the full application (nats, pydantic, lancedb, etc.) before dispatching to a handler that only needs stdlib. Cold start: 1.5–4.7s per Python hook invocation. | Use a lightweight entry point (§ 12). Extract stdlib-only helpers. Make `__init__.py` lazy. See biff DES-028. |
 
 ---
 
-## 12. Audit Checklist
+## 12. Hook Startup Performance
+
+Hooks are the hottest path in a Claude Code plugin. SessionStart hooks
+fire on every session open and every resume. When multiple plugins each
+spawn Python processes that import heavy dependency trees, the serial
+cost can exceed 15 seconds — observed as the "Resuming conversation..."
+hang.
+
+### The import tax anti-pattern
+
+The standard three-layer dispatch (§ 2) routes hook calls through the
+CLI entry point:
+
+```text
+hooks/<event>.sh  →  <tool> hook <event>  →  __main__.py  →  hooks.py handler
+```
+
+This path imports the full application before dispatching to the hook
+handler. If the application imports nats, pydantic, lancedb,
+onnxruntime, or similar heavy libraries, every hook invocation pays
+that cost — even when the handler only needs `pathlib` and `json`.
+
+Three layers compound the tax:
+
+1. **Eager `__init__.py`** — `import <package>` triggers top-level
+   imports of every submodule. A `from <package>.hook import handler`
+   pulls in the entire dependency tree.
+2. **Entry point routing through `__main__.py`** — The CLI framework
+   (typer), server, commands, and configuration all load before the
+   hook subcommand is reached.
+3. **Handler imports from heavy modules** — Even with lazy imports in
+   the handler, importing from a module that itself imports heavy
+   libraries triggers the full chain. Pure-stdlib functions trapped
+   inside heavy modules are the root cause.
+
+### Measured impact (biff, M2 MacBook Air)
+
+| Path | Cold Start |
+|------|-----------|
+| `biff hook claude-code session-start` (old) | 3.7s |
+| `biff-hook claude-code session-start` (new) | 0.29s |
+| **Ratio** | **13×** |
+
+### The fix: three corresponding layers
+
+Each layer of the import tax has a corresponding fix:
+
+**1. `_stdlib.py` — Extract stdlib-only functions**
+
+Move pure-stdlib functions out of modules that import third-party
+libraries. The handler imports from `_stdlib` instead of from the
+heavy module. The heavy module also imports from `_stdlib` to avoid
+duplication.
+
+```python
+# src/<package>/_stdlib.py
+"""Stdlib-only helpers for lightweight hook paths.
+
+Every function in this module MUST use only stdlib imports.
+Adding a third-party import here defeats the entire purpose.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+from pathlib import Path
+
+def find_git_root() -> Path | None:
+    """Walk up from cwd to find .git directory."""
+    ...
+
+def is_enabled(repo_root: Path) -> bool:
+    """Check if tool is enabled in this repo."""
+    ...
+```
+
+**Invariant**: `_stdlib.py` uses only stdlib imports. This is the
+module's reason for existing. The docstring must state this explicitly.
+
+**2. Lightweight entry point — bypass `__main__.py`**
+
+Register a separate console script that parses `sys.argv` directly
+and dispatches to handler functions without loading the CLI framework:
+
+```toml
+# pyproject.toml
+[project.scripts]
+<tool> = "<package>.__main__:app"         # Full CLI
+<tool>-hook = "<package>._hook_entry:main" # Lightweight hook path
+```
+
+```python
+# src/<package>/_hook_entry.py
+"""Lightweight hook entry point — bypasses __main__.py entirely."""
+import sys
+
+def main() -> None:
+    args = sys.argv[1:]
+    if len(args) < 2:
+        from <package>.__main__ import app
+        app()
+        return
+    layer, event = args[0], args[1]
+    # Dispatch to handler functions (lazy import per handler)
+    ...
+```
+
+Update all hook shell scripts: `<tool> hook` → `<tool>-hook`.
+
+**3. Lazy `__init__.py` — PEP 562 `__getattr__`**
+
+Replace eager imports with deferred loading so that importing a
+lightweight submodule does not trigger the full package:
+
+```python
+# src/<package>/__init__.py
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from <package>.models import MyModel  # static analysis only
+
+def __getattr__(name: str) -> object:
+    if name == "MyModel":
+        from <package>.models import MyModel
+        globals()["MyModel"] = MyModel
+        return MyModel
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+```
+
+### When to apply
+
+Not every project needs the full fix. Apply based on measured cost:
+
+| Condition | Action |
+|-----------|--------|
+| SessionStart handler spawns Python, cold start > 1s | Apply all three layers |
+| SessionStart handler spawns Python, cold start 0.3–1s | Consider `_stdlib` extraction only |
+| SessionStart is pure shell or cold start < 0.3s | No action needed |
+| Git hooks (`.git/hooks/`) use the CLI | Leave as-is — not on the latency-critical path |
+
+### Cross-product findings (2026-03-11)
+
+| Product | SessionStart Python? | Cold Start | Status |
+|---------|---------------------|-----------|--------|
+| **biff** | Yes (2 hooks) | 4.7s → 0.43s | **Fixed** (v1.3.4, DES-028) |
+| **quarry** | Yes (1 hook) | 1.47s | **Needs fix** — same pattern |
+| **vox** | No (pure shell) | 0.1s | Already optimal |
+| **lux** | Yes (lightweight) | 0.3s | Already near floor |
+
+Quarry's `handle_session_start` imports `pydantic_settings` (1.9s),
+`lancedb` (16.2s), `onnxruntime`, `pymupdf`, and `bs4` at module
+level — but only needs `sqlite3` + `subprocess`. The same three-layer
+fix applies.
+
+---
+
+## 13. Audit Checklist
 
 For every Punt Labs plugin, verify:
 
@@ -643,3 +801,14 @@ For every Punt Labs plugin, verify:
   without EOF and returns within 200ms
 - [ ] **Quality gates include hook tests** (`make test` runs handler
   unit tests)
+- [ ] **SessionStart cold start < 1s** — measure with installed binary,
+  not `uv run`. If > 1s, apply the three-layer fix (§ 12).
+- [ ] **`_stdlib.py` has no third-party imports** — if the module
+  exists, grep for non-stdlib imports. Any third-party import defeats
+  the purpose.
+- [ ] **Hook shell scripts use lightweight entry point** — if a
+  `<tool>-hook` console script exists, verify `hooks/*.sh` calls it
+  instead of `<tool> hook`
+- [ ] **Security hooks exempt from kill-switch** — if a global
+  kill-switch exists for emergency hook disable, PreToolUse authz
+  gates must not honor it (they are security boundaries)
