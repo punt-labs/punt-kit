@@ -19,7 +19,7 @@ preconditions:
     check: test -f pyproject.toml
   - description: On main branch with clean working tree
     check: test "$(git branch --show-current)" = "main" && git diff --quiet
-  - description: CHANGELOG has an Unreleased section with content
+  - description: CHANGELOG has an Unreleased section
     check: grep -q "## \[Unreleased\]" CHANGELOG.md
 
 steps:
@@ -87,10 +87,15 @@ steps:
 
   - id: verify-pypi
     description: Verify package appears on PyPI
-    type: script
-    command: uv pip index versions $(grep 'name' pyproject.toml | head -1 | sed 's/.*= *"//;s/"//') 2>/dev/null | head -1
-    postcondition:
-      check: uv pip index versions $(grep 'name' pyproject.toml | head -1 | sed 's/.*= *"//;s/"//') 2>/dev/null | grep -q "${version}"
+    type: llm
+    context: |
+      Extract the package name from pyproject.toml using Python's tomllib:
+        python3 -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text()).get('project',{}).get('name',''))"
+
+      Then verify the release version appears:
+        uv pip index versions <package-name> 2>/dev/null | head -1
+
+      The version ${version} must appear in the output.
     on_failure: diagnose
 
   - id: verify-install-sha

@@ -10,18 +10,15 @@ parameters:
       What standard is being rolled out (e.g. 'makefile prfaq target',
       'CLAUDE.md quality gates', 'GitHub workflow timeout')
   - name: projects
-    type: list
-    default: [biff, quarry, vox, langlearn-tts, prfaq, dungeon, z-spec]
-    description: Projects to update (directories relative to workspace root)
+    type: string
+    default: "biff quarry vox langlearn-tts prfaq dungeon z-spec"
+    description: >
+      Space-separated list of project directories to update
+      (relative to workspace root)
 
 preconditions:
   - description: Working directory is the punt-labs workspace root
     check: test -d punt-kit && test -d quarry
-  - description: All target project directories exist
-    check: |
-      for d in ${projects}; do
-        test -d "$d" || exit 1
-      done
 
 steps:
   - id: understand-standard

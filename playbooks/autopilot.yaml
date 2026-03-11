@@ -96,8 +96,10 @@ steps:
 
   - id: wait-ci
     description: Wait for CI checks to pass
-    type: script
-    command: gh pr checks ${pr_number} --watch
+    type: llm
+    context: |
+      Run gh pr checks <number> --watch using the PR number from the
+      preceding open-pr step. This blocks until all checks resolve.
     on_failure: diagnose
 
   - id: wait-copilot

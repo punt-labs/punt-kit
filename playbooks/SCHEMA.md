@@ -123,15 +123,28 @@ considered failed.
 
 ## Variable References
 
-Step commands and contexts can reference parameters by name. The executor
-substitutes values before execution. Use `${name}` syntax:
+Step commands and contexts can reference parameters by name using `${name}`
+syntax. The executor substitutes scalar values before execution:
 
 ```yaml
 command: punt release ${version}
 ```
 
-For LLM steps, parameters are available as context — the executor passes all
-parameter values when describing the step.
+### Substitution rules
+
+- **Scalar types** (`string`, `int`, `bool`): substituted directly as their
+  string representation.
+- **List parameters**: use `type: string` with space-separated values instead
+  of `type: list` for shell compatibility. The executor does not support
+  indexing syntax (`${param[0]}`).
+- **LLM steps**: all parameter values are passed as context. The LLM reads
+  them and applies judgment — no mechanical substitution needed.
+- **Quoting**: the executor does not shell-escape substituted values. If a
+  parameter value may contain spaces or special characters, the playbook
+  author must handle quoting in the command.
+
+Prefer LLM steps for postconditions that require complex parameter access.
+Script step postconditions should use simple, self-contained shell commands.
 
 ## Playbook Discovery
 

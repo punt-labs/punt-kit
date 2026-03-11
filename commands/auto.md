@@ -20,4 +20,9 @@ allowed-tools:
   - "mcp__plugin_github_github__*"
 ---
 
-$ARGUMENTS
+Load and execute the playbook specified below. Follow the executor protocol
+defined in the `auto` skill (`.cursor/skills/auto/SKILL.md`).
+
+Read the skill file first, then execute the playbook.
+
+Arguments: $ARGUMENTS
