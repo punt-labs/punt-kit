@@ -61,11 +61,21 @@ def release(
     dry_run: bool = typer.Option(
         False, "--dry-run", "-n", help="Show what would happen without changes"
     ),
+    resume_from: str = typer.Option(
+        "",
+        "--resume-from",
+        help="Resume from a specific phase (e.g. propagate, verify)",
+    ),
 ) -> None:
-    """Run the deterministic release workflow (phases 1-8)."""
+    """Run the deterministic release workflow (phases 1-9)."""
     from punt_kit.release import run_release
 
-    run_release(path, version=version_arg or None, dry_run=dry_run)
+    run_release(
+        path,
+        version=version_arg or None,
+        dry_run=dry_run,
+        resume_from=resume_from or None,
+    )
 
 
 @app.command()

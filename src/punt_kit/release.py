@@ -650,135 +650,497 @@ def _phase7_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
     _ok("Editable install restored")
 
 
-def _trigger_and_wait(
-    gh: str, target_repo: str, fields: list[tuple[str, str]], label: str
-) -> bool:
-    """Trigger a propagation workflow and wait for it to complete.
+# ---------------------------------------------------------------------------
+# Sibling repo helpers
+# ---------------------------------------------------------------------------
 
-    Returns True on success, False on failure (non-fatal).
+
+def _resolve_sibling(root: Path, name: str) -> Path | None:
+    """Resolve a sibling repo directory.
+
+    Walks up from root to find a parent that contains name/.git.
+    For the self-referential case (e.g. punt-kit updating its own
+    install-all.sh), returns root itself.
     """
-    cmd = [gh, "workflow", "run", "propagate.yml", "-R", target_repo]
-    for key, val in fields:
-        cmd.extend(["-f", f"{key}={val}"])
+    parent = root.parent
+    sibling = parent / name
+    if sibling.is_dir() and (sibling / ".git").exists():
+        return sibling
+    return None
 
-    result = _run(cmd, check=False)
-    if result.returncode != 0:
-        _info(f"{label}: workflow not available ({result.stderr.strip()})")
-        return False
 
-    _ok(f"{label}: triggered")
+def _validate_sibling(path: Path, name: str) -> None:
+    """Validate a sibling repo is ready for propagation."""
+    branch = _run(["git", "branch", "--show-current"], cwd=str(path)).stdout.strip()
+    if branch != "main":
+        _fail(f"Sibling {name} is on branch '{branch}', expected main")
 
-    import time
-
-    time.sleep(5)
+    status = _run(["git", "status", "--porcelain"], cwd=str(path)).stdout.strip()
+    if status:
+        _fail(f"Sibling {name} has uncommitted changes:\n{status}")
 
     result = _run(
-        [
-            gh,
-            "run",
-            "list",
-            "-R",
-            target_repo,
-            "--workflow=propagate.yml",
-            "--limit",
-            "1",
-            "--json",
-            "databaseId,status",
-        ],
+        ["git", "pull", "--ff-only", "origin", "main"],
+        cwd=str(path),
         check=False,
     )
     if result.returncode != 0:
-        _info(f"{label}: could not find run — check manually")
+        _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
+
+
+def _sibling_commit_push(path: Path, files: list[str], message: str, name: str) -> bool:
+    """Stage, commit, and push changes in a sibling repo.
+
+    Returns True if a commit was made, False if no changes.
+    """
+    cwd = str(path)
+    status = _run(
+        ["git", "status", "--porcelain", "--", *files], cwd=cwd
+    ).stdout.strip()
+    if not status:
         return False
 
-    runs = json.loads(result.stdout)
-    if not runs:
-        _info(f"{label}: no runs found — check manually")
-        return False
+    for f in files:
+        _run(["git", "add", f], cwd=cwd)
+    _run(["git", "commit", "-m", message], cwd=cwd)
 
-    run_id = runs[0]["databaseId"]
-    _info(f"{label}: watching run {run_id}...")
-    watch = _run(
-        [gh, "run", "watch", str(run_id), "--exit-status", "-R", target_repo],
-        check=False,
-        capture=False,
-        timeout=7200,
+    result = _run(
+        ["git", "push", "origin", "main"], cwd=cwd, check=False, capture=False
     )
-    if watch.returncode != 0:
-        _info(f"{label}: run {run_id} failed")
-        return False
-
-    _ok(f"{label}: complete")
+    if result.returncode != 0:
+        # Retry once: pull, check if change already landed
+        _info(f"{name}: push failed, retrying after pull...")
+        _run(["git", "pull", "--rebase", "origin", "main"], cwd=cwd)
+        _run(["git", "push", "origin", "main"], cwd=cwd, capture=False)
     return True
 
 
-def _phase8_trigger_propagation(
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> None:
-    """Phase 8: Trigger cross-repo propagation Actions and wait."""
-    if not info.is_plugin and info.language != "python":
-        return
+# ---------------------------------------------------------------------------
+# Phase 8: Local propagation
+# ---------------------------------------------------------------------------
 
-    console.print("\n[bold]Phase 8: Cross-repo propagation[/bold]")
+
+def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """8a. Update project's install.sh SHA in punt-kit/install-all.sh."""
+    if not (info.root / "install.sh").exists():
+        return
 
     repo = _get_github_repo(info.root)
     if repo is None:
-        _info("No GitHub remote detected — skipping propagation")
+        return
+    project_name = repo.split("/")[-1]
+
+    sibling = _resolve_sibling(info.root, "punt-kit")
+    if sibling is None:
+        _fail("Sibling punt-kit not found — required for install-all.sh propagation")
+        return  # unreachable, makes type checker happy
+
+    install_all = sibling / "install-all.sh"
+    if not install_all.exists():
+        _info("install-all.sh not found in punt-kit — skipping")
         return
 
     tag = f"v{version}"
-
-    # Determine which propagations apply
-    # 1. punt-kit: update install-all.sh SHAs (any CLI project)
-    # 2. claude-plugins: update marketplace.json (any plugin project)
-    # 3. .github: update profile README install-all.sh URL (punt-kit only)
-    targets: list[tuple[str, list[tuple[str, str]], str]] = []
-
-    targets.append(
-        (
-            "punt-labs/punt-kit",
-            [("repo", repo), ("tag", tag)],
-            "install-all.sh",
-        )
-    )
-
-    if info.is_plugin or info.is_hybrid:
-        targets.append(
-            (
-                "punt-labs/claude-plugins",
-                [("repo", repo), ("version", version), ("tag", tag)],
-                "marketplace",
-            )
-        )
-
-    if repo == "punt-labs/punt-kit":
-        targets.append(
-            (
-                "punt-labs/.github",
-                [("repo", repo), ("tag", tag)],
-                "org profile README",
-            )
-        )
-
     if dry_run:
-        for target_repo, fields, _label in targets:
-            field_str = " ".join(f"-f {k}={v}" for k, v in fields)
-            _dry(f"gh workflow run propagate.yml -R {target_repo} {field_str}")
+        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <tag-sha> ({tag})")
         return
 
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found")
+    _validate_sibling(sibling, "punt-kit")
 
-    failures: list[str] = []
-    for target_repo, fields, label in targets:
-        if not _trigger_and_wait(gh, target_repo, fields, label):
-            failures.append(label)
+    tag_sha = _run(
+        ["git", "rev-parse", "--short", tag], cwd=str(info.root)
+    ).stdout.strip()
 
-    if failures:
-        _info(f"Some propagations need manual attention: {', '.join(failures)}")
+    content = install_all.read_text(encoding="utf-8")
+    esc = re.escape(project_name)
+    new_content = re.sub(
+        rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)",
+        rf"\g<1>{tag_sha}\2",
+        content,
+    )
+
+    if new_content == content:
+        _ok(f"install-all.sh: {project_name} SHA already current")
+        return
+
+    install_all.write_text(new_content, encoding="utf-8")
+
+    if _sibling_commit_push(
+        sibling,
+        ["install-all.sh"],
+        f"chore: update {project_name} install SHA to {tag}",
+        "punt-kit",
+    ):
+        _ok(f"install-all.sh: {project_name} SHA → {tag_sha} ({tag})")
+
+
+def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """8b. Update version and ref in claude-plugins marketplace.json."""
+    if not info.is_plugin and not info.is_hybrid:
+        return
+
+    repo = _get_github_repo(info.root)
+    if repo is None:
+        return
+    project_name = repo.split("/")[-1]
+    tag = f"v{version}"
+
+    sibling = _resolve_sibling(info.root, "claude-plugins")
+    if sibling is None:
+        _fail("Sibling claude-plugins not found — required for marketplace propagation")
+        return
+
+    marketplace_path = sibling / ".claude-plugin" / "marketplace.json"
+    if not marketplace_path.exists():
+        _fail("marketplace.json not found in claude-plugins")
+        return
+
+    if dry_run:
+        _dry(
+            f"../claude-plugins/marketplace.json: "
+            f"{project_name} version={version}, ref={tag}"
+        )
+        return
+
+    _validate_sibling(sibling, "claude-plugins")
+
+    raw = json.loads(marketplace_path.read_text(encoding="utf-8"))
+    data = cast("dict[str, object]", raw)
+    plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+
+    found = False
+    for plugin in plugins:
+        src = cast("dict[str, str]", plugin.get("source", {}))
+        repo_url = str(src.get("repo", ""))
+        if repo_url.endswith("/" + project_name) or plugin.get("name") == project_name:
+            plugin["version"] = version
+            src["ref"] = tag
+            found = True
+            break
+
+    if not found:
+        _info(f"No marketplace entry for {project_name} — skipping")
+        return
+
+    marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    if _sibling_commit_push(
+        sibling,
+        [".claude-plugin/marketplace.json"],
+        f"chore: bump {project_name} to {tag} in marketplace",
+        "claude-plugins",
+    ):
+        _ok(f"marketplace: {project_name} version={version}, ref={tag}")
     else:
-        _ok("All propagations complete")
+        _ok(f"marketplace: {project_name} already current")
+
+
+def _propagate_profile(info: ProjectInfo, *, dry_run: bool) -> None:
+    """8c. Update .github profile README with punt-kit HEAD SHA."""
+    repo = _get_github_repo(info.root)
+    if repo != "punt-labs/punt-kit":
+        return
+
+    sibling = _resolve_sibling(info.root, ".github")
+    if sibling is None:
+        _info("Sibling .github not found — skipping profile update")
+        return
+
+    readme = sibling / "profile" / "README.md"
+    if not readme.exists():
+        _info(".github/profile/README.md not found — skipping")
+        return
+
+    # Get punt-kit's current main HEAD (includes the 8a commit)
+    punt_kit_sha = _run(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=str(info.root)
+    ).stdout.strip()
+
+    if dry_run:
+        _dry(f"../.github/profile/README.md: install-all.sh SHA → {punt_kit_sha}")
+        return
+
+    _validate_sibling(sibling, ".github")
+
+    content = readme.read_text(encoding="utf-8")
+    new_content = re.sub(
+        r"(punt-labs/punt-kit/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
+        rf"\g<1>{punt_kit_sha}\2",
+        content,
+    )
+
+    if new_content == content:
+        _ok("profile: install-all.sh SHA already current")
+        return
+
+    readme.write_text(new_content, encoding="utf-8")
+
+    if _sibling_commit_push(
+        sibling,
+        ["profile/README.md"],
+        f"chore: update install-all.sh SHA to {punt_kit_sha}",
+        ".github",
+    ):
+        _ok(f"profile: install-all.sh SHA → {punt_kit_sha}")
+
+
+def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """8d. Update version in public-website projects.json."""
+    repo = _get_github_repo(info.root)
+    if repo is None:
+        return
+    project_name = repo.split("/")[-1]
+
+    sibling = _resolve_sibling(info.root, "public-website")
+    if sibling is None:
+        _info("Sibling public-website not found — skipping website update")
+        return
+
+    projects_json = sibling / "src" / "data" / "projects.json"
+    if not projects_json.exists():
+        _info("projects.json not found in public-website — skipping")
+        return
+
+    if dry_run:
+        _dry(f"../public-website/projects.json: {project_name} version={version}")
+        return
+
+    _validate_sibling(sibling, "public-website")
+
+    data = json.loads(projects_json.read_text(encoding="utf-8"))
+
+    found = False
+    for project in data:
+        github_url = project.get("githubUrl", "")
+        if project.get("id") == project_name or github_url.endswith("/" + project_name):
+            project["version"] = version
+            # Update installCommand SHA if present
+            install_cmd = project.get("installCommand", "")
+            if install_cmd and f"/{project_name}/" in install_cmd:
+                tag = f"v{version}"
+                tag_sha = _run(
+                    ["git", "rev-parse", "--short", tag], cwd=str(info.root)
+                ).stdout.strip()
+                project["installCommand"] = re.sub(
+                    rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
+                    r"(/install\.sh)",
+                    rf"\g<1>{tag_sha}\2",
+                    install_cmd,
+                )
+            found = True
+            break
+
+    if not found:
+        _info(f"No website entry for {project_name} — skipping")
+        return
+
+    projects_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    if _sibling_commit_push(
+        sibling,
+        ["src/data/projects.json"],
+        f"chore: bump {project_name} to v{version}",
+        "public-website",
+    ):
+        _ok(f"website: {project_name} version={version}")
+    else:
+        _ok(f"website: {project_name} already current")
+
+
+def _phase8_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 8: Local cross-repo propagation."""
+    console.print("\n[bold]Phase 8: Propagate[/bold]")
+
+    # Order matters: 8a before 8c (profile depends on punt-kit HEAD after 8a)
+    _propagate_install_all(info, version, dry_run=dry_run)
+    _propagate_marketplace(info, version, dry_run=dry_run)
+    _propagate_profile(info, dry_run=dry_run)
+    _propagate_website(info, version, dry_run=dry_run)
+
+
+# ---------------------------------------------------------------------------
+# Phase 9: Verify
+# ---------------------------------------------------------------------------
+
+
+def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 9: Verify all release requirements are satisfied."""
+    console.print("\n[bold]Phase 9: Verify[/bold]")
+
+    if dry_run:
+        _dry("Would verify all release requirements")
+        return
+
+    tag = f"v{version}"
+    checks: list[tuple[str, bool, str]] = []
+
+    # 1. Git tag exists
+    result = _run(["git", "tag", "--list", tag], cwd=str(info.root), check=False)
+    tag_exists = tag in result.stdout.strip()
+    checks.append(("Git tag", tag_exists, tag if tag_exists else "not found"))
+
+    # 2. Version consistency
+    if info.pyproject is not None:
+        current = _get_project_version(info)
+        checks.append(("pyproject.toml", current == version, f"version={current}"))
+
+    pkg_dir = _find_package_dir(info)
+    if pkg_dir is not None:
+        init_py = pkg_dir / "__init__.py"
+        if init_py.exists():
+            content = init_py.read_text(encoding="utf-8")
+            match = re.search(r'__version__\s*=\s*"([^"]*)"', content)
+            init_ver = match.group(1) if match else "not found"
+            checks.append(
+                ("__init__.py", init_ver == version, f"__version__={init_ver}")
+            )
+
+    plugin_json = info.root / ".claude-plugin" / "plugin.json"
+    if plugin_json.exists():
+        pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+        pj_ver = pj_data.get("version", "not found")
+        checks.append(("plugin.json", pj_ver == version, f"version={pj_ver}"))
+
+    install_sh = info.root / "install.sh"
+    if install_sh.exists():
+        content = install_sh.read_text(encoding="utf-8")
+        match = re.search(r'VERSION="([^"]*)"', content)
+        install_ver = match.group(1) if match else "not found"
+        checks.append(("install.sh", install_ver == version, f"VERSION={install_ver}"))
+
+    # 3. Changelog stamped
+    changelog = _read_changelog(info.root)
+    stamped = f"## [{version}]" in changelog
+    checks.append(("CHANGELOG", stamped, "stamped" if stamped else "not stamped"))
+
+    # 4. install-all.sh SHA
+    if install_sh.exists():
+        repo = _get_github_repo(info.root)
+        if repo:
+            project_name = repo.split("/")[-1]
+            sibling = _resolve_sibling(info.root, "punt-kit")
+            if sibling:
+                install_all = sibling / "install-all.sh"
+                if install_all.exists():
+                    iac = install_all.read_text(encoding="utf-8")
+                    match = re.search(
+                        rf"\$GH/{re.escape(project_name)}/"
+                        r"([0-9a-fA-F]{7,40})/install\.sh",
+                        iac,
+                    )
+                    if match:
+                        sha = match.group(1)
+                        vr = _run(
+                            ["git", "show", f"{sha}:install.sh"],
+                            cwd=str(info.root),
+                            check=False,
+                        )
+                        sha_ok = (
+                            f'VERSION="{version}"' in vr.stdout
+                            if vr.returncode == 0
+                            else False
+                        )
+                        checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
+                    else:
+                        checks.append(("install-all.sh", False, "entry not found"))
+
+    # 5. Marketplace
+    if info.is_plugin or info.is_hybrid:
+        repo = _get_github_repo(info.root)
+        if repo:
+            project_name = repo.split("/")[-1]
+            sibling = _resolve_sibling(info.root, "claude-plugins")
+            if sibling:
+                mp = sibling / ".claude-plugin" / "marketplace.json"
+                if mp.exists():
+                    data = cast(
+                        "dict[str, object]",
+                        json.loads(mp.read_text(encoding="utf-8")),
+                    )
+                    plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+                    for p in plugins:
+                        src = cast("dict[str, str]", p.get("source", {}))
+                        if (
+                            str(src.get("repo", "")).endswith("/" + project_name)
+                            or p.get("name") == project_name
+                        ):
+                            mp_ver = str(p.get("version", ""))
+                            mp_ref = str(src.get("ref", ""))
+                            ok = mp_ver == version and mp_ref == tag
+                            checks.append(
+                                (
+                                    "marketplace",
+                                    ok,
+                                    f"version={mp_ver}, ref={mp_ref}",
+                                )
+                            )
+                            break
+
+    # 6. Profile (punt-kit only)
+    repo = _get_github_repo(info.root)
+    if repo == "punt-labs/punt-kit":
+        sibling = _resolve_sibling(info.root, ".github")
+        if sibling:
+            readme = sibling / "profile" / "README.md"
+            if readme.exists():
+                content = readme.read_text(encoding="utf-8")
+                punt_kit_sha = _run(
+                    ["git", "rev-parse", "--short", "HEAD"],
+                    cwd=str(info.root),
+                ).stdout.strip()
+                sha_in_profile = punt_kit_sha in content
+                checks.append(
+                    (
+                        "profile SHA",
+                        sha_in_profile,
+                        f"SHA={punt_kit_sha}",
+                    )
+                )
+
+    # 7. Website
+    if repo:
+        project_name = repo.split("/")[-1]
+        sibling = _resolve_sibling(info.root, "public-website")
+        if sibling:
+            pj = sibling / "src" / "data" / "projects.json"
+            if pj.exists():
+                data = json.loads(pj.read_text(encoding="utf-8"))
+                for entry in data:
+                    github_url = entry.get("githubUrl", "")
+                    if entry.get("id") == project_name or github_url.endswith(
+                        "/" + project_name
+                    ):
+                        web_ver = entry.get("version")
+                        checks.append(
+                            (
+                                "website",
+                                web_ver == version,
+                                f"version={web_ver}",
+                            )
+                        )
+                        break
+
+    # 8. PyPI
+    if info.language == "python":
+        package_name = _get_package_name(info)
+        result = _run(
+            ["uv", "pip", "index", "versions", package_name],
+            check=False,
+        )
+        pypi_ok = version in result.stdout if result.returncode == 0 else False
+        checks.append(("PyPI", pypi_ok, f"{package_name}=={version}"))
+
+    # Print results
+    all_pass = True
+    for name, passed, detail in checks:
+        if passed:
+            _ok(f"{name}: {detail}")
+        else:
+            console.print(f"  [red]✗[/red] {name}: {detail}")
+            all_pass = False
+
+    if not all_pass:
+        _fail("Some verification checks failed — see above")
 
 
 def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -798,36 +1160,27 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     console.print(f"  Version:        {version}")
     console.print(f"  Type:           {ptype}")
     console.print(f"  Tag:            {tag}")
-
-    if info.language == "python" and not dry_run:
-        pypi = "✓"
-    elif info.language != "python":
-        pypi = "N/A"
-    else:
-        pypi = "skipped (dry run)"
-    console.print(f"  PyPI:           {pypi}")
-
-    gh_status = "✓" if not dry_run else "skipped (dry run)"
-    console.print(f"  GitHub Release: {gh_status}")
-
-    has_propagation = info.is_plugin or info.language == "python"
-    if has_propagation and not dry_run:
-        prop = "✓ (install-all.sh"
-        if info.is_plugin or info.is_hybrid:
-            prop += " + marketplace"
-        repo = _get_github_repo(info.root)
-        if repo == "punt-labs/punt-kit":
-            prop += " + org profile"
-        prop += ")"
-    elif not has_propagation:
-        prop = "N/A"
-    else:
-        prop = "skipped (dry run)"
-    console.print(f"  Propagation:    {prop}")
     console.print()
     if not dry_run:
         console.print("  Restart Claude Code to pick up marketplace changes.")
     console.print()
+
+
+# ---------------------------------------------------------------------------
+# Phase name → number mapping for --resume-from
+# ---------------------------------------------------------------------------
+
+PHASE_NAMES: dict[str, int] = {
+    "preflight": 1,
+    "bump": 2,
+    "build": 3,
+    "tag": 4,
+    "ci": 5,
+    "github-release": 6,
+    "pypi": 7,
+    "propagate": 8,
+    "verify": 9,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -840,11 +1193,12 @@ def run_release(
     *,
     version: str | None = None,
     dry_run: bool = False,
+    resume_from: str | None = None,
 ) -> None:
     """Execute the release workflow.
 
-    Phases 1-7 run locally. Phase 8 triggers a GitHub Action for cross-repo
-    propagation and waits for it to complete.
+    Phases 1-7 handle the originating repo. Phase 8 propagates to sibling
+    repos locally. Phase 9 verifies all requirements are satisfied.
     """
     root = Path(path).resolve()
     if not root.is_dir():
@@ -855,47 +1209,57 @@ def run_release(
     if info.language is None and not info.is_plugin:
         _fail("Cannot detect project type — is this a Punt Labs project?")
 
-    mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
-    console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}")
+    # Determine start phase
+    start = 1
+    if resume_from:
+        if resume_from not in PHASE_NAMES:
+            valid = ", ".join(sorted(PHASE_NAMES.keys()))
+            _fail(f"Unknown phase '{resume_from}'. Valid: {valid}")
+        start = PHASE_NAMES[resume_from]
 
-    # Phase 1: Pre-flight
-    _phase1_preflight(info, dry_run=dry_run)
+    mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
+    resume = f" (resuming from phase {start})" if start > 1 else ""
+    console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
 
     # Determine version
     if version is None:
-        if info.pyproject is None:
-            _fail("Version required for plugin-only projects (no pyproject.toml)")
-        current = _get_project_version(info)
-        changelog = _read_changelog(root)
-        version = _suggest_version(changelog, current)
-        console.print(
-            f"\n  [bold]Suggested version:[/bold] {version} (current: {current})"
-        )
-        if not dry_run:
-            # In CLI mode, we use the suggestion. The plugin wrapper can
-            # override via AskUserQuestion if needed.
-            _info(f"Using suggested version {version}")
+        if start <= 2:
+            # Before version bump — detect from changelog
+            if info.pyproject is None:
+                _fail("Version required for plugin-only projects (no pyproject.toml)")
+            current = _get_project_version(info)
+            changelog = _read_changelog(root)
+            version = _suggest_version(changelog, current)
+            console.print(
+                f"\n  [bold]Suggested version:[/bold] {version} (current: {current})"
+            )
+            if not dry_run:
+                _info(f"Using suggested version {version}")
+        else:
+            # After version bump — read from pyproject.toml
+            if info.pyproject is not None:
+                version = _get_project_version(info)
+                _info(f"Detected version {version} from pyproject.toml")
+            else:
+                _fail("Cannot determine version — pass it explicitly")
 
-    # Phase 2: Version bump
-    _phase2_version_bump(info, version, dry_run=dry_run)
+    if start <= 1:
+        _phase1_preflight(info, dry_run=dry_run)
+    if start <= 2:
+        _phase2_version_bump(info, version, dry_run=dry_run)
+    if start <= 3:
+        _phase3_build(info, dry_run=dry_run)
+    if start <= 4:
+        _phase4_tag_push(info, version, dry_run=dry_run)
+    if start <= 5:
+        _phase5_ci_wait(info, version, dry_run=dry_run)
+    if start <= 6:
+        _phase6_github_release(info, version, dry_run=dry_run)
+    if start <= 7:
+        _phase7_verify_pypi(info, version, dry_run=dry_run)
+    if start <= 8:
+        _phase8_propagate(info, version, dry_run=dry_run)
+    if start <= 9:
+        _phase9_verify(info, version, dry_run=dry_run)
 
-    # Phase 3: Build
-    _phase3_build(info, dry_run=dry_run)
-
-    # Phase 4: Tag and push
-    _phase4_tag_push(info, version, dry_run=dry_run)
-
-    # Phase 5: CI wait
-    _phase5_ci_wait(info, version, dry_run=dry_run)
-
-    # Phase 6: GitHub release
-    _phase6_github_release(info, version, dry_run=dry_run)
-
-    # Phase 7: Verify PyPI
-    _phase7_verify_pypi(info, version, dry_run=dry_run)
-
-    # Phase 8: Cross-repo propagation
-    _phase8_trigger_propagation(info, version, dry_run=dry_run)
-
-    # Summary
     _phase_summary(info, version, dry_run=dry_run)

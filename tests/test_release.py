@@ -13,7 +13,13 @@ from punt_kit.release import (
     _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
+    _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
+    _propagate_profile,  # pyright: ignore[reportPrivateUsage]
+    _propagate_website,  # pyright: ignore[reportPrivateUsage]
+    _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
+    _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
 
@@ -433,3 +439,349 @@ def test_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "pyproject.toml").read_text() == original_pyproject
     assert (root / "CHANGELOG.md").read_text() == original_changelog
     assert (root / "install.sh").read_text() == original_install
+
+
+# --- sibling helpers ---
+
+
+def _make_sibling(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
+    """Create a sibling git repo with given files."""
+    sibling = tmp_path / name
+    sibling.mkdir(parents=True, exist_ok=True)
+    _init_git_repo(sibling)
+    for filepath, content in files.items():
+        (sibling / filepath).parent.mkdir(parents=True, exist_ok=True)
+        (sibling / filepath).write_text(content)
+    if files:
+        _git(["add", "."], cwd=str(sibling))
+        _git(["commit", "-m", f"init {name}"], cwd=str(sibling))
+    _git(["fetch", "origin"], cwd=str(sibling))
+    return sibling
+
+
+def test_resolve_sibling_finds_existing(tmp_path: Path) -> None:
+    """Resolves a sibling repo that exists."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    sibling = _make_sibling(tmp_path, "punt-kit", {})
+
+    result = _resolve_sibling(root, "punt-kit")
+    assert result is not None
+    assert result == sibling
+
+
+def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
+    """Returns None when sibling does not exist."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    result = _resolve_sibling(root, "nonexistent")
+    assert result is None
+
+
+def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
+    """Fails when sibling is on wrong branch."""
+    sibling = _make_sibling(tmp_path, "sib", {})
+    _git(["checkout", "-b", "feature"], cwd=str(sibling))
+
+    with pytest.raises(SystemExit):
+        _validate_sibling(sibling, "sib")
+
+
+def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
+    """Fails when sibling has uncommitted changes."""
+    sibling = _make_sibling(tmp_path, "sib", {})
+    (sibling / "dirty.txt").write_text("dirty")
+    _git(["add", "dirty.txt"], cwd=str(sibling))
+
+    with pytest.raises(SystemExit):
+        _validate_sibling(sibling, "sib")
+
+
+# --- Phase 8a: install-all.sh ---
+
+
+def test_propagate_install_all_updates_sha(tmp_path: Path) -> None:
+    """Updates project SHA in install-all.sh."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Create tag
+    _git(["tag", "v0.2.0"], cwd=d)
+
+    # Create punt-kit sibling with install-all.sh referencing this project
+    _make_sibling(
+        tmp_path,
+        "punt-kit",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+            )
+        },
+    )
+
+    # Set remote to include the project name for _get_github_repo
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_install_all(info, "0.2.0", dry_run=False)
+
+    # Verify install-all.sh was updated
+    content = (tmp_path / "punt-kit" / "install-all.sh").read_text()
+    assert "aabb001" not in content
+    tag_sha = subprocess.run(
+        ["git", "rev-parse", "--short", "v0.2.0"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert f"$GH/proj/{tag_sha}/install.sh" in content
+
+
+def test_propagate_install_all_idempotent(tmp_path: Path) -> None:
+    """Running twice produces no second commit."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    tag_sha = subprocess.run(
+        ["git", "rev-parse", "--short", "v0.2.0"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # Create sibling with the SHA already set
+    _make_sibling(
+        tmp_path,
+        "punt-kit",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{tag_sha}/install.sh" | sh\n'
+            )
+        },
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    # Count commits before
+    log_before = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=str(tmp_path / "punt-kit"),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    _propagate_install_all(info, "0.2.0", dry_run=False)
+
+    # Count commits after — should be the same
+    log_after = subprocess.run(
+        ["git", "log", "--oneline"],
+        cwd=str(tmp_path / "punt-kit"),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert log_before == log_after
+
+
+# --- Phase 8b: marketplace ---
+
+
+def test_propagate_marketplace_updates_version(tmp_path: Path) -> None:
+    """Updates version and ref in marketplace.json."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "proj",
+                "version": "0.1.0",
+                "source": {
+                    "repo": "https://github.com/punt-labs/proj",
+                    "ref": "v0.1.0",
+                },
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+    # Verify marketplace.json was updated
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    data = json.loads(mp.read_text())
+    assert data["plugins"][0]["version"] == "0.2.0"
+    assert data["plugins"][0]["source"]["ref"] == "v0.2.0"
+
+
+def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
+    """No-op for non-plugin projects."""
+    root = tmp_path / "cli-proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "test"\nversion = "0.1.0"\n'
+    )
+    (root / "CHANGELOG.md").write_text("## [Unreleased]\n\n### Added\n\n- x\n")
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "init"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    assert not info.is_plugin
+
+    # Should not raise even without claude-plugins sibling
+    _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+
+# --- Phase 8c: profile ---
+
+
+def test_propagate_profile_updates_sha(tmp_path: Path) -> None:
+    """Updates profile README with punt-kit HEAD SHA."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(
+        [
+            "remote",
+            "set-url",
+            "origin",
+            "git@github.com:punt-labs/punt-kit.git",
+        ],
+        cwd=d,
+    )
+
+    _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "profile/README.md": (
+                "# Punt Labs\n\n"
+                "```bash\n"
+                "curl -fsSL https://raw.githubusercontent.com/"
+                "punt-labs/punt-kit/aabb001/install-all.sh | sh\n"
+                "```\n"
+            )
+        },
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_profile(info, dry_run=False)
+
+    readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
+    assert "aabb001" not in readme
+    head_sha = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert f"punt-kit/{head_sha}/install-all.sh" in readme
+
+
+def test_propagate_profile_skipped_for_non_punt_kit(tmp_path: Path) -> None:
+    """No-op when releasing a project other than punt-kit."""
+    root = _make_release_project(tmp_path)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
+        cwd=str(root),
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    # Should not raise even without .github sibling
+    _propagate_profile(info, dry_run=False)
+
+
+# --- Phase 8d: website ---
+
+
+def test_propagate_website_updates_version(tmp_path: Path) -> None:
+    """Updates version in projects.json."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    projects_data = [
+        {"id": "proj", "version": "0.1.0", "githubUrl": ""},
+        {"id": "other", "version": "1.0.0", "githubUrl": ""},
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects_data, indent=2) + "\n"},
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_website(info, "0.2.0", dry_run=False)
+
+    pj = tmp_path / "public-website" / "src" / "data" / "projects.json"
+    data = json.loads(pj.read_text())
+    assert data[0]["version"] == "0.2.0"
+    assert data[1]["version"] == "1.0.0"  # unchanged
+
+
+def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
+    """Graceful skip when public-website not present."""
+    root = _make_release_project(tmp_path)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=str(root),
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    # Should not raise
+    _propagate_website(info, "0.2.0", dry_run=False)
