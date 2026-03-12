@@ -33,7 +33,7 @@ parameters:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Parameter name (snake_case) |
-| `type` | `string` \| `bool` \| `list` \| `int` | yes | Data type |
+| `type` | `string` \| `bool` \| `int` | yes | Data type |
 | `required` | bool | no | Whether the executor must have a value before starting (default: true) |
 | `default` | any | no | Default value (implies required: false) |
 | `description` | string | yes | What this parameter controls |

@@ -30,7 +30,7 @@ steps:
       - If ${version} was provided, use it directly.
       - If not, read the topmost ## [X.Y.Z] heading in CHANGELOG.md.
 
-      Verify: `git tag --list "v<version>" | grep -q "v<version>"`
+      Verify: `git tag --list "v${version}" | grep -q "v${version}"`
       The tag must exist. If it doesn't, the release failed.
     on_failure: diagnose
 
@@ -117,7 +117,7 @@ steps:
     description: Verify marketplace version for hybrid/plugin projects
     type: llm
     context: |
-      For hybrid or plugin projects, read ../claude-plugins/marketplace.json.
+      For hybrid or plugin projects, read ../claude-plugins/.claude-plugin/marketplace.json.
       Find this project's entry. Verify version matches and ref is v${version}.
       Skip for CLI-only projects.
 
