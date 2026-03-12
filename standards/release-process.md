@@ -137,15 +137,14 @@ are satisfied. Prints a pass/fail table.
 
 | Check | Method |
 |-------|--------|
-| Version consistency | Read pyproject.toml, \_\_init\_\_.py, plugin.json, install.sh |
-| Changelog stamped | Find `## [X.Y.Z] - YYYY-MM-DD` in CHANGELOG.md |
 | Git tag exists | `git tag --list vX.Y.Z` |
-| README install SHA | Extract SHA, verify `git show <SHA>:install.sh` has correct VERSION |
-| install-all.sh SHA | Read sibling, extract SHA, verify VERSION pin |
+| Version consistency | Read pyproject.toml, \_\_init\_\_.py, plugin.json, install.sh |
+| Changelog stamped | Regex match `## [X.Y.Z] - YYYY-MM-DD` in CHANGELOG.md |
+| install-all.sh SHA | Read sibling, extract SHA, verify `git show <SHA>:install.sh` has correct VERSION |
 | Marketplace version | Read sibling marketplace.json, check version and ref |
 | Profile SHA | Read sibling profile/README.md, verify punt-kit HEAD |
 | Website version | Read sibling projects.json, check version |
-| PyPI available | `uv pip index versions <package>` |
+| PyPI available | `uv pip index versions <package>` (word-boundary match) |
 
 ## Resume Flag
 

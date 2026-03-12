@@ -737,8 +737,8 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     install_all = sibling / "install-all.sh"
     if not install_all.exists():
-        _info("install-all.sh not found in punt-kit — skipping")
-        return
+        _fail("install-all.sh not found in punt-kit — required for propagation")
+        return  # unreachable
 
     tag = f"v{version}"
     if dry_run:
@@ -824,8 +824,10 @@ def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) ->
             break
 
     if not found:
-        _info(f"No marketplace entry for {project_name} — skipping")
-        return
+        _fail(
+            f"No marketplace entry for {project_name} in marketplace.json "
+            "— required for plugin/hybrid releases"
+        )
 
     marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
@@ -1013,9 +1015,15 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         install_ver = match.group(1) if match else "not found"
         checks.append(("install.sh", install_ver == version, f"VERSION={install_ver}"))
 
-    # 3. Changelog stamped
+    # 3. Changelog stamped (must have date: ## [X.Y.Z] - YYYY-MM-DD)
     changelog = _read_changelog(info.root)
-    stamped = f"## [{version}]" in changelog
+    stamped = bool(
+        re.search(
+            rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}",
+            changelog,
+            re.MULTILINE,
+        )
+    )
     checks.append(("CHANGELOG", stamped, "stamped" if stamped else "not stamped"))
 
     # 4. install-all.sh SHA
@@ -1024,9 +1032,13 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         if repo:
             project_name = repo.split("/")[-1]
             sibling = _resolve_sibling(info.root, "punt-kit")
-            if sibling:
+            if not sibling:
+                checks.append(("install-all.sh", False, "sibling punt-kit not found"))
+            else:
                 install_all = sibling / "install-all.sh"
-                if install_all.exists():
+                if not install_all.exists():
+                    checks.append(("install-all.sh", False, "install-all.sh not found"))
+                else:
                     iac = install_all.read_text(encoding="utf-8")
                     match = re.search(
                         rf"\$GH/{re.escape(project_name)}/"
@@ -1118,7 +1130,7 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                     )
                 )
 
-    # 7. Website
+    # 7. Website (optional — sibling may not exist)
     if repo:
         project_name = repo.split("/")[-1]
         sibling = _resolve_sibling(info.root, "public-website")
@@ -1126,6 +1138,7 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             pj = sibling / "src" / "data" / "projects.json"
             if pj.exists():
                 data = json.loads(pj.read_text(encoding="utf-8"))
+                web_found = False
                 for entry in data:
                     github_url = entry.get("githubUrl", "")
                     if entry.get("id") == project_name or github_url.endswith(
@@ -1139,7 +1152,10 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                                 f"version={web_ver}",
                             )
                         )
+                        web_found = True
                         break
+                if not web_found:
+                    checks.append(("website", False, f"no entry for {project_name}"))
 
     # 8. PyPI
     if info.language == "python":
