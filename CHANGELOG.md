@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-03-11
+
 ### Added
 
 - Plugin: `/punt:auto <playbook>` — general-purpose automation agent that executes YAML playbooks with deterministic scripts and LLM error recovery
