@@ -658,9 +658,9 @@ def _phase7_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
 def _resolve_sibling(root: Path, name: str) -> Path | None:
     """Resolve a sibling repo directory.
 
-    Walks up from root to find a parent that contains name/.git.
-    For the self-referential case (e.g. punt-kit updating its own
-    install-all.sh), returns root itself.
+    Checks root's parent for a sibling named ``name`` with a ``.git``
+    directory.  For the self-referential case (e.g. punt-kit updating
+    its own install-all.sh), returns root itself when root.name matches.
     """
     parent = root.parent
     sibling = parent / name
@@ -753,11 +753,14 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     content = install_all.read_text(encoding="utf-8")
     esc = re.escape(project_name)
-    new_content = re.sub(
-        rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)",
-        rf"\g<1>{tag_sha}\2",
-        content,
-    )
+    pattern = rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)"
+    new_content, count = re.subn(pattern, rf"\g<1>{tag_sha}\2", content)
+
+    if count == 0:
+        _fail(
+            f"install-all.sh: no entry found for {project_name!r} "
+            "— cannot propagate install SHA"
+        )
 
     if new_content == content:
         _ok(f"install-all.sh: {project_name} SHA already current")
@@ -814,6 +817,8 @@ def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) ->
         repo_url = str(src.get("repo", ""))
         if repo_url.endswith("/" + project_name) or plugin.get("name") == project_name:
             plugin["version"] = version
+            if "source" not in plugin:
+                plugin["source"] = src
             src["ref"] = tag
             found = True
             break
@@ -1050,14 +1055,21 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         if repo:
             project_name = repo.split("/")[-1]
             sibling = _resolve_sibling(info.root, "claude-plugins")
-            if sibling:
+            if not sibling:
+                checks.append(
+                    ("marketplace", False, "sibling claude-plugins not found")
+                )
+            else:
                 mp = sibling / ".claude-plugin" / "marketplace.json"
-                if mp.exists():
+                if not mp.exists():
+                    checks.append(("marketplace", False, "marketplace.json not found"))
+                else:
                     data = cast(
                         "dict[str, object]",
                         json.loads(mp.read_text(encoding="utf-8")),
                     )
                     plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+                    mp_found = False
                     for p in plugins:
                         src = cast("dict[str, str]", p.get("source", {}))
                         if (
@@ -1074,15 +1086,24 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                                     f"version={mp_ver}, ref={mp_ref}",
                                 )
                             )
+                            mp_found = True
                             break
+                    if not mp_found:
+                        checks.append(
+                            ("marketplace", False, f"no entry for {project_name}")
+                        )
 
     # 6. Profile (punt-kit only)
     repo = _get_github_repo(info.root)
     if repo == "punt-labs/punt-kit":
         sibling = _resolve_sibling(info.root, ".github")
-        if sibling:
+        if not sibling:
+            checks.append(("profile SHA", False, "sibling .github not found"))
+        else:
             readme = sibling / "profile" / "README.md"
-            if readme.exists():
+            if not readme.exists():
+                checks.append(("profile SHA", False, "profile/README.md not found"))
+            else:
                 content = readme.read_text(encoding="utf-8")
                 punt_kit_sha = _run(
                     ["git", "rev-parse", "--short", "HEAD"],
