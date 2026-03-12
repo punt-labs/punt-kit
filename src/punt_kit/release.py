@@ -1171,7 +1171,7 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                 data = json.loads(pj.read_text(encoding="utf-8"))
                 web_found = False
                 for entry in data:
-                    github_url = entry.get("githubUrl", "")
+                    github_url = entry.get("githubUrl") or ""
                     if entry.get("id") == project_name or github_url.endswith(
                         "/" + project_name
                     ):
