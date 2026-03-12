@@ -938,11 +938,11 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
 
     found = False
     for project in data:
-        github_url = project.get("githubUrl", "")
+        github_url = project.get("githubUrl") or ""
         if project.get("id") == project_name or github_url.endswith("/" + project_name):
             project["version"] = version
             # Update installCommand SHA if present
-            install_cmd = project.get("installCommand", "")
+            install_cmd = project.get("installCommand") or ""
             if install_cmd and f"/{project_name}/" in install_cmd:
                 tag = f"v{version}"
                 tag_sha = _run(
