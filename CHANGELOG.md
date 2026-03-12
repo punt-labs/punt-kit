@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-03-11
+
 ### Fixed
 
 - Release playbook: replace manual `merge-propagation-prs` step with `settle` — waits for auto-merge instead of merging manually
