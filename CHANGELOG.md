@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `punt release` Phase 8: local cross-repo propagation replaces GitHub Actions workflows — direct push to sibling repos instead of workflow dispatch, PRs, and async polling
+- `punt release` Phase 9: verification phase checks all release requirements (version consistency, changelog, install-all.sh, marketplace, profile, website, PyPI)
+- `punt release --resume-from <phase>`: resume interrupted releases from any phase
+
+### Removed
+
+- GitHub Actions propagation workflows (`propagate.yml` in punt-kit, claude-plugins, .github; `propagate-profile.yml` in punt-kit)
+- Release playbook (`playbooks/release.yaml`) — CLI handles everything
+
 ## [0.7.1] - 2026-03-11
 
 ### Fixed
