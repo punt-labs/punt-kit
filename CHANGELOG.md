@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-03-12
+
 ### Changed
 
 - `punt release` Phase 8: local cross-repo propagation replaces GitHub Actions workflows — direct push to sibling repos instead of workflow dispatch, PRs, and async polling
