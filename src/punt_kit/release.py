@@ -1027,10 +1027,11 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         if init_py.exists():
             content = init_py.read_text(encoding="utf-8")
             match = re.search(r'__version__\s*=\s*"([^"]*)"', content)
-            init_ver = match.group(1) if match else "not found"
-            checks.append(
-                ("__init__.py", init_ver == version, f"__version__={init_ver}")
-            )
+            if match:
+                init_ver = match.group(1)
+                checks.append(
+                    ("__init__.py", init_ver == version, f"__version__={init_ver}")
+                )
 
     plugin_json = info.root / ".claude-plugin" / "plugin.json"
     if plugin_json.exists():
