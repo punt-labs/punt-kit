@@ -710,8 +710,20 @@ def _sibling_commit_push(path: Path, files: list[str], message: str, name: str) 
     if result.returncode != 0:
         # Retry once: pull, check if change already landed
         _info(f"{name}: push failed, retrying after pull...")
-        _run(["git", "pull", "--rebase", "origin", "main"], cwd=cwd)
-        _run(["git", "push", "origin", "main"], cwd=cwd, capture=False)
+        rebase = _run(
+            ["git", "pull", "--rebase", "origin", "main"], cwd=cwd, check=False
+        )
+        if rebase.returncode != 0:
+            _run(["git", "rebase", "--abort"], cwd=cwd, check=False)
+            _fail(
+                f"{name}: rebase conflict during push retry — "
+                "resolve manually and re-run the release"
+            )
+        retry = _run(
+            ["git", "push", "origin", "main"], cwd=cwd, check=False, capture=False
+        )
+        if retry.returncode != 0:
+            _fail(f"{name}: push still failing after rebase — resolve manually")
     return True
 
 
@@ -1285,8 +1297,8 @@ def run_release(
 
     # Determine version
     if version is None:
-        if start <= 2:
-            # Before version bump — detect from changelog
+        if start == 1:
+            # Fresh release — detect from changelog
             if info.pyproject is None:
                 _fail("Version required for plugin-only projects (no pyproject.toml)")
             current = _get_project_version(info)
@@ -1298,7 +1310,7 @@ def run_release(
             if not dry_run:
                 _info(f"Using suggested version {version}")
         else:
-            # After version bump — read from pyproject.toml
+            # Resuming — read current version from pyproject.toml
             if info.pyproject is not None:
                 version = _get_project_version(info)
                 _info(f"Detected version {version} from pyproject.toml")
