@@ -1192,7 +1192,7 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     if info.language == "python":
         package_name = _get_package_name(info)
         result = _run(
-            ["uv", "pip", "index", "versions", package_name],
+            ["uv", "run", "pip", "index", "versions", package_name],
             check=False,
         )
         pypi_ok = (
