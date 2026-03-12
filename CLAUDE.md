@@ -165,6 +165,11 @@ CI wait, GitHub release, PyPI verify, cross-repo propagation, and verification.
   is optional (skipped if absent).
 - **Push access to siblings**: The developer's SSH/HTTPS credential must allow
   `git push origin main` on all required siblings.
+- **PyPI approval gate**: The `pypi` job in the release workflow requires
+  manual approval in the GitHub Actions UI. Phase 5 (CI wait) blocks until
+  all jobs complete, so the developer must approve the deployment during the
+  release. Expect ~20 minutes for the full pipeline (build → TestPyPI →
+  test-install → approve → PyPI).
 - **`--resume-from <phase>`**: Resumes from any phase. When resuming without an
   explicit version, reads from `pyproject.toml` (not changelog). Always pass the
   version explicitly when resuming from `bump` if Phase 2 hasn't completed.
