@@ -675,9 +675,11 @@ def _validate_sibling(path: Path, name: str) -> None:
     if branch != "main":
         _fail(f"Sibling {name} is on branch '{branch}', expected main")
 
+    # Only block on modified/staged files — untracked files are harmless
     status = _run(["git", "status", "--porcelain"], cwd=str(path)).stdout.strip()
-    if status:
-        _fail(f"Sibling {name} has uncommitted changes:\n{status}")
+    dirty = "\n".join(ln for ln in status.splitlines() if not ln.startswith("?? "))
+    if dirty:
+        _fail(f"Sibling {name} has uncommitted changes:\n{dirty}")
 
     result = _run(
         ["git", "pull", "--ff-only", "origin", "main"],
