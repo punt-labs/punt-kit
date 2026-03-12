@@ -96,6 +96,51 @@ __all__ = ["CommandResult", "who", "finger", "wall", ...]
 
 A downstream Python app can `from biff.commands import who, CommandResult` and invoke commands without CLI plumbing.
 
+### Dependency layering
+
+When a package contains a heavy rendering/compute layer (GPU libraries, image processing, numerical computing) alongside a lightweight client/protocol layer, split dependencies using optional extras:
+
+```toml
+# Base deps — what library consumers pay for
+dependencies = [
+    "typer>=0.15.0,<1",
+    "fastmcp>=3.0.0,<4",
+]
+
+# Heavy deps — only needed by the rendering/display/compute layer
+[project.optional-dependencies]
+display = [
+    "imgui-bundle>=1.6.0",
+    "numpy>=2.0.0",
+    "Pillow>=11.0.0",
+]
+```
+
+**Rules:**
+
+1. **`__init__.py` must be importable without heavy extras.** Only export symbols from modules that resolve with base deps. If a module imports a heavy dep at the top level (e.g., `import numpy`), do not import that module from `__init__.py`.
+
+2. **Guard CLI commands that need heavy deps.** Catch `ModuleNotFoundError`, check `exc.name` against known heavy modules, and print a helpful install hint. Re-raise for unrelated modules so real bugs aren't masked:
+
+   ```python
+   try:
+       from my_package.display import Server
+   except ModuleNotFoundError as exc:
+       heavy_modules = {"imgui_bundle", "numpy", "PIL"}
+       if exc.name and exc.name.split(".")[0] in heavy_modules:
+           typer.echo("Install with: pip install 'my-package[display]'", err=True)
+           raise typer.Exit(code=1) from None
+       raise
+   ```
+
+3. **CI workflows must install all extras.** `uv sync --frozen --extra dev --extra display`. The full test suite exercises heavy modules even though library consumers don't need them.
+
+4. **`doctor` treats heavy extras as optional.** Report missing display deps as informational, not as failures.
+
+The pattern works because the original code already uses lazy imports — CLI commands import heavy modules inside function bodies, not at module top level. If your code doesn't do this yet, refactor imports to be lazy before splitting deps.
+
+Reference implementation: `punt-lux` (PR #54) — 66 MB display stack moved behind `[display]` extra, base install is ~2 MB.
+
 ### Exceptions
 
 - **Pure contract libraries** (e.g., `langlearn-types`) have no CLI or MCP — they export only protocols and dataclasses. This is correct; the tri-modal rule applies to packages that contain logic.

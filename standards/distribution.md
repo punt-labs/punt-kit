@@ -78,10 +78,24 @@ curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh |
 <summary>Manual install (if you already have uv)</summary>
 
 \`\`\`bash
-uv tool install punt-<name>
+uv tool install punt-<name>        # or 'punt-<name>[display]' if project has heavy extras
 <name> install
 <name> doctor
 \`\`\`
+
+</details>
+
+<details>
+<summary>Lightweight install (library use only)</summary>
+
+If you only need the client library from Python (no display server / no CLI):
+
+\`\`\`bash
+uv add punt-<name>
+\`\`\`
+
+This pulls only the lightweight base deps. Heavy extras (GPU rendering, image
+processing) are available via `punt-<name>[display]`.
 
 </details>
 
@@ -97,6 +111,11 @@ sh install.sh
 
 </details>
 ```
+
+The lightweight install tier only applies to projects with
+[dependency layering](python.md#dependency-layering). Projects where all deps
+are lightweight (e.g., biff, quarry) don't need it — `uv add punt-<name>`
+already installs everything.
 
 ### install.sh requirements
 
@@ -122,6 +141,11 @@ scripts:
   non-deterministic: `uv tool install` fetches latest from PyPI, which may not match the
   SHA pinned in `install-all.sh` or the project README. This has caused real version
   downgrade bugs in production.
+- **EXTRAS pin (when applicable)** — projects with heavy optional deps (see
+  [dependency layering](python.md#dependency-layering)) must declare `EXTRAS="display"`
+  near the top and install with `"$PACKAGE[$EXTRAS]==$VERSION"`. The extras name must
+  match the `[project.optional-dependencies]` section in `pyproject.toml`. Include the
+  extras in failure messages so users see the exact command that failed.
 - **Ends with `doctor`** — run the project's health check to verify the install.
 
 Pattern: `biff/install.sh`, `vox/install.sh`.
