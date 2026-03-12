@@ -978,11 +978,11 @@ def _phase8_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None
 
 
 def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 9: Verify all release requirements are satisfied."""
+    """Phase 9: Run release verification checks."""
     console.print("\n[bold]Phase 9: Verify[/bold]")
 
     if dry_run:
-        _dry("Would verify all release requirements")
+        _dry("Would run release verification checks")
         return
 
     tag = f"v{version}"
@@ -1256,7 +1256,7 @@ def run_release(
     """Execute the release workflow.
 
     Phases 1-7 handle the originating repo. Phase 8 propagates to sibling
-    repos locally. Phase 9 verifies all requirements are satisfied.
+    repos locally. Phase 9 runs final verification checks.
     """
     root = Path(path).resolve()
     if not root.is_dir():

@@ -132,8 +132,9 @@ produce no diff and are skipped.
 
 ## Phase 9: Verify
 
-Read-only checks confirming all requirements from `release-requirements.md`
-are satisfied. Prints a pass/fail table.
+Read-only checks confirming that the automated, file-level requirements from
+`release-requirements.md` listed below are satisfied. Does not cover all
+requirements (for example, GitHub Release existence). Prints a pass/fail table.
 
 | Check | Method |
 |-------|--------|
@@ -175,7 +176,7 @@ The `release.yml` CI workflow (build/test/publish on tag push) is **kept**.
 |------|--------|
 | `src/punt_kit/release.py` | Replace Phase 8, add Phase 9, add sibling helpers |
 | `src/punt_kit/__main__.py` | Add `--resume-from` CLI flag |
-| `tests/test_release.py` | Add propagation and verification tests |
+| `tests/test_release.py` | Add propagation tests |
 | `standards/release-requirements.md` | Update to document local propagation |
 | `CHANGELOG.md` | Add entry |
 | Workflow files (4) | Delete |
