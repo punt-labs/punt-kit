@@ -748,7 +748,7 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
     _validate_sibling(sibling, "punt-kit")
 
     tag_sha = _run(
-        ["git", "rev-parse", "--short", tag], cwd=str(info.root)
+        ["git", "rev-parse", "--short", f"{tag}^{{commit}}"], cwd=str(info.root)
     ).stdout.strip()
 
     content = install_all.read_text(encoding="utf-8")
@@ -932,7 +932,8 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
             if install_cmd and f"/{project_name}/" in install_cmd:
                 tag = f"v{version}"
                 tag_sha = _run(
-                    ["git", "rev-parse", "--short", tag], cwd=str(info.root)
+                    ["git", "rev-parse", "--short", f"{tag}^{{commit}}"],
+                    cwd=str(info.root),
                 ).stdout.strip()
                 project["installCommand"] = re.sub(
                     rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
@@ -1127,7 +1128,13 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                     ["git", "rev-parse", "--short", "HEAD"],
                     cwd=str(info.root),
                 ).stdout.strip()
-                sha_in_profile = punt_kit_sha in content
+                sha_in_profile = bool(
+                    re.search(
+                        rf"punt-labs/punt-kit/{re.escape(punt_kit_sha)}"
+                        r"/install-all\.sh",
+                        content,
+                    )
+                )
                 checks.append(
                     (
                         "profile SHA",
