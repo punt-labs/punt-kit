@@ -152,6 +152,25 @@ These are available within a running Claude Code session, not from the shell:
 | `/doctor` | Diagnose issues |
 | `/compact` | Compact conversation context |
 
+## Release Workflow
+
+`punt release` handles phases 1–9: preflight, version bump, build, tag/push,
+CI wait, GitHub release, PyPI verify, cross-repo propagation, and verification.
+
+### Key assumptions
+
+- **Sibling repos checked out**: Phase 8 (propagation) requires `../punt-kit`,
+  `../claude-plugins`, and `../.github` to be checked out as siblings in the
+  same parent directory, on `main`, with clean working trees. `../public-website`
+  is optional (skipped if absent).
+- **Push access to siblings**: The developer's SSH/HTTPS credential must allow
+  `git push origin main` on all required siblings.
+- **`--resume-from <phase>`**: Resumes from any phase. When resuming without an
+  explicit version, reads from `pyproject.toml` (not changelog). Always pass the
+  version explicitly when resuming from `bump` if Phase 2 hasn't completed.
+
+See [DESIGN.md](DESIGN.md) DES-013 and DES-014 for the full rationale.
+
 ## Pre-PR Checklist
 
 - [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` (not retroactively on main)

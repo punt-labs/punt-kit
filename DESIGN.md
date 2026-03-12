@@ -735,7 +735,7 @@ catches them structurally.
 ## DES-012: Change-Driven Profile Propagation
 
 **Date:** 2026-03-09
-**Status:** SETTLED
+**Status:** SUPERSEDED by DES-013 (2026-03-12)
 **Topic:** Why the public install URL went stale between punt-kit releases and the automated fix
 
 ### Root Cause
@@ -861,3 +861,130 @@ Child release (e.g. vox v1.3.0)
    b. Workflow used `GITHUB_TOKEN` for branch push and PR creation — GitHub's anti-recursion guard suppressed CI triggers, so required checks never ran and auto-merge blocked forever
 10. Fix: added `Contents: Write` to PAT, switched all workflow steps to use `PROPAGATE_TOKEN`
 11. Verified: `.github` PRs #20 and #21 auto-merged end-to-end (PAT enabled auto-merge → CI triggered → merge fired in ~36 seconds)
+
+## DES-013: Local Sibling Propagation
+
+**Date:** 2026-03-12
+**Status:** SETTLED
+**Topic:** Why cross-repo propagation uses local git operations instead of GitHub Actions workflows
+
+### Problem
+
+The GitHub Actions propagation architecture (DES-012, v0.3.0–v0.7.1) dispatched
+workflows in three repos, each creating and auto-merging PRs via
+`PROPAGATE_TOKEN`. This failed on every release attempt with six distinct
+failure modes: secret misconfiguration, merge conflicts, stale PRs, race
+conditions, silent failures, and CI trigger suppression.
+
+### Key Insight
+
+All propagation targets are sibling directories in the workspace. The developer
+has push access to all of them. Every propagation is a deterministic text
+substitution. There is no need for remote workflows, secrets, PRs, or async
+coordination.
+
+### Design
+
+Phase 8 of `punt release` performs direct `git commit && git push` on sibling
+repos. Four sub-steps in fixed order:
+
+| Sub-step | Target | What changes |
+|----------|--------|-------------|
+| 8a. install-all.sh | `../punt-kit` | Project's curl SHA → tag commit SHA |
+| 8b. Marketplace | `../claude-plugins` | `version` + `source.ref` in marketplace.json |
+| 8c. Profile | `../.github` | install-all.sh URL SHA in profile/README.md |
+| 8d. Website | `../public-website` | `version` + `installCommand` SHA in projects.json |
+
+Before modifying any sibling: resolve path, confirm `.git` exists, confirm on
+`main`, confirm clean working tree, `git pull --ff-only`. If any check fails,
+the release halts.
+
+Each sub-step is idempotent — checks for a diff before committing. Re-running
+after interruption skips completed steps.
+
+Phase 9 runs read-only verification across all repos (tag, version consistency,
+changelog, sibling artifacts, PyPI).
+
+### Workspace Assumption
+
+All required sibling repos must be checked out as direct children of the same
+parent directory. The release tool resolves siblings via `root.parent / name`.
+Required siblings for a full punt-kit release: `punt-kit` (self), `claude-plugins`,
+`.github`. Optional: `public-website` (skipped gracefully if absent).
+
+### Why
+
+The local approach eliminates every failure mode of the remote approach:
+
+- **No secrets**: push access is the developer's existing SSH/HTTPS credential.
+- **No PRs**: direct push to main means no merge conflicts, no stale PRs.
+- **No async**: operations are synchronous. If it fails, it stops immediately.
+- **No race conditions**: 8a completes and pushes before 8c reads the result.
+- **Deterministic**: regex substitution on local files. Same input → same output.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| GitHub Actions workflows with `PROPAGATE_TOKEN` | Failed on every release. Six distinct failure modes (see DES-012 history). |
+| GitHub Actions with `GITHUB_TOKEN` | Cannot dispatch cross-repo workflows. CI trigger suppression blocks auto-merge. |
+| Local propagation via PRs (not direct push) | Adds unnecessary complexity. The developer has push access; the sibling is on main with a clean tree. A PR adds a review step to what is a deterministic text substitution. |
+| Clone siblings on-demand (not require checkout) | Slower, requires network access, and the developer should already have siblings for development. |
+| Walk up directory tree to find siblings | Over-engineered. All Punt Labs repos are direct children of the same parent. Single-level lookup is sufficient. |
+
+### What Was Deleted
+
+| File | Repo |
+|------|------|
+| `.github/workflows/propagate.yml` | punt-kit |
+| `.github/workflows/propagate-profile.yml` | punt-kit |
+| `.github/workflows/propagate.yml` | claude-plugins |
+| `.github/workflows/propagate.yml` | .github |
+| `playbooks/release.yaml` | punt-kit |
+| `PROPAGATE_TOKEN` secret | all repos (manual cleanup) |
+
+## DES-014: Resume-From Version Detection
+
+**Date:** 2026-03-12
+**Status:** SETTLED
+**Topic:** How `punt release --resume-from` determines the target version without explicit input
+
+### Design
+
+Version auto-detection uses two strategies based on whether this is a fresh
+release or a resumed one:
+
+- **Fresh release (`start == 1`)**: Derive version from CHANGELOG.md's
+  `[Unreleased]` section using `_suggest_version()`. This computes the next
+  version based on the change types present (breaking → major, feature → minor,
+  fix → patch).
+
+- **Resumed release (`start > 1`)**: Read version from `pyproject.toml` on
+  disk. When resuming, the on-disk state is the source of truth — it may have
+  been bumped by a previous Phase 2 run.
+
+In all cases, the user can pass the version explicitly to override auto-detection.
+
+### Why
+
+The two strategies have complementary failure modes when Phase 2 (version bump)
+is in an ambiguous state:
+
+| Strategy | Phase 2 already ran | Phase 2 hasn't run |
+|----------|--------------------|--------------------|
+| Changelog (`start <= 2`) | **Dangerous**: empty Unreleased → wrong version → propagates to siblings | Correct: suggests next version |
+| Pyproject (`start == 1`) | Correct: reads bumped version | **Safe**: reads old version → Phase 2 is a no-op → user retries with explicit version |
+
+The changelog strategy's failure (wrong version silently propagated) is
+irreversible and affects multiple repos. The pyproject strategy's failure
+(visible no-op) is self-correcting. The design doc examples always show
+explicit versions with `--resume-from`, reinforcing that auto-detection is
+a convenience for fresh releases only.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| `start <= 2` (always use changelog) | Silent wrong version when Phase 2 already ran. This was the original Bugbot finding. |
+| Detect whether Phase 2 ran (compare changelog vs pyproject) | Over-engineered for an edge case. Users should pass the version explicitly when resuming. |
+| Require explicit version when resuming | Too restrictive. `--resume-from propagate` (Phase 8+) is the common recovery case, and pyproject.toml reliably has the right version by then. |
