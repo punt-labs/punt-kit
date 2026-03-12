@@ -1,0 +1,157 @@
+name: autopilot
+description: Autonomous bead-driven development loop
+mode: loop
+
+preconditions:
+  - description: Beads is initialized
+    check: test -d .beads
+  - description: Quality gates are defined
+    check: test -f Makefile || test -f CLAUDE.md
+
+steps:
+  - id: check-sessions
+    description: Check for other active sessions and use worktree if needed
+    type: llm
+    context: |
+      On the FIRST iteration only (skip on subsequent loops):
+      1. Check if other active sessions exist (biff who or process list).
+      2. If other sessions are active, use EnterWorktree to avoid conflicts.
+         One worktree per session — branch freely inside it.
+      3. If no other sessions, work directly on feature branches.
+      Never remove a worktree from inside it.
+
+  - id: find-work
+    description: Find the highest-priority available bead
+    type: script
+    command: bd ready --limit=10
+    on_failure: abort
+
+  - id: claim-bead
+    description: Pick and claim a bead
+    type: llm
+    context: |
+      Review the output of bd ready. Pick the highest-priority unblocked bead.
+      If multiple beads share the same priority, ask the user.
+
+      Run `bd show <id>` to understand the bead. Then claim it:
+      `bd update <id> --status=in_progress`
+
+      If bd ready returned no beads, report "No beads available" and stop.
+
+  - id: assess-complexity
+    description: Classify the work and plan if needed
+    type: llm
+    context: |
+      Read the bead details. Identify affected files and classify:
+      - Small (1-3 files, <50 lines): proceed directly
+      - Medium (3-8 files, 50-200 lines): use EnterPlanMode, get approval
+      - Large (8+ files or architectural): use EnterPlanMode, break into sub-tasks
+
+  - id: create-branch
+    description: Create a feature branch from latest main
+    type: llm
+    context: |
+      Create a feature branch from latest main. In a worktree:
+        git fetch origin main && git checkout origin/main
+        git checkout -b <prefix>/<short-name>
+      On main directly:
+        git checkout -b <prefix>/<short-name> main
+
+      Use the appropriate prefix: feat/, fix/, refactor/, docs/, test/, chore/.
+
+  - id: implement
+    description: Write the solution
+    type: llm
+    context: |
+      Implement the change described in the bead. Follow CLAUDE.md standards.
+      Micro-commits are fine but not required — one clean commit per bead is
+      acceptable. Update CHANGELOG.md for user-visible changes.
+
+  - id: quality-gates
+    description: Run quality gates
+    type: llm
+    context: |
+      Run the project's quality gates. Check what's available:
+      - If a Makefile exists with a `check` target: run `make check`
+      - Otherwise, read CLAUDE.md for the project's quality gate command
+      - If neither exists, skip this step
+
+      All gates must pass before proceeding.
+    on_failure: diagnose
+
+  - id: commit-and-push
+    description: Stage, commit, and push
+    type: llm
+    context: |
+      Stage changed files by name (not git add -A). Commit with
+      type(scope): description format. Push with -u.
+
+  - id: open-pr
+    description: Create a pull request
+    type: llm
+    context: |
+      Use gh pr create with a summary and test plan. Keep title under 70
+      chars. Never target main with a direct push — always go through a PR.
+
+  - id: request-review
+    description: Request Copilot review
+    type: llm
+    context: |
+      Request Copilot review using the MCP tool:
+        mcp__github__request_copilot_review(owner="punt-labs", repo="<repo>", pullNumber=<N>)
+
+  - id: wait-ci
+    description: Wait for CI checks to pass
+    type: llm
+    context: |
+      Run gh pr checks <number> --watch using the PR number from the
+      preceding open-pr step. This blocks until all checks resolve.
+    on_failure: diagnose
+
+  - id: wait-copilot
+    description: Wait for Copilot review (poll up to 15 minutes)
+    type: llm
+    context: |
+      CI passing does NOT mean Copilot has reviewed — those are independent.
+      Poll until the review appears:
+
+        gh pr view <number> --json reviews \
+          --jq '.reviews[] | select(.author.login == "copilot-pull-request-reviewer") | .submittedAt'
+
+      If empty, wait 60 seconds and poll again. Keep polling for at least
+      15 minutes. Do not invent theories about why the review is absent.
+      If no review after 15 minutes, ask the user whether to continue
+      waiting or merge without review.
+
+  - id: address-feedback
+    description: Read and address review comments
+    type: llm
+    context: |
+      Read Copilot feedback with gh pr view <number> --comments.
+
+      Address feedback:
+      - 0 issues: proceed to merge
+      - 1-3 issues: fix, push, request another review (up to 2 rounds)
+      - 4+ issues: fix, push, request another review (up to 3 rounds)
+
+      After each fix round, re-run quality gates (make check), push, and
+      wait for CI again. If issues persist after max rounds, summarize
+      remaining items and ask the user.
+
+  - id: merge
+    description: Merge the PR via MCP
+    type: llm
+    context: |
+      Use the MCP tool to merge — never gh pr merge:
+        mcp__github__merge_pull_request(owner="punt-labs", repo="<repo>", pullNumber=<N>, merge_method="squash")
+
+      Then update local state:
+      - In a worktree: git fetch origin main && git checkout origin/main
+      - On main directly: git checkout main && git pull
+
+  - id: close-bead
+    description: Close the bead and continue
+    type: llm
+    context: |
+      Run bd close <id>. Do not ask "Ready for the next bead?" — the loop
+      continues automatically. The user will interrupt if they want to stop.

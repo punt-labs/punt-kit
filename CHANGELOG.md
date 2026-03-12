@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Plugin: `/punt:auto <playbook>` — general-purpose automation agent that executes YAML playbooks with deterministic scripts and LLM error recovery
+- Playbook schema: YAML format for defining multi-step processes with `script` (deterministic) and `llm` (judgment) step types, postconditions, and failure strategies
+- Playbooks: `autopilot` (bead-driven dev loop), `permissions-rollout` (cross-repo permission changes), `standards-rollout` (cross-repo standards changes), `release` (full release workflow with verification)
+
 ## [0.6.3] - 2026-03-11
 
 ### Fixed

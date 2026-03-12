@@ -1,0 +1,101 @@
+name: permissions-rollout
+description: Roll out permission rule changes to all project settings.json files
+mode: once
+
+parameters:
+  - name: rules
+    type: string
+    required: true
+    description: >
+      Permission rules to add, comma-separated
+      (e.g. 'Read(../**),Edit(../**),Write(../**)').
+      For a single rule, just pass the rule string.
+  - name: section
+    type: string
+    default: allow
+    enum: [allow, deny]
+    description: Permission section to modify
+  - name: commit_message
+    type: string
+    default: "chore: update permissions in settings.json"
+    description: Commit message for child repo changes
+
+preconditions:
+  - description: Working directory is the punt-labs workspace root
+    check: test -d punt-kit && test -d quarry
+  - description: punt-kit standards are accessible
+    check: test -f punt-kit/standards/permissions.md
+
+steps:
+  - id: update-standard
+    description: Update permissions.md with the new rules
+    type: llm
+    context: |
+      Read punt-kit/standards/permissions.md. Add the new rules to the
+      appropriate section (allow rules go in §3, deny rules in §4). Follow
+      the existing formatting — tables for deny rules, code blocks for allow
+      rules. Place new rules in the most logical subsection.
+
+      After editing, verify the first rule appears in the file.
+
+  - id: update-init
+    description: Update build_standard_permissions() or build_standard_deny_rules() in init.py
+    type: llm
+    context: |
+      Read punt-kit/src/punt_kit/init.py. For allow rules, add them to
+      build_standard_permissions(). For deny rules, add them to
+      build_standard_deny_rules(). Follow the existing code style — group
+      related rules with a comment referencing the permissions.md section.
+
+      Verify the rules appear in the function output after editing.
+    on_failure: diagnose
+
+  - id: run-quality-gates
+    description: Verify punt-kit passes quality gates after the code change
+    type: script
+    command: make -C punt-kit check
+    on_failure: diagnose
+
+  - id: commit-punt-kit
+    description: Commit the standard and code changes in punt-kit
+    type: llm
+    context: |
+      Stage the changed files in punt-kit (standards/permissions.md,
+      src/punt_kit/init.py, and any test changes). Commit with a descriptive
+      message like "feat(permissions): add <rule> to standard".
+
+  - id: patch-child-repos
+    description: Add rules to each child project's settings.json
+    type: llm
+    context: |
+      For each project directory that has a .claude/settings.json, read the
+      file, add the new rules to the permissions.${section} array (avoiding
+      duplicates), and write it back. Use jq-style ordering — keep existing
+      rules, append new ones.
+
+      Projects to patch: biff, quarry, vox, langlearn-tts, langlearn,
+      langlearn-anki, langlearn-imagegen, langlearn-types, prfaq, dungeon,
+      z-spec, public-website, quarry-menubar, koch-trainer-swift.
+
+      Skip any project that doesn't have .claude/settings.json.
+
+      If a settings.json is not tracked by git (gitignored via .claude/
+      directory ignore), use `git add -f .claude/settings.json` to force-track it.
+
+  - id: commit-child-repos
+    description: Commit and push changes in each child repo
+    type: llm
+    context: |
+      For each child repo that was patched:
+      1. git add -f .claude/settings.json
+      2. git commit -m "${commit_message}"
+      3. git push
+
+      Track which repos succeeded and which failed. If any repo fails to
+      commit or push, report the failure — do not silently continue.
+      All repos must be committed and pushed before this step is complete.
+
+  - id: push-punt-kit
+    description: Push punt-kit changes
+    type: script
+    command: git -C punt-kit push -u origin HEAD

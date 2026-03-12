@@ -1,0 +1,77 @@
+name: standards-rollout
+description: Roll out a standards change across all projects
+mode: once
+
+parameters:
+  - name: standard
+    type: string
+    required: true
+    description: >
+      What standard is being rolled out (e.g. 'makefile prfaq target',
+      'CLAUDE.md quality gates', 'GitHub workflow timeout')
+  - name: projects
+    type: string
+    default: "biff quarry vox langlearn-tts prfaq dungeon z-spec"
+    description: >
+      Space-separated list of project directories to update
+      (relative to workspace root)
+
+preconditions:
+  - description: Working directory is the punt-labs workspace root
+    check: test -d punt-kit && test -d quarry
+
+steps:
+  - id: understand-standard
+    description: Read the standard being rolled out
+    type: llm
+    context: |
+      Read the relevant punt-kit standard document(s) to understand exactly
+      what needs to change in each project. The standard being rolled out is:
+      "${standard}"
+
+      Check punt-kit/standards/ for the relevant document. Understand what
+      the compliant state looks like so you can verify each project.
+
+  - id: audit-current-state
+    description: Check which projects are already compliant
+    type: llm
+    context: |
+      For each project in the target list, check whether it already meets
+      the standard. Use punt audit if applicable, or manually inspect the
+      relevant files. Build a list of:
+      - Already compliant (skip)
+      - Needs update (will patch)
+      - Not applicable (skip with reason)
+
+      Print a summary table before proceeding.
+
+  - id: patch-projects
+    description: Update non-compliant projects
+    type: llm
+    context: |
+      For each project that needs updating, make the minimum change to
+      bring it into compliance. Follow the project's existing conventions.
+      Do not refactor or improve unrelated code.
+
+      After patching each project, verify compliance by running the same
+      check from the audit step.
+
+  - id: quality-gates
+    description: Run quality gates in projects with code changes
+    type: llm
+    context: |
+      For each patched project that has quality gates (Makefile with check
+      target, or commands in CLAUDE.md), run them. Fix any failures.
+      Skip projects that are documentation-only (prfaq, dungeon).
+
+  - id: commit-and-push
+    description: Commit and push changes in each project
+    type: llm
+    context: |
+      For each patched project:
+      1. Stage only the files you changed (not git add -A)
+      2. Commit with: chore: ${standard}
+      3. Push to origin
+
+      If the project requires PRs for all changes (branch protection),
+      create a branch and PR instead of pushing to main.
