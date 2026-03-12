@@ -1148,7 +1148,11 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             ["uv", "pip", "index", "versions", package_name],
             check=False,
         )
-        pypi_ok = version in result.stdout if result.returncode == 0 else False
+        pypi_ok = (
+            bool(re.search(rf"\b{re.escape(version)}\b", result.stdout))
+            if result.returncode == 0
+            else False
+        )
         checks.append(("PyPI", pypi_ok, f"{package_name}=={version}"))
 
     # Print results
@@ -1242,6 +1246,10 @@ def run_release(
     resume = f" (resuming from phase {start})" if start > 1 else ""
     console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
 
+    # Run preflight before version detection (need clean tree for accurate reads)
+    if start <= 1:
+        _phase1_preflight(info, dry_run=dry_run)
+
     # Determine version
     if version is None:
         if start <= 2:
@@ -1263,9 +1271,6 @@ def run_release(
                 _info(f"Detected version {version} from pyproject.toml")
             else:
                 _fail("Cannot determine version — pass it explicitly")
-
-    if start <= 1:
-        _phase1_preflight(info, dry_run=dry_run)
     if start <= 2:
         _phase2_version_bump(info, version, dry_run=dry_run)
     if start <= 3:
