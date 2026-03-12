@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release` Phase 2: refresh `uv.lock` after version bump to prevent dirty working tree in Phase 8
+- `punt release` Phase 8: exclude untracked files from sibling clean-tree check
+- `punt release` Phase 8/9: handle `null` values in website `projects.json` (`githubUrl: null`)
+- `punt release` Phase 9: use `uv run pip index versions` for PyPI verification (was `uv pip index`, which doesn't exist)
+
 ## [0.7.2] - 2026-03-12
 
 ### Changed
