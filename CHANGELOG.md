@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release playbook: replace manual `merge-propagation-prs` step with `settle` — waits for auto-merge instead of merging manually
+- Release playbook: remove `update-github-profile` step — handled automatically by propagation chain (`propagate-profile.yml`)
+- Marketplace propagation workflow (`claude-plugins`): use `PROPAGATE_TOKEN` for auto-merge (was `GITHUB_TOKEN`, which can't bypass branch protection)
+
 ## [0.7.0] - 2026-03-11
 
 ### Added
