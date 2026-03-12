@@ -335,10 +335,15 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             changelog_path.write_text(new_content, encoding="utf-8")
             _ok(f"CHANGELOG.md: [{version}] - {today}")
 
-    # 2d. Commit
+    # 2d. Refresh lock file and commit
     if dry_run:
+        _dry("uv lock (refresh lock file)")
         _dry(f'git commit -m "chore: release v{version}"')
     else:
+        lock_file = root / "uv.lock"
+        if lock_file.exists():
+            _run(["uv", "lock"], cwd=str(root))
+            _ok("uv.lock refreshed")
         _run(["git", "add", "-A"], cwd=str(root))
         _run(
             ["git", "commit", "-m", f"chore: release v{version}"],
