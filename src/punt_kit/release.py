@@ -270,13 +270,16 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             pyproject_path.write_text(new_content, encoding="utf-8")
             _ok(f'pyproject.toml: version = "{version}"')
 
-    # Bump __init__.py __version__
+    # Bump __init__.py __version__ (skip if version comes from importlib.metadata)
     pkg_dir = _find_package_dir(info)
     if pkg_dir is not None:
         init_py = pkg_dir / "__init__.py"
         if init_py.exists():
             content = init_py.read_text(encoding="utf-8")
-            if "__version__" in content:
+            uses_metadata = (
+                "importlib.metadata" in content or "importlib_metadata" in content
+            )
+            if "__version__" in content and not uses_metadata:
                 new_content = re.sub(
                     r'^(__version__\s*=\s*")[^"]*(")',
                     rf"\g<1>{version}\2",
@@ -1026,12 +1029,16 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         init_py = pkg_dir / "__init__.py"
         if init_py.exists():
             content = init_py.read_text(encoding="utf-8")
-            match = re.search(r'__version__\s*=\s*"([^"]*)"', content)
-            if match:
-                init_ver = match.group(1)
-                checks.append(
-                    ("__init__.py", init_ver == version, f"__version__={init_ver}")
-                )
+            uses_metadata = (
+                "importlib.metadata" in content or "importlib_metadata" in content
+            )
+            if not uses_metadata:
+                match = re.search(r'__version__\s*=\s*"([^"]*)"', content)
+                if match:
+                    init_ver = match.group(1)
+                    checks.append(
+                        ("__init__.py", init_ver == version, f"__version__={init_ver}")
+                    )
 
     plugin_json = info.root / ".claude-plugin" / "plugin.json"
     if plugin_json.exists():
