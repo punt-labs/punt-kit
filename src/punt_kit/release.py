@@ -870,11 +870,17 @@ def _propagate_profile(info: ProjectInfo, *, dry_run: bool) -> None:
     _validate_sibling(sibling, ".github")
 
     content = readme.read_text(encoding="utf-8")
-    new_content = re.sub(
+    new_content, count = re.subn(
         r"(punt-labs/punt-kit/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
         rf"\g<1>{punt_kit_sha}\2",
         content,
     )
+
+    if count == 0:
+        _fail(
+            "profile/README.md: no install-all.sh URL found "
+            "matching punt-labs/punt-kit/<sha>/install-all.sh"
+        )
 
     if new_content == content:
         _ok("profile: install-all.sh SHA already current")
