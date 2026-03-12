@@ -993,9 +993,13 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     tag_exists = tag in result.stdout.strip()
     checks.append(("Git tag", tag_exists, tag if tag_exists else "not found"))
 
-    # 2. Version consistency
-    if info.pyproject is not None:
-        current = _get_project_version(info)
+    # 2. Version consistency (read fresh from disk — info.pyproject is stale
+    # after Phase 2 bumps the version)
+    pyproject_path = info.root / "pyproject.toml"
+    if pyproject_path.exists():
+        content = pyproject_path.read_text(encoding="utf-8")
+        match = re.search(r'^version\s*=\s*"([^"]*)"', content, re.MULTILINE)
+        current = match.group(1) if match else "not found"
         checks.append(("pyproject.toml", current == version, f"version={current}"))
 
     pkg_dir = _find_package_dir(info)
