@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.6] - 2026-03-13
+
 ### Changed
 
 - `punt release`: route all main-branch changes through PRs instead of direct push (DES-016) — required by zero-bypass branch protection (DES-015)
