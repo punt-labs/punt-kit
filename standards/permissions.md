@@ -34,7 +34,7 @@ Contains:
 
 - MCP plugin tool wildcards
 - Build tool Bash commands
-- Skill permissions
+- Skills catalog (informational, not enforced)
 - WebFetch domain allowlist
 - Deny rules
 - Project-specific entries (hooks, env, additionalDirectories)
@@ -373,7 +373,7 @@ Run `punt audit` to check compliance. The audit checks:
 
 - All required deny rules are present
 - All required MCP wildcards are present
-- Skills section is informational (no permission entries needed)
+- No `Skill()` entries in allow list (not enforced by Claude Code)
 - `settings.local.json` is gitignored
 - No local paths appear in `settings.json`
 

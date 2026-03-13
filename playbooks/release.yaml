@@ -18,68 +18,29 @@ preconditions:
 
 steps:
   - id: run-cli
-    description: Run punt release (phases 1-8)
+    description: Run punt release (phases 1-9)
     type: script
     command: punt release ${version}
     on_failure: diagnose
 
-  - id: merge-propagation-prs
-    description: Merge any propagation PRs created by the release
-    type: llm
-    context: |
-      Check for open propagation PRs in sibling repos:
-
-        gh pr list --repo punt-labs/punt-kit --state open --search "propagate"
-        gh pr list --repo punt-labs/claude-plugins --state open --search "propagate"
-        gh pr list --repo punt-labs/.github --state open --search "propagate"
-
-      For each open propagation PR:
-      1. Wait for CI: gh pr checks <number> --repo <repo> --watch
-      2. Check for merge conflicts: gh pr view <number> --repo <repo> --json mergeable
-      3. Merge via API: gh api repos/<owner>/<repo>/pulls/<number>/merge --method PUT -f merge_method=squash
-      4. Delete the branch after merge.
-
-      If no propagation PRs exist (the CLI handled propagation locally), skip this step.
-
-  - id: website-sync
-    description: Update public website project data
-    type: llm
-    context: |
-      Look for ../public-website/src/data/projects.json relative to the project root.
-
-      If found:
-      1. Update the project's "version" to the release version.
-      2. If install.sh changed, update "installCommand" with the new SHA.
-      3. Commit and push (confirm with the user first).
-
-      If the directory is not found, print manual instructions and continue.
-
-  - id: profile-update
-    description: Update .github profile README with current punt-kit SHA
-    type: llm
-    context: |
-      Only applies to punt-kit releases. Skip for all other projects.
-
-      After install-all.sh changes are merged:
-      1. Get the latest punt-kit main SHA: git -C ../punt-kit rev-parse --short HEAD
-      2. Update the curl URL in ../.github/profile/README.md
-      3. Commit and push (confirm with the user first).
-
-      Skip if ../.github is not present or the SHA is already current.
-
   - id: verify
-    description: Run end-to-end verification
+    description: Verify the release is complete
     type: llm
     context: |
-      Run all verification checks. The release is NOT complete until every
-      check passes.
+      The CLI handles phases 1-9: preflight, version bump, build, tag/push,
+      CI wait, GitHub release, PyPI verify, cross-repo propagation (local
+      sibling pushes), and verification.
+
+      Confirm the CLI reported success. If it did, spot-check:
 
       1. PyPI version: uv pip index versions <package> — confirm release version appears
-      2. install-all.sh SHA and VERSION pin — verify the SHA points to correct install.sh
-      3. Marketplace version — verify marketplace.json version and ref match
-      4. Website version — verify projects.json version matches
-      5. .github profile SHA — verify profile README points to current punt-kit main
+      2. install-all.sh SHA: verify the SHA in ../punt-kit/install-all.sh points to correct install.sh
+      3. Marketplace version (hybrid/plugin projects): verify marketplace.json version and ref match
+      4. Website version: verify ../public-website/src/data/projects.json if present
+      5. .github profile SHA: verify profile README points to current punt-kit main
 
-      Print a pass/fail table. If any check fails, diagnose and fix before
-      declaring the release complete.
+      Print a pass/fail table. If any check fails, diagnose and fix.
+
+      If the CLI failed partway, use `punt release --resume-from <phase>` to
+      resume from the failed phase.
     on_failure: diagnose
