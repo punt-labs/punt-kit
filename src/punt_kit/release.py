@@ -325,9 +325,21 @@ def _pr_merge(
         _fail(f"Failed to push branch {branch} — fix and retry")
     _ok(f"Pushed branch {branch}")
 
-    # 2. Check for existing PR
+    # 2. Check for existing PR (include merged/closed for resume)
     existing = _run(
-        [gh, "pr", "list", "--head", branch, "--json", "number,state", "--limit", "1"],
+        [
+            gh,
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "all",
+            "--json",
+            "number,state",
+            "--limit",
+            "1",
+        ],
         cwd=root,
         check=False,
     )
@@ -546,11 +558,15 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             _run(["uv", "lock"], cwd=str(root))
             _ok("uv.lock refreshed")
         _run(["git", "add", "-A"], cwd=str(root))
-        _run(
-            ["git", "commit", "-m", f"chore: release v{version}"],
-            cwd=str(root),
-        )
-        _ok("Release commit created")
+        status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
+        if status:
+            _run(
+                ["git", "commit", "-m", f"chore: release v{version}"],
+                cwd=str(root),
+            )
+            _ok("Release commit created")
+        else:
+            _ok("Release commit already exists (resume)")
 
 
 def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
@@ -594,14 +610,23 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     root = info.root
     branch = f"release/v{version}"
 
-    # 4a. Plugin swap (hybrid only)
+    # 4a. Plugin swap (hybrid only — idempotent: skip if already prod)
     if info.is_hybrid:
         release_script = root / "scripts" / "release-plugin.sh"
         if dry_run:
             _dry("bash scripts/release-plugin.sh")
         else:
-            _run(["bash", str(release_script)], cwd=str(root), capture=False)
-            _ok("Plugin swapped to prod")
+            plugin_json = root / ".claude-plugin" / "plugin.json"
+            pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+            if pj_data.get("name", "").endswith("-dev"):
+                _run(
+                    ["bash", str(release_script)],
+                    cwd=str(root),
+                    capture=False,
+                )
+                _ok("Plugin swapped to prod")
+            else:
+                _ok("Plugin already in prod state (resume)")
 
     # 4b. Push branch, create PR, wait for CI, squash-merge
     _pr_merge(
@@ -916,7 +941,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
     if status:
         _run(["git", "add", "-A"], cwd=str(root))
-        msg = f"chore: update punt-kit install SHA to v{version}"
+        msg = f"chore: update README install SHA to v{version}"
         _run(["git", "commit", "-m", msg], cwd=str(root))
         has_changes = True
 
