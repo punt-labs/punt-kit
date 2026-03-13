@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-03-12
+
 ### Fixed
 
 - `punt release` Phase 2: refresh `uv.lock` after version bump to prevent dirty working tree in Phase 8
