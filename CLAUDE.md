@@ -154,19 +154,36 @@ These are available within a running Claude Code session, not from the shell:
 
 ## Release Workflow
 
-`punt release` handles phases 1–9: preflight, version bump, build, tag/push,
-CI wait, GitHub release, PyPI verify, cross-repo propagation, and verification.
+`punt release` handles phases 1–11: preflight, version bump, build, release PR,
+tag, CI wait, GitHub release, PyPI verify, post-release, cross-repo propagation,
+and verification. All main-branch changes go through PRs (zero bypass actors).
+
+### Phase structure
+
+| Phase | Name | Description |
+|-------|------|-------------|
+| 1 | preflight | Branch, clean tree, changelog, quality gates |
+| 2 | bump | Create `release/vX.Y.Z` branch, bump versions |
+| 3 | build | `uv build` + `twine check` on branch |
+| 4 | release-pr | Plugin swap (hybrid), push branch, PR, CI, squash-merge |
+| 5 | tag | Tag main HEAD, push tag |
+| 6 | ci | Wait for tag-triggered `release.yml` |
+| 7 | github-release | Create GitHub release with changelog notes |
+| 8 | pypi | Verify PyPI install |
+| 9 | post-release | Dev restore + README SHA bump via PR |
+| 10 | propagate | Sibling PRs (install-all.sh, marketplace, profile, website) |
+| 11 | verify | Read-only checks across all repos |
 
 ### Key assumptions
 
-- **Sibling repos checked out**: Phase 8 (propagation) requires `../punt-kit`,
+- **Sibling repos checked out**: Phase 10 (propagation) requires `../punt-kit`,
   `../claude-plugins`, and `../.github` to be checked out as siblings in the
   same parent directory, on `main`, with clean working trees. `../public-website`
   is optional (skipped if absent).
 - **Push access to siblings**: The developer's SSH/HTTPS credential must allow
-  `git push origin main` on all required siblings.
+  `git push` on branches in all required siblings.
 - **PyPI approval gate**: The `pypi` job in the release workflow requires
-  manual approval in the GitHub Actions UI. Phase 5 (CI wait) blocks until
+  manual approval in the GitHub Actions UI. Phase 6 (CI wait) blocks until
   all jobs complete, so the developer must approve the deployment during the
   release. Expect ~20 minutes for the full pipeline (build → TestPyPI →
   test-install → approve → PyPI).
@@ -174,7 +191,7 @@ CI wait, GitHub release, PyPI verify, cross-repo propagation, and verification.
   explicit version, reads from `pyproject.toml` (not changelog). Always pass the
   version explicitly when resuming from `bump` if Phase 2 hasn't completed.
 
-See [DESIGN.md](DESIGN.md) DES-013 and DES-014 for the full rationale.
+See [DESIGN.md](DESIGN.md) DES-013, DES-014, and DES-016 for the full rationale.
 
 ## Pre-PR Checklist
 

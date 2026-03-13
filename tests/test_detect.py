@@ -34,6 +34,16 @@ def test_detect_node_package(tmp_path: Path) -> None:
     assert "node" in info.standards_refs
 
 
+def test_detect_go(tmp_path: Path) -> None:
+    """Detect Go from go.mod."""
+    (tmp_path / "go.mod").write_text("module example.com/test\n\ngo 1.25.0\n")
+
+    info = detect(tmp_path)
+
+    assert info.language == "go"
+    assert info.project_type == "package"
+
+
 def test_detect_swift(tmp_path: Path) -> None:
     """Detect Swift from .swift files."""
     (tmp_path / "App.swift").write_text("import SwiftUI")

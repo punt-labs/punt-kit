@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `punt release`: route all main-branch changes through PRs instead of direct push (DES-016) — required by zero-bypass branch protection (DES-015)
+- `punt release`: expand from 9 phases to 11 — split old Phase 4 (tag+push) into Phase 4 (release-pr) + Phase 5 (tag), add Phase 9 (post-release) for dev restore + README SHA bump
+- `punt release`: sibling propagation (Phase 10) uses PRs via `_sibling_pr_merge` instead of `_sibling_commit_push`
+
 ## [0.7.5] - 2026-03-13
 
 ### Changed

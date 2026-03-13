@@ -69,6 +69,12 @@ def detect(root: Path) -> ProjectInfo:
             project_type = "package"
             standards_refs.append("node")
 
+    # Check Go
+    go_mod = root / "go.mod"
+    if go_mod.exists() and language is None:
+        language = "go"
+        project_type = "package"
+
     # Check Swift
     swift_files = list(root.glob("**/*.swift"))
     xcodegen = root / "project.yml"

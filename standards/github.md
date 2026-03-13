@@ -14,9 +14,11 @@ Every repository must protect `main` with a ruleset (preferred) or branch protec
 |---------|-------|-----|
 | Require pull request | Yes | No direct pushes to main. Creates an audit trail. |
 | Required approvals | 0 | Copilot and Cursor review as advisory (COMMENT, not APPROVE). Revisit when a project has 3+ developers. |
+| Require conversation resolution | Yes | Unresolved review comments block merge. |
 | Require status checks to pass | Yes | CI must pass before merge. |
 | Prevent force push | Yes | Protects commit history. |
 | Prevent branch deletion | Yes | main is permanent. |
+| Bypass actors | None | No admin override. Zero bypass actors on every ruleset. |
 
 ### Optional settings
 
@@ -24,12 +26,11 @@ Every repository must protect `main` with a ruleset (preferred) or branch protec
 |---------|---------------|
 | Dismiss stale reviews on new push | Yes — prevents merging after significant changes without re-review. |
 | Require review from code owners | Only if CODEOWNERS file exists. |
-| Require conversation resolution | Yes for repos with active review threads. |
 | Restrict who can push | Not needed for small teams. Rely on PR requirement. |
 
-### Admin bypass
+### No bypass
 
-Repository admins may bypass protection for emergency fixes. This should be rare and documented (e.g., a commit message noting the bypass reason).
+Rulesets must have **zero bypass actors**. No admin override, no emergency exception. Every change to main goes through a pull request — no exceptions. If a fix is urgent, the PR can be minimal, but it still goes through the gate.
 
 ---
 

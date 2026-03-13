@@ -77,7 +77,9 @@ def _get_install_sh_sha(root: Path) -> str:
 
 
 def _get_project_version(info: ProjectInfo) -> str:
-    """Extract current version from pyproject.toml."""
+    """Extract current version from pyproject.toml or git tags (Go)."""
+    if info.language == "go":
+        return _get_latest_tag_version(info.root)
     if info.pyproject is None:
         _fail("No pyproject.toml found")
     project = info.pyproject.get("project")
@@ -87,6 +89,19 @@ def _get_project_version(info: ProjectInfo) -> str:
     if not isinstance(version, str):
         _fail("No version in pyproject.toml [project]")
     return version
+
+
+def _get_latest_tag_version(root: Path) -> str:
+    """Get the latest semantic version from git tags."""
+    result = _run(
+        ["git", "tag", "--list", "v*", "--sort=-v:refname"],
+        cwd=str(root),
+    )
+    tags = result.stdout.strip().splitlines()
+    if not tags:
+        return "0.0.0"
+    # Strip 'v' prefix
+    return tags[0].removeprefix("v")
 
 
 def _get_package_name(info: ProjectInfo) -> str:
@@ -234,6 +249,21 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
             if result.returncode != 0:
                 _fail(f"Quality gate failed: {' '.join(gate)}")
         _ok("All quality gates passed")
+    elif not dry_run and info.language == "go":
+        _info("Running quality gates...")
+        makefile = info.root / "Makefile"
+        if makefile.exists():
+            result = _run(
+                ["make", "check"], cwd=str(info.root), check=False, capture=False
+            )
+            if result.returncode != 0:
+                _fail("Quality gate failed: make check")
+        else:
+            for gate in [["go", "vet", "./..."], ["go", "test", "-race", "./..."]]:
+                result = _run(gate, cwd=str(info.root), check=False, capture=False)
+                if result.returncode != 0:
+                    _fail(f"Quality gate failed: {' '.join(gate)}")
+        _ok("All quality gates passed")
     elif dry_run:
         _dry("Would run quality gates")
 
@@ -265,11 +295,173 @@ def _suggest_version(changelog: str, current: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def _pr_merge(
+    *,
+    cwd: Path,
+    branch: str,
+    title: str,
+    body: str = "",
+    dry_run: bool = False,
+) -> str:
+    """Push branch, create PR, wait for CI, squash-merge. Return merge SHA."""
+    gh = shutil.which("gh")
+    if gh is None:
+        _fail("gh CLI not found — install from https://cli.github.com")
+
+    root = str(cwd)
+
+    if dry_run:
+        _dry(f"git push -u origin {branch}")
+        _dry(f'gh pr create --base main --head {branch} --title "{title}"')
+        _dry("gh pr checks <number> --watch --fail-fast")
+        _dry("gh pr merge <number> --squash --delete-branch")
+        return "<SHA>"
+
+    # 1. Push branch (idempotent)
+    result = _run(
+        ["git", "push", "-u", "origin", branch], cwd=root, check=False, capture=False
+    )
+    if result.returncode != 0:
+        _fail(f"Failed to push branch {branch} — fix and retry")
+    _ok(f"Pushed branch {branch}")
+
+    # 2. Check for existing PR (include merged/closed for resume)
+    existing = _run(
+        [
+            gh,
+            "pr",
+            "list",
+            "--head",
+            branch,
+            "--state",
+            "all",
+            "--json",
+            "number,state",
+            "--limit",
+            "1",
+        ],
+        cwd=root,
+        check=False,
+    )
+    pr_number: int | None = None
+    if existing.returncode == 0:
+        try:
+            prs = json.loads(existing.stdout)
+        except json.JSONDecodeError:
+            _fail(f"Failed to parse gh pr list output: {existing.stdout[:200]}")
+        if prs:
+            pr_number = prs[0]["number"]
+            if prs[0]["state"] == "MERGED":
+                _ok(f"PR #{pr_number} already merged")
+                _run(["git", "checkout", "main"], cwd=root)
+                _run(["git", "pull", "--ff-only"], cwd=root)
+                sha = _run(
+                    ["git", "rev-parse", "--short", "HEAD"], cwd=root
+                ).stdout.strip()
+                return sha
+            _info(f"Found existing PR #{pr_number}")
+
+    # 3. Create PR if none exists
+    if pr_number is None:
+        create_cmd = [
+            gh,
+            "pr",
+            "create",
+            "--base",
+            "main",
+            "--head",
+            branch,
+            "--title",
+            title,
+        ]
+        if body:
+            create_cmd.extend(["--body", body])
+        else:
+            create_cmd.extend(["--body", ""])
+        result = _run(create_cmd, cwd=root, check=False)
+        if result.returncode != 0:
+            _fail(f"Failed to create PR: {result.stderr.strip()}")
+        # Extract PR number from output URL
+        pr_url = result.stdout.strip()
+        try:
+            pr_number = int(pr_url.rstrip("/").split("/")[-1])
+        except ValueError:
+            _fail(f"Failed to extract PR number from gh output: {pr_url}")
+        _ok(f"Created PR #{pr_number}")
+
+    # 4. Wait for CI
+    _info(f"Waiting for CI on PR #{pr_number}...")
+    result = _run(
+        [gh, "pr", "checks", str(pr_number), "--watch", "--fail-fast"],
+        cwd=root,
+        check=False,
+        capture=False,
+        timeout=7200,
+    )
+    if result.returncode != 0:
+        _fail(
+            f"CI failed on PR #{pr_number} — fix on branch {branch} and "
+            f"resume with --resume-from"
+        )
+    _ok("CI passed")
+
+    # 5. Check if already merged (handles resume)
+    state = _run(
+        [gh, "pr", "view", str(pr_number), "--json", "state"],
+        cwd=root,
+        check=False,
+    )
+    if state.returncode != 0:
+        _fail(f"Failed to check PR #{pr_number} state: {state.stderr.strip()}")
+    try:
+        pr_state = json.loads(state.stdout).get("state")
+    except json.JSONDecodeError:
+        _fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
+    if pr_state == "MERGED":
+        _ok(f"PR #{pr_number} already merged")
+        _run(["git", "checkout", "main"], cwd=root)
+        _run(["git", "pull", "--ff-only"], cwd=root)
+        sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
+        return sha
+
+    # 6. Squash-merge
+    result = _run(
+        [gh, "pr", "merge", str(pr_number), "--squash", "--delete-branch"],
+        cwd=root,
+        check=False,
+    )
+    if result.returncode != 0:
+        _fail(f"Failed to merge PR #{pr_number}: {result.stderr.strip()}")
+    _ok(f"PR #{pr_number} merged")
+
+    # 7. Update local main
+    _run(["git", "checkout", "main"], cwd=root)
+    _run(["git", "pull", "--ff-only"], cwd=root)
+    sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
+    return sha
+
+
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 2: Bump version in all locations."""
+    """Phase 2: Bump version on release branch."""
     console.print(f"\n[bold]Phase 2: Version bump → {version}[/bold]")
 
     root = info.root
+    branch = f"release/v{version}"
+
+    # Create release branch
+    if dry_run:
+        _dry(f"git checkout -b {branch}")
+    else:
+        # Check if branch already exists (resume case)
+        existing = _run(
+            ["git", "branch", "--list", branch], cwd=str(root)
+        ).stdout.strip()
+        if existing:
+            _run(["git", "checkout", branch], cwd=str(root))
+            _info(f"Checked out existing branch {branch}")
+        else:
+            _run(["git", "checkout", "-b", branch], cwd=str(root))
+            _ok(f"Created branch {branch}")
 
     # 2b. Bump version in pyproject.toml
     pyproject_path = root / "pyproject.toml"
@@ -366,11 +558,15 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             _run(["uv", "lock"], cwd=str(root))
             _ok("uv.lock refreshed")
         _run(["git", "add", "-A"], cwd=str(root))
-        _run(
-            ["git", "commit", "-m", f"chore: release v{version}"],
-            cwd=str(root),
-        )
-        _ok("Release commit created")
+        status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
+        if status:
+            _run(
+                ["git", "commit", "-m", f"chore: release v{version}"],
+                cwd=str(root),
+            )
+            _ok("Release commit created")
+        else:
+            _ok("Release commit already exists (resume)")
 
 
 def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
@@ -407,51 +603,79 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     _ok("Build artifacts pass twine check")
 
 
-def _phase4_tag_push(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 4: Plugin swap, tag, push, restore."""
-    console.print(f"\n[bold]Phase 4: Tag and push v{version}[/bold]")
+def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 4: Plugin swap, push branch, create PR, merge."""
+    console.print(f"\n[bold]Phase 4: Release PR v{version}[/bold]")
 
     root = info.root
+    branch = f"release/v{version}"
 
-    # 4a. Plugin swap (hybrid only)
+    # 4a. Plugin swap (hybrid only — idempotent: skip if already prod)
     if info.is_hybrid:
         release_script = root / "scripts" / "release-plugin.sh"
         if dry_run:
             _dry("bash scripts/release-plugin.sh")
         else:
-            _run(["bash", str(release_script)], cwd=str(root), capture=False)
-            _ok("Plugin swapped to prod")
+            plugin_json = root / ".claude-plugin" / "plugin.json"
+            pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+            if pj_data.get("name", "").endswith("-dev"):
+                _run(
+                    ["bash", str(release_script)],
+                    cwd=str(root),
+                    capture=False,
+                )
+                _ok("Plugin swapped to prod")
+            else:
+                _ok("Plugin already in prod state (resume)")
 
-    # 4b. Tag
+    # 4b. Push branch, create PR, wait for CI, squash-merge
+    _pr_merge(
+        cwd=root,
+        branch=branch,
+        title=f"chore: release v{version}",
+        dry_run=dry_run,
+    )
+
+
+def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 5: Tag main HEAD and push tag."""
+    console.print(f"\n[bold]Phase 5: Tag v{version}[/bold]")
+
+    root = info.root
     tag = f"v{version}"
+
     if dry_run:
         _dry(f"git tag {tag}")
-    else:
-        _run(["git", "tag", tag], cwd=str(root))
-        _ok(f"Tagged {tag}")
+        _dry(f"git push origin {tag}")
+        return
 
-    # 4c. Push
-    if dry_run:
-        _dry(f"git push origin main {tag}")
-    else:
-        console.print(
-            f"\n  [bold yellow]About to push main + {tag} to origin[/bold yellow]"
-        )
-        _run(["git", "push", "origin", "main", tag], cwd=str(root), capture=False)
-        _ok("Pushed to origin")
+    # Ensure we're on main (resume may leave us on release branch)
+    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
+    if current != "main":
+        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "pull", "--ff-only"], cwd=str(root))
 
-    # 4d. Restore dev state (hybrid only)
-    if info.is_hybrid:
-        restore_script = root / "scripts" / "restore-dev-plugin.sh"
-        if dry_run:
-            _dry("bash scripts/restore-dev-plugin.sh && git push origin main")
+    # Check if tag already exists
+    existing = _run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
+    if existing:
+        # Verify it points to HEAD
+        tag_sha = _run(["git", "rev-parse", tag], cwd=str(root)).stdout.strip()
+        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=str(root)).stdout.strip()
+        if tag_sha == head_sha:
+            _ok(f"Tag {tag} already exists at HEAD")
         else:
-            _run(["bash", str(restore_script)], cwd=str(root), capture=False)
-            _run(["git", "push", "origin", "main"], cwd=str(root), capture=False)
-            _ok("Dev plugin state restored and pushed")
+            _fail(
+                f"Tag {tag} exists but points to {tag_sha[:8]}, "
+                f"not HEAD ({head_sha[:8]})"
+            )
+        return
 
-    # 4e. Bump README install URL SHAs to point to the tagged commit
-    _bump_readme_install_sha(info, version, dry_run=dry_run)
+    _run(["git", "tag", tag], cwd=str(root))
+    _ok(f"Tagged {tag}")
+
+    # Push tag (not blocked by branch protection — targets refs/tags/*)
+    _run(["git", "push", "origin", tag], cwd=str(root), capture=False)
+    _ok(f"Pushed tag {tag}")
 
 
 def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -498,18 +722,12 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
         return
 
     readme_path.write_text(new_content, encoding="utf-8")
-    _run(["git", "add", "README.md"], cwd=str(root))
-    _run(
-        ["git", "commit", "-m", f"chore: bump README install URL to {tag}"],
-        cwd=str(root),
-    )
-    _run(["git", "push", "origin", "main"], cwd=str(root), capture=False)
     _ok(f"README.md: install URLs → {short_sha} ({tag})")
 
 
-def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 5: Wait for CI."""
-    console.print("\n[bold]Phase 5: Wait for CI[/bold]")
+def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 6: Wait for CI."""
+    console.print("\n[bold]Phase 6: Wait for CI[/bold]")
 
     tag = f"v{version}"
 
@@ -576,9 +794,9 @@ def _phase5_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _ok("CI passed")
 
 
-def _phase6_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 6: Create GitHub release."""
-    console.print(f"\n[bold]Phase 6: GitHub release v{version}[/bold]")
+def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 7: Create GitHub release."""
+    console.print(f"\n[bold]Phase 7: GitHub release v{version}[/bold]")
 
     tag = f"v{version}"
 
@@ -589,6 +807,17 @@ def _phase6_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
     gh = shutil.which("gh")
     if gh is None:
         _fail("gh CLI not found")
+
+    # Check if CI already created the release (e.g., Go projects use
+    # softprops/action-gh-release in their release workflow).
+    existing = _run(
+        [gh, "release", "view", tag],
+        cwd=str(info.root),
+        check=False,
+    )
+    if existing.returncode == 0:
+        _ok(f"GitHub release {tag} already exists (created by CI)")
+        return
 
     changelog = _read_changelog(info.root)
     notes = _extract_version_notes(changelog, version)
@@ -603,12 +832,12 @@ def _phase6_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
     _ok(f"GitHub release {tag} created")
 
 
-def _phase7_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 7: Verify PyPI install."""
+def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 8: Verify PyPI install."""
     if info.language != "python":
         return
 
-    console.print("\n[bold]Phase 7: Verify PyPI install[/bold]")
+    console.print("\n[bold]Phase 8: Verify PyPI install[/bold]")
 
     package_name = _get_package_name(info)
 
@@ -670,6 +899,87 @@ def _phase7_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
 
 
 # ---------------------------------------------------------------------------
+# Phase 9: Post-release (dev restore + README SHA bump via PR)
+# ---------------------------------------------------------------------------
+
+
+def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 9: Dev plugin restore and README SHA bump via PR."""
+    console.print(f"\n[bold]Phase 9: Post-release v{version}[/bold]")
+
+    root = info.root
+    branch = f"post-release/v{version}"
+    has_changes = False
+
+    if dry_run:
+        if info.is_hybrid:
+            _dry("bash scripts/restore-dev-plugin.sh")
+        _dry("_bump_readme_install_sha(...)")
+        _dry(f'git commit -m "chore: post-release v{version}"')
+        _dry(f"_pr_merge(branch={branch})")
+        return
+
+    # Create post-release branch
+    # Ensure we're on main first
+    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
+    if current != "main":
+        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "pull", "--ff-only"], cwd=str(root))
+
+    existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
+    if existing:
+        _run(["git", "checkout", branch], cwd=str(root))
+        _info(f"Checked out existing branch {branch}")
+    else:
+        _run(["git", "checkout", "-b", branch], cwd=str(root))
+        _ok(f"Created branch {branch}")
+
+    # Dev restore (hybrid only — idempotent: skip if already dev)
+    if info.is_hybrid:
+        plugin_json = root / ".claude-plugin" / "plugin.json"
+        pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+        if not pj_data.get("name", "").endswith("-dev"):
+            restore_script = root / "scripts" / "restore-dev-plugin.sh"
+            _run(["bash", str(restore_script)], cwd=str(root), capture=False)
+            _ok("Dev plugin state restored")
+            has_changes = True
+        else:
+            _ok("Plugin already in dev state (resume)")
+
+    # README SHA bump
+    _bump_readme_install_sha(info, version, dry_run=False)
+    # Check if _bump_readme_install_sha made changes
+    status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
+    if status:
+        _run(["git", "add", "-A"], cwd=str(root))
+        msg = f"chore: update README install SHA to v{version}"
+        _run(["git", "commit", "-m", msg], cwd=str(root))
+        has_changes = True
+
+    if not has_changes:
+        # Check if branch has commits ahead of main (resume case)
+        ahead = _run(
+            ["git", "log", "main..HEAD", "--oneline"],
+            cwd=str(root),
+        ).stdout.strip()
+        if ahead:
+            has_changes = True
+        else:
+            _run(["git", "checkout", "main"], cwd=str(root))
+            _run(["git", "branch", "-D", branch], cwd=str(root))
+            _ok("No post-release changes needed")
+            return
+
+    _pr_merge(
+        cwd=root,
+        branch=branch,
+        title=f"chore: post-release v{version}",
+        dry_run=False,
+    )
+    _ok("Post-release PR merged")
+
+
+# ---------------------------------------------------------------------------
 # Sibling repo helpers
 # ---------------------------------------------------------------------------
 
@@ -709,10 +1019,18 @@ def _validate_sibling(path: Path, name: str) -> None:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
 
 
-def _sibling_commit_push(path: Path, files: list[str], message: str, name: str) -> bool:
-    """Stage, commit, and push changes in a sibling repo.
+def _sibling_pr_merge(
+    path: Path,
+    branch: str,
+    files: list[str],
+    message: str,
+    name: str,
+    *,
+    dry_run: bool,
+) -> bool:
+    """Create branch, stage files, commit, and merge via PR in a sibling repo.
 
-    Returns True if a commit was made, False if no changes.
+    Returns True if a PR was created and merged, False if no changes.
     """
     cwd = str(path)
     status = _run(
@@ -721,40 +1039,42 @@ def _sibling_commit_push(path: Path, files: list[str], message: str, name: str) 
     if not status:
         return False
 
+    if dry_run:
+        _dry(f"{name}: {message}")
+        return True
+
+    # Create branch (handle resume: branch may already exist)
+    existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
+    if existing:
+        _run(["git", "checkout", branch], cwd=cwd)
+    else:
+        _run(["git", "checkout", "-b", branch], cwd=cwd)
     for f in files:
         _run(["git", "add", f], cwd=cwd)
-    _run(["git", "commit", "-m", message], cwd=cwd)
+    # Skip commit if nothing staged (resume case: already committed)
+    staged = _run(
+        ["git", "status", "--porcelain", "--", *files], cwd=cwd
+    ).stdout.strip()
+    if staged:
+        _run(["git", "commit", "-m", message], cwd=cwd)
 
-    result = _run(
-        ["git", "push", "origin", "main"], cwd=cwd, check=False, capture=False
+    _pr_merge(
+        cwd=path,
+        branch=branch,
+        title=message,
+        dry_run=False,
     )
-    if result.returncode != 0:
-        # Retry once: pull, check if change already landed
-        _info(f"{name}: push failed, retrying after pull...")
-        rebase = _run(
-            ["git", "pull", "--rebase", "origin", "main"], cwd=cwd, check=False
-        )
-        if rebase.returncode != 0:
-            _run(["git", "rebase", "--abort"], cwd=cwd, check=False)
-            _fail(
-                f"{name}: rebase conflict during push retry — "
-                "resolve manually and re-run the release"
-            )
-        retry = _run(
-            ["git", "push", "origin", "main"], cwd=cwd, check=False, capture=False
-        )
-        if retry.returncode != 0:
-            _fail(f"{name}: push still failing after rebase — resolve manually")
+
     return True
 
 
 # ---------------------------------------------------------------------------
-# Phase 8: Local propagation
+# Phase 10: Local propagation via PRs
 # ---------------------------------------------------------------------------
 
 
 def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """8a. Update project's install.sh SHA in punt-kit/install-all.sh."""
+    """10a. Update project's install.sh SHA in punt-kit/install-all.sh."""
     if not (info.root / "install.sh").exists():
         return
 
@@ -788,10 +1108,8 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
     new_content, count = re.subn(pattern, rf"\g<1>{install_sha}\2", content)
 
     if count == 0:
-        _fail(
-            f"install-all.sh: no entry found for {project_name!r} "
-            "— cannot propagate install SHA"
-        )
+        _info(f"install-all.sh: no entry for {project_name} — skipping")
+        return
 
     if new_content == content:
         _ok(f"install-all.sh: {project_name} SHA already current")
@@ -799,17 +1117,20 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     install_all.write_text(new_content, encoding="utf-8")
 
-    if _sibling_commit_push(
+    branch = f"propagate/v{version}-punt-kit"
+    if _sibling_pr_merge(
         sibling,
+        branch,
         ["install-all.sh"],
         f"chore: update {project_name} install SHA to {tag}",
         "punt-kit",
+        dry_run=dry_run,
     ):
         _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """8b. Update version and ref in claude-plugins marketplace.json."""
+    """10b. Update version and ref in claude-plugins marketplace.json."""
     if not info.is_plugin and not info.is_hybrid:
         return
 
@@ -862,19 +1183,22 @@ def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
-    if _sibling_commit_push(
+    branch = f"propagate/v{version}-claude-plugins"
+    if _sibling_pr_merge(
         sibling,
+        branch,
         [".claude-plugin/marketplace.json"],
         f"chore: bump {project_name} to {tag} in marketplace",
         "claude-plugins",
+        dry_run=dry_run,
     ):
         _ok(f"marketplace: {project_name} version={version}, ref={tag}")
     else:
         _ok(f"marketplace: {project_name} already current")
 
 
-def _propagate_profile(info: ProjectInfo, *, dry_run: bool) -> None:
-    """8c. Update .github profile README with punt-kit HEAD SHA."""
+def _propagate_profile(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """10c. Update .github profile README with punt-kit HEAD SHA."""
     repo = _get_github_repo(info.root)
     if repo != "punt-labs/punt-kit":
         return
@@ -889,7 +1213,7 @@ def _propagate_profile(info: ProjectInfo, *, dry_run: bool) -> None:
         _info(".github/profile/README.md not found — skipping")
         return
 
-    # Get punt-kit's current main HEAD (includes the 8a commit)
+    # Get punt-kit's current main HEAD (includes the 10a commit)
     punt_kit_sha = _run(
         ["git", "rev-parse", "--short", "HEAD"], cwd=str(info.root)
     ).stdout.strip()
@@ -919,17 +1243,20 @@ def _propagate_profile(info: ProjectInfo, *, dry_run: bool) -> None:
 
     readme.write_text(new_content, encoding="utf-8")
 
-    if _sibling_commit_push(
+    branch = f"propagate/v{version}-github"
+    if _sibling_pr_merge(
         sibling,
+        branch,
         ["profile/README.md"],
         f"chore: update install-all.sh SHA to {punt_kit_sha}",
         ".github",
+        dry_run=dry_run,
     ):
         _ok(f"profile: install-all.sh SHA → {punt_kit_sha}")
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """8d. Update version in public-website projects.json."""
+    """10d. Update version in public-website projects.json."""
     repo = _get_github_repo(info.root)
     if repo is None:
         return
@@ -977,36 +1304,39 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
 
     projects_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
-    if _sibling_commit_push(
+    branch = f"propagate/v{version}-public-website"
+    if _sibling_pr_merge(
         sibling,
+        branch,
         ["src/data/projects.json"],
         f"chore: bump {project_name} to v{version}",
         "public-website",
+        dry_run=dry_run,
     ):
         _ok(f"website: {project_name} version={version}")
     else:
         _ok(f"website: {project_name} already current")
 
 
-def _phase8_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 8: Local cross-repo propagation."""
-    console.print("\n[bold]Phase 8: Propagate[/bold]")
+def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 10: Local cross-repo propagation via PRs."""
+    console.print("\n[bold]Phase 10: Propagate[/bold]")
 
-    # Order matters: 8a before 8c (profile depends on punt-kit HEAD after 8a)
+    # Order matters: 10a before 10c (profile depends on punt-kit HEAD after 10a)
     _propagate_install_all(info, version, dry_run=dry_run)
     _propagate_marketplace(info, version, dry_run=dry_run)
-    _propagate_profile(info, dry_run=dry_run)
+    _propagate_profile(info, version, dry_run=dry_run)
     _propagate_website(info, version, dry_run=dry_run)
 
 
 # ---------------------------------------------------------------------------
-# Phase 9: Verify
+# Phase 11: Verify
 # ---------------------------------------------------------------------------
 
 
-def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 9: Run release verification checks."""
-    console.print("\n[bold]Phase 9: Verify[/bold]")
+def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Phase 11: Run release verification checks."""
+    console.print("\n[bold]Phase 11: Verify[/bold]")
 
     if dry_run:
         _dry("Would run release verification checks")
@@ -1055,8 +1385,11 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     if install_sh.exists():
         content = install_sh.read_text(encoding="utf-8")
         match = re.search(r'VERSION="([^"]*)"', content)
-        install_ver = match.group(1) if match else "not found"
-        checks.append(("install.sh", install_ver == version, f"VERSION={install_ver}"))
+        if match:
+            install_ver = match.group(1)
+            checks.append(
+                ("install.sh", install_ver == version, f"VERSION={install_ver}")
+            )
 
     # 3. Changelog stamped (must have date: ## [X.Y.Z] - YYYY-MM-DD)
     changelog = _read_changelog(info.root)
@@ -1095,11 +1428,14 @@ def _phase9_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                             cwd=str(info.root),
                             check=False,
                         )
-                        sha_ok = (
-                            f'VERSION="{version}"' in vr.stdout
-                            if vr.returncode == 0
-                            else False
-                        )
+                        if vr.returncode != 0:
+                            sha_ok = False
+                        elif f'VERSION="{version}"' in vr.stdout:
+                            # Python/hybrid: VERSION pin matches
+                            sha_ok = True
+                        else:
+                            # Go/other: no VERSION pin — SHA resolves
+                            sha_ok = 'VERSION="' not in vr.stdout
                         checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
                     else:
                         checks.append(("install-all.sh", False, "entry not found"))
@@ -1251,7 +1587,7 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     console.print(f"  Type:           {ptype}")
     console.print(f"  Tag:            {tag}")
     console.print()
-    if not dry_run:
+    if not dry_run and (info.is_plugin or info.is_hybrid):
         console.print("  Restart Claude Code to pick up marketplace changes.")
     console.print()
 
@@ -1264,12 +1600,16 @@ PHASE_NAMES: dict[str, int] = {
     "preflight": 1,
     "bump": 2,
     "build": 3,
-    "tag": 4,
-    "ci": 5,
-    "github-release": 6,
-    "pypi": 7,
-    "propagate": 8,
-    "verify": 9,
+    "release-pr": 4,
+    "tag": 5,
+    "ci": 6,
+    "github-release": 7,
+    "pypi": 8,
+    "post-release": 9,
+    "propagate": 10,
+    "verify": 11,
+    # Aliases for muscle-memory from old phase names
+    "release": 4,
 }
 
 
@@ -1287,8 +1627,9 @@ def run_release(
 ) -> None:
     """Execute the release workflow.
 
-    Phases 1-7 handle the originating repo. Phase 8 propagates to sibling
-    repos locally. Phase 9 runs final verification checks.
+    Phases 1–8 handle the originating repo. Phase 9 does post-release
+    cleanup (dev restore, README SHA). Phase 10 propagates to sibling
+    repos via PRs. Phase 11 runs final verification checks.
     """
     root = Path(path).resolve()
     if not root.is_dir():
@@ -1319,7 +1660,7 @@ def run_release(
     if version is None:
         if start == 1:
             # Fresh release — detect from changelog
-            if info.pyproject is None:
+            if info.pyproject is None and info.language != "go":
                 _fail("Version required for plugin-only projects (no pyproject.toml)")
             current = _get_project_version(info)
             changelog = _read_changelog(root)
@@ -1330,27 +1671,29 @@ def run_release(
             if not dry_run:
                 _info(f"Using suggested version {version}")
         else:
-            # Resuming — read current version from pyproject.toml
-            if info.pyproject is not None:
-                version = _get_project_version(info)
-                _info(f"Detected version {version} from pyproject.toml")
-            else:
-                _fail("Cannot determine version — pass it explicitly")
+            # Resuming — read current version
+            version = _get_project_version(info)
+            source = "git tags" if info.language == "go" else "pyproject.toml"
+            _info(f"Detected version {version} from {source}")
     if start <= 2:
         _phase2_version_bump(info, version, dry_run=dry_run)
     if start <= 3:
         _phase3_build(info, dry_run=dry_run)
     if start <= 4:
-        _phase4_tag_push(info, version, dry_run=dry_run)
+        _phase4_release_pr(info, version, dry_run=dry_run)
     if start <= 5:
-        _phase5_ci_wait(info, version, dry_run=dry_run)
+        _phase5_tag(info, version, dry_run=dry_run)
     if start <= 6:
-        _phase6_github_release(info, version, dry_run=dry_run)
+        _phase6_ci_wait(info, version, dry_run=dry_run)
     if start <= 7:
-        _phase7_verify_pypi(info, version, dry_run=dry_run)
+        _phase7_github_release(info, version, dry_run=dry_run)
     if start <= 8:
-        _phase8_propagate(info, version, dry_run=dry_run)
+        _phase8_verify_pypi(info, version, dry_run=dry_run)
     if start <= 9:
-        _phase9_verify(info, version, dry_run=dry_run)
+        _phase9_post_release(info, version, dry_run=dry_run)
+    if start <= 10:
+        _phase10_propagate(info, version, dry_run=dry_run)
+    if start <= 11:
+        _phase11_verify(info, version, dry_run=dry_run)
 
     _phase_summary(info, version, dry_run=dry_run)

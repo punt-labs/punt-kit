@@ -658,7 +658,9 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
 def _report_manual_steps(info: ProjectInfo) -> None:
     """Print steps that require manual action."""
     steps: list[str] = [
-        "Enable branch protection on main (require PR, 1 approval, status checks)",
+        "Create branch protection ruleset on main"
+        " (require PR, 0 approvals, status checks,"
+        " conversation resolution, zero bypass actors)",
         "Enable GitHub Copilot code review",
         "Enable Dependabot alerts + security updates",
         "Enable secret scanning + push protection",
