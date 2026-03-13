@@ -455,7 +455,7 @@ def _phase4_tag_push(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
 
 def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Update SHA-pinned install.sh URLs in README.md to the tagged commit."""
+    """Update SHA-pinned install.sh URLs in README to the install.sh commit."""
     root = info.root
     readme_path = root / "README.md"
     install_sh = root / "install.sh"
