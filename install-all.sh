@@ -48,7 +48,7 @@ curl -fsSL "$GH/claude-plugins/d7679bd/install.sh" | sh
 # Each installer handles its own pre-flight (Python, uv, SSH fallback).
 
 banner "punt-kit"
-curl -fsSL "$GH/punt-kit/7c4ec05/install.sh" | sh
+curl -fsSL "$GH/punt-kit/f60618c/install.sh" | sh
 
 banner "biff"
 curl -fsSL "$GH/biff/9149bdc/install.sh" | sh
