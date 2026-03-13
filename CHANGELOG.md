@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.5] - 2026-03-13
+
 ### Changed
 
 - `restore-dev-plugin.sh`: add `[skip ci]` to commit message across all 5 hybrid repos (punt-kit, biff, quarry, vox, lux) — prevents unnecessary CI runs on post-release dev-state restore
