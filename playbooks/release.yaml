@@ -8,14 +8,6 @@ parameters:
     required: false
     description: Semantic version to release (e.g. 1.2.3). Auto-detected from CHANGELOG.md if omitted.
 
-preconditions:
-  - description: Working directory is a punt-labs project
-    check: test -f pyproject.toml || test -f .claude-plugin/plugin.json
-  - description: On main branch
-    check: test "$(git branch --show-current)" = "main"
-  - description: Clean working tree
-    check: test -z "$(git status --porcelain)"
-
 steps:
   - id: run-cli
     description: Run punt release (phases 1-9)
