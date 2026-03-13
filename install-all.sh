@@ -42,19 +42,19 @@ fi
 # --- Step 1: Marketplace ---
 
 banner "Marketplace"
-curl -fsSL "$GH/claude-plugins/9c621aa/install.sh" | sh
+curl -fsSL "$GH/claude-plugins/d7679bd/install.sh" | sh
 
 # --- Step 2: CLI tools ---
 # Each installer handles its own pre-flight (Python, uv, SSH fallback).
 
 banner "punt-kit"
-curl -fsSL "$GH/punt-kit/dba3181/install.sh" | sh
+curl -fsSL "$GH/punt-kit/7c4ec05/install.sh" | sh
 
 banner "biff"
 curl -fsSL "$GH/biff/9149bdc/install.sh" | sh
 
 banner "quarry"
-curl -fsSL "$GH/quarry/254bac5/install.sh" | sh
+curl -fsSL "$GH/quarry/fcf0d67/install.sh" | sh
 
 banner "vox"
 curl -fsSL "$GH/vox/40c3769/install.sh" | sh
