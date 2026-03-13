@@ -775,17 +775,17 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     tag = f"v{version}"
     if dry_run:
-        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <tag-sha> ({tag})")
+        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <install-sha> ({tag})")
         return
 
     _validate_sibling(sibling, "punt-kit")
 
-    tag_sha = _get_install_sh_sha(info.root)
+    install_sha = _get_install_sh_sha(info.root)
 
     content = install_all.read_text(encoding="utf-8")
     esc = re.escape(project_name)
     pattern = rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)"
-    new_content, count = re.subn(pattern, rf"\g<1>{tag_sha}\2", content)
+    new_content, count = re.subn(pattern, rf"\g<1>{install_sha}\2", content)
 
     if count == 0:
         _fail(
@@ -805,7 +805,7 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         f"chore: update {project_name} install SHA to {tag}",
         "punt-kit",
     ):
-        _ok(f"install-all.sh: {project_name} SHA → {tag_sha} ({tag})")
+        _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -961,11 +961,11 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
             # Update installCommand SHA if present
             install_cmd = project.get("installCommand") or ""
             if install_cmd and f"/{project_name}/" in install_cmd:
-                tag_sha = _get_install_sh_sha(info.root)
+                install_sha = _get_install_sh_sha(info.root)
                 project["installCommand"] = re.sub(
                     rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
                     r"(/install\.sh)",
-                    rf"\g<1>{tag_sha}\2",
+                    rf"\g<1>{install_sha}\2",
                     install_cmd,
                 )
             found = True
