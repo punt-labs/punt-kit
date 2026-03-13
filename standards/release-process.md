@@ -165,7 +165,7 @@ punt release 0.8.0 --resume-from verify      # Skip 1-8, run 9 only
 | `.github/workflows/propagate-profile.yml` | punt-kit | Replaced by Phase 8c |
 | `.github/workflows/propagate.yml` | claude-plugins | Replaced by Phase 8b |
 | `.github/workflows/propagate.yml` | .github | Replaced by Phase 8c |
-| `playbooks/release.yaml` | punt-kit | CLI handles everything |
+| `playbooks/release.yaml` | punt-kit | Replaced by thin wrapper that calls CLI |
 | `PROPAGATE_TOKEN` secret | all repos | No longer needed |
 
 The `release.yml` CI workflow (build/test/publish on tag push) is **kept**.
@@ -180,4 +180,4 @@ The `release.yml` CI workflow (build/test/publish on tag push) is **kept**.
 | `standards/release-requirements.md` | Update to document local propagation |
 | `CHANGELOG.md` | Add entry |
 | Workflow files (4) | Delete |
-| `playbooks/release.yaml` | Delete |
+| `playbooks/release.yaml` | Replace with thin CLI wrapper |
