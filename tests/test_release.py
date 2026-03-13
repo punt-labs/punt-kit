@@ -352,9 +352,9 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     readme_content = (root / "README.md").read_text()
     # Old SHA should be gone
     assert "abc1234" not in readme_content
-    # New SHA (from the tag) should be present
+    # New SHA should be the commit that last touched install.sh
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "v0.2.0"],
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=d,
         capture_output=True,
         text=True,
@@ -387,8 +387,9 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
 
     readme_content = (root / "README.md").read_text()
     assert "v0.1.0" not in readme_content
+    # New SHA should be the commit that last touched install.sh
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "v0.2.0"],
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=d,
         capture_output=True,
         text=True,

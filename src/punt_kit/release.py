@@ -58,6 +58,24 @@ def _dry(msg: str) -> None:
     console.print(f"  [yellow]DRY[/yellow] {msg}")
 
 
+def _get_install_sh_sha(root: Path) -> str:
+    """Get the short SHA of the commit that last modified install.sh.
+
+    This is the correct SHA for install URL pinning.  Using the tag SHA
+    is wrong for hybrid projects because the tag sits on the
+    "prepare plugin for release" commit, which comes *after* the version-bump
+    commit that actually changes install.sh.
+    """
+    result = _run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
+        cwd=str(root),
+    )
+    sha = result.stdout.strip()
+    if not sha:
+        _fail("No commit found that touches install.sh")
+    return sha
+
+
 def _get_project_version(info: ProjectInfo) -> str:
     """Extract current version from pyproject.toml."""
     if info.pyproject is None:
@@ -451,15 +469,8 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
     else:
         owner, repo_name = "punt-labs", root.name
 
-    # Get the short SHA of the tagged commit
-    if dry_run:
-        short_sha = "<SHA>"
-    else:
-        result = _run(
-            ["git", "rev-parse", "--short", tag],
-            cwd=str(root),
-        )
-        short_sha = result.stdout.strip()
+    # Get the short SHA of the commit that last modified install.sh
+    short_sha = "<SHA>" if dry_run else _get_install_sh_sha(root)
 
     content = readme_path.read_text(encoding="utf-8")
     esc_owner = re.escape(owner)
@@ -769,9 +780,7 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     _validate_sibling(sibling, "punt-kit")
 
-    tag_sha = _run(
-        ["git", "rev-parse", "--short", f"{tag}^{{commit}}"], cwd=str(info.root)
-    ).stdout.strip()
+    tag_sha = _get_install_sh_sha(info.root)
 
     content = install_all.read_text(encoding="utf-8")
     esc = re.escape(project_name)
@@ -952,11 +961,7 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
             # Update installCommand SHA if present
             install_cmd = project.get("installCommand") or ""
             if install_cmd and f"/{project_name}/" in install_cmd:
-                tag = f"v{version}"
-                tag_sha = _run(
-                    ["git", "rev-parse", "--short", f"{tag}^{{commit}}"],
-                    cwd=str(info.root),
-                ).stdout.strip()
+                tag_sha = _get_install_sh_sha(info.root)
                 project["installCommand"] = re.sub(
                     rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
                     r"(/install\.sh)",
