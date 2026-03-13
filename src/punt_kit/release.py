@@ -649,6 +649,12 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         _dry(f"git push origin {tag}")
         return
 
+    # Ensure we're on main (resume may leave us on release branch)
+    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
+    if current != "main":
+        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "pull", "--ff-only"], cwd=str(root))
+
     # Check if tag already exists
     existing = _run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
     if existing:
@@ -1045,7 +1051,12 @@ def _sibling_pr_merge(
         _run(["git", "checkout", "-b", branch], cwd=cwd)
     for f in files:
         _run(["git", "add", f], cwd=cwd)
-    _run(["git", "commit", "-m", message], cwd=cwd)
+    # Skip commit if nothing staged (resume case: already committed)
+    staged = _run(
+        ["git", "status", "--porcelain", "--", *files], cwd=cwd
+    ).stdout.strip()
+    if staged:
+        _run(["git", "commit", "-m", message], cwd=cwd)
 
     _pr_merge(
         cwd=path,
