@@ -352,9 +352,9 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     readme_content = (root / "README.md").read_text()
     # Old SHA should be gone
     assert "abc1234" not in readme_content
-    # New SHA (from the tag) should be present
+    # New SHA should be the commit that last touched install.sh
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "v0.2.0"],
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=d,
         capture_output=True,
         text=True,
@@ -387,8 +387,9 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
 
     readme_content = (root / "README.md").read_text()
     assert "v0.1.0" not in readme_content
+    # New SHA should be the commit that last touched install.sh
     result = subprocess.run(
-        ["git", "rev-parse", "--short", "v0.2.0"],
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=d,
         capture_output=True,
         text=True,
@@ -421,6 +422,59 @@ def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
     _bump_readme_install_sha(info, "0.2.0", dry_run=True)
 
     assert (root / "README.md").read_text() == original
+
+
+def test_bump_readme_install_sha_tag_on_different_commit(tmp_path: Path) -> None:
+    """Tag on later commit: SHA pins to install.sh commit, not tag."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Rewrite README with SHA-pinned URL
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "sha-pinned readme"], cwd=d)
+
+    # Record the SHA of the commit that last touched install.sh
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    install_sh_sha = result.stdout.strip()
+
+    # Create a "prepare plugin" commit that does NOT touch install.sh,
+    # then tag it — simulates hybrid release flow where tag != install.sh commit
+    (root / "plugin.json").write_text('{"name": "proj", "version": "0.2.0"}')
+    _git(["add", "plugin.json"], cwd=d)
+    _git(["commit", "-m", "prepare plugin for release"], cwd=d)
+    _git(["tag", "v0.2.0"], cwd=d)
+
+    # Verify tag SHA differs from install.sh SHA
+    tag_result = subprocess.run(
+        ["git", "rev-parse", "--short", "v0.2.0"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    tag_sha = tag_result.stdout.strip()
+    assert tag_sha != install_sh_sha, "test setup: tag and install.sh SHAs must differ"
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+
+    readme_content = (root / "README.md").read_text()
+    assert f"{install_sh_sha}/install.sh" in readme_content
+    assert f"{tag_sha}/install.sh" not in readme_content
 
 
 # --- dry run integration ---

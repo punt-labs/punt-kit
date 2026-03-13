@@ -58,6 +58,24 @@ def _dry(msg: str) -> None:
     console.print(f"  [yellow]DRY[/yellow] {msg}")
 
 
+def _get_install_sh_sha(root: Path) -> str:
+    """Get the short SHA of the commit that last modified install.sh.
+
+    This is the correct SHA for install URL pinning.  Using the tag SHA
+    is wrong for hybrid projects because the tag sits on the
+    "prepare plugin for release" commit, which comes *after* the version-bump
+    commit that actually changes install.sh.
+    """
+    result = _run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
+        cwd=str(root),
+    )
+    sha = result.stdout.strip()
+    if not sha:
+        _fail("No commit found that touches install.sh")
+    return sha
+
+
 def _get_project_version(info: ProjectInfo) -> str:
     """Extract current version from pyproject.toml."""
     if info.pyproject is None:
@@ -437,7 +455,7 @@ def _phase4_tag_push(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
 
 def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Update SHA-pinned install.sh URLs in README.md to the tagged commit."""
+    """Update SHA-pinned install.sh URLs in README to the install.sh commit."""
     root = info.root
     readme_path = root / "README.md"
     install_sh = root / "install.sh"
@@ -451,15 +469,8 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
     else:
         owner, repo_name = "punt-labs", root.name
 
-    # Get the short SHA of the tagged commit
-    if dry_run:
-        short_sha = "<SHA>"
-    else:
-        result = _run(
-            ["git", "rev-parse", "--short", tag],
-            cwd=str(root),
-        )
-        short_sha = result.stdout.strip()
+    # Get the short SHA of the commit that last modified install.sh
+    short_sha = "<SHA>" if dry_run else _get_install_sh_sha(root)
 
     content = readme_path.read_text(encoding="utf-8")
     esc_owner = re.escape(owner)
@@ -764,19 +775,17 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     tag = f"v{version}"
     if dry_run:
-        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <tag-sha> ({tag})")
+        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <install-sha> ({tag})")
         return
 
     _validate_sibling(sibling, "punt-kit")
 
-    tag_sha = _run(
-        ["git", "rev-parse", "--short", f"{tag}^{{commit}}"], cwd=str(info.root)
-    ).stdout.strip()
+    install_sha = _get_install_sh_sha(info.root)
 
     content = install_all.read_text(encoding="utf-8")
     esc = re.escape(project_name)
     pattern = rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)"
-    new_content, count = re.subn(pattern, rf"\g<1>{tag_sha}\2", content)
+    new_content, count = re.subn(pattern, rf"\g<1>{install_sha}\2", content)
 
     if count == 0:
         _fail(
@@ -796,7 +805,7 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         f"chore: update {project_name} install SHA to {tag}",
         "punt-kit",
     ):
-        _ok(f"install-all.sh: {project_name} SHA → {tag_sha} ({tag})")
+        _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -952,15 +961,11 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
             # Update installCommand SHA if present
             install_cmd = project.get("installCommand") or ""
             if install_cmd and f"/{project_name}/" in install_cmd:
-                tag = f"v{version}"
-                tag_sha = _run(
-                    ["git", "rev-parse", "--short", f"{tag}^{{commit}}"],
-                    cwd=str(info.root),
-                ).stdout.strip()
+                install_sha = _get_install_sh_sha(info.root)
                 project["installCommand"] = re.sub(
                     rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
                     r"(/install\.sh)",
-                    rf"\g<1>{tag_sha}\2",
+                    rf"\g<1>{install_sha}\2",
                     install_cmd,
                 )
             found = True
