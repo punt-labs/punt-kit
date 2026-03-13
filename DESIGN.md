@@ -865,7 +865,7 @@ Child release (e.g. vox v1.3.0)
 ## DES-013: Local Sibling Propagation
 
 **Date:** 2026-03-12
-**Status:** SETTLED
+**Status:** SETTLED (push mechanism superseded by DES-016)
 **Topic:** Why cross-repo propagation uses local git operations instead of GitHub Actions workflows
 
 ### Problem
@@ -988,3 +988,104 @@ a convenience for fresh releases only.
 | `start <= 2` (always use changelog) | Silent wrong version when Phase 2 already ran. This was the original Bugbot finding. |
 | Detect whether Phase 2 ran (compare changelog vs pyproject) | Over-engineered for an edge case. Users should pass the version explicitly when resuming. |
 | Require explicit version when resuming | Too restrictive. `--resume-from propagate` (Phase 8+) is the common recovery case, and pyproject.toml reliably has the right version by then. |
+
+## DES-015: No Admin Bypass — Absolute Branch Protection
+
+**Date:** 2026-03-13
+**Status:** SETTLED
+**Topic:** Why rulesets have zero bypass actors and no emergency override
+
+### Design
+
+Every repository in the org has a branch protection ruleset with **zero bypass
+actors**. No one — including repository admins — can push directly to main. All
+changes require a pull request. `current_user_can_bypass` evaluates to `never`
+for every user.
+
+Additionally, `required_review_thread_resolution` is `true` on every ruleset —
+unresolved review comments block the merge button.
+
+### Impact on Release Tool
+
+DES-013's local propagation design assumed direct `git push origin main` to
+sibling repos. With zero bypass actors, these pushes are rejected. The release
+tool (Phases 4c, 4d, 4e, and 8) must be redesigned to create PRs instead of
+direct pushes. This is tracked as a separate design decision.
+
+### Why
+
+Admin bypass was the last backdoor. With it enabled, any admin could push
+directly to main, bypassing CI, code review, and conversation resolution. The
+audit trail becomes unreliable — you cannot trust that every commit on main was
+reviewed. Removing bypass makes the protection unconditional and trustworthy.
+
+Emergency fixes are not slower — they just go through a PR. A minimal one-line
+fix PR with CI passing takes under 5 minutes. The cost of that gate is far
+lower than the cost of a bad direct push.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep admin bypass for emergencies | Creates a permanent backdoor. "Emergency" is subjective. Bypass becomes habit. |
+| Allow bypass with documentation requirement | Unenforceable. Commit message noting bypass is voluntary. |
+| Org-level ruleset instead of per-repo | GitHub org rulesets require Enterprise plan. Per-repo rulesets work on all plans. |
+
+## DES-016: PR-Based Release Flow
+
+**Date:** 2026-03-13
+**Status:** SETTLED
+**Topic:** How `punt release` routes main-branch changes through PRs instead of direct push
+
+### Problem
+
+DES-015 removed all bypass actors from branch protection. `punt release` pushed
+directly to main in 6 places (Phase 4c/d/e and Phase 8's
+`_sibling_commit_push`). These pushes are now rejected. Tag pushes
+(`refs/tags/*`) still work because rulesets only target `refs/heads/main`.
+
+### Design
+
+All main-branch changes go through PRs. Required approvals = 0, so CI passing
+is the only gate. A reusable `_pr_merge` helper encapsulates: push branch,
+create PR (idempotent), wait for CI, squash-merge, update local main.
+
+Phase structure expanded from 9 to 11:
+
+| Phase | Name | Change |
+|-------|------|--------|
+| 1 | preflight | Unchanged |
+| 2 | bump | Now creates `release/vX.Y.Z` branch |
+| 3 | build | Unchanged (runs on branch) |
+| 4 | release-pr | **New**: plugin swap + PR merge (replaces old tag+push) |
+| 5 | tag | **Extracted**: tags main HEAD, pushes tag only |
+| 6 | ci | Was Phase 5 |
+| 7 | github-release | Was Phase 6 |
+| 8 | pypi | Was Phase 7 |
+| 9 | post-release | **New**: dev restore + README SHA bump via PR |
+| 10 | propagate | Was Phase 8, now uses PRs via `_sibling_pr_merge` |
+| 11 | verify | Was Phase 9 |
+
+Hybrid plugin lifecycle preserved: tagged commit has prod plugin state (Phase 4
+squash-merges prod state, Phase 5 tags it), dev state restored via Phase 9 PR.
+
+### Supersedes
+
+DES-013's "direct push" propagation design. The workspace assumption and
+sibling validation are preserved; only the push mechanism changed (PR instead
+of direct `git push origin main`).
+
+### Why
+
+Zero bypass actors (DES-015) means no user can push to main. PRs with 0
+required approvals still enforce CI. The cost is ~2 minutes per PR (CI run +
+merge), acceptable for a release that already takes 20+ minutes.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Re-enable admin bypass for releases | Defeats DES-015. A bypass for "automation" is still a bypass. |
+| GitHub Actions bot with bypass | Requires Enterprise plan for org-level bypass lists, and introduces the same trust gap. |
+| Direct push with `--force` or ruleset exception | Branch protection exists to prevent this. Exceptions erode trust in the audit trail. |
+| Tag-only workflow (no main push) | Breaks the development flow: dev state must be restored on main after release. |

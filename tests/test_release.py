@@ -9,8 +9,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit.release import (
+    PHASE_NAMES,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
     _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
+    _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
@@ -275,7 +277,7 @@ def test_version_bump_updates_all_files(tmp_path: Path) -> None:
     assert 'VERSION="0.2.0"' in install_content
 
     # README install URLs are NOT updated in Phase 2 — they are updated
-    # in Phase 4e (_bump_readme_install_sha) after tagging, when the SHA
+    # in Phase 9 (_bump_readme_install_sha) after tagging, when the SHA
     # is known.
 
     # Check CHANGELOG.md
@@ -323,7 +325,7 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     assert 'version = "0.1.0"' in content
 
 
-# --- phase 4e: README install SHA bump ---
+# --- README install SHA bump (used in Phase 9: post-release) ---
 
 
 def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
@@ -495,6 +497,56 @@ def test_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "install.sh").read_text() == original_install
 
 
+# --- Go project support ---
+
+
+def test_get_latest_tag_version(tmp_path: Path) -> None:
+    """Reads latest semver tag from git."""
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["commit", "--allow-empty", "-m", "bump"], cwd=d)
+    _git(["tag", "v0.2.0"], cwd=d)
+
+    assert _get_latest_tag_version(root) == "0.2.0"
+
+
+def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
+    """Returns 0.0.0 when no tags exist."""
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    assert _get_latest_tag_version(root) == "0.0.0"
+
+
+def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
+    """Dry run for a Go project completes without errors."""
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    (root / "go.mod").write_text("module github.com/punt-labs/test-go\n\ngo 1.25.0\n")
+    (root / "main.go").write_text("package main\n\nfunc main() {}\n")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- New feature\n"
+    )
+
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    original_changelog = (root / "CHANGELOG.md").read_text()
+
+    run_release(str(root), version="0.2.0", dry_run=True)
+
+    assert (root / "CHANGELOG.md").read_text() == original_changelog
+
+
 # --- sibling helpers ---
 
 
@@ -555,10 +607,12 @@ def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
         _validate_sibling(sibling, "sib")
 
 
-# --- Phase 8a: install-all.sh ---
+# --- Phase 10a: install-all.sh ---
 
 
-def test_propagate_install_all_updates_sha(tmp_path: Path) -> None:
+def test_propagate_install_all_updates_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Updates project SHA in install-all.sh."""
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -584,12 +638,31 @@ def test_propagate_install_all_updates_sha(tmp_path: Path) -> None:
         cwd=d,
     )
 
+    # Mock _sibling_pr_merge to avoid needing gh CLI
+    from punt_kit import release as release_mod
+
+    calls: list[tuple[str, str]] = []
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append((name, message))
+        return True
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+
     from punt_kit.detect import detect
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
 
-    # Verify install-all.sh was updated
+    # Verify install-all.sh was updated (file content, before PR merge)
     content = (tmp_path / "punt-kit" / "install-all.sh").read_text()
     assert "aabb001" not in content
     tag_sha = subprocess.run(
@@ -600,10 +673,14 @@ def test_propagate_install_all_updates_sha(tmp_path: Path) -> None:
         check=True,
     ).stdout.strip()
     assert f"$GH/proj/{tag_sha}/install.sh" in content
+    assert len(calls) == 1
+    assert calls[0][0] == "punt-kit"
 
 
-def test_propagate_install_all_idempotent(tmp_path: Path) -> None:
-    """Running twice produces no second commit."""
+def test_propagate_install_all_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No-op when SHA is already current."""
     root = _make_release_project(tmp_path)
     d = str(root)
     _git(["tag", "v0.2.0"], cwd=d)
@@ -612,8 +689,9 @@ def test_propagate_install_all_idempotent(tmp_path: Path) -> None:
         cwd=d,
     )
 
-    tag_sha = subprocess.run(
-        ["git", "rev-parse", "--short", "v0.2.0"],
+    # SHA already matches — install.sh's last-modifying commit is used
+    install_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=d,
         capture_output=True,
         text=True,
@@ -627,41 +705,45 @@ def test_propagate_install_all_idempotent(tmp_path: Path) -> None:
         {
             "install-all.sh": (
                 '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
-                f'curl -fsSL "$GH/proj/{tag_sha}/install.sh" | sh\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
             )
         },
     )
 
+    # Mock _sibling_pr_merge
+    from punt_kit import release as release_mod
+
+    calls: list[str] = []
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append(name)
+        return True
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+
     from punt_kit.detect import detect
 
     info = detect(root)
-
-    # Count commits before
-    log_before = subprocess.run(
-        ["git", "log", "--oneline"],
-        cwd=str(tmp_path / "punt-kit"),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-
     _propagate_install_all(info, "0.2.0", dry_run=False)
 
-    # Count commits after — should be the same
-    log_after = subprocess.run(
-        ["git", "log", "--oneline"],
-        cwd=str(tmp_path / "punt-kit"),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    assert log_before == log_after
+    # Should not have called _sibling_pr_merge (SHA already current)
+    assert len(calls) == 0
 
 
-# --- Phase 8b: marketplace ---
+# --- Phase 10b: marketplace ---
 
 
-def test_propagate_marketplace_updates_version(tmp_path: Path) -> None:
+def test_propagate_marketplace_updates_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Updates version and ref in marketplace.json."""
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -692,6 +774,25 @@ def test_propagate_marketplace_updates_version(tmp_path: Path) -> None:
         },
     )
 
+    # Mock _sibling_pr_merge
+    from punt_kit import release as release_mod
+
+    calls: list[str] = []
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append(name)
+        return True
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+
     from punt_kit.detect import detect
 
     info = detect(root)
@@ -702,6 +803,7 @@ def test_propagate_marketplace_updates_version(tmp_path: Path) -> None:
     data = json.loads(mp.read_text())
     assert data["plugins"][0]["version"] == "0.2.0"
     assert data["plugins"][0]["source"]["ref"] == "v0.2.0"
+    assert len(calls) == 1
 
 
 def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
@@ -728,10 +830,12 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     _propagate_marketplace(info, "0.2.0", dry_run=False)
 
 
-# --- Phase 8c: profile ---
+# --- Phase 10c: profile ---
 
 
-def test_propagate_profile_updates_sha(tmp_path: Path) -> None:
+def test_propagate_profile_updates_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Updates profile README with punt-kit HEAD SHA."""
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -759,10 +863,29 @@ def test_propagate_profile_updates_sha(tmp_path: Path) -> None:
         },
     )
 
+    # Mock _sibling_pr_merge
+    from punt_kit import release as release_mod
+
+    calls: list[str] = []
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append(name)
+        return True
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, dry_run=False)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
@@ -774,6 +897,7 @@ def test_propagate_profile_updates_sha(tmp_path: Path) -> None:
         check=True,
     ).stdout.strip()
     assert f"punt-kit/{head_sha}/install-all.sh" in readme
+    assert len(calls) == 1
 
 
 def test_propagate_profile_skipped_for_non_punt_kit(tmp_path: Path) -> None:
@@ -789,13 +913,15 @@ def test_propagate_profile_skipped_for_non_punt_kit(tmp_path: Path) -> None:
     info = detect(root)
 
     # Should not raise even without .github sibling
-    _propagate_profile(info, dry_run=False)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
 
-# --- Phase 8d: website ---
+# --- Phase 10d: website ---
 
 
-def test_propagate_website_updates_version(tmp_path: Path) -> None:
+def test_propagate_website_updates_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Updates version in projects.json."""
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -815,6 +941,25 @@ def test_propagate_website_updates_version(tmp_path: Path) -> None:
         {"src/data/projects.json": json.dumps(projects_data, indent=2) + "\n"},
     )
 
+    # Mock _sibling_pr_merge
+    from punt_kit import release as release_mod
+
+    calls: list[str] = []
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append(name)
+        return True
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+
     from punt_kit.detect import detect
 
     info = detect(root)
@@ -824,6 +969,7 @@ def test_propagate_website_updates_version(tmp_path: Path) -> None:
     data = json.loads(pj.read_text())
     assert data[0]["version"] == "0.2.0"
     assert data[1]["version"] == "1.0.0"  # unchanged
+    assert len(calls) == 1
 
 
 def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
@@ -839,3 +985,17 @@ def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
     info = detect(root)
     # Should not raise
     _propagate_website(info, "0.2.0", dry_run=False)
+
+
+# --- PHASE_NAMES ---
+
+
+def test_phase_names_cover_all_phases() -> None:
+    """All 11 phases are mapped (plus aliases)."""
+    phase_numbers = set(PHASE_NAMES.values())
+    assert phase_numbers == set(range(1, 12))
+
+
+def test_phase_names_aliases() -> None:
+    """Old name aliases resolve to correct phase numbers."""
+    assert PHASE_NAMES["release"] == 4  # alias for release-pr

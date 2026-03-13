@@ -396,43 +396,8 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append((INFO, "GitHub settings (no remote detected)", ""))
         return results
 
-    # Check branch protection
-    try:
-        result = subprocess.run(
-            [gh, "api", f"repos/{repo}/branches/main/protection"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode == 0:
-            protection = json.loads(result.stdout)
-            pr_required = protection.get("required_pull_request_reviews") is not None
-            results.append(
-                (
-                    PASS if pr_required else FAIL,
-                    "Branch protection: PR required",
-                    "",
-                )
-            )
-
-            status_checks = protection.get("required_status_checks") is not None
-            results.append(
-                (
-                    PASS if status_checks else FAIL,
-                    "Branch protection: status checks required",
-                    "",
-                )
-            )
-        else:
-            results.append(
-                (
-                    FAIL,
-                    "Branch protection on main",
-                    "Not configured or no access",
-                )
-            )
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        results.append((INFO, "Branch protection (could not check)", ""))
+    # Check branch protection via rulesets API (not legacy branch protection)
+    results.extend(_check_rulesets(gh, repo))
 
     # Check Dependabot / vulnerability alerts
     try:
@@ -453,6 +418,158 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
     except (subprocess.TimeoutExpired, OSError):
         results.append((INFO, "Dependabot alerts (could not check)", ""))
+
+    return results
+
+
+def _check_rulesets(gh: str, repo: str) -> list[tuple[str, str, str]]:
+    """Check branch protection rulesets for the main branch."""
+    results: list[tuple[str, str, str]] = []
+
+    try:
+        result = subprocess.run(
+            [gh, "api", f"repos/{repo}/rulesets"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if result.returncode != 0:
+            results.append(
+                (FAIL, "Branch protection ruleset exists", "No rulesets or no access")
+            )
+            return results
+
+        rulesets = json.loads(result.stdout)
+        if not isinstance(rulesets, list) or not rulesets:
+            results.append(
+                (FAIL, "Branch protection ruleset exists", "No rulesets configured")
+            )
+            return results
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        results.append((INFO, "Branch protection (could not check)", ""))
+        return results
+
+    # Find the ruleset named "Protect main" (org convention)
+    main_ruleset_id: int | None = None
+    for rs_raw in cast("list[object]", rulesets):
+        if not isinstance(rs_raw, dict):
+            continue
+        rs = cast("dict[str, object]", rs_raw)
+        rs_id = rs.get("id")
+        rs_name = rs.get("name", "")
+        if isinstance(rs_id, int) and rs_name == "Protect main":
+            main_ruleset_id = rs_id
+            break
+    # Fallback: pick first ruleset with a valid id
+    if main_ruleset_id is None:
+        for rs_raw in cast("list[object]", rulesets):
+            if not isinstance(rs_raw, dict):
+                continue
+            rs = cast("dict[str, object]", rs_raw)
+            rs_id = rs.get("id")
+            if isinstance(rs_id, int):
+                main_ruleset_id = rs_id
+                break
+
+    if main_ruleset_id is None:
+        results.append((FAIL, "Branch protection ruleset exists", "No ruleset found"))
+        return results
+
+    # Fetch full ruleset details
+    try:
+        detail_result = subprocess.run(
+            [gh, "api", f"repos/{repo}/rulesets/{main_ruleset_id}"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if detail_result.returncode != 0:
+            results.append((INFO, "Branch protection (could not read ruleset)", ""))
+            return results
+
+        ruleset_raw = json.loads(detail_result.stdout)
+        if not isinstance(ruleset_raw, dict):
+            results.append((INFO, "Branch protection (unexpected response)", ""))
+            return results
+        ruleset = cast("dict[str, object]", ruleset_raw)
+    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
+        results.append((INFO, "Branch protection (could not read ruleset)", ""))
+        return results
+
+    results.append((PASS, "Branch protection ruleset exists", ""))
+
+    # Check: no bypass actors
+    bypass_raw = ruleset.get("bypass_actors", [])
+    bypass_actors: list[object] = (
+        cast("list[object]", bypass_raw) if isinstance(bypass_raw, list) else []
+    )
+    if len(bypass_actors) == 0:
+        results.append((PASS, "Ruleset: zero bypass actors", ""))
+    else:
+        results.append(
+            (
+                FAIL,
+                "Ruleset: zero bypass actors",
+                f"{len(bypass_actors)} bypass actor(s) configured",
+            )
+        )
+
+    # Check rules
+    rules_raw = ruleset.get("rules", [])
+    rules_list: list[object] = (
+        cast("list[object]", rules_raw) if isinstance(rules_raw, list) else []
+    )
+    rules: list[dict[str, object]] = [
+        cast("dict[str, object]", r) for r in rules_list if isinstance(r, dict)
+    ]
+
+    rule_types: set[object] = {r.get("type") for r in rules}
+
+    # Check: pull_request rule exists
+    has_pr = "pull_request" in rule_types
+    results.append(
+        (
+            PASS if has_pr else FAIL,
+            "Ruleset: PR required",
+            "" if has_pr else "No pull_request rule",
+        )
+    )
+
+    # Check: conversation resolution required
+    thread_resolution = False
+    for rule in rules:
+        if rule.get("type") == "pull_request":
+            params_raw = rule.get("parameters", {})
+            if isinstance(params_raw, dict):
+                params = cast("dict[str, object]", params_raw)
+                thread_resolution = bool(
+                    params.get("required_review_thread_resolution")
+                )
+    results.append(
+        (
+            PASS if thread_resolution else FAIL,
+            "Ruleset: conversation resolution required",
+            "" if thread_resolution else "required_review_thread_resolution is false",
+        )
+    )
+
+    # Check: deletion and non_fast_forward rules
+    has_deletion = "deletion" in rule_types
+    has_no_ff = "non_fast_forward" in rule_types
+    results.append(
+        (
+            PASS if has_deletion else FAIL,
+            "Ruleset: branch deletion blocked",
+            "" if has_deletion else "No deletion rule",
+        )
+    )
+    results.append(
+        (
+            PASS if has_no_ff else FAIL,
+            "Ruleset: force push blocked",
+            "" if has_no_ff else "No non_fast_forward rule",
+        )
+    )
 
     return results
 

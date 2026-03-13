@@ -61,7 +61,7 @@ Escalation only goes up. If T2 reveals unexpected scope, escalate to T1. Never d
 
 ## 3. Branch Discipline
 
-All code changes go on feature branches. Never commit directly to main.
+All code changes go on feature branches. Never commit directly to main. Branch protection rulesets enforce this — there are zero bypass actors, so even admins cannot push to main.
 
 ```bash
 git checkout -b feat/short-description main
@@ -77,6 +77,10 @@ git checkout -b feat/short-description main
 | `fix/` | Bug fixes |
 | `refactor/` | Code improvements |
 | `docs/` | Documentation only |
+| `release/` | Release version bumps (created by `punt release`) |
+| `post-release/` | Post-release cleanup (created by `punt release`) |
+| `propagate/` | Cross-repo propagation (created by `punt release`) |
+| `chore/` | Maintenance and housekeeping |
 
 ---
 
