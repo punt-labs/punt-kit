@@ -247,7 +247,7 @@ wheels = [
 
 [[package]]
 name = "punt-kit"
-version = "0.7.2"
+version = "0.7.4"
 source = { editable = "." }
 dependencies = [
     { name = "jinja2" },

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-03-13
+
 ### Fixed
 
 - `punt release` Phase 4e/8a/8d: use `git log -1 -- install.sh` for SHA resolution instead of `git rev-parse <tag>` — the tag points to the "prepare plugin" commit, not the version-bump commit that actually modifies install.sh
