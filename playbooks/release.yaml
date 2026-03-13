@@ -1,0 +1,46 @@
+name: release
+description: Release a Punt Labs project via the punt CLI with cross-repo propagation and verification
+mode: once
+
+parameters:
+  - name: version
+    type: string
+    required: false
+    description: Semantic version to release (e.g. 1.2.3). Auto-detected from CHANGELOG.md if omitted.
+
+preconditions:
+  - description: Working directory is a punt-labs project
+    check: test -f pyproject.toml || test -f .claude-plugin/plugin.json
+  - description: On main branch
+    check: test "$(git branch --show-current)" = "main"
+  - description: Clean working tree
+    check: test -z "$(git status --porcelain)"
+
+steps:
+  - id: run-cli
+    description: Run punt release (phases 1-9)
+    type: script
+    command: punt release ${version}
+    on_failure: diagnose
+
+  - id: verify
+    description: Verify the release is complete
+    type: llm
+    context: |
+      The CLI handles phases 1-9: preflight, version bump, build, tag/push,
+      CI wait, GitHub release, PyPI verify, cross-repo propagation (local
+      sibling pushes), and verification.
+
+      Confirm the CLI reported success. If it did, spot-check:
+
+      1. PyPI version: uv pip index versions <package> — confirm release version appears
+      2. install-all.sh SHA: verify the SHA in ../punt-kit/install-all.sh points to correct install.sh
+      3. Marketplace version (hybrid/plugin projects): verify marketplace.json version and ref match
+      4. Website version: verify ../public-website/src/data/projects.json if present
+      5. .github profile SHA: verify profile README points to current punt-kit main
+
+      Print a pass/fail table. If any check fails, diagnose and fix.
+
+      If the CLI failed partway, use `punt release --resume-from <phase>` to
+      resume from the failed phase.
+    on_failure: diagnose

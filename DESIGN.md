@@ -209,7 +209,7 @@ The standard is codified in `standards/permissions.md` and enforced by
 
 ### Why
 
-The goal is enabling safe autonomous development. An agent running `/autopilot`
+The goal is enabling safe autonomous development. An agent running `/punt:auto autopilot`
 (DES-005) must be able to perform routine operations — git, tests, lint, PRs —
 without permission prompts, while being structurally prevented from destructive
 or exfiltration-capable operations.
@@ -260,7 +260,7 @@ config that a Linux developer with `/home/bob/` needs to work.
 
 ### Design
 
-The `/autopilot` command runs a continuous bead-driven development cycle. It
+The `/punt:auto autopilot` playbook runs a continuous bead-driven development cycle. It
 picks beads from `bd ready`, implements them, opens PRs, waits for CI and
 Copilot review, merges via the MCP API, and immediately continues to the next
 bead without pausing for user confirmation.
@@ -322,7 +322,7 @@ git state. The MCP tool is a pure API call with no local consequences.
 
 **Command-level `allowed-tools`** creates a two-layer permission model. The
 session permissions define what's possible. The command permissions define
-what's frictionless. An agent running `/autopilot` can use `git`, `gh`, `bd`,
+what's frictionless. An agent running `/punt:auto autopilot` can use `git`, `gh`, `bd`,
 and build tools without prompts, but cannot use `curl` or `sudo` even if it
 wanted to — those are denied at the session level.
 

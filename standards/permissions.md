@@ -34,7 +34,7 @@ Contains:
 
 - MCP plugin tool wildcards
 - Build tool Bash commands
-- Skill permissions
+- Skills catalog (informational, not enforced)
 - WebFetch domain allowlist
 - Deny rules
 - Project-specific entries (hooks, env, additionalDirectories)
@@ -109,8 +109,10 @@ Projects add their own build tools as needed:
 
 ### Skills
 
-Every project must allow all Punt Labs plugin skills. This includes both
-short names and fully qualified names for each plugin:
+Skills do not have a permission gate — Claude Code does not enforce `Skill()`
+rules in `settings.json`. The list below is informational: it documents which
+plugin skills are available across the org. No `settings.json` entries are
+needed for these.
 
 - **biff**: `biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
   `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
@@ -121,14 +123,14 @@ short names and fully qualified names for each plugin:
   `prfaq:meeting-hive`, `prfaq:streamline`, `prfaq:research`, `prfaq:review`,
   `prfaq:feedback`, `prfaq:feedback-to-us`, `prfaq:externalize`, `prfaq:import`
 - **punt-kit**: `punt:audit`, `punt:auto`, `punt:init`, `punt:pii`,
-  `punt:reconcile`, `punt:release`
+  `punt:reconcile`
 - **quarry**: `quarry`, `quarry:find`, `quarry:explain`, `quarry:ingest`,
   `quarry:quarry`, `quarry:source` (plus short names: `find`, `explain`,
   `ingest`, `source`)
 - **tts**: `tts:notify`, `tts:recap`, `tts:say`, `tts:speak`, `tts:vibe`,
   `tts:voice` (plus short names: `notify`, `recap`, `say`, `speak`, `vibe`,
   `voice`)
-- **local commands**: `auto`, `autopilot`
+- **local commands**: `auto`
 - **z-spec**: `z-spec:audit`, `z-spec:check`, `z-spec:cleanup`,
   `z-spec:code2model`, `z-spec:elaborate`, `z-spec:help`, `z-spec:model2code`,
   `z-spec:partition`, `z-spec:setup`, `z-spec:test`
@@ -371,7 +373,7 @@ Run `punt audit` to check compliance. The audit checks:
 
 - All required deny rules are present
 - All required MCP wildcards are present
-- All required skill permissions are present
+- No `Skill()` entries in allow list (not enforced by Claude Code)
 - `settings.local.json` is gitignored
 - No local paths appear in `settings.json`
 

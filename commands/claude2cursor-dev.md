@@ -58,7 +58,7 @@ For **each** prod command you converted to a skill (same slug set as in step 1):
 
 After writing all skills, write the command files.
 
-After writing all commands, run the **Cleanup** step below. Then write the **manifest** at `<output-base>/.cursor/punt-generated.json` with the current slug set, e.g. `{"generated_slugs": ["audit", "init", "pii", "reconcile", "release", "autopilot"]}`. The manifest must be written **after** cleanup completes so the previous manifest is still readable during cleanup.
+After writing all commands, run the **Cleanup** step below. Then write the **manifest** at `<output-base>/.cursor/punt-generated.json` with the current slug set, e.g. `{"generated_slugs": ["audit", "auto", "init", "pii", "reconcile"]}`. The manifest must be written **after** cleanup completes so the previous manifest is still readable during cleanup.
 
 ### 3. Rules (optional)
 
