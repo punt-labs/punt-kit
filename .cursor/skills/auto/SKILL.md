@@ -111,6 +111,13 @@ Playbook '<name>' complete.
 At each step, print a concise status line. Do not narrate or explain between
 steps unless something fails. The flow should feel like watching a CI pipeline.
 
+## Working Directory
+
+**All preconditions and steps execute in the user's current working directory** —
+the project they invoked `/punt:auto` from. `${CLAUDE_PLUGIN_ROOT}` and the
+discovery paths above are used ONLY to locate the YAML playbook file. Never
+`cd` to the plugin root or punt-kit directory to run playbook steps.
+
 ## Environment
 
 All steps inherit the current shell environment. Steps can add variables via
