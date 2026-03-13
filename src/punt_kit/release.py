@@ -928,12 +928,17 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         _run(["git", "checkout", "-b", branch], cwd=str(root))
         _ok(f"Created branch {branch}")
 
-    # Dev restore (hybrid only)
+    # Dev restore (hybrid only — idempotent: skip if already dev)
     if info.is_hybrid:
-        restore_script = root / "scripts" / "restore-dev-plugin.sh"
-        _run(["bash", str(restore_script)], cwd=str(root), capture=False)
-        _ok("Dev plugin state restored")
-        has_changes = True
+        plugin_json = root / ".claude-plugin" / "plugin.json"
+        pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+        if not pj_data.get("name", "").endswith("-dev"):
+            restore_script = root / "scripts" / "restore-dev-plugin.sh"
+            _run(["bash", str(restore_script)], cwd=str(root), capture=False)
+            _ok("Dev plugin state restored")
+            has_changes = True
+        else:
+            _ok("Plugin already in dev state (resume)")
 
     # README SHA bump
     _bump_readme_install_sha(info, version, dry_run=False)
