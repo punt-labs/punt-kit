@@ -55,11 +55,10 @@ standards-rollout   org         Roll out a standards change across all projects
 
 ### Phase 1: Preconditions
 
-Run all precondition `check` commands in a single Bash call joined by `&&`.
-Print one pass/fail line for the batch. If the batch fails, re-run checks
-individually to identify which one failed. Stop. Do not proceed to steps.
-
-If the playbook has no preconditions, skip to Phase 2.
+If no preconditions, skip to Phase 2. Otherwise, run all precondition
+`check` commands as parallel Bash tool calls in a single message. Each
+check is its own Bash call so it matches allowed-tool patterns and
+auto-approves. If any fails, print which one and stop.
 
 ### Phase 2: Execute Steps
 
