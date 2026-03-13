@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `restore-dev-plugin.sh`: add `[skip ci]` to commit message across all 5 hybrid repos (punt-kit, biff, quarry, vox, lux) — prevents unnecessary CI runs on post-release dev-state restore
+- `/punt:auto` playbook executor: run preconditions as parallel Bash calls (not `&&` chains) so each matches its allowed-tool pattern and auto-approves
+- `release` playbook: remove redundant preconditions — `punt release` Phase 1 already validates project type, branch, clean tree, origin sync, scripts, changelog, and quality gates
+
 ## [0.7.4] - 2026-03-13
 
 ### Fixed
