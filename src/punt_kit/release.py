@@ -471,14 +471,13 @@ def _pr_merge(
             break
         # Check if this is "no checks" (CI hasn't started) vs real failure
         combined = (result.stdout or "") + (result.stderr or "")
-        if "no checks" in combined.lower():
-            if attempt < 11:
-                _info(
-                    f"No checks yet (attempt {attempt + 1}/12),"
-                    " waiting 5s..."
-                )
-                time.sleep(5)
-                continue
+        if "no checks" in combined.lower() and attempt < 11:
+            _info(
+                f"No checks yet (attempt {attempt + 1}/12),"
+                " waiting 5s..."
+            )
+            time.sleep(5)
+            continue
         # Real CI failure
         if result.stdout and result.stdout.strip():
             console.print(result.stdout.strip())
