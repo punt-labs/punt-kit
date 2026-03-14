@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `install-all.sh`: update biff install SHA from 9149bdc to 6647733 (v1.3.6)
+
 ## [0.7.8] - 2026-03-13
 
 ## [0.7.7] - 2026-03-13
