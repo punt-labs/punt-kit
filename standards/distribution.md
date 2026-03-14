@@ -157,10 +157,10 @@ updates follow the same sequence.
 
 | Location | What's pinned | Updated by |
 |----------|--------------|------------|
-| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release` Phase 4e (automatic after tagging) |
-| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `propagate.yml` GitHub Action (automatic on child release) |
-| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `propagate-profile.yml` → `.github/propagate.yml` (automatic on `install-all.sh` change) |
-| `public-website` `projects.json` | `installCommand` field per project | Manual during release Step 3 |
+| Project README | `raw.githubusercontent.com/<org>/<repo>/<SHA>/install.sh` | `punt release` Phase 9 (post-release PR) |
+| `install-all.sh` | `$GH/<project>/<SHA>/install.sh` for each child project | `punt release` Phase 10a (sibling PR) |
+| Org profile README | `raw.githubusercontent.com/punt-labs/punt-kit/<SHA>/install-all.sh` | `punt release` Phase 10c (sibling PR, punt-kit only) |
+| `public-website` `projects.json` | `installCommand` field per project | `punt release` Phase 10d (sibling PR) |
 
 **Manual fallback** (when automation fails or for ad-hoc changes):
 
@@ -170,57 +170,42 @@ updates follow the same sequence.
    `public-website/src/data/projects.json` with the new SHA
 4. Commit and push each update separately
 
-### README install SHA auto-update (Phase 4e)
+### README install SHA auto-update (Phase 9)
 
 During `punt release`, the project README's `install.sh` URL is automatically updated
-after tagging:
+in the post-release phase:
 
-1. Phase 4 creates the tag (`v{version}`)
-2. Phase 4e resolves the tag's commit SHA via `git rev-parse --short v{version}`
-3. Replaces both SHA-pinned (`/<hex>/install.sh`) and version-tagged
-   (`/v1.2.3/install.sh`) URLs with the new SHA
-4. Commits and pushes the change
+1. Phase 4 merges the release PR to main (via squash-merge)
+2. Phase 5 tags main HEAD
+3. Phase 9 creates a `post-release/vX.Y.Z` branch, resolves the install.sh
+   commit SHA, replaces both SHA-pinned (`/<hex>/install.sh`) and version-tagged
+   (`/v1.2.3/install.sh`) URLs with the new SHA, and merges via PR
 
 This solves the chicken-and-egg problem: the SHA is only known after the commit that
 contains the version bump, so README URLs can't be updated in the same commit as the
-version bump. Phase 4e runs after the tag exists.
+version bump. Phase 9 runs after the tag exists.
 
-### Cross-repo propagation chain
+### Cross-repo propagation (Phase 10)
 
-A child project release triggers a multi-hop SHA propagation:
+`punt release` Phase 10 handles all cross-repo SHA and version propagation
+locally. All sibling repos must be checked out as siblings in the same parent
+directory (`../punt-kit`, `../claude-plugins`, `../.github`,
+`../public-website`). Each propagation step creates a branch, commits the
+change, pushes, creates a PR, waits for CI, and squash-merges.
 
 ```text
 Child release (e.g. vox v1.3.0)
-  → punt-kit: propagate.yml bumps install-all.sh SHA, creates PR
-    → punt-kit: PR merges to main
-      → punt-kit: propagate-profile.yml fires (install-all.sh changed)
-        → .github: propagate.yml updates profile README SHA, creates PR
-          → .github: PR auto-merges
-            → Public install URL serves current install-all.sh
+  Phase 10a → punt-kit: install-all.sh SHA updated via PR
+  Phase 10b → claude-plugins: marketplace.json version + ref via PR
+  Phase 10d → public-website: projects.json version via PR
+
+punt-kit release (adds one more step)
+  Phase 10c → .github: profile README install-all.sh SHA via PR
 ```
 
-A punt-kit release adds one more hop:
-
-```text
-punt-kit release
-  → punt-kit: propagate.yml bumps its own install-all.sh SHA
-  → claude-plugins: propagate.yml bumps marketplace version + ref
-  → .github: propagate.yml updates profile README SHA
-```
-
-**`PROPAGATE_TOKEN` requirement.** Cross-repo workflow dispatch and cascade triggering
-both require a fine-grained PAT stored as `secrets.PROPAGATE_TOKEN`:
-
-- **Cross-repo dispatch**: `github.token` is scoped to the current repo only.
-  Dispatching workflows in other repos requires a PAT with `actions:write` on the
-  target repo.
-- **Cascade triggering**: GitHub suppresses workflow triggers from events created by
-  `GITHUB_TOKEN`. When a propagation PR auto-merges, the merge push must come from a
-  PAT (not `github.token`) for downstream workflows to fire.
-- **Auto-merge**: The PAT needs `pull-requests:write` on repos where propagation PRs
-  use `gh pr merge --auto`.
-
-See DES-012 in DESIGN.md for the full root cause analysis.
+No GitHub Actions workflows, secrets, or PATs are needed for propagation.
+The developer's local git credentials provide push access to all siblings.
+See DES-013 and DES-016 in DESIGN.md for the full design history.
 
 ### Marketplace registration
 

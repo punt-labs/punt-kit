@@ -1,64 +1,45 @@
-# Release Process Design
+# Release Process
 
-## Status: PROPOSED
+## Status: SETTLED
 
-Replaces the GitHub Actions propagation workflows with local, synchronous
-operations performed by the `punt release` CLI.
+Implemented in `src/punt_kit/release.py`. All main-branch changes go through
+PRs — there are zero bypass actors on any branch protection ruleset (DES-015).
+See DES-013 and DES-016 in DESIGN.md for the full design history.
 
-## Problem
-
-The current Phase 8 (cross-repo propagation) dispatches GitHub Actions
-workflows in three repos (punt-kit, claude-plugins, .github), each creating
-and auto-merging PRs via `PROPAGATE_TOKEN`. This architecture has failed
-on every release attempt:
-
-- **Secret misconfiguration**: `PROPAGATE_TOKEN` must exist in every target
-  repo. Missing or expired tokens cause silent failures.
-- **Merge conflicts**: concurrent propagation PRs conflict with each other.
-- **Stale PRs**: failed auto-merges leave open PRs requiring manual cleanup.
-- **Race conditions**: chaining workflow (`propagate-profile.yml`) triggers
-  on push, but the triggering commit may not have landed yet.
-- **Silent failures**: `_trigger_and_wait` returns False but the release
-  continues, reporting success.
-
-## Key Insight
-
-All propagation targets are sibling directories in the workspace. The user
-has push access to all of them. Every propagation is a deterministic text
-substitution. There is no need for remote workflows, secrets, PRs, or
-async coordination.
-
-## New Phase Structure
+## Phase Structure
 
 | Phase | Name | Scope |
 |-------|------|-------|
 | 1 | Preflight | Originating repo |
-| 2 | Version Bump | Originating repo |
-| 3 | Build | Originating repo |
-| 4 | Tag and Push | Originating repo |
-| 5 | CI Wait | Remote (tag-triggered) |
-| 6 | GitHub Release | Remote |
-| 7 | PyPI Verify | Remote |
-| 8 | Propagate | Sibling repos (local) |
-| 9 | Verify | All repos (read-only) |
+| 2 | Version Bump | Originating repo (`release/vX.Y.Z` branch) |
+| 3 | Build | Originating repo (`uv build` + `twine check`) |
+| 4 | Release PR | Originating repo (plugin swap → push → PR → CI → squash-merge) |
+| 5 | Tag | Originating repo (tag main HEAD, push tag) |
+| 6 | CI Wait | Remote (tag-triggered `release.yml`) |
+| 7 | GitHub Release | Remote (create release with changelog notes) |
+| 8 | PyPI Verify | Remote (install from PyPI, run doctor, restore editable) |
+| 9 | Post-Release | Originating repo (dev restore + README SHA bump via PR) |
+| 10 | Propagate | Sibling repos (local edits → PRs) |
+| 11 | Verify | All repos (read-only checks) |
 
-Phases 1-7 are unchanged from today. Phases 8-9 replace the old Phase 8
-(workflow dispatch) and the entire `release.yaml` playbook.
-
-## Phase 8: Propagate
+## Phase 10: Propagate
 
 Four sub-steps, executed in fixed order. Each is independently skippable
-based on project type and sibling availability.
+based on project type and sibling availability. Each sub-step creates a
+branch, commits the change, pushes, creates a PR, waits for CI, and
+squash-merges (via `_sibling_pr_merge`).
 
-### 8a. install-all.sh (punt-kit)
+### 10a. install-all.sh (punt-kit)
 
 Update the project's curl line SHA in `punt-kit/install-all.sh`:
 
-```
+```bash
 curl -fsSL "$GH/<project>/<new-sha>/install.sh" | sh
 ```
 
-The SHA is the short hash of the `vX.Y.Z` tag.
+The SHA is the short hash of the commit that last modified `install.sh`
+(not the tag SHA — for hybrid projects the tag sits on the plugin-swap
+commit, which comes after the version-bump commit).
 
 **Self-referential case**: when releasing punt-kit, this modifies punt-kit's
 own `install-all.sh`. The sibling resolution returns the originating repo
@@ -66,7 +47,7 @@ itself. The logic is identical.
 
 **Applies to**: all projects with an `install.sh`.
 
-### 8b. Marketplace (claude-plugins)
+### 10b. Marketplace (claude-plugins)
 
 Update `.claude-plugin/marketplace.json`:
 
@@ -75,16 +56,16 @@ Update `.claude-plugin/marketplace.json`:
 
 **Applies to**: hybrid and plugin projects.
 
-### 8c. Org Profile (.github)
+### 10c. Org Profile (.github)
 
 Update the `install-all.sh` curl URL in `profile/README.md` to punt-kit's
-current main HEAD SHA (which includes the 8a commit).
+current main HEAD SHA (which includes the 10a commit).
 
-**Depends on**: 8a must complete first.
+**Depends on**: 10a must complete first.
 
 **Applies to**: punt-kit releases only.
 
-### 8d. Website (public-website)
+### 10d. Website (public-website)
 
 Update `src/data/projects.json`:
 
@@ -116,8 +97,8 @@ produce no diff and are skipped.
 ### Error Handling
 
 - **Fail-fast**: any error halts the release immediately.
-- **Push rejected (non-ff)**: retry once — pull, re-apply substitution,
-  push. If still rejected, fail with instructions.
+- **CI failure on PR**: the release halts with a message identifying the
+  branch and PR number. Fix on the branch and resume with `--resume-from`.
 - **Sibling missing**: skip with a warning for optional targets (website).
   Fail for required targets (install-all.sh, marketplace).
 
@@ -125,16 +106,15 @@ produce no diff and are skipped.
 
 | Sub-step | CLI-only | Hybrid | Plugin-only | punt-kit |
 |----------|----------|--------|-------------|----------|
-| 8a. install-all.sh | Yes | Yes | No | Yes (self) |
-| 8b. Marketplace | No | Yes | Yes | Yes |
-| 8c. Profile | No | No | No | Yes |
-| 8d. Website | If entry | If entry | If entry | If entry |
+| 10a. install-all.sh | Yes | Yes | No | Yes (self) |
+| 10b. Marketplace | No | Yes | Yes | Yes |
+| 10c. Profile | No | No | No | Yes |
+| 10d. Website | If entry | If entry | If entry | If entry |
 
-## Phase 9: Verify
+## Phase 11: Verify
 
 Read-only checks confirming that the automated, file-level requirements from
-`release-requirements.md` listed below are satisfied. Does not cover all
-requirements (for example, GitHub Release existence). Prints a pass/fail table.
+`release-requirements.md` listed below are satisfied. Prints a pass/fail table.
 
 | Check | Method |
 |-------|--------|
@@ -152,32 +132,15 @@ requirements (for example, GitHub Release existence). Prints a pass/fail table.
 `--resume-from <phase>` skips earlier phases, enabling recovery from
 interrupted releases:
 
+```bash
+punt release 0.8.0 --resume-from propagate   # Skip 1-9, run 10-11
+punt release 0.8.0 --resume-from verify      # Skip 1-10, run 11 only
+punt release 0.8.0 --resume-from post-release # Skip 1-8, run 9-11
 ```
-punt release 0.8.0 --resume-from propagate   # Skip 1-7, run 8-9
-punt release 0.8.0 --resume-from verify      # Skip 1-8, run 9 only
-```
 
-## What Gets Deleted
+Valid phase names: `preflight`, `bump`, `build`, `release-pr`, `tag`, `ci`,
+`github-release`, `pypi`, `post-release`, `propagate`, `verify`.
 
-| File | Repo | Why |
-|------|------|-----|
-| `.github/workflows/propagate.yml` | punt-kit | Replaced by Phase 8a |
-| `.github/workflows/propagate-profile.yml` | punt-kit | Replaced by Phase 8c |
-| `.github/workflows/propagate.yml` | claude-plugins | Replaced by Phase 8b |
-| `.github/workflows/propagate.yml` | .github | Replaced by Phase 8c |
-| `playbooks/release.yaml` | punt-kit | Replaced by thin wrapper that calls CLI |
-| `PROPAGATE_TOKEN` secret | all repos | No longer needed |
-
-The `release.yml` CI workflow (build/test/publish on tag push) is **kept**.
-
-## Implementation Files
-
-| File | Action |
-|------|--------|
-| `src/punt_kit/release.py` | Replace Phase 8, add Phase 9, add sibling helpers |
-| `src/punt_kit/__main__.py` | Add `--resume-from` CLI flag |
-| `tests/test_release.py` | Add propagation tests |
-| `standards/release-requirements.md` | Update to document local propagation |
-| `CHANGELOG.md` | Add entry |
-| Workflow files (4) | Delete |
-| `playbooks/release.yaml` | Replace with thin CLI wrapper |
+When resuming without an explicit version, the version is read from
+`pyproject.toml` (not the changelog). Always pass the version explicitly
+when resuming from `bump` if Phase 2 hasn't completed.
