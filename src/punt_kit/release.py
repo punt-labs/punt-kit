@@ -462,21 +462,26 @@ def _pr_merge(
             ],
             cwd=root,
             check=False,
-            capture=False,
+            capture=True,
             timeout=7200,
         )
         if result.returncode == 0:
+            if result.stdout.strip():
+                console.print(result.stdout.strip())
             break
-        # gh pr checks returns 8 for "no checks" / pending.
-        # Any other non-zero code is a real CI failure.
-        if result.returncode != 8:
-            _fail(
-                f"CI failed on PR #{pr_number} — fix on branch "
-                f"{branch} and resume with --resume-from"
-            )
-        if attempt < 11:
+        # Check if this is "no checks" (CI hasn't started) vs real failure
+        combined = (result.stdout or "") + (result.stderr or "")
+        if "no checks" in combined.lower() and attempt < 11:
             _info(f"No checks yet (attempt {attempt + 1}/12), waiting 5s...")
             time.sleep(5)
+            continue
+        # Real CI failure
+        if result.stdout and result.stdout.strip():
+            console.print(result.stdout.strip())
+        _fail(
+            f"CI failed on PR #{pr_number} — fix on branch "
+            f"{branch} and resume with --resume-from"
+        )
     else:
         _fail(
             f"CI checks never appeared on PR #{pr_number} — "
