@@ -10,7 +10,7 @@ parameters:
 
 steps:
   - id: run-cli
-    description: Run punt release (phases 1-9)
+    description: Run punt release (phases 1-11)
     type: script
     command: punt release ${version}
     on_failure: diagnose
@@ -19,9 +19,14 @@ steps:
     description: Verify the release is complete
     type: llm
     context: |
-      The CLI handles phases 1-9: preflight, version bump, build, tag/push,
-      CI wait, GitHub release, PyPI verify, cross-repo propagation (local
-      sibling pushes), and verification.
+      The CLI handles phases 1-11: preflight, version bump, build,
+      release PR, tag, CI wait, GitHub release, PyPI verify, post-release
+      (dev restore + README SHA via PR), cross-repo propagation (sibling
+      PRs), and verification.
+
+      All main-branch changes go through PRs (zero bypass actors). Each
+      propagation step creates a branch, pushes, opens a PR, waits for CI,
+      and squash-merges.
 
       Confirm the CLI reported success. If it did, spot-check:
 
@@ -34,5 +39,6 @@ steps:
       Print a pass/fail table. If any check fails, diagnose and fix.
 
       If the CLI failed partway, use `punt release --resume-from <phase>` to
-      resume from the failed phase.
+      resume from the failed phase. Valid phase names: preflight, bump, build,
+      release-pr, tag, ci, github-release, pypi, post-release, propagate, verify.
     on_failure: diagnose
