@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release`: `_pr_merge` CI wait retries up to 60s when checks haven't started yet (was failing immediately with "no checks reported")
+- `punt release`: `_pr_merge` auto-resolves Copilot/Bugbot review threads before merging (was blocked by `required_review_thread_resolution`)
+- `punt release`: Phase 9 re-stamps plugin.json version after dev restore (restore script reverts version along with name)
+
 ## [0.7.6] - 2026-03-13
 
 ### Changed

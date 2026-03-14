@@ -170,6 +170,63 @@ def _extract_version_notes(changelog: str, version: str) -> str:
     return changelog[start:end].strip()
 
 
+def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
+    """Resolve all unresolved review threads on a PR.
+
+    Copilot and Bugbot auto-post reviews on every PR. With
+    required_review_thread_resolution=true, unresolved threads block merge.
+    """
+    repo = _get_github_repo(Path(cwd))
+    if repo is None:
+        return
+    owner, name = repo.split("/", 1)
+
+    query = (
+        f'{{ repository(owner: "{owner}", name: "{name}") {{'
+        f" pullRequest(number: {pr_number}) {{"
+        " reviewThreads(first: 50) {"
+        " nodes { id isResolved } } } } }"
+    )
+
+    result = _run(
+        [gh, "api", "graphql", "-f", f"query={query}"],
+        cwd=cwd,
+        check=False,
+    )
+    if result.returncode != 0:
+        _info("Could not fetch review threads — merge may fail")
+        return
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return
+
+    threads = (
+        data.get("data", {})
+        .get("repository", {})
+        .get("pullRequest", {})
+        .get("reviewThreads", {})
+        .get("nodes", [])
+    )
+
+    unresolved = [t["id"] for t in threads if not t.get("isResolved")]
+    if not unresolved:
+        return
+
+    for tid in unresolved:
+        mutation = (
+            f'mutation {{ resolveReviewThread(input: {{threadId: "{tid}"}})'
+            " { thread { isResolved } } }"
+        )
+        _run(
+            [gh, "api", "graphql", "-f", f"query={mutation}"],
+            cwd=cwd,
+            check=False,
+        )
+    _ok(f"Resolved {len(unresolved)} review thread(s)")
+
+
 # ---------------------------------------------------------------------------
 # Phase implementations
 # ---------------------------------------------------------------------------
@@ -389,16 +446,32 @@ def _pr_merge(
             _fail(f"Failed to extract PR number from gh output: {pr_url}")
         _ok(f"Created PR #{pr_number}")
 
-    # 4. Wait for CI
+    # 4. Wait for CI (with retry — checks may take a few seconds to appear)
     _info(f"Waiting for CI on PR #{pr_number}...")
-    result = _run(
-        [gh, "pr", "checks", str(pr_number), "--watch", "--fail-fast"],
-        cwd=root,
-        check=False,
-        capture=False,
-        timeout=7200,
-    )
-    if result.returncode != 0:
+    import time
+
+    for attempt in range(12):
+        result = _run(
+            [
+                gh,
+                "pr",
+                "checks",
+                str(pr_number),
+                "--watch",
+                "--fail-fast",
+            ],
+            cwd=root,
+            check=False,
+            capture=False,
+            timeout=7200,
+        )
+        if result.returncode == 0:
+            break
+        # "no checks" means CI hasn't started yet — retry
+        if attempt < 11:
+            _info(f"No checks yet (attempt {attempt + 1}/12), waiting 5s...")
+            time.sleep(5)
+    else:
         _fail(
             f"CI failed on PR #{pr_number} — fix on branch {branch} and "
             f"resume with --resume-from"
@@ -424,9 +497,19 @@ def _pr_merge(
         sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
         return sha
 
-    # 6. Squash-merge
+    # 6. Resolve review threads (Copilot/Bugbot auto-post on PRs)
+    _resolve_pr_threads(gh, root, pr_number)
+
+    # 7. Squash-merge
     result = _run(
-        [gh, "pr", "merge", str(pr_number), "--squash", "--delete-branch"],
+        [
+            gh,
+            "pr",
+            "merge",
+            str(pr_number),
+            "--squash",
+            "--delete-branch",
+        ],
         cwd=root,
         check=False,
     )
@@ -941,6 +1024,27 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         if not pj_data.get("name", "").endswith("-dev"):
             restore_script = root / "scripts" / "restore-dev-plugin.sh"
             _run(["bash", str(restore_script)], cwd=str(root), capture=False)
+            # Re-stamp version — the restore script does
+            # `git checkout HEAD~1 -- plugin.json` which reverts the
+            # version field along with the name.
+            pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+            if pj_data.get("version") != version:
+                pj_data["version"] = version
+                plugin_json.write_text(
+                    json.dumps(pj_data, indent=2) + "\n",
+                    encoding="utf-8",
+                )
+                _run(["git", "add", str(plugin_json)], cwd=str(root))
+                _run(
+                    [
+                        "git",
+                        "commit",
+                        "--amend",
+                        "--no-edit",
+                        "--no-verify",
+                    ],
+                    cwd=str(root),
+                )
             _ok("Dev plugin state restored")
             has_changes = True
         else:
