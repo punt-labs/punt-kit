@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.7.7] - 2026-03-13
+
 ### Fixed
 
 - `punt release`: `_pr_merge` CI wait retries up to 60s when checks haven't started yet (was failing immediately with "no checks reported")
