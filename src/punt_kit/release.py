@@ -467,14 +467,20 @@ def _pr_merge(
         )
         if result.returncode == 0:
             break
-        # "no checks" means CI hasn't started yet — retry
+        # gh pr checks returns 8 for "no checks" / pending.
+        # Any other non-zero code is a real CI failure.
+        if result.returncode != 8:
+            _fail(
+                f"CI failed on PR #{pr_number} — fix on branch "
+                f"{branch} and resume with --resume-from"
+            )
         if attempt < 11:
             _info(f"No checks yet (attempt {attempt + 1}/12), waiting 5s...")
             time.sleep(5)
     else:
         _fail(
-            f"CI failed on PR #{pr_number} — fix on branch {branch} and "
-            f"resume with --resume-from"
+            f"CI checks never appeared on PR #{pr_number} — "
+            f"fix on branch {branch} and resume with --resume-from"
         )
     _ok("CI passed")
 
