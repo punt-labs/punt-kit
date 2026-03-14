@@ -1,5 +1,5 @@
 {
-  "name": "punt-dev",
+  "name": "punt",
   "description": "Punt Labs standards enforcement \u2014 LLM-powered reconciliation of workflows, configs, and project structure",
   "version": "0.7.7",
   "author": {
