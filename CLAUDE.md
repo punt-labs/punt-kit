@@ -154,25 +154,37 @@ These are available within a running Claude Code session, not from the shell:
 
 ## Release Workflow
 
-`punt release` handles phases 1–11: preflight, version bump, build, release PR,
-tag, CI wait, GitHub release, PyPI verify, post-release, cross-repo propagation,
-and verification. All main-branch changes go through PRs (zero bypass actors).
+Releases are invoked via `/punt:auto release [version=X.Y.Z]`. This runs the
+`release` playbook (`playbooks/release.yaml`) through the playbook executor,
+which provides LLM-driven error diagnosis and a post-release verification step.
 
-### Phase structure
+The playbook has two steps:
+
+1. **`punt release`** (script) — the deterministic CLI (`src/punt_kit/release.py`)
+   that executes phases 1–11. On failure the executor diagnoses the error,
+   attempts a fix, and re-runs (`on_failure: diagnose`).
+2. **Verify** (LLM judgment) — spot-checks that all artifacts landed correctly
+   across repos (PyPI version, install-all.sh SHA, marketplace version, website
+   version, org profile SHA). Prints a pass/fail checklist. Also uses
+   `on_failure: diagnose` to attempt fixes if checks fail.
+
+All main-branch changes go through PRs (zero bypass actors).
+
+### Phase structure (`punt release`)
 
 | Phase | Name | Description |
 |-------|------|-------------|
-| 1 | preflight | Branch, clean tree, changelog, quality gates |
-| 2 | bump | Create `release/vX.Y.Z` branch, bump versions |
+| 1 | preflight | Verify on main, clean tree, up to date with origin/main, release scripts present (hybrid), changelog has unreleased entries, quality gates |
+| 2 | bump | Create `release/vX.Y.Z` branch, bump versions (pyproject.toml / \_\_init\_\_.py / plugin.json / install.sh), stamp CHANGELOG, `uv lock` |
 | 3 | build | `uv build` + `twine check` on branch |
-| 4 | release-pr | Plugin swap (hybrid), push branch, PR, CI, squash-merge |
-| 5 | tag | Tag main HEAD, push tag |
-| 6 | ci | Wait for tag-triggered `release.yml` |
+| 4 | release-pr | Plugin swap (hybrid), push branch, create PR, wait for CI, squash-merge |
+| 5 | tag | Tag main HEAD with `vX.Y.Z`, push tag |
+| 6 | ci | Wait for tag-triggered `release.yml` (build → TestPyPI → test-install → PyPI) |
 | 7 | github-release | Create GitHub release with changelog notes |
-| 8 | pypi | Verify PyPI install |
-| 9 | post-release | Dev restore + README SHA bump via PR |
-| 10 | propagate | Sibling PRs (install-all.sh, marketplace, profile, website) |
-| 11 | verify | Read-only checks across all repos |
+| 8 | pypi | Install from PyPI, run doctor, restore editable install |
+| 9 | post-release | Dev plugin restore (hybrid) + README install SHA bump via PR |
+| 10 | propagate | Sibling PRs: install-all.sh SHA, marketplace version+ref, org profile SHA, website version |
+| 11 | verify | Check all repos (pass/fail checklist), exit non-zero on failure |
 
 ### Key assumptions
 
@@ -187,9 +199,10 @@ and verification. All main-branch changes go through PRs (zero bypass actors).
   all jobs complete, so the developer must approve the deployment during the
   release. Expect ~20 minutes for the full pipeline (build → TestPyPI →
   test-install → approve → PyPI).
-- **`--resume-from <phase>`**: Resumes from any phase. When resuming without an
-  explicit version, reads from `pyproject.toml` (not changelog). Always pass the
-  version explicitly when resuming from `bump` if Phase 2 hasn't completed.
+- **`--resume-from <phase>`**: The CLI supports resuming from any phase. When
+  resuming without an explicit version, reads from `pyproject.toml` (not
+  changelog). Always pass the version explicitly when resuming from `bump` if
+  Phase 2 hasn't completed.
 
 See [DESIGN.md](DESIGN.md) DES-013, DES-014, and DES-016 for the full rationale.
 
