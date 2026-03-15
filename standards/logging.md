@@ -27,8 +27,8 @@ import logging
 import logging.config
 from pathlib import Path
 
-_LOG_DIR = Path.home() / ".<app-name>" / "logs"
-_LOG_FILE = _LOG_DIR / "<app-name>.log"
+_LOG_DIR = Path.home() / ".punt-labs" / "<tool>" / "logs"
+_LOG_FILE = _LOG_DIR / "<tool>.log"
 
 _FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -102,9 +102,9 @@ def configure_logging(*, stderr_level: str = "WARNING") -> None:
 
 | Component | Path |
 |-----------|------|
-| Log directory | `~/.<app-name>/logs/` |
-| Primary log | `~/.<app-name>/logs/<app-name>.log` |
-| Rotated backups | `<app-name>.log.1` through `<app-name>.log.5` |
+| Log directory | `~/.punt-labs/<tool>/logs/` |
+| Primary log | `~/.punt-labs/<tool>/logs/<tool>.log` |
+| Rotated backups | `<tool>.log.1` through `<tool>.log.5` |
 
 The directory is created with `mode=0o700` (owner-only). Logs may contain operational metadata (file paths, config values, signal tokens) that should not be world-readable.
 
@@ -118,7 +118,7 @@ MCP servers using stdio transport must never write to stdout (reserved for the J
 
 All projects use the same format string:
 
-```
+```text
 2026-03-08 10:37:41 [INFO] punt_vox.server: Starting vox MCP server (mic)
 ```
 
@@ -148,6 +148,7 @@ Do not add structured key-value formatting (e.g., `key=value` pairs). The log is
 ### INFO — the diagnostic backbone
 
 INFO is the primary investigation level. Every log entry at INFO should answer one of:
+
 - **What happened?** A state change, a file written, a process spawned.
 - **What was decided?** A branch taken, a condition evaluated, a request skipped.
 - **What crossed a boundary?** A subprocess spawned, an API called, a lock acquired.
