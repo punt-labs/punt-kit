@@ -547,12 +547,13 @@ def _pr_merge(
         result = _run(merge_cmd, cwd=root, check=False)
         if result.returncode == 0:
             break
-        combined = result.stderr.strip() + result.stdout.strip()
+        combined = (result.stderr.strip() + "\n" + result.stdout.strip()).strip()
+        combined_lower = combined.lower()
         is_transient = (
-            "policy prohibits" in combined
-            or "required status check" in combined
-            or "review is required" in combined
-            or "conversation must be resolved" in combined
+            "policy prohibits" in combined_lower
+            or "required status check" in combined_lower
+            or "review is required" in combined_lower
+            or "conversation must be resolved" in combined_lower
         )
         if is_transient and merge_attempt < 5:
             wait = 10 * (merge_attempt + 1)
