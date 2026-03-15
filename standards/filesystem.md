@@ -25,21 +25,21 @@ Each tool owns `~/.punt-labs/<tool>/` and may create any structure beneath it. T
 
 ### Resolution
 
-```python
-from pathlib import Path
-
-def punt_labs_dir(tool: str) -> Path:
-    """Return the root data directory for a Punt Labs tool."""
-    return Path.home() / ".punt-labs" / tool
-```
-
-Tools must not hardcode `Path.home() / ".biff"` or `Path.home() / ".punt-vox"`. Use a single constant at the module level:
+Each tool defines a single root constant or function in one central module. All subdirectory paths derive from it — no scattered `Path.home()` calls.
 
 ```python
-_DATA_DIR = Path.home() / ".punt-labs" / "biff"
+# In src/biff/_stdlib.py (or equivalent central module)
+BIFF_DATA_DIR = Path.home() / ".punt-labs" / "biff"
 ```
 
-All subdirectory paths derive from this constant.
+For code that needs test mockability (where tests patch `Path.home()`), use a function instead:
+
+```python
+def biff_data_dir() -> Path:
+    return Path.home() / ".punt-labs" / "biff"
+```
+
+Both patterns are valid. The constant is simpler for module-level declarations; the function is necessary when tests mock `Path.home()` at runtime. A tool may use both — constant for imports, function for mockable call sites.
 
 ---
 
@@ -57,7 +57,7 @@ Tools are free to create any subdirectory structure. The following names are res
 
 ## Per-Project Activation
 
-Per-project enablement uses a sentinel file at the repo root (e.g., `.biff`, `.quarry`). These are **not** under `~/.punt-labs/` — they live in the project directory and are committed to version control.
+Per-project enablement uses a sentinel file at the repo root (e.g., `.biff` for biff). The sentinel name and format are tool-specific. These files are **not** under `~/.punt-labs/` — they live in the project directory and are committed to version control.
 
 ---
 
