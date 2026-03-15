@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -15,6 +16,10 @@ from rich.console import Console
 from punt_kit.detect import ProjectInfo, detect
 
 console = Console()
+
+# Sibling repos checked during preflight and used during propagation (phase 10).
+# Must stay in sync with the _propagate_* functions.
+PROPAGATION_SIBLINGS = ["punt-kit", "claude-plugins", ".github", "public-website"]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -291,7 +296,24 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         _fail("[Unreleased] section is empty — nothing to release")
     _ok("Changelog has unreleased entries")
 
-    # 1d. Quality gates
+    # 1d. Sibling repos (propagation targets) must be clean and on main
+    # Check early so we fail before quality gates, not mid-propagation (91t).
+    # Also catches stale propagation branches from prior releases (5b4/zay).
+    siblings_checked = 0
+    project_name = info.root.name
+    for sib_name in PROPAGATION_SIBLINGS:
+        if sib_name == project_name:
+            continue  # skip self-referential check
+        sib_path = _resolve_sibling(info.root, sib_name)
+        if sib_path is not None:
+            _validate_sibling(sib_path, sib_name)
+            siblings_checked += 1
+    if siblings_checked > 0:
+        _ok(f"Sibling repos ready ({siblings_checked} checked)")
+    else:
+        _info("No sibling repos found (propagation will be skipped)")
+
+    # 1e. Quality gates
     if not dry_run and info.language == "python":
         _info("Running quality gates...")
         gates = [
@@ -448,8 +470,6 @@ def _pr_merge(
 
     # 4. Wait for CI (with retry — checks may take a few seconds to appear)
     _info(f"Waiting for CI on PR #{pr_number}...")
-    import time
-
     for attempt in range(12):
         result = _run(
             [
@@ -511,21 +531,43 @@ def _pr_merge(
     # 6. Resolve review threads (Copilot/Bugbot auto-post on PRs)
     _resolve_pr_threads(gh, root, pr_number)
 
-    # 7. Squash-merge
-    result = _run(
-        [
-            gh,
-            "pr",
-            "merge",
-            str(pr_number),
-            "--squash",
-            "--delete-branch",
-        ],
-        cwd=root,
-        check=False,
-    )
-    if result.returncode != 0:
-        _fail(f"Failed to merge PR #{pr_number}: {result.stderr.strip()}")
+    # 7. Squash-merge (retry on branch protection / pending checks)
+    # Some repos have long-running checks (CodeQL) that gh pr checks --watch
+    # doesn't wait for if they aren't required. Branch protection may also
+    # require conversation resolution that takes a moment to propagate. (n5i)
+    merge_cmd = [
+        gh,
+        "pr",
+        "merge",
+        str(pr_number),
+        "--squash",
+        "--delete-branch",
+    ]
+    for merge_attempt in range(6):
+        result = _run(merge_cmd, cwd=root, check=False)
+        if result.returncode == 0:
+            break
+        combined = (result.stderr.strip() + "\n" + result.stdout.strip()).strip()
+        combined_lower = combined.lower()
+        is_transient = (
+            "policy prohibits" in combined_lower
+            or "required status check" in combined_lower
+            or "review is required" in combined_lower
+            or "conversation must be resolved" in combined_lower
+        )
+        if is_transient and merge_attempt < 5:
+            wait = 10 * (merge_attempt + 1)
+            _info(
+                f"Merge blocked (attempt {merge_attempt + 1}/6), retrying in {wait}s..."
+            )
+            time.sleep(wait)
+            # Re-resolve threads in case new ones appeared (best-effort)
+            try:
+                _resolve_pr_threads(gh, root, pr_number)
+            except (SystemExit, subprocess.CalledProcessError):
+                _info("Could not re-resolve threads, proceeding with retry")
+            continue
+        _fail(f"Failed to merge PR #{pr_number}: {combined}")
     _ok(f"PR #{pr_number} merged")
 
     # 7. Update local main
@@ -838,8 +880,6 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _info(f"Looking for CI run triggered by {tag}...")
 
     # Give CI a moment to start
-    import time
-
     time.sleep(5)
 
     # Try release workflow first, fall back to any recent run
@@ -963,8 +1003,6 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
             break
         if attempt < 9:
             _info(f"Attempt {attempt + 1}/10 — waiting 30s for PyPI propagation...")
-            import time
-
             time.sleep(30)
     else:
         _fail(
@@ -1159,26 +1197,38 @@ def _sibling_pr_merge(
         return True
 
     # Create branch (handle resume: branch may already exist)
-    existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
-    if existing:
-        _run(["git", "checkout", branch], cwd=cwd)
-    else:
-        _run(["git", "checkout", "-b", branch], cwd=cwd)
-    for f in files:
-        _run(["git", "add", f], cwd=cwd)
-    # Skip commit if nothing staged (resume case: already committed)
-    staged = _run(
-        ["git", "status", "--porcelain", "--", *files], cwd=cwd
-    ).stdout.strip()
-    if staged:
-        _run(["git", "commit", "-m", message], cwd=cwd)
+    # Use try/finally to ensure sibling returns to main on any failure —
+    # SystemExit from _fail(), CalledProcessError from _run(), etc.
+    # (5b4/zay: stale propagation branches break subsequent releases).
+    try:
+        existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
+        if existing:
+            _run(["git", "checkout", branch], cwd=cwd)
+        else:
+            _run(["git", "checkout", "-b", branch], cwd=cwd)
+        for f in files:
+            _run(["git", "add", f], cwd=cwd)
+        # Skip commit if nothing staged (resume case: already committed)
+        staged = _run(
+            ["git", "status", "--porcelain", "--", *files], cwd=cwd
+        ).stdout.strip()
+        if staged:
+            _run(["git", "commit", "-m", message], cwd=cwd)
 
-    _pr_merge(
-        cwd=path,
-        branch=branch,
-        title=message,
-        dry_run=False,
-    )
+        _pr_merge(
+            cwd=path,
+            branch=branch,
+            title=message,
+            dry_run=False,
+        )
+    finally:
+        # _pr_merge checks out main on success; this is a no-op in that case.
+        # On failure, this ensures we don't leave the sibling on a stale branch.
+        current = _run(
+            ["git", "branch", "--show-current"], cwd=cwd, check=False
+        ).stdout.strip()
+        if current != "main":
+            _run(["git", "checkout", "main"], cwd=cwd, check=False)
 
     return True
 
