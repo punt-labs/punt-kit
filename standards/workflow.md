@@ -204,8 +204,8 @@ CHANGELOG entries are written **in the PR branch, before merge** — not retroac
 Before creating a pull request, verify:
 
 - [ ] Quality gates pass (see §6)
-- [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see §8)
-- [ ] **Local code review passed** (see §10) — `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
+- [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see §8 CHANGELOG Discipline)
+- [ ] **Local code review passed** when applicable (see §10 for skip conditions) — `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
 - [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
 - [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
 - [ ] Version bumped if user-facing behavior changed (if the project uses semver)
