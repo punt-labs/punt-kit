@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release`: preflight (phase 1) now validates sibling repos are on main with clean trees before starting — previously failed mid-propagation (phase 10)
+- `punt release`: `_sibling_pr_merge` returns sibling to main branch even on failure — previously left siblings on stale propagation branches
+- `punt release`: merge retry with backoff (up to 6 attempts) when branch protection blocks merge due to pending checks or unresolved conversations
 - `install-all.sh`: update biff install SHA from 9149bdc to 6647733 (v1.3.6)
 
 ## [0.7.8] - 2026-03-13

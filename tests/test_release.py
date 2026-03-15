@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_kit.detect import detect
 from punt_kit.release import (
     PHASE_NAMES,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
@@ -988,6 +989,133 @@ def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
 
 
 # --- PHASE_NAMES ---
+
+
+# --- Propagation bug fixes (punt-kit-91t, punt-kit-5b4, punt-kit-zay) ---
+
+
+def test_validate_sibling_called_during_preflight(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Preflight validates sibling repos that would be used in propagation (91t).
+
+    We use dry_run=True to skip quality gates, but sibling checks should still
+    run because dirty siblings won't magically become clean by release time.
+    """
+    root = _make_release_project(tmp_path)
+
+    # Create punt-kit sibling with staged (dirty) changes
+    sibling = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+    (sibling / "dirty.txt").write_text("dirty")
+    _git(["add", "dirty.txt"], cwd=str(sibling))
+
+    info = detect(root)
+
+    with pytest.raises(SystemExit):
+        _phase1_preflight(info, dry_run=True)
+
+
+def test_validate_sibling_wrong_branch_during_preflight(
+    tmp_path: Path,
+) -> None:
+    """Preflight fails if sibling is on stale propagation branch (5b4/zay)."""
+    root = _make_release_project(tmp_path)
+
+    sibling = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+    _git(["checkout", "-b", "propagate/v1.0.0-punt-kit"], cwd=str(sibling))
+
+    info = detect(root)
+
+    with pytest.raises(SystemExit):
+        _phase1_preflight(info, dry_run=True)
+
+
+def test_preflight_passes_with_clean_siblings(tmp_path: Path) -> None:
+    """Preflight passes when siblings are clean and on main."""
+    root = _make_release_project(tmp_path)
+
+    # Create clean sibling on main
+    _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+
+    info = detect(root)
+    # Should not raise
+    _phase1_preflight(info, dry_run=True)
+
+
+def test_sibling_pr_merge_returns_to_main(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After _sibling_pr_merge, sibling is back on main (5b4/zay fix)."""
+    from punt_kit import release as release_mod
+
+    sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
+
+    # Modify a tracked file to create a diff
+    (sibling / "file.txt").write_text("v2")
+
+    # Mock _pr_merge to avoid real GitHub operations
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        # Real _pr_merge checks out main after merge — simulate that
+        _git(["checkout", "main"], cwd=str(cwd))
+        return "abc1234"
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        sibling, "test-branch", ["file.txt"], "test commit", "sib", dry_run=False
+    )
+
+    # Verify we're back on main
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=str(sibling),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert branch == "main"
+
+
+def test_sibling_pr_merge_returns_to_main_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sibling returns to main even when _pr_merge fails (5b4/zay)."""
+    from punt_kit import release as release_mod
+
+    sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
+    (sibling / "file.txt").write_text("v2")
+
+    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+        raise SystemExit(1)
+
+    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
+
+    with pytest.raises(SystemExit):
+        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+            sibling,
+            "test-branch",
+            ["file.txt"],
+            "test commit",
+            "sib",
+            dry_run=False,
+        )
+
+    # The critical assertion: sibling is back on main despite the failure
+    branch = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=str(sibling),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert branch == "main"
 
 
 def test_phase_names_cover_all_phases() -> None:
