@@ -63,7 +63,7 @@ Escalation only goes up. If T2 reveals unexpected scope, escalate to T1. Never d
 
 ### Biff plan
 
-When biff is enabled, set a plan (`/plan "short description"`) before starting work so teammates and other agents can see what you're doing.
+When biff is enabled, set a biff plan (`/plan "short description"` — this is the biff `/plan` command, not Claude plan mode) before starting work so teammates and other agents can see what you're doing.
 
 ### Worktree sharing
 
@@ -162,7 +162,7 @@ Use a test-first approach when feasible: write failing tests, then write the cod
 
 1. Write a test that expresses the expected behavior. Run it — confirm it fails.
 2. Write the minimum code to make the test pass.
-3. Run `make check`. Refactor if needed while keeping tests green.
+3. Run the repo's quality gates (see §6). Refactor if needed while keeping tests green.
 
 This is not dogma. If writing the test first is impractical (e.g., you need to understand the interface before you can test it), write the code first and the test immediately after. The rule is: **tests and code land in the same commit**.
 
@@ -205,7 +205,7 @@ Before creating a pull request, verify:
 
 - [ ] Quality gates pass (see §6)
 - [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see §8)
-- [ ] **Local code review passed** (see §10) — `feature-dev:code-reviewer` + `silent-failure-hunter`
+- [ ] **Local code review passed** (see §10) — `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
 - [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
 - [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
 - [ ] Version bumped if user-facing behavior changed (if the project uses semver)
@@ -288,7 +288,7 @@ Work is **not** complete until `git push` succeeds.
 
 ## 13. Work Recap
 
-After merging a PR, send a recap email to jim@punt-labs.com via `mcp__beadle-email__send_email`.
+After merging a PR, send a recap email to jim@punt-labs.com. Use `mcp__beadle-email__send_email` if the beadle-email MCP server is available; otherwise ask the user to send it manually or use an alternative.
 
 ### Format
 
