@@ -67,7 +67,7 @@ def release(
         help="Resume from a specific phase (e.g. propagate, verify)",
     ),
 ) -> None:
-    """Run the deterministic release workflow (phases 1-9)."""
+    """Run the deterministic release workflow (phases 1-11)."""
     from punt_kit.release import run_release
 
     run_release(

@@ -165,7 +165,7 @@ The playbook has two steps:
    attempts a fix, and re-runs (`on_failure: diagnose`).
 2. **Verify** (LLM judgment) — spot-checks that all artifacts landed correctly
    across repos (PyPI version, install-all.sh SHA, marketplace version, website
-   version, org profile SHA). Prints a pass/fail table. Also uses
+   version, org profile SHA). Prints a pass/fail checklist. Also uses
    `on_failure: diagnose` to attempt fixes if checks fail.
 
 All main-branch changes go through PRs (zero bypass actors).
@@ -174,7 +174,7 @@ All main-branch changes go through PRs (zero bypass actors).
 
 | Phase | Name | Description |
 |-------|------|-------------|
-| 1 | preflight | Verify on main, clean tree, up to date with origin/main, changelog has unreleased entries, quality gates |
+| 1 | preflight | Verify on main, clean tree, up to date with origin/main, release scripts present (hybrid), changelog has unreleased entries, quality gates |
 | 2 | bump | Create `release/vX.Y.Z` branch, bump versions (pyproject.toml / \_\_init\_\_.py / plugin.json / install.sh), stamp CHANGELOG, `uv lock` |
 | 3 | build | `uv build` + `twine check` on branch |
 | 4 | release-pr | Plugin swap (hybrid), push branch, create PR, wait for CI, squash-merge |
@@ -184,7 +184,7 @@ All main-branch changes go through PRs (zero bypass actors).
 | 8 | pypi | Install from PyPI, run doctor, restore editable install |
 | 9 | post-release | Dev plugin restore (hybrid) + README install SHA bump via PR |
 | 10 | propagate | Sibling PRs: install-all.sh SHA, marketplace version+ref, org profile SHA, website version |
-| 11 | verify | Check all repos (pass/fail table), exit non-zero on failure |
+| 11 | verify | Check all repos (pass/fail checklist), exit non-zero on failure |
 
 ### Key assumptions
 

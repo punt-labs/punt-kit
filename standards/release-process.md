@@ -122,8 +122,8 @@ produce no diff and are skipped.
 ## Phase 11: Verify
 
 Checks that the automated, file-level requirements from
-`release-requirements.md` listed below are satisfied. Prints a pass/fail table
-and exits non-zero if any check fails.
+`release-requirements.md` listed below are satisfied. Prints a pass/fail
+checklist and exits non-zero if any check fails.
 
 | Check | Method |
 |-------|--------|
