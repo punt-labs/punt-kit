@@ -79,6 +79,20 @@ def release(
 
 
 @app.command()
+def auto(
+    target: str = typer.Argument(help="Target to render: claude, makefile, settings"),
+    path: str = typer.Argument(".", help="Path to the project root"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", "-n", help="Show what would change without modifying files"
+    ),
+) -> None:
+    """Render and merge managed sections in project files."""
+    from punt_kit.auto import run_auto
+
+    run_auto(path, target=target, dry_run=dry_run)
+
+
+@app.command()
 def version() -> None:
     """Print the punt-kit version."""
     console.print(f"punt-kit {__version__}")

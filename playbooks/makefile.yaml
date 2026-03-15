@@ -1,0 +1,39 @@
+name: makefile
+description: Run punt auto makefile across all Python child repos
+mode: once
+
+parameters:
+  - name: projects
+    type: string
+    default: "biff quarry vox langlearn-tts"
+    description: >
+      Space-separated list of Python project directories to update
+      (relative to workspace root)
+  - name: dry_run
+    type: bool
+    default: false
+    description: Preview changes without modifying files
+
+preconditions:
+  - description: Working directory is the punt-labs workspace root
+    check: test -d punt-kit && test -d quarry
+
+steps:
+  - id: render-sections
+    description: Render managed Makefile sections in each project
+    type: llm
+    context: |
+      For each project in the target list, run:
+        punt auto makefile <project-path>
+
+      If dry_run is true, add --dry-run.
+
+      Report which projects had changes and which were already up to date.
+      Skip non-Python projects with a note.
+
+  - id: verify-gates
+    description: Run quality gates in changed projects
+    type: llm
+    context: |
+      For each project that had Makefile changes, run make check
+      to verify the updated targets work correctly. Fix any failures.

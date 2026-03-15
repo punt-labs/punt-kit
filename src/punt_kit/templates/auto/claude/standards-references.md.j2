@@ -1,0 +1,4 @@
+## Standards References
+{% for ref in standards_refs %}
+- [{{ display_names.get(ref, ref) }}](https://github.com/punt-labs/punt-kit/blob/main/standards/{{ ref }}.md)
+{%- endfor %}

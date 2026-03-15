@@ -1,0 +1,18 @@
+.PHONY: check test lint type format
+
+check: lint type test  ## Run all quality gates
+
+lint:  ## Run linter + formatter check
+	uv run ruff check .
+	uv run ruff format --check .
+
+type:  ## Run type checkers
+	uv run mypy src/ tests/
+	uv run pyright
+
+test:  ## Run test suite
+	uv run pytest
+
+format:  ## Auto-format code
+	uv run ruff format .
+	uv run ruff check --fix .
