@@ -1,0 +1,39 @@
+name: claude
+description: Run punt auto claude across all child repos
+mode: once
+
+parameters:
+  - name: projects
+    type: string
+    default: "biff quarry vox langlearn-tts prfaq dungeon z-spec lux mcp-proxy beadle"
+    description: >
+      Space-separated list of project directories to update
+      (relative to workspace root)
+  - name: dry_run
+    type: bool
+    default: false
+    description: Preview changes without modifying files
+
+preconditions:
+  - description: Working directory is the punt-labs workspace root
+    check: test -d punt-kit && test -d quarry
+
+steps:
+  - id: render-sections
+    description: Render managed CLAUDE.md sections in each project
+    type: llm
+    context: |
+      For each project in the target list, run:
+        punt auto claude <project-path>
+
+      If dry_run is true, add --dry-run.
+
+      Report which projects had changes and which were already up to date.
+
+  - id: verify-idempotency
+    description: Run again to verify no further changes
+    type: llm
+    context: |
+      Run punt auto claude on each changed project a second time.
+      Verify the second run produces no changes (idempotency check).
+      If any project changed on the second run, report it as a bug.

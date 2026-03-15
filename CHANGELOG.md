@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `punt auto <target>` command — marker-based section management for CLAUDE.md, Makefile, and settings.json. Renders Jinja2 templates and merges managed sections while preserving local content.
+- Templates for CLAUDE.md (7 sections: no-preexisting, scratch-files, quality-gates, code-review, pre-pr-checklist, standards-references, available-tooling)
+- Templates for Makefile (python targets, help target)
+- Playbooks for cross-repo rollout (`claude.yaml`, `makefile.yaml`)
+
 ### Fixed
 
 - `punt release`: preflight (phase 1) now validates sibling repos are on main with clean trees before starting — previously failed mid-propagation (phase 10)

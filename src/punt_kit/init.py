@@ -412,14 +412,8 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
         "mcp__quarry__*",
     ]
 
-    # Cross-project file access (§3)
-    perms.extend(
-        [
-            "Read(../**)",
-            "Edit(../**)",
-            "Write(../**)",
-        ]
-    )
+    # Cross-project file access belongs in settings.local.json with absolute
+    # paths per DES-004 rule 3 — not in the portable settings.json.
 
     # Generic Bash commands required for all projects (§3)
     perms.extend(
