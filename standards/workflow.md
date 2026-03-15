@@ -59,7 +59,19 @@ Escalation only goes up. If T2 reveals unexpected scope, escalate to T1. Never d
 
 ---
 
-## 3. Branch Discipline
+## 3. Coordination
+
+### Biff plan
+
+When biff is enabled, set a plan (`/plan "short description"`) before starting work so teammates and other agents can see what you're doing.
+
+### Worktree sharing
+
+If `/who` shows more than 1 user active in the same repo (human or agent), work in a worktree to avoid file conflicts. Use `git worktree add` or the `--worktree` session flag.
+
+---
+
+## 4. Branch Discipline
 
 All code changes go on feature branches. Never commit directly to main. Branch protection rulesets enforce this — there are zero bypass actors, so even admins cannot push to main.
 
@@ -84,7 +96,7 @@ git checkout -b feat/short-description main
 
 ---
 
-## 4. Commits
+## 5. Commits
 
 ### Micro-commits
 
@@ -107,7 +119,7 @@ The `(scope)` is optional. Use it when the repo has distinct modules (e.g., `fea
 
 ---
 
-## 5. Quality Gates
+## 6. Quality Gates
 
 Quality gates must pass before every commit. The specific commands depend on the project type.
 
@@ -129,7 +141,34 @@ Fix the issue immediately. Do not commit with known failures. Do not skip gates 
 
 ---
 
-## 6. CHANGELOG Discipline
+## 7. Test-Driven Development
+
+Use a test-first approach when feasible: write failing tests, then write the code that makes them pass.
+
+### When TDD applies
+
+- New functions or methods
+- Behavior changes to existing code
+- Bug reproductions (the test proves the bug exists before the fix)
+
+### When TDD does not apply
+
+- Documentation-only changes
+- Configuration or template changes
+- Refactors with no behavior change (existing tests cover them)
+- Exploratory spikes (but tests must be added before the spike code merges)
+
+### Workflow
+
+1. Write a test that expresses the expected behavior. Run it — confirm it fails.
+2. Write the minimum code to make the test pass.
+3. Run `make check`. Refactor if needed while keeping tests green.
+
+This is not dogma. If writing the test first is impractical (e.g., you need to understand the interface before you can test it), write the code first and the test immediately after. The rule is: **tests and code land in the same commit**.
+
+---
+
+## 8. CHANGELOG Discipline
 
 Projects that maintain a CHANGELOG follow [Keep a Changelog](https://keepachangelog.com/) format.
 
@@ -160,19 +199,45 @@ CHANGELOG entries are written **in the PR branch, before merge** — not retroac
 
 ---
 
-## 7. Pre-PR Checklist
+## 9. Pre-PR Checklist
 
 Before creating a pull request, verify:
 
-- [ ] Quality gates pass (see section 5)
-- [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see section 6)
+- [ ] Quality gates pass (see §6)
+- [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see §8)
+- [ ] **Local code review passed** (see §10) — `feature-dev:code-reviewer` + `silent-failure-hunter`
 - [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
 - [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
 - [ ] Version bumped if user-facing behavior changed (if the project uses semver)
 
 ---
 
-## 8. Code Review Flow
+## 10. Local Code Review
+
+Before creating a PR, run local code reviews to catch issues early. This reduces remote review cycles from 4–6 down to 2–3.
+
+### Required agents
+
+1. **`feature-dev:code-reviewer`** — reviews for bugs, logic errors, security issues, code quality, and project conventions.
+2. **`pr-review-toolkit:silent-failure-hunter`** — reviews for silent failures, inadequate error handling, and inappropriate fallback behavior.
+
+### Process
+
+1. Run both agents on the current diff (unstaged changes or the branch diff vs main).
+2. Read all findings. Fix valid issues — there is no "nice to have" vs "must fix" distinction during local review. If it's worth flagging, it's worth fixing.
+3. Re-run agents after fixes. Repeat until reviews produce minor or no comments.
+4. Only then proceed to create the PR.
+
+### When to skip
+
+Local review is not required for:
+- Documentation-only PRs (no code changes)
+- Version bumps and release mechanics
+- Single-line config changes
+
+---
+
+## 11. Code Review Flow
 
 Do **not** merge immediately after creating a PR. Expect **2–6 review cycles** before merging. The full flow is:
 
@@ -204,7 +269,7 @@ Quality gates apply at every step. Each commit that addresses review feedback mu
 
 ---
 
-## 9. Session Close Protocol
+## 12. Session Close Protocol
 
 Before ending any session, run this checklist:
 
@@ -221,7 +286,26 @@ Work is **not** complete until `git push` succeeds.
 
 ---
 
-## 10. Design Decision Logs
+## 13. Work Recap
+
+After merging a PR, send a recap email to jim@punt-labs.com via `mcp__beadle-email__send_email`.
+
+### Format
+
+- **Subject**: `[repo-name] PR #N merged: <title>`
+- **Required content**: bead ID, PR link, 1-paragraph summary of what changed and why
+- **Include when relevant**: key design decisions made, test coverage notes, follow-up work created, risks or caveats
+
+The recap serves two purposes: it creates a searchable email trail of changes, and it forces a concise summary that catches gaps ("wait, I forgot to update the README").
+
+### When to skip
+
+- Trivial changes (typo fixes, dependency bumps with no behavior change)
+- Changes the user made interactively and already knows about in full detail — ask first
+
+---
+
+## 14. Design Decision Logs
 
 Projects with non-trivial architecture should maintain a design decision log. See [Design Decision Log](../patterns/design-decision-log.md) for the full pattern.
 
@@ -235,7 +319,7 @@ Projects with non-trivial architecture should maintain a design decision log. Se
 
 ---
 
-## 11. Cross-Project Integration
+## 15. Cross-Project Integration
 
 Projects may optionally integrate with other Punt Labs tools. Integrations must be:
 
