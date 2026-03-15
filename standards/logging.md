@@ -27,8 +27,8 @@ import logging
 import logging.config
 from pathlib import Path
 
-_LOG_DIR = Path.home() / ".<app-name>" / "logs"
-_LOG_FILE = _LOG_DIR / "<app-name>.log"
+_LOG_DIR = Path.home() / ".punt-labs" / "<tool>" / "logs"
+_LOG_FILE = _LOG_DIR / "<tool>.log"
 
 _FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
