@@ -2,9 +2,17 @@
 
 ## Status: SETTLED
 
-Implemented in `src/punt_kit/release.py`. All main-branch changes go through
-PRs — there are zero bypass actors on any branch protection ruleset (DES-015).
-See DES-013 and DES-016 in DESIGN.md for the full design history.
+Releases are invoked via `/punt:auto release [version=X.Y.Z]`, which runs the
+`release` playbook (`playbooks/release.yaml`). The playbook delegates to the
+`punt release` CLI (`src/punt_kit/release.py`) for the deterministic phases 1–11,
+then runs an LLM verification step that spot-checks artifacts across all repos.
+The playbook executor provides `on_failure: diagnose` recovery — if `punt release`
+fails mid-way, the executor reads the error output, diagnoses root cause,
+attempts a fix, and re-runs the step.
+
+All main-branch changes go through PRs — there are zero bypass actors on any
+branch protection ruleset (DES-015). See DES-013 and DES-016 in DESIGN.md for
+the full design history.
 
 ## Phase Structure
 
@@ -113,8 +121,9 @@ produce no diff and are skipped.
 
 ## Phase 11: Verify
 
-Read-only checks confirming that the automated, file-level requirements from
-`release-requirements.md` listed below are satisfied. Prints a pass/fail table.
+Checks that the automated, file-level requirements from
+`release-requirements.md` listed below are satisfied. Prints a pass/fail table
+and exits non-zero if any check fails.
 
 | Check | Method |
 |-------|--------|
