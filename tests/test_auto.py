@@ -88,8 +88,7 @@ class TestParseSegments:
 
     def test_empty_content(self) -> None:
         segments = parse_segments("", "markdown")
-        assert len(segments) == 1
-        assert segments[0] == (None, "")
+        assert len(segments) == 0
 
     def test_adjacent_sections(self) -> None:
         content = (

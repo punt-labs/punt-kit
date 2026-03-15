@@ -2,6 +2,10 @@
 
 - [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` (not retroactively on main)
 - [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
-{% if has_prfaq %}- [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
-{% endif %}{% if has_design_md %}- [ ] **DESIGN.md updated** if architecture, module responsibilities, or design decisions changed
-{% endif %}- [ ] **Quality gates pass** — `{{ quality_gates_command }}`
+{%- if has_prfaq %}
+- [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
+{%- endif %}
+{%- if has_design_md %}
+- [ ] **DESIGN.md updated** if architecture, module responsibilities, or design decisions changed
+{%- endif %}
+- [ ] **Quality gates pass** — `{{ quality_gates_command }}`

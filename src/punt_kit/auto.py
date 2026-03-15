@@ -73,7 +73,7 @@ def parse_segments(content: str, file_type: str) -> list[Segment]:
     end_re = _END_RE[file_type]
 
     segments: list[Segment] = []
-    lines = content.split("\n")
+    lines = content.splitlines()
     local_lines: list[str] = []
     current_id: str | None = None
     managed_lines: list[str] = []
@@ -173,9 +173,15 @@ def merge_file(
 @functools.lru_cache(maxsize=1)
 def _jinja_env() -> jinja2.Environment:
     """Cached Jinja2 environment with a loader for auto templates."""
-    loader = jinja2.FunctionLoader(
-        lambda name: (TEMPLATES / name).read_text(encoding="utf-8")
-    )
+
+    def _load_template(name: str) -> str | None:
+        path = TEMPLATES / name
+        try:
+            return path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            return None
+
+    loader = jinja2.FunctionLoader(_load_template)
     return jinja2.Environment(
         loader=loader,
         autoescape=False,
@@ -320,11 +326,12 @@ def merge_json_permissions(
     )
     permissions["allow"] = allow
 
-    allow_strs = [str(x) for x in allow]
+    allow_set = {str(x) for x in allow}
     changed = False
     for perm in standard_perms:
-        if perm not in allow_strs:
+        if perm not in allow_set:
             allow.append(perm)
+            allow_set.add(perm)
             changed = True
 
     # Deny list
@@ -341,10 +348,11 @@ def merge_json_permissions(
     )
     permissions["deny"] = deny
 
-    deny_strs = [str(x) for x in deny]
+    deny_set = {str(x) for x in deny}
     for rule in standard_deny:
-        if rule not in deny_strs:
+        if rule not in deny_set:
             deny.append(rule)
+            deny_set.add(rule)
             changed = True
 
     return existing, changed
