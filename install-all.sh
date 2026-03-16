@@ -50,6 +50,9 @@ curl -fsSL "$GH/claude-plugins/d7679bd/install.sh" | sh
 banner "punt-kit"
 curl -fsSL "$GH/punt-kit/3617bc1/install.sh" | sh
 
+banner "beadle"
+curl -fsSL "$GH/beadle/993f33c/install.sh" | sh
+
 banner "biff"
 curl -fsSL "$GH/biff/be375b6/install.sh" | sh
 
@@ -98,6 +101,6 @@ cleanup_https_rewrite
 # --- Done ---
 
 printf '\n%b%bAll Punt Labs tools are installed!%b\n\n' "$GREEN" "$BOLD" "$NC"
-printf 'CLIs:    punt, biff, quarry, vox, lux\n'
+printf 'CLIs:    punt, beadle, biff, quarry, vox, lux\n'
 printf 'Plugins: biff, dungeon, lux, prfaq, punt, quarry, vox, z-spec\n\n'
 printf 'Restart Claude Code twice to activate all plugins.\n\n'
