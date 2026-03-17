@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format prfaq clean-tex
+.PHONY: help test lint type check format build clean prfaq clean-tex
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -19,6 +19,14 @@ check: lint type test ## Run all quality gates
 format: ## Auto-format code
 	uv run ruff format .
 	uv run ruff check --fix .
+
+build: ## Build wheel and sdist
+	rm -rf dist/
+	uv build
+	uvx twine check dist/*
+
+clean: ## Remove build artifacts
+	rm -rf dist/ .tmp/
 
 # LaTeX intermediate files to remove after compilation
 LATEX_ARTIFACTS = *.aux *.log *.out *.bbl *.bcf *.blg *.run.xml *.fls \
