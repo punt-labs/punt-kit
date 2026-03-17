@@ -208,6 +208,7 @@ Before creating a pull request, verify:
 - [ ] **Local code review passed** when applicable (see §10 for skip conditions) — `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
 - [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
 - [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
+- [ ] **Cross-project build available** — if the change affects a package consumed by other projects, run `make build` and notify consumers via biff `/write`
 - [ ] Version bumped if user-facing behavior changed (if the project uses semver)
 
 ---
@@ -333,3 +334,15 @@ Current integrations:
 - **Z Spec should use Quarry** — domain docs could inform spec generation (planned, `claude-z-spec-plugin-p81`)
 
 When adding an integration, document it in the consuming project's README and PROJECTS.md. Do not add references in the upstream project.
+
+### Cross-project integration testing
+
+When a change affects a package consumed by other projects, use the sibling `dist/` protocol for pre-merge testing:
+
+1. Producer runs `make build` — produces a wheel in `dist/`
+2. Producer notifies consumer via biff: `/write <agent> "Built punt-biff 1.4.2 — wheel at ../biff/dist/punt_biff-1.4.2-py3-none-any.whl"`
+3. Consumer installs: `uv pip install ../biff/dist/punt_biff-1.4.2-py3-none-any.whl`
+4. Consumer runs `make check` to verify compatibility
+5. Both proceed with independent PRs
+
+This works because every project already has `Read/Write` permissions on the `punt-labs/**` workspace glob, and every project already has a gitignored `dist/` directory. No shared build directory or copy step needed.
