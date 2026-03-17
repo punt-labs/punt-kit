@@ -15,13 +15,15 @@ Every Punt Labs project with quality gates must include a `Makefile` at the proj
 
 Every project must define these targets. The underlying commands vary by ecosystem.
 
-| Target | Purpose | Python example | Swift example |
-|--------|---------|----------------|---------------|
+| Target | Purpose | Python example | Go example |
+|--------|---------|----------------|------------|
 | `help` | List available targets with descriptions | `@grep -E ...` | `@grep -E ...` |
-| `test` | Run the default test suite | `uv run pytest` | `xcodebuild test` |
-| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `swiftlint` |
+| `test` | Run the default test suite | `uv run pytest` | `go test ./...` |
+| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `golangci-lint run` |
 | `check` | Run all quality gates | `$(MAKE) lint type test` | `$(MAKE) lint test` |
-| `format` | Auto-fix formatting and lint issues | `uv run ruff format . && uv run ruff check --fix .` | `swiftformat .` |
+| `format` | Auto-fix formatting and lint issues | `uv run ruff format . && uv run ruff check --fix .` | `gofumpt -w .` |
+| `build` | Build distributable artifacts | `uv build` | `go build -o <binary> .` |
+| `clean` | Remove build artifacts and temp files | `rm -rf dist/ .tmp/` | `rm -f <binary> && rm -rf dist/` |
 
 ## Optional targets
 
@@ -30,15 +32,13 @@ Add these when the project needs them.
 | Target | Purpose | When to add |
 |--------|---------|-------------|
 | `type` | Static type checking | Python projects (mypy, pyright) |
-| `build` | Build artifacts | Release-ready projects |
-| `clean` | Remove build artifacts | Projects with generated files |
 | `coverage` | Test with coverage report | When tracking coverage |
 | `prfaq` | Compile `.tex` → `.pdf` and clean artifacts | Projects with LaTeX documents (prfaq, press releases) |
 
 ## Template: Python projects
 
 ```makefile
-.PHONY: help test lint type check format
+.PHONY: help test lint type check format build clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -59,6 +59,45 @@ check: lint type test ## Run all quality gates
 format: ## Auto-format code
 	uv run ruff format .
 	uv run ruff check --fix .
+
+build: ## Build wheel and sdist
+	rm -rf dist/
+	uv build
+	uvx twine check dist/*
+
+clean: ## Remove build artifacts
+	rm -rf dist/ .tmp/
+```
+
+## Template: Go projects
+
+```makefile
+.PHONY: help test lint check format build clean
+
+BINARY  := <binary-name>
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+LDFLAGS := -s -w -X main.version=$(VERSION)
+
+help: ## Show available targets
+	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
+
+test: ## Run tests
+	go test ./...
+
+lint: ## Lint and vet
+	golangci-lint run
+
+check: lint test ## Run all quality gates
+
+format: ## Auto-format code
+	gofumpt -w .
+
+build: ## Build binary
+	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(BINARY) .
+
+clean: ## Remove build artifacts
+	rm -f $(BINARY) coverage.out
+	rm -rf dist/
 ```
 
 ## Template: `prfaq` target

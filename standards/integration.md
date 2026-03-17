@@ -122,6 +122,13 @@ Read peer state through **shared file schemas** with well-known formats.
 | TOML | Configuration | `.quarry.toml` |
 | YAML frontmatter | Document metadata | `.vox/config.md` |
 | JSONL | Append-only logs | `.beads/issues.jsonl` |
+| Wheel/sdist | Build artifacts | `dist/punt_biff-1.4.2-py3-none-any.whl` |
+
+**Build artifacts as L3 state.** A project's `dist/` directory contains wheels
+that sibling projects can install for pre-merge testing. The producing project
+runs `make build`; the consuming project installs with
+`uv pip install ../<project>/dist/<wheel>.whl`. This is read-only integration —
+consumers never write to a producer's `dist/`.
 
 **Rule**: State files are **read-only across tool boundaries**. A tool may read
 another tool's state file but must never write to it. The owning tool is the
