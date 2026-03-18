@@ -99,10 +99,17 @@ The `pyproject.toml` entry point is `<package>.__main__:app`. This makes `python
 
 ### Help text
 
+Help text is an agent interface, not just a human convenience. An AI agent
+that discovers the CLI via `--help` must be able to determine every available
+command, every flag, and the output format without trial and error. If help
+text is vague or incomplete, the agent will hallucinate flags.
+
 - One-line tagline on the Typer app: `<tool>: <what it does>`
 - Plain text output --- disable typer's rich markup for help screens
 - Per-command docstrings, imperative voice
 - Product commands first, admin commands after
+- Every flag must appear in `--help` with its type and default (if optional)
+- The app-level help must document `--json` as a global flag (see Global Flags)
 
 ### Subcommand naming
 
@@ -205,6 +212,12 @@ Every CLI supports these global flags, following beads:
 | `--quiet` | `-q` | Errors only (suppress non-essential output) |
 | `--help` | `-h` | Show help |
 
+Projects with a `serve` command add one additional global flag:
+
+| Flag | Short | Purpose |
+|------|-------|---------|
+| `--remote <url>` | | Use remote HTTP API instead of local execution (see Remote Mode) |
+
 ### `--json`
 
 When set, all output is valid JSON written to stdout. Human-readable messages go to stderr or are suppressed. Errors are JSON objects: `{"error": "<message>"}`. List commands return JSON arrays; detail commands return JSON objects.
@@ -271,6 +284,78 @@ Not every tool needs this. If the tool has no per-repo state, omit it.
 ### `serve` / `mcp`
 
 Start the MCP server. Required for projects that expose MCP tools. `serve` for HTTP transport, `mcp` for stdio transport.
+
+---
+
+## Remote Mode
+
+If a project has a `serve` command that exposes an HTTP API, the CLI should
+also be able to **consume** that API as an alternative to local execution. This
+enables agents and humans to operate on remote instances without MCP overhead.
+
+### The pattern
+
+CLIs like `vercel`, `fly`, and `gh` are local binaries that operate on remote
+services. The user runs a local command; the CLI handles auth, serialization,
+and HTTP under the hood. Our CLIs talk to remote APIs (ElevenLabs, OpenAI
+embeddings, AWS), but core logic runs locally. We lack a pattern where
+`quarry find "query"` could transparently hit a remote Quarry instance ---
+even though Quarry runs on Fly.io for the chat widget.
+
+### `--remote <url>`
+
+Projects with a `serve` command should accept a `--remote <url>` global flag
+that switches the transport from local execution to the remote HTTP API:
+
+```bash
+# Local (default) --- runs against local LanceDB
+quarry find "semantic search"
+
+# Remote --- hits quarry.fly.dev HTTP API
+quarry --remote https://quarry.fly.dev find "semantic search"
+```
+
+When `--remote` is set:
+
+- All commands that have a corresponding REST endpoint delegate to HTTP
+  instead of calling the library directly
+- Auth is handled via an API key in an environment variable
+  (`<TOOL>_API_KEY`) or a config file
+- `--json` output is identical regardless of local or remote execution
+- Commands that have no remote equivalent (e.g., `install`, `doctor`) exit
+  non-zero with an error formatted according to the current output mode:
+  plain text by default, `{"error": "<command> is not available in remote mode"}`
+  when `--json` is set
+
+### Implementation
+
+The library already has the HTTP client (the `serve` command exposes it) and
+the CLI already has the local call path. Remote mode adds a transport switch:
+
+```python
+def _get_client(remote: str | None) -> QuarryClient:
+    if remote:
+        api_key = os.environ.get("QUARRY_API_KEY")
+        if not api_key:
+            raise typer.BadParameter(
+                "QUARRY_API_KEY environment variable is required for --remote"
+            )
+        return RemoteClient(url=remote, api_key=api_key)
+    return LocalClient(db_path=default_db_path())
+```
+
+Both `LocalClient` and `RemoteClient` implement the same interface. CLI
+commands call the client without knowing the transport.
+
+### When to add remote mode
+
+Not every project needs this. Add it when:
+
+- The project has a `serve` command with a stable HTTP API
+- There is a deployed remote instance that users or agents need to reach
+- The alternative would be configuring an MCP proxy for remote access
+
+Current candidates: **quarry** (Fly.io deployment exists).
 
 ---
 
