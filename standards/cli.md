@@ -109,7 +109,7 @@ text is vague or incomplete, the agent will hallucinate flags.
 - Per-command docstrings, imperative voice
 - Product commands first, admin commands after
 - Every flag must appear in `--help` with its default value and type
-- Every command that supports `--json` must say so in its help text
+- The app-level help must document `--json` as a global flag (see Global Flags)
 
 ### Subcommand naming
 
@@ -211,6 +211,7 @@ Every CLI supports these global flags, following beads:
 | `--verbose` | `-v` | Debug logging |
 | `--quiet` | `-q` | Errors only (suppress non-essential output) |
 | `--help` | `-h` | Show help |
+| `--remote <url>` | | Use remote HTTP API instead of local execution (only for projects with `serve`) |
 
 ### `--json`
 
@@ -316,8 +317,10 @@ When `--remote` is set:
 - Auth is handled via an API key in an environment variable
   (`<TOOL>_API_KEY`) or a config file
 - `--json` output is identical regardless of local or remote execution
-- Commands that have no remote equivalent (e.g., `install`, `doctor`) print
-  an error: `"<command> is not available in remote mode"`
+- Commands that have no remote equivalent (e.g., `install`, `doctor`) exit
+  non-zero with an error formatted according to the current output mode:
+  plain text by default, `{"error": "<command> is not available in remote mode"}`
+  when `--json` is set
 
 ### Implementation
 
@@ -327,7 +330,12 @@ the CLI already has the local call path. Remote mode adds a transport switch:
 ```python
 def _get_client(remote: str | None) -> QuarryClient:
     if remote:
-        return RemoteClient(url=remote, api_key=os.environ["QUARRY_API_KEY"])
+        api_key = os.environ.get("QUARRY_API_KEY")
+        if not api_key:
+            raise typer.BadParameter(
+                "QUARRY_API_KEY environment variable is required for --remote"
+            )
+        return RemoteClient(url=remote, api_key=api_key)
     return LocalClient(db_path=default_db_path())
 ```
 
