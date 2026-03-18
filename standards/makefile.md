@@ -33,6 +33,7 @@ Add these when the project needs them.
 |--------|---------|-------------|
 | `type` | Static type checking | Python projects (mypy, pyright) |
 | `coverage` | Test with coverage report | When tracking coverage |
+| `depot` | Build wheel and copy to local depot | Projects that are cross-project dependencies (see [distribution](distribution.md#local-development-depot)) |
 | `prfaq` | Compile `.tex` → `.pdf` and clean artifacts | Projects with LaTeX documents (prfaq, press releases) |
 
 ## Template: Python projects
@@ -99,6 +100,26 @@ clean: ## Remove build artifacts
 	rm -f $(BINARY) coverage.out
 	rm -rf dist/
 ```
+
+## Template: `depot` target
+
+The depot target builds a wheel and copies it to the shared local depot
+directory for cross-project testing. See
+[distribution standards](distribution.md#local-development-depot) for the full
+protocol.
+
+```makefile
+DEPOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))../.depot
+
+depot: build ## Build and copy wheel to local depot
+	@mkdir -p $(DEPOT)
+	@cp dist/*.whl $(DEPOT)/
+	@echo "depot: $$(ls dist/*.whl | xargs -n1 basename) -> $(DEPOT)/"
+```
+
+Add `depot` to `.PHONY`. The `DEPOT` variable resolves to `../.depot` relative
+to the Makefile location, which is the workspace root when projects are checked
+out as siblings.
 
 ## Template: `prfaq` target
 

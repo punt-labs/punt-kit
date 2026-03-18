@@ -358,6 +358,58 @@ environment variables or a `.local` file that is gitignored.
 
 ---
 
+## Local Development Depot
+
+During cross-project development, changes to a dependency (e.g., biff depends
+on lux) need to be tested before publishing to PyPI. The **depot** is a shared
+local directory (`.depot/` at the workspace root) where `make depot` copies
+built wheels. Consumers use `uv.toml` with `find-links` to resolve from the
+depot before falling back to PyPI.
+
+### Producer side
+
+Every project with a `build` target also has a `depot` target:
+
+```bash
+make depot   # builds wheel, copies to ../.depot/
+```
+
+The Makefile variable:
+
+```makefile
+DEPOT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))../.depot
+
+depot: build ## Build and copy wheel to local depot
+	@mkdir -p $(DEPOT)
+	@cp dist/*.whl $(DEPOT)/
+	@echo "depot: $$(ls dist/*.whl | xargs -n1 basename) -> $(DEPOT)/"
+```
+
+### Consumer side
+
+Add a `uv.toml` in the consumer project (gitignored) to prefer depot wheels:
+
+```toml
+[pip]
+find-links = ["../.depot"]
+```
+
+Then `uv sync` and `uv run` will resolve depot wheels first. Remove the
+`uv.toml` when done testing to return to PyPI-only resolution.
+
+### Rules
+
+1. **`.depot/` lives at the workspace root** (parent of all project repos),
+   not inside any single project.
+2. **`uv.toml` is gitignored** in every project. It is a local override, never
+   committed.
+3. **Depot wheels are development-only.** Never publish a depot wheel to PyPI.
+   The depot is for local cross-project testing before a release.
+4. **`make depot` implies `make build`.** The depot target depends on the build
+   target, so artifacts are always fresh.
+
+---
+
 ## Uninstall Requirements
 
 `claude plugin uninstall` only removes the plugin from the registry and cache.
