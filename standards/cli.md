@@ -108,7 +108,7 @@ text is vague or incomplete, the agent will hallucinate flags.
 - Plain text output --- disable typer's rich markup for help screens
 - Per-command docstrings, imperative voice
 - Product commands first, admin commands after
-- Every flag must appear in `--help` with its default value and type
+- Every flag must appear in `--help` with its type and default (if optional)
 - The app-level help must document `--json` as a global flag (see Global Flags)
 
 ### Subcommand naming
@@ -211,7 +211,12 @@ Every CLI supports these global flags, following beads:
 | `--verbose` | `-v` | Debug logging |
 | `--quiet` | `-q` | Errors only (suppress non-essential output) |
 | `--help` | `-h` | Show help |
-| `--remote <url>` | | Use remote HTTP API instead of local execution (only for projects with `serve`) |
+
+Projects with a `serve` command add one additional global flag:
+
+| Flag | Short | Purpose |
+|------|-------|---------|
+| `--remote <url>` | | Use remote HTTP API instead of local execution (see Remote Mode) |
 
 ### `--json`
 
