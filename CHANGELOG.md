@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **CLI help text as agent interface** — cli.md now frames `--help` as an agent
+  interface (not just human convenience), requires flags to show defaults/types,
+  and requires `--json` to be mentioned in help text
+- **Remote mode standard** — cli.md `--remote <url>` pattern for projects with
+  `serve` commands, enabling CLIs to consume their own HTTP APIs as an
+  alternative to local execution
 - `punt auto <target>` command — marker-based section management for CLAUDE.md, Makefile, and settings.json. Renders Jinja2 templates and merges managed sections while preserving local content.
 - Templates for CLAUDE.md (7 sections: no-preexisting, scratch-files, quality-gates, code-review, pre-pr-checklist, standards-references, available-tooling)
 - Templates for Makefile (python targets, help target)
