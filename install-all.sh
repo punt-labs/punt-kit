@@ -51,7 +51,7 @@ banner "punt-kit"
 curl -fsSL "$GH/punt-kit/3617bc1/install.sh" | sh
 
 banner "beadle"
-curl -fsSL "$GH/beadle/cb8dd05/install.sh" | sh
+curl -fsSL "$GH/beadle/0efbb69/install.sh" | sh
 
 banner "biff"
 curl -fsSL "$GH/biff/be375b6/install.sh" | sh
