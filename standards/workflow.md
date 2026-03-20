@@ -143,7 +143,7 @@ Fix the issue immediately. Do not commit with known failures. Do not skip gates 
 
 ## 7. Test-Driven Development
 
-Use a test-first approach when feasible: write failing tests, then write the code that makes them pass.
+Write failing tests first, then write the code that makes them pass. This is not optional for code that executes.
 
 ### When TDD applies
 
@@ -164,7 +164,19 @@ Use a test-first approach when feasible: write failing tests, then write the cod
 2. Write the minimum code to make the test pass.
 3. Run the repo's quality gates (see §6). Refactor if needed while keeping tests green.
 
-This is not dogma. If writing the test first is impractical (e.g., you need to understand the interface before you can test it), write the code first and the test immediately after. The rule is: **tests and code land in the same commit**.
+If writing the test first is impractical (e.g., you need to understand the interface before you can test it), write the code first and the test immediately after. The rule is: **tests and code land in the same commit**.
+
+### Verification
+
+`make check` passing is necessary but not sufficient. After tests pass, **execute the code and observe correct behavior**:
+
+- **CLI tool or command**: run it with representative arguments, paste the output.
+- **Library function**: call it (in a test or REPL) and show the result.
+- **Bug fix**: reproduce the original failure, then show it no longer occurs.
+- **MCP tools**: MCP server changes require a Claude restart to take effect. Ask the user to restart Claude and confirm the behavior. Do not skip verification because you cannot restart yourself — ask and wait.
+- **Plugin prompts (commands, skills, hooks)**: these reload automatically. Test by invoking the command/skill directly.
+
+If you cannot demonstrate the code works, you are not done. Do not open a PR.
 
 ---
 
@@ -204,6 +216,7 @@ CHANGELOG entries are written **in the PR branch, before merge** — not retroac
 Before creating a pull request, verify:
 
 - [ ] Quality gates pass (see §6)
+- [ ] **Code was executed and verified** — not just linted/type-checked. Output demonstrates correct behavior (see §7 Verification)
 - [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see §8 CHANGELOG Discipline)
 - [ ] **Local code review passed** when applicable (see §10 for skip conditions) — `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
 - [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
