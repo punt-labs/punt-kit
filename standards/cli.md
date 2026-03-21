@@ -289,7 +289,7 @@ type globalOpts struct {
 var g globalOpts
 
 func init() {
-    rootCmd.PersistentFlags().BoolVarP(&g.JSON, "json", "j", false, "JSON output")
+    rootCmd.PersistentFlags().BoolVar(&g.JSON, "json", false, "JSON output")
     rootCmd.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "Debug logging")
     rootCmd.PersistentFlags().BoolVarP(&g.Quiet, "quiet", "q", false, "Errors only")
 }
@@ -304,15 +304,19 @@ parsers typically do not.
 Every Go CLI should have a `printResult` helper that branches on `--json`:
 
 ```go
-func (g globalOpts) printResult(v any, humanFn func()) {
+func (g globalOpts) printResult(v any, humanFn func()) error {
     if g.JSON {
-        data, _ := json.MarshalIndent(v, "", "  ")
+        data, err := json.MarshalIndent(v, "", "  ")
+        if err != nil {
+            return fmt.Errorf("marshal JSON: %w", err)
+        }
         fmt.Println(string(data))
-        return
+        return nil
     }
     if !g.Quiet {
         humanFn()
     }
+    return nil
 }
 ```
 
@@ -479,7 +483,7 @@ subcommand:
 
 ```go
 var completionCmd = &cobra.Command{
-    Use:   "completion [bash|zsh|fish]",
+    Use:   "completion <bash|zsh|fish>",
     Short: "Generate shell completion script",
     Args:  cobra.ExactArgs(1),
     RunE: func(cmd *cobra.Command, args []string) error {
