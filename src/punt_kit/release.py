@@ -1567,49 +1567,45 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     )
     checks.append(("CHANGELOG", stamped, "stamped" if stamped else "not stamped"))
 
-    # 4. install-all.sh SHA
-    if install_sh.exists():
-        repo = _get_github_repo(info.root)
-        if repo:
-            project_name = repo.split("/")[-1]
-            sibling = _resolve_sibling(info.root, "punt-kit")
-            if not sibling:
-                checks.append(("install-all.sh", False, "sibling punt-kit not found"))
-            else:
-                install_all = sibling / "install-all.sh"
-                if not install_all.exists():
-                    checks.append(("install-all.sh", False, "install-all.sh not found"))
-                else:
-                    iac = install_all.read_text(encoding="utf-8")
-                    match = re.search(
-                        rf"\$GH/{re.escape(project_name)}/"
-                        r"([0-9a-fA-F]{7,40})/install\.sh",
-                        iac,
+    # 4. install-all.sh entry (curl SHA for CLI projects, plugin loop for pure plugins)
+    repo = _get_github_repo(info.root)
+    if repo:
+        project_name = repo.split("/")[-1]
+        sibling = _resolve_sibling(info.root, "punt-kit")
+        if sibling:
+            install_all = sibling / "install-all.sh"
+            if install_all.exists():
+                iac = install_all.read_text(encoding="utf-8")
+                curl_match = re.search(
+                    rf"\$GH/{re.escape(project_name)}/"
+                    r"([0-9a-fA-F]{7,40})/install\.sh",
+                    iac,
+                )
+                if curl_match:
+                    sha = curl_match.group(1)
+                    vr = _run(
+                        ["git", "show", f"{sha}:install.sh"],
+                        cwd=str(info.root),
+                        check=False,
                     )
-                    if match:
-                        sha = match.group(1)
-                        vr = _run(
-                            ["git", "show", f"{sha}:install.sh"],
-                            cwd=str(info.root),
-                            check=False,
-                        )
-                        if vr.returncode != 0:
-                            sha_ok = False
-                        elif f'VERSION="{version}"' in vr.stdout:
-                            # Python/hybrid: VERSION pin matches
-                            sha_ok = True
-                        else:
-                            # Go/other: no VERSION pin — SHA resolves
-                            sha_ok = 'VERSION="' not in vr.stdout
-                        checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
-                    elif re.search(
-                        rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
-                        iac,
-                    ):
-                        # Pure-plugin loop entry (no SHA to verify)
-                        checks.append(("install-all.sh", True, "in plugin loop"))
+                    if vr.returncode != 0:
+                        sha_ok = False
+                    elif f'VERSION="{version}"' in vr.stdout:
+                        # Python/hybrid: VERSION pin matches
+                        sha_ok = True
                     else:
-                        checks.append(("install-all.sh", False, "entry not found"))
+                        # Go/other: no VERSION pin — SHA resolves
+                        sha_ok = 'VERSION="' not in vr.stdout
+                    checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
+                elif re.search(
+                    rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
+                    iac,
+                ):
+                    # Pure-plugin loop entry (no SHA to verify)
+                    checks.append(("install-all.sh", True, "in plugin loop"))
+                elif install_sh.exists():
+                    # Project has install.sh but no entry in install-all.sh
+                    checks.append(("install-all.sh", False, "entry not found"))
 
     # 5. Marketplace
     if info.is_plugin or info.is_hybrid:
