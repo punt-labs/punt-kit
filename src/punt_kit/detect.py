@@ -118,8 +118,9 @@ def detect(root: Path) -> ProjectInfo:
         if md_files:
             project_type = "docs"
 
-    # Extract CLI entry points from pyproject.toml [project.scripts]
+    # Extract CLI entry points
     cli_commands: list[str] = []
+    # Python: pyproject.toml [project.scripts]
     if pyproject_data is not None:
         project_raw = pyproject_data.get("project")
         if isinstance(project_raw, dict):
@@ -127,6 +128,15 @@ def detect(root: Path) -> ProjectInfo:
             scripts = project_dict.get("scripts")
             if isinstance(scripts, dict):
                 cli_commands = list(cast("dict[str, object]", scripts).keys())
+    # Go: cmd/<name>/ directories → each subdirectory is a CLI command
+    if language == "go" and not cli_commands:
+        cmd_dir = root / "cmd"
+        if cmd_dir.is_dir():
+            cli_commands = [
+                d.name
+                for d in sorted(cmd_dir.iterdir())
+                if d.is_dir() and (d / "main.go").is_file()
+            ]
 
     # Extract MCP server names from plugin.json
     plugin_mcp_servers: list[str] = []
@@ -144,7 +154,7 @@ def detect(root: Path) -> ProjectInfo:
     # All projects get these standard refs
     standards_refs.append("github")
     standards_refs.append("workflow")
-    if language == "python":
+    if cli_commands:
         standards_refs.append("cli")
 
     return ProjectInfo(
