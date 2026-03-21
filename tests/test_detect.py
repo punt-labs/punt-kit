@@ -121,6 +121,35 @@ def test_detect_mcp_server_python(tmp_path: Path) -> None:
     assert info.language == "python"
 
 
+def test_detect_go_hybrid(tmp_path: Path) -> None:
+    """Detect Go project with cmd/ directory as hybrid when plugin exists."""
+    (tmp_path / "go.mod").write_text("module example.com/test\n\ngo 1.25.0\n")
+    cmd_dir = tmp_path / "cmd" / "myapp"
+    cmd_dir.mkdir(parents=True)
+    (cmd_dir / "main.go").write_text("package main\nfunc main() {}\n")
+    plugin_dir = tmp_path / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text('{"name": "myapp-dev"}')
+
+    info = detect(tmp_path)
+
+    assert info.language == "go"
+    assert info.is_plugin is True
+    assert info.is_hybrid is True
+    assert info.cli_commands == ["myapp"]
+
+
+def test_detect_go_no_cmd_dir(tmp_path: Path) -> None:
+    """Go project without cmd/ directory has no CLI commands."""
+    (tmp_path / "go.mod").write_text("module example.com/lib\n\ngo 1.25.0\n")
+
+    info = detect(tmp_path)
+
+    assert info.language == "go"
+    assert info.cli_commands == []
+    assert info.is_hybrid is False
+
+
 def test_detect_all_standards_refs(tmp_path: Path) -> None:
     """All projects get github and workflow refs."""
     (tmp_path / "README.md").write_text("# Test")
