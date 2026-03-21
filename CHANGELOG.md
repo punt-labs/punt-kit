@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-21
+
 ### Added
 
 - **CLI help text as agent interface** — cli.md now frames `--help` as an agent
