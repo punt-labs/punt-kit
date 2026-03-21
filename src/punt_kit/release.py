@@ -1569,12 +1569,16 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     # 4. install-all.sh entry (curl SHA for CLI projects, plugin loop for pure plugins)
     repo = _get_github_repo(info.root)
-    if repo:
+    if repo and (install_sh.exists() or info.is_plugin):
         project_name = repo.split("/")[-1]
         sibling = _resolve_sibling(info.root, "punt-kit")
-        if sibling:
+        if not sibling:
+            checks.append(("install-all.sh", False, "sibling punt-kit not found"))
+        else:
             install_all = sibling / "install-all.sh"
-            if install_all.exists():
+            if not install_all.exists():
+                checks.append(("install-all.sh", False, "install-all.sh not found"))
+            else:
                 iac = install_all.read_text(encoding="utf-8")
                 curl_match = re.search(
                     rf"\$GH/{re.escape(project_name)}/"
@@ -1603,8 +1607,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                 ):
                     # Pure-plugin loop entry (no SHA to verify)
                     checks.append(("install-all.sh", True, "in plugin loop"))
-                elif install_sh.exists():
-                    # Project has install.sh but no entry in install-all.sh
+                else:
                     checks.append(("install-all.sh", False, "entry not found"))
 
     # 5. Marketplace
