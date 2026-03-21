@@ -277,7 +277,7 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         ptype = "CLI-only"
     _ok(f"Project type: {ptype}")
 
-    if info.is_hybrid:
+    if info.is_hybrid or info.is_plugin:
         release_script = info.root / "scripts" / "release-plugin.sh"
         restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
         if not release_script.exists() or not restore_script.exists():
@@ -746,8 +746,8 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     root = info.root
     branch = f"release/v{version}"
 
-    # 4a. Plugin swap (hybrid only — idempotent: skip if already prod)
-    if info.is_hybrid:
+    # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already prod)
+    if info.is_hybrid or info.is_plugin:
         release_script = root / "scripts" / "release-plugin.sh"
         if dry_run:
             _dry("bash scripts/release-plugin.sh")
@@ -1044,7 +1044,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     has_changes = False
 
     if dry_run:
-        if info.is_hybrid:
+        if info.is_hybrid or info.is_plugin:
             _dry("bash scripts/restore-dev-plugin.sh")
         _dry("_bump_readme_install_sha(...)")
         _dry(f'git commit -m "chore: post-release v{version}"')
@@ -1066,8 +1066,8 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         _run(["git", "checkout", "-b", branch], cwd=str(root))
         _ok(f"Created branch {branch}")
 
-    # Dev restore (hybrid only — idempotent: skip if already dev)
-    if info.is_hybrid:
+    # Dev restore (hybrid/plugin — idempotent: skip if already dev)
+    if info.is_hybrid or info.is_plugin:
         plugin_json = root / ".claude-plugin" / "plugin.json"
         pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
         if not pj_data.get("name", "").endswith("-dev"):
@@ -1602,6 +1602,12 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                             # Go/other: no VERSION pin — SHA resolves
                             sha_ok = 'VERSION="' not in vr.stdout
                         checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
+                    elif re.search(
+                        rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
+                        iac,
+                    ):
+                        # Pure-plugin loop entry (no SHA to verify)
+                        checks.append(("install-all.sh", True, "in plugin loop"))
                     else:
                         checks.append(("install-all.sh", False, "entry not found"))
 

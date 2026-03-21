@@ -1127,3 +1127,142 @@ def test_phase_names_cover_all_phases() -> None:
 def test_phase_names_aliases() -> None:
     """Old name aliases resolve to correct phase numbers."""
     assert PHASE_NAMES["release"] == 4  # alias for release-pr
+
+
+# --- wy5: plugin script checks for pure plugin projects ---
+
+
+def _make_pure_plugin_project(tmp_path: Path) -> Path:
+    """Create a pure plugin project (no CLI commands, so not hybrid)."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    # pyproject.toml WITHOUT [project.scripts] → cli_commands=[]
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "test-pkg"\nversion = "0.1.0"\n'
+    )
+
+    src = root / "src" / "test_pkg"
+    src.mkdir(parents=True)
+    (src / "__init__.py").write_text('__version__ = "0.1.0"\n')
+
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "release-plugin.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'git commit --allow-empty -m "chore: prepare plugin for release"\n'
+    )
+    (scripts_dir / "restore-dev-plugin.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'git commit --allow-empty -m "chore: restore dev plugin state"\n'
+    )
+
+    # No install.sh — pure plugins are installed via the `for plugin in` loop
+    # in install-all.sh, not via curl of a standalone installer.
+
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## [Unreleased]\n\n"
+        "### Added\n\n"
+        "- New feature\n\n"
+        "## [0.1.0] - 2026-01-01\n\n"
+        "### Added\n\n"
+        "- Initial release\n"
+    )
+
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    return root
+
+
+def test_pure_plugin_detected_correctly(tmp_path: Path) -> None:
+    """Pure plugin has is_plugin=True but is_hybrid=False."""
+    root = _make_pure_plugin_project(tmp_path)
+    info = detect(root)
+    assert info.is_plugin is True
+    assert info.is_hybrid is False
+
+
+def test_preflight_checks_scripts_for_pure_plugin(tmp_path: Path) -> None:
+    """Preflight validates release/restore scripts exist for pure plugins."""
+    root = _make_pure_plugin_project(tmp_path)
+    info = detect(root)
+
+    # Should pass — scripts exist
+    _phase1_preflight(info, dry_run=True)
+
+
+def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None:
+    """Preflight fails for pure plugin with missing release scripts."""
+    root = _make_pure_plugin_project(tmp_path)
+
+    # Remove the release script
+    (root / "scripts" / "release-plugin.sh").unlink()
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "remove script"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+
+    with pytest.raises(SystemExit):
+        _phase1_preflight(info, dry_run=False)
+
+
+# --- pvb: verify finds pure-plugin entries in install-all.sh ---
+
+
+def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
+    """Verify phase finds projects in the 'for plugin in ...' loop."""
+    import re
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    # Create punt-kit sibling with pure-plugin loop containing this project
+    sibling = _make_sibling(
+        tmp_path,
+        "punt-kit",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                "for plugin in prfaq proj z-spec; do\n"
+                '  claude plugin install "$plugin@punt-labs"\n'
+                "done\n"
+            )
+        },
+    )
+
+    # Verify the regex matches the pure-plugin loop
+    iac = (sibling / "install-all.sh").read_text()
+    project_name = "proj"
+
+    # The curl-entry regex should NOT match
+    curl_match = re.search(
+        rf"\$GH/{re.escape(project_name)}/"
+        r"([0-9a-fA-F]{7,40})/install\.sh",
+        iac,
+    )
+    assert curl_match is None
+
+    # The pure-plugin loop regex SHOULD match
+    plugin_match = re.search(
+        rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
+        iac,
+    )
+    assert plugin_match is not None

@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release` now runs `release-plugin.sh` and `restore-dev-plugin.sh` for
+  pure plugin projects (not just hybrid). Previously, Go+plugin projects like
+  ethos shipped with `-dev` names. (wy5)
+- `punt release --verify` now recognizes pure-plugin entries in the
+  `for plugin in ...` loop in `install-all.sh`, instead of reporting
+  "entry not found". (pvb)
+- Added `Lux.ini` to `.gitignore` to prevent the lux plugin config file from
+  blocking release preflight's clean-tree check. (6wa)
+
 ## [0.8.0] - 2026-03-21
 
 ### Added
