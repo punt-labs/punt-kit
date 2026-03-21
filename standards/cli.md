@@ -85,17 +85,38 @@ CLI entry points use the **short name** (no prefix): `quarry`, `biff`, `vox`, `p
 
 ### Framework
 
-**typer** for all Python CLIs. typer wraps click and provides type-safe argument parsing with minimal boilerplate.
+| Language | Framework | Rationale |
+|----------|-----------|-----------|
+| Python | [typer](https://typer.tiangolo.com/) | Type-safe, minimal boilerplate, auto-completion |
+| Go | [cobra](https://cobra.dev/) | Dominant Go CLI framework (kubectl, docker, gh). Typed flags, auto-help, subcommands, completion. |
 
 ### Entry point
 
-Every CLI defines its entry point in `<package>/__main__.py`:
+**Python:** Every CLI defines its entry point in `<package>/__main__.py`:
 
 ```python
 app = typer.Typer()
 ```
 
 The `pyproject.toml` entry point is `<package>.__main__:app`. This makes `python -m <package>` work automatically.
+
+**Go:** Every CLI defines its entry point in `cmd/<tool>/main.go`:
+
+```go
+package main
+
+import "os"
+
+func main() {
+    if err := rootCmd.Execute(); err != nil {
+        os.Exit(1)
+    }
+}
+```
+
+The root command is defined in a separate file (e.g., `root.go`) with persistent
+flags. Running the binary without a subcommand prints help --- do not default to
+a subcommand like `serve`.
 
 ### Help text
 
@@ -129,6 +150,8 @@ CLI commands follow one of two patterns depending on complexity. See [Python sta
 
 Each CLI command calls one core function and formats the result. This is the default for most projects.
 
+**Python:**
+
 ```python
 @app.command()
 def search(query: str) -> None:
@@ -136,6 +159,28 @@ def search(query: str) -> None:
     results = quarry.search(query)
     for r in results:
         print(f"{r.score:.2f}  {r.title}")
+```
+
+**Go:**
+
+```go
+var searchCmd = &cobra.Command{
+    Use:   "search <query>",
+    Short: "Search the knowledge base",
+    Args:  cobra.ExactArgs(1),
+    RunE: func(cmd *cobra.Command, args []string) error {
+        results, err := quarry.Search(args[0])
+        if err != nil {
+            return err
+        }
+        g.printResult(results, func() {
+            for _, r := range results {
+                fmt.Printf("%.2f  %s\n", r.Score, r.Title)
+            }
+        })
+        return nil
+    },
+}
 ```
 
 ### Pattern 2: Humble Object Commands
@@ -227,6 +272,57 @@ Pattern: `bd --json list`, `bd --json show <id>`.
 ### `--verbose` / `--quiet`
 
 `--verbose` enables debug logging to stderr. `--quiet` suppresses everything except errors. They are mutually exclusive. Default is neither (normal output).
+
+### Go: persistent flags
+
+In cobra, global flags are **persistent flags** on the root command. They
+propagate to all subcommands automatically --- no manual parsing in each handler.
+
+```go
+// globalOpts holds parsed global flags that apply to all subcommands.
+type globalOpts struct {
+    JSON    bool
+    Verbose bool
+    Quiet   bool
+}
+
+var g globalOpts
+
+func init() {
+    rootCmd.PersistentFlags().BoolVar(&g.JSON, "json", false, "JSON output")
+    rootCmd.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "Debug logging")
+    rootCmd.PersistentFlags().BoolVarP(&g.Quiet, "quiet", "q", false, "Errors only")
+}
+```
+
+Global flags work in any position: `beadle-email --json contact list` and
+`beadle-email contact list --json` are equivalent. Cobra handles this; hand-rolled
+parsers typically do not.
+
+### Go: output routing
+
+Every Go CLI should have a `printResult` helper that branches on `--json`:
+
+```go
+func (g globalOpts) printResult(v any, humanFn func()) error {
+    if g.JSON {
+        data, err := json.MarshalIndent(v, "", "  ")
+        if err != nil {
+            return fmt.Errorf("marshal JSON: %w", err)
+        }
+        fmt.Println(string(data))
+        return nil
+    }
+    if !g.Quiet {
+        humanFn()
+    }
+    return nil
+}
+```
+
+All commands call `g.printResult(data, humanFn)` --- never `json.Marshal` +
+`fmt.Println` directly. This ensures `--json` and `--quiet` are respected
+everywhere.
 
 ---
 
@@ -379,7 +475,31 @@ testable pure functions.
 
 ## Shell Completion
 
-Every CLI supports shell completion via typer's built-in `--install-completion` and `--show-completion`.
+**Python:** Every CLI supports shell completion via typer's built-in `--install-completion` and `--show-completion`.
+
+**Go:** Cobra generates completions via `rootCmd.GenBashCompletionV2`,
+`rootCmd.GenZshCompletion`, and `rootCmd.GenFishCompletion`. Add a `completion`
+subcommand:
+
+```go
+var completionCmd = &cobra.Command{
+    Use:   "completion <bash|zsh|fish>",
+    Short: "Generate shell completion script",
+    Args:  cobra.ExactArgs(1),
+    RunE: func(cmd *cobra.Command, args []string) error {
+        switch args[0] {
+        case "bash":
+            return rootCmd.GenBashCompletionV2(os.Stdout, true)
+        case "zsh":
+            return rootCmd.GenZshCompletion(os.Stdout)
+        case "fish":
+            return rootCmd.GenFishCompletion(os.Stdout, true)
+        default:
+            return fmt.Errorf("unsupported shell: %s", args[0])
+        }
+    },
+}
+```
 
 ---
 
