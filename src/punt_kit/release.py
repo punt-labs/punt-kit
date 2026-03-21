@@ -277,7 +277,7 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         ptype = "CLI-only"
     _ok(f"Project type: {ptype}")
 
-    if info.is_hybrid:
+    if info.is_hybrid or info.is_plugin:
         release_script = info.root / "scripts" / "release-plugin.sh"
         restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
         if not release_script.exists() or not restore_script.exists():
@@ -746,8 +746,8 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     root = info.root
     branch = f"release/v{version}"
 
-    # 4a. Plugin swap (hybrid only — idempotent: skip if already prod)
-    if info.is_hybrid:
+    # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already prod)
+    if info.is_hybrid or info.is_plugin:
         release_script = root / "scripts" / "release-plugin.sh"
         if dry_run:
             _dry("bash scripts/release-plugin.sh")
@@ -1044,7 +1044,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     has_changes = False
 
     if dry_run:
-        if info.is_hybrid:
+        if info.is_hybrid or info.is_plugin:
             _dry("bash scripts/restore-dev-plugin.sh")
         _dry("_bump_readme_install_sha(...)")
         _dry(f'git commit -m "chore: post-release v{version}"')
@@ -1066,8 +1066,8 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         _run(["git", "checkout", "-b", branch], cwd=str(root))
         _ok(f"Created branch {branch}")
 
-    # Dev restore (hybrid only — idempotent: skip if already dev)
-    if info.is_hybrid:
+    # Dev restore (hybrid/plugin — idempotent: skip if already dev)
+    if info.is_hybrid or info.is_plugin:
         plugin_json = root / ".claude-plugin" / "plugin.json"
         pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
         if not pj_data.get("name", "").endswith("-dev"):
@@ -1567,43 +1567,48 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     )
     checks.append(("CHANGELOG", stamped, "stamped" if stamped else "not stamped"))
 
-    # 4. install-all.sh SHA
-    if install_sh.exists():
-        repo = _get_github_repo(info.root)
-        if repo:
-            project_name = repo.split("/")[-1]
-            sibling = _resolve_sibling(info.root, "punt-kit")
-            if not sibling:
-                checks.append(("install-all.sh", False, "sibling punt-kit not found"))
+    # 4. install-all.sh entry (curl SHA for CLI projects, plugin loop for pure plugins)
+    repo = _get_github_repo(info.root)
+    if repo and (install_sh.exists() or info.is_plugin):
+        project_name = repo.split("/")[-1]
+        sibling = _resolve_sibling(info.root, "punt-kit")
+        if not sibling:
+            checks.append(("install-all.sh", False, "sibling punt-kit not found"))
+        else:
+            install_all = sibling / "install-all.sh"
+            if not install_all.exists():
+                checks.append(("install-all.sh", False, "install-all.sh not found"))
             else:
-                install_all = sibling / "install-all.sh"
-                if not install_all.exists():
-                    checks.append(("install-all.sh", False, "install-all.sh not found"))
-                else:
-                    iac = install_all.read_text(encoding="utf-8")
-                    match = re.search(
-                        rf"\$GH/{re.escape(project_name)}/"
-                        r"([0-9a-fA-F]{7,40})/install\.sh",
-                        iac,
+                iac = install_all.read_text(encoding="utf-8")
+                curl_match = re.search(
+                    rf"\$GH/{re.escape(project_name)}/"
+                    r"([0-9a-fA-F]{7,40})/install\.sh",
+                    iac,
+                )
+                if curl_match:
+                    sha = curl_match.group(1)
+                    vr = _run(
+                        ["git", "show", f"{sha}:install.sh"],
+                        cwd=str(info.root),
+                        check=False,
                     )
-                    if match:
-                        sha = match.group(1)
-                        vr = _run(
-                            ["git", "show", f"{sha}:install.sh"],
-                            cwd=str(info.root),
-                            check=False,
-                        )
-                        if vr.returncode != 0:
-                            sha_ok = False
-                        elif f'VERSION="{version}"' in vr.stdout:
-                            # Python/hybrid: VERSION pin matches
-                            sha_ok = True
-                        else:
-                            # Go/other: no VERSION pin — SHA resolves
-                            sha_ok = 'VERSION="' not in vr.stdout
-                        checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
+                    if vr.returncode != 0:
+                        sha_ok = False
+                    elif f'VERSION="{version}"' in vr.stdout:
+                        # Python/hybrid: VERSION pin matches
+                        sha_ok = True
                     else:
-                        checks.append(("install-all.sh", False, "entry not found"))
+                        # Go/other: no VERSION pin — SHA resolves
+                        sha_ok = 'VERSION="' not in vr.stdout
+                    checks.append(("install-all.sh", sha_ok, f"SHA={sha}"))
+                elif re.search(
+                    rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
+                    iac,
+                ):
+                    # Pure-plugin loop entry (no SHA to verify)
+                    checks.append(("install-all.sh", True, "in plugin loop"))
+                else:
+                    checks.append(("install-all.sh", False, "entry not found"))
 
     # 5. Marketplace
     if info.is_plugin or info.is_hybrid:
