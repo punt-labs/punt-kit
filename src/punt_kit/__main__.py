@@ -1,16 +1,61 @@
 from __future__ import annotations
 
+import json
+import sys
+from typing import Annotated
+
 import typer
-from rich.console import Console
 
 from punt_kit import __version__
 
 app = typer.Typer(
     name="punt",
-    help="Standards, scaffolding, and compliance tooling for Punt Labs projects.",
-    no_args_is_help=True,
+    no_args_is_help=False,
+    rich_markup_mode=None,
 )
-console = Console()
+
+# Global flag state, set by the callback before any command runs.
+_json_output: bool = False
+_verbose: bool = False
+_quiet: bool = False
+
+
+def _emit(data: object, text: str) -> None:
+    """Print text or JSON depending on --json flag. Respects --quiet."""
+    if _json_output:
+        print(json.dumps(data, default=str))
+    elif not _quiet:
+        print(text)
+
+
+@app.callback(invoke_without_command=True)
+def main_callback(
+    ctx: typer.Context,
+    output_json: Annotated[
+        bool, typer.Option("--json", help="Output as JSON.")
+    ] = False,
+    verbose: Annotated[
+        bool, typer.Option("--verbose", "-v", help="Verbose output.")
+    ] = False,
+    quiet: Annotated[
+        bool, typer.Option("--quiet", "-q", help="Suppress non-essential output.")
+    ] = False,
+) -> None:
+    """punt: standards, scaffolding, and compliance tooling for Punt Labs projects."""
+    global _json_output, _verbose, _quiet  # noqa: PLW0603
+    _json_output = output_json
+    _verbose = verbose
+    _quiet = quiet
+    if verbose and quiet:
+        msg = "--verbose and --quiet are mutually exclusive"
+        if _json_output:
+            print(json.dumps({"error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        raise typer.Exit(code=1)
+    if ctx.invoked_subcommand is None:
+        print(ctx.get_help())
+        raise typer.Exit(code=0)
 
 
 @app.command()
@@ -95,7 +140,74 @@ def auto(
 @app.command()
 def version() -> None:
     """Print the punt-kit version."""
-    console.print(f"punt-kit {__version__}")
+    _emit({"version": __version__}, f"punt {__version__}")
+
+
+@app.command()
+def doctor() -> None:
+    """Check punt-kit installation health."""
+    from punt_kit.doctor import run_doctor
+
+    code, results = run_doctor(print_results=not _json_output and not _quiet)
+    if _json_output:
+        print(
+            json.dumps(
+                [
+                    {
+                        "name": r.name,
+                        "passed": r.passed,
+                        "message": r.message,
+                        "required": r.required,
+                    }
+                    for r in results
+                ]
+            )
+        )
+    if _quiet and code != 0:
+        print("doctor: required checks failed", file=sys.stderr)
+    raise typer.Exit(code=code)
+
+
+@app.command()
+def status(
+    path: str = typer.Argument(".", help="Path to the project root"),
+) -> None:
+    """Show detected project type, standards version, and beads state."""
+    from dataclasses import asdict
+    from pathlib import Path
+
+    from punt_kit.status import run_status
+
+    resolved = Path(path).resolve()
+    if not resolved.is_dir():
+        msg = f"{resolved} is not a directory"
+        if _json_output:
+            print(json.dumps({"error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        raise typer.Exit(code=1)
+
+    info = run_status(path)
+    if _json_output:
+        print(json.dumps(asdict(info), default=str))
+    elif not _quiet:
+        print(f"punt {info.punt_kit_version}")
+        if info.language:
+            print(f"Language:     {info.language}")
+        if info.project_type:
+            print(f"Project type: {info.project_type}")
+        if info.is_plugin:
+            print("Plugin:       yes")
+        if info.is_mcp_server:
+            print("MCP server:   yes")
+        if info.has_beads:
+            open_n, ip_n = info.beads_open, info.beads_in_progress
+            print(f"Beads:        {open_n} open, {ip_n} in progress")
+    if info.beads_skipped and not _quiet:
+        print(
+            f"Warning: skipped {info.beads_skipped} malformed bead line(s)",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":
