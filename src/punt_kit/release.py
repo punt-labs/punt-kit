@@ -1282,7 +1282,7 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     install_all.write_text(new_content, encoding="utf-8")
 
-    branch = f"propagate/v{version}-punt-kit"
+    branch = f"propagate/v{version}-{project_name}-punt-kit"
     if _sibling_pr_merge(
         sibling,
         branch,
@@ -1348,7 +1348,7 @@ def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
-    branch = f"propagate/v{version}-claude-plugins"
+    branch = f"propagate/v{version}-{project_name}-claude-plugins"
     if _sibling_pr_merge(
         sibling,
         branch,
@@ -1367,6 +1367,7 @@ def _propagate_profile(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     repo = _get_github_repo(info.root)
     if repo != "punt-labs/punt-kit":
         return
+    project_name = repo.split("/")[-1]
 
     sibling = _resolve_sibling(info.root, ".github")
     if sibling is None:
@@ -1408,7 +1409,7 @@ def _propagate_profile(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
 
     readme.write_text(new_content, encoding="utf-8")
 
-    branch = f"propagate/v{version}-github"
+    branch = f"propagate/v{version}-{project_name}-github"
     if _sibling_pr_merge(
         sibling,
         branch,
@@ -1469,7 +1470,7 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
 
     projects_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 
-    branch = f"propagate/v{version}-public-website"
+    branch = f"propagate/v{version}-{project_name}-public-website"
     if _sibling_pr_merge(
         sibling,
         branch,
