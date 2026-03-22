@@ -32,6 +32,10 @@ All notable changes to this project will be documented in this file.
   "entry not found". (pvb)
 - Added `Lux.ini` to `.gitignore` to prevent the lux plugin config file from
   blocking release preflight's clean-tree check. (6wa)
+- `punt release` propagation branches now include the source project name
+  (e.g., `propagate/v0.14.1-z-spec-claude-plugins` instead of
+  `propagate/v0.14.1-claude-plugins`), preventing collisions when two
+  projects release the same version. (srn)
 
 ## [0.8.0] - 2026-03-21
 
