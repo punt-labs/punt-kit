@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `punt doctor` command — checks Python version, uv, ruff, mypy, pyright
+  availability with pass/fail per dependency
+- `punt status` command — shows detected project type, language, plugin/MCP
+  status, and beads counts for the current project
+- Global flags: `--json`, `--verbose`/`-v`, `--quiet`/`-q` on all commands.
+  `--json` produces machine-readable output; `--verbose` and `--quiet` are
+  mutually exclusive
+- CLI integration tests via typer CliRunner (10 tests)
+
+### Changed
+
+- `punt version` now uses plain `print()` instead of Rich `console.print()`,
+  matching cli.md standard. Supports `--json` output.
+- Help text is now plain text (no Rich panels/box-drawing characters)
+- App tagline follows cli.md format: `punt: <description>`
+
 ### Fixed
 
 - `punt release` now runs `release-plugin.sh` and `restore-dev-plugin.sh` for
