@@ -70,6 +70,15 @@ def test_verbose_quiet_mutually_exclusive() -> None:
     assert result.exit_code == 1
 
 
+def test_verbose_quiet_mutually_exclusive_json() -> None:
+    """--json + --verbose + --quiet produces a JSON-formatted error."""
+    result = runner.invoke(app, ["--json", "--verbose", "--quiet", "version"])
+    assert result.exit_code == 1
+    data = json.loads(result.output.strip())
+    assert isinstance(data, dict)
+    assert "error" in data
+
+
 # --- doctor ---
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 from punt_kit import __version__
 
@@ -46,7 +47,11 @@ def _count_beads(root: Path) -> tuple[int, int, int]:
                 except json.JSONDecodeError:
                     skipped += 1
                     continue
-                st = issue.get("status", "")
+                if not isinstance(issue, dict):
+                    skipped += 1
+                    continue
+                rec = cast("dict[str, object]", issue)
+                st = rec.get("status", "")
                 if st == "open":
                     open_count += 1
                 elif st == "in_progress":

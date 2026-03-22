@@ -43,12 +43,16 @@ def main_callback(
 ) -> None:
     """punt: standards, scaffolding, and compliance tooling for Punt Labs projects."""
     global _json_output, _verbose, _quiet  # noqa: PLW0603
-    if verbose and quiet:
-        print("Error: --verbose and --quiet are mutually exclusive.", file=sys.stderr)
-        raise typer.Exit(code=1)
     _json_output = output_json
     _verbose = verbose
     _quiet = quiet
+    if verbose and quiet:
+        msg = "--verbose and --quiet are mutually exclusive"
+        if _json_output:
+            print(json.dumps({"error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        raise typer.Exit(code=1)
     if ctx.invoked_subcommand is None:
         print(ctx.get_help())
         raise typer.Exit(code=0)
