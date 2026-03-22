@@ -187,7 +187,7 @@ def status(
     if _json_output:
         print(json.dumps(asdict(info), default=str))
     elif not _quiet:
-        print(f"punt-kit {info.punt_kit_version}")
+        print(f"punt {info.punt_kit_version}")
         if info.language:
             print(f"Language:     {info.language}")
         if info.project_type:
