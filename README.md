@@ -40,7 +40,19 @@ uv tool install punt-kit
 | `punt auto <target>` | Render and merge managed sections in project files (claude, makefile, settings). Supports `--dry-run` |
 | `punt release [version]` | 11-phase release workflow (preflight → PyPI → cross-repo propagation). Supports `--resume-from` and `--dry-run` |
 | `punt pii` | Scan repo for PII (emails, home paths, hostnames). Supports `--staged` for pre-commit |
-| `punt version` | Print version |
+| `punt doctor` | Check installation health (Python, uv, ruff, mypy, pyright) |
+| `punt status` | Show detected project type, standards version, and beads state |
+| `punt version` | Print version (`punt 0.8.0`) |
+
+### Global Flags
+
+All commands accept these flags:
+
+| Flag | What it does |
+|------|-------------|
+| `--json` | Output as JSON (machine-readable) |
+| `--verbose` / `-v` | Verbose output |
+| `--quiet` / `-q` | Suppress non-essential output (errors only) |
 
 ### Usage
 
@@ -48,8 +60,11 @@ uv tool install punt-kit
 # In any Punt Labs project directory:
 punt init          # Generate missing files
 punt audit         # Check compliance
+punt doctor        # Check installation health
+punt status        # Show project summary
 punt pii           # Scan for PII leaks
 punt pii --staged  # Pre-commit: scan only staged files
+punt --json status # JSON output for scripting
 punt init /path    # Target a specific directory
 ```
 
@@ -68,22 +83,46 @@ After scaffolding, it reports manual steps that require GitHub access (branch pr
 
 `punt pii` scans tracked files for personally identifiable information — email addresses, home directory paths (`/Users/X/`, `/home/X/`), and `.local` hostnames. Configure allow/deny lists in `[tool.punt.pii]` in `pyproject.toml`.
 
+## Claude Code Plugin
+
+Punt-kit is also a Claude Code plugin (`punt@punt-labs` on the marketplace). The plugin surfaces CLI commands as slash commands and adds LLM-driven capabilities that are inherently prompt-driven.
+
+| Slash Command | What it does |
+|---------------|-------------|
+| `/punt:init` | Scaffold a Punt Labs project (wraps `punt init`) |
+| `/punt:audit` | Check compliance (wraps `punt audit`) |
+| `/punt:pii` | Scan for PII (wraps `punt pii`) |
+| `/punt:auto <playbook>` | Execute automation playbooks (release, autopilot, standards-rollout) |
+| `/punt:reconcile` | LLM-driven standards reconciliation (no CLI equivalent — prompt-driven) |
+| `/punt:claude2cursor` | Generate Cursor skills and rules from plugin commands |
+
+Install from the marketplace:
+
+```text
+/plugin install punt@punt-labs
+```
+
 ---
 
 ## Standards
 
-Ten standards documents covering the full development lifecycle:
+18 standards documents covering the full development lifecycle:
 
 | Standard | Covers |
 |----------|--------|
 | [Python](standards/python.md) | ruff, mypy, pyright, pytest, pyproject.toml conventions |
-| [CLI](standards/cli.md) | typer + rich, `punt-` PyPI prefix, entry point naming |
+| [CLI](standards/cli.md) | typer, `punt-` PyPI prefix, entry point naming, global flags |
 | [Shell](standards/shell.md) | POSIX install scripts, bash dev scripts, shellcheck |
 | [GitHub](standards/github.md) | Branch protection, PR workflow, Copilot review, Dependabot |
 | [Workflow](standards/workflow.md) | Beads, branch discipline, micro-commits, session close |
 | [Distribution](standards/distribution.md) | PyPI trusted publishing, `.mcpb` bundles, installers |
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
+| [Hooks](standards/hooks.md) | Claude Code hook events, three-layer dispatch pattern |
+| [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
+| [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
+| [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
+| [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
 | [Node](standards/node.md) | Node.js MCP servers, `@modelcontextprotocol/sdk` |
 | [README](standards/readme.md) | Badge set, section order, anti-patterns for project READMEs |
 
@@ -114,7 +153,9 @@ The standards and patterns above were extracted from shipping projects. Each has
 
 - **[biff](https://github.com/punt-labs/biff)** — Team communication for the terminal (BSD Unix vocabulary over NATS)
 - **[quarry](https://github.com/punt-labs/quarry)** — Local semantic search across 30+ document formats
-- **[tts](https://github.com/punt-labs/tts)** — General-purpose TTS engine (ElevenLabs, OpenAI, Polly)
+- **[vox](https://github.com/punt-labs/vox)** — General-purpose TTS engine (ElevenLabs, OpenAI, Polly)
+- **[ethos](https://github.com/punt-labs/ethos)** — Identity and persona management for Claude Code sessions
+- **[beadle](https://github.com/punt-labs/beadle)** — Email client for Claude Code (Proton Bridge SMTP/IMAP)
 - **[prfaq](https://github.com/punt-labs/prfaq)** — Working Backwards PR/FAQ generator (skill + 8 agents + 10 commands)
 - **[z-spec](https://github.com/punt-labs/z-spec)** — Formal Z specifications for stateful systems
 - **[dungeon](https://github.com/punt-labs/dungeon)** — Text adventure game (prompt-driven game engine)
