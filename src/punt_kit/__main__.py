@@ -170,8 +170,18 @@ def status(
 ) -> None:
     """Show detected project type, standards version, and beads state."""
     from dataclasses import asdict
+    from pathlib import Path
 
     from punt_kit.status import run_status
+
+    resolved = Path(path).resolve()
+    if not resolved.is_dir():
+        msg = f"{resolved} is not a directory"
+        if _json_output:
+            print(json.dumps({"error": msg}))
+        else:
+            print(f"Error: {msg}", file=sys.stderr)
+        raise typer.Exit(code=1)
 
     info = run_status(path)
     if _json_output:
@@ -189,6 +199,11 @@ def status(
         if info.has_beads:
             open_n, ip_n = info.beads_open, info.beads_in_progress
             print(f"Beads:        {open_n} open, {ip_n} in progress")
+    if info.beads_skipped and not _quiet:
+        print(
+            f"Warning: skipped {info.beads_skipped} malformed bead line(s)",
+            file=sys.stderr,
+        )
 
 
 if __name__ == "__main__":
