@@ -83,10 +83,11 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
 test: ## Run tests
-	go test ./...
+	go test -race -count=1 ./...
 
 lint: ## Lint and vet
-	golangci-lint run
+	go vet ./...
+	staticcheck ./...
 
 check: lint test ## Run all quality gates
 

@@ -15,7 +15,8 @@ only an MCP server when most of our tools are dual CLI+MCP.
 |-----------|-----------|---------|
 | GitHub repo | `<org>/<name>` | `punt-labs/biff`, `punt-labs/quarry` |
 | PyPI package | `punt-<name>` | `punt-biff`, `punt-quarry`, `punt-vox` |
-| CLI command | Short, lowercase, no prefix | `biff`, `quarry`, `vox` |
+| Go module | `github.com/punt-labs/<name>` | `github.com/punt-labs/ethos` |
+| CLI command | Short, lowercase, no prefix | `biff`, `quarry`, `vox`, `ethos` |
 | MCP server only (no CLI) | `<name>-mcp` | — (no current examples; avoid this pattern) |
 
 ---

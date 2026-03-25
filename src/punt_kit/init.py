@@ -140,6 +140,8 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
         standards_refs.append(language)
     if language == "python" and "cli" not in standards_refs:
         standards_refs.append("cli")
+    if language == "go" and "cli" not in standards_refs:
+        standards_refs.append("cli")
 
     return ProjectInfo(
         root=info.root,
@@ -360,6 +362,8 @@ def _build_quality_gates(info: ProjectInfo) -> str:
         return "make format && make lint && make test"
     if info.language == "node":
         return "npm run lint && npm test"
+    if info.language == "go":
+        return "make check"
     return "# No language-specific quality gates"
 
 
@@ -444,6 +448,8 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
         perms.extend(["Bash(uv:*)", "Bash(uvx:*)", "Bash(python3:*)"])
     elif info.language == "node":
         perms.extend(["Bash(npx:*)", "Bash(npm:*)"])
+    elif info.language == "go":
+        perms.extend(["Bash(go:*)", "Bash(staticcheck:*)"])
     elif info.language == "swift":
         perms.extend(
             [
