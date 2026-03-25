@@ -11,7 +11,7 @@ Current Go projects: ethos, beadle-email.
 - **Go 1.24+**. Track the latest stable release. Update `go.mod` when a new minor version ships.
 - Module path: `github.com/punt-labs/<project>`.
 - `go.sum` is committed. `go.mod` and `go.sum` stay in sync --- run `go mod tidy` before every commit that touches dependencies.
-- Pin tool versions in a `tools` target (see [Makefile standards](makefile.md)).
+- Pin tool versions as prescribed in the [Makefile standards](makefile.md).
 
 ## 2. Module Layout
 
@@ -220,7 +220,7 @@ func setupExtTest(t *testing.T) *Store {
 |------|---------|-----------|
 | `go vet` | Built-in correctness checks | Yes |
 | `staticcheck` | Extended static analysis | Yes |
-| `gofmt` | Canonical formatting | Yes (non-negotiable) |
+| `gofmt` / `gofumpt` | Canonical formatting (`make format`) | Yes (non-negotiable; projects may use `gofumpt` as a stricter drop-in) |
 | `shellcheck` | Shell script linting | Yes (if project has `.sh` files) |
 
 `go vet` and `staticcheck` run as part of `make lint`. Zero warnings. Do not suppress warnings with `//nolint` unless the suppression includes a comment explaining why.
