@@ -74,6 +74,7 @@ def detect(root: Path) -> ProjectInfo:
     if go_mod.exists() and language is None:
         language = "go"
         project_type = "package"
+        standards_refs.append("go")
 
     # Check Swift
     swift_files = list(root.glob("**/*.swift"))

@@ -18,11 +18,11 @@ Every project must define these targets. The underlying commands vary by ecosyst
 | Target | Purpose | Python example | Go example |
 |--------|---------|----------------|------------|
 | `help` | List available targets with descriptions | `@grep -E ...` | `@grep -E ...` |
-| `test` | Run the default test suite | `uv run pytest` | `go test ./...` |
-| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `golangci-lint run` |
+| `test` | Run the default test suite | `uv run pytest` | `go test -race -count=1 ./...` |
+| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `go vet ./... && staticcheck ./...` |
 | `check` | Run all quality gates | `$(MAKE) lint type test` | `$(MAKE) lint test` |
 | `format` | Auto-fix formatting and lint issues | `uv run ruff format . && uv run ruff check --fix .` | `gofumpt -w .` |
-| `build` | Build distributable artifacts | `uv build` | `go build -o <binary> .` |
+| `build` | Build distributable artifacts | `uv build` | `CGO_ENABLED=0 go build -o <binary> .` |
 | `clean` | Remove build artifacts and temp files | `rm -rf dist/ .tmp/` | `rm -f <binary> && rm -rf dist/` |
 
 ## Optional targets
@@ -83,10 +83,11 @@ help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
 test: ## Run tests
-	go test ./...
+	go test -race -count=1 ./...
 
 lint: ## Lint and vet
-	golangci-lint run
+	go vet ./...
+	staticcheck ./...
 
 check: lint test ## Run all quality gates
 
