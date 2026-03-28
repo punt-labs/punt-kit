@@ -12,6 +12,11 @@ All notable changes to this project will be documented in this file.
   `memories` (consolidate only), `project` (project CLAUDE.md), `full`
   (all three levels including org CLAUDE.md install).
 
+### Fixed
+
+- `punt release` Phase 10c now uses the last commit that touched
+  `install-all.sh` instead of HEAD for the org profile SHA.
+
 ## [0.9.0] - 2026-03-28
 
 ### Added
