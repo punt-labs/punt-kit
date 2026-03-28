@@ -66,8 +66,8 @@ Update `.claude-plugin/marketplace.json`:
 
 ### 10c. Org Profile (.github)
 
-Update the `install-all.sh` curl URL in `profile/README.md` to punt-kit's
-current main HEAD SHA (which includes the 10a commit).
+Update the `install-all.sh` curl URL in `profile/README.md` to the commit
+that last modified `install-all.sh` (the 10a merge commit).
 
 **Depends on**: 10a must complete first.
 
