@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-03-28
+
 ### Added
 
 - `punt doctor` command — checks Python version, uv, ruff, mypy, pyright
