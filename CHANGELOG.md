@@ -24,6 +24,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` Phase 10c (org profile SHA update) now runs after every
+  release that modifies install-all.sh via Phase 10a, not only during punt-kit
+  releases. Previously, releasing biff/quarry/ethos/etc. updated install-all.sh
+  in punt-kit but left the org profile pointing to the old punt-kit commit,
+  causing users to install stale versions.
 - `punt release` now runs `release-plugin.sh` and `restore-dev-plugin.sh` for
   pure plugin projects (not just hybrid). Previously, Go+plugin projects like
   ethos shipped with `-dev` names. (wy5)
