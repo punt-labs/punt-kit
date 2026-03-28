@@ -1263,12 +1263,6 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         return False  # unreachable
 
     tag = f"v{version}"
-    if dry_run:
-        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <install-sha> ({tag})")
-        return True
-
-    _validate_sibling(sibling, "punt-kit")
-
     install_sha = _get_install_sh_sha(info.root)
 
     content = install_all.read_text(encoding="utf-8")
@@ -1283,6 +1277,12 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
     if new_content == content:
         _ok(f"install-all.sh: {project_name} SHA already current")
         return False
+
+    if dry_run:
+        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        return True
+
+    _validate_sibling(sibling, "punt-kit")
 
     install_all.write_text(new_content, encoding="utf-8")
 

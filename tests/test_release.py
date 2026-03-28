@@ -901,6 +901,70 @@ def test_propagate_profile_updates_sha(
     assert len(calls) == 1
 
 
+def test_propagate_profile_from_non_punt_kit_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Releasing biff resolves punt-kit as sibling and uses its HEAD."""
+    root = _make_release_project(tmp_path)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
+        cwd=str(root),
+    )
+
+    # Create punt-kit sibling with a distinct HEAD
+    punt_kit = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+    punt_kit_sha = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"],
+        cwd=str(punt_kit),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "profile/README.md": (
+                "# Punt Labs\n\n"
+                "```bash\n"
+                "curl -fsSL https://raw.githubusercontent.com/"
+                "punt-labs/punt-kit/aabb001/install-all.sh | sh\n"
+                "```\n"
+            )
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    calls: list[str] = []
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append(name)
+        return True
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=True)
+
+    readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
+    assert "aabb001" not in readme
+    # Must use punt-kit's HEAD, not biff's
+    assert f"punt-kit/{punt_kit_sha}/install-all.sh" in readme
+    assert len(calls) == 1
+
+
 def test_propagate_profile_skipped_when_punt_kit_not_updated(tmp_path: Path) -> None:
     """No-op when 10a did not modify punt-kit."""
     root = _make_release_project(tmp_path)
