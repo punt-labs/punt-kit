@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-03-28
+
 ### Added
 
 - `reconcile-memory` playbook — consolidates auto-memories into CLAUDE.md
