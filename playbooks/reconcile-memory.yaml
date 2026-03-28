@@ -1,0 +1,96 @@
+name: reconcile-memory
+description: Consolidate auto-memories into CLAUDE.md layers, eliminating duplication and promoting general content upward
+mode: once
+
+parameters:
+  - name: scope
+    type: string
+    required: false
+    default: full
+    description: "Which phases to run: 'memories' (consolidate only), 'project' (project CLAUDE.md only), 'full' (all three levels)"
+    enum: [memories, project, full]
+
+preconditions:
+  - description: Working directory is a punt-labs project
+    check: test -f CLAUDE.md
+
+steps:
+  - id: audit-memories
+    description: Audit memories for duplicates, overlaps, staleness, and contradictions
+    type: llm
+    context: |
+      Read MEMORY.md index and every memory file it references. Identify:
+      duplicates, overlapping content, memories that contradict each other,
+      stale memories (reference files/functions that no longer exist).
+
+      Produce a consolidation plan: which memories to merge, which to
+      delete, which to update. Present the plan — do not execute yet.
+    on_failure: diagnose
+
+  - id: consolidate-memories
+    description: Execute the consolidation plan from Phase 1
+    type: llm
+    context: |
+      Execute the plan from Phase 1. Merge overlapping memories into fewer,
+      more general files. Delete redundant files. Update MEMORY.md index.
+
+      Postcondition: no orphaned memory files, no broken links in MEMORY.md.
+    on_failure: diagnose
+
+  - id: reconcile-to-project
+    description: Promote memory content to project CLAUDE.md and delete covered memories
+    type: llm
+    context: |
+      If the scope parameter is 'memories', skip this step entirely and
+      report "Skipped: scope is memories."
+
+      Read all remaining memories and the project CLAUDE.md. For each memory:
+      is its content already in CLAUDE.md? If yes, delete the memory. If no,
+      does it belong in the project CLAUDE.md or the org CLAUDE.md? Add
+      missing project-specific content to the project CLAUDE.md. Delete
+      memories that are now covered by CLAUDE.md. Update MEMORY.md.
+
+      Postcondition: every memory file contains information NOT in any
+      CLAUDE.md.
+    on_failure: diagnose
+
+  - id: reconcile-to-org
+    description: Promote general content from project CLAUDE.md to org CLAUDE.md
+    type: llm
+    context: |
+      If the scope parameter is not 'full', skip this step entirely and
+      report "Skipped: scope is not full."
+
+      Read the project CLAUDE.md and the org CLAUDE.md at ../CLAUDE.md
+      (relative to the repo root). Identify content in the project file
+      that is general to all punt-labs projects (not project-specific
+      architecture, schemas, or operational constraints). Move general
+      content to the org CLAUDE.md. Strip moved content from the project
+      CLAUDE.md.
+
+      Postcondition: project CLAUDE.md contains only project-specific content.
+    on_failure: diagnose
+
+  - id: install
+    description: Install org CLAUDE.md to ~/.claude/CLAUDE.md
+    type: script
+    command: |
+      if [ "${scope}" != "full" ]; then echo "Skipped: scope is not full"; exit 0; fi
+      ORG_CLAUDE="$(git rev-parse --show-toplevel)/../CLAUDE.md"
+      cp ~/.claude/CLAUDE.md ~/.claude/CLAUDE.md.bak 2>/dev/null || true
+      cp "$ORG_CLAUDE" ~/.claude/CLAUDE.md
+    on_failure: abort
+    postcondition:
+      check: test -s ~/.claude/CLAUDE.md
+
+  - id: verify
+    description: Verify no information was lost and no duplication across layers
+    type: llm
+    context: |
+      Read the final state of all three files (memories, project CLAUDE.md,
+      org CLAUDE.md). Confirm: no information was lost, no duplication across
+      layers, project CLAUDE.md complements (not repeats) the org file.
+
+      Report what changed: memories deleted, memories merged, content
+      promoted.
+    on_failure: diagnose

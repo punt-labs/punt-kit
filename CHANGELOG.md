@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `reconcile-memory` playbook — consolidates auto-memories into CLAUDE.md
+  layers, eliminating duplication and promoting general content upward.
+  Run via `/punt:auto reconcile-memory`. Supports `scope` parameter:
+  `memories` (consolidate only), `project` (project CLAUDE.md), `full`
+  (all three levels including org CLAUDE.md install).
+
 ## [0.9.0] - 2026-03-28
 
 ### Added
