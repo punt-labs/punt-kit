@@ -1375,12 +1375,11 @@ def _propagate_profile(
     dry_run: bool,
     punt_kit_updated: bool,
 ) -> None:
-    """10c. Update .github profile README with punt-kit HEAD SHA.
+    """10c. Update .github profile README with install-all.sh commit SHA.
 
     Runs whenever 10a modified punt-kit (merged a PR that updated
-    install-all.sh), not only during punt-kit releases.  Any release
-    that updates install-all.sh advances punt-kit's main HEAD, making
-    the profile's pinned SHA stale.
+    install-all.sh), not only during punt-kit releases.  Uses the SHA
+    of the last commit that touched install-all.sh, not HEAD.
     """
     if not punt_kit_updated:
         return
@@ -1701,7 +1700,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             else:
                 content = readme.read_text(encoding="utf-8")
                 punt_kit_sha = _run(
-                    ["git", "rev-parse", "--short", "HEAD"],
+                    ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
                     cwd=str(info.root),
                 ).stdout.strip()
                 sha_in_profile = bool(

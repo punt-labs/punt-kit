@@ -909,17 +909,17 @@ def test_propagate_profile_updates_sha(
 def test_propagate_profile_from_non_punt_kit_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Releasing biff resolves punt-kit as sibling and uses its HEAD."""
+    """Releasing biff resolves punt-kit sibling, uses install-all.sh SHA."""
     root = _make_release_project(tmp_path)
     _git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
         cwd=str(root),
     )
 
-    # Create punt-kit sibling with a distinct HEAD
+    # Create punt-kit sibling with install-all.sh
     punt_kit = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
     punt_kit_sha = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
         cwd=str(punt_kit),
         capture_output=True,
         text=True,
