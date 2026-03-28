@@ -1238,33 +1238,31 @@ def _sibling_pr_merge(
 # ---------------------------------------------------------------------------
 
 
-def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10a. Update project's install.sh SHA in punt-kit/install-all.sh."""
+def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> bool:
+    """10a. Update project's install.sh SHA in punt-kit/install-all.sh.
+
+    Returns True if punt-kit was modified (a PR was merged), so that 10c
+    knows it needs to update the org profile SHA.
+    """
     if not (info.root / "install.sh").exists():
-        return
+        return False
 
     repo = _get_github_repo(info.root)
     if repo is None:
-        return
+        return False
     project_name = repo.split("/")[-1]
 
     sibling = _resolve_sibling(info.root, "punt-kit")
     if sibling is None:
         _fail("Sibling punt-kit not found — required for install-all.sh propagation")
-        return  # unreachable, makes type checker happy
+        return False  # unreachable, makes type checker happy
 
     install_all = sibling / "install-all.sh"
     if not install_all.exists():
         _fail("install-all.sh not found in punt-kit — required for propagation")
-        return  # unreachable
+        return False  # unreachable
 
     tag = f"v{version}"
-    if dry_run:
-        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → <install-sha> ({tag})")
-        return
-
-    _validate_sibling(sibling, "punt-kit")
-
     install_sha = _get_install_sh_sha(info.root)
 
     content = install_all.read_text(encoding="utf-8")
@@ -1274,11 +1272,17 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     if count == 0:
         _info(f"install-all.sh: no entry for {project_name} — skipping")
-        return
+        return False
 
     if new_content == content:
         _ok(f"install-all.sh: {project_name} SHA already current")
-        return
+        return False
+
+    if dry_run:
+        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        return True
+
+    _validate_sibling(sibling, "punt-kit")
 
     install_all.write_text(new_content, encoding="utf-8")
 
@@ -1292,6 +1296,8 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         dry_run=dry_run,
     ):
         _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        return True
+    return False
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1362,10 +1368,25 @@ def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) ->
         _ok(f"marketplace: {project_name} already current")
 
 
-def _propagate_profile(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10c. Update .github profile README with punt-kit HEAD SHA."""
+def _propagate_profile(
+    info: ProjectInfo,
+    version: str,
+    *,
+    dry_run: bool,
+    punt_kit_updated: bool,
+) -> None:
+    """10c. Update .github profile README with punt-kit HEAD SHA.
+
+    Runs whenever 10a modified punt-kit (merged a PR that updated
+    install-all.sh), not only during punt-kit releases.  Any release
+    that updates install-all.sh advances punt-kit's main HEAD, making
+    the profile's pinned SHA stale.
+    """
+    if not punt_kit_updated:
+        return
+
     repo = _get_github_repo(info.root)
-    if repo != "punt-labs/punt-kit":
+    if repo is None:
         return
     project_name = repo.split("/")[-1]
 
@@ -1379,9 +1400,18 @@ def _propagate_profile(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         _info(".github/profile/README.md not found — skipping")
         return
 
-    # Get punt-kit's current main HEAD (includes the 10a commit)
+    # Get punt-kit's current main HEAD (includes the 10a commit).
+    # For punt-kit self-releases, info.root IS punt-kit.  For other
+    # projects, resolve punt-kit as a sibling.
+    is_punt_kit = repo == "punt-labs/punt-kit"
+    punt_kit_dir: Path | None = (
+        info.root if is_punt_kit else _resolve_sibling(info.root, "punt-kit")
+    )
+    if punt_kit_dir is None:
+        _fail("Sibling punt-kit not found — required for profile SHA update")
+        return  # unreachable
     punt_kit_sha = _run(
-        ["git", "rev-parse", "--short", "HEAD"], cwd=str(info.root)
+        ["git", "rev-parse", "--short", "HEAD"], cwd=str(punt_kit_dir)
     ).stdout.strip()
 
     if dry_run:
@@ -1489,9 +1519,11 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     console.print("\n[bold]Phase 10: Propagate[/bold]")
 
     # Order matters: 10a before 10c (profile depends on punt-kit HEAD after 10a)
-    _propagate_install_all(info, version, dry_run=dry_run)
+    punt_kit_updated = _propagate_install_all(info, version, dry_run=dry_run)
     _propagate_marketplace(info, version, dry_run=dry_run)
-    _propagate_profile(info, version, dry_run=dry_run)
+    _propagate_profile(
+        info, version, dry_run=dry_run, punt_kit_updated=punt_kit_updated
+    )
     _propagate_website(info, version, dry_run=dry_run)
 
 

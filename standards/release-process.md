@@ -71,7 +71,9 @@ current main HEAD SHA (which includes the 10a commit).
 
 **Depends on**: 10a must complete first.
 
-**Applies to**: punt-kit releases only.
+**Applies to**: any release where 10a modified install-all.sh (not only
+punt-kit releases — any project with an install.sh advances punt-kit's
+HEAD when 10a merges).
 
 ### 10d. Website (public-website)
 
@@ -116,7 +118,7 @@ produce no diff and are skipped.
 |----------|----------|--------|-------------|----------|
 | 10a. install-all.sh | Yes | Yes | No | Yes (self) |
 | 10b. Marketplace | No | Yes | Yes | Yes |
-| 10c. Profile | No | No | No | Yes |
+| 10c. Profile | If 10a ran | If 10a ran | No | If 10a ran |
 | 10d. Website | If entry | If entry | If entry | If entry |
 
 ## Phase 11: Verify
