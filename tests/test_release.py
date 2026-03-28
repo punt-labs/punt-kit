@@ -837,7 +837,7 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
 def test_propagate_profile_updates_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Updates profile README with punt-kit HEAD SHA."""
+    """Updates profile README with last install-all.sh commit SHA."""
     root = _make_release_project(tmp_path)
     d = str(root)
     _git(
@@ -849,6 +849,11 @@ def test_propagate_profile_updates_sha(
         ],
         cwd=d,
     )
+
+    # Create install-all.sh so git log can find its commit
+    (root / "install-all.sh").write_text("#!/bin/sh\necho install\n")
+    _git(["add", "install-all.sh"], cwd=d)
+    _git(["commit", "-m", "add install-all.sh"], cwd=d)
 
     _make_sibling(
         tmp_path,
@@ -890,14 +895,14 @@ def test_propagate_profile_updates_sha(
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
-    head_sha = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"],
+    install_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
         cwd=d,
         capture_output=True,
         text=True,
         check=True,
     ).stdout.strip()
-    assert f"punt-kit/{head_sha}/install-all.sh" in readme
+    assert f"punt-kit/{install_sha}/install-all.sh" in readme
     assert len(calls) == 1
 
 

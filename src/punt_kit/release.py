@@ -1411,7 +1411,8 @@ def _propagate_profile(
         _fail("Sibling punt-kit not found — required for profile SHA update")
         return  # unreachable
     punt_kit_sha = _run(
-        ["git", "rev-parse", "--short", "HEAD"], cwd=str(punt_kit_dir)
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(punt_kit_dir),
     ).stdout.strip()
 
     if dry_run:
