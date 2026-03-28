@@ -886,7 +886,7 @@ def test_propagate_profile_updates_sha(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False)
+    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=True)
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
@@ -901,8 +901,8 @@ def test_propagate_profile_updates_sha(
     assert len(calls) == 1
 
 
-def test_propagate_profile_skipped_for_non_punt_kit(tmp_path: Path) -> None:
-    """No-op when releasing a project other than punt-kit."""
+def test_propagate_profile_skipped_when_punt_kit_not_updated(tmp_path: Path) -> None:
+    """No-op when 10a did not modify punt-kit."""
     root = _make_release_project(tmp_path)
     _git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
@@ -914,7 +914,7 @@ def test_propagate_profile_skipped_for_non_punt_kit(tmp_path: Path) -> None:
     info = detect(root)
 
     # Should not raise even without .github sibling
-    _propagate_profile(info, "0.2.0", dry_run=False)
+    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=False)
 
 
 # --- Phase 10d: website ---
