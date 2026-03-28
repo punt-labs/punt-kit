@@ -14,7 +14,7 @@ preconditions:
   - description: Working directory is a punt-labs project
     check: test -f CLAUDE.md
   - description: MEMORY.md index exists
-    check: test -f MEMORY.md
+    check: test -f "$HOME/.claude/projects/$(pwd | tr '/' '-')/memory/MEMORY.md"
   - description: Inside a git worktree
     check: git rev-parse --is-inside-work-tree >/dev/null 2>&1
 
