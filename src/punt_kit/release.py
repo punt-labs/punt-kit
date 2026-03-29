@@ -262,7 +262,15 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     _ok("On main branch")
 
     status = _run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout.strip()
-    dirty = "\n".join(ln for ln in status.splitlines() if not ln.startswith("?? "))
+    dirty_lines: list[str] = []
+    for ln in status.splitlines():
+        if ln.startswith("?? "):
+            continue
+        path = ln[3:] if len(ln) > 3 else ""
+        if path == ".beads" or path.startswith(".beads/"):
+            continue
+        dirty_lines.append(ln)
+    dirty = "\n".join(dirty_lines)
     if dirty:
         _fail(f"Working tree is not clean:\n{dirty}")
     _ok("Working tree clean")
@@ -1346,29 +1354,25 @@ def _sibling_pr_merge(
 # ---------------------------------------------------------------------------
 
 
-def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> bool:
-    """10a. Update project's install.sh SHA in punt-kit/install-all.sh.
-
-    Returns True if punt-kit was modified (a PR was merged), so that 10c
-    knows it needs to update the org profile SHA.
-    """
+def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """10a. Update project's install.sh SHA in punt-kit/install-all.sh."""
     if not (info.root / "install.sh").exists():
-        return False
+        return
 
     repo = _get_github_repo(info.root)
     if repo is None:
-        return False
+        return
     project_name = repo.split("/")[-1]
 
     sibling = _resolve_sibling(info.root, "punt-kit")
     if sibling is None:
         _fail("Sibling punt-kit not found — required for install-all.sh propagation")
-        return False  # unreachable, makes type checker happy
+        return  # unreachable, makes type checker happy
 
     install_all = sibling / "install-all.sh"
     if not install_all.exists():
         _fail("install-all.sh not found in punt-kit — required for propagation")
-        return False  # unreachable
+        return  # unreachable
 
     tag = f"v{version}"
     install_sha = _get_install_sh_sha(info.root)
@@ -1380,15 +1384,15 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     if count == 0:
         _info(f"install-all.sh: no entry for {project_name} — skipping")
-        return False
+        return
 
     if new_content == content:
         _ok(f"install-all.sh: {project_name} SHA already current")
-        return False
+        return
 
     if dry_run:
         _dry(f"../punt-kit/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
-        return True
+        return
 
     _validate_sibling(sibling, "punt-kit")
 
@@ -1404,8 +1408,6 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         dry_run=dry_run,
     ):
         _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
-        return True
-    return False
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1512,7 +1514,15 @@ def _propagate_profile(
     if punt_kit_dir is None:
         _fail("Sibling punt-kit not found — required for profile SHA update")
         return  # unreachable
-    punt_kit_sha = _get_install_sh_sha(punt_kit_dir)
+    punt_kit_sha = _run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(punt_kit_dir),
+    ).stdout.strip()
+    if not punt_kit_sha:
+        _fail(
+            "Could not determine install-all.sh SHA in punt-kit — "
+            "ensure install-all.sh has at least one commit"
+        )
 
     if dry_run:
         _dry(f"../.github/profile/README.md: install-all.sh SHA → {punt_kit_sha}")
@@ -1528,8 +1538,10 @@ def _propagate_profile(
     )
 
     if count == 0:
-        _info("profile/README.md: no install-all.sh URL found — skipping")
-        return
+        _fail(
+            "profile/README.md: no install-all.sh URL found "
+            "matching punt-labs/punt-kit/<sha>/install-all.sh"
+        )
 
     if new_content == content:
         _ok("profile: install-all.sh SHA already current")
@@ -1612,11 +1624,18 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         _ok(f"website: {project_name} already current")
 
 
-def _reset_propagation_siblings(info: ProjectInfo) -> None:
+def _reset_propagation_siblings(
+    info: ProjectInfo, *, fail_on_error: bool = True
+) -> None:
     """Return all propagation sibling repos to the main branch.
 
     No-op for siblings already on main. Used by the interrupt handler and
     at the start of Phase 10 to recover from prior interrupted runs.
+
+    ``fail_on_error=False`` should be used from the signal handler so that a
+    checkout failure on one sibling does not abort cleanup of the remaining
+    siblings.  The Phase 10 call site uses the default ``fail_on_error=True``
+    so that release failures are loud.
     """
     for sib_name in PROPAGATION_SIBLINGS:
         sib_path = _resolve_sibling(info.root, sib_name)
@@ -1644,11 +1663,15 @@ def _reset_propagation_siblings(info: ProjectInfo) -> None:
             _info(f"Returning sibling {sib_name} to main (was on '{branch}')...")
             checkout = _run(["git", "checkout", "main"], cwd=str(sib_path), check=False)
             if checkout.returncode != 0:
-                _fail(
+                msg = (
                     f"Could not return sibling {sib_name} to main: "
                     f"{checkout.stderr.strip()}\n"
                     "Fix manually before retrying propagation."
                 )
+                if fail_on_error:
+                    _fail(msg)
+                else:
+                    _info(f"Warning: {msg}")
 
 
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1983,13 +2006,15 @@ def run_release(
     if info.language is None and not info.is_plugin:
         _fail("Cannot detect project type — is this a Punt Labs project?")
 
-    def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
-        _info("\nInterrupted — returning sibling repos to main...")
-        _reset_propagation_siblings(info)
-        sys.exit(1)
+    if not dry_run:
 
-    signal.signal(signal.SIGINT, _cleanup_handler)
-    signal.signal(signal.SIGTERM, _cleanup_handler)
+        def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
+            _info("\nInterrupted — returning sibling repos to main...")
+            _reset_propagation_siblings(info, fail_on_error=False)
+            sys.exit(1)
+
+        signal.signal(signal.SIGINT, _cleanup_handler)
+        signal.signal(signal.SIGTERM, _cleanup_handler)
 
     # Determine start phase
     start = 1
