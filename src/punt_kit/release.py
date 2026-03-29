@@ -461,15 +461,20 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                 )
             time.sleep(15)
             continue
-        consecutive_errors = 0
 
         try:
             raw = cast("dict[str, object]", json.loads(result.stdout))
         except json.JSONDecodeError as exc:
+            consecutive_errors += 1
             _info(
-                f"Could not parse GraphQL response (will retry): {exc} — "
+                f"Could not parse GraphQL response ({consecutive_errors}/5): {exc} — "
                 f"output: {result.stdout[:100]!r}"
             )
+            if consecutive_errors >= 5:
+                _fail(
+                    f"GraphQL query failed 5 consecutive times on PR #{pr_number} — "
+                    "unparseable responses"
+                )
             time.sleep(15)
             continue
 
@@ -484,6 +489,9 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                 )
             time.sleep(15)
             continue
+
+        # Reset only after we have a valid, error-free GraphQL response
+        consecutive_errors = 0
 
         # Navigate the nested GraphQL response to extract check nodes
         try:
