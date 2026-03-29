@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-03-28
+
 ### Changed
 
 - `install-all.sh` moved from punt-kit to the `.github` org repo. Child project
