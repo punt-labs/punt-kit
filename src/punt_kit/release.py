@@ -1717,12 +1717,12 @@ def _reset_propagation_siblings(
 
 def _collect_thread_results(
     futures: dict[Future[None], str],
-    info: ProjectInfo,
 ) -> None:
     """Wait for all futures, collect errors, and fail if any occurred.
 
-    Also checks ``_interrupted`` after all futures complete and performs
-    sibling cleanup if the user interrupted.
+    If ``_interrupted`` is set after threads drain, raises
+    ``KeyboardInterrupt`` so the caller's ``finally`` block handles
+    cleanup (avoiding double-cleanup with ``run_release``).
     """
     errors: list[tuple[str, BaseException]] = []
     for f in as_completed(futures):
@@ -1742,8 +1742,7 @@ def _collect_thread_results(
         except BaseException as e:  # noqa: BLE001
             errors.append((name, e))
     if _interrupted.is_set():
-        _reset_propagation_siblings(info, fail_on_error=False)
-        sys.exit(1)
+        raise KeyboardInterrupt
     if errors:
         for name, err in errors:
             console.print(f"  [red]✗[/red] {name}: {err}")
@@ -1772,7 +1771,7 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
                 _propagate_website, info, version, dry_run=dry_run
             ): "public-website",
         }
-        _collect_thread_results(futures, info)
+        _collect_thread_results(futures)
 
 
 # ---------------------------------------------------------------------------
@@ -1797,7 +1796,7 @@ def _run_phases_9_10(
                 pool.submit(_phase9_post_release, info, version, dry_run=dry_run): "P9",
                 pool.submit(_phase10_propagate, info, version, dry_run=dry_run): "P10",
             }
-            _collect_thread_results(futures, info)
+            _collect_thread_results(futures)
     else:
         # start == 10: only P10
         _phase10_propagate(info, version, dry_run=dry_run)
