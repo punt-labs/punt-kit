@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Release CI: removed TestPyPI and test-install jobs from `release.yml`. The
+  pipeline is now `build → pypi` (was `build → testpypi → test-install → pypi`),
+  cutting CI wait from ~20 minutes to ~3 minutes
+- Release phases 9 (post-release) and 10 (propagate) now run concurrently
+- Phase 10 propagation PRs (.github, claude-plugins, public-website) now run
+  concurrently via ThreadPoolExecutor, with error collection across all three
+- Playbook executor: script steps support `background: true` for non-blocking
+  execution; LLM steps delegate to background sub-agents. Main agent stays
+  responsive during long-running playbook steps
+
 ### Fixed
 
 - `restore-dev-plugin.sh`: find dev commit by content instead of `HEAD~1`

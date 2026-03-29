@@ -1089,3 +1089,100 @@ merge), acceptable for a release that already takes 20+ minutes.
 | GitHub Actions bot with bypass | Requires Enterprise plan for org-level bypass lists, and introduces the same trust gap. |
 | Direct push with `--force` or ruleset exception | Branch protection exists to prevent this. Exceptions erode trust in the audit trail. |
 | Tag-only workflow (no main push) | Breaks the development flow: dev state must be restored on main after release. |
+
+## DES-017: Remove TestPyPI from Release Pipeline
+
+**Status:** SETTLED
+**Date:** 2026-03-29
+
+### Decision
+
+Remove the `testpypi` and `test-install` jobs from `release.yml`. The release
+CI pipeline is now `build → pypi` (was `build → testpypi → test-install → pypi`).
+
+### Why
+
+TestPyPI propagation delays consistently exceeded retry windows (30-minute
+timeout, exponential backoff). During the v0.11.1 release, TestPyPI caused
+the CI wait to hang, requiring manual workflow dispatch. The step adds ~15-20
+minutes of wall time to every release.
+
+The value TestPyPI provides — verifying the package installs from an index —
+is already covered by: (1) `twine check` in the build job validates package
+metadata, (2) Phase 8 (`_phase8_verify_pypi`) installs the real package from
+PyPI and runs `doctor`.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep TestPyPI with shorter timeout | Still adds 5-10 min for zero additional signal. TestPyPI index propagation is inherently unpredictable. |
+| Replace TestPyPI with local `pip install dist/*.whl` | Already done by `twine check`. Adding another local check is redundant. |
+
+## DES-018: Concurrent Release Phases 9+10 and Phase 10 Parallelism
+
+**Status:** SETTLED
+**Date:** 2026-03-29
+
+### Decision
+
+Phases 9 (post-release: dev plugin restore + README SHA bump) and 10
+(propagation: sibling PRs to .github, claude-plugins, public-website) run
+concurrently via `ThreadPoolExecutor`. Within Phase 10, all three propagation
+PRs also run concurrently. Errors are collected across all parallel tasks and
+surfaced together.
+
+### Why
+
+P9 operates on the main repo. P10 operates on sibling repos. No shared state.
+Running them sequentially added ~4 minutes of unnecessary wall time. Within
+P10, each sibling PR is fully independent (different repo, different branch,
+different CI). Running them sequentially added another ~6-8 minutes.
+
+### Thread Safety
+
+- `rich.Console` uses an internal lock — `_ok()`, `_info()`, `_fail()` are
+  safe from threads.
+- `_fail()` raises `ReleaseError` in worker threads; this does not kill the
+  process. Each `ReleaseError` propagates via `future.result()`, allowing the
+  executor to collect errors from all threads and then raise after all threads
+  complete.
+- Signal handler (`_cleanup_handler`) sets an interrupt flag and raises
+  `KeyboardInterrupt` in the main thread. After `ThreadPoolExecutor.__exit__`
+  joins worker threads, the main release flow observes the interrupt and calls
+  `_reset_propagation_siblings` as part of its cleanup, keeping cleanup
+  single-threaded and safe.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| `--only <phase>` flag for per-phase executor control | With P9+P10 parallelized inside Python, `--only` adds CLI complexity for ~0 additional time savings. The executor doesn't need per-phase control when the CLI handles parallelism internally. |
+| `asyncio` instead of threads | `subprocess.run` is blocking. Would need `asyncio.create_subprocess_exec` throughout. Threads are simpler for CPU-unbound I/O work (git commands, HTTP calls). |
+| `multiprocessing` | Overkill — no CPU-bound work. Threads share memory, which is needed for error collection and console output. |
+
+## DES-019: Non-Blocking Playbook Executor
+
+**Status:** SETTLED
+**Date:** 2026-03-29
+
+### Decision
+
+The playbook executor supports `background: true` on script steps and delegates
+LLM steps to background sub-agents. The main agent remains responsive to user
+messages during long-running playbook execution.
+
+### Why
+
+`punt release` takes ~11 minutes even after TestPyPI removal and parallelism
+improvements. Blocking the main agent for 11 minutes provides no value — the
+user cannot interact, check status, or do other work. Background execution
+lets the agent report milestones, answer questions, and handle other tasks
+while the release runs.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Break playbook into many small steps with `--only` | Adds CLI complexity, YAML schema complexity (depends_on), and executor protocol complexity for marginal gain over backgrounding the single CLI command. |
+| Foreground with periodic user prompts | Still blocks the agent. "Press enter to continue" is worse than autonomous execution. |

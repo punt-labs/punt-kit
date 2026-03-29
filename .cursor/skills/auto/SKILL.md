@@ -68,18 +68,25 @@ For each step in order:
 
 1. Print: `[step N/M] <description>`
 2. Substitute `${param}` references in `command` with parameter values.
-3. Run the command via Bash.
-4. If the step has a postcondition, run its `check` command.
-5. If postcondition passes (exit 0), move to next step.
-6. If postcondition fails, apply the failure strategy.
+3. If `background: true`:
+   a. Run the command via Bash with `run_in_background: true`.
+   b. Print: `[step N/M] running in background...`
+   c. Do NOT wait — remain responsive to user messages.
+   d. When the background task completes (notification), check exit code.
+   e. If user asks for status, report which step is running.
+   f. Continue to postcondition check after completion.
+4. Otherwise, run the command via Bash (foreground).
+5. If the step has a postcondition, run its `check` command.
+6. If postcondition passes (exit 0), move to next step.
+7. If postcondition fails, apply the failure strategy.
 
 **LLM steps** (`type: llm`):
 
 1. Print: `[step N/M] <description> (judgment)`
-2. Read the `context` field for guidance.
-3. Assess the current state — read files, check git status, whatever the
-   context suggests.
-4. Take action using available tools (Edit, Write, Bash, etc.).
+2. Delegate to a sub-agent via the Agent tool with `run_in_background: true`.
+   The sub-agent receives the `context` field and all parameter values.
+3. Do NOT wait — remain responsive to user messages.
+4. When the sub-agent completes (notification), read its result.
 5. If the step has a postcondition, run its `check` command.
 6. If postcondition passes, move to next step.
 7. If postcondition fails, apply the failure strategy.
