@@ -395,47 +395,154 @@ def _suggest_version(changelog: str, current: str) -> str:
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     """Poll required CI checks until all pass or any fail.
 
-    Uses gh pr view --json statusCheckRollup which includes isRequired per check.
+    Uses a direct GraphQL query to get ``isRequired(pullRequestNumber: N)``
+    which the ``gh pr view --json statusCheckRollup`` path cannot populate
+    (the ``isRequired`` field is always null without the PR number argument).
     Ignores non-required checks (e.g. Anthropic's 'Claude Code Review').
     """
+    repo_slug = _get_github_repo(Path(cwd))
+    if not repo_slug or "/" not in repo_slug:
+        _fail(f"Cannot determine GitHub owner/repo from git remote in {cwd}")
+    owner, repo_name = repo_slug.split("/", 1)
+
     _info(f"Waiting for required CI checks on PR #{pr_number}...")
     deadline = time.time() + 7200
     no_checks_attempts = 0
     consecutive_errors = 0
 
+    query = (
+        "{"
+        f'  repository(owner: "{owner}", name: "{repo_name}") {{'
+        f"    pullRequest(number: {pr_number}) {{"
+        "      commits(last: 1) {"
+        "        nodes {"
+        "          commit {"
+        "            statusCheckRollup {"
+        "              contexts(first: 100) {"
+        "                nodes {"
+        "                  ... on CheckRun {"
+        "                    name"
+        f"                    isRequired(pullRequestNumber: {pr_number})"
+        "                    conclusion"
+        "                    status"
+        "                  }"
+        "                  ... on StatusContext {"
+        "                    context"
+        f"                    isRequired(pullRequestNumber: {pr_number})"
+        "                    state"
+        "                  }"
+        "                }"
+        "              }"
+        "            }"
+        "          }"
+        "        }"
+        "      }"
+        "    }"
+        "  }"
+        "}"
+    )
+
     while time.time() < deadline:
         result = _run(
-            [gh, "pr", "view", str(pr_number), "--json", "statusCheckRollup"],
+            [gh, "api", "graphql", "-f", f"query={query}"],
             cwd=cwd,
             check=False,
         )
         if result.returncode != 0:
             consecutive_errors += 1
             _info(
-                f"gh pr view failed ({consecutive_errors}/5): "
+                f"GraphQL query failed ({consecutive_errors}/5): "
                 f"{(result.stderr or result.stdout).strip()}"
             )
             if consecutive_errors >= 5:
                 _fail(
-                    f"gh pr view failed 5 consecutive times on PR #{pr_number} — "
+                    f"GraphQL query failed 5 consecutive times on PR #{pr_number} — "
                     "check GitHub token and network connectivity"
                 )
             time.sleep(15)
             continue
-        consecutive_errors = 0
 
         try:
             raw = cast("dict[str, object]", json.loads(result.stdout))
-            rollup = cast("list[dict[str, object]]", raw.get("statusCheckRollup") or [])
         except json.JSONDecodeError as exc:
+            consecutive_errors += 1
             _info(
-                f"Could not parse gh pr view output (will retry): {exc} — "
+                f"Could not parse GraphQL response ({consecutive_errors}/5): {exc} — "
                 f"output: {result.stdout[:100]!r}"
             )
+            if consecutive_errors >= 5:
+                _fail(
+                    f"GraphQL query failed 5 consecutive times on PR #{pr_number} — "
+                    "unparseable responses"
+                )
             time.sleep(15)
             continue
 
-        required = [c for c in rollup if c.get("isRequired")]
+        # Check for GraphQL-level errors
+        if "errors" in raw:
+            consecutive_errors += 1
+            _info(f"GraphQL returned errors ({consecutive_errors}/5): {raw['errors']}")
+            if consecutive_errors >= 5:
+                _fail(
+                    f"GraphQL query failed 5 consecutive times on PR #{pr_number} — "
+                    f"errors: {raw['errors']}"
+                )
+            time.sleep(15)
+            continue
+
+        # Reset only after we have a valid, error-free GraphQL response
+        consecutive_errors = 0
+
+        # Navigate the nested GraphQL response to extract check nodes
+        try:
+            data = cast("dict[str, object]", raw["data"])
+            repository = cast("dict[str, object]", data["repository"])
+            pull_request = cast("dict[str, object]", repository["pullRequest"])
+            commits = cast("dict[str, object]", pull_request["commits"])
+            nodes = cast("list[dict[str, object]]", commits["nodes"])
+            commit = cast("dict[str, object]", nodes[0]["commit"])
+            rollup_obj = cast("dict[str, object]", commit["statusCheckRollup"])
+            contexts = cast("dict[str, object]", rollup_obj["contexts"])
+            check_nodes = cast("list[dict[str, object]]", contexts["nodes"])
+        except (KeyError, IndexError, TypeError) as exc:
+            _info(f"Unexpected GraphQL response structure (will retry): {exc}")
+            time.sleep(15)
+            continue
+
+        # Normalize CheckRun and StatusContext into a uniform format.
+        # CheckRun has: name, isRequired, conclusion, status
+        # StatusContext has: context (not name), isRequired, state (not status)
+        checks: list[dict[str, object]] = []
+        for node in check_nodes:
+            if "name" in node:
+                # CheckRun — conclusion is the terminal result,
+                # status is the lifecycle state (QUEUED, IN_PROGRESS, COMPLETED)
+                checks.append(
+                    {
+                        "name": node["name"],
+                        "isRequired": node.get("isRequired"),
+                        "conclusion": node.get("conclusion"),
+                        "status": node.get("status"),
+                    }
+                )
+            elif "context" in node:
+                # StatusContext — state is SUCCESS/FAILURE/PENDING/ERROR/EXPECTED
+                # PENDING and EXPECTED mean the check hasn't completed
+                state = str(node.get("state", "")).upper()
+                checks.append(
+                    {
+                        "name": node["context"],
+                        "isRequired": node.get("isRequired"),
+                        "conclusion": state.lower() if state else None,
+                        "status": (
+                            "PENDING"
+                            if state in ("PENDING", "EXPECTED")
+                            else "COMPLETED"
+                        ),
+                    }
+                )
+
+        required = [c for c in checks if c.get("isRequired")]
 
         if not required:
             no_checks_attempts += 1
@@ -449,60 +556,29 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
 
         no_checks_attempts = 0
 
-        # Terminal states: SUCCESS, FAILURE, ERROR, CANCELLED, TIMED_OUT,
-        #   ACTION_REQUIRED, STARTUP_FAILURE, NEUTRAL, SKIPPED
-        # Pending states: PENDING, IN_PROGRESS, EXPECTED, QUEUED, WAITING, REQUESTED
-        failed = [
-            c
-            for c in required
-            if c.get("state")
-            in (
-                "FAILURE",
-                "ERROR",
-                "CANCELLED",
-                "TIMED_OUT",
-                "ACTION_REQUIRED",
-                "STARTUP_FAILURE",
-            )
-            or c.get("conclusion")
-            in (
+        # A check has failed if it completed with a failure conclusion.
+        _failure_conclusions = frozenset(
+            {
                 "failure",
                 "cancelled",
                 "timed_out",
                 "action_required",
                 "startup_failure",
-            )
+                "error",
+            }
+        )
+        failed = [
+            c
+            for c in required
+            if str(c.get("conclusion", "")).lower() in _failure_conclusions
         ]
         if failed:
             names = ", ".join(str(c.get("name", "?")) for c in failed)
             _fail(f"Required CI checks failed on PR #{pr_number}: {names}")
 
+        # A check is pending if it has not reached COMPLETED status.
         pending = [
-            c
-            for c in required
-            if c.get("state")
-            not in (
-                "SUCCESS",
-                "FAILURE",
-                "ERROR",
-                "CANCELLED",
-                "TIMED_OUT",
-                "ACTION_REQUIRED",
-                "STARTUP_FAILURE",
-                "NEUTRAL",
-                "SKIPPED",
-            )
-            and c.get("conclusion")
-            not in (
-                "success",
-                "failure",
-                "cancelled",
-                "timed_out",
-                "action_required",
-                "startup_failure",
-                "neutral",
-                "skipped",
-            )
+            c for c in required if str(c.get("status", "")).upper() != "COMPLETED"
         ]
 
         if not pending:

@@ -1262,24 +1262,56 @@ def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
 # --- _wait_for_required_checks ---
 
 
+def _fake_get_github_repo(_p: Path) -> str:
+    return "punt-labs/punt-kit"
+
+
+def _graphql_checks_response(
+    check_nodes: list[dict[str, object]],
+) -> dict[str, object]:
+    """Build a GraphQL response matching the nested structure used by
+    ``_wait_for_required_checks``."""
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "commits": {
+                        "nodes": [
+                            {
+                                "commit": {
+                                    "statusCheckRollup": {
+                                        "contexts": {
+                                            "nodes": check_nodes,
+                                        },
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    }
+
+
 def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Returns immediately when all required checks succeed."""
     from punt_kit import release as release_mod
 
-    rollup = [
+    check_nodes: list[dict[str, object]] = [
         {
             "name": "lint",
-            "state": "SUCCESS",
             "isRequired": True,
-            "conclusion": "success",
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
         },
         {
             "name": "Claude Code Review",
-            "state": "PENDING",
             "isRequired": False,
             "conclusion": None,
+            "status": "IN_PROGRESS",
         },
     ]
 
@@ -1290,11 +1322,12 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
         call_count += 1
         result = MagicMock()
         result.returncode = 0
-        result.stdout = json.dumps({"statusCheckRollup": rollup})
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
         result.stderr = ""
         return result
 
     monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
     assert call_count == 1
 
@@ -1305,23 +1338,24 @@ def test_wait_for_required_checks_fails_on_required_failure(
     """Calls _fail when a required check fails."""
     from punt_kit import release as release_mod
 
-    rollup = [
+    check_nodes: list[dict[str, object]] = [
         {
             "name": "test",
-            "state": "FAILURE",
             "isRequired": True,
-            "conclusion": "failure",
+            "conclusion": "FAILURE",
+            "status": "COMPLETED",
         },
     ]
 
     def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
         result = MagicMock()
         result.returncode = 0
-        result.stdout = json.dumps({"statusCheckRollup": rollup})
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
         result.stderr = ""
         return result
 
     monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(SystemExit):
         _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -1332,31 +1366,86 @@ def test_wait_for_required_checks_ignores_non_required(
     """Does not fail when only non-required checks fail."""
     from punt_kit import release as release_mod
 
-    rollup = [
+    check_nodes: list[dict[str, object]] = [
         {
             "name": "lint",
-            "state": "SUCCESS",
             "isRequired": True,
-            "conclusion": "success",
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
         },
         {
             "name": "optional",
-            "state": "FAILURE",
             "isRequired": False,
-            "conclusion": "failure",
+            "conclusion": "FAILURE",
+            "status": "COMPLETED",
         },
     ]
 
     def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
         result = MagicMock()
         result.returncode = 0
-        result.stdout = json.dumps({"statusCheckRollup": rollup})
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
         result.stderr = ""
         return result
 
     monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     # Should not raise
     _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_status_context_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """StatusContext nodes with state=SUCCESS are treated as passed."""
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "context": "deploy/preview",
+            "isRequired": True,
+            "state": "SUCCESS",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    # Should not raise — SUCCESS StatusContext is a pass
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_status_context_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """StatusContext nodes with state=ERROR are treated as failures."""
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "context": "deploy/preview",
+            "isRequired": True,
+            "state": "ERROR",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    with pytest.raises(SystemExit):
+        _wait_for_required_checks("gh", "/tmp", 42)
 
 
 # --- _reset_propagation_siblings ---
