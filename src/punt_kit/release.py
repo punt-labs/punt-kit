@@ -6,7 +6,9 @@ import datetime
 import json
 import re
 import shutil
+import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import NoReturn, cast
@@ -205,6 +207,10 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     try:
         data = json.loads(result.stdout)
     except json.JSONDecodeError:
+        _info(
+            f"Could not parse review thread response for PR #{pr_number} "
+            f"({result.stdout[:100]!r}) — thread resolution skipped, merge may fail"
+        )
         return
 
     threads = (
@@ -219,17 +225,23 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     if not unresolved:
         return
 
+    resolved = 0
     for tid in unresolved:
         mutation = (
             f'mutation {{ resolveReviewThread(input: {{threadId: "{tid}"}})'
             " { thread { isResolved } } }"
         )
-        _run(
+        res = _run(
             [gh, "api", "graphql", "-f", f"query={mutation}"],
             cwd=cwd,
             check=False,
         )
-    _ok(f"Resolved {len(unresolved)} review thread(s)")
+        if res.returncode == 0:
+            resolved += 1
+        else:
+            _info(f"Could not resolve thread {tid}: {res.stderr.strip()}")
+    if resolved:
+        _ok(f"Resolved {resolved}/{len(unresolved)} review thread(s)")
 
 
 # ---------------------------------------------------------------------------
@@ -250,9 +262,18 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     _ok("On main branch")
 
     status = _run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout.strip()
-    if status:
-        _fail(f"Working tree is not clean:\n{status}")
-    _ok("Working tree clean (no modified or untracked files)")
+    dirty_lines: list[str] = []
+    for ln in status.splitlines():
+        if ln.startswith("?? "):
+            continue
+        path = ln[3:] if len(ln) > 3 else ""
+        if path == ".beads" or path.startswith(".beads/"):
+            continue
+        dirty_lines.append(ln)
+    dirty = "\n".join(dirty_lines)
+    if dirty:
+        _fail(f"Working tree is not clean:\n{dirty}")
+    _ok("Working tree clean")
 
     fetch = _run(["git", "fetch", "origin"], cwd=str(info.root), check=False)
     if fetch.returncode != 0:
@@ -374,6 +395,131 @@ def _suggest_version(changelog: str, current: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
+    """Poll required CI checks until all pass or any fail.
+
+    Uses gh pr view --json statusCheckRollup which includes isRequired per check.
+    Ignores non-required checks (e.g. Anthropic's 'Claude Code Review').
+    """
+    _info(f"Waiting for required CI checks on PR #{pr_number}...")
+    deadline = time.time() + 7200
+    no_checks_attempts = 0
+    consecutive_errors = 0
+
+    while time.time() < deadline:
+        result = _run(
+            [gh, "pr", "view", str(pr_number), "--json", "statusCheckRollup"],
+            cwd=cwd,
+            check=False,
+        )
+        if result.returncode != 0:
+            consecutive_errors += 1
+            _info(
+                f"gh pr view failed ({consecutive_errors}/5): "
+                f"{(result.stderr or result.stdout).strip()}"
+            )
+            if consecutive_errors >= 5:
+                _fail(
+                    f"gh pr view failed 5 consecutive times on PR #{pr_number} — "
+                    "check GitHub token and network connectivity"
+                )
+            time.sleep(15)
+            continue
+        consecutive_errors = 0
+
+        try:
+            raw = cast("dict[str, object]", json.loads(result.stdout))
+            rollup = cast("list[dict[str, object]]", raw.get("statusCheckRollup") or [])
+        except json.JSONDecodeError as exc:
+            _info(
+                f"Could not parse gh pr view output (will retry): {exc} — "
+                f"output: {result.stdout[:100]!r}"
+            )
+            time.sleep(15)
+            continue
+
+        required = [c for c in rollup if c.get("isRequired")]
+
+        if not required:
+            no_checks_attempts += 1
+            if no_checks_attempts > 24:  # 2 minutes at 5s intervals
+                _fail(
+                    f"No required checks found on PR #{pr_number} after 2 minutes — "
+                    "check branch protection configuration"
+                )
+            time.sleep(5)
+            continue
+
+        no_checks_attempts = 0
+
+        # Terminal states: SUCCESS, FAILURE, ERROR, CANCELLED, TIMED_OUT,
+        #   ACTION_REQUIRED, STARTUP_FAILURE, NEUTRAL, SKIPPED
+        # Pending states: PENDING, IN_PROGRESS, EXPECTED, QUEUED, WAITING, REQUESTED
+        failed = [
+            c
+            for c in required
+            if c.get("state")
+            in (
+                "FAILURE",
+                "ERROR",
+                "CANCELLED",
+                "TIMED_OUT",
+                "ACTION_REQUIRED",
+                "STARTUP_FAILURE",
+            )
+            or c.get("conclusion")
+            in (
+                "failure",
+                "cancelled",
+                "timed_out",
+                "action_required",
+                "startup_failure",
+            )
+        ]
+        if failed:
+            names = ", ".join(str(c.get("name", "?")) for c in failed)
+            _fail(f"Required CI checks failed on PR #{pr_number}: {names}")
+
+        pending = [
+            c
+            for c in required
+            if c.get("state")
+            not in (
+                "SUCCESS",
+                "FAILURE",
+                "ERROR",
+                "CANCELLED",
+                "TIMED_OUT",
+                "ACTION_REQUIRED",
+                "STARTUP_FAILURE",
+                "NEUTRAL",
+                "SKIPPED",
+            )
+            and c.get("conclusion")
+            not in (
+                "success",
+                "failure",
+                "cancelled",
+                "timed_out",
+                "action_required",
+                "startup_failure",
+                "neutral",
+                "skipped",
+            )
+        ]
+
+        if not pending:
+            names = ", ".join(str(c.get("name", "?")) for c in required)
+            _ok(f"Required CI checks passed: {names}")
+            return
+
+        names = ", ".join(str(c.get("name", "?")) for c in pending)
+        _info(f"Waiting for: {names}")
+        time.sleep(15)
+
+    _fail(f"Timed out waiting for required CI checks on PR #{pr_number}")
+
+
 def _pr_merge(
     *,
     cwd: Path,
@@ -392,7 +538,7 @@ def _pr_merge(
     if dry_run:
         _dry(f"git push -u origin {branch}")
         _dry(f'gh pr create --base main --head {branch} --title "{title}"')
-        _dry("gh pr checks <number> --watch --fail-fast")
+        _dry("gh pr view <number> --json statusCheckRollup  # poll required checks")
         _dry("gh pr merge <number> --squash --delete-branch")
         return "<SHA>"
 
@@ -468,46 +614,8 @@ def _pr_merge(
             _fail(f"Failed to extract PR number from gh output: {pr_url}")
         _ok(f"Created PR #{pr_number}")
 
-    # 4. Wait for CI (with retry — checks may take a few seconds to appear)
-    _info(f"Waiting for CI on PR #{pr_number}...")
-    for attempt in range(12):
-        result = _run(
-            [
-                gh,
-                "pr",
-                "checks",
-                str(pr_number),
-                "--watch",
-                "--fail-fast",
-            ],
-            cwd=root,
-            check=False,
-            capture=True,
-            timeout=7200,
-        )
-        if result.returncode == 0:
-            if result.stdout.strip():
-                console.print(result.stdout.strip())
-            break
-        # Check if this is "no checks" (CI hasn't started) vs real failure
-        combined = (result.stdout or "") + (result.stderr or "")
-        if "no checks" in combined.lower() and attempt < 11:
-            _info(f"No checks yet (attempt {attempt + 1}/12), waiting 5s...")
-            time.sleep(5)
-            continue
-        # Real CI failure
-        if result.stdout and result.stdout.strip():
-            console.print(result.stdout.strip())
-        _fail(
-            f"CI failed on PR #{pr_number} — fix on branch "
-            f"{branch} and resume with --resume-from"
-        )
-    else:
-        _fail(
-            f"CI checks never appeared on PR #{pr_number} — "
-            f"fix on branch {branch} and resume with --resume-from"
-        )
-    _ok("CI passed")
+    # 4. Wait for CI (required checks only — ignores non-required like "Claude Code Review")  # noqa: E501
+    _wait_for_required_checks(gh, root, pr_number)
 
     # 5. Check if already merged (handles resume)
     state = _run(
@@ -1157,9 +1265,17 @@ def _validate_sibling(path: Path, name: str) -> None:
     if branch != "main":
         _fail(f"Sibling {name} is on branch '{branch}', expected main")
 
-    # Only block on modified/staged files — untracked files are harmless
+    # Only block on modified/staged files — untracked files and .beads/ are harmless
     status = _run(["git", "status", "--porcelain"], cwd=str(path)).stdout.strip()
-    dirty = "\n".join(ln for ln in status.splitlines() if not ln.startswith("?? "))
+    dirty_lines: list[str] = []
+    for ln in status.splitlines():
+        if ln.startswith("?? "):
+            continue
+        file_path = ln[3:] if len(ln) > 3 else ""
+        if file_path == ".beads" or file_path.startswith(".beads/"):
+            continue
+        dirty_lines.append(ln)
+    dirty = "\n".join(dirty_lines)
     if dirty:
         _fail(f"Sibling {name} has uncommitted changes:\n{dirty}")
 
@@ -1224,11 +1340,19 @@ def _sibling_pr_merge(
     finally:
         # _pr_merge checks out main on success; this is a no-op in that case.
         # On failure, this ensures we don't leave the sibling on a stale branch.
-        current = _run(
-            ["git", "branch", "--show-current"], cwd=cwd, check=False
-        ).stdout.strip()
-        if current != "main":
-            _run(["git", "checkout", "main"], cwd=cwd, check=False)
+        branch_result = _run(["git", "branch", "--show-current"], cwd=cwd, check=False)
+        current = (
+            branch_result.stdout.strip() if branch_result.returncode == 0 else None
+        )
+        if current is None:
+            _info(f"Could not read current branch for sibling {name} after operation")
+        elif current != "main":
+            checkout = _run(["git", "checkout", "main"], cwd=cwd, check=False)
+            if checkout.returncode != 0:
+                _info(
+                    f"Warning: could not return sibling {name} to main: "
+                    f"{checkout.stderr.strip()}"
+                )
 
     return True
 
@@ -1238,29 +1362,25 @@ def _sibling_pr_merge(
 # ---------------------------------------------------------------------------
 
 
-def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> bool:
-    """10a. Update project's install.sh SHA in punt-kit/install-all.sh.
-
-    Returns True if punt-kit was modified (a PR was merged), so that 10c
-    knows it needs to update the org profile SHA.
-    """
+def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """10a. Update project's install.sh SHA in punt-kit/install-all.sh."""
     if not (info.root / "install.sh").exists():
-        return False
+        return
 
     repo = _get_github_repo(info.root)
     if repo is None:
-        return False
+        return
     project_name = repo.split("/")[-1]
 
     sibling = _resolve_sibling(info.root, "punt-kit")
     if sibling is None:
         _fail("Sibling punt-kit not found — required for install-all.sh propagation")
-        return False  # unreachable, makes type checker happy
+        return  # unreachable, makes type checker happy
 
     install_all = sibling / "install-all.sh"
     if not install_all.exists():
         _fail("install-all.sh not found in punt-kit — required for propagation")
-        return False  # unreachable
+        return  # unreachable
 
     tag = f"v{version}"
     install_sha = _get_install_sh_sha(info.root)
@@ -1272,15 +1392,15 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     if count == 0:
         _info(f"install-all.sh: no entry for {project_name} — skipping")
-        return False
+        return
 
     if new_content == content:
         _ok(f"install-all.sh: {project_name} SHA already current")
-        return False
+        return
 
     if dry_run:
         _dry(f"../punt-kit/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
-        return True
+        return
 
     _validate_sibling(sibling, "punt-kit")
 
@@ -1296,8 +1416,6 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         dry_run=dry_run,
     ):
         _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
-        return True
-    return False
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1373,17 +1491,12 @@ def _propagate_profile(
     version: str,
     *,
     dry_run: bool,
-    punt_kit_updated: bool,
 ) -> None:
     """10c. Update .github profile README with install-all.sh commit SHA.
 
-    Runs whenever 10a modified punt-kit (merged a PR that updated
-    install-all.sh), not only during punt-kit releases.  Uses the SHA
-    of the last commit that touched install-all.sh, not HEAD.
+    Uses the SHA of the last commit that touched install-all.sh, not HEAD.
+    The new_content == content check below handles "SHA already current" correctly.
     """
-    if not punt_kit_updated:
-        return
-
     repo = _get_github_repo(info.root)
     if repo is None:
         return
@@ -1413,6 +1526,11 @@ def _propagate_profile(
         ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
         cwd=str(punt_kit_dir),
     ).stdout.strip()
+    if not punt_kit_sha:
+        _fail(
+            "Could not determine install-all.sh SHA in punt-kit — "
+            "ensure install-all.sh has at least one commit"
+        )
 
     if dry_run:
         _dry(f"../.github/profile/README.md: install-all.sh SHA → {punt_kit_sha}")
@@ -1514,16 +1632,69 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         _ok(f"website: {project_name} already current")
 
 
+def _reset_propagation_siblings(
+    info: ProjectInfo, *, fail_on_error: bool = True
+) -> None:
+    """Return all propagation sibling repos to the main branch.
+
+    No-op for siblings already on main. Used by the interrupt handler and
+    at the start of Phase 10 to recover from prior interrupted runs.
+
+    ``fail_on_error=False`` should be used from the signal handler so that a
+    checkout failure on one sibling does not abort cleanup of the remaining
+    siblings.  The Phase 10 call site uses the default ``fail_on_error=True``
+    so that release failures are loud.
+    """
+    for sib_name in PROPAGATION_SIBLINGS:
+        sib_path = _resolve_sibling(info.root, sib_name)
+        if sib_path is None:
+            continue
+        branch_result = _run(
+            ["git", "branch", "--show-current"],
+            cwd=str(sib_path),
+            check=False,
+        )
+        if branch_result.returncode != 0:
+            _info(
+                f"Could not read branch for sibling {sib_name} "
+                f"({branch_result.stderr.strip()}) — skipping reset"
+            )
+            continue
+        branch = branch_result.stdout.strip()
+        if branch and branch != "main":
+            if not branch.startswith("propagate/v"):
+                _info(
+                    f"Sibling {sib_name} is on '{branch}' (not a propagation branch) — "
+                    "skipping reset to avoid disrupting active work"
+                )
+                continue
+            _info(f"Returning sibling {sib_name} to main (was on '{branch}')...")
+            checkout = _run(["git", "checkout", "main"], cwd=str(sib_path), check=False)
+            if checkout.returncode != 0:
+                msg = (
+                    f"Could not return sibling {sib_name} to main: "
+                    f"{checkout.stderr.strip()}\n"
+                    "Fix manually before retrying propagation."
+                )
+                if fail_on_error:
+                    _fail(msg)
+                else:
+                    _info(f"Warning: {msg}")
+
+
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 10: Local cross-repo propagation via PRs."""
     console.print("\n[bold]Phase 10: Propagate[/bold]")
 
+    # Auto-recover siblings left on propagation branches from a prior interrupted run.
+    # No-op when all siblings are already on main.
+    if not dry_run:
+        _reset_propagation_siblings(info)
+
     # Order matters: 10a before 10c (profile depends on punt-kit HEAD after 10a)
-    punt_kit_updated = _propagate_install_all(info, version, dry_run=dry_run)
+    _propagate_install_all(info, version, dry_run=dry_run)
     _propagate_marketplace(info, version, dry_run=dry_run)
-    _propagate_profile(
-        info, version, dry_run=dry_run, punt_kit_updated=punt_kit_updated
-    )
+    _propagate_profile(info, version, dry_run=dry_run)
     _propagate_website(info, version, dry_run=dry_run)
 
 
@@ -1842,6 +2013,16 @@ def run_release(
 
     if info.language is None and not info.is_plugin:
         _fail("Cannot detect project type — is this a Punt Labs project?")
+
+    if not dry_run:
+
+        def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
+            _info("\nInterrupted — returning sibling repos to main...")
+            _reset_propagation_siblings(info, fail_on_error=False)
+            sys.exit(1)
+
+        signal.signal(signal.SIGINT, _cleanup_handler)
+        signal.signal(signal.SIGTERM, _cleanup_handler)
 
     # Determine start phase
     start = 1

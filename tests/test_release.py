@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from typing import TYPE_CHECKING
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -20,9 +21,11 @@ from punt_kit.release import (
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
     _propagate_profile,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
+    _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
+    _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
 
@@ -850,8 +853,8 @@ def test_propagate_profile_updates_sha(
         cwd=d,
     )
 
-    # Create install-all.sh so git log can find its commit
-    (root / "install-all.sh").write_text("#!/bin/sh\necho install\n")
+    # Add install-all.sh to root so _propagate_profile can find it
+    (root / "install-all.sh").write_text("#!/bin/sh\n# install-all\n")
     _git(["add", "install-all.sh"], cwd=d)
     _git(["commit", "-m", "add install-all.sh"], cwd=d)
 
@@ -891,7 +894,7 @@ def test_propagate_profile_updates_sha(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=True)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
@@ -909,14 +912,14 @@ def test_propagate_profile_updates_sha(
 def test_propagate_profile_from_non_punt_kit_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Releasing biff resolves punt-kit sibling, uses install-all.sh SHA."""
+    """Releasing biff resolves punt-kit sibling, uses install.sh SHA."""
     root = _make_release_project(tmp_path)
     _git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
         cwd=str(root),
     )
 
-    # Create punt-kit sibling with install-all.sh
+    # Create punt-kit sibling with install-all.sh so _propagate_profile can find it
     punt_kit = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
     punt_kit_sha = subprocess.run(
         ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
@@ -961,7 +964,7 @@ def test_propagate_profile_from_non_punt_kit_repo(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=True)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
@@ -970,8 +973,8 @@ def test_propagate_profile_from_non_punt_kit_repo(
     assert len(calls) == 1
 
 
-def test_propagate_profile_skipped_when_punt_kit_not_updated(tmp_path: Path) -> None:
-    """No-op when 10a did not modify punt-kit."""
+def test_propagate_profile_no_op_when_github_sibling_absent(tmp_path: Path) -> None:
+    """No-op when .github sibling repo is absent."""
     root = _make_release_project(tmp_path)
     _git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
@@ -983,7 +986,7 @@ def test_propagate_profile_skipped_when_punt_kit_not_updated(tmp_path: Path) -> 
     info = detect(root)
 
     # Should not raise even without .github sibling
-    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=False)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
 
 # --- Phase 10d: website ---
@@ -1335,3 +1338,249 @@ def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
         iac,
     )
     assert plugin_match is not None
+
+
+# --- _wait_for_required_checks ---
+
+
+def test_wait_for_required_checks_passes_when_all_required_succeed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Returns immediately when all required checks succeed."""
+    from punt_kit import release as release_mod
+
+    rollup = [
+        {
+            "name": "lint",
+            "state": "SUCCESS",
+            "isRequired": True,
+            "conclusion": "success",
+        },
+        {
+            "name": "Claude Code Review",
+            "state": "PENDING",
+            "isRequired": False,
+            "conclusion": None,
+        },
+    ]
+
+    call_count = 0
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps({"statusCheckRollup": rollup})
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    _wait_for_required_checks("gh", "/tmp", 42)
+    assert call_count == 1
+
+
+def test_wait_for_required_checks_fails_on_required_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Calls _fail when a required check fails."""
+    from punt_kit import release as release_mod
+
+    rollup = [
+        {
+            "name": "test",
+            "state": "FAILURE",
+            "isRequired": True,
+            "conclusion": "failure",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps({"statusCheckRollup": rollup})
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    with pytest.raises(SystemExit):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_ignores_non_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Does not fail when only non-required checks fail."""
+    from punt_kit import release as release_mod
+
+    rollup = [
+        {
+            "name": "lint",
+            "state": "SUCCESS",
+            "isRequired": True,
+            "conclusion": "success",
+        },
+        {
+            "name": "optional",
+            "state": "FAILURE",
+            "isRequired": False,
+            "conclusion": "failure",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps({"statusCheckRollup": rollup})
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    # Should not raise
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+
+# --- _reset_propagation_siblings ---
+
+
+def test_reset_propagation_siblings_resets_propagation_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resets siblings on propagate/v* branches to main."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    checkout_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        if cmd[1:3] == ["branch", "--show-current"]:
+            result.stdout = "propagate/v1.0.0-punt-kit-claude-plugins\n"
+        elif len(cmd) > 1 and cmd[1] == "checkout":
+            checkout_calls.append(list(cmd))
+            result.stdout = ""
+        else:
+            result.stdout = ""
+        result.stderr = ""
+        return result
+
+    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+        return tmp_path / name
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    _reset_propagation_siblings(info)
+    assert any("main" in c for c in checkout_calls)
+
+
+def test_reset_propagation_siblings_skips_feature_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Does not touch siblings on non-propagation branches."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    checkout_calls: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        if cmd[1:3] == ["branch", "--show-current"]:
+            result.stdout = "fix/some-other-work\n"
+        elif len(cmd) > 1 and cmd[1] == "checkout":
+            checkout_calls.append(list(cmd))
+        result.stderr = ""
+        return result
+
+    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+        return tmp_path / name
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    _reset_propagation_siblings(info)
+    assert not checkout_calls  # Should not have attempted any checkout
+
+
+def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With fail_on_error=False, a checkout failure does not abort remaining ones."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    siblings_seen: list[str] = []
+    call_num = 0
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        nonlocal call_num
+        call_num += 1
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if cmd[1:3] == ["branch", "--show-current"]:
+            result.stdout = "propagate/v1.0.0\n"
+        elif len(cmd) > 1 and cmd[1] == "checkout":
+            # Fail checkout for first sibling, succeed for rest
+            cwd = str(kwargs.get("cwd", ""))
+            siblings_seen.append(cwd)
+            if len(siblings_seen) == 1:
+                result.returncode = 1
+                result.stderr = "checkout failed"
+            else:
+                result.stdout = ""
+        else:
+            result.stdout = ""
+        return result
+
+    sibling_names = ["punt-kit", "claude-plugins", ".github", "public-website"]
+
+    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+        return tmp_path / name if name in sibling_names else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    # Should not raise even though first checkout fails
+    _reset_propagation_siblings(info, fail_on_error=False)
+    # At least 2 checkout attempts: one failed, one succeeded
+    assert len(siblings_seen) >= 2
+
+
+def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With fail_on_error=True (default), a checkout failure raises SystemExit."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if cmd[1:3] == ["branch", "--show-current"]:
+            result.stdout = "propagate/v1.0.0\n"
+        elif len(cmd) > 1 and cmd[1] == "checkout":
+            result.returncode = 1
+            result.stderr = "checkout failed"
+            result.stdout = ""
+        else:
+            result.stdout = ""
+        return result
+
+    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+        return tmp_path / name
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(SystemExit):
+        _reset_propagation_siblings(info, fail_on_error=True)
