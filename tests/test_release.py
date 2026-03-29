@@ -1394,6 +1394,60 @@ def test_wait_for_required_checks_ignores_non_required(
     _wait_for_required_checks("gh", "/tmp", 42)
 
 
+def test_wait_for_required_checks_status_context_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """StatusContext nodes with state=SUCCESS are treated as passed."""
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "context": "deploy/preview",
+            "isRequired": True,
+            "state": "SUCCESS",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    # Should not raise — SUCCESS StatusContext is a pass
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_status_context_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """StatusContext nodes with state=ERROR are treated as failures."""
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "context": "deploy/preview",
+            "isRequired": True,
+            "state": "ERROR",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    with pytest.raises(SystemExit):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
 # --- _reset_propagation_siblings ---
 
 

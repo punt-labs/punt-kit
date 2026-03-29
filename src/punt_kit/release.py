@@ -418,7 +418,7 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
         "        nodes {"
         "          commit {"
         "            statusCheckRollup {"
-        "              contexts(first: 50) {"
+        "              contexts(first: 100) {"
         "                nodes {"
         "                  ... on CheckRun {"
         "                    name"
@@ -475,7 +475,13 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
 
         # Check for GraphQL-level errors
         if "errors" in raw:
-            _info(f"GraphQL returned errors (will retry): {raw['errors']}")
+            consecutive_errors += 1
+            _info(f"GraphQL returned errors ({consecutive_errors}/5): {raw['errors']}")
+            if consecutive_errors >= 5:
+                _fail(
+                    f"GraphQL query failed 5 consecutive times on PR #{pr_number} — "
+                    f"errors: {raw['errors']}"
+                )
             time.sleep(15)
             continue
 
@@ -512,14 +518,19 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                     }
                 )
             elif "context" in node:
-                # StatusContext — state is SUCCESS/FAILURE/PENDING/ERROR
-                state = node.get("state")
+                # StatusContext — state is SUCCESS/FAILURE/PENDING/ERROR/EXPECTED
+                # PENDING and EXPECTED mean the check hasn't completed
+                state = str(node.get("state", "")).upper()
                 checks.append(
                     {
                         "name": node["context"],
                         "isRequired": node.get("isRequired"),
-                        "conclusion": str(state).lower() if state else None,
-                        "status": "COMPLETED" if state != "PENDING" else "PENDING",
+                        "conclusion": state.lower() if state else None,
+                        "status": (
+                            "PENDING"
+                            if state in ("PENDING", "EXPECTED")
+                            else "COMPLETED"
+                        ),
                     }
                 )
 
@@ -545,6 +556,7 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                 "timed_out",
                 "action_required",
                 "startup_failure",
+                "error",
             }
         )
         failed = [
