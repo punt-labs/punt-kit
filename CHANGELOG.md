@@ -26,10 +26,10 @@ All notable changes to this project will be documented in this file.
   blocking every release during active sessions.
 - `punt release` removes manual PyPI approval gate (`environment: release`)
   from `release.yml`. TestPyPI + test-install verification is sufficient.
-- `_propagate_profile` no longer silently skips when `--resume-from propagate`
-  detects install-all.sh "already current". The `punt_kit_updated` guard was
-  removed; the function's own `new_content == content` check correctly handles
-  the "already current" case.
+- Profile propagation during `punt release` no longer silently skips when
+  `--resume-from propagate` detects install-all.sh is already current. The
+  `_propagate_install_all` step's own `new_content == content` check now
+  correctly handles the "already current" case.
 - `punt release` Phase 10 auto-recovers sibling repos left on `propagate/v*`
   branches from prior interrupted runs. SIGINT/SIGTERM handlers return siblings
   to main on interrupt. Non-propagation branches (feature work by other agents)

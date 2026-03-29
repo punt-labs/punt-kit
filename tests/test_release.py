@@ -1503,3 +1503,182 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
 
     with pytest.raises(SystemExit):
         _reset_propagation_siblings(info, fail_on_error=True)
+
+
+# --- _phase11_verify: profile SHA ---
+
+
+def _get_install_all_sha(sibling: Path) -> str:
+    """Return the git commit SHA that last touched install-all.sh in sibling."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", "install-all.sh"],
+        cwd=str(sibling),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _setup_verify_project(
+    tmp_path: Path,
+    version: str = "0.1.0",
+) -> tuple[Path, Path]:
+    """Set up a project with all Phase 11 verify checks passing except profile SHA.
+
+    Returns (root, github_sibling).
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    # Stamp changelog
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+    _git(["add", "CHANGELOG.md"], cwd=d)
+    _git(["commit", "-m", "stamp changelog"], cwd=d)
+
+    # Tag after all commits so HEAD matches
+    _git(["tag", f"v{version}"], cwd=d)
+
+    # Get the install.sh SHA from the project repo
+    install_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", "install.sh"],
+        cwd=d,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    # Create .github sibling with install-all.sh referencing valid project SHA
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+        },
+    )
+
+    # Create claude-plugins sibling with marketplace entry
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(
+                {
+                    "plugins": [
+                        {
+                            "name": "proj",
+                            "version": version,
+                            "source": {
+                                "repo": "punt-labs/proj",
+                                "ref": f"v{version}",
+                            },
+                        }
+                    ]
+                }
+            ),
+        },
+    )
+
+    return root, sibling
+
+
+def test_phase11_verify_profile_sha_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check passes when README contains a resolvable SHA."""
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # Get the real SHA of install-all.sh in the .github sibling
+    sha = _get_install_all_sha(sibling)
+
+    # Add profile/README.md with the real SHA
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(sibling))
+
+    # Monkeypatch _run to intercept uv/pip calls that won't work in test
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+    info = detect(root)
+
+    # Should NOT raise — all checks pass including profile SHA
+    _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_fails_bad_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check fails when README contains a non-resolvable SHA."""
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # Add profile/README.md with a bogus SHA that won't resolve
+    bogus_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{bogus_sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(sibling))
+    _git(["commit", "-m", "add profile with bad SHA"], cwd=str(sibling))
+
+    # Monkeypatch _run to intercept uv/pip calls
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+    info = detect(root)
+
+    # Should raise SystemExit — profile SHA does not resolve
+    with pytest.raises(SystemExit):
+        _phase11_verify(info, version, dry_run=False)
