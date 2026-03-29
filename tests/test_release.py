@@ -19,7 +19,6 @@ from punt_kit.release import (
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
-    _propagate_profile,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
@@ -617,17 +616,17 @@ def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
 def test_propagate_install_all_updates_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Updates project SHA in install-all.sh."""
+    """Updates project SHA in .github/install-all.sh."""
     root = _make_release_project(tmp_path)
     d = str(root)
 
     # Create tag
     _git(["tag", "v0.2.0"], cwd=d)
 
-    # Create punt-kit sibling with install-all.sh referencing this project
+    # Create .github sibling with install-all.sh referencing this project
     _make_sibling(
         tmp_path,
-        "punt-kit",
+        ".github",
         {
             "install-all.sh": (
                 '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
@@ -645,7 +644,7 @@ def test_propagate_install_all_updates_sha(
     # Mock _sibling_pr_merge to avoid needing gh CLI
     from punt_kit import release as release_mod
 
-    calls: list[tuple[str, str]] = []
+    calls: list[tuple[str, str, list[str]]] = []
 
     def mock_sibling_pr_merge(
         path: Path,
@@ -656,7 +655,7 @@ def test_propagate_install_all_updates_sha(
         *,
         dry_run: bool,
     ) -> bool:
-        calls.append((name, message))
+        calls.append((name, message, files))
         return True
 
     monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
@@ -667,7 +666,7 @@ def test_propagate_install_all_updates_sha(
     _propagate_install_all(info, "0.2.0", dry_run=False)
 
     # Verify install-all.sh was updated (file content, before PR merge)
-    content = (tmp_path / "punt-kit" / "install-all.sh").read_text()
+    content = (tmp_path / ".github" / "install-all.sh").read_text()
     assert "aabb001" not in content
     tag_sha = subprocess.run(
         ["git", "rev-parse", "--short", "v0.2.0"],
@@ -678,7 +677,7 @@ def test_propagate_install_all_updates_sha(
     ).stdout.strip()
     assert f"$GH/proj/{tag_sha}/install.sh" in content
     assert len(calls) == 1
-    assert calls[0][0] == "punt-kit"
+    assert calls[0][0] == ".github"
 
 
 def test_propagate_install_all_idempotent(
@@ -702,10 +701,10 @@ def test_propagate_install_all_idempotent(
         check=True,
     ).stdout.strip()
 
-    # Create sibling with the SHA already set
+    # Create .github sibling with the SHA already set
     _make_sibling(
         tmp_path,
-        "punt-kit",
+        ".github",
         {
             "install-all.sh": (
                 '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
@@ -834,48 +833,49 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     _propagate_marketplace(info, "0.2.0", dry_run=False)
 
 
-# --- Phase 10c: profile ---
-
-
-def test_propagate_profile_updates_sha(
+def test_propagate_install_all_updates_profile_readme(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Updates profile README with last install-all.sh commit SHA."""
+    """10a also updates profile/README.md with install-all.sh SHA."""
     root = _make_release_project(tmp_path)
     d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
     _git(
-        [
-            "remote",
-            "set-url",
-            "origin",
-            "git@github.com:punt-labs/punt-kit.git",
-        ],
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
         cwd=d,
     )
 
-    # Add install-all.sh to root so _propagate_profile can find it
-    (root / "install-all.sh").write_text("#!/bin/sh\n# install-all\n")
-    _git(["add", "install-all.sh"], cwd=d)
-    _git(["commit", "-m", "add install-all.sh"], cwd=d)
-
-    _make_sibling(
+    # Create .github sibling with install-all.sh AND profile/README.md
+    sibling = _make_sibling(
         tmp_path,
         ".github",
         {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+            ),
             "profile/README.md": (
                 "# Punt Labs\n\n"
                 "```bash\n"
                 "curl -fsSL https://raw.githubusercontent.com/"
-                "punt-labs/punt-kit/aabb001/install-all.sh | sh\n"
+                "punt-labs/.github/aabb002/install-all.sh | sh\n"
                 "```\n"
-            )
+            ),
         },
     )
 
-    # Mock _sibling_pr_merge
+    # Get the SHA of the last commit that touched install-all.sh in .github
+    github_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(sibling),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
     from punt_kit import release as release_mod
 
-    calls: list[str] = []
+    calls: list[tuple[str, list[str]]] = []
 
     def mock_sibling_pr_merge(
         path: Path,
@@ -886,7 +886,7 @@ def test_propagate_profile_updates_sha(
         *,
         dry_run: bool,
     ) -> bool:
-        calls.append(name)
+        calls.append((name, files))
         return True
 
     monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
@@ -894,99 +894,18 @@ def test_propagate_profile_updates_sha(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False)
+    _propagate_install_all(info, "0.2.0", dry_run=False)
 
+    # Verify profile/README.md was updated
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
-    assert "aabb001" not in readme
-    install_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-        cwd=d,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-    assert f"punt-kit/{install_sha}/install-all.sh" in readme
+    assert "aabb002" not in readme
+    assert f".github/{github_sha}/install-all.sh" in readme
+
+    # Both files should be in the same PR
     assert len(calls) == 1
-
-
-def test_propagate_profile_from_non_punt_kit_repo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Releasing biff resolves punt-kit sibling, uses install.sh SHA."""
-    root = _make_release_project(tmp_path)
-    _git(
-        ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
-        cwd=str(root),
-    )
-
-    # Create punt-kit sibling with install-all.sh so _propagate_profile can find it
-    punt_kit = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
-    punt_kit_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-        cwd=str(punt_kit),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
-
-    _make_sibling(
-        tmp_path,
-        ".github",
-        {
-            "profile/README.md": (
-                "# Punt Labs\n\n"
-                "```bash\n"
-                "curl -fsSL https://raw.githubusercontent.com/"
-                "punt-labs/punt-kit/aabb001/install-all.sh | sh\n"
-                "```\n"
-            )
-        },
-    )
-
-    from punt_kit import release as release_mod
-
-    calls: list[str] = []
-
-    def mock_sibling_pr_merge(
-        path: Path,
-        branch: str,
-        files: list[str],
-        message: str,
-        name: str,
-        *,
-        dry_run: bool,
-    ) -> bool:
-        calls.append(name)
-        return True
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
-
-    info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False)
-
-    readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
-    assert "aabb001" not in readme
-    # Must use punt-kit's HEAD, not biff's
-    assert f"punt-kit/{punt_kit_sha}/install-all.sh" in readme
-    assert len(calls) == 1
-
-
-def test_propagate_profile_no_op_when_github_sibling_absent(tmp_path: Path) -> None:
-    """No-op when .github sibling repo is absent."""
-    root = _make_release_project(tmp_path)
-    _git(
-        ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
-        cwd=str(root),
-    )
-
-    from punt_kit.detect import detect
-
-    info = detect(root)
-
-    # Should not raise even without .github sibling
-    _propagate_profile(info, "0.2.0", dry_run=False)
+    assert calls[0][0] == ".github"
+    assert "install-all.sh" in calls[0][1]
+    assert "profile/README.md" in calls[0][1]
 
 
 # --- Phase 10d: website ---
@@ -1076,8 +995,8 @@ def test_validate_sibling_called_during_preflight(
     """
     root = _make_release_project(tmp_path)
 
-    # Create punt-kit sibling with staged (dirty) changes
-    sibling = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+    # Create .github sibling with staged (dirty) changes
+    sibling = _make_sibling(tmp_path, ".github", {"install-all.sh": "#!/bin/sh\n"})
     (sibling / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(sibling))
 
@@ -1093,8 +1012,8 @@ def test_validate_sibling_wrong_branch_during_preflight(
     """Preflight fails if sibling is on stale propagation branch (5b4/zay)."""
     root = _make_release_project(tmp_path)
 
-    sibling = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
-    _git(["checkout", "-b", "propagate/v1.0.0-punt-kit"], cwd=str(sibling))
+    sibling = _make_sibling(tmp_path, ".github", {"install-all.sh": "#!/bin/sh\n"})
+    _git(["checkout", "-b", "propagate/v1.0.0-proj-github"], cwd=str(sibling))
 
     info = detect(root)
 
@@ -1107,7 +1026,7 @@ def test_preflight_passes_with_clean_siblings(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
 
     # Create clean sibling on main
-    _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+    _make_sibling(tmp_path, ".github", {"install-all.sh": "#!/bin/sh\n"})
 
     info = detect(root)
     # Should not raise
@@ -1306,10 +1225,10 @@ def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
         cwd=d,
     )
 
-    # Create punt-kit sibling with pure-plugin loop containing this project
+    # Create .github sibling with pure-plugin loop containing this project
     sibling = _make_sibling(
         tmp_path,
-        "punt-kit",
+        ".github",
         {
             "install-all.sh": (
                 '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
@@ -1584,3 +1503,182 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
 
     with pytest.raises(SystemExit):
         _reset_propagation_siblings(info, fail_on_error=True)
+
+
+# --- _phase11_verify: profile SHA ---
+
+
+def _get_install_all_sha(sibling: Path) -> str:
+    """Return the git commit SHA that last touched install-all.sh in sibling."""
+    result = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", "install-all.sh"],
+        cwd=str(sibling),
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout.strip()
+
+
+def _setup_verify_project(
+    tmp_path: Path,
+    version: str = "0.1.0",
+) -> tuple[Path, Path]:
+    """Set up a project with all Phase 11 verify checks passing except profile SHA.
+
+    Returns (root, github_sibling).
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    # Stamp changelog
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+    _git(["add", "CHANGELOG.md"], cwd=d)
+    _git(["commit", "-m", "stamp changelog"], cwd=d)
+
+    # Tag after all commits so HEAD matches
+    _git(["tag", f"v{version}"], cwd=d)
+
+    # Get the install.sh SHA from the project repo
+    install_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%H", "--", "install.sh"],
+        cwd=d,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    # Create .github sibling with install-all.sh referencing valid project SHA
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+        },
+    )
+
+    # Create claude-plugins sibling with marketplace entry
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(
+                {
+                    "plugins": [
+                        {
+                            "name": "proj",
+                            "version": version,
+                            "source": {
+                                "repo": "punt-labs/proj",
+                                "ref": f"v{version}",
+                            },
+                        }
+                    ]
+                }
+            ),
+        },
+    )
+
+    return root, sibling
+
+
+def test_phase11_verify_profile_sha_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check passes when README contains a resolvable SHA."""
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # Get the real SHA of install-all.sh in the .github sibling
+    sha = _get_install_all_sha(sibling)
+
+    # Add profile/README.md with the real SHA
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(sibling))
+
+    # Monkeypatch _run to intercept uv/pip calls that won't work in test
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+    info = detect(root)
+
+    # Should NOT raise — all checks pass including profile SHA
+    _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_fails_bad_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check fails when README contains a non-resolvable SHA."""
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # Add profile/README.md with a bogus SHA that won't resolve
+    bogus_sha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{bogus_sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(sibling))
+    _git(["commit", "-m", "add profile with bad SHA"], cwd=str(sibling))
+
+    # Monkeypatch _run to intercept uv/pip calls
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+    info = detect(root)
+
+    # Should raise SystemExit — profile SHA does not resolve
+    with pytest.raises(SystemExit):
+        _phase11_verify(info, version, dry_run=False)

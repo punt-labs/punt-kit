@@ -4,6 +4,41 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `install-all.sh` moved from punt-kit to the `.github` org repo. Child project
+  releases now update SHAs directly in `.github/install-all.sh` and the org
+  profile README in a single PR. Phase 10c (`_propagate_profile`) eliminated —
+  punt-kit is no longer in the release critical path for child projects.
+- Phase 11 verify profile SHA check now validates that the SHA in the README
+  resolves to a real `install-all.sh` file, rather than comparing against the
+  latest `git log` SHA (which changes after PR merge).
+
+### Fixed
+
+- `punt release` CI wait now polls only required checks via
+  `gh pr view --json statusCheckRollup` instead of blocking on all checks
+  with `gh pr checks --watch`. Non-required checks like "Claude Code Review"
+  no longer hang the release process indefinitely.
+- `punt release` preflight and sibling dirty-tree checks now exclude
+  `.beads/` paths — both untracked (`?? `) and tracked (` M .beads/issues.jsonl`)
+  files. The beads daemon continuously writes `issues.jsonl`, which was
+  blocking every release during active sessions.
+- `punt release` removes manual PyPI approval gate (`environment: release`)
+  from `release.yml`. TestPyPI + test-install verification is sufficient.
+- Profile propagation during `punt release` no longer silently skips when
+  `--resume-from propagate` detects install-all.sh is already current. The
+  `_propagate_install_all` step's own `new_content == content` check now
+  correctly handles the "already current" case.
+- `punt release` Phase 10 auto-recovers sibling repos left on `propagate/v*`
+  branches from prior interrupted runs. SIGINT/SIGTERM handlers return siblings
+  to main on interrupt. Non-propagation branches (feature work by other agents)
+  are never touched.
+- `_resolve_pr_threads` now logs JSONDecodeError and reports accurate
+  resolved/attempted thread counts instead of silently swallowing errors.
+- `_sibling_pr_merge` finally block now logs checkout failures instead of
+  silently discarding them.
+
 ## [0.11.0] - 2026-03-28
 
 ## [0.10.0] - 2026-03-28

@@ -21,7 +21,7 @@ console = Console()
 
 # Sibling repos checked during preflight and used during propagation (phase 10).
 # Must stay in sync with the _propagate_* functions.
-PROPAGATION_SIBLINGS = ["punt-kit", "claude-plugins", ".github", "public-website"]
+PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -321,10 +321,7 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     # Check early so we fail before quality gates, not mid-propagation (91t).
     # Also catches stale propagation branches from prior releases (5b4/zay).
     siblings_checked = 0
-    project_name = info.root.name
     for sib_name in PROPAGATION_SIBLINGS:
-        if sib_name == project_name:
-            continue  # skip self-referential check
         sib_path = _resolve_sibling(info.root, sib_name)
         if sib_path is not None:
             _validate_sibling(sib_path, sib_name)
@@ -1248,9 +1245,8 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
 def _resolve_sibling(root: Path, name: str) -> Path | None:
     """Resolve a sibling repo directory.
 
-    Checks root's parent for a sibling named ``name`` with a ``.git``
-    directory.  For the self-referential case (e.g. punt-kit updating
-    its own install-all.sh), returns root itself when root.name matches.
+    Checks root's parent for a directory named ``name`` with a ``.git``
+    directory.  Returns ``None`` if not found.
     """
     parent = root.parent
     sibling = parent / name
@@ -1363,7 +1359,11 @@ def _sibling_pr_merge(
 
 
 def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10a. Update project's install.sh SHA in punt-kit/install-all.sh."""
+    """10a. Update project's install.sh SHA in .github/install-all.sh.
+
+    Also updates the org profile README with the install-all.sh commit SHA
+    so that both changes land in a single .github PR.
+    """
     if not (info.root / "install.sh").exists():
         return
 
@@ -1372,14 +1372,14 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         return
     project_name = repo.split("/")[-1]
 
-    sibling = _resolve_sibling(info.root, "punt-kit")
+    sibling = _resolve_sibling(info.root, ".github")
     if sibling is None:
-        _fail("Sibling punt-kit not found — required for install-all.sh propagation")
+        _fail("Sibling .github not found — required for install-all.sh propagation")
         return  # unreachable, makes type checker happy
 
     install_all = sibling / "install-all.sh"
     if not install_all.exists():
-        _fail("install-all.sh not found in punt-kit — required for propagation")
+        _fail("install-all.sh not found in .github — required for propagation")
         return  # unreachable
 
     tag = f"v{version}"
@@ -1399,20 +1399,50 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         return
 
     if dry_run:
-        _dry(f"../punt-kit/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        _dry(f"../.github/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
         return
 
-    _validate_sibling(sibling, "punt-kit")
+    _validate_sibling(sibling, ".github")
 
     install_all.write_text(new_content, encoding="utf-8")
 
-    branch = f"propagate/v{version}-{project_name}-punt-kit"
+    # Also update profile README with the current install-all.sh SHA
+    # (the SHA of the last commit that touched install-all.sh in .github)
+    files_to_commit = ["install-all.sh"]
+    readme = sibling / "profile" / "README.md"
+    if readme.exists():
+        github_sha = _run(
+            ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+            cwd=str(sibling),
+        ).stdout.strip()
+        if github_sha:
+            readme_content = readme.read_text(encoding="utf-8")
+            new_readme, readme_count = re.subn(
+                r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
+                rf"\g<1>{github_sha}\2",
+                readme_content,
+            )
+            if readme_count > 0 and new_readme != readme_content:
+                readme.write_text(new_readme, encoding="utf-8")
+                files_to_commit.append("profile/README.md")
+            elif readme_count == 0:
+                _info(
+                    "profile/README.md: no install-all.sh SHA reference found — "
+                    "skipping update"
+                )
+        else:
+            _info(
+                "profile/README.md: no commits touch install-all.sh yet — "
+                "skipping SHA update"
+            )
+
+    branch = f"propagate/v{version}-{project_name}-github"
     if _sibling_pr_merge(
         sibling,
         branch,
-        ["install-all.sh"],
+        files_to_commit,
         f"chore: update {project_name} install SHA to {tag}",
-        "punt-kit",
+        ".github",
         dry_run=dry_run,
     ):
         _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
@@ -1484,89 +1514,6 @@ def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) ->
         _ok(f"marketplace: {project_name} version={version}, ref={tag}")
     else:
         _ok(f"marketplace: {project_name} already current")
-
-
-def _propagate_profile(
-    info: ProjectInfo,
-    version: str,
-    *,
-    dry_run: bool,
-) -> None:
-    """10c. Update .github profile README with install-all.sh commit SHA.
-
-    Uses the SHA of the last commit that touched install-all.sh, not HEAD.
-    The new_content == content check below handles "SHA already current" correctly.
-    """
-    repo = _get_github_repo(info.root)
-    if repo is None:
-        return
-    project_name = repo.split("/")[-1]
-
-    sibling = _resolve_sibling(info.root, ".github")
-    if sibling is None:
-        _info("Sibling .github not found — skipping profile update")
-        return
-
-    readme = sibling / "profile" / "README.md"
-    if not readme.exists():
-        _info(".github/profile/README.md not found — skipping")
-        return
-
-    # Get punt-kit's current main HEAD (includes the 10a commit).
-    # For punt-kit self-releases, info.root IS punt-kit.  For other
-    # projects, resolve punt-kit as a sibling.
-    is_punt_kit = repo == "punt-labs/punt-kit"
-    punt_kit_dir: Path | None = (
-        info.root if is_punt_kit else _resolve_sibling(info.root, "punt-kit")
-    )
-    if punt_kit_dir is None:
-        _fail("Sibling punt-kit not found — required for profile SHA update")
-        return  # unreachable
-    punt_kit_sha = _run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-        cwd=str(punt_kit_dir),
-    ).stdout.strip()
-    if not punt_kit_sha:
-        _fail(
-            "Could not determine install-all.sh SHA in punt-kit — "
-            "ensure install-all.sh has at least one commit"
-        )
-
-    if dry_run:
-        _dry(f"../.github/profile/README.md: install-all.sh SHA → {punt_kit_sha}")
-        return
-
-    _validate_sibling(sibling, ".github")
-
-    content = readme.read_text(encoding="utf-8")
-    new_content, count = re.subn(
-        r"(punt-labs/punt-kit/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
-        rf"\g<1>{punt_kit_sha}\2",
-        content,
-    )
-
-    if count == 0:
-        _fail(
-            "profile/README.md: no install-all.sh URL found "
-            "matching punt-labs/punt-kit/<sha>/install-all.sh"
-        )
-
-    if new_content == content:
-        _ok("profile: install-all.sh SHA already current")
-        return
-
-    readme.write_text(new_content, encoding="utf-8")
-
-    branch = f"propagate/v{version}-{project_name}-github"
-    if _sibling_pr_merge(
-        sibling,
-        branch,
-        ["profile/README.md"],
-        f"chore: update install-all.sh SHA to {punt_kit_sha}",
-        ".github",
-        dry_run=dry_run,
-    ):
-        _ok(f"profile: install-all.sh SHA → {punt_kit_sha}")
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1691,10 +1638,8 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     if not dry_run:
         _reset_propagation_siblings(info)
 
-    # Order matters: 10a before 10c (profile depends on punt-kit HEAD after 10a)
     _propagate_install_all(info, version, dry_run=dry_run)
     _propagate_marketplace(info, version, dry_run=dry_run)
-    _propagate_profile(info, version, dry_run=dry_run)
     _propagate_website(info, version, dry_run=dry_run)
 
 
@@ -1775,9 +1720,9 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     repo = _get_github_repo(info.root)
     if repo and (install_sh.exists() or info.is_plugin):
         project_name = repo.split("/")[-1]
-        sibling = _resolve_sibling(info.root, "punt-kit")
+        sibling = _resolve_sibling(info.root, ".github")
         if not sibling:
-            checks.append(("install-all.sh", False, "sibling punt-kit not found"))
+            checks.append(("install-all.sh", False, "sibling .github not found"))
         else:
             install_all = sibling / "install-all.sh"
             if not install_all.exists():
@@ -1858,9 +1803,9 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                             ("marketplace", False, f"no entry for {project_name}")
                         )
 
-    # 6. Profile (punt-kit only)
+    # 6. Profile SHA (install-all.sh URL resolves)
     repo = _get_github_repo(info.root)
-    if repo == "punt-labs/punt-kit":
+    if repo and install_sh.exists():
         sibling = _resolve_sibling(info.root, ".github")
         if not sibling:
             checks.append(("profile SHA", False, "sibling .github not found"))
@@ -1870,24 +1815,35 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                 checks.append(("profile SHA", False, "profile/README.md not found"))
             else:
                 content = readme.read_text(encoding="utf-8")
-                punt_kit_sha = _run(
-                    ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-                    cwd=str(info.root),
-                ).stdout.strip()
-                sha_in_profile = bool(
-                    re.search(
-                        rf"punt-labs/punt-kit/{re.escape(punt_kit_sha)}"
-                        r"/install-all\.sh",
-                        content,
-                    )
+                sha_match = re.search(
+                    r"punt-labs/\.github/([0-9a-fA-F]{7,40})/install-all\.sh",
+                    content,
                 )
-                checks.append(
-                    (
-                        "profile SHA",
-                        sha_in_profile,
-                        f"SHA={punt_kit_sha}",
+                if not sha_match:
+                    checks.append(
+                        (
+                            "profile SHA",
+                            False,
+                            "no .github install-all.sh URL in profile",
+                        )
                     )
-                )
+                else:
+                    profile_sha = sha_match.group(1)
+                    # Verify the SHA resolves to a real install-all.sh
+                    show_result = _run(
+                        ["git", "show", f"{profile_sha}:install-all.sh"],
+                        cwd=str(sibling),
+                        check=False,
+                    )
+                    sha_valid = show_result.returncode == 0
+                    checks.append(
+                        (
+                            "profile SHA",
+                            sha_valid,
+                            f"SHA={profile_sha}"
+                            + ("" if sha_valid else " (does not resolve)"),
+                        )
+                    )
 
     # 7. Website (optional — sibling may not exist)
     if repo:
