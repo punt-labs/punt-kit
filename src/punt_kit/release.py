@@ -1265,9 +1265,17 @@ def _validate_sibling(path: Path, name: str) -> None:
     if branch != "main":
         _fail(f"Sibling {name} is on branch '{branch}', expected main")
 
-    # Only block on modified/staged files — untracked files are harmless
+    # Only block on modified/staged files — untracked files and .beads/ are harmless
     status = _run(["git", "status", "--porcelain"], cwd=str(path)).stdout.strip()
-    dirty = "\n".join(ln for ln in status.splitlines() if not ln.startswith("?? "))
+    dirty_lines: list[str] = []
+    for ln in status.splitlines():
+        if ln.startswith("?? "):
+            continue
+        file_path = ln[3:] if len(ln) > 3 else ""
+        if file_path == ".beads" or file_path.startswith(".beads/"):
+            continue
+        dirty_lines.append(ln)
+    dirty = "\n".join(dirty_lines)
     if dirty:
         _fail(f"Sibling {name} has uncommitted changes:\n{dirty}")
 
