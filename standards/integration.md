@@ -173,6 +173,50 @@ always fall through the tiers.
 
 ---
 
+## Ethos-Mediated Integration
+
+Ethos extensions (DES-008) provide L2-level integration without import
+dependencies. Any tool can store configuration and session context in an
+identity's extension directory:
+
+```text
+~/.punt-labs/ethos/identities/<handle>.ext/<tool>.yaml
+```
+
+### How it works
+
+1. **Tool A writes its extension** during install — config keys plus a
+   `session_context` block with markdown instructions.
+2. **Ethos emits `session_context`** verbatim at session start and before
+   context compaction. No parsing, no tool-specific code in ethos (DES-022).
+3. **Tool B reads Tool A's extension** via the filesystem (sidecar contract)
+   when it needs peer configuration — e.g., quarry reads `memory_collection`
+   from its own ext file.
+
+### Key properties
+
+- **One-way dependency.** The consumer depends on ethos for identity. Ethos
+  has zero knowledge of consumer internals.
+- **No import coupling.** Tools read each other's ext files via the
+  filesystem, not by importing each other's code.
+- **Generic mechanism.** Adding a new tool's session context requires zero
+  ethos code changes. Any extension can provide session context.
+
+### Anti-patterns
+
+- **Hardcoding another tool's extension schema** in your source code.
+  Couple to the file format (YAML keys), not to the tool's Python/Go
+  modules.
+- **Writing to another tool's extension file.** Each tool owns its own
+  `<tool>.yaml`. Cross-tool coordination happens via ethos identity, not
+  by modifying each other's files.
+
+See [distribution.md § Ethos Extension Setup](distribution.md#ethos-extension-setup)
+for install requirements. Pattern:
+[ethos-ext-setup](../patterns/ethos-ext-setup.md).
+
+---
+
 ## Integration Matrix
 
 Each peer integration should be documented with the layers it uses and how the
@@ -189,6 +233,7 @@ Pure building blocks with no upstream awareness:
 | **lux** | Visual output surface — tables, charts, UI | prfaq (peer), quarry (peer), langlearn (peer), dungeon (peer) |
 | **beads** | Issue tracking (external) | biff (peer) |
 | **langlearn-types** | Shared interfaces for langlearn family | langlearn (hard), langlearn-tts (hard), langlearn-anki (hard), langlearn-imagegen (hard) |
+| **ethos** | Identity + session context delivery | quarry (peer), biff (peer), vox (peer) |
 
 ### Peer Integrations
 
@@ -204,6 +249,9 @@ Pure building blocks with no upstream awareness:
 | langlearn → lux | L1 | Without lux: no visual flashcard display. Audio and SRS still work. |
 | dungeon → lux | L1 | Without lux: text adventure in terminal. With lux: visual game UI, maps, inventory. |
 | dungeon → vox | L1 | Without vox: silent gameplay. With vox: narration, sound effects, ambient audio. |
+| quarry → ethos | L2 | Without ethos: no agent-scoped memory, no session context injection. Quarry still works for project-scoped search. |
+| biff → ethos | L2 | Without ethos: no identity-aware messaging. Biff still works with anonymous sessions. |
+| vox → ethos | L2 | Without ethos: no voice personality persistence. Vox still works with default voice. |
 
 **Rule**: New cross-tool integrations must add a row to this matrix (in the
 relevant project's DESIGN.md or this standard) before implementation.
