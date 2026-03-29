@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import NoReturn, cast
 
@@ -755,7 +755,7 @@ def _pr_merge(
             # Re-resolve threads in case new ones appeared (best-effort)
             try:
                 _resolve_pr_threads(gh, root, pr_number)
-            except (SystemExit, subprocess.CalledProcessError):
+            except (ReleaseError, SystemExit, subprocess.CalledProcessError):
                 _info("Could not re-resolve threads, proceeding with retry")
             continue
         _fail(f"Failed to merge PR #{pr_number}: {combined}")
@@ -1715,6 +1715,42 @@ def _reset_propagation_siblings(
                     _info(f"Warning: {msg}")
 
 
+def _collect_thread_results(
+    futures: dict[Future[None], str],
+    info: ProjectInfo,
+) -> None:
+    """Wait for all futures, collect errors, and fail if any occurred.
+
+    Also checks ``_interrupted`` after all futures complete and performs
+    sibling cleanup if the user interrupted.
+    """
+    errors: list[tuple[str, BaseException]] = []
+    for f in as_completed(futures):
+        name = futures[f]
+        try:
+            f.result()
+        except ReleaseError as e:
+            errors.append((name, RuntimeError(str(e))))
+        except SystemExit as e:
+            if isinstance(e.code, int):
+                msg = f"{name} failed (exit code {e.code})"
+            elif isinstance(e.code, str) and e.code.strip():
+                msg = e.code
+            else:
+                msg = f"{name} failed"
+            errors.append((name, RuntimeError(msg)))
+        except BaseException as e:  # noqa: BLE001
+            errors.append((name, e))
+    if _interrupted.is_set():
+        _reset_propagation_siblings(info, fail_on_error=False)
+        sys.exit(1)
+    if errors:
+        for name, err in errors:
+            console.print(f"  [red]✗[/red] {name}: {err}")
+        names = ", ".join(n for n, _ in errors)
+        _fail(f"{len(errors)} task(s) failed: {names}")
+
+
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 10: Local cross-repo propagation via PRs."""
     console.print("\n[bold]Phase 10: Propagate[/bold]")
@@ -1736,28 +1772,7 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
                 _propagate_website, info, version, dry_run=dry_run
             ): "public-website",
         }
-        errors: list[tuple[str, BaseException]] = []
-        for f in as_completed(futures):
-            name = futures[f]
-            try:
-                f.result()
-            except ReleaseError as e:
-                errors.append((name, RuntimeError(str(e))))
-            except SystemExit as e:
-                if isinstance(e.code, int):
-                    msg = f"Propagation to {name} failed (exit code {e.code})"
-                else:
-                    msg = str(e.code or f"Propagation to {name} failed")
-                errors.append((name, RuntimeError(msg)))
-            except BaseException as e:  # noqa: BLE001
-                errors.append((name, e))
-        if _interrupted.is_set():
-            _reset_propagation_siblings(info, fail_on_error=False)
-            sys.exit(1)
-        if errors:
-            for name, err in errors:
-                console.print(f"  [red]✗[/red] {name}: {err}")
-            _fail(f"{len(errors)} propagation(s) failed")
+        _collect_thread_results(futures, info)
 
 
 # ---------------------------------------------------------------------------
@@ -1782,29 +1797,7 @@ def _run_phases_9_10(
                 pool.submit(_phase9_post_release, info, version, dry_run=dry_run): "P9",
                 pool.submit(_phase10_propagate, info, version, dry_run=dry_run): "P10",
             }
-            errors: list[tuple[str, BaseException]] = []
-            for f in as_completed(futures):
-                name = futures[f]
-                try:
-                    f.result()
-                except ReleaseError as e:
-                    errors.append((name, RuntimeError(str(e))))
-                except SystemExit as e:
-                    if isinstance(e.code, int):
-                        msg = f"{name} failed (exit code {e.code})"
-                    else:
-                        msg = str(e.code or f"{name} failed")
-                    errors.append((name, RuntimeError(msg)))
-                except BaseException as e:  # noqa: BLE001
-                    errors.append((name, e))
-            if _interrupted.is_set():
-                _reset_propagation_siblings(info, fail_on_error=False)
-                sys.exit(1)
-            if errors:
-                for name, err in errors:
-                    console.print(f"  [red]✗[/red] {name}: {err}")
-                names = ", ".join(n for n, _ in errors)
-                _fail(f"{len(errors)} phase(s) failed: {names}")
+            _collect_thread_results(futures, info)
     else:
         # start == 10: only P10
         _phase10_propagate(info, version, dry_run=dry_run)
