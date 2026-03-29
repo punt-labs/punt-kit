@@ -13,6 +13,7 @@ steps:
     description: Run punt release (phases 1-11)
     type: script
     command: punt release ${version}
+    background: true
     on_failure: diagnose
 
   - id: verify
@@ -21,17 +22,18 @@ steps:
     context: |
       The CLI handles phases 1-11: preflight, version bump, build,
       release PR, tag, CI wait, GitHub release, PyPI verify, post-release
-      (dev restore + README SHA via PR), cross-repo propagation (sibling
-      PRs), and verification.
+      and cross-repo propagation (phases 9+10 run concurrently), and
+      verification.
 
       All main-branch changes go through PRs (zero bypass actors). Each
       propagation step creates a branch, pushes, opens a PR, waits for CI,
-      and squash-merges.
+      and squash-merges. The three sibling propagation PRs (.github,
+      claude-plugins, public-website) run concurrently.
 
       Confirm the CLI reported success. If it did, spot-check:
 
       1. PyPI version: uv pip index versions <package> — confirm release version appears
-      2. install-all.sh SHA: verify the SHA in ../punt-kit/install-all.sh points to correct install.sh
+      2. install-all.sh SHA: verify the SHA in ../.github/install-all.sh points to correct install.sh
       3. Marketplace version (hybrid/plugin projects): verify marketplace.json version and ref match
       4. Website version: verify ../public-website/src/data/projects.json if present
       5. .github profile SHA: verify profile README points to current punt-kit main

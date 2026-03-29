@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
@@ -18,11 +19,13 @@ from punt_kit.release import (
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
+    _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
@@ -1888,3 +1891,201 @@ def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "No commit found with dev plugin name" in result.stderr
+
+
+# --- Phase 10 concurrent propagation ---
+
+
+def test_phase10_propagate_runs_concurrently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All three propagation functions are called even when running concurrently."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    calls: list[str] = []
+    barrier = threading.Barrier(3, timeout=5)
+
+    def mock_install_all(*args: object, **kwargs: object) -> None:
+        calls.append("install_all")
+        barrier.wait()
+
+    def mock_marketplace(*args: object, **kwargs: object) -> None:
+        calls.append("marketplace")
+        barrier.wait()
+
+    def mock_website(*args: object, **kwargs: object) -> None:
+        calls.append("website")
+        barrier.wait()
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+
+    def _noop_reset(*args: object, **kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+
+    _phase10_propagate(info, "0.2.0", dry_run=False)
+
+    assert sorted(calls) == ["install_all", "marketplace", "website"]
+
+
+def test_phase10_propagate_collects_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One propagation failing does not prevent the others from running."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    calls: list[str] = []
+
+    def mock_install_all(*args: object, **kwargs: object) -> None:
+        calls.append("install_all")
+        raise SystemExit(1)
+
+    def mock_marketplace(*args: object, **kwargs: object) -> None:
+        calls.append("marketplace")
+
+    def mock_website(*args: object, **kwargs: object) -> None:
+        calls.append("website")
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+
+    def _noop_reset(*args: object, **kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+
+    with pytest.raises(SystemExit):
+        _phase10_propagate(info, "0.2.0", dry_run=False)
+
+    # All three should have been called despite the failure in install_all
+    assert sorted(calls) == ["install_all", "marketplace", "website"]
+
+
+# --- Phases 9+10 concurrent ---
+
+
+def test_phases_9_10_run_concurrently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both P9 and P10 are called when start <= 9."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    calls: list[str] = []
+
+    from punt_kit import release as release_mod
+
+    def mock_p9(*args: object, **kwargs: object) -> None:
+        calls.append("p9")
+
+    def mock_p10(*args: object, **kwargs: object) -> None:
+        calls.append("p10")
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", mock_p9)
+    monkeypatch.setattr(release_mod, "_phase10_propagate", mock_p10)
+
+    _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
+    assert sorted(calls) == ["p10", "p9"]
+
+
+def test_phases_9_10_only_p10_when_start_10(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only P10 runs when start == 10."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    calls: list[str] = []
+
+    from punt_kit import release as release_mod
+
+    def mock_p9(*args: object, **kwargs: object) -> None:
+        calls.append("p9")
+
+    def mock_p10(*args: object, **kwargs: object) -> None:
+        calls.append("p10")
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", mock_p9)
+    monkeypatch.setattr(release_mod, "_phase10_propagate", mock_p10)
+
+    _run_phases_9_10(info, "0.2.0", dry_run=False, start=10)
+    assert calls == ["p10"]
+
+
+def test_phases_9_10_exception_propagates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exception from P10 propagates even when P9 succeeds."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    from punt_kit import release as release_mod
+
+    def noop_p9(*args: object, **kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", noop_p9)
+
+    def failing_p10(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("P10 exploded")
+
+    monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
+
+    with pytest.raises(SystemExit):
+        _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
+
+
+def test_phases_9_10_p9_systemexit_propagates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SystemExit from P9 (via _fail) is collected and re-raised."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    from punt_kit import release as release_mod
+
+    def failing_p9(*args: object, **kwargs: object) -> None:
+        raise SystemExit(1)
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", failing_p9)
+
+    def noop_p10(*args: object, **kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(release_mod, "_phase10_propagate", noop_p10)
+
+    with pytest.raises(SystemExit):
+        _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
+
+
+def test_phases_9_10_both_fail_reports_both(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When both P9 and P10 fail, both errors are collected."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    from punt_kit import release as release_mod
+
+    def failing_p9(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("P9 exploded")
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", failing_p9)
+
+    def failing_p10(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("P10 exploded")
+
+    monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
+
+    with pytest.raises(SystemExit):
+        _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)

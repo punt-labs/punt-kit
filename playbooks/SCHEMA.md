@@ -87,12 +87,21 @@ steps:
 | `on_failure` | `retry` \| `diagnose` \| `abort` | no | Failure strategy (default: `diagnose`) |
 | `max_retries` | int | no | Maximum retry attempts (default: 3) |
 | `env` | map | no | Environment variables to set for this step |
+| `background` | bool | no | Run in background (script steps only, default: false) |
 
 ### Step Types
 
 **`script`** — Deterministic execution. The executor runs the command via Bash
 and checks the postcondition. The LLM does not modify the command; it runs it
 as written. If the postcondition fails, the failure strategy applies.
+
+When `background: true`, the executor runs the command as a background task
+(via `Bash` with `run_in_background: true`). The executor does not wait for
+completion — it proceeds immediately and remains responsive to user messages.
+When the background task completes (via notification), the executor checks the
+exit code and postcondition, then proceeds to the next step. Only valid for
+`type: script` steps. Use for long-running commands (CI waits, release
+pipelines) where blocking the main agent provides no value.
 
 **`llm`** — Judgment-required execution. The executor reads the `context`,
 assesses the current state, takes action using any available tools, and then
