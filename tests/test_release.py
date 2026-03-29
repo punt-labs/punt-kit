@@ -1569,7 +1569,7 @@ def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
 def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With fail_on_error=True (default), a checkout failure raises SystemExit."""
+    """With fail_on_error=True (default), a checkout failure raises ReleaseError."""
     from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)

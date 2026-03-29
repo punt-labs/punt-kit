@@ -36,7 +36,7 @@ steps:
       2. install-all.sh SHA: verify the SHA in ../.github/install-all.sh points to correct install.sh
       3. Marketplace version (hybrid/plugin projects): verify marketplace.json version and ref match
       4. Website version: verify ../public-website/src/data/projects.json if present
-      5. .github profile SHA: verify profile README points to current punt-kit main
+      5. .github profile SHA: verify the profile README's install-all.sh URL points to the expected pinned SHA
 
       Print a pass/fail table. If any check fails, diagnose and fix.
 

@@ -1143,12 +1143,15 @@ different CI). Running them sequentially added another ~6-8 minutes.
 
 - `rich.Console` uses an internal lock — `_ok()`, `_info()`, `_fail()` are
   safe from threads.
-- `SystemExit` (from `_fail()`) in a thread does not kill the process — it
-  propagates via `future.result()`. The executor catches `SystemExit` per-thread
-  and collects errors, then raises after all threads complete.
-- Signal handler (`_cleanup_handler`) calls `_reset_propagation_siblings` which
-  operates on all sibling repos. This is safe because the signal fires in the
-  main thread after `ThreadPoolExecutor.__exit__` joins worker threads.
+- `_fail()` raises `ReleaseError` in worker threads; this does not kill the
+  process. Each `ReleaseError` propagates via `future.result()`, allowing the
+  executor to collect errors from all threads and then raise after all threads
+  complete.
+- Signal handler (`_cleanup_handler`) sets an interrupt flag and raises
+  `KeyboardInterrupt` in the main thread. After `ThreadPoolExecutor.__exit__`
+  joins worker threads, the main release flow observes the interrupt and calls
+  `_reset_propagation_siblings` as part of its cleanup, keeping cleanup
+  single-threaded and safe.
 
 ### Rejected Alternatives
 
