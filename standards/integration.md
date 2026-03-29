@@ -258,18 +258,73 @@ relevant project's DESIGN.md or this standard) before implementation.
 
 ---
 
-## Guidelines for External Tools
+## Bundled Integrations
 
-External tools (beads, gh, future third-party tools) can participate at
-L0–L3 without any coordination with us:
+When we integrate with a tool that ships separately — whether external
+(git, gh) or internal (ethos, beadle, beads) — the integration code
+ships with our package. But structurally, these are still integrations,
+not core logic.
 
-1. **L0**: Drop a sentinel file that our hooks can detect.
-2. **L1**: Be on PATH or register as an MCP server.
-3. **L2**: Emit recognizable patterns in tool output that hooks can match.
-4. **L3**: Use a documented file format (TOML, YAML, JSONL) for state.
+### The principle
 
-We should not gate our L0–L3 integrations on approval from external tool
-authors. If the file format is stable and documented, we can read it.
+An integration with git follows the same patterns as a peer integration
+with ethos or beadle. The difference is packaging: ethos can meet us
+halfway (it provides the extension mechanism, we provide the content),
+while git cannot — so we carry both sides. Internal tools that ship in
+separate repos face the same constraint at the code boundary. The code
+structure should still reflect the integration boundary in all cases.
+
+### How to model it
+
+1. **Separate the integration code.** Put git-specific logic in a
+   module like `git_integration.py` or a `connectors/git.py` directory,
+   not scattered across core search/index/query modules. The core
+   should not import git concepts directly.
+
+2. **Use the same tiered protocol.** External integrations participate
+   at L0–L3 just like peer integrations:
+   - **L0**: Sentinel detection (`.git` exists — file or directory, since
+     worktrees use a file pointing to the actual gitdir)
+   - **L1**: Binary on PATH (`git`, `gh`, `bd`)
+   - **L2**: Output parsing (git log, git status, beads JSONL)
+   - **L3**: State files (`.git/` internals, `.beads/issues.jsonl`)
+
+3. **Degrade when absent.** Quarry works without git (indexes files,
+   serves search). Git integration adds commit-aware sync, branch
+   detection, and `.gitignore` filtering. These are peer features,
+   not requirements.
+
+4. **Don't gate on approval.** We should not wait for external tool
+   authors to add integration support. If the file format is stable
+   and documented, we can read it.
+
+### Why this matters
+
+When integration code is mixed into core logic, you get:
+- Core modules importing subprocess to shell out to `git`
+- Business logic branching on `if git_repo:` in search paths
+- Test suites that need git repos for unrelated features
+- Difficulty adding a second VCS (or removing git awareness)
+
+When it's separated, you get:
+- Core modules that know nothing about version control
+- An integration layer that translates between git concepts and
+  quarry concepts
+- Tests that can exercise core logic without a git repo
+- A pattern for adding more integrations (beads, beadle, Jira, etc.)
+
+### Candidates for bundled integrations
+
+| Tool | What we read | What it enables |
+|------|-------------|----------------|
+| **git** | `.git/`, status, log, `.gitignore` | Commit-aware sync, branch detection, ignore filtering |
+| **beads** | `.beads/issues.jsonl` | Work context in agent sessions, bead-linked memories |
+| **beadle** | Email via MCP | Email memory, auto-ingest correspondence |
+| **gh** | GitHub API via CLI | PR context, issue linking, review integration |
+
+Each of these follows the same pattern: the integration ships with
+quarry (or whichever consumer), is structurally separated from core
+logic, and degrades gracefully when the external tool is absent.
 
 ---
 
