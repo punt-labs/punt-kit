@@ -2129,62 +2129,66 @@ def run_release(
     repos via PRs. Phase 11 runs final verification checks.
     """
     root = Path(path).resolve()
-    if not root.is_dir():
-        _fail(f"{root} is not a directory")
-
-    info = detect(root)
-
-    if info.language is None and not info.is_plugin:
-        _fail("Cannot detect project type — is this a Punt Labs project?")
-
-    _interrupted.clear()
-
-    if not dry_run:
-
-        def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
-            _info("\nInterrupted — finishing active operations before cleanup...")
-            _interrupted.set()
-            raise KeyboardInterrupt()
-
-        signal.signal(signal.SIGINT, _cleanup_handler)
-        signal.signal(signal.SIGTERM, _cleanup_handler)
-
-    # Determine start phase
-    start = 1
-    if resume_from:
-        if resume_from not in PHASE_NAMES:
-            valid = ", ".join(sorted(PHASE_NAMES.keys()))
-            _fail(f"Unknown phase '{resume_from}'. Valid: {valid}")
-        start = PHASE_NAMES[resume_from]
-
-    mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
-    resume = f" (resuming from phase {start})" if start > 1 else ""
-    console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
-
-    # Run preflight before version detection (need clean tree for accurate reads)
-    if start <= 1:
-        _phase1_preflight(info, dry_run=dry_run)
-
-    # Determine version
-    if version is None:
-        if start == 1:
-            # Fresh release — detect from changelog
-            if info.pyproject is None and info.language != "go":
-                _fail("Version required for plugin-only projects (no pyproject.toml)")
-            current = _get_project_version(info)
-            changelog = _read_changelog(root)
-            version = _suggest_version(changelog, current)
-            console.print(
-                f"\n  [bold]Suggested version:[/bold] {version} (current: {current})"
-            )
-            if not dry_run:
-                _info(f"Using suggested version {version}")
-        else:
-            # Resuming — read current version
-            version = _get_project_version(info)
-            source = "git tags" if info.language == "go" else "pyproject.toml"
-            _info(f"Detected version {version} from {source}")
     try:
+        if not root.is_dir():
+            _fail(f"{root} is not a directory")
+
+        info = detect(root)
+
+        if info.language is None and not info.is_plugin:
+            _fail("Cannot detect project type — is this a Punt Labs project?")
+
+        _interrupted.clear()
+
+        if not dry_run:
+
+            def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
+                _info("\nInterrupted — finishing active operations before cleanup...")
+                _interrupted.set()
+                raise KeyboardInterrupt()
+
+            signal.signal(signal.SIGINT, _cleanup_handler)
+            signal.signal(signal.SIGTERM, _cleanup_handler)
+
+        # Determine start phase
+        start = 1
+        if resume_from:
+            if resume_from not in PHASE_NAMES:
+                valid = ", ".join(sorted(PHASE_NAMES.keys()))
+                _fail(f"Unknown phase '{resume_from}'. Valid: {valid}")
+            start = PHASE_NAMES[resume_from]
+
+        mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
+        resume = f" (resuming from phase {start})" if start > 1 else ""
+        console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
+
+        # Run preflight before version detection (need clean tree for accurate reads)
+        if start <= 1:
+            _phase1_preflight(info, dry_run=dry_run)
+
+        # Determine version
+        if version is None:
+            if start == 1:
+                # Fresh release — detect from changelog
+                if info.pyproject is None and info.language != "go":
+                    _fail(
+                        "Version required for plugin-only projects (no pyproject.toml)"
+                    )
+                current = _get_project_version(info)
+                changelog = _read_changelog(root)
+                version = _suggest_version(changelog, current)
+                console.print(
+                    f"\n  [bold]Suggested version:[/bold]"
+                    f" {version} (current: {current})"
+                )
+                if not dry_run:
+                    _info(f"Using suggested version {version}")
+            else:
+                # Resuming — read current version
+                version = _get_project_version(info)
+                source = "git tags" if info.language == "go" else "pyproject.toml"
+                _info(f"Detected version {version} from {source}")
+
         try:
             if start <= 2:
                 _phase2_version_bump(info, version, dry_run=dry_run)
