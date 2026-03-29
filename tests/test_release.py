@@ -837,7 +837,7 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
 def test_propagate_profile_updates_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Updates profile README with last install-all.sh commit SHA."""
+    """Updates profile README with last install.sh commit SHA."""
     root = _make_release_project(tmp_path)
     d = str(root)
     _git(
@@ -849,11 +849,6 @@ def test_propagate_profile_updates_sha(
         ],
         cwd=d,
     )
-
-    # Create install-all.sh so git log can find its commit
-    (root / "install-all.sh").write_text("#!/bin/sh\necho install\n")
-    _git(["add", "install-all.sh"], cwd=d)
-    _git(["commit", "-m", "add install-all.sh"], cwd=d)
 
     _make_sibling(
         tmp_path,
@@ -891,12 +886,12 @@ def test_propagate_profile_updates_sha(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=True)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
     install_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=d,
         capture_output=True,
         text=True,
@@ -909,17 +904,17 @@ def test_propagate_profile_updates_sha(
 def test_propagate_profile_from_non_punt_kit_repo(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Releasing biff resolves punt-kit sibling, uses install-all.sh SHA."""
+    """Releasing biff resolves punt-kit sibling, uses install.sh SHA."""
     root = _make_release_project(tmp_path)
     _git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
         cwd=str(root),
     )
 
-    # Create punt-kit sibling with install-all.sh
-    punt_kit = _make_sibling(tmp_path, "punt-kit", {"install-all.sh": "#!/bin/sh\n"})
+    # Create punt-kit sibling with install.sh so _get_install_sh_sha can find it
+    punt_kit = _make_sibling(tmp_path, "punt-kit", {"install.sh": "#!/bin/sh\n"})
     punt_kit_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
         cwd=str(punt_kit),
         capture_output=True,
         text=True,
@@ -961,7 +956,7 @@ def test_propagate_profile_from_non_punt_kit_repo(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=True)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb001" not in readme
@@ -970,8 +965,8 @@ def test_propagate_profile_from_non_punt_kit_repo(
     assert len(calls) == 1
 
 
-def test_propagate_profile_skipped_when_punt_kit_not_updated(tmp_path: Path) -> None:
-    """No-op when 10a did not modify punt-kit."""
+def test_propagate_profile_no_op_when_github_sibling_absent(tmp_path: Path) -> None:
+    """No-op when .github sibling repo is absent."""
     root = _make_release_project(tmp_path)
     _git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/biff.git"],
@@ -983,7 +978,7 @@ def test_propagate_profile_skipped_when_punt_kit_not_updated(tmp_path: Path) -> 
     info = detect(root)
 
     # Should not raise even without .github sibling
-    _propagate_profile(info, "0.2.0", dry_run=False, punt_kit_updated=False)
+    _propagate_profile(info, "0.2.0", dry_run=False)
 
 
 # --- Phase 10d: website ---

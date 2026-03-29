@@ -91,7 +91,6 @@ jobs:
     needs: test-install
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    environment: release
     permissions:
       id-token: write
     steps:
