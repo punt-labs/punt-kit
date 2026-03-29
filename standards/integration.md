@@ -258,20 +258,21 @@ relevant project's DESIGN.md or this standard) before implementation.
 
 ---
 
-## Bundled Integrations with External Tools
+## Bundled Integrations
 
-When we integrate with a tool we don't own (git, beads, gh, future
-third-party tools), the integration code ships with our package because
-we cannot add hooks or extensions on the other side. But structurally,
-these are still integrations — not core logic.
+When we integrate with a tool that ships separately — whether external
+(git, gh) or internal (ethos, beadle, beads) — the integration code
+ships with our package. But structurally, these are still integrations,
+not core logic.
 
 ### The principle
 
-An integration with git is no different in kind from an integration with
-ethos or beadle. The only difference is packaging: ethos can meet us
+An integration with git follows the same patterns as a peer integration
+with ethos or beadle. The difference is packaging: ethos can meet us
 halfway (it provides the extension mechanism, we provide the content),
-while git cannot. So we carry both sides. The code structure should
-still reflect the integration boundary.
+while git cannot — so we carry both sides. Internal tools that ship in
+separate repos face the same constraint at the code boundary. The code
+structure should still reflect the integration boundary in all cases.
 
 ### How to model it
 
@@ -282,7 +283,8 @@ still reflect the integration boundary.
 
 2. **Use the same tiered protocol.** External integrations participate
    at L0–L3 just like peer integrations:
-   - **L0**: Sentinel detection (`.git/` directory exists)
+   - **L0**: Sentinel detection (`.git` exists — file or directory, since
+     worktrees use a file pointing to the actual gitdir)
    - **L1**: Binary on PATH (`git`, `gh`, `bd`)
    - **L2**: Output parsing (git log, git status, beads JSONL)
    - **L3**: State files (`.git/` internals, `.beads/issues.jsonl`)
