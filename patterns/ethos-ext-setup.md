@@ -99,9 +99,9 @@ The install step returns one of three outcomes per identity:
 |--------|---------|
 | `updated` | `session_context` written |
 | `already_set` | `session_context` was already present |
-| `no_collection` | Config key absent — tool not configured |
+| `not_configured` | Required config key absent — tool not set up for this identity |
 
-The `no_collection` case is surfaced in install output so users know their
+The `not_configured` case is surfaced in install output so users know their
 config is incomplete.
 
 ### Per-identity exception handling

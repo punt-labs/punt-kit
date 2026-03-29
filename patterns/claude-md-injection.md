@@ -21,7 +21,7 @@ usage tips — especially for tools that work across all projects.
 - **Collision-free.** Multiple tools inject into the same file. Sections
   must not interfere with each other.
 - **Survives reinstall.** The section must persist across tool upgrades
-  and reinstalls. Marker comments enable detection and update.
+  and reinstalls. Marker comments enable detection and potential future update.
 - **Concise.** The file grows with each tool. Each section should be
   10-15 lines — enough for discoverability, not a full manual.
 - **Complementary.** CLAUDE.md injection is for always-on awareness.
@@ -32,20 +32,21 @@ usage tips — especially for tools that work across all projects.
 
 ### Marker comments
 
-Each tool's section is wrapped in HTML comments that serve as idempotency
-markers:
+Each tool's section is wrapped in tool-specific HTML comments that serve
+as idempotency markers:
 
 ```markdown
-<!-- tool:capabilities -->
+<!-- <tool>:capabilities -->
 # Tool Name
 
 Content here...
-<!-- /tool:capabilities -->
+<!-- /<tool>:capabilities -->
 ```
 
-The opening marker (`<!-- tool:capabilities -->`) is checked before
-injection. If present, the section is skipped. If absent, the section
-is appended.
+The tool's own marker (e.g., `<!-- quarry:capabilities -->`) is checked
+before injection. If present, the section is skipped. If absent, the
+section is appended. Each tool uses its own name in the marker to avoid
+collisions when multiple tools inject into the same file.
 
 ### Append-or-skip logic
 

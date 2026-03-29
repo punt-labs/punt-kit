@@ -66,9 +66,11 @@ The install step configures MCP clients with a fallback script:
 
 ```bash
 sh -c 'if command -v mcp-proxy >/dev/null 2>&1; \
-  then exec mcp-proxy ws://localhost:8420/mcp; \
-  else exec quarry mcp; fi'
+  then exec mcp-proxy ws://localhost:<port>/mcp; \
+  else exec <tool> mcp; fi'
 ```
+
+(quarry uses port 8420; each tool chooses its own port.)
 
 This prefers the proxy (fast, connects to resident daemon) but falls
 back to direct stdio if the proxy isn't installed.

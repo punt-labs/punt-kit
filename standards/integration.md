@@ -175,7 +175,7 @@ always fall through the tiers.
 
 ## Ethos-Mediated Integration
 
-Ethos extensions (DES-008) provide L2-level integration without import
+Ethos extensions provide L2-level integration without import
 dependencies. Any tool can store configuration and session context in an
 identity's extension directory:
 
@@ -188,10 +188,10 @@ identity's extension directory:
 1. **Tool A writes its extension** during install — config keys plus a
    `session_context` block with markdown instructions.
 2. **Ethos emits `session_context`** verbatim at session start and before
-   context compaction. No parsing, no tool-specific code in ethos (DES-022).
-3. **Tool B reads Tool A's extension** via the filesystem (sidecar contract)
-   when it needs peer configuration — e.g., quarry reads `memory_collection`
-   from its own ext file.
+   context compaction. No parsing, no tool-specific code in ethos.
+3. **Tools read their own or peer extensions** via the filesystem (sidecar
+   contract) — e.g., quarry reads `memory_collection` from its own ext
+   file; a future tool could read a peer's ext file for discovery.
 
 ### Key properties
 

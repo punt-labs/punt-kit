@@ -279,8 +279,8 @@ with a fallback script:
 
 ```bash
 sh -c 'if command -v mcp-proxy >/dev/null 2>&1; \
-  then exec mcp-proxy ws://localhost:8420/mcp; \
-  else exec quarry mcp; fi'
+  then exec mcp-proxy ws://localhost:<port>/mcp; \
+  else exec <tool> mcp; fi'
 ```
 
 Service registration: launchd on macOS (`~/Library/LaunchAgents/`), systemd
@@ -393,7 +393,7 @@ environment variables or a `.local` file that is gitignored.
 Tools that need to inject instructions into the agent's context at session
 start and after context compaction use the ethos extension mechanism. Ethos
 emits the `session_context` key from any extension YAML verbatim — no
-tool-specific code in ethos (DES-022).
+tool-specific code in ethos.
 
 ### Extension file
 
@@ -436,16 +436,17 @@ loaded into every session, so agents always know what's available.
 
 ### Marker comments
 
-Wrap the section in HTML comments for idempotent detection:
+Wrap the section in tool-specific HTML comments for idempotent detection.
+Each tool uses its own name in the marker to avoid collisions:
 
 ```markdown
-<!-- tool:capabilities -->
+<!-- <tool>:capabilities -->
 # Tool Name
 
 - **Slash commands**: `/find`, `/ingest`, `/remember`
 - **Auto-behaviors**: auto-indexes project on session start
 - **Tip**: natural language queries work best
-<!-- /tool:capabilities -->
+<!-- /<tool>:capabilities -->
 ```
 
 ### Rules
