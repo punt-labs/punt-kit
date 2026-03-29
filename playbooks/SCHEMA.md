@@ -96,12 +96,13 @@ and checks the postcondition. The LLM does not modify the command; it runs it
 as written. If the postcondition fails, the failure strategy applies.
 
 When `background: true`, the executor runs the command as a background task
-(via `Bash` with `run_in_background: true`). The executor does not wait for
-completion — it proceeds immediately and remains responsive to user messages.
-When the background task completes (via notification), the executor checks the
-exit code and postcondition, then proceeds to the next step. Only valid for
-`type: script` steps. Use for long-running commands (CI waits, release
-pipelines) where blocking the main agent provides no value.
+(via `Bash` with `run_in_background: true`) so that it can remain responsive
+to user messages while the command runs. The executor does not start the next
+playbook step until it receives notification that the background task has
+completed; at that point it checks the exit code and postcondition, then
+proceeds to the next step. Only valid for `type: script` steps. Use for
+long-running commands (CI waits, release pipelines) where blocking the main
+agent provides no value.
 
 **`llm`** — Judgment-required execution. The executor reads the `context`,
 assesses the current state, takes action using any available tools, and then

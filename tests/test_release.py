@@ -14,6 +14,7 @@ import pytest
 from punt_kit.detect import detect
 from punt_kit.release import (
     PHASE_NAMES,
+    ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
     _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
@@ -191,7 +192,7 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -204,7 +205,7 @@ def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -217,7 +218,7 @@ def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -236,7 +237,7 @@ def test_preflight_fails_empty_unreleased(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -600,7 +601,7 @@ def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
     sibling = _make_sibling(tmp_path, "sib", {})
     _git(["checkout", "-b", "feature"], cwd=str(sibling))
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _validate_sibling(sibling, "sib")
 
 
@@ -610,7 +611,7 @@ def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
     (sibling / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(sibling))
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _validate_sibling(sibling, "sib")
 
 
@@ -1006,7 +1007,7 @@ def test_validate_sibling_called_during_preflight(
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=True)
 
 
@@ -1021,7 +1022,7 @@ def test_validate_sibling_wrong_branch_during_preflight(
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=True)
 
 
@@ -1210,7 +1211,7 @@ def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None
 
     info = detect(root)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -1360,7 +1361,7 @@ def test_wait_for_required_checks_fails_on_required_failure(
 
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -1448,7 +1449,7 @@ def test_wait_for_required_checks_status_context_error(
 
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -1594,7 +1595,7 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
     monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
     monkeypatch.setattr(release_mod, "_run", fake_run)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _reset_propagation_siblings(info, fail_on_error=True)
 
 
@@ -1772,8 +1773,8 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
 
     info = detect(root)
 
-    # Should raise SystemExit — profile SHA does not resolve
-    with pytest.raises(SystemExit):
+    # Should raise ReleaseError — profile SHA does not resolve
+    with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
 
 
@@ -1964,7 +1965,7 @@ def test_phase10_propagate_collects_errors(
 
     monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
     # All three should have been called despite the failure in install_all
@@ -2041,14 +2042,14 @@ def test_phases_9_10_exception_propagates(
 
     monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
 def test_phases_9_10_p9_systemexit_propagates(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """SystemExit from P9 (via _fail) is collected and re-raised."""
+    """SystemExit from P9 is collected and re-raised as ReleaseError."""
     root = _make_release_project(tmp_path)
     info = detect(root)
 
@@ -2064,7 +2065,7 @@ def test_phases_9_10_p9_systemexit_propagates(
 
     monkeypatch.setattr(release_mod, "_phase10_propagate", noop_p10)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -2087,5 +2088,5 @@ def test_phases_9_10_both_fail_reports_both(
 
     monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)

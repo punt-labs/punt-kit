@@ -21,6 +21,11 @@ from punt_kit.detect import ProjectInfo, detect
 
 console = Console()
 
+
+class ReleaseError(Exception):
+    """Raised by release phases to indicate a failure with a message."""
+
+
 # Set by the signal handler so threads can drain before cleanup runs.
 _interrupted = threading.Event()
 
@@ -55,7 +60,7 @@ def _run(
 def _fail(msg: str) -> NoReturn:
     """Print error and exit."""
     console.print(f"[red]Error:[/red] {msg}")
-    raise SystemExit(msg)
+    raise ReleaseError(msg)
 
 
 def _ok(msg: str) -> None:
@@ -1391,7 +1396,7 @@ def _sibling_pr_merge(
 
     # Create branch (handle resume: branch may already exist)
     # Use try/finally to ensure sibling returns to main on any failure —
-    # SystemExit from _fail(), CalledProcessError from _run(), etc.
+    # ReleaseError from _fail(), CalledProcessError from _run(), etc.
     # (5b4/zay: stale propagation branches break subsequent releases).
     try:
         existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
@@ -1736,8 +1741,13 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
             name = futures[f]
             try:
                 f.result()
+            except ReleaseError as e:
+                errors.append((name, RuntimeError(str(e))))
             except SystemExit as e:
-                msg = str(e.code) if e.code else f"Propagation to {name} failed"
+                if isinstance(e.code, int):
+                    msg = f"Propagation to {name} failed (exit code {e.code})"
+                else:
+                    msg = str(e.code or f"Propagation to {name} failed")
                 errors.append((name, RuntimeError(msg)))
             except BaseException as e:  # noqa: BLE001
                 errors.append((name, e))
@@ -1777,8 +1787,13 @@ def _run_phases_9_10(
                 name = futures[f]
                 try:
                     f.result()
+                except ReleaseError as e:
+                    errors.append((name, RuntimeError(str(e))))
                 except SystemExit as e:
-                    msg = str(e.code) if e.code else f"{name} failed"
+                    if isinstance(e.code, int):
+                        msg = f"{name} failed (exit code {e.code})"
+                    else:
+                        msg = str(e.code or f"{name} failed")
                     errors.append((name, RuntimeError(msg)))
                 except BaseException as e:  # noqa: BLE001
                     errors.append((name, e))
@@ -2129,6 +2144,7 @@ def run_release(
         def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
             _info("\nInterrupted — finishing active operations before cleanup...")
             _interrupted.set()
+            raise KeyboardInterrupt()
 
         signal.signal(signal.SIGINT, _cleanup_handler)
         signal.signal(signal.SIGTERM, _cleanup_handler)
@@ -2169,28 +2185,31 @@ def run_release(
             source = "git tags" if info.language == "go" else "pyproject.toml"
             _info(f"Detected version {version} from {source}")
     try:
-        if start <= 2:
-            _phase2_version_bump(info, version, dry_run=dry_run)
-        if start <= 3:
-            _phase3_build(info, dry_run=dry_run)
-        if start <= 4:
-            _phase4_release_pr(info, version, dry_run=dry_run)
-        if start <= 5:
-            _phase5_tag(info, version, dry_run=dry_run)
-        if start <= 6:
-            _phase6_ci_wait(info, version, dry_run=dry_run)
-        if start <= 7:
-            _phase7_github_release(info, version, dry_run=dry_run)
-        if start <= 8:
-            _phase8_verify_pypi(info, version, dry_run=dry_run)
-        # P9 and P10 are independent — run concurrently when both are in scope
-        _run_phases_9_10(info, version, dry_run=dry_run, start=start)
-        if start <= 11:
-            _phase11_verify(info, version, dry_run=dry_run)
+        try:
+            if start <= 2:
+                _phase2_version_bump(info, version, dry_run=dry_run)
+            if start <= 3:
+                _phase3_build(info, dry_run=dry_run)
+            if start <= 4:
+                _phase4_release_pr(info, version, dry_run=dry_run)
+            if start <= 5:
+                _phase5_tag(info, version, dry_run=dry_run)
+            if start <= 6:
+                _phase6_ci_wait(info, version, dry_run=dry_run)
+            if start <= 7:
+                _phase7_github_release(info, version, dry_run=dry_run)
+            if start <= 8:
+                _phase8_verify_pypi(info, version, dry_run=dry_run)
+            # P9 and P10 are independent — run concurrently when both are in scope
+            _run_phases_9_10(info, version, dry_run=dry_run, start=start)
+            if start <= 11:
+                _phase11_verify(info, version, dry_run=dry_run)
 
-        _phase_summary(info, version, dry_run=dry_run)
-    finally:
-        if _interrupted.is_set():
-            _info("Cleaning up after interrupt...")
-            _reset_propagation_siblings(info, fail_on_error=False)
-            sys.exit(1)
+            _phase_summary(info, version, dry_run=dry_run)
+        finally:
+            if _interrupted.is_set():
+                _info("Cleaning up after interrupt...")
+                _reset_propagation_siblings(info, fail_on_error=False)
+                sys.exit(1)
+    except ReleaseError:
+        raise SystemExit(1) from None
