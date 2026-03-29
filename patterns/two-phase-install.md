@@ -55,6 +55,24 @@ Users run:
 curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh | sh
 ```
 
+### Optional phases
+
+Tools with richer integration needs extend the two-phase model with
+additional steps. These run during `<tool> install` (called by the
+bootstrap script after Phase 1):
+
+- **Phase 2a: CLAUDE.md injection.** Append a capabilities section to
+  `~/.claude/CLAUDE.md` so agents know what slash commands and
+  auto-behaviors are available. See
+  [CLAUDE.md Injection](claude-md-injection.md).
+- **Phase 2b: Ethos extension setup.** Write `session_context` into
+  ethos identity extension files so agents receive tool-specific
+  instructions at every session start and after compaction. See
+  [Ethos Extension Setup](ethos-ext-setup.md).
+- **Phase 3: Status line.** See [Stash and Wrap](stash-and-wrap.md).
+
+Not every tool needs every phase. Only add phases that have callers.
+
 ## Consequences
 
 - The CLI works immediately after Phase 1, even without Claude Code installed.
@@ -71,8 +89,14 @@ curl -fsSL https://raw.githubusercontent.com/punt-labs/<repo>/<SHA>/install.sh |
   top-level commands after the plugin is installed.
 - [Doctor Checks](doctor-checks.md) — Validates the results of both phases plus
   external dependencies that neither phase controls.
-- [Stash and Wrap](stash-and-wrap.md) — An optional third phase for status line
-  integration, separated because it modifies global UI.
+- [CLAUDE.md Injection](claude-md-injection.md) — Phase 2a: inject capabilities
+  into global agent context.
+- [Ethos Extension Setup](ethos-ext-setup.md) — Phase 2b: write session context
+  into ethos identity extensions.
+- [Stash and Wrap](stash-and-wrap.md) — Phase 3: status line integration,
+  separated because it modifies global UI.
+- [Daemon + Proxy MCP](daemon-proxy-mcp.md) — Daemon and proxy installation
+  happen during Phase 1 for tools with heavy initialization.
 
 ## Known Uses
 

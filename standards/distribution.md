@@ -260,6 +260,36 @@ server), and runs `<tool> doctor`. Should also have a **`.mcpb` bundle** for
 one-click Claude Desktop installation. Build with `@anthropic-ai/mcpb` via
 `scripts/build-mcpb.sh`. Attach to GitHub releases.
 
+#### When to use a daemon
+
+Tools with heavy initialization (embedding models, inference runtimes, large
+indexes) should use a resident daemon instead of cold-starting on every MCP
+call. Decision criteria:
+
+| Init time | Shared state? | Architecture |
+|-----------|--------------|--------------|
+| < 2s | No | Direct stdio (`<tool> mcp`) |
+| < 2s | Yes | Direct stdio + file-based state |
+| > 2s | Any | Daemon + mcp-proxy |
+
+Architecture: `<tool> serve --port N` loads resources once and stays resident.
+`mcp-proxy` (~5 MB Go binary, <10ms startup) bridges MCP stdio to
+`ws://localhost:N/mcp` over WebSocket. The install step configures MCP clients
+with a fallback script:
+
+```bash
+sh -c 'if command -v mcp-proxy >/dev/null 2>&1; \
+  then exec mcp-proxy ws://localhost:<port>/mcp; \
+  else exec <tool> mcp; fi'
+```
+
+Service registration: launchd on macOS (`~/Library/LaunchAgents/`), systemd
+user unit on Linux (`~/.config/systemd/user/`). Both are user-scoped — no root
+required.
+
+See [daemon-proxy-mcp](../patterns/daemon-proxy-mcp.md) pattern for full
+details. Reference implementation: quarry architecture.tex § Daemon Model.
+
 ### CLI + plugin hybrids
 
 Examples: biff, quarry, tts, punt-kit.
@@ -355,6 +385,85 @@ environment variables or a `.local` file that is gitignored.
   keychain.
 - `doctor` should verify that required secrets are available without printing
   them.
+
+---
+
+## Ethos Extension Setup
+
+Tools that need to inject instructions into the agent's context at session
+start and after context compaction use the ethos extension mechanism. Ethos
+emits the `session_context` key from any extension YAML verbatim — no
+tool-specific code in ethos.
+
+### Extension file
+
+```text
+~/.punt-labs/ethos/identities/<handle>.ext/<tool>.yaml
+```
+
+The file contains tool-specific config keys and a `session_context` YAML
+literal block scalar with markdown instructions.
+
+### Install behavior
+
+During `<tool> install`, scan all identity extension directories and append
+`session_context` to any `<tool>.yaml` that has config keys but no
+`session_context`. Rules:
+
+- **Raw-append, not YAML round-trip.** `yaml.safe_load` to parse, raw file
+  append to write. `yaml.dump` destroys comments and formatting.
+- **Idempotent.** Skip if `session_context` already present.
+- **Per-identity exception handling.** One malformed file must not abort the
+  rest.
+- **Surface missing config.** Identities with `<tool>.yaml` but no expected
+  config key should be reported, not silently skipped.
+
+### Ownership boundary
+
+The tool owns its instructions. Ethos delivers them. Adding a new tool's
+session context requires zero ethos code changes.
+
+Pattern: [ethos-ext-setup](../patterns/ethos-ext-setup.md). Reference
+implementation: quarry v1.8.1 DES-019.
+
+---
+
+## CLAUDE.md Capabilities Injection
+
+Tools that provide slash commands, auto-behaviors, or agents should inject a
+capabilities section into `~/.claude/CLAUDE.md` during install. This file is
+loaded into every session, so agents always know what's available.
+
+### Marker comments
+
+Wrap the section in tool-specific HTML comments for idempotent detection.
+Each tool uses its own name in the marker to avoid collisions:
+
+```markdown
+<!-- <tool>:capabilities -->
+# Tool Name
+
+- **Slash commands**: `/find`, `/ingest`, `/remember`
+- **Auto-behaviors**: auto-indexes project on session start
+- **Tip**: natural language queries work best
+<!-- /<tool>:capabilities -->
+```
+
+### Rules
+
+- **Append-or-skip.** Check for the opening marker. Append if absent, skip
+  if present.
+- **Create if missing.** If `~/.claude/CLAUDE.md` doesn't exist, create it
+  with just the tool's section.
+- **Keep it short.** 10-15 lines per tool. Enough for discoverability, not
+  a reference manual.
+- **Global tools only.** Per-project tools should use per-project
+  `CLAUDE.md` files, not the global one.
+- **Stable content.** The injected section should rarely change between
+  versions. There is currently no update mechanism — old content persists.
+
+Pattern: [claude-md-injection](../patterns/claude-md-injection.md). Reference
+implementation: quarry `_inject_claude_md()` in doctor.py.
 
 ---
 

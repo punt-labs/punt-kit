@@ -27,6 +27,12 @@ Implement a `doctor` subcommand that runs a checklist of diagnostic checks, each
 - Per-repo config file exists (`.biff`, `.env`, etc.)
 - Optional features installed (status line, shell completion)
 - Version compatibility warnings
+- Ethos extension: `session_context` present in identity ext file (see
+  [Ethos Extension Setup](ethos-ext-setup.md))
+- CLAUDE.md: tool's capabilities section present (see
+  [CLAUDE.md Injection](claude-md-injection.md))
+- Daemon health: process running, port responding (see
+  [Daemon + Proxy MCP](daemon-proxy-mcp.md))
 
 ### Output format
 
@@ -60,3 +66,4 @@ Exit code 0 if all required checks pass. Exit code 1 if any required check fails
 ## Known Uses
 
 - **Biff** — `biff doctor` runs six checks: `gh` CLI (required), MCP server (required), plugin commands (required), NATS relay (required), `.biff` file (informational), status line (informational). NATS connectivity uses a 3-second timeout with `asyncio.run()`.
+- **Quarry** — `quarry doctor` runs nine checks: Python version, data directory, local OCR, embedding model, core imports, mcp-proxy, Claude Code MCP, Claude Desktop MCP, storage. `quarry install` adds ethos ext session_context and CLAUDE.md checks during the install flow.
