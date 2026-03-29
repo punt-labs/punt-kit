@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `restore-dev-plugin.sh`: find dev commit by content instead of `HEAD~1`
+  position, which broke when multiple PRs merged between the release tag and
+  Phase 9 post-release
+
 ## [0.11.1] - 2026-03-28
 
 ### Changed

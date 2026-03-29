@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
@@ -1771,3 +1772,119 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     # Should raise SystemExit — profile SHA does not resolve
     with pytest.raises(SystemExit):
         _phase11_verify(info, version, dry_run=False)
+
+
+# --- restore-dev-plugin.sh ---
+
+# Path to the real restore-dev-plugin.sh script
+_RESTORE_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    os.pardir,
+    "scripts",
+    "restore-dev-plugin.sh",
+)
+
+
+def _install_restore_script(root: Path) -> None:
+    """Copy the real restore-dev-plugin.sh into a test repo."""
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir(exist_ok=True)
+    dest = scripts_dir / "restore-dev-plugin.sh"
+    with open(_RESTORE_SCRIPT) as f:
+        dest.write_text(f.read())
+    dest.chmod(0o755)
+
+
+def test_restore_dev_plugin_finds_dev_commit_past_head1(tmp_path: Path) -> None:
+    """restore-dev-plugin.sh finds dev state even when HEAD~1 is unrelated.
+
+    Simulates the scenario where multiple PRs merge between the release swap
+    and Phase 9 (post-release), so HEAD~1 no longer has the dev plugin state.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    # Create dev plugin state
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    commands_dir = root / "commands"
+    commands_dir.mkdir()
+    (commands_dir / "hello.md").write_text("# Hello\nDev command\n")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev plugin state"], cwd=d)
+
+    # Release swap: remove -dev from name (simulates release-plugin.sh)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "chore: prepare plugin for release"], cwd=d)
+
+    # Simulate 2 unrelated PRs merging after release tag
+    (root / "unrelated1.txt").write_text("pr 1\n")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "feat: unrelated PR 1"], cwd=d)
+
+    (root / "unrelated2.txt").write_text("pr 2\n")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "feat: unrelated PR 2"], cwd=d)
+
+    # Copy the real restore-dev-plugin.sh into the test repo
+    _install_restore_script(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add restore script"], cwd=d)
+
+    # Run the script
+    subprocess.run(
+        ["bash", str(root / "scripts" / "restore-dev-plugin.sh")],
+        cwd=d,
+        check=True,
+        capture_output=True,
+    )
+
+    # Verify plugin.json now has the dev name
+    restored = json.loads((plugin_dir / "plugin.json").read_text())
+    assert restored["name"] == "test-dev"
+
+    # Verify the dev command was restored
+    assert (commands_dir / "hello.md").read_text() == "# Hello\nDev command\n"
+
+
+def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
+    """restore-dev-plugin.sh exits non-zero when no dev commit exists."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    # Create plugin state that never had -dev in the name
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    commands_dir = root / "commands"
+    commands_dir.mkdir()
+    (commands_dir / "hello.md").write_text("# Hello\n")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add plugin without dev name"], cwd=d)
+
+    # Copy the real restore-dev-plugin.sh
+    _install_restore_script(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add restore script"], cwd=d)
+
+    # Run the script — should fail
+    result = subprocess.run(
+        ["bash", str(root / "scripts" / "restore-dev-plugin.sh")],
+        cwd=d,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "No commit found with dev plugin name" in result.stderr

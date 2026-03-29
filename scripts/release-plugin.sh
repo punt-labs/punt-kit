@@ -4,7 +4,7 @@ set -euo pipefail
 # Prepare plugin for release: swap name to prod, remove -dev commands.
 # The tagged commit has only prod artifacts; the marketplace cache clones from it.
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." || exit 1; pwd)"
 PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
 COMMANDS_DIR="${REPO_ROOT}/commands"
 
