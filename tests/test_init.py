@@ -455,3 +455,216 @@ def test_init_language_override_invalid(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="1"):
         run_init(str(tmp_path), language="rust")
+
+
+# --- Skill() permission tests ---
+
+
+def test_build_standard_permissions_includes_skill_entries(tmp_path: Path) -> None:
+    """build_standard_permissions returns Skill() entries for all plugins."""
+    from punt_kit.detect import detect
+    from punt_kit.init import build_standard_permissions
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    info = detect(tmp_path)
+    perms = build_standard_permissions(info)
+
+    skill_perms = [p for p in perms if p.startswith("Skill(")]
+    expected_skills = sorted(
+        [
+            "Skill(beadle:mail)",
+            "Skill(beadle:send)",
+            "Skill(beadle:inbox)",
+            "Skill(beadle:contacts)",
+            "Skill(biff:biff)",
+            "Skill(biff:who)",
+            "Skill(biff:finger)",
+            "Skill(biff:plan)",
+            "Skill(biff:write)",
+            "Skill(biff:read)",
+            "Skill(biff:talk)",
+            "Skill(biff:tty)",
+            "Skill(biff:wall)",
+            "Skill(biff:mesg)",
+            "Skill(biff:last)",
+            "Skill(commit-commands:commit)",
+            "Skill(commit-commands:commit-push-pr)",
+            "Skill(commit-commands:clean_gone)",
+            "Skill(dungeon:d)",
+            "Skill(ethos:identity)",
+            "Skill(ethos:session)",
+            "Skill(ethos:role)",
+            "Skill(ethos:team)",
+            "Skill(ethos:talent)",
+            "Skill(ethos:personality)",
+            "Skill(ethos:writing-style)",
+            "Skill(ethos:ext)",
+            "Skill(lux:lux)",
+            "Skill(prfaq:vote)",
+            "Skill(prfaq:meeting)",
+            "Skill(prfaq:meeting-hive)",
+            "Skill(prfaq:meeting-listen)",
+            "Skill(prfaq:review)",
+            "Skill(prfaq:research)",
+            "Skill(prfaq:feedback)",
+            "Skill(prfaq:streamline)",
+            "Skill(prfaq:export)",
+            "Skill(prfaq:externalize)",
+            "Skill(prfaq:import)",
+            "Skill(prfaq:badge)",
+            "Skill(prfaq:feedback-to-us)",
+            "Skill(punt:init)",
+            "Skill(punt:audit)",
+            "Skill(punt:reconcile)",
+            "Skill(punt:pii)",
+            "Skill(punt:auto)",
+            "Skill(punt:claude2cursor)",
+            "Skill(quarry:find)",
+            "Skill(quarry:ingest)",
+            "Skill(quarry:remember)",
+            "Skill(quarry:quarry)",
+            "Skill(quarry:explain)",
+            "Skill(quarry:source)",
+            "Skill(vox:unmute)",
+            "Skill(vox:mute)",
+            "Skill(vox:vibe)",
+            "Skill(vox:recap)",
+            "Skill(vox:vox)",
+            "Skill(z-spec:check)",
+            "Skill(z-spec:test)",
+            "Skill(z-spec:model2code)",
+            "Skill(z-spec:code2model)",
+            "Skill(z-spec:audit)",
+            "Skill(z-spec:partition)",
+            "Skill(z-spec:prove)",
+            "Skill(z-spec:refine)",
+            "Skill(z-spec:contracts)",
+            "Skill(z-spec:oracle)",
+            "Skill(z-spec:elaborate)",
+            "Skill(z-spec:b-create)",
+            "Skill(z-spec:b-check)",
+            "Skill(z-spec:b-animate)",
+            "Skill(z-spec:b-refine)",
+            "Skill(z-spec:setup)",
+            "Skill(z-spec:doctor)",
+            "Skill(z-spec:help)",
+            "Skill(z-spec:cleanup)",
+        ]
+    )
+    assert sorted(skill_perms) == expected_skills, (
+        f"Skill perm mismatch:\n"
+        f"  missing={sorted(set(expected_skills) - set(skill_perms))}\n"
+        f"  extra={sorted(set(skill_perms) - set(expected_skills))}"
+    )
+
+    # One representative per plugin group
+    assert "Skill(beadle:mail)" in skill_perms
+    assert "Skill(biff:who)" in skill_perms
+    assert "Skill(commit-commands:commit)" in skill_perms
+    assert "Skill(dungeon:d)" in skill_perms
+    assert "Skill(ethos:identity)" in skill_perms
+    assert "Skill(lux:lux)" in skill_perms
+    assert "Skill(prfaq:vote)" in skill_perms
+    assert "Skill(punt:audit)" in skill_perms
+    assert "Skill(quarry:find)" in skill_perms
+    assert "Skill(vox:vox)" in skill_perms
+    assert "Skill(z-spec:check)" in skill_perms
+
+
+def test_init_settings_json_includes_skill_entries(tmp_path: Path) -> None:
+    """Init writes Skill() entries into .claude/settings.json."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    skill_entries = [p for p in allow if p.startswith("Skill(")]
+    expected_skills = sorted(
+        [
+            "Skill(beadle:mail)",
+            "Skill(beadle:send)",
+            "Skill(beadle:inbox)",
+            "Skill(beadle:contacts)",
+            "Skill(biff:biff)",
+            "Skill(biff:who)",
+            "Skill(biff:finger)",
+            "Skill(biff:plan)",
+            "Skill(biff:write)",
+            "Skill(biff:read)",
+            "Skill(biff:talk)",
+            "Skill(biff:tty)",
+            "Skill(biff:wall)",
+            "Skill(biff:mesg)",
+            "Skill(biff:last)",
+            "Skill(commit-commands:commit)",
+            "Skill(commit-commands:commit-push-pr)",
+            "Skill(commit-commands:clean_gone)",
+            "Skill(dungeon:d)",
+            "Skill(ethos:identity)",
+            "Skill(ethos:session)",
+            "Skill(ethos:role)",
+            "Skill(ethos:team)",
+            "Skill(ethos:talent)",
+            "Skill(ethos:personality)",
+            "Skill(ethos:writing-style)",
+            "Skill(ethos:ext)",
+            "Skill(lux:lux)",
+            "Skill(prfaq:vote)",
+            "Skill(prfaq:meeting)",
+            "Skill(prfaq:meeting-hive)",
+            "Skill(prfaq:meeting-listen)",
+            "Skill(prfaq:review)",
+            "Skill(prfaq:research)",
+            "Skill(prfaq:feedback)",
+            "Skill(prfaq:streamline)",
+            "Skill(prfaq:export)",
+            "Skill(prfaq:externalize)",
+            "Skill(prfaq:import)",
+            "Skill(prfaq:badge)",
+            "Skill(prfaq:feedback-to-us)",
+            "Skill(punt:init)",
+            "Skill(punt:audit)",
+            "Skill(punt:reconcile)",
+            "Skill(punt:pii)",
+            "Skill(punt:auto)",
+            "Skill(punt:claude2cursor)",
+            "Skill(quarry:find)",
+            "Skill(quarry:ingest)",
+            "Skill(quarry:remember)",
+            "Skill(quarry:quarry)",
+            "Skill(quarry:explain)",
+            "Skill(quarry:source)",
+            "Skill(vox:unmute)",
+            "Skill(vox:mute)",
+            "Skill(vox:vibe)",
+            "Skill(vox:recap)",
+            "Skill(vox:vox)",
+            "Skill(z-spec:check)",
+            "Skill(z-spec:test)",
+            "Skill(z-spec:model2code)",
+            "Skill(z-spec:code2model)",
+            "Skill(z-spec:audit)",
+            "Skill(z-spec:partition)",
+            "Skill(z-spec:prove)",
+            "Skill(z-spec:refine)",
+            "Skill(z-spec:contracts)",
+            "Skill(z-spec:oracle)",
+            "Skill(z-spec:elaborate)",
+            "Skill(z-spec:b-create)",
+            "Skill(z-spec:b-check)",
+            "Skill(z-spec:b-animate)",
+            "Skill(z-spec:b-refine)",
+            "Skill(z-spec:setup)",
+            "Skill(z-spec:doctor)",
+            "Skill(z-spec:help)",
+            "Skill(z-spec:cleanup)",
+        ]
+    )
+    assert sorted(skill_entries) == expected_skills, (
+        f"Skill perm mismatch:\n"
+        f"  missing={sorted(set(expected_skills) - set(skill_entries))}\n"
+        f"  extra={sorted(set(skill_entries) - set(expected_skills))}"
+    )
