@@ -604,3 +604,21 @@ def test_audit_fails_missing_help_comment(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="1"):
         run_audit(str(tmp_path))
+
+
+# --- Skill() permission audit tests ---
+
+
+def test_audit_fails_missing_skill_entries(tmp_path: Path) -> None:
+    """Audit fails when settings.json is missing Skill() entries."""
+    _make_compliant_python(tmp_path)
+    # Overwrite settings with allow list that has no Skill() entries at all
+    settings_path = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings_path.read_text())
+    data["permissions"]["allow"] = [
+        p for p in data["permissions"]["allow"] if not p.startswith("Skill(")
+    ]
+    settings_path.write_text(json.dumps(data, indent=2) + "\n")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))

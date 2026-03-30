@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
-from punt_kit.init import run_init
+from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
+
+_EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
 
 
 def test_init_creates_docs_workflow(tmp_path: Path) -> None:
@@ -455,3 +457,56 @@ def test_init_language_override_invalid(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="1"):
         run_init(str(tmp_path), language="rust")
+
+
+# --- Skill() permission tests ---
+
+
+def test_build_standard_permissions_includes_skill_entries(tmp_path: Path) -> None:
+    """build_standard_permissions returns Skill() entries for all plugins."""
+    from punt_kit.detect import detect
+    from punt_kit.init import build_standard_permissions
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    info = detect(tmp_path)
+    perms = build_standard_permissions(info)
+
+    skill_perms = [p for p in perms if p.startswith("Skill(")]
+    expected_skills = _EXPECTED_SKILLS
+    assert sorted(skill_perms) == expected_skills, (
+        f"Skill perm mismatch:\n"
+        f"  missing={sorted(set(expected_skills) - set(skill_perms))}\n"
+        f"  extra={sorted(set(skill_perms) - set(expected_skills))}"
+    )
+
+    # One representative per plugin group
+    assert "Skill(beadle:mail)" in skill_perms
+    assert "Skill(biff:who)" in skill_perms
+    assert "Skill(commit-commands:commit)" in skill_perms
+    assert "Skill(dungeon:d)" in skill_perms
+    assert "Skill(ethos:identity)" in skill_perms
+    assert "Skill(lux:lux)" in skill_perms
+    assert "Skill(prfaq:vote)" in skill_perms
+    assert "Skill(punt:audit)" in skill_perms
+    assert "Skill(quarry:find)" in skill_perms
+    assert "Skill(vox:vox)" in skill_perms
+    assert "Skill(z-spec:check)" in skill_perms
+
+
+def test_init_settings_json_includes_skill_entries(tmp_path: Path) -> None:
+    """Init writes Skill() entries into .claude/settings.json."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    skill_entries = [p for p in allow if p.startswith("Skill(")]
+    expected_skills = _EXPECTED_SKILLS
+    assert sorted(skill_entries) == expected_skills, (
+        f"Skill perm mismatch:\n"
+        f"  missing={sorted(set(expected_skills) - set(skill_entries))}\n"
+        f"  extra={sorted(set(skill_entries) - set(expected_skills))}"
+    )

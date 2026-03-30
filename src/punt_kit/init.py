@@ -36,6 +36,98 @@ STANDARD_DISPLAY_NAMES: dict[str, str] = {
 SUPPORTED_LANGUAGES = ("python", "node", "go", "swift")
 
 
+STANDARD_SKILL_PERMISSIONS: tuple[str, ...] = (
+    # beadle
+    "Skill(beadle:mail)",
+    "Skill(beadle:send)",
+    "Skill(beadle:inbox)",
+    "Skill(beadle:contacts)",
+    # biff
+    "Skill(biff:biff)",
+    "Skill(biff:who)",
+    "Skill(biff:finger)",
+    "Skill(biff:plan)",
+    "Skill(biff:write)",
+    "Skill(biff:read)",
+    "Skill(biff:talk)",
+    "Skill(biff:tty)",
+    "Skill(biff:wall)",
+    "Skill(biff:mesg)",
+    "Skill(biff:last)",
+    # commit-commands
+    "Skill(commit-commands:commit)",
+    "Skill(commit-commands:commit-push-pr)",
+    "Skill(commit-commands:clean_gone)",
+    # dungeon
+    "Skill(dungeon:d)",
+    # ethos
+    "Skill(ethos:identity)",
+    "Skill(ethos:session)",
+    "Skill(ethos:role)",
+    "Skill(ethos:team)",
+    "Skill(ethos:talent)",
+    "Skill(ethos:personality)",
+    "Skill(ethos:writing-style)",
+    "Skill(ethos:ext)",
+    # lux
+    "Skill(lux:lux)",
+    # prfaq
+    "Skill(prfaq:vote)",
+    "Skill(prfaq:meeting)",
+    "Skill(prfaq:meeting-hive)",
+    "Skill(prfaq:meeting-listen)",
+    "Skill(prfaq:review)",
+    "Skill(prfaq:research)",
+    "Skill(prfaq:feedback)",
+    "Skill(prfaq:streamline)",
+    "Skill(prfaq:export)",
+    "Skill(prfaq:externalize)",
+    "Skill(prfaq:import)",
+    "Skill(prfaq:badge)",
+    "Skill(prfaq:feedback-to-us)",
+    # punt
+    "Skill(punt:init)",
+    "Skill(punt:audit)",
+    "Skill(punt:reconcile)",
+    "Skill(punt:pii)",
+    "Skill(punt:auto)",
+    "Skill(punt:claude2cursor)",
+    # quarry
+    "Skill(quarry:find)",
+    "Skill(quarry:ingest)",
+    "Skill(quarry:remember)",
+    "Skill(quarry:quarry)",
+    "Skill(quarry:explain)",
+    "Skill(quarry:source)",
+    # vox
+    "Skill(vox:unmute)",
+    "Skill(vox:mute)",
+    "Skill(vox:vibe)",
+    "Skill(vox:recap)",
+    "Skill(vox:vox)",
+    # z-spec
+    "Skill(z-spec:check)",
+    "Skill(z-spec:test)",
+    "Skill(z-spec:model2code)",
+    "Skill(z-spec:code2model)",
+    "Skill(z-spec:audit)",
+    "Skill(z-spec:partition)",
+    "Skill(z-spec:prove)",
+    "Skill(z-spec:refine)",
+    "Skill(z-spec:contracts)",
+    "Skill(z-spec:oracle)",
+    "Skill(z-spec:elaborate)",
+    "Skill(z-spec:b-create)",
+    "Skill(z-spec:b-check)",
+    "Skill(z-spec:b-animate)",
+    "Skill(z-spec:b-refine)",
+    "Skill(z-spec:setup)",
+    "Skill(z-spec:doctor)",
+    "Skill(z-spec:help)",
+    "Skill(z-spec:cleanup)",
+)
+
+
 def run_init(path: str, *, language: str | None = None) -> None:
     """Detect project type, generate/update missing files, report manual steps.
 
@@ -472,6 +564,9 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
     plugin_name = _get_plugin_name(info)
     for server in info.plugin_mcp_servers:
         perms.append(f"mcp__plugin_{plugin_name}_{server}__*")
+
+    # Plugin skills
+    perms.extend(STANDARD_SKILL_PERMISSIONS)
 
     return perms
 
