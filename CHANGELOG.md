@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-03-29
+
 ### Changed
 
 - Release CI: removed TestPyPI and test-install jobs from `release.yml`. The
