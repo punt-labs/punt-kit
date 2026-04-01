@@ -305,6 +305,7 @@ is running the new code. Use `sudo PATH="$PATH" <tool> daemon install` to
 preserve the user's PATH through sudo (required because `~/.local/bin/` is
 not in root's secure_path).
 
+**Daemon-based tools:** vox (`voxd`), quarry, cryptd, lux (planned).
 Reference implementation: vox v4 (`voxd` daemon, `vox mcp` thin client).
 See vox DESIGN.md DES-028.
 
