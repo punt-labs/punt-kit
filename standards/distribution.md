@@ -284,7 +284,8 @@ Claude Code ◄── stdio ──► <tool> mcp ── WebSocket ──► <too
 ```
 
 **Daemon restart does not break MCP sessions.** The MCP session is stdio
-(unaffected). The WebSocket reconnects automatically.
+(unaffected). The `<tool> mcp` process must implement WebSocket reconnection
+with backoff so it re-establishes the connection to the daemon after a restart.
 
 **Service registration:** system-level, requires `sudo`:
 - macOS: `/Library/LaunchDaemons/` with `UserName` = installing user
@@ -293,21 +294,27 @@ Claude Code ◄── stdio ──► <tool> mcp ── WebSocket ──► <too
 The daemon runs as the installing user (not root) because it needs access
 to audio devices, display servers, or other user-session resources.
 
-**Daemon data:** system directories, not home directory.
+**Daemon data:** daemon runtime state (config, logs, port/token files) lives
+in system directories. This is an exception to the `~/.punt-labs/<tool>/`
+convention in [filesystem.md](filesystem.md), which applies to client-side
+CLI tools. Daemons are system services and follow platform conventions:
 - macOS: `$(brew --prefix)/etc/<tool>/`, `$(brew --prefix)/var/log/<tool>/`,
   `$(brew --prefix)/var/run/<tool>/`
 - Linux: `/etc/<tool>/`, `/var/log/<tool>/`, `/var/run/<tool>/`
 
+Client-side state (caches, per-project config) may still use
+`~/.punt-labs/<tool>/` per the filesystem standard.
+
 **Install must bounce the daemon.** Every `install.sh` that installs a
 package with a daemon must: (1) stop the existing daemon, (2) install the
 new code, (3) restart the daemon. The installer exits only after the daemon
-is running the new code. Use `sudo PATH=$PATH <tool> daemon install` to
-preserve the user's PATH through sudo (required because `~/.local/bin/` is
-not in root's secure_path).
+is running the new code. Use `sudo env "PATH=$PATH" <tool> daemon install`
+to preserve the user's PATH through sudo (required because `~/.local/bin/`
+is not in root's secure_path and some sudoers configs restrict env vars).
 
 **Daemon-based tools:** vox (`voxd`), quarry, cryptd, lux (planned).
-Reference implementation: vox v4 (`voxd` daemon, `vox mcp` thin client).
-See vox DESIGN.md DES-028.
+Reference implementation:
+[vox DESIGN.md DES-028](https://github.com/punt-labs/vox/blob/main/DESIGN.md#des-028-vox-v3--audio-server-architecture).
 
 ### CLI + plugin hybrids
 
