@@ -279,7 +279,7 @@ memory and delegates to the daemon over WebSocket. This separates the MCP
 session lifecycle (per Claude Code session) from the daemon lifecycle
 (per machine).
 
-```
+```text
 Claude Code ◄── stdio ──► <tool> mcp ── WebSocket ──► <tool>d :port
 ```
 
@@ -301,7 +301,7 @@ to audio devices, display servers, or other user-session resources.
 **Install must bounce the daemon.** Every `install.sh` that installs a
 package with a daemon must: (1) stop the existing daemon, (2) install the
 new code, (3) restart the daemon. The installer exits only after the daemon
-is running the new code. Use `sudo PATH="$PATH" <tool> daemon install` to
+is running the new code. Use `sudo PATH=$PATH <tool> daemon install` to
 preserve the user's PATH through sudo (required because `~/.local/bin/` is
 not in root's secure_path).
 
