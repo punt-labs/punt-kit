@@ -263,32 +263,58 @@ one-click Claude Desktop installation. Build with `@anthropic-ai/mcpb` via
 #### When to use a daemon
 
 Tools with heavy initialization (embedding models, inference runtimes, large
-indexes) should use a resident daemon instead of cold-starting on every MCP
-call. Decision criteria:
+indexes) or shared hardware resources (speakers, microphones) should use a
+resident daemon instead of cold-starting on every MCP call. Decision criteria:
 
-| Init time | Shared state? | Architecture |
-|-----------|--------------|--------------|
+| Init time | Shared resource? | Architecture |
+|-----------|-----------------|--------------|
 | < 2s | No | Direct stdio (`<tool> mcp`) |
-| < 2s | Yes | Direct stdio + file-based state |
-| > 2s | Any | Daemon + mcp-proxy |
+| < 2s | Yes (file-based) | Direct stdio + file-based state |
+| > 2s or shared hardware | Any | Daemon (`<tool>d`) + lightweight stdio MCP client |
 
-Architecture: `<tool> serve --port N` loads resources once and stays resident.
-`mcp-proxy` (~5 MB Go binary, <10ms startup) bridges MCP stdio to
-`ws://localhost:N/mcp` over WebSocket. The install step configures MCP clients
-with a fallback script:
+Architecture: the daemon binary (`<tool>d`) starts once, listens on a port
+(WebSocket or HTTP), and owns the shared resource. The MCP server
+(`<tool> mcp`) is a lightweight stdio process that holds session state in
+memory and delegates to the daemon over WebSocket. This separates the MCP
+session lifecycle (per Claude Code session) from the daemon lifecycle
+(per machine).
 
-```bash
-sh -c 'if command -v mcp-proxy >/dev/null 2>&1; \
-  then exec mcp-proxy ws://localhost:<port>/mcp; \
-  else exec <tool> mcp; fi'
+```text
+Claude Code ◄── stdio ──► <tool> mcp ── WebSocket ──► <tool>d :port
 ```
 
-Service registration: launchd on macOS (`~/Library/LaunchAgents/`), systemd
-user unit on Linux (`~/.config/systemd/user/`). Both are user-scoped — no root
-required.
+**Daemon restart does not break MCP sessions.** The MCP session is stdio
+(unaffected). The `<tool> mcp` process must implement WebSocket reconnection
+with backoff so it re-establishes the connection to the daemon after a restart.
 
-See [daemon-proxy-mcp](../patterns/daemon-proxy-mcp.md) pattern for full
-details. Reference implementation: quarry architecture.tex § Daemon Model.
+**Service registration:** system-level, requires `sudo`:
+- macOS: `/Library/LaunchDaemons/` with `UserName` = installing user
+- Linux: `/etc/systemd/system/` with `User` = installing user
+
+The daemon runs as the installing user (not root) because it needs access
+to audio devices, display servers, or other user-session resources.
+
+**Daemon data:** daemon runtime state (config, logs, port/token files) lives
+in system directories. This is an exception to the `~/.punt-labs/<tool>/`
+convention in [filesystem.md](filesystem.md), which applies to client-side
+CLI tools. Daemons are system services and follow platform conventions:
+- macOS: `$(brew --prefix)/etc/<tool>/`, `$(brew --prefix)/var/log/<tool>/`,
+  `$(brew --prefix)/var/run/<tool>/`
+- Linux: `/etc/<tool>/`, `/var/log/<tool>/`, `/var/run/<tool>/`
+
+Client-side state (caches, per-project config) may still use
+`~/.punt-labs/<tool>/` per the filesystem standard.
+
+**Install must bounce the daemon.** Every `install.sh` that installs a
+package with a daemon must: (1) stop the existing daemon, (2) install the
+new code, (3) restart the daemon. The installer exits only after the daemon
+is running the new code. Use `sudo env "PATH=$PATH" <tool> daemon install`
+to preserve the user's PATH through sudo (required because `~/.local/bin/`
+is not in root's secure_path and some sudoers configs restrict env vars).
+
+**Daemon-based tools:** vox (`voxd`), quarry, cryptd, lux (planned).
+Reference implementation:
+[vox DESIGN.md DES-028](https://github.com/punt-labs/vox/blob/main/DESIGN.md#des-028-vox-v3--audio-server-architecture).
 
 ### CLI + plugin hybrids
 
