@@ -134,35 +134,47 @@ scripts:
   `claude plugin install` so existing users pick up `source.ref` pins (DES-003).
 - **Uninstall before install** — call
   `claude plugin uninstall <name>@<marketplace> < /dev/null 2>/dev/null || true`
-  immediately before `claude plugin install`. `claude plugin install` is a
-  no-op when the plugin is already cached at any version, so without the
-  explicit uninstall, re-running `install.sh` does not actually upgrade
-  existing installations — users stay on whatever version they first installed
-  forever. Note: Claude Code keeps a versioned cache directory per installed
-  version (`~/.claude/plugins/cache/<org>/<name>/<version>/`) — multiple
-  versions cohabit by design, and `installed_plugins.json` records which one
-  is active. Pattern: `biff/install.sh:138`, `quarry/install.sh:175`,
-  `vox/install.sh:169`, `beadle/install.sh:148`. The full ordering is
+  immediately before `claude plugin install`. The observed behavior on a
+  stuck dev machine (beadle-4qk, 2026-04-07) is that re-running `install.sh`
+  does **not** upgrade an existing installation: the cache stayed pinned to
+  the originally-installed version even though the marketplace clone had
+  been refreshed to a newer ref. The simplest explanation is that
+  `claude plugin install` short-circuits when the plugin is already present
+  in the target scope, regardless of version. This was not directly verified
+  by running `claude plugin install` standalone — the evidence is the failure
+  mode itself: without an explicit uninstall, re-runs of `install.sh` did
+  not flip the active version; with an uninstall, they do. Note that Claude
+  Code keeps a versioned cache directory per installed version
+  (`~/.claude/plugins/cache/<org>/<name>/<version>/`) — multiple versions
+  cohabit by design, and `installed_plugins.json` records which one is
+  active per scope. Pattern: `biff/install.sh:138`, `quarry/install.sh:175`,
+  `vox/install.sh:169`, `beadle/install.sh:149`. The full ordering is
   **marketplace refresh → uninstall → install**. Use `claude plugin uninstall +
   install`, **not** `claude plugin update` — Punt Labs learned `update` has
-  issues this pattern avoids.
+  issues this pattern avoids (institutional knowledge from another project,
+  not re-derived here).
 - **Detect uninstall failure** — the simple
   `< /dev/null 2>/dev/null || true` shape silences both expected failures
   (plugin not installed on a fresh machine) and unexpected ones (transient
   network error, removed subcommand, permission issue). When uninstall
   silently fails on an installed user, the subsequent `claude plugin install`
-  may short-circuit and leave the user pinned to the old version with no
-  signal that the upgrade failed. The hardened pattern must distinguish the
-  two cases: detect installed state first (via `claude plugin list` or by
-  reading `~/.claude/plugins/installed_plugins.json`), skip uninstall on a
-  fresh machine, and propagate real uninstall failures with an actionable
-  error message instead of swallowing them. If the install itself fails after
-  a successful uninstall, surface an explicit "rollback" message before
-  falling through to whatever fallback path exists. Cross-cutting work
-  tracked in: `biff-8hg1`, `quarry-9ipx`, `vox-2fj`, `beadle-2nk`. The first
-  repo to land the hardened implementation becomes the canonical reference;
-  the others backport to keep the four scripts in lockstep, and this bullet
-  is updated with the concrete shell snippet once one is validated.
+  is likely to short-circuit (per the previous bullet) and leave the user
+  pinned to the old version with no signal that the upgrade failed. The
+  hardened pattern must distinguish the two cases: detect installed state
+  first (via `claude plugin list` or by reading
+  `~/.claude/plugins/installed_plugins.json`), skip uninstall on a fresh
+  machine, and propagate real uninstall failures with an actionable error
+  message instead of swallowing them. If the install itself fails after a
+  successful uninstall, surface a clear error — the exact recovery story
+  (whether the previous cache directory persists and can be reactivated, or
+  whether `claude plugin uninstall` deletes the cache directory entirely) is
+  not yet characterised; this bullet should be updated when the first
+  implementation lands and the behavior is empirically verified. Cross-
+  cutting work tracked in: `biff-8hg1`, `quarry-9ipx`, `vox-2fj`,
+  `beadle-2nk`. The first repo to land the hardened implementation becomes
+  the canonical reference; the others backport to keep the four scripts in
+  lockstep, and this bullet is updated with the concrete shell snippet once
+  one is validated.
 - **Stdin protection** — every `claude` command must have `< /dev/null` and
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
