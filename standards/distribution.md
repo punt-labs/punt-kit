@@ -132,6 +132,21 @@ scripts:
   after both success and failure paths.
 - **Marketplace refresh** — run `claude plugin marketplace update` before
   `claude plugin install` so existing users pick up `source.ref` pins (DES-003).
+- **Uninstall before install** — call
+  `claude plugin uninstall <name>@<marketplace> < /dev/null 2>/dev/null || true`
+  immediately before `claude plugin install`. `claude plugin install` is a
+  no-op when the plugin is already cached at any version, so without the
+  explicit uninstall, re-running `install.sh` does not actually upgrade
+  existing installations — users stay on whatever version they first installed
+  forever, while `~/.claude/plugins/cache/<org>/<name>/<version>/` remains
+  locked to the original snapshot. Each part of `< /dev/null 2>/dev/null || true`
+  is load-bearing: `< /dev/null` blocks interactive prompts (matches the stdin
+  protection bullet below), `2>/dev/null` suppresses the "plugin not found"
+  error on a fresh machine, and `|| true` converts the non-zero exit into
+  success so `set -e` does not abort the script when the plugin was never
+  installed. Pattern: `biff/install.sh:138`, `quarry/install.sh:175`,
+  `vox/install.sh:169`. The full ordering is **marketplace refresh →
+  uninstall → install**.
 - **Stdin protection** — every `claude` command must have `< /dev/null` and
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
