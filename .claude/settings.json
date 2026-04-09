@@ -36,7 +36,10 @@
       "mcp__plugin_github_github__*",
       "mcp__plugin_quarry_quarry__*",
       "mcp__quarry__*",
-      "Bash(uvx twine:*)"
+      "Bash(uvx twine:*)",
+      "Read",
+      "Edit",
+      "Write"
     ],
     "deny": [
       "Bash(curl:*)",
