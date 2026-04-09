@@ -235,7 +235,7 @@ Pin to a release tag and force the Go toolchain at install time:
 GOTOOLCHAIN=go1.26.1 go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
 ```
 
-`GOTOOLCHAIN` matters at install time only. Without it, Go's toolchain directive in the consumer module can trigger an auto-switch that tries to compile the pinned staticcheck release under a toolchain it was not cut against — the symptom is a `go install` failure or an internal compiler error when running `staticcheck ./...` afterward, and the failure is quiet enough to be mistaken for a project bug. Once installed to `~/go/bin/staticcheck`, the binary runs clean against projects on any toolchain.
+`GOTOOLCHAIN` matters at install time only. Without it, Go's toolchain directive in the consumer module can trigger an auto-switch that tries to compile the pinned staticcheck release under a toolchain it was not cut against — the symptom is a `go install` failure or an internal compiler error when running `staticcheck ./...` afterward, and the failure is quiet enough to be mistaken for a project bug. Once installed to `$GOBIN/staticcheck` (or `$(go env GOPATH)/bin/staticcheck` when `GOBIN` is unset), the binary runs clean against projects on any toolchain.
 
 Reference: bead `punt-t0j`.
 
