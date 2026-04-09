@@ -138,15 +138,33 @@ needed for these.
 ### Cross-project file access
 
 Every project must allow file operations across the monorepo workspace.
-Relative paths (`../**`) are portable — they work regardless of where the
-workspace is cloned. This eliminates the need for manual `settings.local.json`
-setup for cross-project access.
+Sub-agents do not honor path-scoped `Read`/`Write`/`Edit` rules from
+`settings.json` or `settings.local.json` — only the bare tool-name form
+unblocks sub-agent file operations. The team hit this three times
+(2026-04-05, 2026-04-06, 2026-04-08) and routed around it each time before
+root-causing: sub-agents silently failed every file operation, including
+reads inside the current repo, because the allow list only contained
+path-scoped entries like `Read(../**)`.
 
 ```json
-"Read(../**)",
-"Edit(../**)",
-"Write(../**)"
+"Read",
+"Edit",
+"Write"
 ```
+
+The bare form grants Read/Edit/Write across the entire filesystem scope the
+user runs Claude Code in; the path-scoped alternative was false protection
+because sub-agents bypassed it, and the main session already has that scope
+anyway. Deny rules (section 4) still enforce `.env`, `.envrc`, and
+dangerous-bash guards.
+
+#### Why
+
+Claude Code sub-agents inherit the permissions allow list from
+`settings.json`. When `Read`/`Write`/`Edit` are not present as bare entries,
+the default tier is `prompt`, which auto-denies in non-interactive background
+sub-agent execution. Path-scoped forms (`Read(../**)`) are not honored by
+sub-agents in testing. The bare form is the only reliable unblock.
 
 ### WebFetch domains
 
