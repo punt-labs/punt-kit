@@ -301,12 +301,14 @@ structure should still reflect the integration boundary in all cases.
 ### Why this matters
 
 When integration code is mixed into core logic, you get:
+
 - Core modules importing subprocess to shell out to `git`
 - Business logic branching on `if git_repo:` in search paths
 - Test suites that need git repos for unrelated features
 - Difficulty adding a second VCS (or removing git awareness)
 
 When it's separated, you get:
+
 - Core modules that know nothing about version control
 - An integration layer that translates between git concepts and
   quarry concepts

@@ -43,7 +43,7 @@ All notable changes to this project will be documented in this file.
   with `gh pr checks --watch`. Non-required checks like "Claude Code Review"
   no longer hang the release process indefinitely.
 - `punt release` preflight and sibling dirty-tree checks now exclude
-  `.beads/` paths — both untracked (`?? `) and tracked (` M .beads/issues.jsonl`)
+  `.beads/` paths — both untracked (`??`) and tracked (`M .beads/issues.jsonl`)
   files. The beads daemon continuously writes `issues.jsonl`, which was
   blocking every release during active sessions.
 - `punt release` removes manual PyPI approval gate (`environment: release`)
