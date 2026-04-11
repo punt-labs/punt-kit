@@ -245,6 +245,7 @@ Before creating a PR, run local code reviews to catch issues early. This reduces
 ### When to skip
 
 Local review is not required for:
+
 - Documentation-only PRs (no code changes)
 - Version bumps and release mechanics
 - Single-line config changes
@@ -302,7 +303,7 @@ Work is **not** complete until `git push` succeeds.
 
 ## 13. Work Recap
 
-After merging a PR, send a recap email to jim@punt-labs.com. Use `mcp__beadle-email__send_email` if the beadle-email MCP server is available; otherwise ask the user to send it manually or use an alternative.
+After merging a PR, send a recap email to <jim@punt-labs.com>. Use `mcp__beadle-email__send_email` if the beadle-email MCP server is available; otherwise ask the user to send it manually or use an alternative.
 
 ### Format
 

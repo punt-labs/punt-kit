@@ -57,7 +57,7 @@ and pushed to `main` in their respective repos.
 `install-all.sh` curl line for the released project is updated to the new
 install.sh SHA:
 
-```
+```bash
 curl -fsSL "$GH/<project>/<new-sha>/install.sh" | sh
 ```
 

@@ -331,6 +331,7 @@ Claude Code ◄── stdio ──► <tool> mcp ── WebSocket ──► <too
 with backoff so it re-establishes the connection to the daemon after a restart.
 
 **Service registration:** system-level, requires `sudo`:
+
 - macOS: `/Library/LaunchDaemons/` with `UserName` = installing user
 - Linux: `/etc/systemd/system/` with `User` = installing user
 
@@ -341,6 +342,7 @@ to audio devices, display servers, or other user-session resources.
 in system directories. This is an exception to the `~/.punt-labs/<tool>/`
 convention in [filesystem.md](filesystem.md), which applies to client-side
 CLI tools. Daemons are system services and follow platform conventions:
+
 - macOS: `$(brew --prefix)/etc/<tool>/`, `$(brew --prefix)/var/log/<tool>/`,
   `$(brew --prefix)/var/run/<tool>/`
 - Linux: `/etc/<tool>/`, `/var/log/<tool>/`, `/var/run/<tool>/`

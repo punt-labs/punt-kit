@@ -38,7 +38,7 @@ A **playbook** (`dev.yaml`) that encodes the Punt Labs lifecycle as a state mach
 
 ### Phase Structure
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────────┐
 │                                                                          │
 │   CLAIM → RECON → SPEC → IMPLEMENT → VERIFY → DEMO → SHIP → CLOSE     │
@@ -559,6 +559,7 @@ users run dev on a single known bead without autopilot's selection.
 Once the playbook is reliable, the CLAUDE.md lifecycle section changes:
 
 **Keep:**
+
 - Principles (action bias, coherent autonomy, end-to-end ownership)
 - Standards references (all punt-kit/standards/*.md links)
 - Communication rules (banned patterns, calibrated confidence)
@@ -568,10 +569,12 @@ Once the playbook is reliable, the CLAUDE.md lifecycle section changes:
 - Biff, beadle, quarry, z-spec tool sections
 
 **Remove:**
+
 - The 27 numbered lifecycle steps (Phases 1-7 with sub-steps)
 - Duplicate workflow descriptions
 
 **Add:**
+
 ```markdown
 ## Development Workflow
 

@@ -34,7 +34,7 @@ When `${CLAUDE_PLUGIN_ROOT}` is not set, skip path 2.
 
 For `list`, scan all applicable locations and print a table:
 
-```
+```text
 Name                Source      Description
 ───────────────────────────────────────────────────────────────────
 autopilot           org         Autonomous bead-driven development loop
@@ -107,7 +107,7 @@ or a step aborts.
 
 If `mode: once`, print a completion summary:
 
-```
+```text
 Playbook '<name>' complete.
   Steps: N/N passed
   Duration: Xm Ys

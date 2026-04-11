@@ -3,8 +3,12 @@
   "MD013": false,
   // Disable table column style — compact pipes are fine
   "MD060": false,
+  // Allow hard tabs inside code blocks (Makefile syntax requires tabs)
+  "MD010": { "code_blocks": false },
   // Allow duplicate headings under different parents (CHANGELOG, ADR patterns)
   "MD024": { "siblings_only": true },
   // Allow img and p elements — needed for README screenshot layouts with width/align
-  "MD033": { "allowed_elements": ["details", "img", "p", "summary"] }
+  "MD033": { "allowed_elements": ["details", "img", "p", "summary"] },
+  // Disable first-line heading — command files have YAML frontmatter that markdownlint doesn't parse
+  "MD041": false
 }
