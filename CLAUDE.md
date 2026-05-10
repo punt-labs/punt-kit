@@ -247,7 +247,7 @@ punt-kit is the *standards repo* for the entire Punt Labs org. It hosts (1) the 
 | `audit` / `init` / `reconcile` LLM-driven commands | `rmh` | `adt` |
 | Standards doc that becomes load-bearing for sibling repos | `mdm` | `rop` + `adt` |
 
-Standards changes are normative for ~15 repos — treat every diff as a cross-repo breaking change unless it is purely additive. Use the cross-repo breaking-change protocol from the parent CLAUDE.md before merging anything that removes or shifts a documented rule. Use the `standard` pipeline for new standards or new CLI commands; use `quick` only for typos or single-section clarifications.
+Standards changes are normative for ~15 repos — treat every diff as a cross-repo breaking change unless it is purely additive. Before merging anything that removes or shifts a documented rule: (1) message every affected sibling repo's owning agent via biff; (2) wait for explicit confirmation; (3) merge here only after they acknowledge the impact. This mirrors the *Cross-repo breaking changes* protocol from the org-wide CLAUDE.md (org-level scope, not in this repo). Use the `standard` pipeline for new standards or new CLI commands; use `quick` only for typos or single-section clarifications.
 
 ## Standards References
 
