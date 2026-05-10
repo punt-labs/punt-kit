@@ -232,7 +232,7 @@ architecture. Log new decisions there when they involve rejected alternatives.
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. Sub-agent calls (`Agent(subagent_type=…)`) match ethos identity handles.
 
-punt-kit is the *standards repo* for the entire Punt Labs org. It hosts (1) the `punt` Python CLI + plugin, (2) the canonical standards docs that all sibling repos reference, and (3) the multi-phase release playbook. Changes here ripple to ~15 sibling repos. Two distinct surfaces: the *standards* (markdown, normative) and the *tooling* (Python, executable). Worker and evaluator must be distinct handles with no shared role. Claude is the leader, never the evaluator.
+punt-kit is the *standards repo* for the entire Punt Labs org. It hosts (1) the `punt` Python CLI + plugin, (2) the canonical standards docs that all sibling repos reference, and (3) the multi-phase release playbook. Changes here ripple to ~15 sibling repos. Two distinct surfaces: the *standards* (markdown, normative) and the *tooling* (Python, executable). Within each row, the worker and evaluator must be distinct handles. Claude is the leader, never the evaluator.
 
 | Task type | Worker | Evaluator |
 |-----------|--------|-----------|
