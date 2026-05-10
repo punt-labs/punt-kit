@@ -228,6 +228,27 @@ See [Workflow standards §11 Code Review Flow](standards/workflow.md) for the fu
 Consult [DESIGN.md](DESIGN.md) before proposing changes to settled
 architecture. Log new decisions there when they involve rejected alternatives.
 
+## Ethos & Delegation
+
+Identity: `agent: claude` per `.punt-labs/ethos.yaml`. Sub-agent calls (`Agent(subagent_type=…)`) match ethos identity handles.
+
+punt-kit is the *standards repo* for the entire Punt Labs org. It hosts (1) the `punt` Python CLI + plugin, (2) the canonical standards docs that all sibling repos reference, and (3) the multi-phase release playbook. Changes here ripple to ~15 sibling repos. Two distinct surfaces: the *standards* (markdown, normative) and the *tooling* (Python, executable). Worker and evaluator must be distinct handles with no shared role. Claude is the leader, never the evaluator.
+
+| Task type | Worker | Evaluator |
+|-----------|--------|-----------|
+| Standards doc authoring (`standards/*.md`) | `mdm` (Pike) | `rop` (McIlroy) |
+| Workflow / process / review-flow standards | `adt` (Hopper) | `mdm` |
+| Python implementation (`punt` CLI, playbook executor) | `rmh` (Hettinger) | `gvr` (van Rossum) |
+| Release playbook / phase logic | `adb` (Lovelace) | `rmh` |
+| Plugin scaffolding / `claude2cursor` / dev/prod swap | `mdm` | `rmh` |
+| CI workflows / branch protection / SHA pin propagation | `adb` | `djb` (Bernstein) |
+| Cross-repo rollout / sibling PR generation | `adb` | `mdm` |
+| Security review of release scripts (PyPI, signing) | `djb` | `adb` |
+| `audit` / `init` / `reconcile` LLM-driven commands | `rmh` | `adt` |
+| Standards doc that becomes load-bearing for sibling repos | `mdm` | `rop` + `adt` |
+
+Standards changes are normative for ~15 repos — treat every diff as a cross-repo breaking change unless it is purely additive. Use the cross-repo breaking-change protocol from the parent CLAUDE.md before merging anything that removes or shifts a documented rule. Use the `standard` pipeline for new standards or new CLI commands; use `quick` only for typos or single-section clarifications.
+
 ## Standards References
 
 - [Python](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md)
