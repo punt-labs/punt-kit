@@ -11,7 +11,9 @@ Reference implementations:
 ## Badges
 
 Badges appear immediately after the H1 heading (and tagline, if present).
-Order is always: License, CI, then language-specific badges (PyPI + Python for Python; Go Reference + Go Report Card for Go).
+Order is always: License, CI, then language-specific badges where
+applicable (PyPI + Python for Python; Go Reference + Go Report Card
+for Go). Plugin-only projects stop at License + CI.
 
 **Python projects** (published to PyPI):
 
@@ -109,7 +111,7 @@ should be able to check whether it is true by using the software.
 ## Required Sections
 
 Every README must have these sections in this order. Sections marked
-*optional* may be omitted when not applicable. All section headings use Title Case (e.g., "Quick Start", not "Quick start").
+*optional* may be omitted when not applicable. All section headings (H2 and below) use Title Case (e.g., "Quick Start", not "Quick start"). The H1 is the project name and follows its own casing.
 
 ### 1. Title + Tagline
 
@@ -170,11 +172,10 @@ Show concrete examples of the tool in use. Use fenced code blocks with
 `text` language for terminal output. This section lets a reader see what
 the tool actually does before installing it.
 
-### 8. Commands
+### 8. Commands / API / MCP Tools
 
-Table of commands (for CLIs and plugins), API surface (for libraries),
-or MCP tools (for MCP servers). Use the heading that matches your
-project type: **Commands**, **API**, or **MCP Tools**.
+Use the heading that matches your project type: **Commands** (CLIs and
+plugins), **API** (libraries), or **MCP Tools** (MCP servers).
 
 ```markdown
 ## Commands
@@ -240,7 +241,7 @@ Every repo must have a `LICENSE` file in the root.
 
 ### Structure
 
-- **No badge soup** — four badges maximum for published projects (Python or Go), two for plugin-only projects (plus optional Working Backwards)
+- **No badge soup** — four standard badges maximum for published projects (Python or Go), two for plugin-only projects, plus optional Working Backwards badge
 - **No "Table of Contents"** — the README should be short enough to not need one
 - **No "Contributing" section in README** — link to `CONTRIBUTING.md` if it exists
 - **No installation instructions for dependencies** — the installer handles it
