@@ -11,7 +11,7 @@ Reference implementations:
 ## Badges
 
 Badges appear immediately after the H1 heading (and tagline, if present).
-Order is always: License, CI, PyPI, Python.
+Order is always: License, CI, then language-specific badges (PyPI + Python for Python; Go Reference + Go Report Card for Go).
 
 **Python projects** (published to PyPI):
 
@@ -27,6 +27,15 @@ Order is always: License, CI, PyPI, Python.
 ```markdown
 [![License](https://img.shields.io/github/license/punt-labs/{repo})](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/punt-labs/{repo}/docs.yml?label=CI)]({ci-url})
+```
+
+**Go projects** (published module):
+
+```markdown
+[![License](https://img.shields.io/github/license/punt-labs/{repo})](LICENSE)
+[![CI](https://img.shields.io/github/actions/workflow/status/punt-labs/{repo}/{workflow}.yml?label=CI)]({ci-url})
+[![Go Reference](https://pkg.go.dev/badge/github.com/punt-labs/{repo}.svg)](https://pkg.go.dev/github.com/punt-labs/{repo})
+[![Go Report Card](https://goreportcard.com/badge/github.com/punt-labs/{repo})](https://goreportcard.com/report/github.com/punt-labs/{repo})
 ```
 
 **Working Backwards badge** *(optional)*:
@@ -100,7 +109,7 @@ should be able to check whether it is true by using the software.
 ## Required Sections
 
 Every README must have these sections in this order. Sections marked
-*optional* may be omitted when not applicable.
+*optional* may be omitted when not applicable. All section headings use Title Case.
 
 ### 1. Title + Tagline
 
@@ -161,10 +170,9 @@ Show concrete examples of the tool in use. Use fenced code blocks with
 `text` language for terminal output. This section lets a reader see what
 the tool actually does before installing it.
 
-### 8. Commands / API
+### 8. Commands
 
-Table of commands (for CLIs/plugins) or API surface (for libraries/MCP
-servers).
+Table of commands (for CLIs and plugins), API surface (for libraries), or MCP tools (for MCP servers). Use the heading that matches your project type: **Commands**, **API**, or **MCP Tools**.
 
 ```markdown
 ## Commands
@@ -230,7 +238,7 @@ Every repo must have a `LICENSE` file in the root.
 
 ### Structure
 
-- **No badge soup** — four badges maximum for Python projects, two for plugins (plus optional Working Backwards)
+- **No badge soup** — four badges maximum for published projects (Python or Go), two for plugin-only projects (plus optional Working Backwards)
 - **No "Table of Contents"** — the README should be short enough to not need one
 - **No "Contributing" section in README** — link to `CONTRIBUTING.md` if it exists
 - **No installation instructions for dependencies** — the installer handles it
