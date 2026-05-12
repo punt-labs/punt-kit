@@ -109,7 +109,7 @@ should be able to check whether it is true by using the software.
 ## Required Sections
 
 Every README must have these sections in this order. Sections marked
-*optional* may be omitted when not applicable. All section headings use Title Case.
+*optional* may be omitted when not applicable. All section headings use Title Case (e.g., "Quick Start", not "Quick start").
 
 ### 1. Title + Tagline
 
@@ -172,7 +172,9 @@ the tool actually does before installing it.
 
 ### 8. Commands
 
-Table of commands (for CLIs and plugins), API surface (for libraries), or MCP tools (for MCP servers). Use the heading that matches your project type: **Commands**, **API**, or **MCP Tools**.
+Table of commands (for CLIs and plugins), API surface (for libraries),
+or MCP tools (for MCP servers). Use the heading that matches your
+project type: **Commands**, **API**, or **MCP Tools**.
 
 ```markdown
 ## Commands
