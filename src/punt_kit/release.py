@@ -14,6 +14,7 @@ import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import NoReturn, cast
+from urllib.parse import urlparse
 
 from rich.console import Console
 
@@ -156,8 +157,11 @@ def _get_github_repo(root: Path) -> str | None:
         url = result.stdout.strip()
         if url.startswith("git@github.com:"):
             return url.removeprefix("git@github.com:").removesuffix(".git")
-        if "github.com/" in url:
-            return url.split("github.com/")[1].removesuffix(".git")
+        parsed = urlparse(url)
+        if parsed.hostname == "github.com":
+            repo = parsed.path.lstrip("/").removesuffix(".git")
+            if repo:
+                return repo
     except (subprocess.TimeoutExpired, OSError):
         pass
     return None
