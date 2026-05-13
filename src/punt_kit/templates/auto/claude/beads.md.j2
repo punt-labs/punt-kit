@@ -1,0 +1,15 @@
+## Beads
+
+Issue prefix: `{{ issue_prefix }}`. Label: `{{ beads_label }}`.
+
+Issues created in this repo are automatically labeled via `config.yaml`.
+Both `bd list` and `bd ready` filter to this repo's issues.
+
+```text
+bd ready                    Show issues ready to work
+bd list --status=open       All open issues
+bd show <id>                View issue details
+bd update <id> --claim      Claim work
+bd close <id>               Mark complete
+bd create --title="..." --description="..." --type=task --priority=2
+```
