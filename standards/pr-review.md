@@ -113,7 +113,7 @@ Remote review (Copilot, Bugbot) is automated-only — there is no human reviewer
 in this phase. Human review happens locally via IDE before the PR is opened.
 Because local review (automated agents + human IDE review) already ran multiple
 rounds, remote findings should be fewer and more targeted. Expect 2–6 remote
-rounds (inherited from workflow.md §11), with the operational goal of driving
+rounds (see workflow.md "Remote Review"), with the operational goal of driving
 this toward 1–2 as local review improves.
 
 Every remote finding requires a code fix. To dismiss a finding as inapplicable,
