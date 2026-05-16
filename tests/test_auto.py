@@ -12,6 +12,7 @@ from punt_kit.auto import (
     merge_file,
     merge_json_permissions,
     parse_segments,
+    read_beads_metadata,
     render_section,
     run_auto,
 )
@@ -220,15 +221,18 @@ class TestRenderSection:
         assert section.endswith("<!-- punt:end quality-gates -->")
         assert "make check" in section
 
-    def test_static_template(self) -> None:
+    def test_beads_template(self) -> None:
         section = render_section(
-            "no-preexisting",
-            "claude/no-preexisting.md.j2",
-            {},
+            "beads",
+            "claude/beads.md.j2",
+            {"issue_prefix": "quarry", "beads_label": "repo:quarry"},
             "markdown",
         )
-        assert "pre-existing" in section.lower()
-        assert "<!-- punt:begin no-preexisting -->" in section
+        assert "<!-- punt:begin beads -->" in section
+        assert "<!-- punt:end beads -->" in section
+        assert "`quarry`" in section
+        assert "`repo:quarry`" in section
+        assert "bd ready" in section
 
 
 # ---------------------------------------------------------------------------
@@ -359,10 +363,12 @@ class TestRunAuto:
         content = (tmp_path / "CLAUDE.md").read_text()
         assert "# My Project" in content
         assert "Custom content." in content
-        assert "<!-- punt:begin no-preexisting -->" in content
-        assert "<!-- punt:end no-preexisting -->" in content
         assert "<!-- punt:begin quality-gates -->" in content
+        assert "<!-- punt:end quality-gates -->" in content
         assert "<!-- punt:begin standards-references -->" in content
+        assert "<!-- punt:begin available-tooling -->" in content
+        # No beads section when .beads/metadata.json is absent
+        assert "<!-- punt:begin beads -->" not in content
 
     def test_auto_claude_idempotent(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
@@ -429,22 +435,75 @@ class TestRunAuto:
         content = (tmp_path / "CLAUDE.md").read_text()
         assert "<!-- punt:begin" in content
 
-    def test_auto_claude_with_prfaq(self, tmp_path: Path) -> None:
+    def test_auto_claude_with_beads(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "prfaq.tex").write_text("\\documentclass{article}\n")
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "metadata.json").write_text(json.dumps({"issue_prefix": "tst"}))
         (tmp_path / "CLAUDE.md").write_text("# Test\n")
 
         run_auto(str(tmp_path), target="claude")
 
         content = (tmp_path / "CLAUDE.md").read_text()
-        assert "prfaq.tex" in content
+        assert "<!-- punt:begin beads -->" in content
+        assert "<!-- punt:end beads -->" in content
+        assert "`tst`" in content
+        assert "`repo:tst`" in content
+        assert "bd ready" in content
 
-    def test_auto_claude_without_prfaq(self, tmp_path: Path) -> None:
+    def test_auto_claude_without_beads(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
         (tmp_path / "CLAUDE.md").write_text("# Test\n")
 
         run_auto(str(tmp_path), target="claude")
 
         content = (tmp_path / "CLAUDE.md").read_text()
-        # prfaq line should not appear in pre-pr checklist
-        assert "prfaq.tex" not in content
+        assert "<!-- punt:begin beads -->" not in content
+
+
+# ---------------------------------------------------------------------------
+# read_beads_metadata
+# ---------------------------------------------------------------------------
+
+
+class TestReadBeadsMetadata:
+    def test_reads_valid_metadata(self, tmp_path: Path) -> None:
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "metadata.json").write_text(json.dumps({"issue_prefix": "quarry"}))
+
+        prefix, label = read_beads_metadata(tmp_path)
+        assert prefix == "quarry"
+        assert label == "repo:quarry"
+
+    def test_returns_none_when_missing(self, tmp_path: Path) -> None:
+        prefix, label = read_beads_metadata(tmp_path)
+        assert prefix is None
+        assert label is None
+
+    def test_returns_none_on_invalid_json(self, tmp_path: Path) -> None:
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "metadata.json").write_text("not json")
+
+        prefix, label = read_beads_metadata(tmp_path)
+        assert prefix is None
+        assert label is None
+
+    def test_returns_none_when_prefix_missing(self, tmp_path: Path) -> None:
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "metadata.json").write_text(json.dumps({"dolt_mode": "server"}))
+
+        prefix, label = read_beads_metadata(tmp_path)
+        assert prefix is None
+        assert label is None
+
+    def test_returns_none_when_prefix_empty(self, tmp_path: Path) -> None:
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        (beads_dir / "metadata.json").write_text(json.dumps({"issue_prefix": ""}))
+
+        prefix, label = read_beads_metadata(tmp_path)
+        assert prefix is None
+        assert label is None

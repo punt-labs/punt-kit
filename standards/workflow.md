@@ -29,56 +29,14 @@ Issues must have:
 - Correct type and priority
 - Dependencies declared (`--blocks`, `--blocked-by`) when applicable
 
-### Beads vs TodoWrite
-
-| Use Beads (`bd`) | Use TodoWrite |
-|------------------|---------------|
-| Multi-session work | Single-session tasks |
-| Work with dependencies | Simple linear execution |
-| Discovered work to track | Immediate TODO items |
-
 ---
 
-## 2. Workflow Tiers
+## 2. Branch Discipline
 
-Match the workflow to the scope. The deciding factor is **design ambiguity**, not size.
-
-| Tier | Tool | When | Tracking |
-|------|------|------|----------|
-| **T1: Feature Dev** | `/feature-dev` | Features, multi-file, clear goal but needs exploration | Beads + TodoWrite (internal) |
-| **T2: Direct** | Plan mode or manual | Tasks, bugs, obvious implementation path | Beads |
-
-### Decision flow
-
-1. Does it touch multiple files and benefit from codebase exploration? → **T1: Feature Dev**
-2. Otherwise → **T2: Direct** (plan mode if >3 files, manual if fewer)
-
-### Escalation
-
-Escalation only goes up. If T2 reveals unexpected scope, escalate to T1. Never demote mid-flight.
-
----
-
-## 3. Coordination
-
-### Biff plan
-
-When biff is enabled, set a biff plan (`/plan "short description"` — this is the biff `/plan` command, not Claude plan mode) before starting work so teammates and other agents can see what you're doing.
-
-### Worktree sharing
-
-If `/who` shows more than 1 user active in the same repo (human or agent), work in a worktree to avoid file conflicts. Use `git worktree add` or the `--worktree` session flag.
-
----
-
-## 4. Branch Discipline
-
-All code changes go on feature branches. Never commit directly to main. Branch protection rulesets enforce this — there are zero bypass actors, so even admins cannot push to main.
+All code changes go on feature branches. Never commit directly to main. Branch protection rulesets enforce this — there are zero bypass actors.
 
 ```bash
 git checkout -b feat/short-description main
-# ... work, commit, push ...
-# create PR, complete code review, merge, then delete branch
 ```
 
 ### Branch prefixes
@@ -89,274 +47,232 @@ git checkout -b feat/short-description main
 | `fix/` | Bug fixes |
 | `refactor/` | Code improvements |
 | `docs/` | Documentation only |
-| `release/` | Release version bumps (created by `punt release`) |
-| `post-release/` | Post-release cleanup (created by `punt release`) |
-| `propagate/` | Cross-repo propagation (created by `punt release`) |
+| `release/` | Release version bumps |
 | `chore/` | Maintenance and housekeeping |
 
----
+### Commits
 
-## 5. Commits
-
-### Micro-commits
-
-One logical change per commit. 1–5 files, under 100 lines. Quality gates pass before every commit.
-
-### Conventional commit messages
-
-Format: `type(scope): description`
-
-| Prefix | Use |
-|--------|-----|
-| `feat:` | New feature |
-| `fix:` | Bug fix |
-| `refactor:` | Code change, no behavior change |
-| `test:` | Adding or updating tests |
-| `docs:` | Documentation |
-| `chore:` | Build, dependencies, CI |
-
-The `(scope)` is optional. Use it when the repo has distinct modules (e.g., `feat(relay): add heartbeat`).
+One logical change per commit. Quality gates pass before every commit. Commit
+messages follow Conventional Commits format: `type(scope): description`.
 
 ---
 
-## 6. Quality Gates
+## 3. Development Loop
 
-Quality gates must pass before every commit. The specific commands depend on the project type.
+Every code change follows two nested loops. The inner loop governs a single
+mission. The outer loop governs the full feature before it becomes a PR. Both
+loops apply to every change — there is no scope below which either is skipped.
 
-### By project type
+### Pseudocode
 
-| Project type | Quality gates |
-|-------------|---------------|
-| Python | `uv run ruff check .` · `uv run ruff format --check .` · `uv run mypy src/ tests/` · `uv run pyright` · `uv run pytest` |
-| Node.js | `npm run lint` · `npm test` |
-| Plugin (prompts) | `markdownlint-cli2 "**/*.md"` |
-| Docs/standards | `markdownlint-cli2 "**/*.md"` |
-| Shell scripts (cross-cutting) | `shellcheck <scripts>` — applies to any project with `.sh` files. See [Shell standards](shell.md). |
+```python
+def test():
+    make_test()                   # run test suite against installed artifact;
+                                  # write missing tests first if changed code
+                                  # has no coverage
+    exercise_manually()           # write expected output first, compare actual;
+                                  # cover one failure mode, one boundary condition;
+                                  # paste actual output
 
-Zero violations, zero errors, all tests green. No exceptions.
 
-### When gates fail
+def fix_findings_via_ethos(findings):
+    for finding in findings:
+        # The finding IS the spec — design step collapsed, not skipped.
+        # COO reviews the finding before delegating; that review is the design step.
+        implement_via_ethos(spec=finding)
 
-Fix the issue immediately. Do not commit with known failures. Do not skip gates with `--no-verify` or equivalent.
 
----
+def inner_loop(mission):
+    design_via_ethos()            # specialist produces write set + approach;
+                                  # COO reviews: what changes, how it leaves
+                                  # the system better, what was decided and why
+    implement_via_ethos()         # specialist executes the write set
+    make_check()                  # zero exceptions
+    make_build()                  # build wheel
+    make_install()                # install from built wheel — not dev install,
+                                  # not uv run from source
+    test()                        # make_test() + exercise_manually() — see above
+    code_reviewer()               # on mission diff
+    silent_failure_hunter()       # on mission diff
+    fix_findings_via_ethos(findings)
+    rerun_agents_until_clean()    # exit when both return zero findings
+    commit()
+    push()                        # push to remote branch / update draft PR
 
-## 7. Test-Driven Development
 
-Write failing tests first, then write the code that makes them pass. This is not optional for code that executes.
+def outer_loop(feature):
+    branch()                      # create feature branch
+    open_draft_pr()               # draft so CI runs on every push
 
-### When TDD applies
+    for mission in feature.missions:
+        inner_loop(mission)       # repeat for each mission; no limit
 
-- New functions or methods
-- Behavior changes to existing code
-- Bug reproductions (the test proves the bug exists before the fix)
+    make_check()                  # on full accumulated diff
+    code_reviewer()               # on full diff — catches cross-mission issues
+    silent_failure_hunter()       # on full diff
+    fix_findings_via_ethos(findings)
+    human_ide_review()            # only human review in the process;
+                                  # all findings resolved before proceeding
+    make_build()                  # build wheel
+    make_install()                # install from built wheel
+    exercise_end_to_end()         # complete user-facing workflow; paste output
+    rerun_agents_until_clean()
+    mark_pr_ready()               # convert draft to ready for remote review
+```
 
-### When TDD does not apply
+### Design (`design_via_ethos`)
 
-- Documentation-only changes
-- Configuration or template changes
-- Refactors with no behavior change (existing tests cover them)
-- Exploratory spikes (but tests must be added before the spike code merges)
+Before any code is written for a mission, the approach is decided via a design
+mission delegated to the right ethos specialist. The specialist produces a write
+set and approach; the COO reviews it before implementation begins.
 
-### Workflow
+The design brief must answer:
 
-1. Write a test that expresses the expected behavior. Run it — confirm it fails.
-2. Write the minimum code to make the test pass.
-3. Run the repo's quality gates (see §6). Refactor if needed while keeping tests green.
+1. What this mission changes
+2. How it leaves the system better — structural improvement, not just feature
+   delivery: OO quality, coupling, cohesion, naming, module boundaries
+3. What approach was chosen and why
 
-If writing the test first is impractical (e.g., you need to understand the interface before you can test it), write the code first and the test immediately after. The rule is: **tests and code land in the same commit**.
+If the design reveals a non-obvious decision with rejected alternatives worth
+recording for future readers, write a `DESIGN.md` ADR entry. The commit message
+is sufficient for most changes.
 
-### Verification
+If a specialist hits a decision point mid-implementation, they stop and surface
+it. `implement_via_ethos` does not resume until `design_via_ethos` reruns for
+that decision.
 
-`make check` passing is necessary but not sufficient. After tests pass, **execute the code and observe correct behavior**:
+### Implementation (`implement_via_ethos`)
 
-- **CLI tool or command**: run it with representative arguments, paste the output.
-- **Library function**: call it (in a test or REPL) and show the result.
-- **Bug fix**: reproduce the original failure, then show it no longer occurs.
-- **MCP tools**: MCP server changes require a Claude restart to take effect. Ask the user to restart Claude and confirm the behavior. Do not skip verification because you cannot restart yourself — ask and wait.
-- **Plugin prompts (commands, skills, hooks)**: these reload automatically. Test by invoking the command/skill directly.
+Delegated to the right ethos specialist for the domain — never bare `Agent()`.
+The specialist's personality, expertise, and writing style are load-bearing.
+The design mission and implementation mission may use different specialists;
+the same worker/evaluator pairing constraints apply to both.
 
-If you cannot demonstrate the code works, you are not done. Do not open a PR.
+### Finding fixes (`fix_findings_via_ethos`)
 
----
+Review agents find issues; ethos specialists fix them. The finding itself is the
+spec — design is collapsed to the COO reviewing the finding before delegating.
+The same domain specialist that would implement the area handles the fix. Fixing
+a finding in Python provider code goes to `rmh` or `gvr`, not a generic agent.
 
-## 8. CHANGELOG Discipline
+To dismiss a finding as inapplicable: document (a) the exact finding text,
+(b) the specific reason it does not apply, (c) the code reference.
+"Pre-existing," "by design," and "intentional" are not reasons.
 
-Projects that maintain a CHANGELOG follow [Keep a Changelog](https://keepachangelog.com/) format.
+### Install and test
 
-### Timing
-
-CHANGELOG entries are written **in the PR branch, before merge** — not retroactively on main. The entry is part of the diff that gets reviewed. If a PR changes user-facing behavior and the diff does not include a CHANGELOG entry, the PR is not ready to merge.
-
-### What gets an entry
-
-- New commands, features, agents, or reference guides → `### Added`
-- Behavior changes to existing commands → `### Changed`
-- Bug fixes → `### Fixed`
-- Removed features or commands → `### Removed`
-
-### What does NOT get an entry
-
-- Internal-only changes (CLAUDE.md, CI config, dev tooling, test-only changes)
-- Dependency updates with no user-visible effect
-- Plugin cache, session transcripts, research files
-
-### Format
-
-- Entries go under `## Unreleased` (or `## [Unreleased]` for semver projects)
-- Group under `### Added`, `### Changed`, `### Fixed`, `### Removed` (in that order, omit empty groups)
-- Each entry starts with the component name (e.g., `` `/prfaq:vote` ``, `Installer`, `Status line`)
-- One logical change per bullet — sub-bullets for supporting detail
-- At release time, move `Unreleased` entries to a versioned heading
-
----
-
-## 9. Pre-PR Checklist
-
-Before creating a pull request, verify:
-
-- [ ] Quality gates pass (see §6)
-- [ ] **Code was executed and verified** — not just linted/type-checked. Output demonstrates correct behavior (see §7 Verification)
-- [ ] **CHANGELOG entry included in the PR diff** under `## [Unreleased]` for notable changes (see §8 CHANGELOG Discipline)
-- [ ] **Local code review passed** when applicable (see §10 for skip conditions) — `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
-- [ ] **README updated** if user-facing behavior changed (new flags, commands, defaults, config)
-- [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
-- [ ] **Cross-project build available** — if the change affects a package consumed by other projects, run `make build` and notify consumers via biff `/write`
-- [ ] Version bumped if user-facing behavior changed (if the project uses semver)
-
----
-
-## 10. Local Code Review
-
-Before creating a PR, run local code reviews to catch issues early. This reduces remote review cycles from 4–6 down to 2–3.
-
-### Required agents
-
-1. **`feature-dev:code-reviewer`** — reviews for bugs, logic errors, security issues, code quality, and project conventions.
-2. **`pr-review-toolkit:silent-failure-hunter`** — reviews for silent failures, inadequate error handling, and inappropriate fallback behavior.
-
-### Process
-
-1. Run both agents on the current diff (unstaged changes or the branch diff vs main).
-2. Read all findings. Fix valid issues — there is no "nice to have" vs "must fix" distinction during local review. If it's worth flagging, it's worth fixing.
-3. Re-run agents after fixes. Repeat until reviews produce minor or no comments.
-4. Only then proceed to create the PR.
-
-### When to skip
-
-Local review is not required for:
-
-- Documentation-only PRs (no code changes)
-- Version bumps and release mechanics
-- Single-line config changes
+`make_build()` builds the wheel. `make_install()` installs from that wheel —
+not a dev install, not `uv run` from source. `test()` = `make_test()` (automated
+suite against the installed wheel) + `exercise_manually()` (expected vs actual,
+one failure mode, one boundary, paste output). See [PR and Review Standard](pr-review.md)
+for project-type-specific install commands. `make check` passing is necessary
+but not sufficient — it does not verify the installed artifact.
 
 ---
 
-## 11. Code Review Flow
+## 4. Remote Review
 
-Do **not** merge immediately after creating a PR. Expect **2–6 review cycles** before merging. The full flow is:
+Remote review (Copilot, Bugbot) is **automated-only**. There is no human
+reviewer in this phase — human review happens locally via IDE in the outer loop
+before `mark_pr_ready()`. Remote review is a second opinion on already-clean
+code, not the primary quality signal.
 
-1. **Create PR** — push branch, open PR via `mcp__github__create_pull_request` (prefer MCP GitHub tools over `gh` CLI where possible).
-2. **Request Copilot review** — use `mcp__github__request_copilot_review` so Copilot analyzes the diff.
-3. **Watch for feedback without blocking your main shell** — run `gh pr checks <number> --watch` in a background task or separate session so it streams CI status while you work:
+1. **Request Copilot review** via `mcp__github__request_copilot_review`
+2. **Watch** — `gh pr checks <number> --watch` in a background task. If Bugbot
+   remains `in_progress` more than 6 minutes after CI, treat as clean.
+3. **Read all feedback** via `mcp__github__pull_request_read`
+4. **Address every finding** — code fix, or documented dismissal (exact finding,
+   specific reason, code reference). Re-request review after each push.
+5. **Resolve all threads** before merging
+6. **Merge** via `mcp__github__merge_pull_request` when the last cycle is clean
 
-   ```bash
-   gh pr checks <number> --watch         # Run in background task — notifies when checks resolve
-   ```
-
-   **Do not stop waiting for feedback.** Copilot and Bugbot may take 1–3 minutes to post after CI completes. Do not assume silence means approval.
-
-4. **Read all feedback** — when the watch completes, read review comments using MCP:
-
-   - `mcp__github__pull_request_read` with `get_reviews` — check review verdicts
-   - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
-   - `gh pr view <number> --comments` — fallback for threaded discussion
-
-5. **Take every comment seriously** — read each comment and address it. There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. Fix it. If you genuinely disagree, explain why in a reply — do not silently ignore.
-6. **Fix and re-push** — commit fixes, push, and re-run quality gates. Each fix commit triggers a new review cycle.
-7. **Repeat steps 3–6** until the latest review cycle is **uneventful** — no new comments, no requested changes, all checks green.
-8. **Merge only when the last review was clean** — use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects). A PR is ready to merge when:
-   - The most recent Copilot/Bugbot review raised **zero new issues**
-   - All GitHub Actions are green
-   - Local quality gates pass
-
-Quality gates apply at every step. Each commit that addresses review feedback must pass both local checks and CI. A typical PR takes 2–6 cycles. Do not rush to merge after the first review.
+Expect 2–6 remote cycles, with the goal of driving toward 1–2 as inner and
+outer loop quality improves.
 
 ---
 
-## 12. Session Close Protocol
+## 5. PR Boundaries
 
-Before ending any session, run this checklist:
+See [PR and Review Standard](pr-review.md) for the full specification.
+
+One PR = one complete, locally-verified unit of work, defined by rollback
+granularity. Prohibited split reasons: "the diff is large," "separate concern,"
+"I'll clean it up in a follow-on PR." Valid split reasons: independent rollback
+capability, sequential dependency, independently shippable blast radius.
+
+---
+
+## 6. Test Coverage
+
+Test coverage is a quality goal. The goal is coverage of behavior that matters —
+critical paths, data transformations, error paths, and anything hard to reverse.
+
+- Critical paths: covered
+- Edge cases on critical paths: covered
+- Data transformations: tested with realistic inputs including malformed ones
+- New code: tests land in the same commit as the code
+- Bug fixes: the test that would have caught the bug lands before the fix
+
+Coverage percentage is a useful proxy but not the target itself. A codebase
+with 95% coverage on trivial getters and 0% on error handling is worse than one
+with 70% on paths that actually matter.
+
+---
+
+## 7. CHANGELOG Discipline
+
+CHANGELOG entries are written **in the PR branch, before merge** — not
+retroactively on main.
+
+- Entries go under `## [Unreleased]`
+- Categories: Added, Changed, Fixed, Removed (omit empty groups)
+- Internal-only changes (CI config, dev tooling, test-only) do not get entries
+
+---
+
+## 8. Session Close
+
+Before ending any session:
 
 ```bash
-git status              # Check for uncommitted work
-git add <files>         # Stage changes
-bd sync                 # Sync beads with git
-git commit -m "..."     # Commit
-bd sync                 # Sync any new beads changes
-git push                # Push to remote
+git status
+git add <files>
+git commit -m "..."
+git push
 ```
 
 Work is **not** complete until `git push` succeeds.
 
 ---
 
-## 13. Work Recap
+## 9. Work Recap
 
-After merging a PR, send a recap email to <jim@punt-labs.com>. Use `mcp__beadle-email__send_email` if the beadle-email MCP server is available; otherwise ask the user to send it manually or use an alternative.
-
-### Format
+After merging a PR, send a recap email to <jim@punt-labs.com> via beadle.
 
 - **Subject**: `[repo-name] PR #N merged: <title>`
-- **Required content**: bead ID, PR link, 1-paragraph summary of what changed and why
-- **Include when relevant**: key design decisions made, test coverage notes, follow-up work created, risks or caveats
-
-The recap serves two purposes: it creates a searchable email trail of changes, and it forces a concise summary that catches gaps ("wait, I forgot to update the README").
-
-### When to skip
-
-- Trivial changes (typo fixes, dependency bumps with no behavior change)
-- Changes the user made interactively and already knows about in full detail — ask first
+- **Required**: bead ID, PR link, 1-paragraph summary of what changed, why,
+  and how it left the system better
+- **Include when relevant**: design decisions made, test coverage notes,
+  follow-up work created
 
 ---
 
-## 14. Design Decision Logs
+## 10. Design Decision Logs
 
-Projects with non-trivial architecture should maintain a design decision log. See [Design Decision Log](../patterns/design-decision-log.md) for the full pattern.
-
-### Quick reference
-
-- Use `DESIGN.md` at the repo root (split into multiple files for distinct concern areas).
-- Each decision gets a numbered entry with status (SETTLED / OPEN / SUPERSEDED), reasoning, and rejected alternatives.
-- **Before proposing any design change**, consult the log for prior decisions on the same topic.
-- **Do not revisit** a settled decision without new evidence.
-- **Log before implementing** — the decision record must exist before the code change.
+Use `DESIGN.md` at the repo root. Write an ADR entry when a decision is
+non-obvious, has rejected alternatives worth recording, or would confuse a
+future reader. Consult the log before proposing changes to settled architecture.
+Do not revisit a settled decision without new evidence.
 
 ---
 
-## 15. Cross-Project Integration
+## 11. Cross-Project Integration
 
-Projects may optionally integrate with other Punt Labs tools. Integrations must be:
+Integrations must be optional, graceful (falls back silently when absent), and
+one-way (A uses B; B does not know about A).
 
-- **Optional** — the project works fully without the dependency
-- **Graceful** — check for the dependency at runtime, fall back silently if absent
-- **One-way** — project A may use project B, but B must not know about A
+When a change affects a package consumed by other projects:
 
-Current integrations:
-
-- **PR/FAQ uses Quarry** — researcher agent searches indexed documents during `/prfaq:research` and Phase 0 discovery
-- **Z Spec should use Quarry** — domain docs could inform spec generation (planned, `claude-z-spec-plugin-p81`)
-
-When adding an integration, document it in the consuming project's README and PROJECTS.md. Do not add references in the upstream project.
-
-### Cross-project integration testing
-
-When a change affects a package consumed by other projects, use the sibling `dist/` protocol for pre-merge testing:
-
-1. Producer runs `make build` — produces a wheel in `dist/`
-2. Producer notifies consumer via biff: `/write <agent> "Built punt-biff 1.4.2 — wheel at ../biff/dist/punt_biff-1.4.2-py3-none-any.whl"`
-3. Consumer installs: `uv pip install ../biff/dist/punt_biff-1.4.2-py3-none-any.whl`
-4. Consumer runs `make check` to verify compatibility
-5. Both proceed with independent PRs
-
-This works because every project already has `Read/Write` permissions on the `punt-labs/**` workspace glob, and every project already has a gitignored `dist/` directory. No shared build directory or copy step needed.
+1. Producer runs `make build` and notifies consumer via biff
+2. Consumer installs from the built wheel and runs `make check`
+3. Both proceed with independent PRs

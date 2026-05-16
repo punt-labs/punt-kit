@@ -226,6 +226,25 @@ def render_section(
 # ---------------------------------------------------------------------------
 
 
+def read_beads_metadata(root: Path) -> tuple[str | None, str | None]:
+    """Read issue_prefix from .beads/metadata.json, derive label.
+
+    Return (issue_prefix, beads_label) or (None, None) when the file
+    is missing or malformed.
+    """
+    metadata_path = root / ".beads" / "metadata.json"
+    if not metadata_path.exists():
+        return None, None
+    try:
+        data = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None, None
+    prefix = data.get("issue_prefix")
+    if not isinstance(prefix, str) or not prefix:
+        return None, None
+    return prefix, f"repo:{prefix}"
+
+
 def build_context(info: ProjectInfo) -> dict[str, object]:
     """Build template context from ProjectInfo."""
     has_makefile = (info.root / "Makefile").exists()
@@ -242,6 +261,8 @@ def build_context(info: ProjectInfo) -> dict[str, object]:
     else:
         quality_gates_command = "# No quality gates configured"
 
+    issue_prefix, beads_label = read_beads_metadata(info.root)
+
     return {
         "project_name": info.root.name,
         "language": info.language,
@@ -254,6 +275,8 @@ def build_context(info: ProjectInfo) -> dict[str, object]:
         "has_design_md": (info.root / "DESIGN.md").exists(),
         "cli_commands": info.cli_commands,
         "plugin_mcp_servers": info.plugin_mcp_servers,
+        "issue_prefix": issue_prefix,
+        "beads_label": beads_label,
     }
 
 
@@ -263,11 +286,8 @@ def build_context(info: ProjectInfo) -> dict[str, object]:
 
 # Each target maps section_id -> template_name (relative to templates/auto/)
 CLAUDE_SECTIONS: list[tuple[str, str]] = [
-    ("no-preexisting", "claude/no-preexisting.md.j2"),
-    ("scratch-files", "claude/scratch-files.md.j2"),
     ("quality-gates", "claude/quality-gates.md.j2"),
-    ("code-review", "claude/code-review.md.j2"),
-    ("pre-pr-checklist", "claude/pre-pr-checklist.md.j2"),
+    ("beads", "claude/beads.md.j2"),
     ("standards-references", "claude/standards-references.md.j2"),
     ("available-tooling", "claude/available-tooling.md.j2"),
 ]
@@ -440,9 +460,11 @@ def _auto_file(
     if target_path.exists():
         original = target_path.read_text(encoding="utf-8")
 
-    # Render all sections
+    # Render all sections (skip beads when metadata is absent)
     rendered: dict[str, str] = {}
     for section_id, template_name in sections:
+        if section_id == "beads" and ctx.get("issue_prefix") is None:
+            continue
         rendered[section_id] = render_section(section_id, template_name, ctx, file_type)
 
     # Merge
