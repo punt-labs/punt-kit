@@ -15,7 +15,7 @@ is done is premature.
 
 This standard governs PR boundaries and review sequencing. Commit discipline
 (micro-commits, 1–5 files per commit, quality gates per commit) is defined
-separately in §5 of the workflow standard and is not relaxed here. Micro-commits
+separately in the "Branch Discipline" section of the workflow standard and is not relaxed here. Micro-commits
 within a branch remain required; this standard prohibits micro-PRs across
 branches.
 
@@ -39,7 +39,7 @@ keep diffs small, not because the work is "getting big."
 - Independent rollback — you want to revert one part without the other
 - Sequential dependency — the second PR cannot be written until the first merges
 - Blast radius — the changes touch systems that are independently shippable and
-  independently revertable. Test: if component A's tests fail, can component B
+  independently revertible. Test: if component A's tests fail, can component B
   ship without it? If no, they are not orthogonal and belong in one PR.
 
 ## The Review Sequence

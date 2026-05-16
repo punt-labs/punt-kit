@@ -1,7 +1,7 @@
 # Engineering Guidance for AI Coding Agents
 
 Operating rules distilled for AI coding agents at Punt Labs. These are defaults
-to operate from, overrideable when context demands. The meta-rule: when in
+to operate from, overridable when context demands. The meta-rule: when in
 doubt, pick the option a thoughtful senior engineer would defend six months
 later. Where this conflicts with other org standards, ask the operator.
 
