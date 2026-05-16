@@ -29,11 +29,13 @@ independent revert capability — not to manage reviewer cognitive load, not to
 keep diffs small, not because the work is "getting big."
 
 **Prohibited reasons to split a PR:**
+
 - "The diff is large" — size is not a boundary criterion
 - "I'll clean it up in a follow-on PR" — known work belongs in this PR
 - "It's a separate concern" — if it ships together and reverts together, it belongs together
 
 **Valid reasons to split a PR:**
+
 - Independent rollback — you want to revert one part without the other
 - Sequential dependency — the second PR cannot be written until the first merges
 - Blast radius — the changes touch systems that are independently shippable and
@@ -45,7 +47,7 @@ keep diffs small, not because the work is "getting big."
 Every change follows this sequence. Local gates run first. Remote gates run
 last. Do not invert this.
 
-```
+```text
 Mission → Code → Install → Test → Local Review → [repeat] → Next Mission
                                                               (repeat above)
 All missions done → Full-diff Local Review → PR → Remote Review → Merge

@@ -181,8 +181,8 @@ code, not the primary quality signal.
 2. **Watch** — `gh pr checks <number> --watch` in a background task. If Bugbot
    remains `in_progress` more than 6 minutes after CI, treat as clean.
 3. **Read all feedback** via `mcp__github__pull_request_read`
-4. **Address every finding** — code fix, or documented dismissal (exact finding
-   + specific reason + code reference). Re-request review after each push.
+4. **Address every finding** — code fix, or documented dismissal (exact finding,
+   specific reason, code reference). Re-request review after each push.
 5. **Resolve all threads** before merging
 6. **Merge** via `mcp__github__merge_pull_request` when the last cycle is clean
 
