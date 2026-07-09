@@ -69,8 +69,8 @@ The host `CLAUDE.md` carries one `punt`-owned section listing the imports:
 
 These docs load into context via `@`-import — nothing to open.
 
-@~/.punt-labs/vox/CLAUDE.md
 @~/.punt-labs/quarry/CLAUDE.md
+@~/.punt-labs/vox/CLAUDE.md
 <!-- /punt:mandatory-reading -->
 ```
 
