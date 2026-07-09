@@ -55,7 +55,9 @@ The tools that use this (quarry, biff, vox) are global — they work in every
 project, so they write the home doc and register at install time (once, covers
 all projects). Reserve project-scope for a doc committed with one repo. The tool
 rewrites this file on every install/upgrade — it is the single source of truth,
-so updates are automatic. The tool never edits the host `CLAUDE.md`.
+so updates are automatic. It registers its own `@`-import line through the
+shared reconcile (below); it never makes ad hoc edits to the host `CLAUDE.md`
+outside the managed section.
 
 ### Managed Tool Guidance section
 

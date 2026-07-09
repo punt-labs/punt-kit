@@ -537,7 +537,7 @@ project-scope the default: install runs once (not per-project), and a
 repo-committed managed section regenerated from one developer's local installs
 bakes their toolset into everyone's checkout. The tool owns and rewrites its
 doc on install, and registers its own `@`-import line **through the shared
-reconcile** (below) — it never ad-hoc-edits the consuming `CLAUDE.md` or touches
+reconcile** (below) — it never makes ad hoc edits to the consuming `CLAUDE.md` or touches
 anything outside its own managed line.
 
 ### The managed Tool Guidance section
