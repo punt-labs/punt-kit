@@ -92,6 +92,13 @@ another agent, or a human with no context.
 
 - Names should describe intent, not implementation.
 - Comments explain *why*, not *what* (the code shows what).
+- **Comments and docstrings never narrate the development process.** No
+  development phases ("Phase-1"), plans/roadmap, issue or bead IDs, review
+  findings ("finding #4", "F#6"), or PR numbers in code. Those belong in
+  commits, PRs, and the issue tracker — the audit trail below — not in code
+  that outlives them. A comment that says *what the code does relative to a
+  phase* ("`X` is the Phase-1 `Y`") documents the project, not the code, and
+  rots the moment the phase ends. Keep the substance, drop the process citation.
 - Commit messages and PR descriptions explain the change and its motivation —
   these become the audit trail when something breaks in 18 months.
 - A short doc next to a non-obvious system pays for itself the first time
