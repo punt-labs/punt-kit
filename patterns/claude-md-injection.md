@@ -76,41 +76,29 @@ These docs load into context via `@`-import — nothing to open.
 against the installed `.punt-labs/*/CLAUDE.md` files: add a line when a doc
 appears, prune it when the tool is removed.
 
-### Reconcile logic (sketch)
+### Reconcile algorithm and invariants
 
-```python
-_OPEN = "<!-- punt:mandatory-reading -->"
-_CLOSE = "<!-- /punt:mandatory-reading -->"
+The reconcile **regenerates the whole managed section** (never appends): read
+the host file, find the `<!-- punt:mandatory-reading -->` … `<!-- /… -->` block,
+and replace it (inserting one if absent) with a section rendered from the
+**sorted** set of installed docs. Regenerating — not appending — is what makes
+it both idempotent AND self-updating: a doc added, moved, or uninstalled is
+reflected on the next run.
 
-def reconcile_mandatory_reading(claude_md: Path, doc_paths: list[str]) -> None:
-    section = _render(doc_paths)  # the managed block, from the discovered docs
-    text = claude_md.read_text(encoding="utf-8") if claude_md.exists() else ""
-    if _OPEN in text and _CLOSE in text:
-        text = _replace_between(text, _OPEN, _CLOSE, section)  # refresh in place
-    elif text:
-        text = text.rstrip() + "\n\n" + section + "\n"
-    else:
-        text = section + "\n"
-    claude_md.write_text(text, encoding="utf-8")
-```
-
-Regenerating the whole section (not appending) is what makes it both idempotent
-AND self-updating — a tool doc that is added, moves, or is uninstalled is
-reflected on the next reconcile.
-
-**The sketch above is illustrative and NOT production-safe** — it edits the
-user's hand-authored (possibly dotfile-symlinked) `~/.claude/CLAUDE.md`, so the
-real reconcile has hard invariants the vox reference implementation learned
-under review. It MUST: write **atomically** (temp + `fsync` + `os.replace`,
+Because it edits the user's hand-authored (possibly dotfile-symlinked)
+`~/.claude/CLAUDE.md`, the implementation has hard invariants the vox reference
+learned under review. **Do NOT implement it with `Path.read_text`/`write_text`
+or `rstrip()`** — those apply universal-newline translation and trim user
+content. The reconcile MUST: write **atomically** (temp + `fsync` + `os.replace`,
 never truncate-in-place); **resolve symlinks** and write the real target,
 preserving the link; **preserve bytes and mode** — read *and* write with
-`newline=""` (the default universal-newline translation silently rewrites the
-user's CRLF/CR endings, corrupting content outside the managed section), and
-keep an existing file's mode; be **deterministic** (sort imports) and
-**no-op-when-unchanged**; be **corruption-safe** (a lone/duplicate marker
-collapses to one section, never appends a second); match markers **at column 0,
-outside code fences**; and **validate** each import line. See the standard's
-Rules and vox's `GlobalClaudeImports` for the full contract.
+`newline=""` (the default translation silently rewrites the user's CRLF/CR
+endings, corrupting content outside the managed section) and keep an existing
+file's mode; be **deterministic** (sort imports) and **no-op-when-unchanged**;
+be **corruption-safe** (a lone/duplicate marker collapses to one section, never
+appends a second); match markers **at column 0, outside code fences**; and
+**validate** each import line. See the standard's Rules and vox's
+`GlobalClaudeImports` for the full, tested contract.
 
 ## Consequences
 

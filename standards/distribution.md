@@ -535,13 +535,16 @@ project-scope for a doc that genuinely belongs to one repo and is committed with
 it; its import is reconciled by `/punt:init` as part of repo setup. Do NOT make
 project-scope the default: install runs once (not per-project), and a
 repo-committed managed section regenerated from one developer's local installs
-bakes their toolset into everyone's checkout. The tool owns and rewrites its doc
-on install; it never edits the consuming `CLAUDE.md`.
+bakes their toolset into everyone's checkout. The tool owns and rewrites its
+doc on install, and registers its own `@`-import line **through the shared
+reconcile** (below) — it never ad-hoc-edits the consuming `CLAUDE.md` or touches
+anything outside its own managed line.
 
 ### The managed Tool Guidance section
 
-The consuming `CLAUDE.md` (`~/.claude/CLAUDE.md` for global tools, a repo root
-for project tools) carries ONE managed section listing the imports:
+The consuming `CLAUDE.md` (`~/.claude/CLAUDE.md` for global tools,
+`<repo>/CLAUDE.md` for project tools) carries ONE managed section listing the
+imports:
 
 ```markdown
 <!-- punt:mandatory-reading -->
@@ -554,17 +557,22 @@ These docs load into context via `@`-import — nothing to open.
 <!-- /punt:mandatory-reading -->
 ```
 
-The section is owned by `punt` scaffolding, not by each tool editing `CLAUDE.md`
-independently. It regenerates the `@`-import list from the installed
-`.punt-labs/*/CLAUDE.md` docs — adds a line when a tool's doc appears, prunes it
-when the tool is removed. One place owns the idempotency; a tool owns only its
-doc file. (As a first step a single tool may self-register its own line inside
-these shared markers; a `punt`-owned multi-tool reconcile supersedes that.)
+One shared reconcile — keyed on the `punt:mandatory-reading` markers — owns the
+section's bytes; no tool hand-edits `CLAUDE.md` outside it. A tool registers or
+prunes only its **own** `@`-import line through that reconcile, which regenerates
+the section so lines stay sorted and de-duplicated. As a first step a tool may
+self-register via the shared reconcile; the end state is a `punt`-owned
+multi-tool reconcile that regenerates the whole list from the installed
+`.punt-labs/*/CLAUDE.md` docs — adding a line when a doc appears, pruning it when
+the tool is removed — superseding per-tool self-registration.
 
 ### Rules
 
-- **Tool owns the doc; `punt` owns the imports.** A tool writes only its
-  `~/.punt-labs/<product>/CLAUDE.md`; it never touches the consuming `CLAUDE.md`.
+- **Tool owns the doc; the shared reconcile owns the section.** A tool writes
+  its own `~/.punt-labs/<product>/CLAUDE.md` and registers only its own
+  `@`-import line through the shared reconcile; it never ad-hoc-edits the
+  consuming `CLAUDE.md`, touches other tools' lines, or alters content outside
+  the managed markers.
 - **The consuming `CLAUDE.md` is sacred — reconcile is a pure no-op on every
   byte outside the managed markers.** It is hand-authored and may be symlinked
   by a dotfile manager. The reconcile MUST:
