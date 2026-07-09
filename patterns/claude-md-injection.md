@@ -74,16 +74,17 @@ These docs load into context via `@`-import — nothing to open.
 <!-- /punt:mandatory-reading -->
 ```
 
-`punt` scaffolding (`/punt:init` or a session-start hook) reconciles the list
-against the installed `.punt-labs/*/CLAUDE.md` files: add a line when a doc
-appears, prune it when the tool is removed.
+The shared reconcile — run by a tool for its own line, or by `punt` scaffolding
+(`/punt:init` or a session-start hook) across all tools — keeps the list in sync
+with the installed `.punt-labs/*/CLAUDE.md` files: add a line when a doc appears,
+prune it when the tool is removed.
 
 ### Reconcile algorithm and invariants
 
 The reconcile **regenerates the whole managed section** (never appends): read
-the host file, find the `<!-- punt:mandatory-reading -->` … `<!-- /… -->` block,
-and replace it (inserting one if absent) with a section rendered from the
-**sorted** set of installed docs. Regenerating — not appending — is what makes
+the host file, find the `<!-- punt:mandatory-reading -->` …
+`<!-- /punt:mandatory-reading -->` block, and replace it (inserting one if
+absent) with a section rendered from the **sorted** set of installed docs. Regenerating — not appending — is what makes
 it both idempotent AND self-updating: a doc added, moved, or uninstalled is
 reflected on the next run.
 
