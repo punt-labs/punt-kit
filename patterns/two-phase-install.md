@@ -62,9 +62,10 @@ additional steps. These run during `<tool> install` (called by the
 bootstrap script after Phase 1):
 
 - **Phase 2a: CLAUDE.md `@`-import registration.** Write the tool's usage doc
-  to its `.punt-labs/<product>/CLAUDE.md` (home for a global tool, the repo for
-  a project tool) and register its `@`-import in the consuming `CLAUDE.md`, so
-  agents know what slash commands and auto-behaviors are available. See
+  to `~/.punt-labs/<product>/CLAUDE.md` (global tool) or
+  `<repo>/.punt-labs/<product>/CLAUDE.md` (project tool) and register its
+  `@`-import in the consuming `CLAUDE.md`, so agents know what slash commands
+  and auto-behaviors are available. See
   [CLAUDE.md `@`-import Includes](claude-md-injection.md).
 - **Phase 2b: Ethos extension setup.** Write `session_context` into
   ethos identity extension files so agents receive tool-specific

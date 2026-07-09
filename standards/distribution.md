@@ -570,9 +570,9 @@ the tool is removed — superseding per-tool self-registration.
 
 - **Tool owns the doc; the shared reconcile owns the section.** A tool writes
   its own `~/.punt-labs/<product>/CLAUDE.md` and registers only its own
-  `@`-import line through the shared reconcile; it never ad-hoc-edits the
-  consuming `CLAUDE.md`, touches other tools' lines, or alters content outside
-  the managed markers.
+  `@`-import line through the shared reconcile; it never makes ad hoc edits to
+  the consuming `CLAUDE.md`, touches other tools' lines, or alters content
+  outside the managed markers.
 - **The consuming `CLAUDE.md` is sacred — reconcile is a pure no-op on every
   byte outside the managed markers.** It is hand-authored and may be symlinked
   by a dotfile manager. The reconcile MUST:
