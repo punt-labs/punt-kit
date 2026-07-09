@@ -1,124 +1,143 @@
-# CLAUDE.md Injection
+# CLAUDE.md `@`-import Includes
 
-How tools inject capabilities sections into `~/.claude/CLAUDE.md` during
-install so agents know what tools are available.
+How tools make their usage instructions available to every session by owning a
+doc file that `CLAUDE.md` `@`-imports — rather than injecting content blocks
+into the user's `CLAUDE.md`.
 
 ---
 
 ## Problem
 
-An agent starts a session with no knowledge of which tools are installed
-beyond what MCP servers expose. Plugin skill descriptions are per-invocation
-and only surface when a skill is triggered. The agent needs persistent,
-always-present guidance about available slash commands, auto-behaviors, and
-usage tips — especially for tools that work across all projects.
+An agent starts a session with no knowledge of which tools are installed beyond
+what MCP servers expose. Plugin skill descriptions are per-invocation and only
+surface when a skill triggers. The agent needs persistent, always-present
+guidance about available slash commands, auto-behaviors, and usage tips — and
+that guidance must stay current as the tool evolves.
 
 ## Forces
 
-- **Global scope.** `~/.claude/CLAUDE.md` is loaded into every session,
-  every project. Tool guidance placed here is always available.
-- **Idempotent.** Running install twice must not duplicate the section.
-- **Collision-free.** Multiple tools inject into the same file. Sections
-  must not interfere with each other.
-- **Survives reinstall.** The section must persist across tool upgrades
-  and reinstalls. Marker comments enable detection and potential future update.
-- **Concise.** The file grows with each tool. Each section should be
-  10-15 lines — enough for discoverability, not a full manual.
-- **Complementary.** CLAUDE.md injection is for always-on awareness.
-  Ethos `session_context` is for identity-scoped instructions. Plugin
+- **Always in context.** Guidance must load into every relevant session, not
+  wait for a skill to trigger. `@`-imported files load into context.
+- **Current, not stale.** When the tool's instructions change between versions,
+  the agent must see the new ones — not a block frozen at first install.
+- **No host-file churn.** The consuming `CLAUDE.md` should not accumulate a
+  growing pile of tool content. It should hold references, not manuals.
+- **Clear ownership.** The tool owns its own instructions; the host `CLAUDE.md`
+  owns only the list of what to load.
+- **Idempotent.** Registering the same tool twice must not duplicate anything.
+- **Complementary.** `@`-import includes are for always-on, updatable tool
+  usage. Ethos `session_context` is for identity-scoped instructions. Plugin
   skills are for per-invocation behavior. Each mechanism has its role.
+
+## Why the older inject-a-block approach was retired
+
+Tools used to append a marker-wrapped section (`<!-- <tool>:capabilities -->`)
+directly into `~/.claude/CLAUDE.md`. Two flaws forced the change:
+
+- **No update path.** A block, once written, was never refreshed — the standard
+  told tools to "use stable content that doesn't need updates," which is a
+  workaround, not a fix.
+- **Host-file growth.** Every tool added 10–15 lines to one shared file.
 
 ## Solution
 
-### Marker comments
+### Tool-owned doc
 
-Each tool's section is wrapped in tool-specific HTML comments that serve
-as idempotency markers:
-
-```markdown
-<!-- <tool>:capabilities -->
-# Tool Name
-
-Content here...
-<!-- /<tool>:capabilities -->
-```
-
-The tool's own marker (e.g., `<!-- quarry:capabilities -->`) is checked
-before injection. If present, the section is skipped. If absent, the
-section is appended. Each tool uses its own name in the marker to avoid
-collisions when multiple tools inject into the same file.
-
-### Append-or-skip logic
-
-```python
-_MARKER = "<!-- quarry:capabilities -->"
-
-def _inject_claude_md() -> str:
-    claude_md = Path.home() / ".claude" / "CLAUDE.md"
-    claude_md.parent.mkdir(parents=True, exist_ok=True)
-
-    if claude_md.exists():
-        content = claude_md.read_text(encoding="utf-8")
-        if _MARKER in content:
-            return f"{claude_md} already has section"
-        with claude_md.open("a", encoding="utf-8") as f:
-            f.write(SECTION_CONTENT)
-    else:
-        claude_md.write_text(SECTION_CONTENT.lstrip(), encoding="utf-8")
-
-    return f"Appended section to {claude_md}"
-```
-
-### Section content
-
-Keep to 10-15 lines. Include:
-
-1. **Tool name** as a heading
-2. **One-line description** of what the tool does
-3. **Slash commands** available (bulleted list)
-4. **Auto-behaviors** the user should know about (e.g., "auto-indexes
-   your project on session start")
-5. **Key tip** for effective use (e.g., "natural language queries work
-   best")
-
-Do not include: full API reference, configuration instructions, or
-troubleshooting. Those belong in the tool's own docs.
-
-### Where it runs
-
-CLAUDE.md injection runs during `<tool> install` as a numbered step,
-typically after MCP client configuration and before verification:
+The tool writes its agent-facing usage doc to its product namespace — **scope
+follows the tool, global by default**:
 
 ```text
-[6/7] Injecting quarry context into CLAUDE.md...
-  ✓ Appended quarry section to /Users/alice/.claude/CLAUDE.md
+~/.punt-labs/<product>/CLAUDE.md       # GLOBAL tool (default) — from ~/.claude/CLAUDE.md
+<repo>/.punt-labs/<product>/CLAUDE.md  # PROJECT tool — vendored, from <repo>/CLAUDE.md
 ```
+
+The tools that use this (quarry, biff, vox) are global — they work in every
+project, so they write the home doc and register at install time (once, covers
+all projects). Reserve project-scope for a doc committed with one repo. The tool
+rewrites this file on every install/upgrade — it is the single source of truth,
+so updates are automatic. The tool never edits the host `CLAUDE.md`.
+
+### Managed Tool Guidance section
+
+The host `CLAUDE.md` carries one `punt`-owned section listing the imports:
+
+```markdown
+<!-- punt:mandatory-reading -->
+## Tool Guidance (auto-loaded)
+
+These docs load into context via `@`-import — nothing to open.
+
+@~/.punt-labs/vox/CLAUDE.md
+@~/.punt-labs/quarry/CLAUDE.md
+<!-- /punt:mandatory-reading -->
+```
+
+`punt` scaffolding (`/punt:init` or a session-start hook) reconciles the list
+against the installed `.punt-labs/*/CLAUDE.md` files: add a line when a doc
+appears, prune it when the tool is removed.
+
+### Reconcile logic (sketch)
+
+```python
+_OPEN = "<!-- punt:mandatory-reading -->"
+_CLOSE = "<!-- /punt:mandatory-reading -->"
+
+def reconcile_mandatory_reading(claude_md: Path, doc_paths: list[str]) -> None:
+    section = _render(doc_paths)  # the managed block, from the discovered docs
+    text = claude_md.read_text(encoding="utf-8") if claude_md.exists() else ""
+    if _OPEN in text and _CLOSE in text:
+        text = _replace_between(text, _OPEN, _CLOSE, section)  # refresh in place
+    elif text:
+        text = text.rstrip() + "\n\n" + section + "\n"
+    else:
+        text = section + "\n"
+    claude_md.write_text(text, encoding="utf-8")
+```
+
+Regenerating the whole section (not appending) is what makes it both idempotent
+AND self-updating — a tool doc that is added, moves, or is uninstalled is
+reflected on the next reconcile.
+
+**The sketch above is illustrative and NOT production-safe** — it edits the
+user's hand-authored (possibly dotfile-symlinked) `~/.claude/CLAUDE.md`, so the
+real reconcile has hard invariants the vox reference implementation learned
+under review. It MUST: write **atomically** (temp + `fsync` + `os.replace`,
+never truncate-in-place); **resolve symlinks** and write the real target,
+preserving the link; **preserve bytes and mode** — read *and* write with
+`newline=""` (the default universal-newline translation silently rewrites the
+user's CRLF/CR endings, corrupting content outside the managed section), and
+keep an existing file's mode; be **deterministic** (sort imports) and
+**no-op-when-unchanged**; be **corruption-safe** (a lone/duplicate marker
+collapses to one section, never appends a second); match markers **at column 0,
+outside code fences**; and **validate** each import line. See the standard's
+Rules and vox's `GlobalClaudeImports` for the full contract.
 
 ## Consequences
 
-- **Agents discover tools.** The agent knows about `/find`, `/ingest`,
-  `/remember` without the user having to explain.
-- **Single file grows.** Each tool adds 10-15 lines. With 5 tools,
-  the file grows by ~75 lines. This is manageable.
-- **No update mechanism.** If the section content changes between
-  versions, the old section persists. Tools should use stable content
-  that doesn't need frequent updates. A future improvement could
-  detect and replace outdated sections using the closing marker.
-- **Global, not per-project.** This is appropriate for tools that
-  work everywhere (quarry, biff). Project-specific tools should use
-  per-project `CLAUDE.md` files instead.
+- **Agents discover tools, and stay current.** New slash commands or gotchas in
+  a tool's doc reach the agent on the next session with no re-injection.
+- **Host file stays small.** `CLAUDE.md` holds N one-line imports, not N blocks.
+- **Two owners, cleanly split.** The tool owns `.punt-labs/<product>/CLAUDE.md`;
+  `punt` owns the import list. Neither reaches into the other.
+- **Import depth is bounded.** Keep tool docs flat; Claude Code resolves
+  `@`-imports recursively only to a bounded depth.
 
 ## Related Patterns
 
-- [Two-Phase Install](two-phase-install.md) — CLAUDE.md injection is
-  Phase 2a
-- [Ethos Extension Setup](ethos-ext-setup.md) — complementary mechanism
-  for identity-scoped session context
-- [Prior-Context Priming](prior-context-priming.md) — explains why
-  prior-context guidance (like CLAUDE.md) is more effective than
-  same-turn instructions
+- [Two-Phase Install](two-phase-install.md)
+- [Ethos Extension Setup](ethos-ext-setup.md) — complementary identity-scoped
+  session context
+- [Prior-Context Priming](prior-context-priming.md) — why prior-context
+  guidance is more effective than same-turn instructions
 
 ## Known Uses
 
-- **quarry v1.8.0** — `quarry install` step 6/7 appends a capabilities
-  section with slash commands, research agent, and auto-behaviors.
+- **vox** — reference implementation (merged, `punt-labs/vox#306`). Writes
+  `~/.punt-labs/vox/CLAUDE.md` and self-registers the `@`-import at install;
+  `GlobalClaudeImports` (`src/punt_vox/claude_md.py`) is the atomic, symlink-safe,
+  byte-preserving reconcile. The `@`-import load is empirically verified against
+  Claude Code and the invariants are under a `prune(register(x)) == x` property
+  test.
+- **quarry** (migration target) — currently injects a
+  `<!-- quarry:capabilities -->` block via `_inject_claude_md()`; to move to a
+  tool-owned `.punt-labs/quarry/CLAUDE.md` + managed import.
