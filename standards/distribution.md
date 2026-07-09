@@ -609,8 +609,8 @@ Migration (forward integration, no compat shim): a tool currently injecting a
 own legacy injected block from `~/.claude/CLAUDE.md` in the same release — an
 orphaned block is a defect.
 
-Pattern: [claude-md-injection](../patterns/claude-md-injection.md). Reference
-implementation: **vox** — `src/punt_vox/claude_md.py` (`GlobalClaudeImports`
+Pattern: [CLAUDE.md `@`-import includes](../patterns/claude-md-injection.md).
+Reference implementation: **vox** — `src/punt_vox/claude_md.py` (`GlobalClaudeImports`
 reconcile) + `guidance.py`; the `@`-import load is empirically verified against
 Claude Code and the reconcile invariants (atomic, symlink-safe, byte-preserving
 across line endings, deterministic, corruption-safe) are covered by a
