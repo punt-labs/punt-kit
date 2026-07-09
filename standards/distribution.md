@@ -499,42 +499,123 @@ implementation: quarry v1.8.1 DES-019.
 
 ---
 
-## CLAUDE.md Capabilities Injection
+## CLAUDE.md `@`-import Includes
 
-Tools that provide slash commands, auto-behaviors, or agents should inject a
-capabilities section into `~/.claude/CLAUDE.md` during install. This file is
-loaded into every session, so agents always know what's available.
+Tools that provide slash commands, auto-behaviors, or agents make their usage
+instructions available to every session by **owning a doc file that `CLAUDE.md`
+`@`-imports** — not by injecting content blocks into the user's `CLAUDE.md`.
+Claude Code loads `@`-imported files into context (verified against Claude Code:
+it resolves `~` and loads the import from any working directory), so the tool's
+doc is always present and always current.
 
-### Marker comments
+### Why import, not inject
 
-Wrap the section in tool-specific HTML comments for idempotent detection.
-Each tool uses its own name in the marker to avoid collisions:
+The older approach wrote a marker-wrapped block directly into
+`~/.claude/CLAUDE.md`. It had two flaws: **no update path** — a block once
+written was never refreshed, so stale content persisted across versions — and
+the user's `CLAUDE.md` grew with every tool. An `@`-import reference is one
+line; the tool owns the imported file, so updates flow automatically and the
+`CLAUDE.md` stays clean.
+
+### Scope follows the tool — global by default
+
+A tool's doc lives where the tool applies:
+
+```text
+~/.punt-labs/<product>/CLAUDE.md       # GLOBAL tool (default) — imported from ~/.claude/CLAUDE.md
+<repo>/.punt-labs/<product>/CLAUDE.md  # PROJECT tool — vendored in the repo, imported from <repo>/CLAUDE.md
+```
+
+Most tools that use this mechanism (quarry, biff, vox) are **global** — they
+work in every project, including ones with no repo `CLAUDE.md` and no `punt`
+scaffolding. A global tool writes `~/.punt-labs/<product>/CLAUDE.md` and
+registers `@~/.punt-labs/<product>/CLAUDE.md` in `~/.claude/CLAUDE.md` **at
+install time** (runs once, covers every project deterministically). Reserve
+project-scope for a doc that genuinely belongs to one repo and is committed with
+it; its import is reconciled by `/punt:init` as part of repo setup. Do NOT make
+project-scope the default: install runs once (not per-project), and a
+repo-committed managed section regenerated from one developer's local installs
+bakes their toolset into everyone's checkout. The tool owns and rewrites its
+doc on install, and registers its own `@`-import line **through the shared
+reconcile** (below) — it never makes ad hoc edits to the consuming `CLAUDE.md` or touches
+anything outside its own managed line.
+
+### The managed Tool Guidance section
+
+The consuming `CLAUDE.md` (`~/.claude/CLAUDE.md` for global tools,
+`<repo>/CLAUDE.md` for project tools) carries ONE managed section listing the
+imports:
 
 ```markdown
-<!-- <tool>:capabilities -->
-# Tool Name
+<!-- punt:mandatory-reading -->
+## Tool Guidance (auto-loaded)
 
-- **Slash commands**: `/find`, `/ingest`, `/remember`
-- **Auto-behaviors**: auto-indexes project on session start
-- **Tip**: natural language queries work best
-<!-- /<tool>:capabilities -->
+These docs load into context via `@`-import — nothing to open.
+
+@~/.punt-labs/quarry/CLAUDE.md
+@~/.punt-labs/vox/CLAUDE.md
+<!-- /punt:mandatory-reading -->
 ```
+
+One shared reconcile — keyed on the `punt:mandatory-reading` markers — owns the
+section's bytes; no tool hand-edits `CLAUDE.md` outside it. A tool registers or
+prunes only its **own** `@`-import line through that reconcile, which regenerates
+the section so lines stay sorted and de-duplicated. As a first step a tool may
+self-register via the shared reconcile; the end state is a `punt`-owned
+multi-tool reconcile that regenerates the whole list from the installed
+`.punt-labs/*/CLAUDE.md` docs — adding a line when a doc appears, pruning it when
+the tool is removed — superseding per-tool self-registration.
 
 ### Rules
 
-- **Append-or-skip.** Check for the opening marker. Append if absent, skip
-  if present.
-- **Create if missing.** If `~/.claude/CLAUDE.md` doesn't exist, create it
-  with just the tool's section.
-- **Keep it short.** 10-15 lines per tool. Enough for discoverability, not
-  a reference manual.
-- **Global tools only.** Per-project tools should use per-project
-  `CLAUDE.md` files, not the global one.
-- **Stable content.** The injected section should rarely change between
-  versions. There is currently no update mechanism — old content persists.
+- **Tool owns the doc; the shared reconcile owns the section.** A tool writes
+  its own `~/.punt-labs/<product>/CLAUDE.md` and registers only its own
+  `@`-import line through the shared reconcile; it never makes ad hoc edits to
+  the consuming `CLAUDE.md`, touches other tools' lines, or alters content
+  outside the managed markers.
+- **The consuming `CLAUDE.md` is sacred — reconcile is a pure no-op on every
+  byte outside the managed markers.** It is hand-authored and may be symlinked
+  by a dotfile manager. The reconcile MUST:
+  - **Write atomically** — temp file in the target's directory, `fsync`,
+    `os.replace` (atomic on POSIX); never truncate-in-place. State a
+    single-writer assumption (installs are rare and manual).
+  - **Resolve symlinks** — if the target is a symlink, write its real target and
+    preserve the link (dotfile managers depend on this).
+  - **Preserve bytes and mode** — content outside the markers stays
+    byte-identical across LF / CRLF / lone-CR endings (read *and* write with
+    `newline=""`; universal-newline translation silently rewrites the user's
+    endings). A new file gets a predictable `0644`; an existing file keeps its
+    mode.
+  - **Be deterministic and no-op-when-unchanged** — sort the import lines; write
+    only when the bytes actually change.
+  - **Be corruption-safe** — a lone or duplicated marker collapses to one
+    canonical section; never append a second.
+  - **Match markers at column 0, outside code fences** — markers and `@`-lines
+    must be top-level (Claude Code does not resolve `@`-imports inside code
+    spans/fences), and a marker string appearing inside a fenced or indented
+    code block must not be consumed.
+  - **Validate the import line** — a single top-level `@…` line, no embedded
+    newline, no stray whitespace.
+- **The doc is the tool's agent-facing manual.** Slash commands, auto-behaviors,
+  tips, gotchas. It may exceed the old 10-15 line cap — but `@`-imported content
+  loads fully into every session's context, so keep it usage guidance, not a
+  full reference (the host file shrinks; per-session context does not).
+- **Keep imports shallow.** Claude Code resolves `@`-imports recursively to a
+  bounded depth; don't chain deep import trees from the tool doc.
 
-Pattern: [claude-md-injection](../patterns/claude-md-injection.md). Reference
-implementation: quarry `_inject_claude_md()` in doctor.py.
+Migration (forward integration, no compat shim): a tool currently injecting a
+`<!-- <tool>:capabilities -->` block moves that content into its
+`~/.punt-labs/<product>/CLAUDE.md`, registers the `@`-import, and MUST delete its
+own legacy injected block from `~/.claude/CLAUDE.md` in the same release — an
+orphaned block is a defect.
+
+Pattern: [CLAUDE.md `@`-import includes](../patterns/claude-md-injection.md).
+Reference implementation: **vox** — `src/punt_vox/claude_md.py` (`GlobalClaudeImports`
+reconcile) + `guidance.py`; the `@`-import load is empirically verified against
+Claude Code and the reconcile invariants (atomic, symlink-safe, byte-preserving
+across line endings, deterministic, corruption-safe) are covered by a
+`prune(register(x)) == x` property test. quarry's `_inject_claude_md()` block is
+the migration target.
 
 ---
 
