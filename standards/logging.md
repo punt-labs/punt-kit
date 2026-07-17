@@ -61,8 +61,9 @@ def configure_logging(*, stderr_level: str = "WARNING") -> None:
             "handlers": {
                 "file": {
                     # NOT plain RotatingFileHandler — that opens 0666 & ~umask
-                    # (0644 in practice) and never re-tightens. Log files hold
-                    # operational metadata and must be 0600. See File Permissions.
+                    # (umask-dependent, not private) and never re-tightens. Log
+                    # files hold operational metadata and must be 0600. See
+                    # File Permissions.
                     "()": _private_rotating_handler,
                     "filename": str(_LOG_FILE),
                     "maxBytes": _MAX_BYTES,
@@ -88,7 +89,7 @@ def configure_logging(*, stderr_level: str = "WARNING") -> None:
 
 ### File Permissions (0600) — required
 
-Log files hold operational metadata (paths, config values, provider/voice ids, signal tokens) and must be owner-only. **The plain `RotatingFileHandler` is unsafe here:** `logging.FileHandler` opens with `open(path, "a")` → `0666 & ~umask` → **0644 in practice**, never re-tightens a pre-existing file, and **rotated backups inherit the loose mode.** A `0700` log *directory* is not enough — it is a single point of failure, and defense-in-depth requires the file bit too.
+Log files hold operational metadata (paths, config values, provider/voice ids, signal tokens) and must be owner-only. **The plain `RotatingFileHandler` is unsafe here:** `logging.FileHandler` opens with `open(path, "a")` → `0666 & ~umask` — so the mode is **umask-dependent** (commonly `0644`, sometimes `0640`/`0600` in tighter environments), never guaranteed private; it also never re-tightens a pre-existing file, and **rotated backups inherit whatever mode they had.** A `0700` log *directory* is not enough — it is a single point of failure, and defense-in-depth requires the file bit too.
 
 Use a handler that forces `0600` on the active file **and** every rotated backup, and re-tightens pre-existing files:
 
@@ -99,16 +100,38 @@ from logging.handlers import RotatingFileHandler
 _FILE_MODE = 0o600
 
 
-class PrivateRotatingFileHandler(RotatingFileHandler):
-    """RotatingFileHandler that keeps the log (and its backups) 0600."""
+def _private_opener(path: str, flags: int) -> int:
+    # Create the file 0600 *atomically* — os.open applies the mode at creation,
+    # so there is no window at the umask-default mode as there is with
+    # open()+chmod. (mode is ignored if the file already exists — see __init__.)
+    return os.open(path, flags, _FILE_MODE)
 
-    def _open(self):  # noqa: no wider mode ever reaches disk
-        stream = super()._open()
-        self._chmod(self.baseFilename)
-        return stream
+
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that keeps the log and its backups 0600.
+
+    New files are created 0600 atomically via ``opener=``. A *pre-existing*
+    file keeps its mode on open, so the active log and every backup slot are
+    also re-tightened on construction (fixing a 0644 file left by an earlier,
+    laxer run before it is next rotated) and after every rollover.
+    """
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self._tighten_all()
+
+    def _open(self):
+        return open(
+            self.baseFilename, self.mode,
+            encoding=self.encoding, errors=self.errors,
+            opener=_private_opener,
+        )
 
     def doRollover(self) -> None:
         super().doRollover()
+        self._tighten_all()
+
+    def _tighten_all(self) -> None:
         for path in (self.baseFilename, *self._backups()):
             self._chmod(path)
 
@@ -117,7 +140,8 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
 
     def _chmod(self, path: str) -> None:
         try:  # best-effort — a chmod we cannot do must not block logging
-            os.chmod(path, _FILE_MODE)
+            if os.path.exists(path):
+                os.chmod(path, _FILE_MODE)
         except OSError:
             pass
 
@@ -126,7 +150,7 @@ def _private_rotating_handler(**kwargs: object) -> PrivateRotatingFileHandler:
     return PrivateRotatingFileHandler(**kwargs)  # dictConfig "()" factory
 ```
 
-Rotated backups (`<tool>.log.1`–`.5`) **must** be `0600` too — this is the most common miss. The log *directory* is created `mode=0o700` (see [Log Location](#log-location)).
+Two windows to close, both handled above: **new files** are created `0600` atomically by the `opener` (no `open()+chmod` gap), and **pre-existing files** — the active log *and* every rotated backup (`<tool>.log.1`–`.5`) — are re-tightened on construction and after each rollover, so a backup left `0644` by an earlier run is fixed the first time the handler runs, not only when it happens to rotate. Backup perms are the most common miss. The log *directory* is created `mode=0o700` (see [Log Location](#log-location)).
 
 ### Rules
 
@@ -214,10 +238,10 @@ Choose one of:
 | Pattern | Use when | Tradeoff |
 |---------|----------|----------|
 | **Single owner** — one process (the daemon) owns the file; other processes ship records to it over the transport they already hold | there is a natural central process | needs a tiny local fallback for when the owner is down |
-| **Atomic `O_APPEND` line-writer** — each process opens `O_WRONLY\|O_APPEND\|O_CREAT` and writes the whole line in one `os.write` | no central process; stdlib-only | lose automatic size-rotation — pair with `WatchedFileHandler` + external `logrotate` |
+| **Atomic `O_APPEND` line-writer** — each process opens `os.open(path, O_WRONLY\|O_APPEND\|O_CREAT, 0o600)` (pass the `0o600` mode so the file is created private) and writes the whole line in one `os.write` | no central process; stdlib-only | lose automatic size-rotation — pair with `WatchedFileHandler` + external `logrotate` |
 | **Cross-process locking handler** (`concurrent-log-handler`) | you must keep `RotatingFileHandler` semantics | adds a dependency; lock contention under bursty writers |
 
-`RotatingFileHandler` is correct **only for a single-writer file** (e.g. a daemon's own log). The atomic-`O_APPEND` pattern is the stdlib reference: POSIX guarantees an `O_APPEND` write below the pipe-buffer size lands atomically at EOF, so concurrent single-line writes never tear or interleave.
+`RotatingFileHandler` is correct **only for a single-writer file** (e.g. a daemon's own log). The atomic-`O_APPEND` pattern is the stdlib reference: with `O_APPEND` the kernel seeks-to-end and writes as one operation under a lock, so a single `os.write` of a whole log line from concurrent writers lands intact at EOF without tearing or interleaving. (`PIPE_BUF` — the classic "atomic below N bytes" guarantee — governs *pipes and FIFOs*, not regular files; the regular-file guarantee here rests on `O_APPEND` + a single `write()` per line, which for log-line-sized buffers does not short-write in practice. Surface a short write as an error rather than looping — a second `write` would break the atomicity.)
 
 ---
 
@@ -326,7 +350,7 @@ Rules:
 
 - **Never `%s`-interpolate an untrusted value.** Use `%r` (repr escapes quotes, backslashes, and newlines) or an explicit escape table.
 - For a durable proof/audit line, escape a fixed set: all C0 control chars (`0x00`–`0x1F`) and `DEL`, **plus the Unicode line separators** `U+0085` (NEL), `U+2028`, `U+2029` — these break tools that split on Unicode line boundaries (e.g. Python `str.splitlines()`) even though the file holds a single `\n`.
-- `repr()`-style interpolation (`VOXD_PORT=%r`) is the cheap correct default; a shared escape helper is worth it once more than one sink interpolates untrusted values.
+- `repr()` interpolation (`%r`) is the cheap correct default — e.g. `logger.warning("rejected unknown signal %r", signal)`, a sentence-style message (not a `key=value` field — see [Format](#format)) whose interpolated value is repr-escaped. A shared escape helper is worth it once more than one sink interpolates untrusted values.
 
 ```python
 _SANITIZE = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7F)}
