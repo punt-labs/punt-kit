@@ -87,6 +87,8 @@ def configure_logging(*, stderr_level: str = "WARNING") -> None:
     )
 ```
 
+> **This reference is the single-writer baseline.** It rotates via a `RotatingFileHandler` subclass, which is safe **only when one process writes the file** (see [Multi-Process Safety](#multi-process-safety)). If this file is written by a CLI *and* an MCP server *and* per-event hooks, do not copy this verbatim — you will reintroduce the multi-writer rotation race. Consolidate to a single owner or switch the `file` handler to an atomic-`O_APPEND` writer. `_private_rotating_handler` (the `"()"` factory above) is defined in [File Permissions](#file-permissions-0600--required).
+
 ### File Permissions (0600) — required
 
 Log files hold operational metadata (paths, config values, provider/voice ids, signal tokens) and must be owner-only. **The plain `RotatingFileHandler` is unsafe here:** `logging.FileHandler` opens with `open(path, "a")` → `0666 & ~umask` — so the mode is **umask-dependent** (commonly `0644`, sometimes `0640`/`0600` in tighter environments), never guaranteed private; it also never re-tightens a pre-existing file, and **rotated backups inherit whatever mode they had.** A `0700` log *directory* is not enough — it is a single point of failure, and defense-in-depth requires the file bit too.
@@ -342,13 +344,13 @@ When content hashing is not available, use request IDs or timestamps for correla
 
 ## Log Injection
 
-A log line is data an incident responder (or root, or a later reader) trusts. An **untrusted value interpolated with `%s`** can smuggle a newline and forge a second, authentic-looking line — or emit terminal control sequences that corrupt a `cat`/`tail`.
+A log line is data an incident responder (or root, or a later reader) trusts. An **untrusted value placed into a log message raw** can smuggle a newline and forge a second, authentic-looking line — or emit terminal control sequences that corrupt a `cat`/`tail`.
 
 **Untrusted** = anything from a wire/RPC message, a subprocess's stderr, a provider's error body, or a filename/path the user or a remote service controls.
 
 Rules:
 
-- **Never `%s`-interpolate an untrusted value.** Use `%r` (repr escapes quotes, backslashes, and newlines) or an explicit escape table.
+- **Never put an untrusted value into a log message raw — and that includes *eager* formatting.** An f-string (`logger.info(f"got {value}")`), `str.format`, or `"..." % value` computed *before* the logging call smuggles a newline exactly as a bare `%s` does — `%r` never gets a chance to escape it. Pass the value as a **lazy logging argument** and escape it: `logger.warning("got %r", value)` (repr escapes quotes, backslashes, newlines) or a shared escape table. The rule is about the *value reaching the record*, not the `%`-spelling.
 - For a durable proof/audit line, escape a fixed set: all C0 control chars (`0x00`–`0x1F`) and `DEL`, **plus the Unicode line separators** `U+0085` (NEL), `U+2028`, `U+2029` — these break tools that split on Unicode line boundaries (e.g. Python `str.splitlines()`) even though the file holds a single `\n`.
 - `repr()` interpolation (`%r`) is the cheap correct default — e.g. `logger.warning("rejected unknown signal %r", signal)`, a sentence-style message (not a `key=value` field — see [Format](#format)) whose interpolated value is repr-escaped. A shared escape helper is worth it once more than one sink interpolates untrusted values.
 
