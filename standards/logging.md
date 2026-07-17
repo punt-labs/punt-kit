@@ -142,15 +142,21 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
             self._chmod(path)
 
     def _backups(self) -> list[str]:
-        return [f"{self.baseFilename}.{i}" for i in range(1, self.backupCount + 1)]
+        # rotation_filename() respects a custom self.namer, so a project that
+        # renames backups still gets the *real* files chmod'd, not guessed paths.
+        return [
+            self.rotation_filename(f"{self.baseFilename}.{i}")
+            for i in range(1, self.backupCount + 1)
+        ]
 
     def _chmod(self, path: str) -> None:
         # Best-effort BY DESIGN: this runs inside the log handler, so it must
         # not raise (a failed chmod would crash the app's logging on a
         # transient error) and cannot report the failure through logging
-        # without recursing into this very handler. Fail *open* here; the
-        # startup / ensure_dirs path (outside the log-write path) is where a
-        # tightening failure is logged. See Security Events to Log.
+        # without recursing into this very handler. Fail *open* here. A
+        # tightening failure that matters SHOULD be surfaced elsewhere — on a
+        # startup / ensure_dirs path outside the log-write path (not shown
+        # here). See Security Events to Log.
         try:
             if os.path.exists(path):
                 os.chmod(path, _FILE_MODE)
