@@ -231,7 +231,7 @@ Do not add structured key-value formatting (e.g., `key=value` pairs). The log is
 
 **`RotatingFileHandler` is not safe when more than one process writes the file.** Python's own docs say so. `doRollover()` renames `<tool>.log → <tool>.log.1`; if two processes cross `maxBytes` near-simultaneously they both rename, and a writer can hold a file descriptor to a file that was renamed out from under it — lines are lost or land in the wrong file. This is not theoretical: a tool whose CLI, MCP server, and one-process-per-event hooks all write one log hits the race routinely (the rotation files sit pinned at exactly `maxBytes`).
 
-**A `QueueHandler`/`QueueListener` does NOT fix this.** A queue decouples logging I/O from a hot thread *within one process* — separate processes have separate queues and separate address spaces. Reaching for it here is a category error.
+**A *per-process* `QueueHandler`/`QueueListener` does NOT fix this.** A queue decouples logging I/O from a hot thread *within one process*; if each process still owns its own listener and file handler, you still have multiple writers. A `QueueHandler` feeding a **shared `multiprocessing.Queue` drained by a single listener process** that owns the one file handler *is* valid — but that is simply the **single-owner** pattern below, mechanized through a queue, and it requires the writers to share the queue object (i.e. a common parent process). Independent process launches — a fresh `<tool> hook` per event, across sessions — have no shared parent, so for that topology the single-owner-over-transport or atomic-`O_APPEND` options below are the fit, not a queue.
 
 Choose one of:
 
@@ -368,7 +368,7 @@ Log at WARNING, to the durable file:
 
 - **Authentication/authorization outcomes** — a rejected token, a failed permission check, a denied connection. Log the *decision* and *who* (client address, request id) — **never the credential, the token, or the expected value.** An auth boundary that closes a connection with no log means an attack leaves no trace.
 - **Rejected or malformed requests** — a request dropped for bad shape, an unknown signal, a size/format violation. (Escape the offending value per [Log Injection](#log-injection).)
-- **Permission-tightening failures** — a `chmod`/`fchmod` that could not enforce `0600`/`0700`. Best-effort tightening must still *say* it failed.
+- **Permission-tightening failures** — a `chmod`/`fchmod` that could not enforce `0600`/`0700` — must be surfaced, **with one exception**: a tightening that runs *inside a log handler itself* (like the reference `PrivateRotatingFileHandler._chmod`) cannot route its failure through logging without recursing into the very handler that is failing, so it swallows best-effort. Tightening on a startup / `ensure_dirs` path (outside the log-write path) has no such constraint and **must** log the failure.
 
 Do not log the *content* of a rejected request (that is still PII); log that it was rejected and why.
 
