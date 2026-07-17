@@ -47,6 +47,7 @@ def configure_logging(*, stderr_level: str = "WARNING") -> None:
     Stderr handler level is controlled by the caller.
     """
     _LOG_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _LOG_DIR.chmod(0o700)  # mkdir mode is umask-masked and skips a pre-existing dir
 
     logging.config.dictConfig(
         {
@@ -141,7 +142,13 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
         return [f"{self.baseFilename}.{i}" for i in range(1, self.backupCount + 1)]
 
     def _chmod(self, path: str) -> None:
-        try:  # best-effort — a chmod we cannot do must not block logging
+        # Best-effort BY DESIGN: this runs inside the log handler, so it must
+        # not raise (a failed chmod would crash the app's logging on a
+        # transient error) and cannot report the failure through logging
+        # without recursing into this very handler. Fail *open* here; the
+        # startup / ensure_dirs path (outside the log-write path) is where a
+        # tightening failure is logged. See Security Events to Log.
+        try:
             if os.path.exists(path):
                 os.chmod(path, _FILE_MODE)
         except OSError:
@@ -240,7 +247,7 @@ Choose one of:
 | Pattern | Use when | Tradeoff |
 |---------|----------|----------|
 | **Single owner** — one process (the daemon) owns the file; other processes ship records to it over the transport they already hold | there is a natural central process | needs a tiny local fallback for when the owner is down |
-| **Atomic `O_APPEND` line-writer** — each process opens `os.open(path, O_WRONLY\|O_APPEND\|O_CREAT, 0o600)` (pass the `0o600` mode so the file is created private) and writes the whole line in one `os.write` | no central process; stdlib-only | lose automatic size-rotation — pair with `WatchedFileHandler` + external `logrotate` |
+| **Atomic `O_APPEND` line-writer** — each process opens `os.open(path, O_WRONLY\|O_APPEND\|O_CREAT, 0o600)` (pass the `0o600` mode so the file is created private) and writes the whole line in one `os.write` | no central process; stdlib-only | lose automatic size-rotation — bound it with external `logrotate` in `copytruncate` mode (truncates in place, so each writer's append fd stays valid). **Not** `WatchedFileHandler` — that is a buffered `FileHandler`, not a raw `os.write` writer, and mixing them forfeits the per-line atomicity |
 | **Cross-process locking handler** (`concurrent-log-handler`) | you must keep `RotatingFileHandler` semantics | adds a dependency; lock contention under bursty writers |
 
 `RotatingFileHandler` is correct **only for a single-writer file** (e.g. a daemon's own log). The atomic-`O_APPEND` pattern is the stdlib reference: with `O_APPEND` the kernel seeks-to-end and writes as one operation under a lock, so a single `os.write` of a whole log line from concurrent writers lands intact at EOF without tearing or interleaving. (`PIPE_BUF` — the classic "atomic below N bytes" guarantee — governs *pipes and FIFOs*, not regular files; the regular-file guarantee here rests on `O_APPEND` + a single `write()` per line, which for log-line-sized buffers does not short-write in practice. Surface a short write as an error rather than looping — a second `write` would break the atomicity.)
@@ -355,9 +362,11 @@ Rules:
 - `repr()` interpolation (`%r`) is the cheap correct default — e.g. `logger.warning("rejected unknown signal %r", signal)`, a sentence-style message (not a `key=value` field — see [Format](#format)) whose interpolated value is repr-escaped. A shared escape helper is worth it once more than one sink interpolates untrusted values.
 
 ```python
-_SANITIZE = {c: f"\\x{c:02x}" for c in (*range(0x20), 0x7F)}
+# C0 controls (0x00–0x1F), DEL + C1 (0x7F–0x9F, incl. CSI U+009B):
+_SANITIZE = {c: f"\\x{c:02x}" for c in (*range(0x20), *range(0x7F, 0xA0))}
 _SANITIZE.update({cp: f"\\u{cp:04x}" for cp in (0x85, 0x2028, 0x2029)})
-safe = value.translate(_SANITIZE)   # exactly one physical line, no control bytes
+safe = str(value).translate(_SANITIZE)  # str() first — value may be an exception,
+                                        # bytes, etc.; result is one physical line
 ```
 
 ---
