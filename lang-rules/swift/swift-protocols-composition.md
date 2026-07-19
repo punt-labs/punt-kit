@@ -86,8 +86,12 @@ protocol NotificationCenterProtocol: Sendable {
     func add(_ request: UNNotificationRequest) async throws
 }
 
-extension UNUserNotificationCenter: NotificationCenterProtocol {}
+extension UNUserNotificationCenter: @unchecked Sendable, NotificationCenterProtocol {}
 ```
+
+The system type does not declare `Sendable` itself, so the extension asserts
+it `@unchecked` — an assertion that falls under SW-CC-5's documented-reason
+discipline like any other.
 
 **Criterion**:
 
