@@ -108,8 +108,14 @@ a class. Each finding is a sign of fake OO (procedural code in a class wrapper).
   doesn't use `self` but the concrete implementations will.
 
 **Agent rule**: When PLR6301 fires, check whether the method is in a Null Object
-class, a singledispatch base, or an abstract method. If yes, suppress with
-`# noqa: PLR6301`. If no, the method genuinely doesn't belong on the class.
+class, a singledispatch base, or an abstract method. For these three enumerated
+patterns the standard pre-authorizes the suppression — no per-case operator
+approval is needed — and each use must cite the authorizing pattern and rule in
+the comment: `# noqa: PLR6301 — Null Object, PY-DP-9` (likewise
+`— singledispatchmethod base` or `— abstract stub`, citing this rule). Any
+PLR6301 suppression outside these enumerated patterns still requires operator
+approval per the org CLAUDE.md. If no pattern applies, the method genuinely
+doesn't belong on the class.
 
 ### pylint design category — Structural Smells
 

@@ -113,15 +113,18 @@ Override every method with a no-op, empty return, or error raise. Methods will
 not access `self` — this is correct and expected.
 
 **Known tooling false positive**: `ruff PLR6301` flags every method in a Null
-Object because none use `self`. Suppress with `# noqa: PLR6301` on the class
-or exclude Null Object classes in ruff config. An agent must not "fix" these
-by removing `self` or converting to static methods — that would break the
+Object because none use `self`. This standard pre-authorizes the suppression
+for Null Object classes — no per-case operator approval is needed — and each
+use must cite the authorizing rule in the comment:
+`# noqa: PLR6301 — Null Object, PY-DP-9`. An agent must not "fix" these by
+removing `self` or converting to static methods — that would break the
 interface contract.
 
 **Tooling**:
 
 - LLM review: Null Object classes must implement the full parent interface
-- ruff PLR6301: suppress findings on Null Object classes (known false positive)
+- ruff PLR6301: suppression pre-authorized by this rule for Null Object
+  classes; every suppression comment cites PY-DP-9
 
 ## PY-DP-10: Facade Pattern
 
