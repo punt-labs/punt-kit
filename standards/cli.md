@@ -8,7 +8,7 @@ Standards for command-line interfaces across all Punt Labs projects. Role models
 
 **The CLI is the complete product.** Every capability the engine offers must be
 reachable from the terminal. The CLI is one client surface of the engine (see
-the [Projection Model](distribution.md#the-projection-model-canonical)); MCP
+the [Projection Model](architecture.md#the-projection-model-canonical)); MCP
 tools, slash commands, and plugin hooks are peer clients, and they add nothing
 the terminal cannot reach. This is why the CLI must expose every engine
 capability as a command.
@@ -511,7 +511,7 @@ var completionCmd = &cobra.Command{
 ## Projection Strategy
 
 Each surface is a thin client of the engine (see the
-[Projection Model](distribution.md#the-projection-model-canonical)). The CLI
+[Projection Model](architecture.md#the-projection-model-canonical)). The CLI
 covers every engine capability; the other surfaces reach the same engine code:
 
 | Surface | How it reaches the engine |

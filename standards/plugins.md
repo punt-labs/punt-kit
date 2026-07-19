@@ -104,7 +104,7 @@ establishes consistent org identity in the marketplace catalog.
 
 A plugin is a distribution **channel** for the MCP surface, not a fifth surface —
 it wraps a project's MCP server for marketplace delivery. See the canonical
-[Projection Model](distribution.md#the-projection-model-canonical).
+[Projection Model](architecture.md#the-projection-model-canonical).
 
 Plugins that expose MCP tools must declare them in `plugin.json` using the
 `mcpServers` field:
