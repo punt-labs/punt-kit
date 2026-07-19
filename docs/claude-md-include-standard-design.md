@@ -26,13 +26,18 @@ bare `@`-import line.
 ## 1. Summary
 
 A user's `CLAUDE.md` is user-owned prose. Punt Labs tooling never merges, marks,
-or manages sections inside it. The single permitted mutation is one import line
-per enabled tool:
+or manages sections inside it. The single permitted mutation is one bare import
+line per enabled tool — repo scope adds `@.punt-labs/<tool>/CLAUDE.md` to
+`<repo>/CLAUDE.md`, user scope adds `@~/.punt-labs/<tool>/CLAUDE.md` to
+`~/.claude/CLAUDE.md`:
 
 ```text
-@.punt-labs/<tool>/CLAUDE.md        # repo scope, in <repo>/CLAUDE.md
-@~/.punt-labs/<tool>/CLAUDE.md      # user scope, in ~/.claude/CLAUDE.md
+@.punt-labs/<tool>/CLAUDE.md
+@~/.punt-labs/<tool>/CLAUDE.md
 ```
+
+The lines are bare — no inline comment, no alignment padding — exactly as § 2.4
+requires; the scope labels above live in the prose, not in the file.
 
 Each tool owns `<repo>/.punt-labs/<tool>/` (and `~/.punt-labs/<tool>/` for global
 tools) entirely, writing the whole subtree on enable/upgrade and overwriting it
@@ -134,14 +139,18 @@ repo. This extends the `enable` / `disable` entry in
   construction.
 - **Serialized, atomic, byte-preserving write.** The read-append-replace on the
   host file must be:
-  - **Mutually exclusive.** Hold an exclusive lock (`flock` on the target or a
-    sibling lock file, or the platform equivalent) for the whole
-    read-modify-write. Atomic rename prevents a torn file; it does **not** prevent
-    a lost update — two parallel `enable` runs each read the old bytes, append
-    their line, and rename, and the second silently clobbers the first's line.
-    The lock serializes them. (The old model relied on a stated single-writer
-    assumption; the per-tool model drops it exactly where independent invocations
-    become more likely, so the lock is mandatory, not optional.)
+  - **Mutually exclusive — applies to every shared host file.** Hold an exclusive
+    lock (`flock` on the target or a sibling lock file, or the platform
+    equivalent) for the whole read-modify-write. This requirement governs **every
+    shared host-file mutation in this standard** — the `CLAUDE.md` import line here
+    *and* the `.claude/settings.json` entries in § 2.8 — since both are
+    read-modify-write on a file other tools and invocations also touch. Atomic
+    rename prevents a torn file; it does **not** prevent a lost update — two
+    parallel `enable` runs each read the old bytes, write their change, and rename,
+    and the second silently clobbers the first. The lock serializes them. (The old
+    model relied on a stated single-writer assumption; the per-tool model drops it
+    exactly where independent invocations become more likely, so the lock is
+    mandatory, not optional.)
   - **Atomic.** Write a temp file in the target's own directory, then rename it
     over the target (atomic on POSIX; use the platform atomic-replace primitive).
     Never truncate-in-place.
@@ -200,6 +209,17 @@ A tool targets the layer its guidance belongs to:
 - A tool may do both. The two host files are independent; Claude Code loads both,
   so a repo import and a user import never collide.
 
+**User-scope teardown is mandatory and symmetric with install.** The retired
+shared reconcile pruned `~/.claude/CLAUDE.md` when a tool was removed; the bare
+import model must not lose that. Install adds the user-scope line, so removal must
+take it away: `<tool> uninstall` (or `disable --global`) MUST remove the
+`@~/.punt-labs/<tool>/CLAUDE.md` line using the **same write contract as § 2.4** —
+exclusive lock, exact-match, atomic, byte-preserving. The `~/.punt-labs/<tool>/`
+directory then follows the same dormant rule as repo scope (2.9): the import line
+goes, the vendored subtree stays unless the user purges it. Without this, an
+uninstalled global tool leaves a dangling `@`-import that 404s at read time in
+every session.
+
 ### 2.7 The enabled marker
 
 The tool is **enabled** in a repo when the marker file
@@ -232,7 +252,11 @@ This marker replaces the legacy repo-root sentinel dotfile (`.biff`,
 
 `enable` may register repo-scoped hooks or permissions. It may touch exactly one
 file outside its own subtree — `<repo>/.claude/settings.json` — and only
-additively:
+additively. Because that file is shared with other tools and invocations, the
+read-modify-write **must take the same exclusive lock as § 2.4** (the lock
+requirement there covers every shared host-file mutation, `settings.json`
+included); an unlocked merge has the identical lost-update race as an unlocked
+import-line append.
 
 - The tool computes a **deterministic set of entries** (the same inputs always
   produce the same rules — the wholesale-overwrite determinism of 2.2 guarantees
@@ -256,11 +280,18 @@ import line, deletes the `enabled` marker (2.7), and deregisters hooks, but leav
 the rest of `<repo>/.punt-labs/<tool>/` in place — the **dormant** state.
 Rationale:
 
-- The subtree may hold repo-committed or user-modified content; deleting it on a
-  toggle is surprising and lossy.
-- Re-enable is then a cheap, non-destructive refresh.
+- The subtree is **tool-owned and repo-committed** (2.2): `enable` overwrites it
+  wholesale, so user edits inside it are out of contract by design and are not a
+  reason either to keep or to delete it. What dormancy actually preserves is the
+  committed vendored content — the deposited guide and any config — which is
+  git-tracked and git-recoverable.
+- **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the whole
+  subtree; the symmetric inverse of *turning off* is removing the enabled signal
+  and the import line, not erasing files. A toggle that deletes committed content
+  is a much larger action than the user asked for.
 - This matches the org rule to prefer `mv` over `rm` and never to delete what a
-  tool did not just create.
+  tool did not just create — and here `disable` did not create the vendored
+  content this run; `enable` did, on an earlier run.
 
 A user who wants the tool fully gone deletes `<repo>/.punt-labs/<tool>/` manually,
 or the tool offers `disable --purge`. Removal is deliberate, never a side effect
@@ -323,18 +354,33 @@ Forward integration, no compatibility shim
 
 #### Sentinel migration (legacy `.biff`, `.quarry.toml` → `enabled` marker)
 
-The legacy repo-root sentinel dotfile is retired in favor of the in-directory
-`enabled` marker (2.7), which changes the L0 presence contract in integration.md.
-A repo that still carries `.biff` or `.quarry.toml` must not silently fail every
-peer presence check in the window between the integration.md rewrite and each
-tool's re-enable. Forward-integration closes the gap without a compat shim:
+The legacy repo-root sentinel dotfile is retired **as a presence marker** in
+favor of the in-directory `enabled` marker (2.7), which changes the L0 presence
+contract in integration.md. A repo that still carries `.biff` or `.quarry.toml`
+must not silently fail every peer presence check in the window between the
+integration.md rewrite and each tool's re-enable. Forward-integration closes the
+gap without a compat shim — but the migration must **never delete live config**.
 
-- **The tool migrates on first run.** The release of each tool that adopts the
-  new marker migrates a repo the first time it runs there — `enable`, or the
-  tool's SessionStart hook, detects the legacy sentinel and, in one operation,
-  deposits `.punt-labs/<tool>/` + the `enabled` marker and deletes the old
-  dotfile. No separate migration command; the legacy sentinel simply cannot
-  outlive the tool's first post-adoption run.
+**Two classes of legacy sentinel, handled differently:**
+
+| Class | Example | On migration |
+|-------|---------|--------------|
+| Pure presence sentinel — an empty or content-free marker whose only job was "this tool is here" | `.biff` when it carries no settings | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
+| Sentinel-cum-config — a marker file that also holds live settings (roster, credentials, db name) | `.quarry.toml` | **Migrated, never deleted with content inside**: the tool either moves the settings into its owned location (e.g. `.punt-labs/<tool>/config.*`) and then removes the now-empty marker, or leaves the file in place and simply stops treating it as the presence signal. The tool owning the file decides which; neither path destroys live config. |
+
+This reconciles with § 2.13 and the distribution.md change list, which keep the
+tool's repo **config** file (`.beads/`, `.quarry.toml`, `.biff` when it carries
+settings) as `init`'s artifact. Enablement stops *reading that file as the
+presence marker*; it does not claim ownership of the config, and it never deletes
+a file that still holds settings.
+
+**Migration steps (per tool, on first run):**
+
+- `enable` — or the tool's SessionStart hook — detects the legacy sentinel and,
+  in one operation, deposits `.punt-labs/<tool>/` + the `enabled` marker, then
+  applies the class rule above (delete a pure sentinel; migrate-then-clear or
+  demote a config-bearing one). No separate migration command; the legacy sentinel
+  stops being a *presence marker* on the tool's first post-adoption run.
 - **Ordering dependency (step-2 train).** The integration.md L0 rewrite (peers
   now check the `enabled` marker) must land in the **same step-2 release train**
   as the tool releases that perform the migration, so no peer starts checking the
@@ -635,7 +681,15 @@ below; the sweep must also catch any others (e.g. `readme.md`, `workflow.md`,
   duplicates, so the corpus does not ship two overlapping repo-setup commands.
 - § Installation Scope → Per-repo config files table (`.biff`, `.quarry.toml`,
   `.beads/`): note the enabled signal is the `.punt-labs/<tool>/enabled` marker,
-  not the config file; reconcile with filesystem.md and integration.md.
+  not the config file; the config files remain `init`'s artifacts and are **not
+  deleted** by the sentinel migration (§ 2.12) — enablement stops reading them as
+  presence markers, nothing more. Reconcile with filesystem.md and integration.md.
+- § Uninstall Requirements: add the **user-scope import teardown** (§ 2.6).
+  `<tool> uninstall` (or `disable --global`) MUST remove the
+  `@~/.punt-labs/<tool>/CLAUDE.md` line from `~/.claude/CLAUDE.md` using the § 2.4
+  write contract (locked, exact-match, atomic, byte-preserving); add it to the
+  uninstall cleanup table alongside the existing MCP-permission and deployed-command
+  rows. `~/.punt-labs/<tool>/` follows the dormant rule (kept unless purged).
 
 ### `standards/filesystem.md`
 
@@ -655,6 +709,10 @@ below; the sweep must also catch any others (e.g. `readme.md`, `workflow.md`,
   template for a directory-based marker). Update the `has_biff()` example to test
   the marker path, and cross-reference `tool-enable-disable.md`. Keep the L0 rule that
   presence checks are pure path-existence tests that fail silent when absent.
+  Note that several of these sentinels (`.quarry.toml`, `.vox/config.md`) also
+  carry live config — the rewrite changes what peers *read for presence*, and the
+  sentinel migration (§ 2.12) preserves the config files themselves; it does not
+  delete them.
 - **Ordering dependency (per § 2.12 sentinel migration).** This L0 rewrite makes
   every peer check the `enabled` marker instead of the legacy dotfile. It must
   land in the same step-2 release train as the tool releases that migrate legacy
