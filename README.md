@@ -106,11 +106,17 @@ Install from the marketplace:
 
 ## Standards
 
-18 standards documents covering the full development lifecycle:
+Standards documents covering the full development lifecycle:
 
 | Standard | Covers |
 |----------|--------|
-| [Python](standards/python.md) | ruff, mypy, pyright, pytest, pyproject.toml conventions |
+| [Architecture](standards/architecture.md) | The engine-and-clients model: one engine, thin library/CLI/MCP/REST client surfaces |
+| [OO](standards/oo.md) | The object-oriented stance shared by Python, Swift, and Pharo |
+| [Python](standards/python.md) | ruff, mypy, pyright, pytest, the OO ratchet, pyproject.toml conventions |
+| [Go](standards/go.md) | Idiomatic Go: modules, small interfaces, explicit errors, go vet + staticcheck |
+| [C](standards/c.md) | Idiomatic C: memory ownership, `-Werror`, sanitizers |
+| [Swift](standards/swift.md) | Idiomatic Swift realizing the OO stance |
+| [Pharo](standards/pharo.md) | Pharo/Smalltalk, image-based development, in-image linting |
 | [CLI](standards/cli.md) | typer, `punt-` PyPI prefix, entry point naming, global flags |
 | [Shell](standards/shell.md) | POSIX install scripts, bash dev scripts, shellcheck |
 | [GitHub](standards/github.md) | Branch protection, PR workflow, Copilot review, Dependabot |
@@ -123,7 +129,6 @@ Install from the marketplace:
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
 | [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
 | [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
-| [Node](standards/node.md) | Node.js MCP servers, `@modelcontextprotocol/sdk` |
 | [README](standards/readme.md) | Badge set, section order, anti-patterns for project READMEs |
 
 ---
