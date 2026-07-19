@@ -8,39 +8,51 @@ Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS, LangLearn, LangL
 
 ## Package Architecture
 
-Punt Labs Python packages expose **three interfaces** — a Python library, a CLI, and an MCP server. The library is the core; CLI and MCP are thin frontends to it.
+A Punt Labs Python package is an **engine** fronted by four thin client surfaces
+— library import, CLI, MCP, and REST. The engine is the core; the surfaces are
+clients that reach it over the chosen transport. This is the language-agnostic
+[Projection Model](distribution.md#the-projection-model-canonical); this section
+covers the Python mechanics of realizing it.
 
-Simple projects delegate directly from CLI/MCP to core functions. Complex projects add a **commands layer** between CLI and core when individual commands orchestrate multiple core calls.
+The `core`, `commands`, and `types` modules are the **engine's internals**. The
+CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are clients
+that reach the engine over their transport; the library import is the engine's
+native in-process client — tests hit it directly. Every client runs the same
+engine code; none reimplements it.
+
+Simple projects delegate directly from a client to core functions. Complex
+projects add a **commands layer** inside the engine — between the client surfaces
+and core — when a command orchestrates multiple core calls.
 
 ```text
-Direct delegation (quarry):        Commands layer (biff):
+Direct delegation (quarry):              Commands layer (biff):
 
-┌─────────┐   ┌─────────┐         ┌─────────┐   ┌─────────┐
-│   CLI   │   │   MCP   │         │   CLI   │   │   MCP   │
-└────┬────┘   └────┬────┘         └────┬────┘   └────┬────┘
-     │             │                   │             │
-     ▼             ▼                   ▼             ▼
-┌───────────────────────┐         ┌────────────┐    │
-│     Library Layer     │         │  Commands  │    │
-│ (core, types, protos) │         │ (pure fns) │    │
-└───────────────────────┘         └─────┬──────┘    │
-                                        │           │
-                                        ▼           ▼
-                                  ┌───────────────────────┐
-                                  │     Library Layer     │
-                                  │ (core, types, protos) │
-                                  └───────────────────────┘
+┌─────────┐ ┌─────────┐ ┌─────────┐      ┌─────────┐ ┌─────────┐ ┌─────────┐
+│   CLI   │ │   MCP   │ │  REST   │      │   CLI   │ │   MCP   │ │  REST   │
+└────┬────┘ └────┬────┘ └────┬────┘      └────┬────┘ └────┬────┘ └────┬────┘
+     │           │           │                │           │           │
+     ▼           ▼           ▼                ▼           │           │
+┌──────────────────────────────────┐    ┌────────────┐   │           │
+│           Engine core            │    │  Commands  │   │           │
+│      (core, types, protos)       │    │ (pure fns) │   │           │
+└──────────────────────────────────┘    └─────┬──────┘   │           │
+                                               │          │           │
+                                               ▼          ▼           ▼
+                                         ┌──────────────────────────────────┐
+                                         │           Engine core            │
+                                         │      (core, types, protos)       │
+                                         └──────────────────────────────────┘
 ```
 
 ### Rules
 
 1. **`__init__.py` is the public API.** Export core functions, classes, and types via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
 
-2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward: CLI → core, MCP → core, never the reverse.
+2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward from every client surface: CLI → core, MCP → core, REST → core, never the reverse.
 
 3. **Types and protocols in their own modules.** `types.py` or a `types/` package for dataclasses, `Protocol` classes, and type aliases. These are importable without pulling in heavy dependencies.
 
-4. **CLI and MCP are thin.** `cli.py` parses arguments, calls core functions, formats output. `server.py` registers MCP tools, calls core functions, returns results. Neither contains business logic.
+4. **CLI, MCP, and REST are thin clients.** `cli.py` parses arguments, calls engine functions, formats output. `server.py` registers MCP tools, calls engine functions, returns results. A FastAPI app maps routes to the same engine functions. None of the three adapters contains business logic — they translate; the engine decides.
 
 5. **Extract commands when CLI orchestrates.** When a CLI command does more than delegate to one core function — combining multiple calls, managing session state, or formatting composite results — extract it to a `commands/` package as a pure async function returning `CommandResult`. Use `CommandResult(error=True, ...)` for expected user-facing failures (invalid input, missing resources, service errors) that should be reported cleanly. Programmer errors and violated invariants still raise exceptions per the Error Handling section. See [Humble Object Commands](../patterns/humble-object-commands.md).
 
@@ -143,7 +155,7 @@ Reference implementation: `punt-lux` (PR #54) — 66 MB display stack moved behi
 
 ### Exceptions
 
-- **Pure contract libraries** (e.g., `langlearn-types`) have no CLI or MCP — they export only protocols and dataclasses. This is correct; the tri-modal rule applies to packages that contain logic.
+- **Pure contract libraries** (e.g., `langlearn-types`) expose only the library surface — no CLI, MCP, or REST client — because they export protocols and dataclasses, not logic. They are the stateless-leaf carve-out from the [Projection Model](distribution.md#the-projection-model-canonical): no engine, so no clients. The four-surface model applies to packages that contain logic.
 - **Internal tooling** (e.g., `punt-kit`) is not a shipping library. The library API standard applies to products, not build tools.
 
 ## Toolchain
