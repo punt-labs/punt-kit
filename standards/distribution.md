@@ -1,27 +1,28 @@
 # Distribution Standards
 
-How users install and activate Punt Labs tools.
+How each of a tool's surfaces is shipped and installed. For what the surfaces
+are — the engine-and-clients model — see
+[architecture.md](architecture.md#the-projection-model-canonical).
 
 ---
 
-## Projection Model
+## Surfaces versus channels
 
-Every project is a library first. The library is **projected** outward as a CLI,
-MCP server, plugin, or REST API depending on who calls it and where they run.
-Each projection has its own distribution channel:
+A surface is how a caller reaches the engine; a channel is how a surface is
+shipped (see
+[architecture.md](architecture.md#surfaces-versus-channels) for the surface
+definitions and the principle). One surface can ship through several channels:
 
-| Projection | Caller | Channel |
-|------------|--------|---------|
-| Library | Python code (same process) | PyPI (`uv add punt-<name>`) |
-| CLI | Human at terminal | PyPI (`uv tool install punt-<name>`) |
-| MCP server | AI agent (same machine) | `claude mcp add` (standalone) or plugin `mcpServers` (hybrid) |
-| Plugin shell | AI agent (enhanced UX) | Marketplace (`claude plugin install`) |
-| Desktop bundle | Claude Desktop user | `.mcpb` one-click install |
-| REST API | Native apps, external clients | `<tool> serve` (HTTP) |
-| Native app | End user | App Store, TestFlight, Homebrew |
+| Surface | Distribution channel |
+|---------|----------------------|
+| Library | PyPI (`uv add punt-<name>`) |
+| CLI | PyPI (`uv tool install punt-<name>`) |
+| MCP server | `claude mcp add` (standalone), plugin `mcpServers` (hybrid), or `.mcpb` one-click bundle (Claude Desktop) |
+| REST API | `<tool> serve` (HTTP) |
 
-Not every project needs every projection. Only build the projections that have
-callers.
+The plugin shell and the `.mcpb` desktop bundle are channels for the MCP
+surface, not separate surfaces; a native app is a channel for a platform-native
+front end (App Store, TestFlight, Homebrew), outside the four client surfaces.
 
 ---
 

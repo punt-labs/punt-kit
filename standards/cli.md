@@ -6,7 +6,12 @@ Standards for command-line interfaces across all Punt Labs projects. Role models
 
 ## Core Principle
 
-**The CLI is the complete product.** Every capability the tool offers is accessible from the terminal. MCP tools, slash commands, and plugin hooks are projections of CLI functionality --- they do not add capabilities the CLI lacks.
+**The CLI is the complete product.** Every capability the engine offers must be
+reachable from the terminal. The CLI is one client surface of the engine (see
+the [Projection Model](architecture.md#the-projection-model-canonical)); MCP
+tools, slash commands, and plugin hooks are peer clients, and they add nothing
+the terminal cannot reach. This is why the CLI must expose every engine
+capability as a command.
 
 A user who never opens Claude Code can use every feature. A user inside Claude Code gets the same features surfaced through the plugin layer.
 
@@ -29,7 +34,7 @@ quarry explain <topic>       biff talk <user>      vox speak y/n
 quarry sync                  biff write <user>     vox voice <name>
 ```
 
-Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. The CLI command is the source of truth; the MCP tool and slash command call it or mirror its logic.
+Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. All three are thin clients of the same engine code — the CLI holds no logic the others lack.
 
 ### Layer 2: Admin commands
 
@@ -505,15 +510,17 @@ var completionCmd = &cobra.Command{
 
 ## Projection Strategy
 
-The CLI is the source of truth. Other surfaces project it:
+Each surface is a thin client of the engine (see the
+[Projection Model](architecture.md#the-projection-model-canonical)). The CLI
+covers every engine capability; the other surfaces reach the same engine code:
 
-| Surface | How it projects the CLI |
+| Surface | How it reaches the engine |
 |---------|------------------------|
-| **MCP tools** | Each MCP tool wraps a CLI capability. The MCP server calls the same functions the CLI calls. |
+| **MCP tools** | Each MCP tool calls the same engine functions the CLI calls. |
 | **Slash commands** | Each slash command maps to a CLI command. The command `.md` file instructs Claude to call the **MCP tool** (not Bash → CLI). |
 | **Plugin hooks** | Hooks call `<tool> hook <event>` --- the CLI is the dispatcher. |
 
-When adding a new capability, implement it in the CLI first. Then project it to the MCP server and slash commands. Never add a capability to the plugin that the CLI cannot do.
+When adding a new capability, implement it in the engine and expose it through the CLI first (the completeness surface). Then wire the MCP server and slash commands to the same engine code. Never add a capability to the plugin that the terminal cannot reach.
 
 ### Call path performance
 
@@ -605,7 +612,7 @@ If the caller ingests a document and immediately searches for it, the search
 may return stale results. Two options:
 
 1. **Documented eventual consistency** — caller knows results may lag.
-   Simple and honest. Preferred for MCP, where the LLM rarely chains
+   Simple and direct. Preferred for MCP, where the LLM rarely chains
    side-effect → query in the same turn.
 
 2. **Completion signal** — background thread updates a status field or emits

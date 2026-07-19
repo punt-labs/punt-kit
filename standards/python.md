@@ -8,39 +8,50 @@ Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS, LangLearn, LangL
 
 ## Package Architecture
 
-Punt Labs Python packages expose **three interfaces** — a Python library, a CLI, and an MCP server. The library is the core; CLI and MCP are thin frontends to it.
+A Punt Labs Python package realizes the four-surface engine-and-clients model:
+one engine fronted by thin library, CLI, MCP, and REST clients. That model is
+defined once, for every language, in
+[architecture.md](architecture.md#the-projection-model-canonical); this section
+covers the Python mechanics of realizing it.
 
-Simple projects delegate directly from CLI/MCP to core functions. Complex projects add a **commands layer** between CLI and core when individual commands orchestrate multiple core calls.
+The `core`, `commands`, and `types` modules are the **engine's internals**. The
+CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are the client
+surfaces, and the library import surface — `from <package> import ...` — is a
+client too, each reaching the engine over its transport.
+
+Simple projects delegate directly from a client to core functions. Complex
+projects add a **commands layer** inside the engine — between the client surfaces
+and core — when a command orchestrates multiple core calls.
 
 ```text
-Direct delegation (quarry):        Commands layer (biff):
+Direct delegation (quarry):              Commands layer (biff):
 
-┌─────────┐   ┌─────────┐         ┌─────────┐   ┌─────────┐
-│   CLI   │   │   MCP   │         │   CLI   │   │   MCP   │
-└────┬────┘   └────┬────┘         └────┬────┘   └────┬────┘
-     │             │                   │             │
-     ▼             ▼                   ▼             ▼
-┌───────────────────────┐         ┌────────────┐    │
-│     Library Layer     │         │  Commands  │    │
-│ (core, types, protos) │         │ (pure fns) │    │
-└───────────────────────┘         └─────┬──────┘    │
-                                        │           │
-                                        ▼           ▼
-                                  ┌───────────────────────┐
-                                  │     Library Layer     │
-                                  │ (core, types, protos) │
-                                  └───────────────────────┘
+┌─────────┐ ┌─────────┐ ┌─────────┐      ┌─────────┐ ┌─────────┐ ┌─────────┐
+│   CLI   │ │   MCP   │ │  REST   │      │   CLI   │ │   MCP   │ │  REST   │
+└────┬────┘ └────┬────┘ └────┬────┘      └────┬────┘ └────┬────┘ └────┬────┘
+     │           │           │                │           │           │
+     ▼           ▼           ▼                ▼           │           │
+┌──────────────────────────────────┐    ┌────────────┐   │           │
+│           Engine core            │    │  Commands  │   │           │
+│      (core, types, protos)       │    │ (pure fns) │   │           │
+└──────────────────────────────────┘    └─────┬──────┘   │           │
+                                               │          │           │
+                                               ▼          ▼           ▼
+                                         ┌──────────────────────────────────┐
+                                         │           Engine core            │
+                                         │      (core, types, protos)       │
+                                         └──────────────────────────────────┘
 ```
 
 ### Rules
 
-1. **`__init__.py` is the public API.** Export core functions, classes, and types via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
+1. **`__init__.py` is the public API.** Export the library surface — core functions when the engine runs in-process, or the client functions that reach the daemon when it is one — via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
 
-2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward: CLI → core, MCP → core, never the reverse.
+2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward from every client surface: CLI → core, MCP → core, REST → core, never the reverse.
 
 3. **Types and protocols in their own modules.** `types.py` or a `types/` package for dataclasses, `Protocol` classes, and type aliases. These are importable without pulling in heavy dependencies.
 
-4. **CLI and MCP are thin.** `cli.py` parses arguments, calls core functions, formats output. `server.py` registers MCP tools, calls core functions, returns results. Neither contains business logic.
+4. **CLI, MCP, and REST are thin clients.** `cli.py` parses arguments, calls engine functions, formats output. `server.py` registers MCP tools, calls engine functions, returns results. A FastAPI app maps routes to the same engine functions. None of the three adapters contains business logic — they translate; the engine decides.
 
 5. **Extract commands when CLI orchestrates.** When a CLI command does more than delegate to one core function — combining multiple calls, managing session state, or formatting composite results — extract it to a `commands/` package as a pure async function returning `CommandResult`. Use `CommandResult(error=True, ...)` for expected user-facing failures (invalid input, missing resources, service errors) that should be reported cleanly. Programmer errors and violated invariants still raise exceptions per the Error Handling section. See [Humble Object Commands](../patterns/humble-object-commands.md).
 
@@ -57,7 +68,9 @@ Most projects start with direct delegation and never need more. Add the commands
 
 ### Reference: direct delegation
 
-Quarry is the gold standard for direct delegation:
+Quarry's engine uses **direct delegation**: each client entry point routes
+straight to `core`, with no `commands` layer between. Its public library API
+surface:
 
 ```python
 # quarry/__init__.py — the public library API
@@ -78,7 +91,7 @@ __all__ = [
 ]
 ```
 
-A downstream Python app can `from quarry import search, get_db` and run queries without any CLI or MCP dependency.
+Direct delegation is an engine-internal choice — how the engine routes a call, not where the caller runs or over which transport. `search` and `get_db` go straight to `core`, with no `commands` orchestration between. A downstream caller reaches them through quarry's library client, which reaches the `quarry serve` daemon like the CLI and MCP clients do; quarry is aligning this surface onto the daemon (see the [Projection Model](architecture.md#the-projection-model-canonical)). The `__all__` list is the public API; the engine wiring behind it is what "direct delegation" names.
 
 ### Reference: commands layer
 
@@ -143,8 +156,52 @@ Reference implementation: `punt-lux` (PR #54) — 66 MB display stack moved behi
 
 ### Exceptions
 
-- **Pure contract libraries** (e.g., `langlearn-types`) have no CLI or MCP — they export only protocols and dataclasses. This is correct; the tri-modal rule applies to packages that contain logic.
+- **Pure contract libraries** (e.g., `langlearn-types`) expose only the library surface — no CLI, MCP, or REST client — because they export protocols and dataclasses, not logic. They are the stateless-leaf carve-out from the [Projection Model](architecture.md#the-projection-model-canonical): no engine, so no clients. The four-surface model applies to packages that contain logic.
 - **Internal tooling** (e.g., `punt-kit`) is not a shipping library. The library API standard applies to products, not build tools.
+
+## Object-Oriented Python
+
+LLM-generated Python is not object-oriented by default. It arrives as procedural
+code wearing an object's clothes: dataclasses that hold fields while module-level
+functions reach in and read those fields, `if`-ladders that branch on a kind tag,
+`str` parameters whose comments list the values a `Literal` should encode. This
+bias is markedly stronger in Python than in the other languages we write, so
+Python carries enforcement the others do not.
+
+The object-oriented principles themselves — behavior living with its data,
+telling an object rather than asking it for its parts, dispatching on the object
+instead of a conditional, composing objects rather than inheriting through a deep
+hierarchy, defining a family by protocol rather than a base class, and keeping
+objects small enough that their illegal states cannot be represented — are stated
+once, for every language, in [oo.md](oo.md). The specific Python rules that
+realize them live under `.claude/rules/python-*.md`. This section restates
+neither philosophy nor rules; it owns how the quality those documents describe is
+measured and enforced.
+
+### The OO ratchet
+
+Object-oriented quality is measured, not asserted. `make check-oo` scores the
+files a change touches and compares them against a committed baseline,
+`.oo-baseline.json`. It passes only when no metric regressed on any touched file
+and at least one metric improved, so every change pays the debt down and none
+adds to it. The ratchet is part of `make check`, running on every change
+alongside lint, type checking, and tests.
+
+The baseline and its audit log travel with the change that moves them. After the
+code passes, `make update-oo` rewrites `.oo-baseline.json` and appends to
+`.oo-audit.jsonl`, and both files are staged in the same commit as the source
+they measure. The baseline is never edited by hand and the ratchet is never
+suppressed; when it fails, the code improves until it passes.
+
+### Adoption
+
+Every Punt Labs Python project adopts the OO ratchet tooling. The ratchet is the
+mechanism that holds Python to the object-oriented stance, and no Python project
+is exempt from it.
+
+The ratchet tooling, currently in lux, moves to punt-kit, so any Python project
+can install it from one shared source rather than copying it out of lux. That
+promotion is a required follow-on to adopting this standard.
 
 ## Toolchain
 
