@@ -16,8 +16,17 @@ covers the Python mechanics of realizing it.
 
 The `core`, `commands`, and `types` modules are the **engine's internals**. The
 CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are clients
-that reach the engine over their transport; the library import is the engine's
-native in-process client — tests hit it directly. Every client runs the same
+that reach the engine over their transport.
+
+The **library import surface** (`from <package> import ...`) is a client too, not
+the core. For an engine fronted by a daemon, the library reaches that daemon over
+its transport, exactly like the CLI or MCP client — quarry's library is a client
+of the `quarry serve` daemon, not an in-process shortcut into the search index.
+The core is imported in-process only where that is not the shipping library
+surface: the daemon process reaching its own logic, the test suite exercising the
+core directly, a tool that has legitimately deferred its daemon and still runs the
+engine in-process (ethos — one client, no concurrency pressure), and a stateless
+leaf that has no engine at all (langlearn-types). Every client runs the same
 engine code; none reimplements it.
 
 Simple projects delegate directly from a client to core functions. Complex
@@ -46,7 +55,7 @@ Direct delegation (quarry):              Commands layer (biff):
 
 ### Rules
 
-1. **`__init__.py` is the public API.** Export core functions, classes, and types via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
+1. **`__init__.py` is the public API.** Export the library surface — core functions when the engine runs in-process, or the client functions that reach the daemon when it is one — via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
 
 2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward from every client surface: CLI → core, MCP → core, REST → core, never the reverse.
 
@@ -69,7 +78,9 @@ Most projects start with direct delegation and never need more. Add the commands
 
 ### Reference: direct delegation
 
-Quarry is the gold standard for direct delegation:
+Quarry's engine uses **direct delegation**: each client entry point routes
+straight to `core`, with no `commands` layer between. Its public library API
+surface:
 
 ```python
 # quarry/__init__.py — the public library API
@@ -90,7 +101,7 @@ __all__ = [
 ]
 ```
 
-A downstream Python app can `from quarry import search, get_db` and run queries without any CLI or MCP dependency.
+Direct delegation is an engine-internal choice — how the engine routes a call, not where the caller runs or over which transport. `search` and `get_db` go straight to `core`, with no `commands` orchestration between. A downstream caller reaches them through quarry's library client, which reaches the `quarry serve` daemon like the CLI and MCP clients do; quarry is aligning this surface onto the daemon (see the [Projection Model](distribution.md#the-projection-model-canonical)). The `__all__` list is the public API; the engine wiring behind it is what "direct delegation" names.
 
 ### Reference: commands layer
 

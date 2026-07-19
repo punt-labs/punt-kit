@@ -614,7 +614,7 @@ If the caller ingests a document and immediately searches for it, the search
 may return stale results. Two options:
 
 1. **Documented eventual consistency** — caller knows results may lag.
-   Simple and honest. Preferred for MCP, where the LLM rarely chains
+   Simple and direct. Preferred for MCP, where the LLM rarely chains
    side-effect → query in the same turn.
 
 2. **Completion signal** — background thread updates a status field or emits

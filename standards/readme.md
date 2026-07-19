@@ -78,7 +78,7 @@ should be able to check whether it is true by using the software.
    research, say so and cite it. The methods have always worked; this
    project makes them accessible. Don't claim the project invented the
    insight.
-4. **Be honest about status.** Mark alpha features as alpha. Say "hypothesis
+4. **Be truthful about status.** Mark alpha features as alpha. Say "hypothesis
    stage" if no plugin code exists yet. Readers trust READMEs that
    acknowledge limitations.
 5. **Respect competitors.** Name them, link them, say what they do well. If
@@ -252,6 +252,6 @@ Every repo must have a `LICENSE` file in the root.
 
 - **No marketing verbs in taglines** — "Unlock", "Unleash", "Supercharge", "Transform" are pitch words. Describe what it does.
 - **No anthropomorphizing** — software doesn't "understand", "think", or "read the way you would". Say what it does technically: parses, indexes, retrieves, compares.
-- **No opinions stated as facts** — if it's a thesis or design assumption, frame it as one. "Biff assumes X" is honest. "X is the future" is not.
+- **No opinions stated as facts** — if it's a thesis or design assumption, frame it as one. "Biff assumes X" is a fair claim. "X is the future" is not.
 - **No unverifiable value claims** — "saves hours", "boosts productivity", "10x faster" require evidence. If you have the data, cite it. If you don't, describe the mechanism and let the reader judge.
 - **No disparaging competitors** — name them, link them, describe what they do well. If you do something differently, state the difference. See koch-trainer-swift's "Respect for the Ecosystem" for the model.

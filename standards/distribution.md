@@ -50,8 +50,8 @@ Working directory, active repo, enabled/disabled features, session context — t
 engine holds these authoritatively, keyed by client. A client carries only its
 own identity and the context it alone can originate (its own cwd), and pushes
 that into the engine. Default to moving client-specific state server-side; keep
-clients thin. quarry passes the selected database as a session key on the
-WebSocket upgrade URL; the `quarry serve` daemon holds it.
+clients thin. quarry keys each client's selected database server-side; the
+`quarry serve` daemon holds that per-client state, not the client.
 
 ### The four surfaces
 
