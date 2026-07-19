@@ -112,7 +112,7 @@ class, a singledispatch base, or an abstract method. For these three enumerated
 patterns the standard pre-authorizes the suppression — no per-case operator
 approval is needed — and each use must cite the authorizing pattern and rule in
 the comment: `# noqa: PLR6301 — Null Object, PY-DP-9` (likewise
-`— singledispatchmethod base` or `— abstract stub`, citing this rule). Any
+`— @singledispatchmethod base` or `— abstract stub`, citing this rule). Any
 PLR6301 suppression outside these enumerated patterns still requires operator
 approval per the org CLAUDE.md. If no pattern applies, the method genuinely
 doesn't belong on the class.

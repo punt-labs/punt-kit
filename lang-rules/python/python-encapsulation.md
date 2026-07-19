@@ -61,13 +61,15 @@ invariants. Use `_name` (protected) when subclass access is acceptable.
 
 - Internal data that subclasses must not overwrite (e.g., `__items`, `__state`)
 - Cache attributes (e.g., `__hash_cache`)
-- Guard flags (e.g., `__is_creating`)
 
 **When to use `_`**:
 
 - Attributes that subclasses may reasonably read (e.g., `_num`, `_den` in a
   fraction type)
 - Protected methods called by subclasses
+- Guard flags read by a collaborating class (e.g., the factory's
+  `_is_creating` checked in PY-CC-3 — name mangling would break the
+  cross-class check)
 
 **Criterion**:
 
