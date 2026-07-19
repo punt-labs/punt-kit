@@ -13,13 +13,19 @@ fully comply. The rule is: every commit must improve compliance, never regress.
 
 When you touch a file:
 
-1. Run `python tools/oo_score.py <file>` before your change — record the baseline
+1. Record the baseline: `make check-oo` scores touched files against the
+   committed `.oo-baseline.json`; `python tools/oo_score.py <file>` runs the
+   same scoring directly
 2. Make your change
-3. Run `python tools/oo_score.py <file>` after — no metric may worsen
+3. Re-run the scoring — no metric may worsen
 4. If you can improve a metric while making your change, do so
+5. After the code passes, `make update-oo` rewrites `.oo-baseline.json` and
+   appends to `.oo-audit.jsonl`; stage both in the same commit as the source
+   they measure
 
-You are not required to fix an entire file in one pass. You are required to
-leave every file better than you found it.
+The baseline is never edited by hand and the ratchet is never suppressed. You
+are not required to fix an entire file in one pass. You are required to leave
+every file better than you found it.
 
 **Criterion**:
 
@@ -28,7 +34,9 @@ leave every file better than you found it.
 
 **Tooling**:
 
-- `python tools/oo_score.py <file>` — before and after every change
+- `make check-oo` — score touched files against the committed baseline
+- `make update-oo` — rewrite the baseline after the code passes
+- `python tools/oo_score.py <file>` — direct scoring, before and after a change
 - `python tools/oo_score.py <directory> --threshold` — per-file breakdown
 
 ## PL-OA-2: The oo_score.py Tool Is Required

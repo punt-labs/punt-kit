@@ -13,7 +13,7 @@ a measurable score. No big-bang rewrites.
 
 Every refactoring session follows this loop. No exceptions.
 
-```
+```text
 1. MEASURE  → run `make report SRC=<module>` → record baseline scores
 2. IDENTIFY → pick the single worst-scoring metric
 3. PLAN     → choose exactly one transformation (see PY-RF-3 catalog)
@@ -29,8 +29,9 @@ Every refactoring session follows this loop. No exceptions.
 **Hard rules**:
 
 - Never combine two transformations in one step.
-- Never skip the test step (even if there are no formal tests — run the demo
-  scripts; if they produce the same output, behavior is preserved).
+- Never skip the test step (if a module somehow lacks formal tests, create and
+  run a behavioral snapshot per PY-RF-2; identical output means behavior is
+  preserved).
 - If a score worsens, revert the change entirely. Do not "fix forward."
 - If no single transformation improves any score, stop and report.
 - Every extraction deletes the old code and wires all callers in the same
@@ -40,7 +41,8 @@ Every refactoring session follows this loop. No exceptions.
 
 A transformation is behavior-preserving if and only if:
 
-1. All existing tests/demo scripts produce identical output (diff the output).
+1. All existing tests and behavioral snapshots produce identical output (diff
+   the output).
 2. The public API of every module remains unchanged (same function/class names,
    same parameter signatures, same return types).
 3. `mypy --strict` passes before and after.
@@ -70,15 +72,16 @@ How to tell the difference between dead code and an unwired extraction:
 
 ```bash
 # Before the change:
-python test_script.py > .tmp/before.txt 2>&1
+uv run <entry-point> > .tmp/before.txt 2>&1
 # After the change:
-python test_script.py > .tmp/after.txt 2>&1
+uv run <entry-point> > .tmp/after.txt 2>&1
 # Compare:
 diff .tmp/before.txt .tmp/after.txt  # must produce no output
 ```
 
-If there are no test scripts, the agent must create a behavioral snapshot first
-(run all entry points, capture output) before starting any refactoring.
+If there are no tests covering the code, the agent must create a behavioral
+snapshot first (run all entry points, capture output) before starting any
+refactoring.
 
 ## PY-RF-3: Transformation Catalog
 
@@ -157,7 +160,7 @@ When multiple metrics are bad, fix in this order (each unlocks the next):
 
 After each refactoring step, the agent must report:
 
-```
+```text
 STEP: <transformation name>
 FILE: <file changed>
 METRIC: <which score improved>

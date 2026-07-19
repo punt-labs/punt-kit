@@ -3,7 +3,7 @@ paths:
   - "**/*.py"
 ---
 
-# Pass 3: Tooling Enforcement Matrix
+# Tooling Enforcement Matrix
 
 Every standard must be checkable. This file maps each rule to the tool(s) that
 can deterministically judge compliance. Rules without deterministic tooling are
@@ -154,13 +154,14 @@ All tools are unified in the project Makefile. Agents must use Make, not
 individual tool invocations.
 
 ```bash
-make check SRC=path/to/module/              # fail-fast gate (exits 0 or 1)
-make report SRC=path/to/module/             # full diagnostics, no fail-fast
-make check SRC=game/ VENV_BIN=env/bin/      # virtualenv project
+make check SRC=src/<package>/               # fail-fast gate (exits 0 or 1)
+make report SRC=src/<package>/              # full diagnostics, no fail-fast
 ```
 
-`make check` runs: OO score → mypy → ruff format → ruff check → radon CC → pylint design.
-`make report` adds: radon MI, cohesion LCOM, vulture dead code.
+`make check` runs the full quality gate — lint, type checking, tests, and the
+OO ratchet (`make check-oo`) — per PL-TC-5.
+`make report` adds the diagnostics: radon CC/MI, pylint design, cohesion LCOM,
+vulture dead code.
 
 See `make help` for all available targets.
 
@@ -171,7 +172,7 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 
 | Rule | Check | Command |
 |------|-------|---------|
-| PY-TS-1 | `from __future__ import annotations` present | `grep -rL "from __future__ import annotations" --include="*.py" lib/` |
+| PY-TS-1 | `from __future__ import annotations` present | `grep -rL "from __future__ import annotations" --include="*.py" src/` |
 | PY-CC-1 | No `__init__` in non-dataclass classes | `grep -rn "def __init__" --include="*.py"` (zero hits) |
 | PY-EN-1 | No public attributes | `grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py"` (zero hits) |
 | PY-IC-4 | `__slots__` is a tuple | `grep -A1 "__slots__" --include="*.py"` → verify `(` not `[` |
@@ -180,7 +181,9 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 | PY-OP-1 | Binary ops return `NotImplemented` | `grep -n "NotImplementedError" --include="*.py"` in operator methods (zero hits) |
 | PY-OP-2 | `__eq__` paired with `__hash__` | AST: count per class, verify match |
 
-**Composite grep check** (all should return zero results):
+**Composite grep check** (first three should return zero results; audit
+`NotImplementedError` hits — legitimate only in abstract method stubs, never
+in binary operator methods, per PY-OP-1):
 
 ```bash
 grep -rn "def __init__" --include="*.py" src/ | grep -v "@dataclass" | grep -v "# noqa"
@@ -194,7 +197,7 @@ grep -rn "NotImplementedError" --include="*.py" src/
 For rules needing deeper analysis, write a Python script using `ast` module.
 Each check is a function returning pass/fail with file:line details.
 
-**Checks to implement in `check_standards.py`**:
+**Checks to implement in a custom AST script** (e.g., `tools/check_standards.py`):
 
 ```text
 check_future_annotations()    # PY-TS-1: first import is __future__
