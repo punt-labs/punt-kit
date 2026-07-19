@@ -4,24 +4,117 @@ How users install and activate Punt Labs tools.
 
 ---
 
-## Projection Model
+## The Projection Model (canonical)
 
-Every project is a library first. The library is **projected** outward as a CLI,
-MCP server, plugin, or REST API depending on who calls it and where they run.
-Each projection has its own distribution channel:
+This is the canonical statement of the engine-core / four-surface pattern.
+python.md, cli.md, and plugins.md cross-reference this section; they do not
+restate it. State the principle first, then how each product realizes it.
 
-| Projection | Caller | Channel |
-|------------|--------|---------|
-| Library | Python code (same process) | PyPI (`uv add punt-<name>`) |
-| CLI | Human at terminal | PyPI (`uv tool install punt-<name>`) |
-| MCP server | AI agent (same machine) | `claude mcp add` (standalone) or plugin `mcpServers` (hybrid) |
-| Plugin shell | AI agent (enhanced UX) | Marketplace (`claude plugin install`) |
-| Desktop bundle | Claude Desktop user | `.mcpb` one-click install |
-| REST API | Native apps, external clients | `<tool> serve` (HTTP) |
-| Native app | End user | App Store, TestFlight, Homebrew |
+### Principle: one engine, many thin clients
 
-Not every project needs every projection. Only build the projections that have
-callers.
+Every project is an **engine** fronted by thin clients. The engine is the core —
+it holds the logic, the state, and the authority. Every surface a caller reaches
+for — library import, CLI, MCP server, REST API — is a thin client of that one
+engine. The library is a client too; it is not the core.
+
+Four invariants hold for every product. No product may vary them.
+
+**1. One engine, implemented once, never duplicated per client or per surface.**
+The engine may be a single process or a small set of cooperating processes,
+possibly on separate machines — but it is split only for (a) an architectural
+boundary, or (b) network distribution. State the distinction explicitly:
+
+- *Decomposition* (allowed): complementary parts of one engine. lux splits its
+  engine into the **Hub**, which owns authority, state, and handler dispatch,
+  and the **Display**, which owns rendering and input. Two processes, one
+  engine, complementary jobs.
+- *Duplication* (forbidden): the same functionality standing up once per surface
+  or per session. This is the multiplication vox eliminated when eight
+  per-session audio processes collapsed into one `voxd` daemon.
+
+Clients address the one engine through its front door — in lux that is the Hub —
+and never talk to internal components directly. A lux client never talks to the
+Display.
+
+**2. Every surface is a thin client of the engine.** Library, CLI, MCP, REST —
+none reimplements or forks the engine logic. The library is a client of the
+engine, not the engine itself.
+
+**3. One code path.** A given capability runs the same engine-side code no
+matter which surface it entered from. quarry's `search` runs the identical
+engine code whether it arrived from the Python import, the `quarry search` CLI,
+the MCP tool, or the REST endpoint.
+
+**4. Client-specific state lives in the engine/server layer, keyed by client.**
+Working directory, active repo, enabled/disabled features, session context — the
+engine holds these authoritatively, keyed by client. A client carries only its
+own identity and the context it alone can originate (its own cwd), and pushes
+that into the engine. Default to moving client-specific state server-side; keep
+clients thin. quarry passes the selected database as a session key on the
+WebSocket upgrade URL; the `quarry serve` daemon holds it.
+
+### The four surfaces
+
+One engine, four client surfaces. Each reaches a different caller; none
+reimplements the engine.
+
+| Surface | Caller |
+|---------|--------|
+| Library import | code in the same process |
+| CLI | human at a terminal, shell script, CI |
+| MCP server | AI agent in an MCP-aware host |
+| REST API | app, web frontend, webhook, remote client |
+
+Build the surfaces that have callers — but treat the CLI as present by default,
+because scripts, automation, and humans always give it one. `punt init`
+scaffolds the surfaces from the first commit; a surface with no caller stays thin
+scaffolding until one appears.
+
+### Surfaces versus channels
+
+A **surface** is how a caller reaches the engine. A **channel** is how a surface
+is shipped. One surface can ship through several channels; do not confuse the two
+axes.
+
+| Surface | Distribution channel |
+|---------|----------------------|
+| Library | PyPI (`uv add punt-<name>`) |
+| CLI | PyPI (`uv tool install punt-<name>`) |
+| MCP server | `claude mcp add` (standalone), plugin `mcpServers` (hybrid), or `.mcpb` one-click bundle (Claude Desktop) |
+| REST API | `<tool> serve` (HTTP) |
+
+The **plugin shell** and the **`.mcpb` desktop bundle** are distribution
+channels for the MCP surface, not separate surfaces — a plugin wraps the MCP
+server (see plugins.md). A **native app** is a distribution channel for a
+platform-native front end (App Store, TestFlight, Homebrew), outside the four
+engine-client surfaces.
+
+### Bounded choices (product judgment)
+
+The invariants are fixed. Three choices are left to each product, decided against
+stated criteria — room for judgment without needless variation.
+
+**Transport: REST/HTTP, a local socket, or stdio.** Choose by latency and
+reachability. quarry uses REST because search tolerates network latency. lux uses
+a local socket because display I/O is at millisecond scale.
+
+**When the engine must become a daemon.** Required once there is shared mutable
+state across clients, a device, or concurrent clients. Deferrable before that
+only if the surfaces are still built as thin clients over a clean engine seam, so
+standing the daemon up later is a deployment change, not a rewrite. ethos has no
+daemon today — repo state on disk, no concurrency pressure — and defers it until
+scale demands it. vox's `voxd` daemon owns the audio device, so it exists now.
+
+**Which surfaces to build.** Only those with callers — but the CLI effectively
+always has one (scripts, automation, humans), so treat the CLI as present by
+default.
+
+### Carve-out: the stateless leaf
+
+A pure stateless leaf has no engine. langlearn-types exports types and protocols
+only — no state, no device, no authority — so it is plain importable code, the
+one non-client case. This is not an exception to invariant 1; it is the absence
+of an engine to have clients of.
 
 ---
 
