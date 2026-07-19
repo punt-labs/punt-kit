@@ -26,9 +26,13 @@ Each standard lives in its own document under `standards/`.
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
-| [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, typer + rich, FastMCP, release workflow |
-| [Node.js](standards/node.md) | Node 20+, npm, @modelcontextprotocol/sdk, zod, ES modules |
-| Swift | (planned) — swiftformat, swiftlint, XcodeGen, SwiftUI, XCTest |
+| [Architecture](standards/architecture.md) | The engine-and-clients model: one engine, thin library/CLI/MCP/REST client surfaces |
+| [OO](standards/oo.md) | The object-oriented stance shared by Python, Swift, and Pharo |
+| [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, typer + rich, FastMCP, the OO ratchet, release workflow |
+| [Go](standards/go.md) | Idiomatic Go: modules, small interfaces, explicit errors, go vet + staticcheck |
+| [C](standards/c.md) | Idiomatic C: memory ownership, `-Werror`, sanitizers |
+| [Swift](standards/swift.md) | Idiomatic + protocol-oriented Swift; swiftformat, swiftlint, XcodeGen, XCTest |
+| [Pharo](standards/pharo.md) | Pharo/Smalltalk, image-based development, in-image linting |
 
 ## Patterns
 
@@ -65,7 +69,7 @@ Use this checklist to audit a project for compliance:
 - [ ] **Quality gates defined** — project CLAUDE.md lists the quality gate commands for this project type ([workflow](standards/workflow.md))
 - [ ] **Design decision log exists** — `DESIGN.md` if the project has non-trivial architecture decisions ([workflow](standards/workflow.md))
 - [ ] **README documents installation** — clear, copy-pasteable install instructions
-- [ ] **Linting and type checking configured** — per language standards ([python](standards/python.md), [node](standards/node.md))
+- [ ] **Linting and type checking configured** — per language standards ([python](standards/python.md), [go](standards/go.md), [c](standards/c.md), [swift](standards/swift.md))
 - [ ] **Tests exist and pass** — `pytest`, `XCTest`, or equivalent
 - [ ] **Branch protection on main** — require PR with 1 approval, require status checks, prevent force push ([github](standards/github.md))
 - [ ] **CI workflow exists** — lint, test, or docs validation per project type ([github](standards/github.md))
