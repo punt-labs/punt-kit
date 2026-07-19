@@ -89,19 +89,24 @@ must match. Version bump is a single operation that updates all mirrors.
 
 - `punt audit` checks version sync across files
 
-## PL-DI-6: Local Depot for Dev Iteration
+## PL-DI-6: Local Wheels for Dev Iteration
 
-**Statement**: Cross-project wheel sharing uses the `.depot/` directory at the
-meta-repo root. After changing a library that others depend on, run `make depot`
-to build the wheel and place it in `.depot/`. Consumer projects resolve local
-wheels via `uv.toml` with `find-links = ["../.depot"]` (gitignored, dev-only).
+**Statement**: Cross-project dev iteration tests against a built wheel, never
+an editable install. The preferred workflow is direct: `make build`, then
+`uv tool install --force dist/*.whl`. The `.depot/` directory at the meta-repo
+root is the optional shared mechanism for projects that are cross-project
+dependencies: `make depot` copies the wheel there, and consumer projects
+resolve local wheels via `uv.toml` with `find-links = ["../.depot"]`
+(gitignored, dev-only).
 
 **Criterion**:
 
-- Pass: `make depot` target exists; `uv.toml` has find-links
+- Pass: cross-project testing uses a built wheel — direct install or depot;
+  projects that are cross-project dependencies have a `make depot` target
 - Fail: manual wheel copying; editable installs for cross-project testing
 
 **Tooling**:
 
+- `make build` + `uv tool install --force dist/*.whl` — preferred direct path
 - `.bin/depot-sync.sh` — rebuild all projects in dependency order
 - `.bin/depot-status.sh` — list depot contents
