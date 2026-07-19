@@ -14,11 +14,13 @@ answer to, not by a class they inherit from. These rules realize the stance in
 
 **Statement**: A type reaches its collaborators — audio, persistence,
 networking, notifications, the system clock — through protocol-typed
-parameters handed to its initializer, never by constructing a concrete
-implementation inside. The protocol is the contract; the concrete type behind
-it is beside the point. This is what makes the core testable without the
-device: the same object that runs in production runs against a test double in
-the suite.
+parameters handed to its initializer. Concrete implementations are never
+constructed at use sites or inside methods; the only place a concrete default
+may be resolved is the initializer itself (or the composition root), once,
+behind the protocol type. The protocol is the contract; the concrete type
+behind it is beside the point. This is what makes the core testable without
+the device: the same object that runs in production runs against a test
+double in the suite.
 
 **Example**:
 
@@ -86,6 +88,9 @@ protocol NotificationCenterProtocol: Sendable {
     func add(_ request: UNNotificationRequest) async throws
 }
 
+// @unchecked: UNUserNotificationCenter is thread-safe per the
+// UserNotifications documentation; the compiler cannot verify Sendable
+// across the module boundary (SW-CC-5).
 extension UNUserNotificationCenter: @unchecked Sendable, NotificationCenterProtocol {}
 ```
 
