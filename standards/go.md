@@ -1,8 +1,57 @@
 # Go Standards
 
-Standards for all Punt Labs Go projects. This document is the canonical reference --- individual project CLAUDE.md files should reference it, not duplicate it.
+Standards for all Punt Labs Go projects. This document is the canonical
+reference --- individual project CLAUDE.md files should reference it, not
+duplicate it.
 
-Current Go projects: ethos, beadle-email.
+Current Go projects: cryptd, ethos, beadle-email.
+
+Go is idiomatic in its own paradigm. It is a language of composition, of small
+interfaces satisfied structurally, and of explicit error handling, and we write
+it that way. It is not object-oriented, so it does not answer to [oo.md](oo.md);
+nothing in this document asks Go to imitate objects. Where a Go type carries
+behavior, it does so through methods on a concrete struct that satisfies an
+interface the consumer defines, not by inheriting from a base class --- Go has no
+base classes to inherit from, and embedding is composition, not a subclass
+relation.
+
+---
+
+## Where Go Fits the Architecture
+
+The [Projection Model](architecture.md#the-projection-model-canonical) describes
+a Punt Labs product as one engine fronted by thin library, CLI, MCP, and REST
+clients. Go usually enters that picture as the engine itself. Where a C program
+is often a whole self-contained binary, and a Python package realizes the four
+surfaces in one process, a Go product is typically the engine that grows those
+client surfaces over time, or the daemon that engine becomes once its clients
+contend for shared state.
+
+cryptd is that engine as a daemon. Its game logic lives in `internal/engine` as
+pure Go with no knowledge of a socket, and `internal/daemon` is the front door:
+`cryptd serve` listens on a Unix socket or TCP, speaks JSON-RPC, and holds
+session and game state authoritatively behind a mutex. The `crypt` binary is the
+thin client --- a terminal UI under `cmd/crypt/tui` and an MCP surface in
+`cmd/crypt/mcp.go` --- and it reaches the engine only through the daemon, never
+by importing the engine directly. One engine, decomposed into a daemon that owns
+state and clients that render it, is exactly the decomposition architecture.md
+allows: two processes, one engine, complementary jobs.
+
+ethos is the same model with the daemon deferred. It is a Go tool whose engine
+lives under `internal/` --- `internal/identity`, `internal/attribute`,
+`internal/mission` --- and whose surfaces are the `ethos` CLI in `cmd/ethos` and
+an MCP server that `ethos serve` starts over stdio. ethos keeps its state as YAML
+on disk with no concurrent writers, so it has no daemon today; architecture.md
+names it as the example of a tool that defers its daemon until scale demands one.
+Because its CLI and its MCP surface already sit as thin clients over a clean
+`internal/` engine boundary, adding that daemon later is a deployment change, not
+a rewrite.
+
+Read the invariants in architecture.md before deciding how they apply. The one
+that always governs a Go project is the first: one engine, implemented once,
+never duplicated per surface. A capability runs the same `internal/` code
+whether it arrived from the CLI, from the MCP server, or --- in cryptd --- from a
+networked client across the socket.
 
 ---
 
@@ -89,7 +138,7 @@ Return `*ValidationError` from validation functions. Callers use `errors.As` to 
 
 ### Layered stores
 
-When data exists at multiple scopes (repo-local, global), compose single-scope stores into a layered store rather than adding scope logic to the base store.
+When data exists at multiple scopes (repo-local, global), compose single-scope stores into a layered store rather than adding scope logic to the base store. This is composition, not inheritance: the layered store holds the single-scope stores as fields and delegates to them; it does not extend a base store. ethos does exactly this in `internal/attribute/layered.go`, where a layered attribute store fronts a repo-local store and a global store.
 
 ```go
 type LayeredStore struct {
@@ -165,6 +214,8 @@ The context describes the operation that failed, not the error itself. The wrapp
 
 ## 6. Testing
 
+Tests run through the Go toolchain and are wired into `make check` as the gate. cryptd's `make test` is `go test -race -count=1 ./...` and its `make check` chains `vet test lint markdownlint`; ethos's `make test` adds a coverage profile and its `make check` chains `lint docs test validate-content`. Both run the race detector on every invocation, and both treat a change to a module and the change to its tests as one change, not two.
+
 ### Rules
 
 1. **`-race -count=1` mandatory.** Every `go test` invocation uses both flags. The Makefile enforces this.
@@ -223,9 +274,9 @@ func setupExtTest(t *testing.T) *Store {
 | `gofmt` / `gofumpt` | Canonical formatting (`make format`) | Yes (non-negotiable; projects may use `gofumpt` as a stricter drop-in) |
 | `shellcheck` | Shell script linting | Yes (if project has `.sh` files) |
 
-`go vet` and `staticcheck` run as part of `make lint`. Zero warnings. Do not suppress warnings with `//nolint` unless the suppression includes a comment explaining why.
+`go vet` and `staticcheck` both run under `make check` with zero warnings. The two projects wire them slightly differently --- cryptd runs `go vet ./...` as its own `vet` target and `staticcheck ./...` as `lint`, while ethos bundles `go vet`, `staticcheck`, and `shellcheck` into a single `lint` target --- but in both, `make check` will not pass while either tool reports anything. Do not suppress warnings with `//nolint` unless the suppression includes a comment explaining why.
 
-The Makefile `lint` target is the source of truth. See [Makefile standards](makefile.md) for the Go template.
+The Makefile is the source of truth for which tools run. See [Makefile standards](makefile.md) for the Go template.
 
 ### Installing staticcheck
 
@@ -268,6 +319,20 @@ func (s *Store) Update(handle string, mutate func(*Identity) error) error {
 1. **`sync.Once` for lazy initialization.** When a value is computed once and read many times, use `sync.Once`. Do not use `init()` for this.
 1. **No goroutines in CLI commands unless required.** CLI tools are sequential by nature. Do not add concurrency for the sake of it. When goroutines are needed (e.g., watching multiple files), use `errgroup` for lifecycle management.
 1. **Channels for communication, mutexes for state.** Do not use channels as mutexes or mutexes as signals.
+
+### Context propagation
+
+A `context.Context` is the first argument of any function that does I/O, blocks, or spans goroutines, and it is threaded from the entry point down --- never stored in a struct field, never replaced by a package-level `context.Background()` deep in the call tree. The context carries cancellation and deadlines, so a caller that gives up can stop the work it started.
+
+cryptd shows both halves of the discipline. Its daemon holds a server-scoped `context.Context` and matching `cancel` that bound the lifetime of every game goroutine it spawns, so shutting the server down cancels the work in flight. At the leaf, a call that must not block forever wraps the parent context with a deadline and cancels it as soon as the call returns:
+
+```go
+probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+_, probeErr := client.ChatCompletion(probeCtx, msgs, opts)
+probeCancel()
+```
+
+The `cancel` function is always called, on every path, to release the timer the context allocates --- deferring it or calling it inline both satisfy the rule; leaking it does not.
 
 ## 9. Style
 
@@ -411,3 +476,9 @@ See [CLI standards](cli.md) for naming conventions and [Makefile standards](make
 - API keys and credentials from environment variables only.
 - No `.env` files committed, no hardcoded keys.
 - `doctor` verifies required secrets are available without printing them.
+
+## Enforcement
+
+Go carries its coding rules as `.claude/rules/go-*.md` files, the same mechanism the other languages use, loaded by an ancestor walk when an agent touches a matching file. These rules are the Go analog of the Python rules under `.claude/rules/python-*.md` and the C rules xboing-c holds under its own `.claude/rules/`. They are the intended home for the naming, layout, interface-placement, error-wrapping, concurrency, and prohibited-pattern conventions this document describes, and a change to Go must satisfy them the way a change to Python must satisfy its own.
+
+Go has no OO ratchet. The ratchet that scores object-oriented quality against a committed baseline is a Python mechanism, described in [python.md](python.md), and it exists because LLM-generated Python drifts toward procedural code that only looks object-oriented. Go is not object-oriented, so there is nothing for such a ratchet to measure --- it has no class hierarchy to score, no baseline of encapsulation to hold. What holds Go to its standard is the combination the sections above describe: `go vet` and `staticcheck` reporting zero warnings, the race detector on every `go test` run, the table-driven test suite, and the `.claude/rules/go-*.md` files --- all run together by `make check`, in cryptd and ethos alike, before a change ships.
