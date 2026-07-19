@@ -204,7 +204,7 @@ data, and bugs surface far from their cause.
 
 **Rationale**: the three patterns interact. A `dict[str, Any]` parameter forces
 the implementation to use `dict.get(key, None)` (an Optional), and the only
-honest annotation for `dict.get`'s return is `Any | None`. Banning one without
+accurate annotation for `dict.get`'s return is `Any | None`. Banning one without
 banning the others lets the same anti-pattern hop across symptoms.
 
 **The justification gate**: every `| None` field, every `Any` annotation, every

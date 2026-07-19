@@ -6,7 +6,7 @@ that language. It is organized one directory per language:
 
 | Language | Directory | Source of the seed |
 |----------|-----------|--------------------|
-| Python | `python/` | the 22-rule OO set from `punt-labs/.claude/rules/python-*.md` |
+| Python | `python/` | the Python coding rules from `punt-labs/.claude/rules/python-*.md` |
 | C | `c/` | `c-code.md`, `tests.md` from `xboing-c/.claude/rules/` |
 | Go | `go/` | new — derived from `go.md`, cryptd, and ethos |
 | Swift | `swift/` | new — derived from `swift.md` and koch-trainer-swift |
