@@ -17,6 +17,7 @@ cache before creating a new instance. Always pair with `@final`.
 causes memory leaks by holding strong references).
 
 **Tooling**:
+
 - Grep: `WeakValueDictionary` usage paired with `@final`
 - AST: classes with `__instances` must use `WeakValueDictionary`, not `dict`
 
@@ -27,6 +28,7 @@ causes memory leaks by holding strong references).
 direct construction via guard check (see PY-CC-3, PY-CC-4).
 
 **Tooling**:
+
 - Test: direct construction raises `TypeError`
 - LLM review: classes with UID/ID allocation use factory pattern
 
@@ -39,6 +41,7 @@ state. Transition methods validate current state, update it, fire events, and
 delete stale attributes. Use `cast()` to narrow the return type after transition.
 
 **Tooling**:
+
 - mypy: Protocol satisfaction verified statically
 - Test: attempt invalid transitions, verify `ValueError`
 - AST: state transition methods must check `self.__state` before modifying it
@@ -50,6 +53,7 @@ delete stale attributes. Use `cast()` to narrow the return type after transition
 (`-> Self`) for chaining. Validation on transition (not on each set).
 
 **Tooling**:
+
 - mypy: return type `Self` on setter methods
 - LLM review: draft objects allow partial construction
 
@@ -60,6 +64,7 @@ delete stale attributes. Use `cast()` to narrow the return type after transition
 dict). `restore()` accepts a snapshot and replaces current state.
 
 **Tooling**:
+
 - Test: snapshot → modify → restore → verify original values
 
 ## PY-DP-6: Prototype Pattern
@@ -69,6 +74,7 @@ dict). `restore()` accepts a snapshot and replaces current state.
 restores a memento from the original.
 
 **Tooling**:
+
 - Test: clone produces a distinct object with same data but different ID
 
 ## PY-DP-7: Singleton Pattern
@@ -78,6 +84,7 @@ restores a memento from the original.
 instance.
 
 **Tooling**:
+
 - Test: `ClassName() is ClassName()` must be `True`
 
 ## PY-DP-8: PubSub (Publish-Subscribe) Pattern
@@ -91,6 +98,7 @@ methods, and private trigger methods (`__trigger_event()`). Callbacks stored in
 Trigger: `__trigger_<event>()`. Notification handler: `_notify_<event>()`.
 
 **Tooling**:
+
 - LLM review: verify callbacks are registered and unregistered correctly
 - Test: register callback, trigger event, verify callback invoked
 
@@ -110,6 +118,7 @@ by removing `self` or converting to static methods — that would break the
 interface contract.
 
 **Tooling**:
+
 - LLM review: Null Object classes must implement the full parent interface
 - ruff PLR6301: suppress findings on Null Object classes (known false positive)
 
@@ -120,6 +129,7 @@ interface contract.
 `__init__.py` re-exports only the facade via `__all__`.
 
 **Tooling**:
+
 - Check `__init__.py` has `__all__` listing only the facade class
 - Test: `from package import Facade` is the primary API
 
@@ -138,11 +148,13 @@ are correct by design — the interface IS one method.
 configure pylint with `min-public-methods=1` for the project.
 
 **How to distinguish from a real R0903 problem**:
+
 - Class is an ABC/Protocol with 1 abstract method → **legitimate**, suppress
 - Class is a concrete class with 1 method and stored data → **data holder**,
   consider replacing with a function or dataclass
 - Class has 0 public methods → **always a problem** unless it's a mixin
 
 **Tooling**:
+
 - pylint R0903: suppress on ABC/Protocol classes with exactly 1 abstract method
 - LLM review: concrete classes with < 2 methods still need scrutiny

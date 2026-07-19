@@ -28,6 +28,7 @@ An agent MUST run these before reporting compliance.
 | PY-OP-5 | ruff | `ruff check --select SIM,C1901` | exit 0 |
 
 **Composite check command** (prefer `make check` over individual invocations):
+
 ```bash
 make check
 ```
@@ -47,11 +48,12 @@ analysis. No external dependencies. Exits 1 if any metric fails.
 | module_size | <= 300 | God modules |
 | classes_per_module | <= 3 | Unfocused modules |
 | class_to_func_ratio | >= 0.5 | Procedural code disguised as a module |
-| init_violations | == 0 | __init__ used instead of __new__ |
+| init_violations | == 0 | **init** used instead of **new** |
 | public_attr_violations | == 0 | self.name without underscore |
-| future_annotations | == 1 | Missing from __future__ import annotations |
+| future_annotations | == 1 | Missing from **future** import annotations |
 
 **Usage**:
+
 ```bash
 python tools/oo_score.py path/to/module.py           # human-readable
 python tools/oo_score.py path/to/package/ --json      # machine-readable
@@ -65,6 +67,7 @@ python tools/oo_score.py path/to/package/ --threshold  # per-file breakdown
 These complement `oo_score.py` with metrics it cannot compute.
 
 **Install** (all work on Python 3.13):
+
 ```bash
 uv tool install radon ruff cohesion vulture
 ```
@@ -78,6 +81,7 @@ radon cc path/ -j -n C          # only show functions graded C or worse
 ```
 
 Key thresholds:
+
 - CC per function: A (1-5) good, B (6-10) moderate, C+ = flag for refactoring
 - MI per file: >= 20 maintainable, < 10 unmaintainable
 
@@ -114,6 +118,7 @@ pylint --disable=all --enable=design --output-format=json2 path/
 ```
 
 Key checks:
+
 - R0903 too-few-public-methods (< 2 = data holder, not a real class)
 - R0902 too-many-instance-attributes (> 7 = god class)
 - R0913 too-many-arguments (> 5 = should be an object)
@@ -138,6 +143,7 @@ cohesion -d path/ -b 50          # show classes with cohesion <= 50%
 ```
 
 No JSON output. Measures what % of instance variables each method accesses.
+
 - 0% = methods touch disjoint data (split the class)
 - 30-70% = healthy range for real classes
 - 100% = every method uses every variable (trivial class)
@@ -175,6 +181,7 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 | PY-OP-2 | `__eq__` paired with `__hash__` | AST: count per class, verify match |
 
 **Composite grep check** (all should return zero results):
+
 ```bash
 grep -rn "def __init__" --include="*.py" src/ | grep -v "@dataclass" | grep -v "# noqa"
 grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py" src/
@@ -189,7 +196,7 @@ Each check is a function returning pass/fail with file:line details.
 
 **Checks to implement in `check_standards.py`**:
 
-```
+```text
 check_future_annotations()    # PY-TS-1: first import is __future__
 check_no_init()               # PY-CC-1: no __init__ (exclude dataclasses)
 check_no_public_attrs()       # PY-EN-1: all self.X assignments use _prefix
@@ -236,7 +243,7 @@ An agent must reason about the code to check these.
 | PY-IC-6 | Single Responsibility: each component has one job |
 | PY-IC-7 | Open-Closed: new subclass doesn't modify parent |
 | PY-OP-3 | Coercion pattern used (not duplicated logic per type) |
-| PY-OP-4 | __str__ is human-readable, __repr__ is developer-readable |
+| PY-OP-4 | **str** is human-readable, **repr** is developer-readable |
 | PY-OP-6 | Properties are lightweight, methods are computational |
 | PY-DP-1..9 | Correct pattern selected for the problem at hand |
 | PY-EH-1 | Validation at boundary, trust internally |

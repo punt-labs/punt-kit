@@ -20,10 +20,12 @@ to it.
 protocols and dataclasses — no CLI or MCP.
 
 **Criterion**:
+
 - Pass: `__init__.py` has `__all__`; `cli.py` and `server.py` import from core
 - Fail: business logic in `cli.py` or `server.py`; no library API
 
 **Tooling**:
+
 - Grep: `grep -L "__all__" src/*/__init__.py`
 - LLM review: CLI/MCP files should contain only argument parsing and delegation
 
@@ -33,6 +35,7 @@ protocols and dataclasses — no CLI or MCP.
 import from CLI or MCP modules.
 
 **Layers** (inner → outer):
+
 1. Types/Protocols — importable with zero heavy dependencies
 2. Core/Domain — business logic, data access
 3. Commands — orchestration (optional, see PL-PA-3)
@@ -41,10 +44,12 @@ import from CLI or MCP modules.
 A module in layer N may import from layers 1..N-1, never from N+1.
 
 **Criterion**:
+
 - Pass: `core.py` has no `from .cli import` or `from .server import`
 - Fail: core module imports from CLI, server, or commands module
 
 **Tooling**:
+
 - Grep: `grep -rn "from.*cli import\|from.*server import" src/*/core*`
 - AST: build import graph, verify no edges from core → presentation
 
@@ -60,10 +65,12 @@ format composite output. MCP tools and CLI share orchestration logic.
 **When NOT to add**: Each CLI command maps 1:1 to a single core function.
 
 **Criterion**:
+
 - Pass: orchestration logic in `commands/`; CLI and MCP both call command functions
 - Fail: orchestration duplicated between CLI and MCP
 
 **Tooling**:
+
 - LLM review: CLI functions > 20 lines of non-parsing logic → extract to commands
 - Reference: biff `commands/` package (DES-022)
 
@@ -74,6 +81,7 @@ processing) alongside a lightweight client layer, split with optional extras.
 `__init__.py` must be importable without heavy extras.
 
 **Pattern**:
+
 ```toml
 dependencies = ["typer>=0.15.0,<1", "fastmcp>=3.0.0,<4"]
 
@@ -82,10 +90,12 @@ display = ["imgui-bundle>=1.6.0", "numpy>=2.0.0"]
 ```
 
 **Criterion**:
+
 - Pass: `import <package>` works without heavy extras installed
 - Fail: top-level import fails with `ModuleNotFoundError` for optional dep
 
 **Tooling**:
+
 - Test: `python -c "import <package>"` in a venv without extras
 - CI: `uv sync --frozen --extra dev --extra display`
 
@@ -96,10 +106,12 @@ in `pyproject.toml` under `[project.scripts]` using the short name (not the
 `punt-` PyPI prefix).
 
 **Criterion**:
+
 - Pass: CLI uses typer; entry point in pyproject.toml
 - Fail: argparse, click directly (without typer), or sys.argv parsing
 
 **Tooling**:
+
 - Grep: `grep -rn "import argparse\|from click" src/`
 - Check: `[project.scripts]` in pyproject.toml
 
@@ -109,9 +121,11 @@ in `pyproject.toml` under `[project.scripts]` using the short name (not the
 (stdout reserved for stdio transport). Register as `<name>-server` entry point.
 
 **Criterion**:
+
 - Pass: `server.py` uses FastMCP; no stdout logging in server mode
 - Fail: custom JSON-RPC implementation; print() in server code
 
 **Tooling**:
+
 - Grep: `grep -rn "print(" src/*/server.py` — zero hits
 - Check: `<name>-server` in `[project.scripts]`
