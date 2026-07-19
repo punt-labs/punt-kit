@@ -327,7 +327,7 @@ A `context.Context` is the first argument of any function that does I/O, blocks,
 cryptd shows both halves of the discipline. Its daemon holds a server-scoped `context.Context` and matching `cancel` that bound the lifetime of every game goroutine it spawns, so shutting the server down cancels the work in flight. At the leaf, a call that must not block forever wraps the parent context with a deadline and cancels it as soon as the call returns:
 
 ```go
-probeCtx, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+probeCtx, probeCancel := context.WithTimeout(ctx, 5*time.Second)
 _, probeErr := client.ChatCompletion(probeCtx, msgs, opts)
 probeCancel()
 ```

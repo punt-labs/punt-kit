@@ -4,12 +4,12 @@ This directory is the **canonical home** for Punt Labs per-language coding
 rules — the `.claude/rules` content an agent loads when it touches a file in
 that language. It is organized one directory per language:
 
-| Language | Directory | Source of the seed |
-|----------|-----------|--------------------|
-| Python | `python/` | the Python coding rules from `punt-labs/.claude/rules/python-*.md` |
-| C | `c/` | `c-code.md`, `tests.md` from `xboing-c/.claude/rules/` |
-| Go | `go/` | new — derived from `go.md`, cryptd, and ethos |
-| Swift | `swift/` | new — derived from `swift.md` and koch-trainer-swift |
+| Language | Directory | Contents |
+|----------|-----------|----------|
+| Python | `python/` | present — the Python coding rules from `punt-labs/.claude/rules/`, reconciled to the four-surface architecture |
+| C | `c/` | present — `c-code.md`, `tests.md` from `xboing-c/.claude/rules/` |
+| Go | not yet present | to be authored from `go.md`, cryptd, and ethos |
+| Swift | not yet present | to be authored from `swift.md` and koch-trainer-swift |
 
 Pharo has no directory here **by design**: Pharo's quality is enforced by the
 linting engine inside the Pharo image (Code Critics / Renraku / SmallLint), not
@@ -33,7 +33,8 @@ OO ratchet (see [`../standards/python.md`](../standards/python.md)).
 
 ## Status
 
-The Python and C rule sets are seeded from their reference repos and still carry
-repo-specific assumptions (paths, project names) that must be generalized during
-review. Go and Swift rules are authored fresh from their standards and reference
-repos.
+The Python and C rule sets are present, seeded from their reference repos. The
+Python rules have been reconciled to the four-surface architecture; some seeded
+rules may still carry repo-specific assumptions to generalize during a later
+tuning pass. The Go and Swift rule sets are not yet authored — they are tracked
+as a follow-on.

@@ -35,8 +35,9 @@ leave every file better than you found it.
 
 **Statement**: Every Python project must have `tools/oo_score.py` available.
 This is a zero-dependency AST analysis script (stdlib only) that produces
-numeric OO quality metrics. Copy it from the canonical source at
-`~/Coding/oop-course-python/tools/oo_score.py`.
+numeric OO quality metrics. It is provided by punt-kit as the canonical,
+deployable source for the ratchet tooling; obtain it from there rather than
+copying a developer-local file.
 
 **Metrics and thresholds**:
 

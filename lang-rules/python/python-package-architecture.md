@@ -6,23 +6,26 @@ paths:
 
 # Package Architecture Standards
 
-Punt Labs Python packages expose three interfaces — a library, a CLI, and an
-MCP server. The library is the core; CLI and MCP are thin frontends.
+Punt Labs Python packages realize the four-surface engine-and-clients model:
+one engine fronted by thin clients — a library import, a CLI, an MCP server, and
+a REST API. The engine, made of the `core`, `commands`, and `types` modules, is
+the core; the library import is one of the four clients, not the core itself.
 
-## PL-PA-1: Three-Interface Pattern
+## PL-PA-1: Four-Surface Pattern
 
-**Statement**: Every Python package that ships logic must expose a library API
-(`__init__.py` with `__all__`), a CLI (`typer` app in `cli.py`), and an MCP
-server (`FastMCP` in `server.py`). The library is the core; CLI and MCP delegate
-to it.
+**Statement**: A Python package that ships logic is an engine fronted by thin
+clients. It exposes a library API (`__init__.py` with `__all__`), a CLI (`typer`
+app in `cli.py`), an MCP server (`FastMCP` in `server.py`), and — where a caller
+needs one — a REST API (`FastAPI`). The engine holds the logic; every client,
+the library included, delegates to it and carries no business logic of its own.
 
 **Exception**: Pure contract libraries (e.g., `langlearn-types`) export only
 protocols and dataclasses — no CLI or MCP.
 
 **Criterion**:
 
-- Pass: `__init__.py` has `__all__`; `cli.py` and `server.py` import from core
-- Fail: business logic in `cli.py` or `server.py`; no library API
+- Pass: `__init__.py` has `__all__`; `cli.py`, `server.py`, and any REST app import from core
+- Fail: business logic in any client (`cli.py`, `server.py`, REST app); no library API
 
 **Tooling**:
 
@@ -39,7 +42,7 @@ import from CLI or MCP modules.
 1. Types/Protocols — importable with zero heavy dependencies
 2. Core/Domain — business logic, data access
 3. Commands — orchestration (optional, see PL-PA-3)
-4. Presentation — CLI, MCP server
+4. Presentation — CLI, MCP server, REST API
 
 A module in layer N may import from layers 1..N-1, never from N+1.
 
