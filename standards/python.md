@@ -8,26 +8,16 @@ Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS, LangLearn, LangL
 
 ## Package Architecture
 
-A Punt Labs Python package is an **engine** fronted by four thin client surfaces
-— library import, CLI, MCP, and REST. The engine is the core; the surfaces are
-clients that reach it over the chosen transport. This is the language-agnostic
-[Projection Model](distribution.md#the-projection-model-canonical); this section
+A Punt Labs Python package realizes the four-surface engine-and-clients model:
+one engine fronted by thin library, CLI, MCP, and REST clients. That model is
+defined once, for every language, in
+[architecture.md](architecture.md#the-projection-model-canonical); this section
 covers the Python mechanics of realizing it.
 
 The `core`, `commands`, and `types` modules are the **engine's internals**. The
-CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are clients
-that reach the engine over their transport.
-
-The **library import surface** (`from <package> import ...`) is a client too, not
-the core. For an engine fronted by a daemon, the library reaches that daemon over
-its transport, exactly like the CLI or MCP client — quarry's library is a client
-of the `quarry serve` daemon, not an in-process shortcut into the search index.
-The core is imported in-process only where that is not the shipping library
-surface: the daemon process reaching its own logic, the test suite exercising the
-core directly, a tool that has legitimately deferred its daemon and still runs the
-engine in-process (ethos — one client, no concurrency pressure), and a stateless
-leaf that has no engine at all (langlearn-types). Every client runs the same
-engine code; none reimplements it.
+CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are the client
+surfaces, and the library import surface — `from <package> import ...` — is a
+client too, each reaching the engine over its transport.
 
 Simple projects delegate directly from a client to core functions. Complex
 projects add a **commands layer** inside the engine — between the client surfaces
@@ -101,7 +91,7 @@ __all__ = [
 ]
 ```
 
-Direct delegation is an engine-internal choice — how the engine routes a call, not where the caller runs or over which transport. `search` and `get_db` go straight to `core`, with no `commands` orchestration between. A downstream caller reaches them through quarry's library client, which reaches the `quarry serve` daemon like the CLI and MCP clients do; quarry is aligning this surface onto the daemon (see the [Projection Model](distribution.md#the-projection-model-canonical)). The `__all__` list is the public API; the engine wiring behind it is what "direct delegation" names.
+Direct delegation is an engine-internal choice — how the engine routes a call, not where the caller runs or over which transport. `search` and `get_db` go straight to `core`, with no `commands` orchestration between. A downstream caller reaches them through quarry's library client, which reaches the `quarry serve` daemon like the CLI and MCP clients do; quarry is aligning this surface onto the daemon (see the [Projection Model](architecture.md#the-projection-model-canonical)). The `__all__` list is the public API; the engine wiring behind it is what "direct delegation" names.
 
 ### Reference: commands layer
 
@@ -166,7 +156,7 @@ Reference implementation: `punt-lux` (PR #54) — 66 MB display stack moved behi
 
 ### Exceptions
 
-- **Pure contract libraries** (e.g., `langlearn-types`) expose only the library surface — no CLI, MCP, or REST client — because they export protocols and dataclasses, not logic. They are the stateless-leaf carve-out from the [Projection Model](distribution.md#the-projection-model-canonical): no engine, so no clients. The four-surface model applies to packages that contain logic.
+- **Pure contract libraries** (e.g., `langlearn-types`) expose only the library surface — no CLI, MCP, or REST client — because they export protocols and dataclasses, not logic. They are the stateless-leaf carve-out from the [Projection Model](architecture.md#the-projection-model-canonical): no engine, so no clients. The four-surface model applies to packages that contain logic.
 - **Internal tooling** (e.g., `punt-kit`) is not a shipping library. The library API standard applies to products, not build tools.
 
 ## Toolchain
