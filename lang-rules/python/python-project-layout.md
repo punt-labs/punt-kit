@@ -58,7 +58,7 @@ short name. Python import uses underscores.
 |------|------|-----|--------|
 | quarry | `punt-quarry` | `quarry` | `quarry` |
 | biff | `punt-biff` | `biff` | `biff` |
-| vox | `punt-vox` | `vox` | `punt_vox` |
+| langlearn-tts | `punt-langlearn-tts` | `langlearn-tts` | `langlearn_tts` |
 
 **Criterion**:
 
