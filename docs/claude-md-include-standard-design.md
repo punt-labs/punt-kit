@@ -88,7 +88,7 @@ same repo config, identical output.
 
 Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. This extends the `enable` / `disable` entry in
-[cli.md § Required Subcommands](cli.md#enable--disable).
+[cli.md § Required Subcommands](../standards/cli.md#enable--disable).
 
 **`enable`** — idempotent; re-running is also the upgrade path:
 
@@ -126,9 +126,10 @@ repo. This extends the `enable` / `disable` entry in
   the removal (`disable`) must ignore any matching line that is inside a fenced
   code block or an indented code block. Precise definition, so 15 implementations
   agree: a line is **inside a fenced block** if the count of preceding fence
-  delimiter lines — a line whose first non-whitespace run is ``` ``` ``` or
-  `~~~` — is odd; it is an **indented code block** line if it begins with a tab
-  or four or more spaces. A line matching neither is top-level. `@`-imports and
+  delimiter lines — a line whose first non-whitespace run is three or more
+  backticks or three or more tildes — is odd; it is an **indented code block**
+  line if it begins with a tab or four or more spaces. A line matching neither is
+  top-level. `@`-imports and
   the canonical string are always written at column 0, so they are top-level by
   construction.
 - **Serialized, atomic, byte-preserving write.** The read-append-replace on the
@@ -237,7 +238,7 @@ additively:
   produce the same rules — the wholesale-overwrite determinism of 2.2 guarantees
   this).
 - `enable` merges that set with the order-preserving, idempotent `jq` pattern
-  from [permissions.md § 6](permissions.md#6-plugin-distributed-permissions),
+  from [permissions.md § 6](../standards/permissions.md#6-plugin-distributed-permissions),
   adding only entries not already present.
 - `disable` recomputes the identical set and removes those entries by **exact
   value-match** — the removal pattern permissions.md § 6 actually provides
@@ -306,7 +307,7 @@ dormant tool is not flagged.
 ### 2.12 Migration
 
 Forward integration, no compatibility shim
-([PL-PP-1](../.claude/rules/python-prohibited-patterns.md)):
+([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)):
 
 - A tool currently injecting a marker block into `~/.claude/CLAUDE.md` moves that
   content to `~/.punt-labs/<tool>/CLAUDE.md`, registers the bare import line, and
@@ -322,7 +323,7 @@ Forward integration, no compatibility shim
 
 ### 2.13 `enable` versus `init`
 
-[distribution.md § Installation Scope](distribution.md) already defines `init` as
+[distribution.md § Installation Scope](../standards/distribution.md) already defines `init` as
 the per-repo verb that writes a tool's repo config file (`.biff`, `.quarry.toml`)
 and prompts for project-specific settings (team roster, relay URL, database
 name). `enable` and `init` are **distinct roles**, not duplicates:
@@ -421,7 +422,7 @@ whole is deterministic and trivially idempotent — the same property that makes
 the import model work at the host-file layer.
 
 **Why `enable` / `disable` per tool.** The CLI is the complete product
-([cli.md](cli.md)). Turning a tool on in a repo is an engine capability; it
+([cli.md](../standards/cli.md)). Turning a tool on in a repo is an engine capability; it
 belongs on the terminal as a first-class verb, reachable without Claude Code,
 scriptable in CI, and mirrored by MCP/slash surfaces.
 
@@ -467,7 +468,7 @@ last line.
 
 **Recommendation:** `enable` may touch exactly one file outside its own subtree —
 `<repo>/.claude/settings.json` — and only additively, via the order-preserving
-`jq` merge from [permissions.md § 6](permissions.md). Removal is by **exact
+`jq` merge from [permissions.md § 6](../standards/permissions.md). Removal is by **exact
 value-match**, not tags: the tool computes a deterministic entry set (its
 wholesale-overwrite determinism guarantees the same set every time), `enable`
 adds the missing members, and `disable` recomputes the identical set and removes
@@ -565,6 +566,12 @@ new doc it carries its own `**Introduced:** <landing-date>` line (the forward-on
 convention, section 3). Include the required user-guide clause (2.5) and the
 dev-standards vs tool-user-guide separation (2.1). Do **not** embed the
 introduced-date convention text in this file — that lives in `AGENTS.md`.
+**Rebase the relative links when copying §2 into `standards/`:** this design doc
+lives in `docs/`, so its cross-references point up-and-over (`../standards/cli.md`,
+`../standards/permissions.md`, etc.); inside `standards/tool-enable-disable.md`
+those same-directory links become bare filenames again (`cli.md`,
+`permissions.md`), and the PL-PP-1 link becomes
+`../lang-rules/python/python-prohibited-patterns.md`.
 
 ### Scrub managed-CLAUDE.md references across `standards/`
 
