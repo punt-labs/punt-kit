@@ -152,13 +152,13 @@ repo. This extends the `enable` / `disable` entry in
   - **Symlink-resolving.** If the target is a symlink (dotfile managers do this),
     write the real target and preserve the link.
   - **Mode-preserving.** Keep an existing file's mode; a new file gets `0644`.
-- **Canonical reference implementation.** vox's `GlobalClaudeImports`
-  (`src/punt_vox/claude_md.py`) already satisfies the atomic / symlink /
-  byte-preserving / deterministic contract for the global case. Port its
-  correctness per tool (copy-not-symlink of the logic, each CLI in its own
-  language) — this is distinct from the rejected shared-runtime writer (section
-  6): shared *correctness*, not a shared *process*. The one addition beyond vox
-  today is the exclusive lock above.
+- **Canonical reference implementation.** `GlobalClaudeImports` in the **vox
+  repo** (`punt-labs/vox`, `src/punt_vox/claude_md.py`) already satisfies the
+  atomic / symlink / byte-preserving / deterministic contract for the global
+  case. Port its correctness per tool (copy-not-symlink of the logic, each CLI in
+  its own language) — this is distinct from the rejected shared-runtime writer
+  (section 6): shared *correctness*, not a shared *process*. The one addition
+  beyond vox today is the exclusive lock above.
 
 ### 2.5 Every tool ships a user-guide doc
 
@@ -320,6 +320,28 @@ Forward integration, no compatibility shim
 - `/punt:init` (or a one-time migration) strips any residual `punt:begin` /
   `punt:end` CLAUDE.md marker sections from a repo `CLAUDE.md`, leaving the user's
   prose plus bare import lines. It does not touch Makefile marker sections.
+
+#### Sentinel migration (legacy `.biff`, `.quarry.toml` → `enabled` marker)
+
+The legacy repo-root sentinel dotfile is retired in favor of the in-directory
+`enabled` marker (2.7), which changes the L0 presence contract in integration.md.
+A repo that still carries `.biff` or `.quarry.toml` must not silently fail every
+peer presence check in the window between the integration.md rewrite and each
+tool's re-enable. Forward-integration closes the gap without a compat shim:
+
+- **The tool migrates on first run.** The release of each tool that adopts the
+  new marker migrates a repo the first time it runs there — `enable`, or the
+  tool's SessionStart hook, detects the legacy sentinel and, in one operation,
+  deposits `.punt-labs/<tool>/` + the `enabled` marker and deletes the old
+  dotfile. No separate migration command; the legacy sentinel simply cannot
+  outlive the tool's first post-adoption run.
+- **Ordering dependency (step-2 train).** The integration.md L0 rewrite (peers
+  now check the `enabled` marker) must land in the **same step-2 release train**
+  as the tool releases that perform the migration, so no peer starts checking the
+  new marker before the tools that write it have shipped. The § 7 change list
+  records this ordering dependency.
+- **`.beads/` needs no migration** — it is already a directory-form marker, not a
+  dotfile, and is unaffected.
 
 ### 2.13 `enable` versus `init`
 
@@ -633,6 +655,13 @@ below; the sweep must also catch any others (e.g. `readme.md`, `workflow.md`,
   template for a directory-based marker). Update the `has_biff()` example to test
   the marker path, and cross-reference `tool-enable-disable.md`. Keep the L0 rule that
   presence checks are pure path-existence tests that fail silent when absent.
+- **Ordering dependency (per § 2.12 sentinel migration).** This L0 rewrite makes
+  every peer check the `enabled` marker instead of the legacy dotfile. It must
+  land in the same step-2 release train as the tool releases that migrate legacy
+  sentinels on first run (§ 2.12), and no earlier — otherwise a peer starts
+  checking a marker that migrating tools have not yet written, and presence checks
+  silently fail across the org until every tool is re-enabled. Sequence the
+  integration.md merge after (or with) those tool releases.
 
 ### `standards/hooks.md`
 
