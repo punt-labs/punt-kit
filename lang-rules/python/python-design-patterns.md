@@ -5,8 +5,9 @@ paths:
 
 # Design Pattern Standards
 
-These patterns are explicitly taught and named in the course. Apply the correct
-pattern when the situation matches. Do not invent patterns not listed here.
+These are the named patterns in the Punt Labs pattern vocabulary. Apply the
+correct pattern when the situation matches. Do not invent patterns not listed
+here.
 
 ## PY-DP-1: Flyweight (Object Caching)
 
@@ -125,8 +126,8 @@ interface contract.
 ## PY-DP-10: Facade Pattern
 
 **When**: A library/subsystem needs a single entry point.
-**Implementation**: One class (`Marketplace`) that delegates to internal classes.
-`__init__.py` re-exports only the facade via `__all__`.
+**Implementation**: One class (e.g., an `Engine` facade) that delegates to
+internal classes. `__init__.py` re-exports only the facade via `__all__`.
 
 **Tooling**:
 

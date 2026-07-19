@@ -11,8 +11,9 @@ paths:
 (i.e., its behavior is not substitutable for the parent), use composition
 instead of inheritance.
 
-**Canonical example**: `BidStack` composes `WithdrawableStack[Bid]` rather than
-inheriting from it because the push/place semantics differ.
+**Canonical example**: a ranked stack composes a general-purpose stack rather
+than inheriting from it, because its placement semantics differ from plain
+push — an override would not be substitutable.
 
 **Criterion**:
 
@@ -104,7 +105,7 @@ single well-defined responsibility at its level of abstraction.
 
 **Application**:
 
-- One concept per module (bids in `bids.py`, listings in `listings.py`)
+- One concept per module (orders in `orders.py`, invoices in `invoices.py`)
 - Constructor delegates to methods (`__new__` → `update()` → `add()`)
 - Methods delegate to other methods (`__sub__` → `__add__` + `__neg__`)
 
@@ -144,7 +145,8 @@ imports core, never the reverse.
 
 1. **Types/Protocols** — importable with zero heavy dependencies
 2. **Core/Domain** — business logic, data access
-3. **Presentation** — CLI, MCP server, web handlers
+3. **Commands** — orchestration (optional layer, see PL-PA-3)
+4. **Presentation** — CLI, MCP server, REST API
 
 A module in layer N may import from layers 1..N-1, never from N+1.
 

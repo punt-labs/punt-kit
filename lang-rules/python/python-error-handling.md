@@ -11,9 +11,9 @@ paths:
 Internal methods may assume invariants established by the constructor and
 validated setters.
 
-**Example**: `Amount.__new__` validates non-negativity. `Bid` dataclass trusts
-the already-validated `Amount` — comment: "guaranteed to be validated => no need
-to validate in Bid."
+**Example**: an `Amount.__new__` validates non-negativity. An `Order` dataclass
+holding an `Amount` trusts it — the value is guaranteed valid by its own
+constructor, so `Order` does not re-validate it.
 
 **Criterion**:
 
@@ -71,9 +71,9 @@ of raising an exception. Reserve exceptions for genuine error conditions.
 
 **Examples**:
 
-- `WithdrawableStack.push()` returns `False` if item already present
-- `BidStack.bid()` returns `False` if bid doesn't beat the top
-- `WithdrawableStack.remove()` returns `False` if item not found
+- A deduplicating stack's `push()` returns `False` if the item is already present
+- A ranked stack's `place()` returns `False` if the new entry doesn't beat the top
+- A container's `remove()` returns `False` if the item is not found
 
 **Criterion**:
 
@@ -146,8 +146,8 @@ case may never be observed in testing.
 
 **The PY-EH-4 distinction**: PY-EH-4 allows `bool` returns for operations
 whose success/failure is normal and the caller's next action depends on
-which happened (`push() -> False` when item already present, caller may
-keep trying). PY-EH-8 forbids `-> T | None` for *value-producing*
+which happened (`push()` returning `False` when the item is already
+present; the caller may keep trying). PY-EH-8 forbids `-> T | None` for *value-producing*
 functions whose job is to yield a `T`. A parser that can't parse, a
 lookup that can't find, a conversion that can't convert — these raise.
 

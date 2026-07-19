@@ -13,8 +13,8 @@ already-created instance.
 
 __Rationale__: `__new__` is required for flyweight/singleton patterns (controlling
 whether a new object is created), for `@final` classes, and for consistency with
-the metaclass `type.__call__` dispatch. The instructor dedicates an entire lesson
-(`xx-truth-about-constructors.py`) to this principle.
+the metaclass `type.__call__` dispatch. Using it uniformly means construction
+control is always available without rewriting the constructor later.
 
 __Pattern__:
 
@@ -43,9 +43,9 @@ invariants before returning the instance. No partially-constructed objects.
 
 __Examples__:
 
-- `Frac.__new__` normalizes sign, reduces by GCD, rejects zero denominator
-- `Var.__new__` validates name against regex before caching
-- `Amount.__new__` validates non-negativity
+- A `Fraction.__new__` normalizes sign, reduces by GCD, rejects a zero denominator
+- An identifier type's `__new__` validates the name against a regex before caching
+- An `Amount.__new__` validates non-negativity
 
 __Criterion__:
 
@@ -110,7 +110,7 @@ __Tooling__:
 __Statement__: Use `@classmethod` for alternative constructors that build
 instances from different input types.
 
-__Example__: `Frac.from_int(n)` creates a `Frac(n, 1)`.
+__Example__: `Fraction.from_int(n)` creates a `Fraction(n, 1)`.
 
 __Criterion__:
 
