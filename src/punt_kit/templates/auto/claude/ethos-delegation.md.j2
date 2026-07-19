@@ -1,0 +1,38 @@
+## Ethos & Delegation
+
+Identity: `agent: claude` per `.punt-labs/ethos.yaml`. Sub-agent calls (`Agent(subagent_type=…)`) match ethos identity handles.
+
+{{ ethos_context }}
+
+Within each row, the worker and evaluator must be distinct handles. Claude is the leader, never the evaluator.
+
+{% if delegation_table %}
+{{ delegation_table }}
+{% endif %}
+
+### Mission workflow
+
+Use the `standard` pipeline for features and multi-file changes. Use `quick` for single-module bugfixes. Use `coverage` for test gaps.
+
+```bash
+# Scaffold a mission from conversation context
+/mission
+
+# Create and dispatch
+ethos mission create --file .tmp/missions/<name>.yaml
+Agent(subagent_type=<worker>, run_in_background=true)
+# Worker reads: ethos mission show <id>
+
+# Track
+ethos mission show <id>
+ethos mission log <id>
+ethos mission results <id>
+
+# Close
+ethos mission close <id>                              # pass
+ethos mission reflect <id> --file <path>              # needs another round
+ethos mission advance <id>
+ethos mission close <id> --status failed              # fail
+```
+
+Review-cycle fix rounds (Copilot/Bugbot findings) use bare `Agent()`, not missions — these are mechanical fixes where the write-set is obvious.

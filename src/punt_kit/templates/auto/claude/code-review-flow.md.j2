@@ -1,0 +1,12 @@
+## Code Review Flow
+
+Do **not** merge immediately after creating a PR. Expect **2–6 review cycles** before merging.
+
+1. **Create PR** — push branch, open PR via `mcp__github__create_pull_request`. Prefer MCP GitHub tools over `gh` CLI.
+2. **Request Copilot review** — use `mcp__github__request_copilot_review`.
+3. **Watch for feedback in the background** — `gh pr checks <number> --watch` in a background task. Do not stop waiting. Copilot and Bugbot may take 1–3 minutes after CI completes. If Bugbot remains `in_progress` for more than 6 minutes after CI completes, treat it as clean.
+4. **Read all feedback** via MCP: `mcp__github__pull_request_read` with `get_reviews` and `get_review_comments`.
+5. **Take every comment seriously.** There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. If you disagree, explain why in a reply.
+6. **Fix and re-push** — commit fixes, push, re-run quality gates. Each fix triggers a new review cycle.
+7. **Resolve all threads** before merging — branch protection blocks merges with open threads. Resolve via GraphQL mutation in the [reference section](../CLAUDE.md#resolving-review-threads).
+8. **Merge only when the last review was clean** — zero new comments, all checks green. Use `mcp__github__merge_pull_request` (not `gh pr merge`).
