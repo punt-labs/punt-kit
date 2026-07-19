@@ -159,6 +159,50 @@ Reference implementation: `punt-lux` (PR #54) — 66 MB display stack moved behi
 - **Pure contract libraries** (e.g., `langlearn-types`) expose only the library surface — no CLI, MCP, or REST client — because they export protocols and dataclasses, not logic. They are the stateless-leaf carve-out from the [Projection Model](architecture.md#the-projection-model-canonical): no engine, so no clients. The four-surface model applies to packages that contain logic.
 - **Internal tooling** (e.g., `punt-kit`) is not a shipping library. The library API standard applies to products, not build tools.
 
+## Object-Oriented Python
+
+LLM-generated Python is not object-oriented by default. It arrives as procedural
+code wearing an object's clothes: dataclasses that hold fields while module-level
+functions reach in and read those fields, `if`-ladders that branch on a kind tag,
+`str` parameters whose comments list the values a `Literal` should encode. This
+bias is markedly stronger in Python than in the other languages we write, so
+Python carries enforcement the others do not.
+
+The object-oriented principles themselves — behavior living with its data,
+telling an object rather than asking it for its parts, dispatching on the object
+instead of a conditional, composing objects rather than inheriting through a deep
+hierarchy, defining a family by protocol rather than a base class, and keeping
+objects small enough that their illegal states cannot be represented — are stated
+once, for every language, in [oo.md](oo.md). The specific Python rules that
+realize them live under `.claude/rules/python-*.md`. This section restates
+neither philosophy nor rules; it owns how the quality those documents describe is
+measured and enforced.
+
+### The OO ratchet
+
+Object-oriented quality is measured, not asserted. `make check-oo` scores the
+files a change touches and compares them against a committed baseline,
+`.oo-baseline.json`. It passes only when no metric regressed on any touched file
+and at least one metric improved, so every change pays the debt down and none
+adds to it. The ratchet is part of `make check`, running on every change
+alongside lint, type checking, and tests.
+
+The baseline and its audit log travel with the change that moves them. After the
+code passes, `make update-oo` rewrites `.oo-baseline.json` and appends to
+`.oo-audit.jsonl`, and both files are staged in the same commit as the source
+they measure. The baseline is never edited by hand and the ratchet is never
+suppressed; when it fails, the code improves until it passes.
+
+### Adoption
+
+Every Punt Labs Python project adopts the OO ratchet tooling. The ratchet is the
+mechanism that holds Python to the object-oriented stance, and no Python project
+is exempt from it.
+
+The ratchet tooling, currently in lux, moves to punt-kit, so any Python project
+can install it from one shared source rather than copying it out of lux. That
+promotion is a required follow-on to adopting this standard.
+
 ## Toolchain
 
 | Tool | Purpose | Command |
