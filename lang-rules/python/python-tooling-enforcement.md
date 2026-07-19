@@ -169,6 +169,10 @@ OO ratchet (`make check-oo`) — per PL-TC-5.
 `make report` adds the diagnostics: radon CC/MI, pylint design, cohesion LCOM,
 vulture dead code.
 
+These rules define the required Makefile interface for Punt Labs Python
+repos; a repo that has not yet adopted the ratchet acquires it per
+`python-oo-adoption.md`.
+
 See `make help` for all available targets.
 
 ## Tier 2: AST/Grep Checks (Scriptable, Deterministic)

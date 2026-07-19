@@ -45,7 +45,7 @@ paths:
 - Check return values. NULL guards on all public API entry points.
 - No silent failures — return an error code or log a warning.
 - `calloc` over `malloc` (zero-initialized memory prevents UB from missed init).
-- Avoid `atoi` for user input — use `strtol` with error checking. Exception: input a prior stage has already validated (e.g., an input mode that guarantees digits-only).
+- Avoid `atoi` for user input — use `strtol` with error checking. Exception: input that a prior stage has already validated (e.g., an input mode that guarantees digits-only).
 
 ## Functions
 
