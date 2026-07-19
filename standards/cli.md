@@ -6,13 +6,12 @@ Standards for command-line interfaces across all Punt Labs projects. Role models
 
 ## Core Principle
 
-**The CLI is the complete product.** This is a completeness rule on the CLI
-surface: every capability the engine offers must be reachable from the terminal.
-The engine is the source of truth; the CLI is one of its client surfaces (see the
-[Projection Model](distribution.md#the-projection-model-canonical)). MCP tools,
-slash commands, and plugin hooks are peer clients of the same engine --- they do
-not add capabilities the terminal cannot reach. This completeness is what
-obligates a scripting CLI over every engine capability.
+**The CLI is the complete product.** Every capability the engine offers must be
+reachable from the terminal. The CLI is one client surface of the engine (see
+the [Projection Model](distribution.md#the-projection-model-canonical)); MCP
+tools, slash commands, and plugin hooks are peer clients, and they add nothing
+the terminal cannot reach. This is why the CLI must expose every engine
+capability as a command.
 
 A user who never opens Claude Code can use every feature. A user inside Claude Code gets the same features surfaced through the plugin layer.
 
@@ -511,10 +510,9 @@ var completionCmd = &cobra.Command{
 
 ## Projection Strategy
 
-The engine is the source of truth; each surface is a thin client of it (see the
-[Projection Model](distribution.md#the-projection-model-canonical)). The CLI is
-the completeness surface — every engine capability is reachable from the
-terminal — and the other surfaces reach the same engine code:
+Each surface is a thin client of the engine (see the
+[Projection Model](distribution.md#the-projection-model-canonical)). The CLI
+covers every engine capability; the other surfaces reach the same engine code:
 
 | Surface | How it reaches the engine |
 |---------|------------------------|

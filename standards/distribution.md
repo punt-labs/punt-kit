@@ -6,23 +6,23 @@ How users install and activate Punt Labs tools.
 
 ## The Projection Model (canonical)
 
-This is the canonical statement of the engine-core / four-surface pattern.
-python.md, cli.md, and plugins.md cross-reference this section; they do not
-restate it. State the principle first, then how each product realizes it.
+This is the canonical description of the engine-and-clients model. python.md,
+cli.md, and plugins.md cross-reference this section; they do not restate it.
 
 ### Principle: one engine, many thin clients
 
 Every project is an **engine** fronted by thin clients. The engine is the core —
-it holds the logic, the state, and the authority. Every surface a caller reaches
-for — library import, CLI, MCP server, REST API — is a thin client of that one
-engine. The library is a client too; it is not the core.
+it holds the logic, the state, and the authority. Every surface a caller uses —
+library import, CLI, MCP server, REST API — is a thin client of that one engine.
+The library is a client too; it is not the core.
 
 Four invariants hold for every product. No product may vary them.
 
 **1. One engine, implemented once, never duplicated per client or per surface.**
 The engine may be a single process or a small set of cooperating processes,
 possibly on separate machines — but it is split only for (a) an architectural
-boundary, or (b) network distribution. State the distinction explicitly:
+boundary, or (b) network distribution. The split is decomposition, never
+duplication:
 
 - *Decomposition* (allowed): complementary parts of one engine. lux splits its
   engine into the **Hub**, which owns authority, state, and handler dispatch,
@@ -32,26 +32,24 @@ boundary, or (b) network distribution. State the distinction explicitly:
   or per session. This is the multiplication vox eliminated when eight
   per-session audio processes collapsed into one `voxd` daemon.
 
-Clients address the one engine through its front door — in lux that is the Hub —
-and never talk to internal components directly. A lux client never talks to the
-Display.
+Clients reach the one engine through its front door — in lux, the Hub — and
+never talk to its internal components. A lux client never talks to the Display.
 
 **2. Every surface is a thin client of the engine.** Library, CLI, MCP, REST —
-none reimplements or forks the engine logic. The library is a client of the
-engine, not the engine itself.
+none reimplements or forks the engine logic.
 
 **3. One code path.** A given capability runs the same engine-side code no
 matter which surface it entered from. quarry's `search` runs the identical
 engine code whether it arrived from the Python import, the `quarry search` CLI,
 the MCP tool, or the REST endpoint.
 
-**4. Client-specific state lives in the engine/server layer, keyed by client.**
-Working directory, active repo, enabled/disabled features, session context — the
-engine holds these authoritatively, keyed by client. A client carries only its
-own identity and the context it alone can originate (its own cwd), and pushes
-that into the engine. Default to moving client-specific state server-side; keep
-clients thin. quarry keys each client's selected database server-side; the
-`quarry serve` daemon holds that per-client state, not the client.
+**4. Client-specific state lives in the engine, keyed by client.** Working
+directory, active repo, which features are on or off, session context — the
+engine holds these authoritatively. A client carries only its own identity and
+the context it alone can originate, such as its working directory, and pushes
+that into the engine. Keep clients thin; default to holding their state in the
+engine. quarry keys each client's selected database server-side: the
+`quarry serve` daemon holds it, not the client.
 
 ### The four surfaces
 
@@ -87,27 +85,25 @@ The **plugin shell** and the **`.mcpb` desktop bundle** are distribution
 channels for the MCP surface, not separate surfaces — a plugin wraps the MCP
 server (see plugins.md). A **native app** is a distribution channel for a
 platform-native front end (App Store, TestFlight, Homebrew), outside the four
-engine-client surfaces.
+client surfaces of the engine.
 
 ### Bounded choices (product judgment)
 
-The invariants are fixed. Three choices are left to each product, decided against
-stated criteria — room for judgment without needless variation.
+The invariants are fixed. Three choices are left to each product:
 
 **Transport: REST/HTTP, a local socket, or stdio.** Choose by latency and
 reachability. quarry uses REST because search tolerates network latency. lux uses
 a local socket because display I/O is at millisecond scale.
 
-**When the engine must become a daemon.** Required once there is shared mutable
-state across clients, a device, or concurrent clients. Deferrable before that
-only if the surfaces are still built as thin clients over a clean engine seam, so
-standing the daemon up later is a deployment change, not a rewrite. ethos has no
+**When the engine must become a daemon.** Required once clients share mutable
+state, contend for a device, or run concurrently. Deferrable before that, but
+only if the surfaces are already thin clients over a clean engine boundary, so
+adding the daemon later is a deployment change, not a rewrite. ethos has no
 daemon today — repo state on disk, no concurrency pressure — and defers it until
 scale demands it. vox's `voxd` daemon owns the audio device, so it exists now.
 
-**Which surfaces to build.** Only those with callers — but the CLI effectively
-always has one (scripts, automation, humans), so treat the CLI as present by
-default.
+**Which surfaces to build.** Only those with callers — though the CLI
+effectively always has one.
 
 ### Carve-out: the stateless leaf
 
