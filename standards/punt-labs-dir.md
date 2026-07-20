@@ -208,7 +208,8 @@ bare-directory line is non-functional under deny-all.
 Lifecycle:
 
 - **`punt init`** writes the canonical block.
-- **`punt audit`** verifies it is present and exact
+- **`punt audit`** verifies the block **behaves** correctly — `git check-ignore`
+  probes decide pass/fail; the verbatim-text match is a diagnostic only
   ([§ 8](#8-what-punt-audit-checks)).
 - **The rollout** propagates changes to the block across all consuming repos by
   the canonical-template pattern the workspace uses for its `.envrc`
@@ -262,10 +263,23 @@ without the upgrade eating the config.
 These extend the audit list in
 [tool-enable-disable.md § 2.11](tool-enable-disable.md#211-what-punt-audit-checks):
 
-- **Canonical block present and exact.** Every repo's `.gitignore` carries the
-  [§ 6](#6-the-canonical-gitignore-block) block verbatim — the one-line form, or
-  the three-line deny-all form where the repo is deny-all (first non-comment
-  pattern `*` or `/*`). A missing, altered, or two-line deny-all block is a fail.
+- **Gitignore behaves correctly** *(behavioral probe, not a text match)*. Pass
+  or fail is decided by running `git check-ignore` on synthetic probe paths under
+  a tool subtree — never by matching the block's bytes, because a textual block
+  can be present yet be overridden by a later pattern (fails open) and an altered
+  block can still behave correctly. The probes and their required outcomes:
+  - shared content — `.punt-labs/<tool>/CLAUDE.md`, `.punt-labs/<tool>/config.yaml`
+    — MUST NOT be ignored;
+  - each local-convention form — `.punt-labs/<tool>/local/x`,
+    `.punt-labs/<tool>/x.local.yaml` — MUST be ignored;
+  - the `locales/` counterexample — `.punt-labs/<tool>/locales/en.yaml` — MUST
+    NOT be ignored.
+
+  Any probe with the wrong outcome is a **fail**. The verbatim-text check that
+  the canonical block ([§ 6](#6-the-canonical-gitignore-block)) is present and
+  exact is retained **only as a diagnostic** — it explains *why* a probe failed
+  (block missing, altered, or the deny-all form dropping the bare-directory line),
+  but it never decides pass/fail on its own. The probe is the authority.
 - **No tracked local-convention path.** No path the local convention marks — a
   segment exactly `local`, or a basename containing `.local`
   ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
