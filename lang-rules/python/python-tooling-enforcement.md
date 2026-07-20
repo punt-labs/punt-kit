@@ -182,7 +182,7 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 
 | Rule | Check | Command |
 |------|-------|---------|
-| PY-TS-1 | `from __future__ import annotations` present | `grep -rL "from __future__ import annotations" --include="*.py" src/` |
+| PY-TS-1 | `from __future__ import annotations` present | `ruff check --select FA100` (exit 0) |
 | PY-CC-1 | No `__init__` in non-dataclass classes | `grep -rn "def __init__" --include="*.py"` (zero hits) |
 | PY-EN-1 | No public attributes | `grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py"` (zero hits) |
 | PY-IC-4 | `__slots__` is a tuple | `grep -A1 "__slots__" --include="*.py"` → verify `(` not `[` |
@@ -191,16 +191,25 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 | PY-OP-1 | Binary ops return `NotImplemented` | `grep -n "NotImplementedError" --include="*.py"` in operator methods (zero hits) |
 | PY-OP-2 | `__eq__` paired with `__hash__` | AST: count per class, verify match |
 
-**Composite grep check** (first three should return zero results; audit
-`NotImplementedError` hits — legitimate only in abstract method stubs, never
-in binary operator methods, per PY-OP-1):
+PY-TS-1 needs only an existence check: placement is interpreter-enforced — a
+`__future__` import anywhere but the top of the file is a `SyntaxError`.
+
+**Composite grep check**:
 
 ```bash
-grep -rn "def __init__" --include="*.py" src/ | grep -v "@dataclass" | grep -v "# noqa"
+grep -rn "def __init__" --include="*.py" src/
 grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py" src/
 grep -rn "raise Exception\b" --include="*.py" src/
 grep -rn "NotImplementedError" --include="*.py" src/
 ```
+
+- The `self.` assignment and `raise Exception` greps must return zero results.
+- `def __init__` hits require manual audit for the `@dataclass` exception
+  (PY-CC-1): the decorator sits on the class line, not the `def __init__`
+  line, so no line filter can express it. The Tier 3 `check_no_init()` AST
+  check automates the exception.
+- `NotImplementedError` hits are legitimate only in abstract method stubs,
+  never in binary operator methods, per PY-OP-1.
 
 ## Tier 3: Custom AST Analysis Script
 
