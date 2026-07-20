@@ -334,10 +334,14 @@ These extend the audit list in
 [tool-enable-disable.md § 2.11](tool-enable-disable.md#211-what-punt-audit-checks):
 
 - **Gitignore behaves correctly** *(behavioral probe, not a text match)*. Pass
-  or fail is decided by running `git check-ignore` on synthetic probe paths under
-  a tool subtree — never by matching the block's bytes, because a textual block
-  can be present yet be overridden by a later pattern (fails open) and an altered
-  block can still behave correctly. The probes and their required outcomes:
+  or fail is decided by running `git check-ignore` on synthetic probe paths —
+  never by matching the block's bytes, because a textual block can be present yet
+  be overridden by a later pattern (fails open) and an altered block can still
+  behave correctly. **Probe scope:** the probe set below runs under **every
+  `<tool>` directory present under `.punt-labs/`**, not one representative subtree
+  — a block that behaves for one tool but not another (a tool-specific exclude
+  shadowing the canonical rules) is caught only by probing each. For each `<tool>`
+  the probes and their required outcomes:
   - shared content — `.punt-labs/<tool>/CLAUDE.md`, `.punt-labs/<tool>/config.yaml`
     — MUST NOT be ignored;
   - each local-convention form — `.punt-labs/<tool>/local/x` (segment),
@@ -346,7 +350,13 @@ These extend the audit list in
     ignored;
   - the counterexamples — `.punt-labs/<tool>/locales/en.yaml` and
     `.punt-labs/<tool>/config.locales.yaml` — MUST NOT be ignored (the second
-    catches a `*.local*` glob that anchors only the leading boundary).
+    catches a `*.local*` glob that anchors only the leading boundary);
+  - each [§ 6](#6-the-canonical-gitignore-block) interim-exclude path (from the
+    [§ 10](#10-adoption-status) Live path(s) column) — MUST be ignored. This probe
+    is checked against its **own named subtree**, so an interim exclude that
+    targets a subtree the per-`<tool>` set never visits (e.g. a stale path for a
+    tool no longer present) cannot pass silently — an interim line that ignores
+    nothing is itself a **fail**.
 
   Any probe with the wrong outcome is a **fail**. The verbatim-text check that
   the canonical block ([§ 6](#6-the-canonical-gitignore-block)) is present and
