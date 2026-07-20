@@ -741,9 +741,15 @@ grades, [§ 6](#6-the-canonical-gitignore-block) interim excludes). A row is
 **complete** only when its status is exactly `Done` or `Complete`; **every other
 value — `Design`, `Deprecating`, `Planned`, `Building`, or any status not in that
 two-word complete enumeration — is treated as open** (fail-closed: an unrecognized
-status never silently lifts an exemption). While a row is open, its migration's
-audit finding grades a **warning** and any interim exclude it owns stays in the
-canonical block; when the row becomes **complete** (`Done` or `Complete`), the
+status never silently lifts an exemption). While a row is open, an audit finding
+it produces grades a **warning** and any interim exclude it owns stays in the
+canonical block. Not every open row produces a finding, though: a row whose
+artifact sits **outside audit's reach** — ethos(registry)'s gitlink (nothing
+probes a submodule) and ethos(logs) (gitlink-immune live state in the local zone,
+owning no interim-exclude path) — is **audit-silent** while open, graded neither
+warning nor fail; its sequencing is held instead by the dependent-migration fail
+([§ 8](#8-what-punt-audit-checks)) and by design review, not by a warning this
+table cannot emit. When a row becomes **complete** (`Done` or `Complete`), the
 exemption **lapses** — the bare-file, root-sentinel, and live-state grades
 escalate to **fail** and the rollout drops the row's interim exclude. No row is
 complete yet; the escalation is the forward contract for when one is.
