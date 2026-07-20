@@ -8,11 +8,9 @@ from typing import TYPE_CHECKING, cast
 import pytest
 
 from punt_kit.auto import (
-    build_context,
     merge_file,
     merge_json_permissions,
     parse_segments,
-    read_beads_metadata,
     render_section,
     run_auto,
 )
@@ -208,75 +206,31 @@ class TestMergeFile:
 
 
 class TestRenderSection:
-    def test_renders_with_markers(self, tmp_path: Path) -> None:
-        # We need actual template files for render_section, so test via run_auto
-        # This is a structural test — the markers wrap the content
+    def test_renders_with_markers(self) -> None:
         section = render_section(
-            "quality-gates",
-            "claude/quality-gates.md.j2",
-            {"quality_gates_command": "make check", "has_makefile": True},
-            "markdown",
+            "help",
+            "makefile/help.mk.j2",
+            {},
+            "makefile",
         )
-        assert section.startswith("<!-- punt:begin quality-gates -->")
-        assert section.endswith("<!-- punt:end quality-gates -->")
-        assert "make check" in section
+        assert section.startswith("# punt:begin help")
+        assert section.endswith("# punt:end help")
+        assert ".PHONY: help" in section
 
-    def test_beads_template(self) -> None:
+    def test_standard_targets_template(self) -> None:
         section = render_section(
-            "beads",
-            "claude/beads.md.j2",
-            {"issue_prefix": "quarry", "beads_label": "repo:quarry"},
-            "markdown",
+            "standard-targets",
+            "makefile/python.mk.j2",
+            {},
+            "makefile",
         )
-        assert "<!-- punt:begin beads -->" in section
-        assert "<!-- punt:end beads -->" in section
-        assert "`quarry`" in section
-        assert "`repo:quarry`" in section
-        assert "bd ready" in section
+        assert "# punt:begin standard-targets" in section
+        assert "# punt:end standard-targets" in section
+        assert "uv run pytest" in section
 
-
-# ---------------------------------------------------------------------------
-# build_context
-# ---------------------------------------------------------------------------
-
-
-class TestBuildContext:
-    def test_python_project_with_makefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "Makefile").write_text("check:\n\techo ok\n")
-
-        from punt_kit.detect import detect
-
-        info = detect(tmp_path)
-        ctx = build_context(info)
-
-        assert ctx["language"] == "python"
-        assert ctx["has_makefile"] is True
-        assert ctx["quality_gates_command"] == "make check"
-
-    def test_python_project_without_makefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-
-        from punt_kit.detect import detect
-
-        info = detect(tmp_path)
-        ctx = build_context(info)
-
-        assert ctx["has_makefile"] is False
-        assert "uv run" in str(ctx["quality_gates_command"])
-
-    def test_detects_prfaq_and_design(self, tmp_path: Path) -> None:
-        (tmp_path / "README.md").write_text("# Test\n")
-        (tmp_path / "prfaq.tex").write_text("\\documentclass{article}\n")
-        (tmp_path / "DESIGN.md").write_text("# Design\n")
-
-        from punt_kit.detect import detect
-
-        info = detect(tmp_path)
-        ctx = build_context(info)
-
-        assert ctx["has_prfaq"] is True
-        assert ctx["has_design_md"] is True
+    def test_missing_template_exits(self) -> None:
+        with pytest.raises(SystemExit, match="1"):
+            render_section("gone", "makefile/gone.mk.j2", {}, "makefile")
 
 
 # ---------------------------------------------------------------------------
@@ -354,61 +308,62 @@ class TestMergeJsonPermissions:
 
 
 class TestRunAuto:
-    def test_auto_claude_creates_managed_sections(self, tmp_path: Path) -> None:
+    def test_auto_makefile_creates_managed_sections(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "CLAUDE.md").write_text("# My Project\n\nCustom content.\n")
 
-        run_auto(str(tmp_path), target="claude")
+        run_auto(str(tmp_path), target="makefile")
 
-        content = (tmp_path / "CLAUDE.md").read_text()
-        assert "# My Project" in content
-        assert "Custom content." in content
-        assert "<!-- punt:begin quality-gates -->" in content
-        assert "<!-- punt:end quality-gates -->" in content
-        assert "<!-- punt:begin standards-references -->" in content
-        assert "<!-- punt:begin available-tooling -->" in content
-        # No beads section when .beads/metadata.json is absent
-        assert "<!-- punt:begin beads -->" not in content
+        content = (tmp_path / "Makefile").read_text()
+        assert "# punt:begin standard-targets" in content
+        assert "# punt:end standard-targets" in content
+        assert "# punt:begin help" in content
+        assert "# punt:end help" in content
+        assert "uv run pytest" in content
 
-    def test_auto_claude_idempotent(self, tmp_path: Path) -> None:
+    def test_auto_makefile_idempotent(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "CLAUDE.md").write_text("# My Project\n")
 
-        run_auto(str(tmp_path), target="claude")
-        first = (tmp_path / "CLAUDE.md").read_text()
+        run_auto(str(tmp_path), target="makefile")
+        first = (tmp_path / "Makefile").read_text()
 
-        run_auto(str(tmp_path), target="claude")
-        second = (tmp_path / "CLAUDE.md").read_text()
+        run_auto(str(tmp_path), target="makefile")
+        second = (tmp_path / "Makefile").read_text()
 
         assert first == second
 
-    def test_auto_claude_updates_managed_preserves_local(self, tmp_path: Path) -> None:
+    def test_auto_makefile_updates_managed_preserves_local(
+        self, tmp_path: Path
+    ) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "CLAUDE.md").write_text(
-            "# My Project\n\n"
-            "<!-- punt:begin quality-gates -->\n"
-            "## Quality Gates\n\n"
-            "old command\n"
-            "<!-- punt:end quality-gates -->\n\n"
-            "## My Local Section\n\n"
-            "Don't touch this.\n"
+        (tmp_path / "Makefile").write_text(
+            "# Local preamble\n\n"
+            "# punt:begin standard-targets\n"
+            "old targets\n"
+            "# punt:end standard-targets\n\n"
+            "custom:\n\techo custom\n"
         )
 
-        run_auto(str(tmp_path), target="claude")
+        run_auto(str(tmp_path), target="makefile")
 
-        content = (tmp_path / "CLAUDE.md").read_text()
-        assert "My Local Section" in content
-        assert "Don't touch this." in content
-        assert "old command" not in content
+        content = (tmp_path / "Makefile").read_text()
+        assert "# Local preamble" in content
+        assert "echo custom" in content
+        assert "old targets" not in content
 
-    def test_auto_claude_dry_run_no_changes(self, tmp_path: Path) -> None:
+    def test_auto_makefile_dry_run_no_changes(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "CLAUDE.md").write_text("# My Project\n")
 
-        run_auto(str(tmp_path), target="claude", dry_run=True)
+        run_auto(str(tmp_path), target="makefile", dry_run=True)
 
-        content = (tmp_path / "CLAUDE.md").read_text()
-        assert "<!-- punt:begin" not in content
+        assert not (tmp_path / "Makefile").exists()
+
+    def test_auto_makefile_skips_non_python(self, tmp_path: Path) -> None:
+        (tmp_path / "README.md").write_text("# Test\n")
+
+        changed = run_auto(str(tmp_path), target="makefile")
+
+        assert changed == []
+        assert not (tmp_path / "Makefile").exists()
 
     def test_auto_settings(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
@@ -426,84 +381,16 @@ class TestRunAuto:
         with pytest.raises(SystemExit, match="1"):
             run_auto(str(tmp_path), target="bogus")
 
-    def test_auto_creates_claude_md_if_missing(self, tmp_path: Path) -> None:
+    def test_auto_claude_target_removed(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Regression: "punt auto claude" fails listing the remaining targets."""
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
-        run_auto(str(tmp_path), target="claude")
+        with pytest.raises(SystemExit, match="1"):
+            run_auto(str(tmp_path), target="claude")
 
-        assert (tmp_path / "CLAUDE.md").exists()
-        content = (tmp_path / "CLAUDE.md").read_text()
-        assert "<!-- punt:begin" in content
-
-    def test_auto_claude_with_beads(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        beads_dir = tmp_path / ".beads"
-        beads_dir.mkdir()
-        (beads_dir / "metadata.json").write_text(json.dumps({"issue_prefix": "tst"}))
-        (tmp_path / "CLAUDE.md").write_text("# Test\n")
-
-        run_auto(str(tmp_path), target="claude")
-
-        content = (tmp_path / "CLAUDE.md").read_text()
-        assert "<!-- punt:begin beads -->" in content
-        assert "<!-- punt:end beads -->" in content
-        assert "`tst`" in content
-        assert "`repo:tst`" in content
-        assert "bd ready" in content
-
-    def test_auto_claude_without_beads(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
-        (tmp_path / "CLAUDE.md").write_text("# Test\n")
-
-        run_auto(str(tmp_path), target="claude")
-
-        content = (tmp_path / "CLAUDE.md").read_text()
-        assert "<!-- punt:begin beads -->" not in content
-
-
-# ---------------------------------------------------------------------------
-# read_beads_metadata
-# ---------------------------------------------------------------------------
-
-
-class TestReadBeadsMetadata:
-    def test_reads_valid_metadata(self, tmp_path: Path) -> None:
-        beads_dir = tmp_path / ".beads"
-        beads_dir.mkdir()
-        (beads_dir / "metadata.json").write_text(json.dumps({"issue_prefix": "quarry"}))
-
-        prefix, label = read_beads_metadata(tmp_path)
-        assert prefix == "quarry"
-        assert label == "repo:quarry"
-
-    def test_returns_none_when_missing(self, tmp_path: Path) -> None:
-        prefix, label = read_beads_metadata(tmp_path)
-        assert prefix is None
-        assert label is None
-
-    def test_returns_none_on_invalid_json(self, tmp_path: Path) -> None:
-        beads_dir = tmp_path / ".beads"
-        beads_dir.mkdir()
-        (beads_dir / "metadata.json").write_text("not json")
-
-        prefix, label = read_beads_metadata(tmp_path)
-        assert prefix is None
-        assert label is None
-
-    def test_returns_none_when_prefix_missing(self, tmp_path: Path) -> None:
-        beads_dir = tmp_path / ".beads"
-        beads_dir.mkdir()
-        (beads_dir / "metadata.json").write_text(json.dumps({"dolt_mode": "server"}))
-
-        prefix, label = read_beads_metadata(tmp_path)
-        assert prefix is None
-        assert label is None
-
-    def test_returns_none_when_prefix_empty(self, tmp_path: Path) -> None:
-        beads_dir = tmp_path / ".beads"
-        beads_dir.mkdir()
-        (beads_dir / "metadata.json").write_text(json.dumps({"issue_prefix": ""}))
-
-        prefix, label = read_beads_metadata(tmp_path)
-        assert prefix is None
-        assert label is None
+        out = capsys.readouterr().out
+        assert "unknown target 'claude'" in out
+        assert "makefile" in out
+        assert "settings" in out
