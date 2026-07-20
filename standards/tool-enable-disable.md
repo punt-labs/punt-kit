@@ -47,7 +47,7 @@ write and is never rewritten by it — enable/upgrade steps around the config an
 local-convention zones (below).
 
 This wholesale-overwrite/determinism contract is scoped to the subtree's
-**vendored zone**; repo config, local-convention files (`local/`, `*.local*`),
+**vendored zone**; repo config, local-convention files (`local/`, `*.local`, `*.local.*`),
 and the `enabled` marker are carved out from it — see
 [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).
 
