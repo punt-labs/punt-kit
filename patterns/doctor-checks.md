@@ -29,8 +29,8 @@ Implement a `doctor` subcommand that runs a checklist of diagnostic checks, each
 - Version compatibility warnings
 - Ethos extension: `session_context` present in identity ext file (see
   [Ethos Extension Setup](ethos-ext-setup.md))
-- CLAUDE.md: tool's `@`-import registered in the managed section (see
-  [CLAUDE.md `@`-import Includes](claude-md-injection.md))
+- CLAUDE.md: import line present iff enabled (see
+  [tool-enable-disable.md § 2.11](../standards/tool-enable-disable.md#211-what-punt-audit-checks))
 - Daemon health: process running, port responding (see
   [Daemon + Proxy MCP](daemon-proxy-mcp.md))
 

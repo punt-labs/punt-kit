@@ -48,19 +48,25 @@ conventions, shell commands, and Claude Code hooks. No shared library required.
 
 #### L0: Presence
 
-Detect whether a peer tool is configured in the current project by checking for
-**sentinel files** at the git root.
+Detect whether a peer tool is enabled in the current project by checking for
+its **enabled marker** at the git root: `.punt-labs/<tool>/enabled`, written
+by `<tool> enable` and deleted by `<tool> disable`
+([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
+The marker supersedes the legacy repo-root sentinel dotfiles (`.biff`,
+`.vox/config.md`, `.lux/config.md`, `.quarry.toml`) as the presence signal.
+`.beads/` — already a directory-form marker with no separate enable step —
+stays as-is.
 
-| Tool | Sentinel |
-|------|----------|
-| Biff | `.biff` |
-| Vox | `.vox/config.md` |
-| Lux | `.lux/config.md` |
+| Tool | Presence check |
+|------|----------------|
+| Biff | `.punt-labs/biff/enabled` |
+| Vox | `.punt-labs/vox/enabled` |
+| Lux | `.punt-labs/lux/enabled` |
 | Beads | `.beads/` |
-| Quarry | `.quarry.toml` (proposed) |
+| Quarry | `.punt-labs/quarry/enabled` |
 
-**Rule**: Check sentinels with a simple path existence test. Never import a
-peer's library just to check presence. Never fail if a sentinel is absent —
+**Rule**: Check presence with a simple path existence test. Never import a
+peer's library just to check presence. Never fail if the marker is absent —
 skip the integration silently.
 
 ```python
@@ -68,8 +74,19 @@ skip the integration silently.
 from pathlib import Path
 
 def has_biff() -> bool:
-    return Path(".biff").exists()
+    return Path(".punt-labs/biff/enabled").exists()
 ```
+
+Several legacy sentinels (`.quarry.toml`, `.vox/config.md`) also carry live
+config. This contract changes only what peers *read for presence* — the config
+files themselves are preserved by the sentinel migration
+([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)) and
+remain readable as L3 state.
+
+**Ordering dependency**: this L0 contract must ship in the same release train
+as the tool releases that migrate legacy sentinels on first run. A peer that
+checks the `enabled` marker before the tools that write it have shipped will
+silently fail every presence check.
 
 #### L1: Discovery
 
@@ -152,7 +169,7 @@ state = read_peer_state("vox") # Typed accessor for vox config
 ```
 
 **Rule**: The integration library must not import any peer's code. It reads
-sentinel files (L0), checks binaries (L1), and parses state files (L3) —
+presence markers (L0), checks binaries (L1), and parses state files (L3) —
 nothing more. This keeps the dependency graph flat.
 
 #### L5: Orchestration

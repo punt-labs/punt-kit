@@ -149,7 +149,7 @@ the CLI. They must never contain business logic.
 #!/usr/bin/env bash
 # hooks/<event>.sh — Thin gate for <event> hook
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-[[ -f "$REPO_ROOT/.<tool>" ]] || exit 0
+[ -f "$REPO_ROOT/.punt-labs/<tool>/enabled" ] || exit 0
 <tool> hook <event> 2>/dev/null || true
 ```
 
@@ -162,8 +162,10 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
   Only mutation hooks (PreToolUse denials) should propagate failures.
 - **No business logic**: If the script is longer than 10 lines of
   non-boilerplate, the logic belongs in Python.
-- **Config gate**: Check for the tool's sentinel file (`.biff`,
-  `.vox/config.md`, etc.) before dispatching. Exit 0 if absent.
+- **Config gate**: Check the tool's enabled marker
+  (`.punt-labs/<tool>/enabled`) before dispatching. Exit 0 if absent. The
+  marker — not a repo-root dotfile — is the enabled signal
+  ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 
 ### Critical: wire shell scripts to Python handlers
 
@@ -347,7 +349,10 @@ internal and not for direct user use." (from cli.md Layer 3)
 
 Every Punt Labs Claude Code plugin must implement these hooks. See
 [plugins.md § Required Hooks](plugins.md#required-hooks) for the full
-specification.
+specification. Repo-scoped hook deposit and removal via `<tool> enable` /
+`disable` — additive entries in `<repo>/.claude/settings.json`, reversed by
+exact value-match — follow
+[tool-enable-disable.md § 2.8](tool-enable-disable.md#28-hooks-and-config).
 
 ### SessionStart
 
@@ -479,6 +484,12 @@ fail-open — they run in the background and their exit code is ignored.
 ---
 
 ## 8. Hook Registration
+
+Plugins register hooks globally via `hooks.json` (below). Genuinely
+repo-scoped hooks are registered by `<tool> enable` as additive
+`<repo>/.claude/settings.json` entries and removed by `disable` via exact
+value-match —
+[tool-enable-disable.md § 2.8](tool-enable-disable.md#28-hooks-and-config).
 
 ### hooks.json structure
 

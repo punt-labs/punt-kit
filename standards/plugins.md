@@ -208,6 +208,12 @@ The SessionStart hook should:
 4. **Notify Claude** — Output JSON with `hookSpecificOutput` describing what was
    set up. Silent on subsequent sessions when everything is already configured.
 
+Repo-scoped guidance and config (`.punt-labs/<tool>/`, the `@`-import line,
+repo `.claude/settings.json` entries) are deposited by `<tool> enable` — not
+by the SessionStart hook, which stays responsible for command deployment and
+MCP permission wildcards. See
+[tool-enable-disable.md](tool-enable-disable.md).
+
 Pattern: `biff/hooks/session-start.sh`, `dungeon/hooks/session-start.sh`,
 `vox/hooks/session-start.sh`.
 

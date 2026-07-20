@@ -22,10 +22,23 @@ Each standard lives in its own document under `standards/`.
 |----------|---------------|
 | [Distribution](standards/distribution.md) | Install paths (marketplace, PyPI, .mcpb), dependency pinning, installation scope, init vs install, uninstall requirements |
 | [CLI](standards/cli.md) | CLI + plugin duality, required subcommands (install, doctor, version, serve), --json flag, shell completion |
+| [Tool Enable/Disable](standards/tool-enable-disable.md) | User-owned CLAUDE.md, the bare `@`-import line, tool-owned `.punt-labs/<tool>/`, the `enabled` marker, enable/disable verbs, audit checks, sentinel migration |
 | [Plugins](standards/plugins.md) | plugin.json, MCP server declaration, extension points, required hooks (SessionStart + PostToolUse), tool naming, gitignore checklist |
+| [Hooks](standards/hooks.md) | Claude Code state machine, three-layer dispatch, shell gates, Python handlers, decision-block and workflow-gate patterns, startup performance, audit checklist |
+| [Permissions](standards/permissions.md) | Allow/prompt/deny tiers, settings.json vs settings.local.json, required allow and deny rules, plugin-distributed permissions |
+| [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout, reserved subdirectories, per-project activation marker, migration from legacy dot-directories |
+| [Integration](standards/integration.md) | Peer-tool discovery tiers L0–L5, presence markers, graceful degradation, integration matrix, bundled integrations |
+| [Logging](standards/logging.md) | Centralized dictConfig, log locations, atomic append, file permissions, content escaping |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
+| [PR and Review](standards/pr-review.md) | Local-first review: the PR as merge gate, review agents, remote reviewers as second opinion |
+| [Release Process](standards/release-process.md) | The `/punt:auto release` playbook, deterministic phases 1–11, cross-repo propagation |
+| [Release Requirements](standards/release-requirements.md) | End-state artifacts a release must satisfy in the originating repo and siblings |
+| [README](standards/readme.md) | Required README structure, install trust tiers, tone and positioning |
+| [Makefile](standards/makefile.md) | Required Makefile targets; `make check` as the quality-gate entry point |
+| [Shell](standards/shell.md) | POSIX sh vs bash, strict mode, shellcheck, install-script rules |
+| [Agent Engineering](standards/agent-engineering.md) | Operating defaults for AI coding agents: judgment, scope, verification |
 | [Architecture](standards/architecture.md) | The engine-and-clients model: one engine, thin library/CLI/MCP/REST client surfaces |
 | [OO](standards/oo.md) | The object-oriented stance shared by Python, Swift, and Pharo |
 | [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, typer + rich, FastMCP, the OO ratchet, release workflow |
@@ -33,6 +46,50 @@ Each standard lives in its own document under `standards/`.
 | [C](standards/c.md) | Idiomatic C: memory ownership, `-Werror`, sanitizers |
 | [Swift](standards/swift.md) | Idiomatic + protocol-oriented Swift; swiftformat, swiftlint, XcodeGen, XCTest |
 | [Pharo](standards/pharo.md) | Pharo/Smalltalk, image-based development, in-image linting |
+
+### Introduced dates
+
+Every standard records when it was introduced, so a consumer repo can tell at
+a glance whether a rule predates its last sync.
+
+- **Field names.** `**Introduced:**` for the origin date; `**Updated:**` for
+  the most recent normative amendment.
+- **Placement.** A single bold line immediately under the H1 title, before the
+  intro prose. Not YAML frontmatter — these are prose docs, and an inline bold
+  line matches the DESIGN.md ADR style (`**Date:** …`) and needs no parser.
+- **Format.** ISO 8601 `YYYY-MM-DD`. One line, mid-dot separator when both
+  fields are present:
+
+  ```markdown
+  # CLI Standards
+
+  **Introduced:** 2026-07-19 · **Updated:** 2026-08-01
+
+  Standards for command-line interfaces…
+  ```
+
+  A doc never amended carries only `**Introduced:** YYYY-MM-DD`.
+- **Forward-only — no backfill.** The field starts on docs created, or
+  normatively amended, after this convention landed (2026-07-19). Existing
+  standards are not given retroactive dates — no git archaeology, no uniform
+  stamp. An older doc gains the field the first time it is normatively amended
+  (which also sets `**Updated:**`); until then it has no date, and that is
+  correct.
+- **`**Updated:**` bumps on normative change only** — not for typo or
+  formatting fixes. The field is an at-a-glance signal, not a changelog; git
+  history is the full record.
+- **Enforcement is format-only, not presence.** Because the rule is
+  forward-only, validation must not require every doc to carry the field. It
+  checks only that a doc which does carry an `**Introduced:**` line has it
+  well-formed:
+
+  ```bash
+  # Fails only a doc whose Introduced line exists but is malformed. Accepts both
+  # "**Introduced:** YYYY-MM-DD" and the combined
+  # "**Introduced:** YYYY-MM-DD · **Updated:** YYYY-MM-DD"; anchored to end of line.
+  grep -HE '^\*\*Introduced:\*\*' standards/*.md \
+    | grep -vE ':\*\*Introduced:\*\* [0-9]{4}-[0-9]{2}-[0-9]{2}( · \*\*Updated:\*\* [0-9]{4}-[0-9]{2}-[0-9]{2})?$'
+  ```
 
 ## Patterns
 

@@ -378,9 +378,16 @@ Machine-scoped setup --- run once per machine to register the MCP server, downlo
 
 ### `enable` / `disable`
 
-Project-scoped activation, following entire's pattern. Toggle the tool in the current repository. Creates/removes a config file at the repo root (e.g., `.biff`, `.quarry`).
+Toggle the tool in the current repository, per the
+[Tool Enable/Disable Standard](tool-enable-disable.md). `enable` deposits
+`.punt-labs/<tool>/` (user guide + `enabled` marker), adds the canonical
+`@.punt-labs/<tool>/CLAUDE.md` import line to the repo `CLAUDE.md`, and may
+register additive `.claude/settings.json` entries. `disable` removes the import
+line, the marker, and the settings entries; the vendored directory stays
+dormant. The enabled signal is the in-directory marker
+`.punt-labs/<tool>/enabled` — not a repo-root dotfile.
 
-Not every tool needs this. If the tool has no per-repo state, omit it.
+Not every tool needs this. If the tool has no per-repo presence, omit it.
 
 ### `serve` / `mcp`
 

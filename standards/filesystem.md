@@ -57,7 +57,13 @@ Tools are free to create any subdirectory structure. The following names are res
 
 ## Per-Project Activation
 
-Per-project enablement uses a sentinel file at the repo root (e.g., `.biff` for biff). The sentinel name and format are tool-specific. These files are **not** under `~/.punt-labs/` — they live in the project directory and are committed to version control.
+Per-project enablement uses the marker file `.punt-labs/<tool>/enabled` inside
+the tool's committed vendored subtree `<repo>/.punt-labs/<tool>/`, written by
+`<tool> enable` and deleted by `<tool> disable`
+([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
+This supersedes the bare repo-root sentinel dotfile (`.biff`, `.quarry.toml`)
+as the enabled signal. These paths are **not** under `~/.punt-labs/` — they
+live in the project directory and are committed to version control.
 
 ---
 
