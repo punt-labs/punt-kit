@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- `punt auto claude` target, the `CLAUDE_SECTIONS` registry, and the four
+  CLAUDE.md section templates (quality-gates, beads, standards-references,
+  available-tooling), superseded by the tool-enable-disable standard — one
+  `@`-import line per enabled tool instead of rendered managed sections.
+  Makefile managed sections (`punt auto makefile`) are unaffected
+- `playbooks/claude.yaml` — its only job was running `punt auto claude`
+  across child repos
+
 ## [0.11.2] - 2026-03-29
 
 ### Changed
