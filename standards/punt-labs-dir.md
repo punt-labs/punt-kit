@@ -259,6 +259,18 @@ Each line covers one boundary form:
   `mylocal.txt`, and `locales/` all stay tracked (empirically confirmed, git
   2.50.1).
 
+**The local zone needs no rule of its own.** The local zone
+`.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
+is already covered by the segment line above: `.punt-labs/**/local` matches
+`.punt-labs/local` because `**` matches **zero** directories at the `.punt-labs/`
+level, and that directory match prunes the whole zone beneath it. Both block forms
+hold empirically (git 2.50.1) — in a normal-gitignore repo and in the deny-all
+form, `.punt-labs/local/ethos/sessions/<id>.audit.jsonl`, its sibling `.lock`, and
+`.punt-labs/local/ethos/missions/<id>.jsonl` are all ignored, while
+`.punt-labs/ethos/CLAUDE.md` stays tracked. Naming the zone
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) added no
+gitignore line; the canonical block covers it unchanged.
+
 For a **deny-all + allowlist** repo — one whose first non-comment `.gitignore`
 pattern is `*` or `/*`, ignoring everything — re-inclusion is order-sensitive,
 and **git will not re-include the contents of a still-ignored directory.** The
@@ -425,9 +437,11 @@ These extend the audit list in
   behave correctly. **Probe scope is the union of two independent sets** — neither
   subsumes the other:
   - **(a) Per present tool.** For **every `<tool>` directory present under
-    `.punt-labs/`** — not one representative subtree — run the fixed probe set
-    below. A block that behaves for one tool but not another (a tool-specific
-    exclude shadowing the canonical rules) is caught only by probing each.
+    `.punt-labs/`** — not one representative subtree, and **excluding the reserved
+    `local/` zone, which is not a tool** ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) —
+    run the fixed probe set below. A block that behaves for one tool but not
+    another (a tool-specific exclude shadowing the canonical rules) is caught only
+    by probing each.
   - **(b) Per interim-exclude path.** For **every** [§ 6](#6-the-canonical-gitignore-block)
     interim-exclude path (derived from the [§ 10](#10-adoption-status) Live path(s)
     column), one probe that MUST be ignored — run **regardless of whether that
@@ -444,7 +458,11 @@ These extend the audit list in
     ignored;
   - the counterexamples — `.punt-labs/<tool>/locales/en.yaml` and
     `.punt-labs/<tool>/config.locales.yaml` — MUST NOT be ignored (the second
-    catches a `*.local*` glob that anchors only the leading boundary).
+    catches a `*.local*` glob that anchors only the leading boundary);
+  - the local zone — `.punt-labs/local/<tool>/x` — MUST be ignored: the sanctioned
+    machine-local zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
+    is expected-ignored, never a stray, and the segment line covers it with no new
+    rule ([§ 6](#6-the-canonical-gitignore-block)).
 
   Any probe in either set with the wrong outcome is a **fail**. The verbatim-text check that
   the canonical block ([§ 6](#6-the-canonical-gitignore-block)) is present and
@@ -530,7 +548,11 @@ These extend the audit list in
   file with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail** outright.
   The § 9 table names the exempt paths; the matching § 10 row's status bounds how
   long the exemption lasts ([§ 10](#10-adoption-status) defines which statuses
-  count as open), so the grade is deterministic and time-bounded.
+  count as open), so the grade is deterministic and time-bounded. The reserved
+  `local/` zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
+  is a directory, not a bare file, and is the **one sanctioned non-tool entry**
+  directly under `.punt-labs/` — it is expected (gitignored) and never flagged as
+  a stray.
 - **No secret under `.punt-labs/`** *(best-effort)*. A heuristic scan for
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
