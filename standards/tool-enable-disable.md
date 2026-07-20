@@ -37,12 +37,22 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 | Path | Owner | Lifecycle |
 |------|-------|-----------|
 | `<repo>/CLAUDE.md`, `~/.claude/CLAUDE.md` | The user | Tool adds or removes one import line; every other byte is untouched |
-| `<repo>/.punt-labs/<tool>/` | The tool | Deposited on `enable`, overwritten wholesale on upgrade, left dormant on `disable` |
-| `~/.punt-labs/<tool>/` | The tool | Deposited on `install` (global tools), overwritten wholesale on upgrade |
+| `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)): tool (vendored + `enabled` marker), repo (config), user (local-convention) | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched), left dormant on `disable` |
+| `~/.punt-labs/<tool>/` | Zoned: tool (vendored), user (local-convention) | Deposited on `install` (global tools), vendored zone overwritten wholesale on upgrade |
 
-Each tool owns its `.punt-labs/<tool>/` subtree completely. It writes the whole
-subtree on enable/upgrade and never reads-modifies-merges it: same tool version,
-same repo config, identical output.
+Each tool owns the **vendored zone** (and the `enabled` marker) of its
+`.punt-labs/<tool>/` subtree — not the whole subtree: the config zone is
+repo-owned and the local-convention zone is user-owned
+([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)).
+The tool rewrites the vendored zone on enable/upgrade and never
+reads-modifies-merges it: same tool version, identical output. Repo config is
+**not** an input to that write and is never rewritten by it — enable/upgrade steps
+around the config and local-convention zones (below).
+
+This wholesale-overwrite/determinism contract is scoped to the subtree's
+**vendored zone**; repo config, local-convention files (`local/`, `*.local`, `*.local.*`),
+and the `enabled` marker are carved out from it — see
+[punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).
 
 ## 2.3 The `enable` / `disable` Convention
 
@@ -248,11 +258,15 @@ Rationale:
   wholesale, so user edits inside it are out of contract by design and are not a
   reason either to keep or to delete it. What dormancy actually preserves is the
   committed vendored content — the deposited guide and any config — which is
-  git-tracked and git-recoverable.
-- **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the whole
-  subtree; the symmetric inverse of *turning off* is removing the enabled signal
-  and the import line, not erasing files. A toggle that deletes committed content
-  is a much larger action than the user asked for.
+  git-tracked and git-recoverable. (That wholesale overwrite is the **vendored
+  zone** only; repo config and local-convention files are carved out — see
+  [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).)
+- **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the
+  subtree's vendored zone (repo config and local-convention files are carved out — see
+  [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
+  the symmetric inverse of *turning off* is removing the enabled signal and the
+  import line, not erasing files. A toggle that deletes committed content is a
+  much larger action than the user asked for.
 - This matches the org rule to prefer `mv` over `rm` and never to delete what a
   tool did not just create — and here `disable` did not create the vendored
   content this run; `enable` did, on an earlier run.
@@ -373,3 +387,8 @@ marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
 turn on; `enable` may call `init` when enabling requires config, but the two
 concerns stay separate. Tools that used `init` *only* to drop an enabled
 sentinel fold that into `enable` and retire the bare repo-root sentinel.
+
+Those repo-root config files (`.biff`, `.quarry.toml`) move into the tool's
+subtree config zone — see
+[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration) for the
+config-into-subtree migration.
