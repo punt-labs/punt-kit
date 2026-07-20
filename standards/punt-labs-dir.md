@@ -131,8 +131,10 @@ no manifest entry grants it: every git-tracked, continuously-appended file under
 `.punt-labs/` is a violation ([§ 8](#8-what-punt-audit-checks)). The gate is a
 version check, not a design lookup — it flips when the `punt` release that ships
 the seal-audit machinery is installed; audit reads the local tool version and
-never inspects a cross-repo design's merge state. The exemption opens only once
-the seal mechanism it depends on exists.
+never inspects a cross-repo design's merge state. Because installing that
+release is what opens the gate, the release that ships the seal-audit machinery
+must not be cut before DES-058 merges, or the gate opens early. The exemption
+opens only once the seal mechanism it depends on exists.
 
 The distinction is not "important file vs. throwaway file." It is **write
 cadence**: operator- and lifecycle-driven writes may be tracked; process-driven
@@ -232,14 +234,22 @@ These extend the audit list in
 - **No tracked `*local*`.** No path matching `.punt-labs/**/*local*` appears in
   `git ls-files`. A tracked `*local*` file means the ignore block is wrong or
   the file was force-added.
-- **No unsanctioned live state.** The audit predicate is manifest membership
-  only: a git-tracked file under `.punt-labs/` listed as seal-managed in its
-  tool's manifest passes; one not listed fails
-  ([§ 5](#5-live-state-is-never-a-tracked-file)). "Continuously appended" is not
-  statically decidable, so audit does not try to detect it — an undeclared
-  live-append file is caught at design review, not by this check. Membership is
-  per-file and explicit, never inferred from a directory. Until the § 5 gate
-  lifts, the manifest grants no exemption, so every listed file still fails.
+- **No unsanctioned live state.** This check ranges over
+  seal-manifest entries only — not over every tracked file. For
+  each file a tool's manifest declares seal-managed, apply the § 5
+  gate: while the gate is closed no exemption exists, so a declared
+  seal-target that is git-tracked is a **fail**; once the gate
+  lifts, a declared, tracked seal-target **passes**
+  ([§ 5](#5-live-state-is-never-a-tracked-file)). A file in **no**
+  seal manifest is out of scope for this bullet — whether it may be
+  tracked is decided by committed-by-default
+  ([§ 4](#4-committed-by-default-local-is-the-only-ignore-convention)),
+  the bare-file check, and the `*local*` check, not here.
+  "Continuously appended" is not statically decidable, so audit
+  never tries to detect it: an undeclared live-append file that was
+  tracked anyway is caught at design review, not by this check.
+  Membership is per-file and explicit, never inferred from a
+  directory.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
