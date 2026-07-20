@@ -123,20 +123,26 @@ repo. This extends the `enable` / `disable` entry in
 - **One bare line, appended at end of file.** No heading, no marker, no comment.
 - **Ensured separation.** If the host file does not end in a newline, add one
   before appending, so the import is never glued to the user's last line.
-- **Idempotent by exact match.** Presence is decided by exact-string match on the
-  canonical line. `enable` appends only if absent; `disable` removes every exact
-  match (collapsing an accidental duplicate to zero).
+- **Idempotent by exact match, terminator-insensitive.** Presence is decided by
+  matching the canonical line against each host line **net of its terminator** —
+  strip the trailing `\r`, `\n`, or `\r\n` before comparing, so a CRLF host does
+  not carry a spurious `\r` that defeats a byte-exact compare (which would make
+  `enable` append duplicates and `disable` fail to remove). `enable` appends only
+  if absent; `disable` removes every match (collapsing an accidental duplicate to
+  zero). This match rule is content-level; the write path (below) stays
+  byte-preserving of the file's existing line endings.
 - **Top-level only; skip code blocks.** Claude Code resolves `@`-imports only at
   the top level, never inside a code block. Both the presence scan (`enable`) and
   the removal (`disable`) must ignore any matching line that is inside a fenced
   code block or an indented code block. Precise definition, so 15 implementations
-  agree: a line is **inside a fenced block** if the count of preceding fence
-  delimiter lines — a line whose first non-whitespace run is three or more
-  backticks or three or more tildes — is odd; it is an **indented code block**
-  line if it begins with a tab or four or more spaces. A line matching neither is
-  top-level. `@`-imports and
-  the canonical string are always written at column 0, so they are top-level by
-  construction.
+  agree: a **fence delimiter** is a line whose first non-whitespace characters are
+  three or more backticks (or three or more tildes), **optionally followed by an
+  info string** (e.g. ` ```text `, ` ```markdown `) — the delimiter run need not
+  be the whole line. A line is **inside a fenced block** if the number of
+  preceding fence delimiters is odd; it is an **indented code block** line if it
+  begins with a tab or four or more spaces. A line matching neither is top-level.
+  `@`-imports and the canonical string are always written at column 0 with no info
+  string, so they are top-level by construction.
 - **Serialized, atomic, byte-preserving write.** The read-append-replace on the
   host file must be:
   - **Mutually exclusive — applies to every shared host file.** Hold an exclusive
@@ -154,10 +160,13 @@ repo. This extends the `enable` / `disable` entry in
   - **Atomic.** Write a temp file in the target's own directory, then rename it
     over the target (atomic on POSIX; use the platform atomic-replace primitive).
     Never truncate-in-place.
-  - **Byte-preserving.** Every byte outside the single import line is identical
-    before and after, across LF, CRLF, and lone-CR endings. Read and write
-    without newline translation (the language's universal-newline mode silently
-    rewrites the user's endings).
+  - **Byte-preserving, host EOL for the appended line.** Every byte outside the
+    single import line is identical before and after, across LF, CRLF, and lone-CR
+    endings. Read and write without newline translation (the language's
+    universal-newline mode silently rewrites the user's endings). The line `enable`
+    appends uses the **host file's existing EOL convention** (append `\r\n` on a
+    CRLF file, `\n` on an LF file), so the tool's own line matches the surrounding
+    endings and stays terminator-insensitively matchable on re-run.
   - **Symlink-resolving.** If the target is a symlink (dotfile managers do this),
     write the real target and preserve the link.
   - **Mode-preserving.** Keep an existing file's mode; a new file gets `0644`.
@@ -311,6 +320,8 @@ references, available tooling). Those were repo-specific dev-process content, no
 a tool user guide; their disposition is out of scope for this standard (see the
 open issue in section 8).
 
+### 2.11 What `punt audit` checks
+
 The checks key on the `enabled` marker (2.7), not on directory presence, so a
 dormant tool is not flagged.
 
@@ -461,9 +472,11 @@ at-a-glance signal, not a changelog; git history is the full record.
 carry an `**Introduced:**` line has it well-formed:
 
 ```bash
-# Fails only a doc whose Introduced line exists but is malformed.
+# Fails only a doc whose Introduced line exists but is malformed. Accepts both
+# "**Introduced:** YYYY-MM-DD" and the combined
+# "**Introduced:** YYYY-MM-DD · **Updated:** YYYY-MM-DD"; anchored to end of line.
 grep -HE '^\*\*Introduced:\*\*' standards/*.md \
-  | grep -vE '^[^:]+:\*\*Introduced:\*\* [0-9]{4}-[0-9]{2}-[0-9]{2}'
+  | grep -vE ':\*\*Introduced:\*\* [0-9]{4}-[0-9]{2}-[0-9]{2}( · \*\*Updated:\*\* [0-9]{4}-[0-9]{2}-[0-9]{2})?$'
 ```
 
 ---
