@@ -414,6 +414,16 @@ These extend the audit list in
   table calls finished must not leave the live path tracked. This is never the
   seal-manifest bullet's unconditional fail; the grade is bounded by the § 10
   status ([§ 10](#10-adoption-status) defines which statuses count as open).
+- **No interim exclude survives a completed migration** *(table-driven)*. When a
+  [§ 10](#10-adoption-status) row reads `Done`, the rollout drops the
+  [§ 6](#6-the-canonical-gitignore-block) interim exclude that row owned. If that
+  exclude is **still in the canonical block** while the row is `Done` — the
+  migration is finished on paper yet its Live path is still ignored — audit
+  **fails**. This closes a gap the escalation rules leave open: the bare-file and
+  live-state grades escalate to fail only on a *tracked* path, but a still-excluded
+  path is not tracked, so a prematurely-`Done` migration whose path is still
+  excluded would otherwise trip no grade at all. The check keys on the § 10 status
+  and the § 6 block together, never on tree state.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
