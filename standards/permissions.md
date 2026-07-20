@@ -373,6 +373,18 @@ jq --argjson remove "$PLUGIN_RULES" '
 ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
 ```
 
+### Repo-scoped `enable` / `disable`
+
+The same mechanics serve `<tool> enable` / `disable` for repo-scoped hook,
+config, and permission entries — written to `<repo>/.claude/settings.json`,
+not `~/.claude/settings.json`. The tool computes a deterministic entry set;
+`enable` adds the missing members with the order-preserving merge above;
+`disable` recomputes the identical set and removes those exact values with the
+removal pattern above. **Exact value-match is the contract — no tag schema.**
+Because the file is shared across tools and invocations, the read-modify-write
+takes an exclusive lock. See
+[tool-enable-disable.md § 2.8](tool-enable-disable.md#28-hooks-and-config).
+
 ---
 
 ## 7. Applying These Standards
