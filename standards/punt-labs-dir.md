@@ -260,10 +260,10 @@ Lifecycle:
   probes decide pass/fail; the verbatim-text match is a diagnostic only
   ([§ 8](#8-what-punt-audit-checks)).
 - **The rollout** propagates changes to the block across all consuming repos by
-  the canonical-template pattern the workspace uses for its `.envrc`
-  (`.bin/envrc-canonical-rollout.sh` — one source template pushed to every
-  repo), not the fixed-artifact release propagation of
-  [release-process.md](release-process.md) phase 10.
+  the canonical-template pattern the **workspace meta-repo** (`punt-labs/punt-labs`,
+  the parent directory) uses for its `.envrc` — its `.bin/envrc-canonical-rollout.sh`
+  pushes one source template to every repo — not the fixed-artifact release
+  propagation of [release-process.md](release-process.md) phase 10.
 
 A tool **may** write defense-in-depth ignore rules of its own (a narrower glob
 for a path it knows is local-convention), but those are additive belt-and-suspenders,
