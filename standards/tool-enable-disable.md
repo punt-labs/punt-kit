@@ -37,12 +37,14 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 | Path | Owner | Lifecycle |
 |------|-------|-----------|
 | `<repo>/CLAUDE.md`, `~/.claude/CLAUDE.md` | The user | Tool adds or removes one import line; every other byte is untouched |
-| `<repo>/.punt-labs/<tool>/` | The tool | Deposited on `enable`, overwritten wholesale on upgrade, left dormant on `disable` |
-| `~/.punt-labs/<tool>/` | The tool | Deposited on `install` (global tools), overwritten wholesale on upgrade |
+| `<repo>/.punt-labs/<tool>/` | The tool | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and `*local*` zones untouched — § 7), left dormant on `disable` |
+| `~/.punt-labs/<tool>/` | The tool | Deposited on `install` (global tools), vendored zone overwritten wholesale on upgrade (§ 7) |
 
-Each tool owns its `.punt-labs/<tool>/` subtree completely. It writes the whole
-subtree on enable/upgrade and never reads-modifies-merges it: same tool version,
-same repo config, identical output.
+Each tool owns its `.punt-labs/<tool>/` subtree completely. It rewrites the
+subtree's **vendored zone** on enable/upgrade and never reads-modifies-merges
+it: same tool version, identical output. Repo config is **not** an input to that
+write and is never rewritten by it — enable/upgrade steps around the config and
+`*local*` zones (below).
 
 This wholesale-overwrite/determinism contract is scoped to the subtree's
 **vendored zone**; repo config, `*local*` files, and the `enabled` marker are
@@ -256,10 +258,12 @@ Rationale:
   git-tracked and git-recoverable. (That wholesale overwrite is the **vendored
   zone** only; repo config and `*local*` files are carved out — see
   [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).)
-- **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the whole
-  subtree; the symmetric inverse of *turning off* is removing the enabled signal
-  and the import line, not erasing files. A toggle that deletes committed content
-  is a much larger action than the user asked for.
+- **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the
+  subtree's vendored zone (repo config and `*local*` files are carved out — see
+  [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
+  the symmetric inverse of *turning off* is removing the enabled signal and the
+  import line, not erasing files. A toggle that deletes committed content is a
+  much larger action than the user asked for.
 - This matches the org rule to prefer `mv` over `rm` and never to delete what a
   tool did not just create — and here `disable` did not create the vendored
   content this run; `enable` did, on an earlier run.
