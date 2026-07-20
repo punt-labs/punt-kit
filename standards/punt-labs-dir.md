@@ -544,16 +544,17 @@ These extend the audit list in
   excluded would otherwise trip no grade at all. The check keys on the § 10 status
   and the § 6 block together, never on tree state.
 - **No completed row strands a migration it unblocks** *(table-driven)*. The
-  ethos(registry) de-gitlink is a prerequisite for a migration that needs the
+  ethos(registry) de-gitlink is a prerequisite for what needs the
   `.punt-labs/ethos/` subtree present: the `.punt-labs/ethos.yaml` → config-zone
-  move ([§ 9](#9-migration)). When the registry row becomes **complete per the
-  § 10 legend**, that move becomes possible and MUST be carried through in the
-  **same change**. Audit **fails** a complete ethos(registry) row while the
-  identity-pointer move it unblocks is not yet complete: the prerequisite resolved
-  on paper but the dependent migration was left stranded. The ethos(logs) live
-  paths are **not** a dependent here — they are gitlink-immune in the local zone
-  ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
-  blocked.
+  move ([§ 9](#9-migration)) and in-repo sealing of the deferred chunks
+  ([§ 5](#5-live-state-is-never-a-tracked-file)). When the registry row becomes
+  **complete per the § 10 legend**, that move becomes possible and MUST be carried
+  through in the **same change**. Audit **fails** a complete ethos(registry) row
+  while the identity-pointer move it unblocks is not yet complete: the prerequisite
+  resolved on paper but the dependent migration was left stranded. The ethos(logs)
+  live paths are **not** a dependent here — they are gitlink-immune in the local
+  zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
+  blocked; only the tracked landings in the subtree depend on the de-gitlink.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
@@ -641,12 +642,14 @@ staying git-tracked:
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.punt-labs/lux.md` (bare file) | `.punt-labs/lux/` (subtree) | Move the file under the tool subtree; the bare form is retired — subtree-only stands |
-| `.punt-labs/ethos.yaml` (git-tracked identity pointer) | `.punt-labs/ethos/config.yaml` (config zone, [§ 7](#7-the-punt-labstool-subtree-has-zones)) | Stays tracked; moves from bare root into the config zone. **Sequenced after** the registry gitlink → vendored `ethos/` migration ([§ 10](#10-adoption-status)) — the config file needs the `ethos/` subtree to exist first |
+| `.punt-labs/ethos.yaml` (git-tracked identity pointer) | `.punt-labs/ethos/config.yaml` (config zone, [§ 7](#7-the-punt-labstool-subtree-has-zones)) | Stays tracked; moves from bare root into the config zone. **Sequenced after** the registry gitlink → vendored `ethos/` migration ([§ 10](#10-adoption-status)) and carried through in the **same change** that completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)) — the config file needs the `ethos/` subtree to exist first |
 
 The `.punt-labs/ethos.yaml` move is deliberately ordered behind the
 `.punt-labs/ethos` gitlink → inline-vendored-subtree migration
-([§ 10](#10-adoption-status)): the pointer lands in the config zone of a subtree
-that must already be present to receive it.
+([§ 10](#10-adoption-status)) and carried through in the **same change** that
+completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)): the pointer lands in
+the config zone of a subtree that must already be present to receive it, and the
+same-change rule keeps the move from stranding as a separate later change.
 
 **Ignore-convention → local convention** relocates the two non-conforming
 directories named in
@@ -660,7 +663,7 @@ local-convention naming on their next release.
 
 | Tool | State today | Live path(s) | Target | Status |
 |------|-------------|--------------|--------|--------|
-| ethos (logs) | audit / mission live logs written under the `.punt-labs/ethos` gitlink today | — | seal pattern (DES-058): **live** writes go to the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs) — gitlink-immune (a `local/` sibling of the gitlink), auto-ignored by the canonical block | Design |
+| ethos (logs) | audit / mission live logs written under the `.punt-labs/ethos` gitlink today | — | seal pattern (DES-058): **live** writes go to the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs) — gitlink-immune (a `local/` sibling of the gitlink), auto-ignored; **sealed** chunks land in the tracked `.punt-labs/ethos/` subtree, but a gitlink-mounted repo defers each seal with a signaled notice until vendored (bead `e29s`) — a bounded limitation (below) | Design |
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
@@ -685,18 +688,25 @@ live-state grade has nothing to catch. ethos(logs) is the second kind: its live
 writes go to `.punt-labs/local/ethos/`
 ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — a `local/`
 sibling of the `.punt-labs/ethos` gitlink (mode `160000`), so **gitlink-immune**
-and auto-ignored — and its Live path(s) stay `—` permanently. The
-`.punt-labs/ethos.yaml` → config-zone move is still sequenced behind the gitlink
-teardown ([§ 9](#9-migration)), which needs the subtree present. No live path is
-ever inferred from prose.
+and auto-ignored — and its Live path(s) stay `—` permanently. The gitlink bounds
+one thing: the **sealed chunks** (tracked, [§ 5](#5-live-state-is-never-a-tracked-file))
+land in the `.punt-labs/ethos/` subtree, but a gitlink-mounted repo (a consuming
+repo before bead `e29s`) cannot reach it, so each seal **defers with a signaled
+notice** and `ethos audit show` flags the unsealed tail
+(`N unsealed lines, sealing deferred until vendored`); deleting such a checkout
+destroys those unsealed lines. DES-058 accepts this as a **bounded pre-`e29s`
+limitation** — no spool — and the org rule is to vendor a repo (`e29s`) before
+relying on its audit trail. No live path is ever inferred from prose.
 
-**The registry de-gitlink is a prerequisite for the identity-pointer move, not for
-live paths.** ethos's live logs are gitlink-immune — they sit in the local zone
+**The registry de-gitlink unblocks tracked landings, not live paths.** ethos's
+live logs are gitlink-immune — they sit in the local zone
 ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), a sibling of the
 `.punt-labs/ethos` gitlink — so the de-gitlink restores no live path, and
-ethos(logs) Live path(s) stay `—` throughout. What it **does** unblock is the
-`.punt-labs/ethos.yaml` → config-zone move ([§ 9](#9-migration)), which needs the
-subtree inline-vendored first. Audit enforces the sequencing
+ethos(logs) Live path(s) stay `—` throughout. What it **does** unblock is tracked
+content landing in the `.punt-labs/ethos/` subtree: the deferred sealed chunks
+([§ 5](#5-live-state-is-never-a-tracked-file)) begin sealing in-repo, and the
+`.punt-labs/ethos.yaml` → config-zone move ([§ 9](#9-migration)) becomes possible —
+both need the subtree inline-vendored first. Audit enforces the sequencing
 ([§ 8](#8-what-punt-audit-checks)): a **complete** ethos(registry) row while the
 identity-pointer move it unblocks has not been carried through in the **same
 change** is a **fail**.
