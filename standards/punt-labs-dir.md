@@ -198,8 +198,12 @@ Live state has two correct homes:
   before the design lands:
   - **I10-audit-atomic** (amended): appends target the live session log under the
     session flock, which allocates a strictly-monotonic per-session timestamp
-    `ts = max(now, last_ts + 1ns)` — always greater than the max sealed-chunk `ts`
-    at append time. A live writer never appends a sealed chunk.
+    `ts = max(now, last_ts + 1ns)`. The per-session floor is seeded from the seal
+    watermark's **full source set**, so every allocated `ts` is greater than every
+    already-sealed `ts` the watermark records — across the session's sealed chunks,
+    each covering `.quarantine` marker's verified `<last>`, and a frozen legacy
+    file's max `ts` — not merely the max chunk `ts`. A live writer never appends a
+    sealed chunk.
   - **I11-chunk**: each chunk is written exactly once via temp-and-rename and,
     while named a chunk, never rewritten. Within one branch lineage a session's
     chunks are disjoint, contiguous `ts` ranges (the watermark is tree-derived); a
