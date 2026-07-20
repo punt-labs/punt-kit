@@ -326,6 +326,17 @@ at upgrade time; persisting it in the subtree (rather than only in the installed
 tool package) is what guarantees the upgrading tool can read what the prior
 version deposited.
 
+**A manifest-set write never overwrites a file the tool did not vendor.** "Writes
+exactly the manifest set" is bounded by the same collision-is-an-error rule as a
+migration ([§ 9](#9-migration)): the tool may overwrite only a path that the
+**previous** manifest also listed (its own prior vendored output, whose wholesale
+replacement is the § 2.2 contract). A new-manifest path that already exists on
+disk but is **not** in the previous manifest — a config file `init` wrote, or any
+file the tool never vendored — is a **collision**: the write **errors and names
+both paths**, and deposits nothing, rather than clobbering config or user content.
+This is what keeps a manifest that grows to name a previously-config path from
+silently eating that config on the next upgrade.
+
 ---
 
 ## 8. What `punt audit` Checks
