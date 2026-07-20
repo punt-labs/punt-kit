@@ -346,19 +346,28 @@ These extend the audit list in
   and whose status is still pending, if the live path that row names is
   git-tracked, grade a **warning** — "live-state migration pending." The § 10
   table is the sole source, exactly as the § 9 bare-file table drives the
-  bare-file grade below: a named, still-tracked live path is a warning while its
-  row is open. This is a graded advisory, never (here) a fail.
+  bare-file grade below. Like that grade, this one is **expiring**: a named,
+  still-tracked live path is a **warning** while its § 10 row is open and
+  **escalates to fail** once the row reads complete — a live-state migration the
+  table calls finished must not leave the live path tracked. This is never the
+  seal-manifest bullet's unconditional fail; the grade is bounded by the § 10
+  status ([§ 10](#10-adoption-status) defines which statuses count as open).
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
   drift, not defense.
-- **No bare file under `.punt-labs/`** *(graded)*. Repo-local state lives in
-  `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
-  ([§ 1](#1-core-principle)). A bare file whose migration is recorded in the
-  [§ 9](#9-migration) bare-file table (e.g. `.punt-labs/lux.md`,
-  `.punt-labs/ethos.yaml`) is a **warning** — "migration pending." A bare file
-  with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail**. The § 9
-  bare-file table is the sole exemption source, so the grade is deterministic.
+- **No bare file under `.punt-labs/`** *(graded, expiring)*. Repo-local state
+  lives in `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
+  ([§ 1](#1-core-principle)). A bare file named in the [§ 9](#9-migration)
+  bare-file table (e.g. `.punt-labs/lux.md`, `.punt-labs/ethos.yaml`) grades by
+  its owning tool's [§ 10](#10-adoption-status) status: a **warning** ("migration
+  pending") while that row is still open, but a **fail** once the row reads
+  complete — a migration the table calls finished must not leave the bare file
+  behind, so the exemption **lapses** instead of exempting forever. A bare file
+  with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail** outright. The
+  § 9 table names the exempt paths; the § 10 status bounds how long the exemption
+  lasts ([§ 10](#10-adoption-status) defines which statuses count as open), so the
+  grade is deterministic and time-bounded.
 - **No secret under `.punt-labs/`** *(best-effort)*. A heuristic scan for
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
@@ -439,3 +448,14 @@ local-convention naming on their next release.
 | vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | live state → global or local-convention; `ephemeral/` relocated | Planned |
 | lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | `.punt-labs/lux/` subtree | Planned |
 | punt | writes the canonical gitignore block | `init` writes, `audit` verifies, rollout propagates | Building |
+
+**Status controls audit grading.** This table is the authority for how long an
+audit exemption lasts ([§ 8](#8-what-punt-audit-checks) bare-file and live-state
+grades, [§ 6](#6-the-canonical-gitignore-block) interim excludes). A row is
+**open** while its status is `Design`, `Deprecating`, `Planned`, or `Building`;
+it is **complete** when the status reads `Done` (or `Complete`). While a row is
+open, its migration's audit finding grades a **warning** and any interim exclude
+it owns stays in the canonical block; when the row flips to `Done`, the exemption
+**lapses** — the bare-file and live-state grades escalate to **fail** and the
+rollout drops the row's interim exclude. No row reads `Done` yet; the escalation
+is the forward contract for when one does.
