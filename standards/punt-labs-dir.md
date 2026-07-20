@@ -512,7 +512,7 @@ local-convention naming on their next release.
 
 | Tool | State today | Live path(s) | Target | Status |
 |------|-------------|--------------|--------|--------|
-| ethos (logs) | audit / mission live logs tracked in-repo | `.punt-labs/ethos/sessions/**/audit.jsonl`, `.punt-labs/ethos/missions.jsonl` | seal pattern; live writes to the global tree (DES-058) | Design |
+| ethos (logs) | audit / mission live logs (`sessions/**/audit.jsonl`, `missions.jsonl`) inside the `.punt-labs/ethos` gitlink | — | seal pattern; live writes to the global tree (DES-058) — the log paths become §6/§8-eligible only once the subtree is de-gitlinked (below) | Design |
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
@@ -525,8 +525,15 @@ The **Live path(s)** column is machine-resolvable: it lists the concrete paths
 (files and directories, glob-expanded) each **live-state** row names, and is the
 sole source the [§ 6](#6-the-canonical-gitignore-block) interim excludes and the
 [§ 8](#8-what-punt-audit-checks) live-state grade derive from. A `—` marks a row
-that is not a live-state migration (registry, bare-file, or config-zone moves
-carry no live path). No live path is ever inferred from prose.
+carrying no parent-repo-reachable live path — either it is not a live-state
+migration (registry, bare-file, or config-zone moves carry no live path), **or its
+live paths sit inside a still-gitlinked subtree**. Live paths inside a gitlink
+(the `.punt-labs/ethos` submodule, mode `160000`) are unreachable by the parent
+repo's `.gitignore` and `git ls-files`, so they cannot be interim-excluded or
+probed from here; they become §6/§8-eligible **only after** the subtree is
+de-gitlinked by the ethos(registry) `Deprecating` row's inline-vendored migration
+— the same sequencing that orders the `.punt-labs/ethos.yaml` move behind the
+gitlink teardown ([§ 9](#9-migration)). No live path is ever inferred from prose.
 
 **Status controls audit grading.** This table is the authority for how long an
 audit exemption lasts ([§ 8](#8-what-punt-audit-checks) bare-file and live-state
