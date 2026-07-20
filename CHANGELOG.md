@@ -15,6 +15,17 @@ All notable changes to this project will be documented in this file.
   tool-enable-disable §2.2 wholesale-overwrite contract to the vendored
   zone only
 
+### Changed
+
+- `standards/punt-labs-dir.md` — local-zone amendment per the operator's
+  DES-058 overturn: `.punt-labs/local/<tool>/` named as the org convention
+  for per-checkout machine-local live state (the one non-tool entry under
+  `.punt-labs/`, covered by the existing canonical-block line); §5 seal
+  pattern updated to chunk-based add-only sealing citing the settled
+  DES-058 invariants (immutable chunks, `(session, ts)` identity, frozen
+  legacy lines undeduped); ethos §10 rows moved to local-zone live paths
+  with the gitlink case as signaled deferral, bounded until vendored
+
 ### Removed
 
 - `punt auto claude` target, the `CLAUDE_SECTIONS` registry, and the four
