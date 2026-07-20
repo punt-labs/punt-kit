@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `standards/punt-labs-dir.md` — repo-local state directory standard:
+  `<repo>/.punt-labs/<tool>/` as the sole repo-local root, committed-except-
+  `*local*`, live state never tracked (the seal pattern, per the ethos
+  DES-058 draft), the canonical gitignore block, and subtree zones
+  (vendored/config/local/marker) scoping the tool-enable-disable §2.2
+  wholesale-overwrite contract to the vendored zone only
+
 ### Removed
 
 - `punt auto claude` target, the `CLAUDE_SECTIONS` registry, and the four
