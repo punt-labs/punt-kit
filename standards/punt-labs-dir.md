@@ -205,6 +205,27 @@ subtree ignored (empirically confirmed). The workspace's own tracked `.beads/` �
 `!.beads/` then `!.beads/**` — is the precedent. A block without the
 bare-directory line is non-functional under deny-all.
 
+**Interim excludes for not-yet-migrated live paths.** The deny-all re-include
+`!.punt-labs/**` un-ignores *everything* under `.punt-labs/`, including live
+directories that are not yet local-convention-named because their owning tool has
+not migrated. Rolling the block into such a repo would let `git add -A` stage a
+live transcript or ephemeral stream. So the block carries one temporary exclude
+for each not-yet-migrated live path — today the two open live rows in
+[§ 10](#10-adoption-status):
+
+```gitignore
+.punt-labs/quarry/captures/
+.punt-labs/vox/ephemeral/
+```
+
+Each interim line is **tied to a [§ 10](#10-adoption-status) row, not to prose**:
+the rollout generates this list from the § 10 table's open live-state rows and
+**removes** a line when its row reads complete — i.e. once that path has relocated
+to the global tree or adopted local-convention naming ([§ 9](#9-migration)) and
+therefore no longer needs a special-case exclude. The list is never
+hand-maintained; when § 10 has no open live rows the block carries no interim
+excludes.
+
 Lifecycle:
 
 - **`punt init`** writes the canonical block.
