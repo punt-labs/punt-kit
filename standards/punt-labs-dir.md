@@ -227,14 +227,23 @@ not yet local-convention-named — because its owning tool has not migrated — 
 committed-by-default in **both** repo types, so the exposure is not deny-all-only:
 a normal-gitignore repo ignores nothing under `.punt-labs/`, and the deny-all
 form's `!.punt-labs/**` re-includes everything. Either way `git add -A` would
-stage a live transcript or ephemeral stream. So the block carries one temporary
-exclude for each not-yet-migrated live path — today the two open live rows in
-[§ 10](#10-adoption-status):
+stage a live transcript, ephemeral stream, or daemon-rewritten file. So the block
+carries one temporary exclude for **every** live path an open
+[§ 10](#10-adoption-status) live-state row names — **file or directory**, not
+directories only — today:
 
 ```gitignore
 .punt-labs/quarry/captures/
 .punt-labs/vox/ephemeral/
+.punt-labs/vox/vox.md
 ```
+
+`.punt-labs/vox/vox.md` is a file, not a directory: the vox daemon rewrites it
+and it is untracked in some repos, so the deny-all re-include would let `git
+add -A` stage it. An interim-exclude list built from directories alone would miss
+it — the list is derived from the concrete live paths the open rows name
+([§ 10](#10-adoption-status) gives each open live-state row explicit paths so the
+derivation is machine-resolvable), whatever their file type.
 
 Each interim line is **tied to a [§ 10](#10-adoption-status) row, not to prose**:
 the rollout generates this list from the § 10 table's open live-state rows and
@@ -470,24 +479,33 @@ local-convention naming on their next release.
 
 ## 10. Adoption Status
 
-| Tool | State today | Target | Status |
-|------|-------------|--------|--------|
-| ethos (logs) | audit / mission live logs tracked in-repo | seal pattern; live writes to the global tree (DES-058) | Design (draft) |
-| ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
-| ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
-| biff | `.biff` root sentinel | `.punt-labs/biff/config.yaml` config zone | Planned |
-| quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/config.toml`; `captures/` → global or local-convention | Planned |
-| vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | live state → global or local-convention; `ephemeral/` relocated | Planned |
-| lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | `.punt-labs/lux/` subtree | Planned |
-| punt | writes the canonical gitignore block | `init` writes, `audit` verifies, rollout propagates | Building |
+| Tool | State today | Live path(s) | Target | Status |
+|------|-------------|--------------|--------|--------|
+| ethos (logs) | audit / mission live logs tracked in-repo | `.punt-labs/ethos/sessions/**/audit.jsonl`, `.punt-labs/ethos/missions.jsonl` | seal pattern; live writes to the global tree (DES-058) | Design |
+| ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
+| ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
+| biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
+| quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/captures/` | `.punt-labs/quarry/config.toml`; `captures/` → global or local-convention | Planned |
+| vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | `.punt-labs/vox/vox.md`, `.punt-labs/vox/ephemeral/` | live state → global or local-convention; `ephemeral/` relocated | Planned |
+| lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
+| punt | writes the canonical gitignore block | — | `init` writes, `audit` verifies, rollout propagates | Building |
+
+The **Live path(s)** column is machine-resolvable: it lists the concrete paths
+(files and directories, glob-expanded) each **live-state** row names, and is the
+sole source the [§ 6](#6-the-canonical-gitignore-block) interim excludes and the
+[§ 8](#8-what-punt-audit-checks) live-state grade derive from. A `—` marks a row
+that is not a live-state migration (registry, bare-file, or config-zone moves
+carry no live path). No live path is ever inferred from prose.
 
 **Status controls audit grading.** This table is the authority for how long an
 audit exemption lasts ([§ 8](#8-what-punt-audit-checks) bare-file and live-state
 grades, [§ 6](#6-the-canonical-gitignore-block) interim excludes). A row is
-**open** while its status is `Design`, `Deprecating`, `Planned`, or `Building`;
-it is **complete** when the status reads `Done` (or `Complete`). While a row is
-open, its migration's audit finding grades a **warning** and any interim exclude
-it owns stays in the canonical block; when the row flips to `Done`, the exemption
-**lapses** — the bare-file and live-state grades escalate to **fail** and the
-rollout drops the row's interim exclude. No row reads `Done` yet; the escalation
-is the forward contract for when one does.
+**complete** only when its status is exactly `Done` or `Complete`; **every other
+value — `Design`, `Deprecating`, `Planned`, `Building`, or any status not in that
+two-word complete enumeration — is treated as open** (fail-closed: an unrecognized
+status never silently lifts an exemption). While a row is open, its migration's
+audit finding grades a **warning** and any interim exclude it owns stays in the
+canonical block; when the row flips to `Done`, the exemption **lapses** — the
+bare-file and live-state grades escalate to **fail** and the rollout drops the
+row's interim exclude. No row reads `Done` yet; the escalation is the forward
+contract for when one does.
