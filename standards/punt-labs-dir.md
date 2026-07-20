@@ -23,7 +23,8 @@ tool-enable-disable.md keep that document's `§ 2.x` numbers.
 says otherwise.** A tool that keeps state inside a repo keeps it under
 `<repo>/.punt-labs/<tool>/` and nowhere else. Every file under that path is
 git-tracked shared history except paths the **local convention** marks — a path
-segment named exactly `local`, or a basename containing `.local`
+segment named exactly `local`, or a basename ending in `.local` or with a
+`.local.` interior segment
 ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
 which are per-user or per-machine and are never committed. Secrets are not kept
 here at all.
@@ -64,7 +65,7 @@ file?**
 | The state is… | Goes in | Committed? | Examples |
 |---------------|---------|-----------|----------|
 | Team-shareable — same for everyone working the repo | `<repo>/.punt-labs/<tool>/` | Yes | Vendored user guide, `enabled` marker, repo config (roster, db name) |
-| Person- or machine-scoped, but repo-bound | `<repo>/.punt-labs/<tool>/` local-convention path (`local/`, `*.local*`) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
+| Person- or machine-scoped, but repo-bound | `<repo>/.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
 | Person- or machine-scoped and repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) | Daemon runtime, caches, indexes, cross-repo preferences |
 | Secret — credential, token, key | Platform secret store, or `~/.punt-labs/<tool>/` at mode `0600` | Never in any repo | API keys, signing keys |
 
@@ -88,14 +89,17 @@ team working on the repo* — per-user or per-machine state — by one of two
 
 - a **path segment named exactly `local`** — a `local/` directory (or a file
   named `local`) at any depth; or
-- a **basename containing `.local`** — `config.local.yaml`, `vox.local.md`.
+- a **basename ending in `.local`** (`foo.local`) **or carrying `.local.` as an
+  interior dotted segment** (`config.local.yaml`, `vox.local.md`).
 
 **Substring matching is not the rule.** The marker is not "the letters `local`
-appear somewhere in the path." A bare `*local*` glob over-matches:
-`.punt-labs/quarry/locales/en.yaml` carries `local` inside the segment `locales`
-yet is ordinary shared content and must stay committed. The two boundary forms
-match every intended case (`local/`, `config.local.yaml`, `vox.local.md`) and
-leave `locales/` — and any other word that merely contains those letters — alone.
+appear somewhere in the path," and not even "`.local` appears somewhere." A bare
+`*local*` glob over-matches `.punt-labs/quarry/locales/en.yaml` (`local` inside
+the segment `locales`); a `*.local*` glob still over-matches
+`config.locales.yaml` (the `.local` prefix of `.locales`). Both are ordinary
+shared content and must stay committed. The boundary forms match `.local` only as
+a **whole dotted component** — a trailing `.local` or an interior `.local.` — so
+`config.locales.yaml`, `mylocal.txt`, and `locales/` all stay tracked.
 
 The local convention is the **only** ignore convention under `.punt-labs/`. A
 tool does not invent a second one. Two existing directories break this rule and
@@ -167,7 +171,8 @@ never hand-maintained per tool.** It is boundary-aware, not a substring glob
 ```gitignore
 .punt-labs/**/local
 .punt-labs/**/local/**
-.punt-labs/**/*.local*
+.punt-labs/**/*.local
+.punt-labs/**/*.local.*
 ```
 
 Each line covers one boundary form:
@@ -183,9 +188,15 @@ Each line covers one boundary form:
   This line is therefore **defense-in-depth, not a correctness requirement**: it
   states the descendant-exclusion intent explicitly and keeps holding if the
   segment line is ever narrowed.
-- `.punt-labs/**/*.local*` — any basename containing `.local` (`config.local.yaml`,
-  `vox.local.md`). The leading `.` is load-bearing: it anchors on the extension
-  boundary, so `locales` (no dot before `local`) does not match.
+- `.punt-labs/**/*.local` — a basename **ending** in `.local` (`foo.local`).
+- `.punt-labs/**/*.local.*` — a basename with `.local.` as an **interior dotted
+  segment** (`config.local.yaml`, `vox.local.md`). Two lines are required, not
+  one: a single `*.local*` glob anchors only the leading boundary and would
+  wrongly ignore `config.locales.yaml` (the `.local` prefix of `.locales`
+  matches). Splitting into "ends in `.local`" and "has a `.local.` segment"
+  matches only a whole dotted `local` component, so `config.locales.yaml`,
+  `mylocal.txt`, and `locales/` all stay tracked (empirically confirmed, git
+  2.50.1).
 
 For a **deny-all + allowlist** repo — one whose first non-comment `.gitignore`
 pattern is `*` or `/*`, ignoring everything — re-inclusion is order-sensitive,
@@ -198,7 +209,8 @@ paths re-excluded:
 !.punt-labs/**
 .punt-labs/**/local
 .punt-labs/**/local/**
-.punt-labs/**/*.local*
+.punt-labs/**/*.local
+.punt-labs/**/*.local.*
 ```
 
 The bare-directory line `!.punt-labs/` must come **before** the recursive
@@ -208,12 +220,13 @@ subtree ignored (empirically confirmed). The workspace's own tracked `.beads/` �
 `!.beads/` then `!.beads/**` — is the precedent. A block without the
 bare-directory line is non-functional under deny-all.
 
-**Interim excludes for not-yet-migrated live paths.** The deny-all re-include
-`!.punt-labs/**` un-ignores *everything* under `.punt-labs/`, including live
-directories that are not yet local-convention-named because their owning tool has
-not migrated. Rolling the block into such a repo would let `git add -A` stage a
-live transcript or ephemeral stream. So the block carries one temporary exclude
-for each not-yet-migrated live path — today the two open live rows in
+**Interim excludes for not-yet-migrated live paths.** A live directory that is
+not yet local-convention-named — because its owning tool has not migrated — is
+committed-by-default in **both** repo types, so the exposure is not deny-all-only:
+a normal-gitignore repo ignores nothing under `.punt-labs/`, and the deny-all
+form's `!.punt-labs/**` re-includes everything. Either way `git add -A` would
+stage a live transcript or ephemeral stream. So the block carries one temporary
+exclude for each not-yet-migrated live path — today the two open live rows in
 [§ 10](#10-adoption-status):
 
 ```gitignore
@@ -269,7 +282,7 @@ applies to exactly one of them.**
 |------|-----------|-------|-----------|----------------------|
 | Vendored | tool-deposited files (e.g. the `CLAUDE.md` guide) | The tool | Yes | Overwritten wholesale — the § 2.2 determinism contract lives here and **only** here |
 | Config | `.punt-labs/<tool>/config.*` and other `init`-written files | The repo (via `init`) | Yes | **Never touched** — `enable` / upgrade must not read, merge, or overwrite it |
-| Local | `.punt-labs/<tool>/` local-convention path (`local/`, `*.local*`) | The user | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Never touched |
+| Local | `.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | The user | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Never touched |
 | Marker | `.punt-labs/<tool>/enabled` | The tool | Yes | Written by `enable`, deleted by `disable` ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
 
 The determinism guarantee of
@@ -307,10 +320,13 @@ These extend the audit list in
   block can still behave correctly. The probes and their required outcomes:
   - shared content — `.punt-labs/<tool>/CLAUDE.md`, `.punt-labs/<tool>/config.yaml`
     — MUST NOT be ignored;
-  - each local-convention form — `.punt-labs/<tool>/local/x`,
-    `.punt-labs/<tool>/x.local.yaml` — MUST be ignored;
-  - the `locales/` counterexample — `.punt-labs/<tool>/locales/en.yaml` — MUST
-    NOT be ignored.
+  - each local-convention form — `.punt-labs/<tool>/local/x` (segment),
+    `.punt-labs/<tool>/foo.local` (trailing `.local`),
+    `.punt-labs/<tool>/config.local.yaml` (interior `.local.` segment) — MUST be
+    ignored;
+  - the counterexamples — `.punt-labs/<tool>/locales/en.yaml` and
+    `.punt-labs/<tool>/config.locales.yaml` — MUST NOT be ignored (the second
+    catches a `*.local*` glob that anchors only the leading boundary).
 
   Any probe with the wrong outcome is a **fail**. The verbatim-text check that
   the canonical block ([§ 6](#6-the-canonical-gitignore-block)) is present and
@@ -318,12 +334,13 @@ These extend the audit list in
   (block missing, altered, or the deny-all form dropping the bare-directory line),
   but it never decides pass/fail on its own. The probe is the authority.
 - **No tracked local-convention path.** No path the local convention marks — a
-  segment exactly `local`, or a basename containing `.local`
+  segment exactly `local`, or a basename ending in `.local` or carrying a
+  `.local.` interior segment
   ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
   appears in `git ls-files`. A tracked local-convention file means the ignore
-  block is wrong or the file was force-added. (Boundary-aware, not a `*local*`
-  substring scan: `locales/en.yaml` is shared content and is expected to be
-  tracked.)
+  block is wrong or the file was force-added. (Boundary-aware, not a `*local*` or
+  `*.local*` substring scan: `locales/en.yaml` and `config.locales.yaml` are
+  shared content and are expected to be tracked.)
 - **No unsanctioned live state.** This check ranges over
   seal-manifest entries only — not over every tracked file. For
   each file a tool's manifest declares seal-managed, apply the § 5
