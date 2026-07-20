@@ -1,16 +1,22 @@
 # Repo-Local State Directory Standard
 
-**Introduced:** 2026-07-20
+**Introduced:** 2026-07-20 · **Updated:** 2026-07-20
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
-the two are told apart. One directory — `<repo>/.punt-labs/<tool>/` — holds
-everything a tool keeps inside a repo; one convention — the boundary-aware
-**local convention** ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
-marks the files that do not travel with it. This standard builds on
-[tool-enable-disable.md](tool-enable-disable.md), which governs how a tool's
-CLAUDE.md guidance is turned on and off, and on [filesystem.md](filesystem.md),
-which governs the global `~/.punt-labs/<tool>/` tree. It settles the
-committed-vs-ignored and repo-vs-global questions those two leave open.
+the two are told apart. A tool's committed repo state lives under one directory —
+`<repo>/.punt-labs/<tool>/`; its per-checkout, machine-local live state lives in
+the **local zone**, `<repo>/.punt-labs/local/<tool>/`
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — the one
+non-tool entry directly under `.punt-labs/`, always gitignored. One convention —
+the boundary-aware **local convention**
+([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
+marks the files that do not travel with the repo, and the local zone is that same
+convention (a `local` path segment) reserved at the top of `.punt-labs/`. This
+standard builds on [tool-enable-disable.md](tool-enable-disable.md), which governs
+how a tool's CLAUDE.md guidance is turned on and off, and on
+[filesystem.md](filesystem.md), which governs the global `~/.punt-labs/<tool>/`
+tree. It settles the committed-vs-ignored and repo-vs-global questions those two
+leave open.
 
 Section numbering is this document's own (1…); cross-references to
 tool-enable-disable.md keep that document's `§ 2.x` numbers.
@@ -19,39 +25,70 @@ tool-enable-disable.md keep that document's `§ 2.x` numbers.
 
 ## 1. Core Principle
 
-**One repo-local root per tool; everything in it is committed unless its name
-says otherwise.** A tool that keeps state inside a repo keeps it under
-`<repo>/.punt-labs/<tool>/` and nowhere else. Every file under that path is
-git-tracked shared history except paths the **local convention** marks — a path
-segment named exactly `local`, or a basename ending in `.local` or with a
-`.local.` interior segment
+**A tool's committed repo state lives under one root — `<repo>/.punt-labs/<tool>/`
+— and everything in it is committed unless its name says otherwise; its
+per-checkout, machine-local live state lives in the local zone,
+`<repo>/.punt-labs/local/<tool>/`, and is never committed.** A tool that keeps
+committed state inside a repo keeps it under `<repo>/.punt-labs/<tool>/`. Every
+file under that path is git-tracked shared history except paths the **local
+convention** marks — a path segment named exactly `local`, or a basename ending in
+`.local` or with a `.local.` interior segment
 ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
-which are per-user or per-machine and are never committed. Secrets are not kept
-here at all.
+which are per-user or per-machine and are never committed. Per-checkout,
+machine-local live state — a running tool's audit and session logs, locks, live
+mission logs — instead goes to the **local zone**
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)):
+`<repo>/.punt-labs/local/<tool>/`, gitignored by that same `local` convention and
+never committed. Secrets are not kept in either at all.
 
 Two questions this standard answers, that
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) and
 [filesystem.md](filesystem.md) leave open:
 
 - *Committed or ignored?* Everything under `.punt-labs/` is committed except
-  local-convention paths ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
-- *Repo or home?* Team-shareable state goes in the repo; person- or
-  machine-scoped state goes in `~/.punt-labs/` ([§ 3](#3-repo-versus-home-the-placement-rule)).
+  local-convention paths ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
+  and the local zone, `.punt-labs/local/`, is one such path (a `local` segment
+  directly under `.punt-labs/`), so it is always ignored.
+- *Repo or home?* Team-shareable state goes in the repo's tool root; repo-bound
+  machine-local live state goes in the repo's local zone; machine-scoped state
+  that is repo-independent goes in `~/.punt-labs/`
+  ([§ 3](#3-repo-versus-home-the-placement-rule)).
 
 ---
 
-## 2. The Only Repo-Local Location
+## 2. Repo-Local Locations: the Tool Root and the Local Zone
 
-`<repo>/.punt-labs/<tool>/` is the **only** place a tool may write repo-local
-state. A tool creates no top-level dotfile or dot-directory of its own —
-`.biff`, `.vox`, `.lux`, `.quarry.toml` at the repo root are **deprecated
+A tool may write repo-local state in exactly **two** places, and no others:
+
+- **The tool root — `<repo>/.punt-labs/<tool>/`.** Committed shared history
+  (except local-convention paths within it,
+  [§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
+  Every file a tool commits to a repo lives here.
+- **The local zone — `<repo>/.punt-labs/local/<tool>/`.** Per-checkout,
+  machine-local live state — a running tool's audit and session logs, locks, live
+  mission logs — gitignored and never committed. `local/` is the **one** non-tool
+  entry directly under `.punt-labs/`: the name `local` is reserved org-wide for
+  this zone and is never a tool name. Beneath it the zone is tool-namespaced
+  (`local/<tool>/`) exactly as the tool root is, so two tools' live state never
+  collide.
+
+The local zone is **not** a second ignore mechanism. `.punt-labs/local/` is a
+local-convention path — a `local` path segment directly under `.punt-labs/`
+([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
+so the canonical gitignore block already ignores it with **no new rule**
+([§ 6](#6-the-canonical-gitignore-block)). It is the local convention reserved at
+the top of the tree and namespaced by tool, nothing more.
+
+Outside these two, a tool creates no top-level dotfile or dot-directory of its own
+— `.biff`, `.vox`, `.lux`, `.quarry.toml` at the repo root are **deprecated
 legacy** and are retired on the tool's next release ([§ 9](#9-migration)). This
 mirrors the global rule in
 [filesystem.md § Core Principle](filesystem.md#core-principle) ("no tool creates
 its own top-level dot-directory") and extends it to the repo.
 
 The subtree name `<tool>` is the CLI binary name, identical to the global tree
-([filesystem.md § Directory Root](filesystem.md#directory-root)).
+([filesystem.md § Directory Root](filesystem.md#directory-root)); the local zone
+uses that same `<tool>` name one level below `local/`.
 
 ---
 
@@ -65,7 +102,8 @@ file?**
 | The state is… | Goes in | Committed? | Examples |
 |---------------|---------|-----------|----------|
 | Team-shareable — same for everyone working the repo | `<repo>/.punt-labs/<tool>/` | Yes | Vendored user guide, `enabled` marker, repo config (roster, db name) |
-| Person- or machine-scoped, but repo-bound | `<repo>/.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
+| Person- or machine-scoped static config, but repo-bound | `<repo>/.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
+| Person- or machine-scoped live state, but repo-bound | `<repo>/.punt-labs/local/<tool>/` — the local zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Running-tool audit/session logs, locks, live mission logs |
 | Person- or machine-scoped and repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) | Daemon runtime, caches, indexes, cross-repo preferences |
 | Secret — credential, token, key | Platform secret store, or `~/.punt-labs/<tool>/` at mode `0600` | Never in any repo | API keys, signing keys |
 
@@ -477,7 +515,7 @@ These extend the audit list in
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
   green result is a tripwire, not proof of absence.
 - **No legacy root sentinel** *(graded, expiring)*. No `.biff`, `.vox`, `.lux`,
-  or `.quarry.toml` at the repo root ([§ 2](#2-the-only-repo-local-location)).
+  or `.quarry.toml` at the repo root ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)).
   Graded exactly like the bare-file check, not an unconditional fail: a sentinel
   named in the [§ 9](#9-migration) root-sentinel table grades by **the
   [§ 10](#10-adoption-status) row that names that sentinel** (by row, not by tool)
@@ -528,7 +566,7 @@ overwritten by `enable`.
 
 **Bare file → subtree.** A tool that keeps state as a single file directly under
 `.punt-labs/` — not inside its `<tool>/` subtree — breaks clause 1
-([§ 1](#1-core-principle), [§ 2](#2-the-only-repo-local-location)); the
+([§ 1](#1-core-principle), [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)); the
 single-file form is **not** sanctioned. `lux` ships `.punt-labs/lux.md` across
 the biff, vox, ethos, and quarry siblings; `ethos` ships a git-tracked
 `.punt-labs/ethos.yaml` identity pointer in ~33 repos. Both move into a subtree,
