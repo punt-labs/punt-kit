@@ -138,8 +138,10 @@ Live state has two correct homes:
   location and a **seal** step snapshots complete lines into the tracked file at
   a deliberate lifecycle point (pre-commit primary, `mission close` secondary).
   Between seals the tracked file does not move, so the tree stays clean. A
-  seal-managed stream is **declared per file** in the tool's manifest — seal
-  management is a property of the named file, never inferred from its directory.
+  seal-managed stream is **declared per file** in the tool's **seal manifest**
+  (distinct from the **vendored-zone manifest** of [§ 7](#7-the-punt-labstool-subtree-has-zones),
+  which lists deposited files) — seal management is a property of the named file,
+  never inferred from its directory.
   (A directory glob over-matches: a non-seal-managed index file sitting beside a
   sealed log must not inherit the exemption.) The seal pattern's design home is
   the ethos audit-seal design (DES-058, draft in `punt-labs/ethos` at
@@ -147,7 +149,7 @@ Live state has two correct homes:
   numbers, which may move before it lands.
 
 **The seal exemption is gated on DES-058.** Until then no tool may claim it and
-no manifest entry grants it: every git-tracked, continuously-appended file under
+no seal-manifest entry grants it: every git-tracked, continuously-appended file under
 `.punt-labs/` is a violation ([§ 8](#8-what-punt-audit-checks)). The gate is a
 version check, not a design lookup — it flips when the `punt` release that ships
 the seal-audit machinery is installed; audit reads the local tool version and
@@ -296,15 +298,24 @@ without the upgrade eating the config.
 **Vendored-zone membership is a shipped manifest, not write provenance.** Which
 files belong to the vendored zone cannot be inferred after the fact — nothing on
 disk records that `enable` wrote a given file rather than `init` or the user. So
-the tool ships a **vendored-zone manifest**: the explicit list of paths it
-deposits. On every `enable` / upgrade the tool writes exactly the manifest set
-**and removes any path in the previous manifest but not the current one**
-(old-manifest-minus-new). Without that removal step a file the tool vendored in
-an old version but dropped in a new one would orphan silently — left on disk as
-mystery content the next audit cannot classify as vendored, config, or stray. The
-config, local, and marker zones are outside the manifest and this step never
-touches them. The manifest is what makes the vendored zone a **decidable set**
-rather than a guess from whatever happens to be on disk.
+the tool ships a **vendored-zone manifest** (distinct from the **seal manifest**
+of [§ 5](#5-live-state-is-never-a-tracked-file), which names seal-managed live
+streams): the explicit list of paths it deposits. On every `enable` / upgrade the
+tool writes exactly the vendored-zone-manifest set **and removes any path in the
+previous manifest but not the current one** (old-manifest-minus-new). Without
+that removal step a file the tool vendored in an old version but dropped in a new
+one would orphan silently — left on disk as mystery content the next audit cannot
+classify as vendored, config, or stray. The config, local, and marker zones are
+outside the vendored-zone manifest and this step never touches them. That
+manifest is what makes the vendored zone a **decidable set** rather than a guess
+from whatever happens to be on disk.
+
+The vendored-zone manifest is **itself shipped and persisted in the subtree** —
+part of the vendored zone it describes, deposited on every `enable` / upgrade. The
+old-manifest-minus-new removal presupposes the *previous* manifest is recoverable
+at upgrade time; persisting it in the subtree (rather than only in the installed
+tool package) is what guarantees the upgrading tool can read what the prior
+version deposited.
 
 ---
 
@@ -343,7 +354,7 @@ These extend the audit list in
   shared content and are expected to be tracked.)
 - **No unsanctioned live state.** This check ranges over
   seal-manifest entries only — not over every tracked file. For
-  each file a tool's manifest declares seal-managed, apply the § 5
+  each file a tool's seal manifest declares seal-managed, apply the § 5
   gate: while the gate is closed no exemption exists, so a declared
   seal-target that is git-tracked is a **fail**; once the gate
   lifts, a declared, tracked seal-target **passes**
@@ -358,10 +369,11 @@ These extend the audit list in
   Membership is per-file and explicit, never inferred from a
   directory.
 - **Live-state migration pending** *(graded, table-driven)*. The seal-manifest
-  check above is silent for a tool that ships **no** manifest — so the motivating
-  case, ethos's in-repo audit and mission logs, passes it unflagged today. This
-  check closes that gap **without** reintroducing a dirty-tree fail (the manifest
-  stays the post-DES-058 mechanism, [§ 5](#5-live-state-is-never-a-tracked-file)):
+  check above is silent for a tool that ships **no seal manifest** — so the
+  motivating case, ethos's in-repo audit and mission logs, passes it unflagged
+  today. This check closes that gap **without** reintroducing a dirty-tree fail
+  (the seal manifest stays the post-DES-058 mechanism,
+  [§ 5](#5-live-state-is-never-a-tracked-file)):
   for each [§ 10](#10-adoption-status) row whose target is a live-state migration
   and whose status is still pending, if the live path that row names is
   git-tracked, grade a **warning** — "live-state migration pending." The § 10
