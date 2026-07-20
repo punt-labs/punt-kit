@@ -6,8 +6,6 @@
     ".tmp/",
     "research/",
     "session.md",
-    "standards/makefile.md",
-    "lang-rules/python/",
-    "lang-rules/c/"
+    "standards/makefile.md"
   ]
 }
