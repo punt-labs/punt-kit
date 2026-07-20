@@ -44,6 +44,11 @@ Each tool owns its `.punt-labs/<tool>/` subtree completely. It writes the whole
 subtree on enable/upgrade and never reads-modifies-merges it: same tool version,
 same repo config, identical output.
 
+This wholesale-overwrite/determinism contract is scoped to the subtree's
+**vendored zone**; repo config, `*local*` files, and the `enabled` marker are
+carved out from it — see
+[punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).
+
 ## 2.3 The `enable` / `disable` Convention
 
 Every tool CLI with per-repo presence exposes two commands, run from inside a
@@ -248,7 +253,9 @@ Rationale:
   wholesale, so user edits inside it are out of contract by design and are not a
   reason either to keep or to delete it. What dormancy actually preserves is the
   committed vendored content — the deposited guide and any config — which is
-  git-tracked and git-recoverable.
+  git-tracked and git-recoverable. (That wholesale overwrite is the **vendored
+  zone** only; repo config and `*local*` files are carved out — see
+  [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).)
 - **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the whole
   subtree; the symmetric inverse of *turning off* is removing the enabled signal
   and the import line, not erasing files. A toggle that deletes committed content
