@@ -337,6 +337,21 @@ both paths**, and deposits nothing, rather than clobbering config or user conten
 This is what keeps a manifest that grows to name a previously-config path from
 silently eating that config on the next upgrade.
 
+**Bootstrap: the first manifest-aware write grandfathers the pre-manifest
+deposit.** A repo enabled before manifests existed has **no** previous manifest,
+so a literal reading would collision-error on every existing vendored file on the
+first manifest-aware `enable` / upgrade — a fleet-wide failure. Resolve it by
+treating the **new** manifest's own paths as if they were the previous manifest
+when none is on disk: the tool overwrites exactly those (the pre-manifest vendored
+files it is re-depositing) and errors only on a new-manifest path that collides
+with a file **outside** the vendored set. Full previous-vs-new collision
+protection then applies from the **second** manifest-aware write onward, once a
+real previous manifest is persisted. The config-zone carve-out is **not**
+grandfathered: a new-manifest path landing on a config-zone file
+([§ 3](#3-repo-versus-home-the-placement-rule)) errors unconditionally, bootstrap
+or not — the grandfather covers only the tool's own prior vendored deposit, never
+`init`-written config.
+
 ---
 
 ## 8. What `punt audit` Checks
