@@ -324,6 +324,17 @@ These extend the audit list in
   tracked anyway is caught at design review, not by this check.
   Membership is per-file and explicit, never inferred from a
   directory.
+- **Live-state migration pending** *(graded, table-driven)*. The seal-manifest
+  check above is silent for a tool that ships **no** manifest — so the motivating
+  case, ethos's in-repo audit and mission logs, passes it unflagged today. This
+  check closes that gap **without** reintroducing a dirty-tree fail (the manifest
+  stays the post-DES-058 mechanism, [§ 5](#5-live-state-is-never-a-tracked-file)):
+  for each [§ 10](#10-adoption-status) row whose target is a live-state migration
+  and whose status is still pending, if the live path that row names is
+  git-tracked, grade a **warning** — "live-state migration pending." The § 10
+  table is the sole source, exactly as the § 9 bare-file table drives the
+  bare-file grade below: a named, still-tracked live path is a warning while its
+  row is open. This is a graded advisory, never (here) a fail.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
