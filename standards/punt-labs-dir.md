@@ -465,8 +465,12 @@ These extend the audit list in
 
 ## 9. Migration
 
-Additive standard — no existing rule is removed or shifted. Three migrations
-bring existing tools into line, all **forward-integration, no compat shim**
+No existing rule is removed; the one amendment this standard makes — scoping
+[tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership)'s
+wholesale-overwrite contract to the vendored zone
+([§ 7](#7-the-punt-labstool-subtree-has-zones)) — is explicit and reciprocal, as
+that section's own § 2.2 cross-reference records. Three migrations bring existing
+tools into line, all **forward-integration, no compat shim**
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md#pl-pp-1-no-backwards-compatibility-shims))
 and all bound by the rule that **live config is never deleted with content
 inside** ([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)).
