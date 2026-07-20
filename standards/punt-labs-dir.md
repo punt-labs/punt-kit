@@ -555,6 +555,13 @@ These extend the audit list in
   live paths are **not** a dependent here — they are gitlink-immune in the local
   zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
   blocked; only the tracked landings in the subtree depend on the de-gitlink.
+  Symmetrically, once that de-gitlink **completes**, the vendored subtree must
+  actually deliver the audit trail it now can: a tool with a **seal-pattern § 10
+  row** (ethos(logs)) whose vendored subtree carries **no readable seal manifest**
+  ([§ 5](#5-live-state-is-never-a-tracked-file)) is a **fail**. Vendoring exists to
+  make the trail verifiable, so a vendored-but-manifest-less subtree leaves the
+  unsealed tail invisible forever — the same vacuous pass the gitlink warning
+  flags, now un-exempted because the gitlink is gone.
 - **Unvendored gitlink is audit-unverifiable** *(graded)*. A `.punt-labs/<tool>`
   entry recorded at **gitlink mode `160000`** (a submodule, not an inline subtree)
   grades a deterministic **warning** — "audit trail unverifiable until vendored."
