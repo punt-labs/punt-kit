@@ -565,7 +565,8 @@ local-convention naming on their next release.
 | vox (vox.md) | `vox.md` daemon-rewritten, tracked in some repos | `.punt-labs/vox/vox.md` | live state → global or local-convention | Planned |
 | vox (ephemeral) | `ephemeral/` live stream dir in-repo | `.punt-labs/vox/ephemeral/` | relocated → global or local-convention | Planned |
 | vox (sentinel) | `.vox` pure-presence root sentinel | — | deleted once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
-| lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
+| lux (bare file) | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
+| lux (sentinel) | `.lux` pure-presence root sentinel | — | deleted once `.punt-labs/lux/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
 | punt | writes the canonical gitignore block | — | `init` writes, `audit` verifies, rollout propagates | Building |
 
 The **Live path(s)** column is machine-resolvable: it lists the concrete paths
