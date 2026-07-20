@@ -177,9 +177,12 @@ Each line covers one boundary form:
   directory and a file named `local`; `locales/` does not match (segment
   `locales` ≠ `local`).
 - `.punt-labs/**/local/**` — everything **beneath** a `local/` directory. The
-  segment line alone prunes the directory in an ordinary repo, but under the
-  deny-all re-include (below) the contents were re-included by `!.punt-labs/**`,
-  so they must be re-excluded explicitly.
+  segment line above already prunes the whole directory in **both** forms — even
+  under the deny-all re-include, a later directory-exclude cascades past the
+  earlier `!.punt-labs/**` parent re-include (empirically confirmed, git 2.50.1).
+  This line is therefore **defense-in-depth, not a correctness requirement**: it
+  states the descendant-exclusion intent explicitly and keeps holding if the
+  segment line is ever narrowed.
 - `.punt-labs/**/*.local*` — any basename containing `.local` (`config.local.yaml`,
   `vox.local.md`). The leading `.` is load-bearing: it anchors on the extension
   boundary, so `locales` (no dot before `local`) does not match.
