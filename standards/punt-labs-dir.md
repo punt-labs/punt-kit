@@ -126,11 +126,13 @@ Live state has two correct homes:
   `docs/audit-seal.md`) — cite it for the mechanism, but do not pin its section
   numbers, which may move before it lands.
 
-**The seal exemption is gated on DES-058.** Until that design merges, no tool
-may claim it and no manifest entry grants it: every git-tracked,
-continuously-appended file under `.punt-labs/` is a violation
-([§ 8](#8-what-punt-audit-checks)). The exemption opens only once the seal
-mechanism it depends on exists.
+**The seal exemption is gated on DES-058.** Until then no tool may claim it and
+no manifest entry grants it: every git-tracked, continuously-appended file under
+`.punt-labs/` is a violation ([§ 8](#8-what-punt-audit-checks)). The gate is a
+version check, not a design lookup — it flips when the `punt` release that ships
+the seal-audit machinery is installed; audit reads the local tool version and
+never inspects a cross-repo design's merge state. The exemption opens only once
+the seal mechanism it depends on exists.
 
 The distinction is not "important file vs. throwaway file." It is **write
 cadence**: operator- and lifecycle-driven writes may be tracked; process-driven
@@ -230,19 +232,25 @@ These extend the audit list in
 - **No tracked `*local*`.** No path matching `.punt-labs/**/*local*` appears in
   `git ls-files`. A tracked `*local*` file means the ignore block is wrong or
   the file was force-added.
-- **No unsanctioned live state.** Flag any git-tracked, continuously-appended
-  file under `.punt-labs/` that is **not** listed as seal-managed in its tool's
-  manifest ([§ 5](#5-live-state-is-never-a-tracked-file)). Membership is
-  per-file and explicit, never inferred from a directory. Until DES-058 merges
-  the manifest grants no exemption (the § 5 gate), so every such file fails.
+- **No unsanctioned live state.** The audit predicate is manifest membership
+  only: a git-tracked file under `.punt-labs/` listed as seal-managed in its
+  tool's manifest passes; one not listed fails
+  ([§ 5](#5-live-state-is-never-a-tracked-file)). "Continuously appended" is not
+  statically decidable, so audit does not try to detect it — an undeclared
+  live-append file is caught at design review, not by this check. Membership is
+  per-file and explicit, never inferred from a directory. Until the § 5 gate
+  lifts, the manifest grants no exemption, so every listed file still fails.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
   drift, not defense.
-- **No bare file under `.punt-labs/`.** Repo-local state lives in
+- **No bare file under `.punt-labs/`** *(graded)*. Repo-local state lives in
   `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
-  ([§ 1](#1-core-principle)). A bare file under `.punt-labs/` — e.g.
-  `.punt-labs/lux.md` — is a fail, tracked or not.
+  ([§ 1](#1-core-principle)). A bare file whose migration is recorded in the
+  [§ 9](#9-migration) bare-file table (e.g. `.punt-labs/lux.md`,
+  `.punt-labs/ethos.yaml`) is a **warning** — "migration pending." A bare file
+  with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail**. The § 9
+  bare-file table is the sole exemption source, so the grade is deterministic.
 - **No secret under `.punt-labs/`** *(best-effort)*. A heuristic scan for
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
@@ -279,12 +287,20 @@ overwritten by `enable`.
 **Bare file → subtree.** A tool that keeps state as a single file directly under
 `.punt-labs/` — not inside its `<tool>/` subtree — breaks clause 1
 ([§ 1](#1-core-principle), [§ 2](#2-the-only-repo-local-location)); the
-single-file form is **not** sanctioned. `lux` today ships `.punt-labs/lux.md`
-across the biff, vox, ethos, and quarry siblings; it moves into a subtree.
+single-file form is **not** sanctioned. `lux` ships `.punt-labs/lux.md` across
+the biff, vox, ethos, and quarry siblings; `ethos` ships a git-tracked
+`.punt-labs/ethos.yaml` identity pointer in ~33 repos. Both move into a subtree,
+staying git-tracked:
 
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.punt-labs/lux.md` (bare file) | `.punt-labs/lux/` (subtree) | Move the file under the tool subtree; the bare form is retired — subtree-only stands |
+| `.punt-labs/ethos.yaml` (git-tracked identity pointer) | `.punt-labs/ethos/config.yaml` (config zone, [§ 7](#7-the-punt-labstool-subtree-has-zones)) | Stays tracked; moves from bare root into the config zone. **Sequenced after** the registry gitlink → vendored `ethos/` migration ([§ 10](#10-adoption-status)) — the config file needs the `ethos/` subtree to exist first |
+
+The `.punt-labs/ethos.yaml` move is deliberately ordered behind the
+`.punt-labs/ethos` gitlink → inline-vendored-subtree migration
+([§ 10](#10-adoption-status)): the pointer lands in the config zone of a subtree
+that must already be present to receive it.
 
 **Ignore-convention → `*local*`** relocates the two non-conforming directories
 named in [§ 4](#4-committed-by-default-local-is-the-only-ignore-convention):
@@ -299,6 +315,7 @@ named in [§ 4](#4-committed-by-default-local-is-the-only-ignore-convention):
 |------|-------------|--------|--------|
 | ethos (logs) | audit / mission live logs tracked in-repo | seal pattern; live writes to the global tree (DES-058) | Design (draft) |
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
+| ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | `.punt-labs/biff/config.yaml` config zone | Planned |
 | quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/config.toml`; `captures/` → global or `*local*` | Planned |
 | vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | live state → global or `*local*`; `ephemeral/` relocated | Planned |
