@@ -560,8 +560,11 @@ local-convention naming on their next release.
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
-| quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/captures/` | `.punt-labs/quarry/config.toml`; `captures/` → global or local-convention | Planned |
-| vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | `.punt-labs/vox/vox.md`, `.punt-labs/vox/ephemeral/` | live state → global or local-convention; `ephemeral/` relocated | Planned |
+| quarry (config) | `.quarry.toml` root sentinel | — | `.punt-labs/quarry/config.toml` config zone | Planned |
+| quarry (captures) | `captures/` live capture dir in-repo | `.punt-labs/quarry/captures/` | global tree or local-convention | Planned |
+| vox (vox.md) | `vox.md` daemon-rewritten, tracked in some repos | `.punt-labs/vox/vox.md` | live state → global or local-convention | Planned |
+| vox (ephemeral) | `ephemeral/` live stream dir in-repo | `.punt-labs/vox/ephemeral/` | relocated → global or local-convention | Planned |
+| vox (sentinel) | `.vox` pure-presence root sentinel | — | deleted once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
 | lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
 | punt | writes the canonical gitignore block | — | `init` writes, `audit` verifies, rollout propagates | Building |
 
@@ -595,6 +598,17 @@ live-state, and interim-exclude-lapse — keys on **that row's** status, never a
 tool-level aggregate. ethos alone spans three rows (logs, registry, identity
 pointer) at three different statuses, so a tool-level join would mis-grade its
 artifacts; the row that names the specific artifact is always the authority.
+
+**One row per artifact — no multi-target rows.** A tool with more than one
+migrating artifact takes **one row each**, so no artifact shares a status with
+another. quarry splits into quarry(config) (`.quarry.toml` → config zone) and
+quarry(captures) (the live `captures/` dir); vox into vox(vox.md), vox(ephemeral),
+and vox(sentinel). If the config and live halves shared a row, completing the
+config half would flip the whole row to complete and drop the live path's interim
+exclude ([§ 6](#6-the-canonical-gitignore-block)) while `captures/` / `ephemeral/`
+/ `vox.md` are still live — re-opening `git add -A` staging of live state. Per-row
+artifacts bind each interim exclude's lifecycle to exactly the row that names it,
+which is what makes the by-row join unambiguous by construction.
 
 **Status controls audit grading.** This table is the authority for how long an
 audit exemption lasts ([§ 8](#8-what-punt-audit-checks) bare-file and live-state
