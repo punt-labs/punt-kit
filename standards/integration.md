@@ -169,7 +169,7 @@ state = read_peer_state("vox") # Typed accessor for vox config
 ```
 
 **Rule**: The integration library must not import any peer's code. It reads
-sentinel files (L0), checks binaries (L1), and parses state files (L3) —
+presence markers (L0), checks binaries (L1), and parses state files (L3) —
 nothing more. This keeps the dependency graph flat.
 
 #### L5: Orchestration

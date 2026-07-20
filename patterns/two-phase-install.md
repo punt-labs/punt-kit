@@ -62,12 +62,14 @@ additional steps. These run during `<tool> install` (called by the
 bootstrap script after Phase 1):
 
 - **Phase 2a: CLAUDE.md `@`-import registration.** A **global** tool writes its
-  usage doc to `~/.punt-labs/<product>/CLAUDE.md` and registers its `@`-import in
-  `~/.claude/CLAUDE.md` here at install — once, covering every project — so
-  agents know what slash commands and auto-behaviors are available. A **project**
-  tool instead commits its doc to `<repo>/.punt-labs/<product>/CLAUDE.md`; that
-  import is reconciled per-repo by `/punt:init` (repo setup), not at tool
-  install. See [CLAUDE.md `@`-import Includes](claude-md-injection.md).
+  user guide to `~/.punt-labs/<tool>/CLAUDE.md` and appends one bare
+  `@~/.punt-labs/<tool>/CLAUDE.md` line to `~/.claude/CLAUDE.md` here at
+  install — once, covering every project — so agents know what slash commands
+  and auto-behaviors are available. A **repo-scoped** tool instead deposits its
+  guide and adds `@.punt-labs/<tool>/CLAUDE.md` to `<repo>/CLAUDE.md` via
+  `<tool> enable`, run per repo. See
+  [CLAUDE.md `@`-import Includes](claude-md-injection.md) and the
+  [Tool Enable/Disable Standard](../standards/tool-enable-disable.md).
 - **Phase 2b: Ethos extension setup.** Write `session_context` into
   ethos identity extension files so agents receive tool-specific
   instructions at every session start and after compaction. See
