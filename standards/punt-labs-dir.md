@@ -561,7 +561,9 @@ These extend the audit list in
   drift, not defense.
 - **No bare file under `.punt-labs/`** *(graded, expiring)*. Repo-local state
   lives in `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
-  ([§ 1](#1-core-principle)). A bare file named in the [§ 9](#9-migration)
+  ([§ 1](#1-core-principle)). The stray scan reads the **worktree**, not just
+  `git ls-files` — a stray can be untracked or gitignored and still occupy a path.
+  A bare file named in the [§ 9](#9-migration)
   bare-file table (e.g. `.punt-labs/lux.md`, `.punt-labs/ethos.yaml`) grades by
   **the [§ 10](#10-adoption-status) row that names that specific artifact** — the
   join is by row, not by tool (ethos has three § 10 rows at different statuses, so
@@ -576,7 +578,11 @@ These extend the audit list in
   `local/` zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
   is a directory, not a bare file, and is the **one sanctioned non-tool entry**
   directly under `.punt-labs/` — it is expected (gitignored) and never flagged as
-  a stray.
+  a stray. But **if `.punt-labs/local` exists it MUST be a directory**: a stray
+  *file* by that name is gitignored (so `git ls-files` and an ignore-respecting
+  walk both miss it) yet blocks the zone's `mkdir` with `ENOTDIR`, silently
+  denying every tool its live-state home. Audit checks the path's type explicitly
+  and **fails** a non-directory `.punt-labs/local`.
 - **No secret under `.punt-labs/`** *(best-effort)*. A heuristic scan for
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
