@@ -445,6 +445,15 @@ These extend the audit list in
   path is not tracked, so a prematurely-completed migration whose path is still
   excluded would otherwise trip no grade at all. The check keys on the § 10 status
   and the § 6 block together, never on tree state.
+- **No completed row leaves a dependent `—` unresolved** *(table-driven)*. Some
+  [§ 10](#10-adoption-status) Live path(s) cells read `—` **because** they are
+  blocked on another row — the ethos(logs) paths are unreachable until the
+  ethos(registry) de-gitlink completes. When the blocking row becomes **complete
+  per the § 10 legend**, the dependent row's paths become parent-reachable and MUST
+  be restored in the **same change**. Audit **fails** a complete row while any row
+  that depends on it (its de-gitlink or relocation) still reads `—`: the
+  dependency resolved on paper but the dependent row would otherwise feed nothing
+  to § 6 / § 8, silently protecting nothing.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
@@ -453,14 +462,16 @@ These extend the audit list in
   lives in `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
   ([§ 1](#1-core-principle)). A bare file named in the [§ 9](#9-migration)
   bare-file table (e.g. `.punt-labs/lux.md`, `.punt-labs/ethos.yaml`) grades by
-  its owning tool's [§ 10](#10-adoption-status) status: a **warning** ("migration
-  pending") while that row is still open, but a **fail** once the row reads
-  complete — a migration the table calls finished must not leave the bare file
-  behind, so the exemption **lapses** instead of exempting forever. A bare file
-  with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail** outright. The
-  § 9 table names the exempt paths; the § 10 status bounds how long the exemption
-  lasts ([§ 10](#10-adoption-status) defines which statuses count as open), so the
-  grade is deterministic and time-bounded.
+  **the [§ 10](#10-adoption-status) row that names that specific artifact** — the
+  join is by row, not by tool (ethos has three § 10 rows at different statuses, so
+  a tool-level aggregate would mis-grade `.punt-labs/ethos.yaml`): a **warning**
+  ("migration pending") while that row is still open, but a **fail** once the row
+  reads complete — a migration the table calls finished must not leave the bare
+  file behind, so the exemption **lapses** instead of exempting forever. A bare
+  file with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail** outright.
+  The § 9 table names the exempt paths; the matching § 10 row's status bounds how
+  long the exemption lasts ([§ 10](#10-adoption-status) defines which statuses
+  count as open), so the grade is deterministic and time-bounded.
 - **No secret under `.punt-labs/`** *(best-effort)*. A heuristic scan for
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
@@ -468,10 +479,11 @@ These extend the audit list in
 - **No legacy root sentinel** *(graded, expiring)*. No `.biff`, `.vox`, `.lux`,
   or `.quarry.toml` at the repo root ([§ 2](#2-the-only-repo-local-location)).
   Graded exactly like the bare-file check, not an unconditional fail: a sentinel
-  named in the [§ 9](#9-migration) root-sentinel table grades by its owning tool's
-  [§ 10](#10-adoption-status) status — a **warning** ("migration pending") while
-  that row is open, a **fail** once the row is complete per the § 10 legend, or if
-  the sentinel appears with **no** § 9 / § 10 row at all. An unconditional fail
+  named in the [§ 9](#9-migration) root-sentinel table grades by **the
+  [§ 10](#10-adoption-status) row that names that sentinel** (by row, not by tool)
+  — a **warning** ("migration pending") while that row is open, a **fail** once the
+  row is complete per the § 10 legend, or if the sentinel appears with **no** § 9 /
+  § 10 row at all. An unconditional fail
   would fail every repo in the fleet today, since every listed sentinel's migration
   is still open ([§ 10](#10-adoption-status)) — the same day-one-fleet-fail the
   bare-file and `.punt-labs/ethos.yaml` grades avoid.
@@ -566,6 +578,23 @@ probed from here; they become §6/§8-eligible **only after** the subtree is
 de-gitlinked by the ethos(registry) `Deprecating` row's inline-vendored migration
 — the same sequencing that orders the `.punt-labs/ethos.yaml` move behind the
 gitlink teardown ([§ 9](#9-migration)). No live path is ever inferred from prose.
+
+**Completing a row hands off to the row whose `—` depended on it.** The
+ethos(logs) `—` is not permanent — it is blocked on the ethos(registry)
+de-gitlink. Completing that registry row **requires**, in the **same change**,
+restoring the logs row's Live path(s) (the now-parent-reachable
+`sessions/**/audit.jsonl`, `missions.jsonl`); otherwise the paths become reachable
+but the logs row still feeds nothing to § 6 / § 8 and silently protects nothing.
+Audit enforces the handoff ([§ 8](#8-what-punt-audit-checks)): a **complete**
+ethos(registry) row while a row that depends on its de-gitlink still reads `—` is
+a **fail**.
+
+**Grades join by row, not by tool.** Each § 9 migration artifact maps to the
+single § 10 row that names it, and every grade — bare-file, root-sentinel,
+live-state, and interim-exclude-lapse — keys on **that row's** status, never a
+tool-level aggregate. ethos alone spans three rows (logs, registry, identity
+pointer) at three different statuses, so a tool-level join would mis-grade its
+artifacts; the row that names the specific artifact is always the authority.
 
 **Status controls audit grading.** This table is the authority for how long an
 audit exemption lasts ([§ 8](#8-what-punt-audit-checks) bare-file and live-state
