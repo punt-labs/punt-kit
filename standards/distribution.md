@@ -426,15 +426,21 @@ scope leaks credentials, creates confusion, or fails silently.
    API keys, relay tokens, and server configurations scoped to the project that
    needs them.
 
-3. **Per-project activation via `init`.** Projects with per-repo configuration
-   (team rosters, relay URLs, database names, API keys) should have an `init`
-   subcommand that creates the repo-level config file. This is distinct from
-   `install` (which sets up the tool globally).
+3. **Per-repo config via `init`; per-repo activation via `enable`.** These are
+   distinct verbs, not duplicates
+   ([tool-enable-disable.md § 2.13](tool-enable-disable.md#213-enable-versus-init)).
+   `init` creates and populates the tool's repo config file (team roster, relay
+   URL, database name), prompting for project-specific settings. `enable` turns
+   the tool on in the repo: it deposits `.punt-labs/<tool>/` (user guide +
+   `enabled` marker), adds the `@`-import line, and registers repo-scoped hooks.
+   `enable` may call `init` when enabling requires config, but the two concerns
+   stay separate.
 
 | Subcommand | Scope | What it does |
 |-----------|-------|-------------|
 | `install` | Global (one-time) | Register marketplace, install plugin, verify dependencies |
 | `init` | Per-repo | Create the repo-level config file (e.g., `.biff`, `.quarry.toml`), prompt for project-specific settings |
+| `enable` / `disable` | Per-repo | Deposit/withdraw `.punt-labs/<tool>/` (guide + `enabled` marker), the `@`-import line, and additive `.claude/settings.json` entries ([tool-enable-disable.md § 2.3](tool-enable-disable.md#23-the-enable--disable-convention)) |
 
 ### Per-repo config files
 
@@ -448,6 +454,16 @@ Projects with per-repo state should use a dotfile at the git root:
 
 The config file should be committed to git (minus secrets). Secrets belong in
 environment variables or a `.local` file that is gitignored.
+
+The config file is `init`'s artifact and is **not** the enabled signal — the
+`.punt-labs/<tool>/enabled` marker is
+([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
+The sentinel migration
+([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)) stops
+tools and peers from reading these files as presence markers; it never deletes
+a file that still holds settings. See also
+[filesystem.md § Per-Project Activation](filesystem.md#per-project-activation)
+and [integration.md § L0 Presence](integration.md#l0-presence).
 
 ### API keys and secrets
 
@@ -504,10 +520,16 @@ implementation: quarry v1.8.1 DES-019.
 
 Tools that provide slash commands, auto-behaviors, or agents make their usage
 instructions available to every session by **owning a doc file that `CLAUDE.md`
-`@`-imports** — not by injecting content blocks into the user's `CLAUDE.md`.
+`@`-imports** — never by injecting content blocks into the user's `CLAUDE.md`.
 Claude Code loads `@`-imported files into context (verified against Claude Code:
 it resolves `~` and loads the import from any working directory), so the tool's
 doc is always present and always current.
+
+The full contract — the canonical import line, the tool-owned
+`.punt-labs/<tool>/` directory, the required user-guide doc, the `enabled`
+marker, and the `enable` / `disable` verbs — is
+**[tool-enable-disable.md](tool-enable-disable.md)**. This section keeps only
+the distribution specifics.
 
 ### Why import, not inject
 
@@ -515,108 +537,45 @@ The older approach wrote a marker-wrapped block directly into
 `~/.claude/CLAUDE.md`. It had two flaws: **no update path** — a block once
 written was never refreshed, so stale content persisted across versions — and
 the user's `CLAUDE.md` grew with every tool. An `@`-import reference is one
-line; the tool owns the imported file, so updates flow automatically and the
-`CLAUDE.md` stays clean.
+bare line the tool never rewrites; the tool owns the imported file, so updates
+flow automatically and the `CLAUDE.md` stays clean. The user's `CLAUDE.md` is
+user-owned prose: no marker block, no tool-owned section, no reconcile that
+owns bytes inside it
+([tool-enable-disable.md § 2.1](tool-enable-disable.md#21-core-principle)).
 
 ### Scope follows the tool — global by default
 
 A tool's doc lives where the tool applies:
 
 ```text
-~/.punt-labs/<product>/CLAUDE.md       # GLOBAL tool (default) — imported from ~/.claude/CLAUDE.md
-<repo>/.punt-labs/<product>/CLAUDE.md  # PROJECT tool — vendored in the repo, imported from <repo>/CLAUDE.md
+~/.punt-labs/<tool>/CLAUDE.md       # GLOBAL tool (default) — imported from ~/.claude/CLAUDE.md
+<repo>/.punt-labs/<tool>/CLAUDE.md  # PROJECT tool — vendored in the repo, imported from <repo>/CLAUDE.md
 ```
 
 Most tools that use this mechanism (quarry, biff, vox) are **global** — they
 work in every project, including ones with no repo `CLAUDE.md` and no `punt`
-scaffolding. A global tool writes `~/.punt-labs/<product>/CLAUDE.md` and
-registers `@~/.punt-labs/<product>/CLAUDE.md` in `~/.claude/CLAUDE.md` **at
-install time** (runs once, covers every project deterministically). Reserve
-project-scope for a doc that genuinely belongs to one repo and is committed with
-it; its import is reconciled by `/punt:init` as part of repo setup. Do NOT make
-project-scope the default: install runs once (not per-project), and a
-repo-committed managed section regenerated from one developer's local installs
-bakes their toolset into everyone's checkout. The tool owns and rewrites its
-doc on install, and registers its own `@`-import line **through the shared
-reconcile** (below) — it never makes ad hoc edits to the consuming `CLAUDE.md` or touches
-anything outside its own managed line.
+scaffolding. A global tool writes `~/.punt-labs/<tool>/CLAUDE.md` and appends
+one bare `@~/.punt-labs/<tool>/CLAUDE.md` line to `~/.claude/CLAUDE.md` **at
+install time** (runs once, covers every project deterministically). A
+repo-scoped tool deposits its doc and adds `@.punt-labs/<tool>/CLAUDE.md` to
+`<repo>/CLAUDE.md` via `<tool> enable`, run per repo
+([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-repo-versus-user)).
 
-### The managed Tool Guidance section
+In both scopes the mutation is the single bare line — no heading, no comment,
+no marker — written, matched, and removed under the write contract in
+[tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules)
+(exclusive lock, exact match, atomic, symlink-resolving, byte-preserving).
+`<tool> uninstall` (or `disable --global`) removes the user-scope line under
+the same contract (§ Uninstall Requirements below).
 
-The consuming `CLAUDE.md` (`~/.claude/CLAUDE.md` for global tools,
-`<repo>/CLAUDE.md` for project tools) carries ONE managed section listing the
-imports:
-
-```markdown
-<!-- punt:mandatory-reading -->
-## Tool Guidance (auto-loaded)
-
-These docs load into context via `@`-import — nothing to open.
-
-@~/.punt-labs/quarry/CLAUDE.md
-@~/.punt-labs/vox/CLAUDE.md
-<!-- /punt:mandatory-reading -->
-```
-
-One shared reconcile — keyed on the `punt:mandatory-reading` markers — owns the
-section's bytes; no tool hand-edits `CLAUDE.md` outside it. A tool registers or
-prunes only its **own** `@`-import line through that reconcile, which regenerates
-the section so lines stay sorted and de-duplicated. As a first step a tool may
-self-register via the shared reconcile; the end state is a `punt`-owned
-multi-tool reconcile that regenerates the whole list from the installed
-`.punt-labs/*/CLAUDE.md` docs — adding a line when a doc appears, pruning it when
-the tool is removed — superseding per-tool self-registration.
-
-### Rules
-
-- **Tool owns the doc; the shared reconcile owns the section.** A tool writes
-  its own `~/.punt-labs/<product>/CLAUDE.md` and registers only its own
-  `@`-import line through the shared reconcile; it never makes ad hoc edits to
-  the consuming `CLAUDE.md`, touches other tools' lines, or alters content
-  outside the managed markers.
-- **The consuming `CLAUDE.md` is sacred — reconcile is a pure no-op on every
-  byte outside the managed markers.** It is hand-authored and may be symlinked
-  by a dotfile manager. The reconcile MUST:
-  - **Write atomically** — temp file in the target's directory, `fsync`,
-    `os.replace` (atomic on POSIX); never truncate-in-place. State a
-    single-writer assumption (installs are rare and manual).
-  - **Resolve symlinks** — if the target is a symlink, write its real target and
-    preserve the link (dotfile managers depend on this).
-  - **Preserve bytes and mode** — content outside the markers stays
-    byte-identical across LF / CRLF / lone-CR endings (read *and* write with
-    `newline=""`; universal-newline translation silently rewrites the user's
-    endings). A new file gets a predictable `0644`; an existing file keeps its
-    mode.
-  - **Be deterministic and no-op-when-unchanged** — sort the import lines; write
-    only when the bytes actually change.
-  - **Be corruption-safe** — a lone or duplicated marker collapses to one
-    canonical section; never append a second.
-  - **Match markers at column 0, outside code fences** — markers and `@`-lines
-    must be top-level (Claude Code does not resolve `@`-imports inside code
-    spans/fences), and a marker string appearing inside a fenced or indented
-    code block must not be consumed.
-  - **Validate the import line** — a single top-level `@…` line, no embedded
-    newline, no stray whitespace.
-- **The doc is the tool's agent-facing manual.** Slash commands, auto-behaviors,
-  tips, gotchas. It may exceed the old 10-15 line cap — but `@`-imported content
-  loads fully into every session's context, so keep it usage guidance, not a
-  full reference (the host file shrinks; per-session context does not).
-- **Keep imports shallow.** Claude Code resolves `@`-imports recursively to a
-  bounded depth; don't chain deep import trees from the tool doc.
-
-Migration (forward integration, no compat shim): a tool currently injecting a
-`<!-- <tool>:capabilities -->` block moves that content into its
-`~/.punt-labs/<product>/CLAUDE.md`, registers the `@`-import, and MUST delete its
-own legacy injected block from `~/.claude/CLAUDE.md` in the same release — an
-orphaned block is a defect.
+Migration from legacy injected blocks and repo-root sentinels:
+[tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration).
 
 Pattern: [CLAUDE.md `@`-import includes](../patterns/claude-md-injection.md).
-Reference implementation: **vox** — `src/punt_vox/claude_md.py` (`GlobalClaudeImports`
-reconcile) + `guidance.py`; the `@`-import load is empirically verified against
-Claude Code and the reconcile invariants (atomic, symlink-safe, byte-preserving
-across line endings, deterministic, corruption-safe) are covered by a
-`prune(register(x)) == x` property test. quarry's `_inject_claude_md()` block is
-the migration target.
+Reference implementation: **vox** — `GlobalClaudeImports`
+(`src/punt_vox/claude_md.py`) satisfies the atomic / symlink-resolving /
+byte-preserving / deterministic write contract for the global case; the
+`@`-import load is empirically verified against Claude Code.
 
 ---
 
@@ -686,6 +645,7 @@ handles all cleanup:
 | Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
 | MCP tool permissions in `~/.claude/settings.json` | SessionStart hook | Project `uninstall` |
 | Non-MCP permissions in `~/.claude/settings.json` | Installer (permission step) | Project `uninstall` |
+| User-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` | `<tool> install` | Project `uninstall` (or `disable --global`) — removed under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract; `~/.punt-labs/<tool>/` stays dormant unless the user purges it |
 | Status line wrapping | `install-statusline` | Project `uninstall` |
 | Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
 | Orphaned local plugin dirs | Previous install method | `uninstall` (migration cleanup) |
