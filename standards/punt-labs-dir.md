@@ -555,6 +555,17 @@ These extend the audit list in
   live paths are **not** a dependent here — they are gitlink-immune in the local
   zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
   blocked; only the tracked landings in the subtree depend on the de-gitlink.
+- **Unvendored gitlink is audit-unverifiable** *(graded)*. A `.punt-labs/<tool>`
+  entry recorded at **gitlink mode `160000`** (a submodule, not an inline subtree)
+  grades a deterministic **warning** — "audit trail unverifiable until vendored."
+  A gitlink is not tracked shared history ([§ 1](#1-core-principle)) and audit
+  cannot read through it: the tool's seal manifest, its sealed chunks, and any
+  state inside the subtree are all unreachable, so every probe that would range
+  over them **passes vacuously**. The warning is the audit-side tooth for the
+  vendor-first rule ([§ 10](#10-adoption-status), DES-058) — vendor the subtree
+  (`ethos-e29s`) before relying on its audit trail — and it names the specific
+  hole: a green result on a gitlinked tool proves nothing was checked, not that
+  nothing is wrong.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
