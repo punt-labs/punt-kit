@@ -126,7 +126,7 @@ Standards documents covering the full development lifecycle:
 | [Hooks](standards/hooks.md) | Claude Code hook events, three-layer dispatch pattern |
 | [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout; reserved subdirectories; migration from legacy dot-directories |
-| [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; tool-owned `.punt-labs/<tool>/`; enable/disable verbs; required user-guide doc |
+| [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned); enable/disable verbs; required user-guide doc |
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` as the sole repo-local root; committed except local-convention paths (`local/`, `*.local`, `*.local.*`); live state never tracked (seal pattern); canonical gitignore block; subtree zones |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
