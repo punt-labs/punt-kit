@@ -3,7 +3,7 @@ paths:
   - "**/*.py"
 ---
 
-# Pass 3: Tooling Enforcement Matrix
+# Tooling Enforcement Matrix
 
 Every standard must be checkable. This file maps each rule to the tool(s) that
 can deterministically judge compliance. Rules without deterministic tooling are
@@ -108,8 +108,14 @@ a class. Each finding is a sign of fake OO (procedural code in a class wrapper).
   doesn't use `self` but the concrete implementations will.
 
 **Agent rule**: When PLR6301 fires, check whether the method is in a Null Object
-class, a singledispatch base, or an abstract method. If yes, suppress with
-`# noqa: PLR6301`. If no, the method genuinely doesn't belong on the class.
+class, a singledispatch base, or an abstract method. For these three enumerated
+patterns the standard pre-authorizes the suppression — no per-case operator
+approval is needed — and each use must cite the authorizing pattern and rule in
+the comment: `# noqa: PLR6301 — Null Object, PY-DP-9` (likewise
+`— @singledispatchmethod base` or `— abstract stub`, citing this rule). Any
+PLR6301 suppression outside these enumerated patterns still requires operator
+approval per the org CLAUDE.md. If no pattern applies, the method genuinely
+doesn't belong on the class.
 
 ### pylint design category — Structural Smells
 
@@ -154,13 +160,18 @@ All tools are unified in the project Makefile. Agents must use Make, not
 individual tool invocations.
 
 ```bash
-make check SRC=path/to/module/              # fail-fast gate (exits 0 or 1)
-make report SRC=path/to/module/             # full diagnostics, no fail-fast
-make check SRC=game/ VENV_BIN=env/bin/      # virtualenv project
+make check SRC=src/<package>/               # fail-fast gate (exits 0 or 1)
+make report SRC=src/<package>/              # full diagnostics, no fail-fast
 ```
 
-`make check` runs: OO score → mypy → ruff format → ruff check → radon CC → pylint design.
-`make report` adds: radon MI, cohesion LCOM, vulture dead code.
+`make check` runs the full quality gate — lint, type checking, tests, and the
+OO ratchet (`make check-oo`) — per PL-TC-5.
+`make report` adds the diagnostics: radon CC/MI, pylint design, cohesion LCOM,
+vulture dead code.
+
+These rules define the required Makefile interface for Punt Labs Python
+repos; a repo that has not yet adopted the ratchet acquires it per
+`python-oo-adoption.md`.
 
 See `make help` for all available targets.
 
@@ -171,7 +182,7 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 
 | Rule | Check | Command |
 |------|-------|---------|
-| PY-TS-1 | `from __future__ import annotations` present | `grep -rL "from __future__ import annotations" --include="*.py" lib/` |
+| PY-TS-1 | `from __future__ import annotations` present | `ruff check --select FA100` (exit 0) |
 | PY-CC-1 | No `__init__` in non-dataclass classes | `grep -rn "def __init__" --include="*.py"` (zero hits) |
 | PY-EN-1 | No public attributes | `grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py"` (zero hits) |
 | PY-IC-4 | `__slots__` is a tuple | `grep -A1 "__slots__" --include="*.py"` → verify `(` not `[` |
@@ -180,21 +191,32 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 | PY-OP-1 | Binary ops return `NotImplemented` | `grep -n "NotImplementedError" --include="*.py"` in operator methods (zero hits) |
 | PY-OP-2 | `__eq__` paired with `__hash__` | AST: count per class, verify match |
 
-**Composite grep check** (all should return zero results):
+PY-TS-1 needs only an existence check: placement is interpreter-enforced — a
+`__future__` import anywhere but the top of the file is a `SyntaxError`.
+
+**Composite grep check**:
 
 ```bash
-grep -rn "def __init__" --include="*.py" src/ | grep -v "@dataclass" | grep -v "# noqa"
+grep -rn "def __init__" --include="*.py" src/
 grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py" src/
 grep -rn "raise Exception\b" --include="*.py" src/
 grep -rn "NotImplementedError" --include="*.py" src/
 ```
+
+- The `self.` assignment and `raise Exception` greps must return zero results.
+- `def __init__` hits require manual audit for the `@dataclass` exception
+  (PY-CC-1): the decorator sits on the class line, not the `def __init__`
+  line, so no line filter can express it. The Tier 3 `check_no_init()` AST
+  check automates the exception.
+- `NotImplementedError` hits are legitimate only in abstract method stubs,
+  never in binary operator methods, per PY-OP-1.
 
 ## Tier 3: Custom AST Analysis Script
 
 For rules needing deeper analysis, write a Python script using `ast` module.
 Each check is a function returning pass/fail with file:line details.
 
-**Checks to implement in `check_standards.py`**:
+**Checks to implement in a custom AST script** (e.g., `tools/check_standards.py`):
 
 ```text
 check_future_annotations()    # PY-TS-1: first import is __future__

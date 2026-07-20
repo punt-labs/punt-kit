@@ -46,17 +46,17 @@ to reduce cross-type collisions.
 
 ## PY-OP-3: Coercion Pattern for Mixed-Type Operators
 
-**Statement**: For operators accepting mixed types (e.g., `Frac + int`), coerce
-the foreign type to the class type first, then fall through to the homogeneous
-logic. Do not duplicate logic for each type combination.
+**Statement**: For operators accepting mixed types (e.g., `Fraction + int`),
+coerce the foreign type to the class type first, then fall through to the
+homogeneous logic. Do not duplicate logic for each type combination.
 
 **Pattern**:
 
 ```python
-def __add__(self, other: Any) -> Frac:
+def __add__(self, other: object) -> Fraction:
     if isinstance(other, int):
-        other = Frac.from_int(other)
-    if not isinstance(other, Frac):
+        other = Fraction.from_int(other)
+    if not isinstance(other, Fraction):
         return NotImplemented
     # single homogeneous implementation follows
 ```

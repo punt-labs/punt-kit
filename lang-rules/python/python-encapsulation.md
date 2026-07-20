@@ -10,10 +10,10 @@ paths:
 **Statement**: Never expose raw data attributes publicly. All instance attributes
 must be prefixed with `_` (protected) or `__` (private/name-mangled).
 
-**Rationale**: The instructor states emphatically:
-"ATTRIBUTES ARE PUBLICLY SETTABLE AND GETTABLE, PLEASE DON'T MAKE THEM PUBLIC.
-Instead: use properties for read-only access, use property setters for managed
-write access (with validation)."
+**Rationale**: A public attribute is publicly settable and gettable — any caller
+can mutate it, bypassing every invariant the class maintains. Never make
+attributes public. Instead: use properties for read-only access, and property
+setters for managed write access (with validation).
 
 **Criterion**:
 
@@ -61,12 +61,15 @@ invariants. Use `_name` (protected) when subclass access is acceptable.
 
 - Internal data that subclasses must not overwrite (e.g., `__items`, `__state`)
 - Cache attributes (e.g., `__hash_cache`)
-- Guard flags (e.g., `__is_creating_listing`)
 
 **When to use `_`**:
 
-- Attributes that subclasses may reasonably read (e.g., `_num`, `_den` in Frac)
+- Attributes that subclasses may reasonably read (e.g., `_num`, `_den` in a
+  fraction type)
 - Protected methods called by subclasses
+- Guard flags read by a collaborating class (e.g., the factory's
+  `_is_creating` checked in PY-CC-3 — name mangling would break the
+  cross-class check)
 
 **Criterion**:
 
@@ -110,7 +113,8 @@ class ValidatedAttr[T]:
 **Statement**: When an object transitions state, delete attributes that are no
 longer valid. This prevents stale access.
 
-**Example**: After `Listing.sell()`, delete `__bids` and `__start_time`.
+**Example**: after an order transitions to its completed state, delete the
+`__pending_items` and `__start_time` attributes that only the active state owns.
 
 **Criterion**:
 

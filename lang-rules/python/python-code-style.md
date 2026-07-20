@@ -9,11 +9,11 @@ paths:
 
 | Entity | Convention | Example |
 |--------|-----------|---------|
-| Class | PascalCase | `BidStack`, `WithdrawableStack` |
-| Method/Function | snake_case | `draft_listing`, `count_money` |
+| Class | PascalCase | `OrderStack`, `SearchResult` |
+| Method/Function | snake_case | `draft_order`, `count_money` |
 | Protected attribute | `_name` | `_num`, `_den`, `_username` |
-| Private attribute | `__name` | `__items`, `__state`, `__bids` |
-| Type alias | PascalCase | `Scalar`, `ListingState` |
+| Private attribute | `__name` | `__items`, `__state`, `__cache` |
+| Type alias | PascalCase | `Scalar`, `OrderState` |
 | Constants / Compiled regex | UPPER_SNAKE | `VARNAME_PATTERN` |
 | TypeVar (legacy) | Single uppercase | `T`, `S`, `ItemT` |
 
@@ -92,7 +92,7 @@ re-exported names. Use relative imports.
 
 **Criterion**:
 
-- Pass: `__all__ = ["Marketplace"]` present; relative imports used
+- Pass: `__all__ = ["Engine"]` present; relative imports used
 - Fail: no `__all__`; absolute imports within the package
 
 **Tooling**:
@@ -163,7 +163,7 @@ assignments.
 **Examples**:
 
 - `if item not in (items := self.__items):` — assign + use in one line
-- `stack.push(new_bid := Bid(buyer, amount))` — create + push
+- `stack.push(new_order := Order(buyer, amount))` — create + push
 
 **Tooling**:
 

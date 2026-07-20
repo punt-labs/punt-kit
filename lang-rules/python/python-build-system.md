@@ -75,22 +75,22 @@ baseline measurement before refactoring and for end-of-session summaries.
 
 ## PY-BS-4: Makefile Must Be Portable
 
-**Statement**: The Makefile must support overriding `SRC` (source path),
-`PYTHON` (interpreter), and `VENV_BIN` (virtualenv prefix) so it works across
-projects without modification.
+**Statement**: The Makefile must work across projects without modification.
+Tool invocations run through `uv run` (PL-TC-1), so no interpreter or
+virtualenv path is ever hardcoded, and the source path is overridable via
+`SRC` so checks can be scoped to one package.
 
 **Usage examples**:
 
 ```bash
-make check SRC=game/                    # scope to one package
-make check VENV_BIN=env/bin/            # tools in a virtualenv
-make report SRC=src/ PYTHON=python3.13  # explicit interpreter
+make check SRC=src/<package>/           # scope to one package
+make report SRC=src/<package>/          # scoped diagnostics
 ```
 
 **Criterion**:
 
-- Pass: `make check SRC=... VENV_BIN=...` works without editing the Makefile
-- Fail: tool paths are hardcoded
+- Pass: `make check SRC=...` works without editing the Makefile; tools run via `uv run`
+- Fail: tool, interpreter, or virtualenv paths are hardcoded
 
 **Tooling**:
 

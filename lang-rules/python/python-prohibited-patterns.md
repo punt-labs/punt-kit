@@ -3,10 +3,10 @@ paths:
   - "**/*.py"
 ---
 
-# Prohibited Patterns (Punt Labs Additions)
+# Prohibited Patterns
 
-These supplement the OOP course prohibitions (PY-TS-9, PY-TS-10, PY-TS-11,
-PY-EH-6, PY-EH-7) with Punt Labs-specific rules.
+These prohibitions supplement the ones stated in other rule files (PY-TS-9,
+PY-TS-10, PY-TS-11, PY-EH-6, PY-EH-7).
 
 ## PL-PP-1: No Backwards-Compatibility Shims
 

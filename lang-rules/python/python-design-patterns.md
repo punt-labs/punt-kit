@@ -5,8 +5,9 @@ paths:
 
 # Design Pattern Standards
 
-These patterns are explicitly taught and named in the course. Apply the correct
-pattern when the situation matches. Do not invent patterns not listed here.
+These are the named patterns in the Punt Labs pattern vocabulary. Apply the
+correct pattern when the situation matches. Do not invent patterns not listed
+here.
 
 ## PY-DP-1: Flyweight (Object Caching)
 
@@ -112,21 +113,24 @@ Override every method with a no-op, empty return, or error raise. Methods will
 not access `self` — this is correct and expected.
 
 **Known tooling false positive**: `ruff PLR6301` flags every method in a Null
-Object because none use `self`. Suppress with `# noqa: PLR6301` on the class
-or exclude Null Object classes in ruff config. An agent must not "fix" these
-by removing `self` or converting to static methods — that would break the
+Object because none use `self`. This standard pre-authorizes the suppression
+for Null Object classes — no per-case operator approval is needed — and each
+use must cite the authorizing rule in the comment:
+`# noqa: PLR6301 — Null Object, PY-DP-9`. An agent must not "fix" these by
+removing `self` or converting to static methods — that would break the
 interface contract.
 
 **Tooling**:
 
 - LLM review: Null Object classes must implement the full parent interface
-- ruff PLR6301: suppress findings on Null Object classes (known false positive)
+- ruff PLR6301: suppression pre-authorized by this rule for Null Object
+  classes; every suppression comment cites PY-DP-9
 
 ## PY-DP-10: Facade Pattern
 
 **When**: A library/subsystem needs a single entry point.
-**Implementation**: One class (`Marketplace`) that delegates to internal classes.
-`__init__.py` re-exports only the facade via `__all__`.
+**Implementation**: One class (e.g., an `Engine` facade) that delegates to
+internal classes. `__init__.py` re-exports only the facade via `__all__`.
 
 **Tooling**:
 

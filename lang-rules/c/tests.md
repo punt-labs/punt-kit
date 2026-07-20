@@ -5,7 +5,12 @@ paths:
 
 # Test Conventions
 
-Read `docs/TESTING.md` for the full 5-layer testing guide.
+These are the integration-test conventions of xboing-c, the reference C
+project (see `punt-kit/standards/c.md`, Enforcement). The named fixtures and
+helpers are xboing-c's own; a C project adopting this rule set keeps the
+pattern — CMocka tests run through ctest, side effects injected through
+callbacks, assertions on observable state — and substitutes its own module
+API. Read the project's `docs/TESTING.md` for the full 5-layer testing guide.
 
 ## Integration Test Pattern
 

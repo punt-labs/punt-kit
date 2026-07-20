@@ -94,11 +94,14 @@ structure.
 ## PL-TC-5: Quality Gate Composition
 
 **Statement**: `make check` is the single gate command. It composes:
-`make lint` + `make type` + `make test`. All three must pass.
+`make lint` + `make type` + `make test` + `make check-oo` (the OO ratchet,
+per `punt-kit/standards/python.md`). All four must pass. These rules define
+the required Makefile interface for Punt Labs Python repos; a repo that has
+not yet adopted the ratchet acquires it per `python-oo-adoption.md`.
 
 **Criterion**:
 
-- Pass: `make check` exits 0; runs lint, type, and test
+- Pass: `make check` exits 0; runs lint, type, test, and the OO ratchet
 - Fail: individual tool commands used instead of make check
 
 **Tooling**:

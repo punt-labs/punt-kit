@@ -24,7 +24,7 @@ a class together.
 
 **Criterion**:
 
-- Pass: domain concepts (User, Listing, Bid, etc.) are classes with encapsulated state
+- Pass: domain concepts (User, Order, Invoice, etc.) are classes with encapsulated state
 - Fail: domain logic lives in top-level functions operating on raw data structures
 
 **Tooling**:
@@ -117,7 +117,7 @@ data belong together.
 
 **Symptoms requiring refactoring to a class**:
 
-- `def activate(listing: dict) -> dict` — this should be `listing.activate()`
+- `def activate(order: dict) -> dict` — this should be `order.activate()`
 - `def total_price(items: list[dict]) -> Decimal` — this should be on a
   collection class
 - Multiple functions importing and operating on the same TypedDict

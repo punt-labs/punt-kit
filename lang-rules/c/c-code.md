@@ -29,7 +29,8 @@ paths:
 ## Constants
 
 - No magic numbers. Define with a name that explains intent.
-- Game constants from the original: cite `original/<file>.h:<line>`
+- Constants ported from a reference or legacy source: cite the origin
+  (`<source-tree>/<file>.h:<line>`) so the value can be verified
 - `#define` in the header for public constants, `static const` or `#define` in .c for private
 
 ## Opaque Context Pattern
@@ -44,7 +45,7 @@ paths:
 - Check return values. NULL guards on all public API entry points.
 - No silent failures — return an error code or log a warning.
 - `calloc` over `malloc` (zero-initialized memory prevents UB from missed init).
-- Avoid `atoi` for user input — use `strtol` with error checking. Exception: pre-validated input (e.g., dialogue NUMERIC mode guarantees digits-only).
+- Avoid `atoi` for user input — use `strtol` with error checking. Exception: input that a prior stage has already validated (e.g., an input mode that guarantees digits-only).
 
 ## Functions
 
