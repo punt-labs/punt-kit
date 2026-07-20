@@ -7,13 +7,24 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - `standards/punt-labs-dir.md` — repo-local state directory standard:
-  `<repo>/.punt-labs/<tool>/` as the sole repo-local root, committed except
-  local-convention paths (`local/`, `*.local`, `*.local.*`), live state never
-  tracked
-  (the seal pattern, per the ethos DES-058 draft), the canonical gitignore
-  block, and subtree zones (vendored/config/local/marker) scoping the
-  tool-enable-disable §2.2 wholesale-overwrite contract to the vendored
+  `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local
+  `.punt-labs/local/` zone, committed except local-convention paths
+  (`local/`, `*.local`, `*.local.*`), live state never tracked (the
+  chunk-based seal pattern, per the ethos DES-058 design), the canonical
+  gitignore block, and subtree zones (vendored/config/local/marker) scoping
+  the tool-enable-disable §2.2 wholesale-overwrite contract to the vendored
   zone only
+
+### Changed
+
+- `standards/punt-labs-dir.md` — local-zone amendment per the operator's
+  DES-058 overturn: `.punt-labs/local/<tool>/` named as the org convention
+  for per-checkout machine-local live state (the one non-tool entry under
+  `.punt-labs/`, covered by the existing canonical-block line); §5 seal
+  pattern updated to chunk-based add-only sealing citing the settled
+  DES-058 invariants (immutable chunks, `(session, ts)` identity, frozen
+  legacy lines undeduped); ethos §10 rows moved to local-zone live paths
+  with the gitlink case as signaled deferral, bounded until vendored
 
 ### Removed
 

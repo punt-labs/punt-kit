@@ -127,7 +127,7 @@ Standards documents covering the full development lifecycle:
 | [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout; reserved subdirectories; migration from legacy dot-directories |
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned); enable/disable verbs; required user-guide doc |
-| [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` as the sole repo-local root; committed except local-convention paths (`local/`, `*.local`, `*.local.*`); live state never tracked (seal pattern); canonical gitignore block; subtree zones |
+| [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone; committed except local-convention paths (`local/`, `*.local`, `*.local.*`); live state never tracked (seal pattern, chunk-based); canonical gitignore block; subtree zones |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
 | [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
