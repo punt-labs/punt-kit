@@ -663,7 +663,7 @@ local-convention naming on their next release.
 
 | Tool | State today | Live path(s) | Target | Status |
 |------|-------------|--------------|--------|--------|
-| ethos (logs) | audit / mission live logs written under the `.punt-labs/ethos` gitlink today | — | seal pattern (DES-058): **live** writes go to the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs) — gitlink-immune (a `local/` sibling of the gitlink), auto-ignored; **sealed** chunks land in the tracked `.punt-labs/ethos/` subtree, but a gitlink-mounted repo defers each seal with a signaled notice until vendored (bead `e29s`) — a bounded limitation (below) | Design |
+| ethos (logs) | audit / mission live logs written under the `.punt-labs/ethos` gitlink today | — | seal pattern (DES-058): **live** writes go to the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs) — gitlink-immune (a `local/` sibling of the gitlink), auto-ignored; **sealed** chunks land in the tracked `.punt-labs/ethos/` subtree, but a gitlink-mounted repo defers each seal with a signaled notice until vendored (bead `ethos-e29s`) — a bounded limitation (below) | Design |
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
@@ -691,11 +691,11 @@ sibling of the `.punt-labs/ethos` gitlink (mode `160000`), so **gitlink-immune**
 and auto-ignored — and its Live path(s) stay `—` permanently. The gitlink bounds
 one thing: the **sealed chunks** (tracked, [§ 5](#5-live-state-is-never-a-tracked-file))
 land in the `.punt-labs/ethos/` subtree, but a gitlink-mounted repo (a consuming
-repo before bead `e29s`) cannot reach it, so each seal **defers with a signaled
+repo before bead `ethos-e29s`) cannot reach it, so each seal **defers with a signaled
 notice** and `ethos audit show` flags the unsealed tail
 (`N unsealed lines, sealing deferred until vendored`); deleting such a checkout
-destroys those unsealed lines. DES-058 accepts this as a **bounded pre-`e29s`
-limitation** — no spool — and the org rule is to vendor a repo (`e29s`) before
+destroys those unsealed lines. DES-058 accepts this as a **bounded pre-`ethos-e29s`
+limitation** — no spool — and the org rule is to vendor a repo (`ethos-e29s`) before
 relying on its audit trail. No live path is ever inferred from prose.
 
 **The registry de-gitlink unblocks tracked landings, not live paths.** ethos's
