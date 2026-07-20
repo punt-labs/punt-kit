@@ -8,7 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - `standards/punt-labs-dir.md` — repo-local state directory standard:
   `<repo>/.punt-labs/<tool>/` as the sole repo-local root, committed except
-  local-convention paths (`local/`, `*.local*`), live state never tracked
+  local-convention paths (`local/`, `*.local`, `*.local.*`), live state never
+  tracked
   (the seal pattern, per the ethos DES-058 draft), the canonical gitignore
   block, and subtree zones (vendored/config/local/marker) scoping the
   tool-enable-disable §2.2 wholesale-overwrite contract to the vendored
