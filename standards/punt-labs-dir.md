@@ -4,7 +4,8 @@
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
 the two are told apart. One directory — `<repo>/.punt-labs/<tool>/` — holds
-everything a tool keeps inside a repo; one convention — the `*local*` glob —
+everything a tool keeps inside a repo; one convention — the boundary-aware
+**local convention** ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
 marks the files that do not travel with it. This standard builds on
 [tool-enable-disable.md](tool-enable-disable.md), which governs how a tool's
 CLAUDE.md guidance is turned on and off, and on [filesystem.md](filesystem.md),
@@ -21,16 +22,18 @@ tool-enable-disable.md keep that document's `§ 2.x` numbers.
 **One repo-local root per tool; everything in it is committed unless its name
 says otherwise.** A tool that keeps state inside a repo keeps it under
 `<repo>/.punt-labs/<tool>/` and nowhere else. Every file under that path is
-git-tracked shared history except paths whose name matches `*local*`, which are
-per-user or per-machine and are never committed. Secrets are not kept here at
-all.
+git-tracked shared history except paths the **local convention** marks — a path
+segment named exactly `local`, or a basename containing `.local`
+([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
+which are per-user or per-machine and are never committed. Secrets are not kept
+here at all.
 
 Two questions this standard answers, that
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) and
 [filesystem.md](filesystem.md) leave open:
 
 - *Committed or ignored?* Everything under `.punt-labs/` is committed except
-  `*local*` ([§ 4](#4-committed-by-default-local-is-the-only-ignore-convention)).
+  local-convention paths ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
 - *Repo or home?* Team-shareable state goes in the repo; person- or
   machine-scoped state goes in `~/.punt-labs/` ([§ 3](#3-repo-versus-home-the-placement-rule)).
 
@@ -61,40 +64,53 @@ file?**
 | The state is… | Goes in | Committed? | Examples |
 |---------------|---------|-----------|----------|
 | Team-shareable — same for everyone working the repo | `<repo>/.punt-labs/<tool>/` | Yes | Vendored user guide, `enabled` marker, repo config (roster, db name) |
-| Person- or machine-scoped, but repo-bound | `<repo>/.punt-labs/<tool>/…*local*…` | No ([§ 4](#4-committed-by-default-local-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
+| Person- or machine-scoped, but repo-bound | `<repo>/.punt-labs/<tool>/` local-convention path (`local/`, `*.local*`) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
 | Person- or machine-scoped and repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) | Daemon runtime, caches, indexes, cross-repo preferences |
 | Secret — credential, token, key | Platform secret store, or `~/.punt-labs/<tool>/` at mode `0600` | Never in any repo | API keys, signing keys |
 
 **Secrets never live under a repo `.punt-labs/` at all** — not even as a
-`*local*` file. A `*local*` file is uncommitted, but it still sits in a work
-tree that gets copied, backed up, and grepped; a secret belongs in the platform
+local-convention (uncommitted) file. Such a file is uncommitted, but it still
+sits in a work tree that gets copied, backed up, and grepped; a secret belongs
+in the platform
 secret store (macOS Keychain / Linux `pass`) or in `~/.punt-labs/<tool>/` at
 mode `0600`.
 
 ---
 
-## 4. Committed by Default; `*local*` is the Only Ignore Convention
+## 4. Committed by Default; the Local Convention is the Only Ignore Convention
 
-**Everything under `.punt-labs/` is committed except paths matching the glob
-`*local*`.** That includes the vendored user guide, the `enabled` marker
+**Everything under `.punt-labs/` is committed except paths the local convention
+marks.** That includes the vendored user guide, the `enabled` marker
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)),
-and every repo config file. `*local*` means *not shareable by the team working
-on the repo* — per-user or per-machine state. The token can appear anywhere in
-the path: `config.local.yaml`, `local/`, and `vox.local.md` all match.
+and every repo config file. The convention marks a path as *not shareable by the
+team working on the repo* — per-user or per-machine state — by one of two
+**boundary-aware** forms:
 
-`*local*` is the **only** ignore convention under `.punt-labs/`. A tool does not
-invent a second one. Two existing directories break this rule and must change:
+- a **path segment named exactly `local`** — a `local/` directory (or a file
+  named `local`) at any depth; or
+- a **basename containing `.local`** — `config.local.yaml`, `vox.local.md`.
+
+**Substring matching is not the rule.** The marker is not "the letters `local`
+appear somewhere in the path." A bare `*local*` glob over-matches:
+`.punt-labs/quarry/locales/en.yaml` carries `local` inside the segment `locales`
+yet is ordinary shared content and must stay committed. The two boundary forms
+match every intended case (`local/`, `config.local.yaml`, `vox.local.md`) and
+leave `locales/` — and any other word that merely contains those letters — alone.
+
+The local convention is the **only** ignore convention under `.punt-labs/`. A
+tool does not invent a second one. Two existing directories break this rule and
+must change:
 
 - `quarry`'s `captures/` — relocate to the global tree
-  (`~/.punt-labs/quarry/captures/`) if machine-scoped, or rename to a `*local*`
-  path if genuinely repo-bound.
+  (`~/.punt-labs/quarry/captures/`) if machine-scoped, or rename to a
+  local-convention path if genuinely repo-bound.
 - `vox`'s `ephemeral/` — same: relocate to `~/.punt-labs/vox/` or adopt
-  `*local*` naming.
+  local-convention naming.
 
-A name that is neither committed content nor `*local*` is a bug: it is either
-tracked state that should not be ([§ 5](#5-live-state-is-never-a-tracked-file))
-or ignored state the canonical gitignore
-([§ 6](#6-the-canonical-gitignore-block)) will not catch.
+A name that is neither committed content nor a local-convention path is a bug: it
+is either tracked state that should not be
+([§ 5](#5-live-state-is-never-a-tracked-file)) or ignored state the canonical
+gitignore ([§ 6](#6-the-canonical-gitignore-block)) will not catch.
 
 ---
 
@@ -109,9 +125,9 @@ preflight over cross-repo siblings is the reported case).
 
 Live state has two correct homes:
 
-- **The global tree or a `*local*` path.** Continuous appends land in
-  `~/.punt-labs/<tool>/` (outside every work tree) or a `*local*` file (present
-  but ignored). Either keeps the tracked set still.
+- **The global tree or a local-convention path.** Continuous appends land in
+  `~/.punt-labs/<tool>/` (outside every work tree) or a local-convention file
+  (present but ignored). Either keeps the tracked set still.
 - **The seal pattern, when the record must be committed.** Some live streams
   *are* shared history — an audit log whose lines must travel in the same PR as
   the work they document. For those, the live writer appends to an untracked
@@ -145,29 +161,48 @@ continuous writes may not.
 ## 6. The Canonical Gitignore Block
 
 The ignore rule is **one canonical block, written and verified by tooling —
-never hand-maintained per tool.**
+never hand-maintained per tool.** It is boundary-aware, not a substring glob
+([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)):
 
 ```gitignore
-.punt-labs/**/*local*
+.punt-labs/**/local
+.punt-labs/**/local/**
+.punt-labs/**/*.local*
 ```
+
+Each line covers one boundary form:
+
+- `.punt-labs/**/local` — a file or directory whose path segment is **exactly**
+  `local`, at any depth. A trailing-slashless pattern matches both a `local`
+  directory and a file named `local`; `locales/` does not match (segment
+  `locales` ≠ `local`).
+- `.punt-labs/**/local/**` — everything **beneath** a `local/` directory. The
+  segment line alone prunes the directory in an ordinary repo, but under the
+  deny-all re-include (below) the contents were re-included by `!.punt-labs/**`,
+  so they must be re-excluded explicitly.
+- `.punt-labs/**/*.local*` — any basename containing `.local` (`config.local.yaml`,
+  `vox.local.md`). The leading `.` is load-bearing: it anchors on the extension
+  boundary, so `locales` (no dot before `local`) does not match.
 
 For a **deny-all + allowlist** repo — one whose first non-comment `.gitignore`
 pattern is `*` or `/*`, ignoring everything — re-inclusion is order-sensitive,
 and **git will not re-include the contents of a still-ignored directory.** The
-directory must be re-included first, then its contents, then `*local*`
-re-excluded — three lines, in this order:
+directory must be re-included first, then its contents, then the local-convention
+paths re-excluded:
 
 ```gitignore
 !.punt-labs/
 !.punt-labs/**
-.punt-labs/**/*local*
+.punt-labs/**/local
+.punt-labs/**/local/**
+.punt-labs/**/*.local*
 ```
 
 The bare-directory line `!.punt-labs/` must come **before** the recursive
 `!.punt-labs/**`: git evaluates patterns top to bottom and cannot descend into a
 directory it still considers ignored, so `!.punt-labs/**` alone leaves the whole
 subtree ignored (empirically confirmed). The workspace's own tracked `.beads/` —
-`!.beads/` then `!.beads/**` — is the precedent. A two-line block without the
+`!.beads/` then `!.beads/**` — is the precedent. A block without the
 bare-directory line is non-functional under deny-all.
 
 Lifecycle:
@@ -182,7 +217,7 @@ Lifecycle:
   [release-process.md](release-process.md) phase 10.
 
 A tool **may** write defense-in-depth ignore rules of its own (a narrower glob
-for a path it knows is `*local*`), but those are additive belt-and-suspenders,
+for a path it knows is local-convention), but those are additive belt-and-suspenders,
 never a substitute for the canonical block — and **the tool's own ignore file is
 itself committed.** No tool hand-edits the canonical block; that is the
 rollout's job.
@@ -209,7 +244,7 @@ applies to exactly one of them.**
 |------|-----------|-------|-----------|----------------------|
 | Vendored | tool-deposited files (e.g. the `CLAUDE.md` guide) | The tool | Yes | Overwritten wholesale — the § 2.2 determinism contract lives here and **only** here |
 | Config | `.punt-labs/<tool>/config.*` and other `init`-written files | The repo (via `init`) | Yes | **Never touched** — `enable` / upgrade must not read, merge, or overwrite it |
-| Local | `.punt-labs/<tool>/…*local*…` | The user | No ([§ 4](#4-committed-by-default-local-is-the-only-ignore-convention)) | Never touched |
+| Local | `.punt-labs/<tool>/` local-convention path (`local/`, `*.local*`) | The user | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Never touched |
 | Marker | `.punt-labs/<tool>/enabled` | The tool | Yes | Written by `enable`, deleted by `disable` ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
 
 The determinism guarantee of
@@ -231,9 +266,13 @@ These extend the audit list in
   [§ 6](#6-the-canonical-gitignore-block) block verbatim — the one-line form, or
   the three-line deny-all form where the repo is deny-all (first non-comment
   pattern `*` or `/*`). A missing, altered, or two-line deny-all block is a fail.
-- **No tracked `*local*`.** No path matching `.punt-labs/**/*local*` appears in
-  `git ls-files`. A tracked `*local*` file means the ignore block is wrong or
-  the file was force-added.
+- **No tracked local-convention path.** No path the local convention marks — a
+  segment exactly `local`, or a basename containing `.local`
+  ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
+  appears in `git ls-files`. A tracked local-convention file means the ignore
+  block is wrong or the file was force-added. (Boundary-aware, not a `*local*`
+  substring scan: `locales/en.yaml` is shared content and is expected to be
+  tracked.)
 - **No unsanctioned live state.** This check ranges over
   seal-manifest entries only — not over every tracked file. For
   each file a tool's manifest declares seal-managed, apply the § 5
@@ -243,8 +282,8 @@ These extend the audit list in
   ([§ 5](#5-live-state-is-never-a-tracked-file)). A file in **no**
   seal manifest is out of scope for this bullet — whether it may be
   tracked is decided by committed-by-default
-  ([§ 4](#4-committed-by-default-local-is-the-only-ignore-convention)),
-  the bare-file check, and the `*local*` check, not here.
+  ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)),
+  the bare-file check, and the local-convention check, not here.
   "Continuously appended" is not statically decidable, so audit
   never tries to detect it: an undeclared live-append file that was
   tracked anyway is caught at design review, not by this check.
@@ -312,10 +351,11 @@ The `.punt-labs/ethos.yaml` move is deliberately ordered behind the
 ([§ 10](#10-adoption-status)): the pointer lands in the config zone of a subtree
 that must already be present to receive it.
 
-**Ignore-convention → `*local*`** relocates the two non-conforming directories
-named in [§ 4](#4-committed-by-default-local-is-the-only-ignore-convention):
+**Ignore-convention → local convention** relocates the two non-conforming
+directories named in
+[§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention):
 `quarry`'s `captures/` and `vox`'s `ephemeral/` move to the global tree or adopt
-`*local*` naming on their next release.
+local-convention naming on their next release.
 
 ---
 
@@ -327,7 +367,7 @@ named in [§ 4](#4-committed-by-default-local-is-the-only-ignore-convention):
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | `.punt-labs/biff/config.yaml` config zone | Planned |
-| quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/config.toml`; `captures/` → global or `*local*` | Planned |
-| vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | live state → global or `*local*`; `ephemeral/` relocated | Planned |
+| quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/config.toml`; `captures/` → global or local-convention | Planned |
+| vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | live state → global or local-convention; `ephemeral/` relocated | Planned |
 | lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | `.punt-labs/lux/` subtree | Planned |
 | punt | writes the canonical gitignore block | `init` writes, `audit` verifies, rollout propagates | Building |
