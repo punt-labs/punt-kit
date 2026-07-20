@@ -167,24 +167,45 @@ preflight over cross-repo siblings is the reported case).
 
 Live state has two correct homes:
 
-- **The global tree or a local-convention path.** Continuous appends land in
-  `~/.punt-labs/<tool>/` (outside every work tree) or a local-convention file
-  (present but ignored). Either keeps the tracked set still.
+- **The global tree or the local zone.** Continuous appends land in
+  `~/.punt-labs/<tool>/` (outside every work tree) or, when the live state is
+  repo-bound, in the local zone `.punt-labs/local/<tool>/`
+  ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — present but
+  gitignored. Either keeps the tracked set still.
 - **The seal pattern, when the record must be committed.** Some live streams
   *are* shared history — an audit log whose lines must travel in the same PR as
-  the work they document. For those, the live writer appends to an untracked
-  location and a **seal** step snapshots complete lines into the tracked file at
-  a deliberate lifecycle point (pre-commit primary, `mission close` secondary).
-  Between seals the tracked file does not move, so the tree stays clean. A
-  seal-managed stream is **declared per file** in the tool's **seal manifest**
-  (distinct from the **vendored-zone manifest** of [§ 7](#7-the-punt-labstool-subtree-has-zones),
+  the work they document. For those, the live writer appends to the **live
+  session log in the local zone** (`.punt-labs/local/<tool>/…`, untracked), and a
+  **seal** step — at a deliberate lifecycle point (pre-commit primary,
+  `mission close` secondary) — writes a **new immutable tracked file**, a
+  **chunk**, into the tool subtree via temp-and-rename. Sealing is **chunk-based
+  and add-only**: a chunk is written once and **never modified after creation** —
+  there is no growing tracked `audit.jsonl`, and no merge driver. Because each
+  seal is a fresh file rather than an edit to a shared one, cross-branch conflicts
+  are structurally impossible, and any overlap left by a branch rewind is resolved
+  at read time, not by merge. Between seals the tracked set does not move, so the
+  tree stays clean.
+
+  The mechanism rests on DES-058's settled invariants — cite them, but do not pin
+  section numbers, which may move before the design lands:
+  - **I10-audit-atomic** (amended): appends target the live session log under the
+    session flock, which allocates a strictly-monotonic per-session timestamp
+    `ts = max(now, last_ts + 1ns)` — always greater than the max sealed-chunk `ts`.
+  - **I11-chunk**: a chunk is written once and holds a disjoint, contiguous `ts`
+    range within one tree state.
+  - **I11-idem**: every complete live line is sealed into at least one chunk after
+    a following seal; a duplicate shares its `(session, ts)` and is byte-identical.
+  - **I12-merge**: a read is the union of the sealed chunks and the live tail past
+    the seal watermark, deduped on `(session, ts)` and ordered by `ts`.
+
+  Line identity is `(session, ts)`; there is no `seq` field. A seal-managed stream
+  is still **declared per file** in the tool's **seal manifest** (distinct from
+  the **vendored-zone manifest** of [§ 7](#7-the-punt-labstool-subtree-has-zones),
   which lists deposited files) — seal management is a property of the named file,
-  never inferred from its directory.
-  (A directory glob over-matches: a non-seal-managed index file sitting beside a
-  sealed log must not inherit the exemption.) The seal pattern's design home is
-  the ethos audit-seal design (DES-058, draft in `punt-labs/ethos` at
-  `docs/audit-seal.md`) — cite it for the mechanism, but do not pin its section
-  numbers, which may move before it lands.
+  never inferred from its directory. (A directory glob over-matches: a
+  non-seal-managed index file sitting beside sealed chunks must not inherit the
+  exemption.) The seal pattern's design home is the ethos audit-seal design
+  (DES-058, draft in `punt-labs/ethos` at `docs/audit-seal.md`).
 
 **The seal exemption is gated on DES-058.** Until then no tool may claim it and
 no seal-manifest entry grants it: every git-tracked, continuously-appended file under
