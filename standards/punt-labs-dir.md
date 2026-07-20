@@ -277,6 +277,19 @@ and the marker; it steps around the config and local zones. This is the
 amendment that lets repo config and tool-vendored content share one directory
 without the upgrade eating the config.
 
+**Vendored-zone membership is a shipped manifest, not write provenance.** Which
+files belong to the vendored zone cannot be inferred after the fact — nothing on
+disk records that `enable` wrote a given file rather than `init` or the user. So
+the tool ships a **vendored-zone manifest**: the explicit list of paths it
+deposits. On every `enable` / upgrade the tool writes exactly the manifest set
+**and removes any path in the previous manifest but not the current one**
+(old-manifest-minus-new). Without that removal step a file the tool vendored in
+an old version but dropped in a new one would orphan silently — left on disk as
+mystery content the next audit cannot classify as vendored, config, or stray. The
+config, local, and marker zones are outside the manifest and this step never
+touches them. The manifest is what makes the vendored zone a **decidable set**
+rather than a guess from whatever happens to be on disk.
+
 ---
 
 ## 8. What `punt audit` Checks
@@ -363,6 +376,15 @@ bring existing tools into line, all **forward-integration, no compat shim**
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md#pl-pp-1-no-backwards-compatibility-shims))
 and all bound by the rule that **live config is never deleted with content
 inside** ([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)).
+
+**Destination-collision is an error, never an overwrite.** Every migration below
+is a *move*, and a move must not clobber what is already there. If the
+destination path already exists, the migration **makes no change, errors, and
+names both paths** — the source it was moving and the occupied destination — for
+an operator to resolve. A migration that silently overwrote its destination could
+destroy live config or a hand-placed file, violating the never-delete-live-config
+rule; surfacing the collision is the safe default. This applies to every move in
+the tables that follow.
 
 **Root sentinel → subtree** extends the
 [§ 2.12 sentinel table](tool-enable-disable.md#212-migration). That table already
