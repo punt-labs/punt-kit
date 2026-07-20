@@ -19,7 +19,6 @@ from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import (
-    STANDARD_DISPLAY_NAMES,
     build_standard_deny_rules,
     build_standard_permissions,
 )
@@ -222,83 +221,16 @@ def render_section(
 
 
 # ---------------------------------------------------------------------------
-# Context building
-# ---------------------------------------------------------------------------
-
-
-def read_beads_metadata(root: Path) -> tuple[str | None, str | None]:
-    """Read issue_prefix from .beads/metadata.json, derive label.
-
-    Return (issue_prefix, beads_label) or (None, None) when the file
-    is missing or malformed.
-    """
-    metadata_path = root / ".beads" / "metadata.json"
-    if not metadata_path.exists():
-        return None, None
-    try:
-        data = json.loads(metadata_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return None, None
-    prefix = data.get("issue_prefix")
-    if not isinstance(prefix, str) or not prefix:
-        return None, None
-    return prefix, f"repo:{prefix}"
-
-
-def build_context(info: ProjectInfo) -> dict[str, object]:
-    """Build template context from ProjectInfo."""
-    has_makefile = (info.root / "Makefile").exists()
-
-    if has_makefile:
-        quality_gates_command = "make check"
-    elif info.language == "python":
-        quality_gates_command = (
-            "uv run ruff check . && uv run ruff format --check . "
-            "&& uv run mypy src/ tests/ && uv run pyright && uv run pytest"
-        )
-    elif info.language == "node":
-        quality_gates_command = "npm run lint && npm test"
-    else:
-        quality_gates_command = "# No quality gates configured"
-
-    issue_prefix, beads_label = read_beads_metadata(info.root)
-
-    return {
-        "project_name": info.root.name,
-        "language": info.language,
-        "is_plugin": info.is_plugin,
-        "has_makefile": has_makefile,
-        "quality_gates_command": quality_gates_command,
-        "standards_refs": info.standards_refs,
-        "display_names": STANDARD_DISPLAY_NAMES,
-        "has_prfaq": (info.root / "prfaq.tex").exists(),
-        "has_design_md": (info.root / "DESIGN.md").exists(),
-        "cli_commands": info.cli_commands,
-        "plugin_mcp_servers": info.plugin_mcp_servers,
-        "issue_prefix": issue_prefix,
-        "beads_label": beads_label,
-    }
-
-
-# ---------------------------------------------------------------------------
 # Target definitions: which sections each target manages
 # ---------------------------------------------------------------------------
 
 # Each target maps section_id -> template_name (relative to templates/auto/)
-CLAUDE_SECTIONS: list[tuple[str, str]] = [
-    ("quality-gates", "claude/quality-gates.md.j2"),
-    ("beads", "claude/beads.md.j2"),
-    ("standards-references", "claude/standards-references.md.j2"),
-    ("available-tooling", "claude/available-tooling.md.j2"),
-]
-
 MAKEFILE_SECTIONS: list[tuple[str, str]] = [
     ("standard-targets", "makefile/python.mk.j2"),
     ("help", "makefile/help.mk.j2"),
 ]
 
 TARGETS: dict[str, tuple[str, list[tuple[str, str]]]] = {
-    "claude": ("markdown", CLAUDE_SECTIONS),
     "makefile": ("makefile", MAKEFILE_SECTIONS),
 }
 
@@ -399,16 +331,13 @@ def run_auto(
         raise SystemExit(1)
 
     info = detect(root)
-    ctx = build_context(info)
     changed: list[str] = []
 
     if target == "settings":
         changed.extend(_auto_settings(info, dry_run=dry_run))
     elif target in TARGETS:
         file_type, sections = TARGETS[target]
-        changed.extend(
-            _auto_file(info, ctx, target, file_type, sections, dry_run=dry_run)
-        )
+        changed.extend(_auto_file(info, target, file_type, sections, dry_run=dry_run))
     else:
         valid = ", ".join([*TARGETS.keys(), "settings"])
         console.print(
@@ -430,7 +359,6 @@ def run_auto(
 
 def _auto_file(
     info: ProjectInfo,
-    ctx: dict[str, object],
     target: str,
     file_type: str,
     sections: list[tuple[str, str]],
@@ -439,9 +367,7 @@ def _auto_file(
 ) -> list[str]:
     """Render and merge sections for a single file."""
     # Determine target file path
-    if target == "claude":
-        target_path = info.root / "CLAUDE.md"
-    elif target == "makefile":
+    if target == "makefile":
         target_path = info.root / "Makefile"
     else:
         msg = f"No file path mapping for target '{target}'"
@@ -460,12 +386,9 @@ def _auto_file(
     if target_path.exists():
         original = target_path.read_text(encoding="utf-8")
 
-    # Render all sections (skip beads when metadata is absent)
     rendered: dict[str, str] = {}
     for section_id, template_name in sections:
-        if section_id == "beads" and ctx.get("issue_prefix") is None:
-            continue
-        rendered[section_id] = render_section(section_id, template_name, ctx, file_type)
+        rendered[section_id] = render_section(section_id, template_name, {}, file_type)
 
     # Merge
     merged = merge_file(original, rendered, file_type)

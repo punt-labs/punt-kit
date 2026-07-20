@@ -37,7 +37,7 @@ uv tool install punt-kit
 |---------|-------------|
 | `punt init` | Scaffold a new Punt Labs project (CI, linter config, CLAUDE.md, permissions, beads) |
 | `punt audit` | Check compliance against standards (read-only, no file changes) |
-| `punt auto <target>` | Render and merge managed sections in project files (claude, makefile, settings). Supports `--dry-run` |
+| `punt auto <target>` | Render and merge managed sections in project files (makefile, settings). Supports `--dry-run` |
 | `punt release [version]` | 11-phase release workflow (preflight → PyPI → cross-repo propagation). Supports `--resume-from` and `--dry-run` |
 | `punt pii` | Scan repo for PII (emails, home paths, hostnames). Supports `--staged` for pre-commit |
 | `punt doctor` | Check installation health (Python, uv, ruff, mypy, pyright) |
@@ -125,6 +125,7 @@ Standards documents covering the full development lifecycle:
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
 | [Hooks](standards/hooks.md) | Claude Code hook events, three-layer dispatch pattern |
 | [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
+| [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; tool-owned `.punt-labs/<tool>/`; enable/disable verbs; required user-guide doc |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
 | [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
