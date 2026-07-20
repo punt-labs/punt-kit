@@ -37,14 +37,17 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 | Path | Owner | Lifecycle |
 |------|-------|-----------|
 | `<repo>/CLAUDE.md`, `~/.claude/CLAUDE.md` | The user | Tool adds or removes one import line; every other byte is untouched |
-| `<repo>/.punt-labs/<tool>/` | The tool | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched — § 7), left dormant on `disable` |
-| `~/.punt-labs/<tool>/` | The tool | Deposited on `install` (global tools), vendored zone overwritten wholesale on upgrade (§ 7) |
+| `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)): tool (vendored + `enabled` marker), repo (config), user (local-convention) | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched), left dormant on `disable` |
+| `~/.punt-labs/<tool>/` | Zoned: tool (vendored), user (local-convention) | Deposited on `install` (global tools), vendored zone overwritten wholesale on upgrade |
 
-Each tool owns its `.punt-labs/<tool>/` subtree completely. It rewrites the
-subtree's **vendored zone** on enable/upgrade and never reads-modifies-merges
-it: same tool version, identical output. Repo config is **not** an input to that
-write and is never rewritten by it — enable/upgrade steps around the config and
-local-convention zones (below).
+Each tool owns the **vendored zone** (and the `enabled` marker) of its
+`.punt-labs/<tool>/` subtree — not the whole subtree: the config zone is
+repo-owned and the local-convention zone is user-owned
+([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)).
+The tool rewrites the vendored zone on enable/upgrade and never
+reads-modifies-merges it: same tool version, identical output. Repo config is
+**not** an input to that write and is never rewritten by it — enable/upgrade steps
+around the config and local-convention zones (below).
 
 This wholesale-overwrite/determinism contract is scoped to the subtree's
 **vendored zone**; repo config, local-convention files (`local/`, `*.local`, `*.local.*`),
