@@ -348,11 +348,20 @@ These extend the audit list in
   or fail is decided by running `git check-ignore` on synthetic probe paths —
   never by matching the block's bytes, because a textual block can be present yet
   be overridden by a later pattern (fails open) and an altered block can still
-  behave correctly. **Probe scope:** the probe set below runs under **every
-  `<tool>` directory present under `.punt-labs/`**, not one representative subtree
-  — a block that behaves for one tool but not another (a tool-specific exclude
-  shadowing the canonical rules) is caught only by probing each. For each `<tool>`
-  the probes and their required outcomes:
+  behave correctly. **Probe scope is the union of two independent sets** — neither
+  subsumes the other:
+  - **(a) Per present tool.** For **every `<tool>` directory present under
+    `.punt-labs/`** — not one representative subtree — run the fixed probe set
+    below. A block that behaves for one tool but not another (a tool-specific
+    exclude shadowing the canonical rules) is caught only by probing each.
+  - **(b) Per interim-exclude path.** For **every** [§ 6](#6-the-canonical-gitignore-block)
+    interim-exclude path (derived from the [§ 10](#10-adoption-status) Live path(s)
+    column), one probe that MUST be ignored — run **regardless of whether that
+    path's `<tool>` subtree is present**. A stale interim exclude for an absent or
+    removed tool is never reached by set (a), so it is probed explicitly here; an
+    interim line that ignores nothing is itself a **fail**.
+
+  Set (a)'s probe set, for each present `<tool>`:
   - shared content — `.punt-labs/<tool>/CLAUDE.md`, `.punt-labs/<tool>/config.yaml`
     — MUST NOT be ignored;
   - each local-convention form — `.punt-labs/<tool>/local/x` (segment),
@@ -361,15 +370,9 @@ These extend the audit list in
     ignored;
   - the counterexamples — `.punt-labs/<tool>/locales/en.yaml` and
     `.punt-labs/<tool>/config.locales.yaml` — MUST NOT be ignored (the second
-    catches a `*.local*` glob that anchors only the leading boundary);
-  - each [§ 6](#6-the-canonical-gitignore-block) interim-exclude path (from the
-    [§ 10](#10-adoption-status) Live path(s) column) — MUST be ignored. This probe
-    is checked against its **own named subtree**, so an interim exclude that
-    targets a subtree the per-`<tool>` set never visits (e.g. a stale path for a
-    tool no longer present) cannot pass silently — an interim line that ignores
-    nothing is itself a **fail**.
+    catches a `*.local*` glob that anchors only the leading boundary).
 
-  Any probe with the wrong outcome is a **fail**. The verbatim-text check that
+  Any probe in either set with the wrong outcome is a **fail**. The verbatim-text check that
   the canonical block ([§ 6](#6-the-canonical-gitignore-block)) is present and
   exact is retained **only as a diagnostic** — it explains *why* a probe failed
   (block missing, altered, or the deny-all form dropping the bare-directory line),
