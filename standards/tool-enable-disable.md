@@ -380,3 +380,8 @@ marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
 turn on; `enable` may call `init` when enabling requires config, but the two
 concerns stay separate. Tools that used `init` *only* to drop an enabled
 sentinel fold that into `enable` and retire the bare repo-root sentinel.
+
+Those repo-root config files (`.biff`, `.quarry.toml`) move into the tool's
+subtree config zone — see
+[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration) for the
+config-into-subtree migration.
