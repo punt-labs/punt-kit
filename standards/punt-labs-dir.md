@@ -117,11 +117,20 @@ Live state has two correct homes:
   the work they document. For those, the live writer appends to an untracked
   location and a **seal** step snapshots complete lines into the tracked file at
   a deliberate lifecycle point (pre-commit primary, `mission close` secondary).
-  Between seals the tracked file does not move, so the tree stays clean; a dirty
-  tracked path then *means* an unsealed record. The seal pattern's design home
-  is the ethos audit-seal design (DES-058, draft in `punt-labs/ethos` at
+  Between seals the tracked file does not move, so the tree stays clean. A
+  seal-managed stream is **declared per file** in the tool's manifest — seal
+  management is a property of the named file, never inferred from its directory.
+  (A directory glob over-matches: a non-seal-managed index file sitting beside a
+  sealed log must not inherit the exemption.) The seal pattern's design home is
+  the ethos audit-seal design (DES-058, draft in `punt-labs/ethos` at
   `docs/audit-seal.md`) — cite it for the mechanism, but do not pin its section
   numbers, which may move before it lands.
+
+**The seal exemption is gated on DES-058.** Until that design merges, no tool
+may claim it and no manifest entry grants it: every git-tracked,
+continuously-appended file under `.punt-labs/` is a violation
+([§ 8](#8-what-punt-audit-checks)). The exemption opens only once the seal
+mechanism it depends on exists.
 
 The distinction is not "important file vs. throwaway file." It is **write
 cadence**: operator- and lifecycle-driven writes may be tracked; process-driven
@@ -138,25 +147,35 @@ never hand-maintained per tool.**
 .punt-labs/**/*local*
 ```
 
-For a **deny-all + allowlist** repo (whose `.gitignore` begins by ignoring
-everything), the block first re-includes the tree, then re-excludes `*local*`,
-order-sensitively:
+For a **deny-all + allowlist** repo — one whose first non-comment `.gitignore`
+pattern is `*` or `/*`, ignoring everything — re-inclusion is order-sensitive,
+and **git will not re-include the contents of a still-ignored directory.** The
+directory must be re-included first, then its contents, then `*local*`
+re-excluded — three lines, in this order:
 
 ```gitignore
+!.punt-labs/
 !.punt-labs/**
 .punt-labs/**/*local*
 ```
 
-The re-include must precede the `*local*` re-exclude, and both must follow the
-deny-all line — otherwise the tree is either wholly ignored or wholly committed.
+The bare-directory line `!.punt-labs/` must come **before** the recursive
+`!.punt-labs/**`: git evaluates patterns top to bottom and cannot descend into a
+directory it still considers ignored, so `!.punt-labs/**` alone leaves the whole
+subtree ignored (empirically confirmed). The workspace's own tracked `.beads/` —
+`!.beads/` then `!.beads/**` — is the precedent. A two-line block without the
+bare-directory line is non-functional under deny-all.
 
 Lifecycle:
 
 - **`punt init`** writes the canonical block.
 - **`punt audit`** verifies it is present and exact
   ([§ 8](#8-what-punt-audit-checks)).
-- **The release rollout** ([release-process.md](release-process.md)) propagates
-  changes to the block across all consuming repos.
+- **The rollout** propagates changes to the block across all consuming repos by
+  the canonical-template pattern the workspace uses for its `.envrc`
+  (`.bin/envrc-canonical-rollout.sh` — one source template pushed to every
+  repo), not the fixed-artifact release propagation of
+  [release-process.md](release-process.md) phase 10.
 
 A tool **may** write defense-in-depth ignore rules of its own (a narrower glob
 for a path it knows is `*local*`), but those are additive belt-and-suspenders,
@@ -205,19 +224,29 @@ These extend the audit list in
 [tool-enable-disable.md § 2.11](tool-enable-disable.md#211-what-punt-audit-checks):
 
 - **Canonical block present and exact.** Every repo's `.gitignore` carries the
-  [§ 6](#6-the-canonical-gitignore-block) block verbatim, including the deny-all
-  re-include where the repo is deny-all. A missing or altered block is a fail.
+  [§ 6](#6-the-canonical-gitignore-block) block verbatim — the one-line form, or
+  the three-line deny-all form where the repo is deny-all (first non-comment
+  pattern `*` or `/*`). A missing, altered, or two-line deny-all block is a fail.
 - **No tracked `*local*`.** No path matching `.punt-labs/**/*local*` appears in
   `git ls-files`. A tracked `*local*` file means the ignore block is wrong or
   the file was force-added.
-- **No live state tracked.** No continuously-appended stream (an audit or log
-  file) is git-tracked outside the seal pattern
-  ([§ 5](#5-live-state-is-never-a-tracked-file)). Heuristic: a tracked
-  `.punt-labs/` file that is dirty on an otherwise-clean tree with an active
-  session is an unsealed live file — flag it.
-- **No secret under `.punt-labs/`.** No repo `.punt-labs/` path carries a
-  credential — defense-in-depth against a mis-scoped write
-  ([§ 3](#3-repo-versus-home-the-placement-rule)).
+- **No unsanctioned live state.** Flag any git-tracked, continuously-appended
+  file under `.punt-labs/` that is **not** listed as seal-managed in its tool's
+  manifest ([§ 5](#5-live-state-is-never-a-tracked-file)). Membership is
+  per-file and explicit, never inferred from a directory. Until DES-058 merges
+  the manifest grants no exemption (the § 5 gate), so every such file fails.
+- **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
+  own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
+  defense-in-depth rules) must itself be git-tracked; an untracked one is live
+  drift, not defense.
+- **No bare file under `.punt-labs/`.** Repo-local state lives in
+  `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
+  ([§ 1](#1-core-principle)). A bare file under `.punt-labs/` — e.g.
+  `.punt-labs/lux.md` — is a fail, tracked or not.
+- **No secret under `.punt-labs/`** *(best-effort)*. A heuristic scan for
+  credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
+  against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
+  green result is a tripwire, not proof of absence.
 - **No legacy root sentinel.** No `.biff`, `.vox`, `.lux`, or `.quarry.toml` at
   the repo root ([§ 2](#2-the-only-repo-local-location),
   [§ 9](#9-migration)).
@@ -226,11 +255,11 @@ These extend the audit list in
 
 ## 9. Migration
 
-Additive standard — no existing rule is removed or shifted. Two migrations bring
-existing tools into line, both **forward-integration, no compat shim**
-([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)) and both bound by
-the rule that **live config is never deleted with content inside**
-([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)).
+Additive standard — no existing rule is removed or shifted. Three migrations
+bring existing tools into line, all **forward-integration, no compat shim**
+([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md#pl-pp-1-no-backwards-compatibility-shims))
+and all bound by the rule that **live config is never deleted with content
+inside** ([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)).
 
 **Root sentinel → subtree** extends the
 [§ 2.12 sentinel table](tool-enable-disable.md#212-migration). That table already
@@ -247,6 +276,16 @@ standard names the destination (the config zone,
 The moved file lands in the **config zone**: `init`-owned, committed, never
 overwritten by `enable`.
 
+**Bare file → subtree.** A tool that keeps state as a single file directly under
+`.punt-labs/` — not inside its `<tool>/` subtree — breaks clause 1
+([§ 1](#1-core-principle), [§ 2](#2-the-only-repo-local-location)); the
+single-file form is **not** sanctioned. `lux` today ships `.punt-labs/lux.md`
+across the biff, vox, ethos, and quarry siblings; it moves into a subtree.
+
+| Legacy | Destination | Rule |
+|--------|-------------|------|
+| `.punt-labs/lux.md` (bare file) | `.punt-labs/lux/` (subtree) | Move the file under the tool subtree; the bare form is retired — subtree-only stands |
+
 **Ignore-convention → `*local*`** relocates the two non-conforming directories
 named in [§ 4](#4-committed-by-default-local-is-the-only-ignore-convention):
 `quarry`'s `captures/` and `vox`'s `ephemeral/` move to the global tree or adopt
@@ -258,8 +297,10 @@ named in [§ 4](#4-committed-by-default-local-is-the-only-ignore-convention):
 
 | Tool | State today | Target | Status |
 |------|-------------|--------|--------|
-| ethos | audit / mission live logs tracked in-repo | seal pattern; live writes to the global tree (DES-058) | Design (draft) |
+| ethos (logs) | audit / mission live logs tracked in-repo | seal pattern; live writes to the global tree (DES-058) | Design (draft) |
+| ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | biff | `.biff` root sentinel | `.punt-labs/biff/config.yaml` config zone | Planned |
 | quarry | `.quarry.toml` root; `captures/` in-repo | `.punt-labs/quarry/config.toml`; `captures/` → global or `*local*` | Planned |
 | vox | `vox.md` daemon-rewritten, tracked in some repos; `ephemeral/` | live state → global or `*local*`; `ephemeral/` relocated | Planned |
+| lux | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | `.punt-labs/lux/` subtree | Planned |
 | punt | writes the canonical gitignore block | `init` writes, `audit` verifies, rollout propagates | Building |
