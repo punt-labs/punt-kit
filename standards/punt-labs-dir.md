@@ -418,13 +418,16 @@ These extend the audit list in
   seal-manifest bullet's unconditional fail; the grade is bounded by the § 10
   status ([§ 10](#10-adoption-status) defines which statuses count as open).
 - **No interim exclude survives a completed migration** *(table-driven)*. When a
-  [§ 10](#10-adoption-status) row reads `Done`, the rollout drops the
+  [§ 10](#10-adoption-status) row becomes **complete per the § 10 legend**
+  (`Done` or `Complete`), the rollout drops the
   [§ 6](#6-the-canonical-gitignore-block) interim exclude that row owned. If that
-  exclude is **still in the canonical block** while the row is `Done` — the
+  exclude is **still in the canonical block** while the row is complete — the
   migration is finished on paper yet its Live path is still ignored — audit
-  **fails**. This closes a gap the escalation rules leave open: the bare-file and
+  **fails**. Keying on the legend's completed-set, not a literal `Done`, is
+  deliberate: a `Complete` row lapses every other exemption, so it must trip this
+  check too. This closes a gap the escalation rules leave open: the bare-file and
   live-state grades escalate to fail only on a *tracked* path, but a still-excluded
-  path is not tracked, so a prematurely-`Done` migration whose path is still
+  path is not tracked, so a prematurely-completed migration whose path is still
   excluded would otherwise trip no grade at all. The check keys on the § 10 status
   and the § 6 block together, never on tree state.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
@@ -447,9 +450,16 @@ These extend the audit list in
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
   green result is a tripwire, not proof of absence.
-- **No legacy root sentinel.** No `.biff`, `.vox`, `.lux`, or `.quarry.toml` at
-  the repo root ([§ 2](#2-the-only-repo-local-location),
-  [§ 9](#9-migration)).
+- **No legacy root sentinel** *(graded, expiring)*. No `.biff`, `.vox`, `.lux`,
+  or `.quarry.toml` at the repo root ([§ 2](#2-the-only-repo-local-location)).
+  Graded exactly like the bare-file check, not an unconditional fail: a sentinel
+  named in the [§ 9](#9-migration) root-sentinel table grades by its owning tool's
+  [§ 10](#10-adoption-status) status — a **warning** ("migration pending") while
+  that row is open, a **fail** once the row is complete per the § 10 legend, or if
+  the sentinel appears with **no** § 9 / § 10 row at all. An unconditional fail
+  would fail every repo in the fleet today, since every listed sentinel's migration
+  is still open ([§ 10](#10-adoption-status)) — the same day-one-fleet-fail the
+  bare-file and `.punt-labs/ethos.yaml` grades avoid.
 
 ---
 
@@ -546,7 +556,7 @@ value — `Design`, `Deprecating`, `Planned`, `Building`, or any status not in t
 two-word complete enumeration — is treated as open** (fail-closed: an unrecognized
 status never silently lifts an exemption). While a row is open, its migration's
 audit finding grades a **warning** and any interim exclude it owns stays in the
-canonical block; when the row flips to `Done`, the exemption **lapses** — the
-bare-file and live-state grades escalate to **fail** and the rollout drops the
-row's interim exclude. No row reads `Done` yet; the escalation is the forward
-contract for when one does.
+canonical block; when the row becomes **complete** (`Done` or `Complete`), the
+exemption **lapses** — the bare-file, root-sentinel, and live-state grades
+escalate to **fail** and the rollout drops the row's interim exclude. No row is
+complete yet; the escalation is the forward contract for when one is.
