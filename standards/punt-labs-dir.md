@@ -79,6 +79,13 @@ so the canonical gitignore block already ignores it with **no new rule**
 ([§ 6](#6-the-canonical-gitignore-block)). It is the local convention reserved at
 the top of the tree and namespaced by tool, nothing more.
 
+The top-level local zone is distinct from a tool's in-subtree **Local zone**
+([§ 7](#7-the-punt-labstool-subtree-has-zones)): the in-subtree zone is a tool's
+own `.punt-labs/<tool>/local/` (or `*.local`) holding per-user **static
+overrides**; the top-level local zone is `.punt-labs/local/<tool>/` holding
+machine-local **live state**. Both are ignored by the same local convention; they
+differ in location and in what they hold.
+
 Outside these two, a tool creates no top-level dotfile or dot-directory of its own
 — `.biff`, `.vox`, `.lux`, `.quarry.toml` at the repo root are **deprecated
 legacy** and are retired on the tool's next release ([§ 9](#9-migration)). This
@@ -371,9 +378,11 @@ The determinism guarantee of
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) — "writes the
 whole subtree on enable/upgrade and never reads-modifies-merges it" — is hereby
 scoped to the **vendored zone**. `enable` / upgrade rewrites the vendored files
-and the marker; it steps around the config and local zones. This is the
-amendment that lets repo config and tool-vendored content share one directory
-without the upgrade eating the config.
+and the marker; it steps around the Config and Local zones (this in-subtree
+**Local** zone is a tool's own `.punt-labs/<tool>/local/`, distinct from the
+top-level local zone of [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)).
+This is the amendment that lets repo config and tool-vendored content share one
+directory without the upgrade eating the config.
 
 **Vendored-zone membership is a shipped manifest, not write provenance.** Which
 files belong to the vendored zone cannot be inferred after the fact — nothing on
