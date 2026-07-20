@@ -193,18 +193,38 @@ Live state has two correct homes:
   at read time, not by merge. Between seals the tracked set does not move, so the
   tree stays clean.
 
-  The precise invariants the mechanism rests on — chunk atomicity, the idempotent
-  re-seal rule, the line-identity and dedup rule, the corruption-surfacing rule,
-  and the read-time merge — are fixed by DES-058's invariant block and are cited
-  here once that block is final; do not pin its section numbers, which may move
-  before the design lands. A seal-managed stream is **declared per file** in the
-  tool's **seal manifest** (distinct from the **vendored-zone manifest** of
-  [§ 7](#7-the-punt-labstool-subtree-has-zones), which lists deposited files) —
-  seal management is a property of the named file, never inferred from its
-  directory. (A directory glob over-matches: a non-seal-managed index file sitting
-  beside sealed chunks must not inherit the exemption.) The seal pattern's design
-  home is the ethos audit-seal design (DES-058, draft in `punt-labs/ethos` at
-  `docs/audit-seal.md`).
+  The mechanism rests on DES-058's invariant block (`punt-labs/ethos`,
+  `docs/audit-seal.md`) — cite it, but do not pin section numbers, which may move
+  before the design lands:
+  - **I10-audit-atomic** (amended): appends target the live session log under the
+    session flock, which allocates a strictly-monotonic per-session timestamp
+    `ts = max(now, last_ts + 1ns)` — always greater than the max sealed-chunk `ts`
+    at append time. A live writer never appends a sealed chunk.
+  - **I11-chunk**: each chunk is written exactly once via temp-and-rename and,
+    while named a chunk, never rewritten. Within one branch lineage a session's
+    chunks are disjoint, contiguous `ts` ranges (the watermark is tree-derived); a
+    branch rewind may overlap in merged history, resolved at read, not forbidden.
+  - **I11-idem**: sealing is lossless — every complete live line lands in at least
+    one chunk after a following seal; duplicate copies share `(session, ts)` and
+    are byte-identical.
+  - **I12-merge**: a read is the union of the sealed chunks and the live tail past
+    the sealed watermark. Post-discipline lines (post-upgrade chunks + live) dedup
+    on `(session, ts)`, loss-free; **frozen legacy lines are not deduped at all** —
+    they predate the monotonic-ts discipline and have no duplication source (the
+    seal never copies a legacy line into a chunk), and the two pools never mix
+    because every legacy `ts` sits below every post-upgrade `ts`.
+
+  Line identity is `(session, ts)`; there is no `seq` field. A corrupt chunk — one
+  that does not parse whole, or whose last `ts` disagrees with its filename — is
+  surfaced as an error naming the chunk, never a silent drop; the specified
+  recovery is `ethos audit quarantine` (DES-058), not `--no-verify`. A seal-managed
+  stream is **declared per file** in the tool's **seal manifest** (distinct from
+  the **vendored-zone manifest** of [§ 7](#7-the-punt-labstool-subtree-has-zones),
+  which lists deposited files) — seal management is a property of the named file,
+  never inferred from its directory. (A directory glob over-matches: a
+  non-seal-managed index file sitting beside sealed chunks must not inherit the
+  exemption.) The seal pattern's design home is the ethos audit-seal design
+  (DES-058, draft in `punt-labs/ethos` at `docs/audit-seal.md`).
 
 **The seal exemption is gated on DES-058.** Until then no tool may claim it and
 no seal-manifest entry grants it: every git-tracked, continuously-appended file under
