@@ -60,6 +60,20 @@ Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. This extends the `enable` / `disable` entry in
 [cli.md § Required Subcommands](cli.md#enable--disable).
 
+**Vocabulary is `enable` / `disable` — `y` / `n` is retired.** The two verbs are
+the fleet-wide vocabulary for turning a tool on and off, at both surfaces (§2.14).
+A boolean `y|n` / `true|false` toggle is **not** permitted for enablement: it
+reads as a per-user preference, it splits into two vocabularies (one in the
+command, one in a config file), and it invites an auto-enable shortcut (below).
+`enable` writes the marker; `disable` removes it; there is no third state and no
+boolean. (Per-*user* preferences unrelated to enablement — e.g. a "do not contact
+me" flag — may keep their own `y|n` verb; that is a separate layer, see §2.14.)
+
+**No auto-enable.** A tool never turns itself on as a side effect of first use.
+Enablement is explicit: the marker exists because a human ran `enable` and
+committed it, never because the tool inferred intent. A tool invoked in a repo
+where its marker is absent is a graceful no-op, not a trigger to self-enable.
+
 **`enable`** — idempotent; re-running is also the upgrade path:
 
 1. Deposit `<repo>/.punt-labs/<tool>/CLAUDE.md` (and any other files the tool
@@ -203,10 +217,28 @@ it. This is a distinct signal from directory presence: the directory can persist
 "enabled." The marker lives inside the tool's own subtree, so `disable` removes
 it without touching anything the tool did not just create.
 
-Hook shell gates test the marker, not the directory:
+**The marker is committed — enablement is per-repo policy, not per-user
+preference.** The marker is a git-tracked file (it is carved out of the
+vendored-zone overwrite, §2.2, but it is *not* gitignored — unlike
+local-convention files, §2.9). It travels with the repo: a project-level tool
+(biff, quarry, ethos) is a collaboration/knowledge capability that is either on
+for the whole project or off for it, so whether it is enabled is a property of
+the repo that every contributor who clones — and has the tool installed —
+shares. Committing the marker makes that decision reviewable in a PR and
+identical for the whole team, with no hidden per-machine divergence. A
+gitignored per-user enablement flag is the rejected alternative: it silently
+leaves a fresh clone off for everyone and re-litigates the decision on each
+machine. Genuinely per-*user* preferences (e.g. "do not contact me right now")
+are a separate, local/gitignored layer — see §2.14.
+
+Hook shell gates test the marker, and also confirm the tool is installed, so a
+clone of a marker-enabled repo on a machine *without* the tool is a graceful
+no-op rather than a "command not found" error (the §2.11 "no stale enabled
+tools" invariant, at gate time):
 
 ```bash
 [ -f "$REPO_ROOT/.punt-labs/<tool>/enabled" ] || exit 0
+command -v <tool> >/dev/null 2>&1 || exit 0
 ```
 
 Three states are now distinguishable, and the invariants in 2.9 and 2.11 depend
@@ -392,3 +424,46 @@ Those repo-root config files (`.biff`, `.quarry.toml`) move into the tool's
 subtree config zone — see
 [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration) for the
 config-into-subtree migration.
+
+## 2.14 Dual surface, and the separate per-user layer
+
+### Two front-ends, one marker
+
+Every project-level tool exposes the `enable` / `disable` verbs at **both**
+front-ends, and both write and remove the **same** `.punt-labs/<tool>/enabled`
+marker (§2.7). There is one source of truth; the surfaces are two doors to it.
+
+| Surface | Form | Writes |
+|---------|------|--------|
+| CLI | `<tool> enable` / `<tool> disable`, run in the repo | The marker (and hooks/import per §2.3) |
+| Claude Code | `/<tool> enable` / `/<tool> disable` | The marker, via the tool's MCP server |
+
+The two must be behaviorally interchangeable for the enablement decision: a
+marker written by `/<tool> enable` is identical to one written by
+`<tool> enable`, and either verb's `disable` removes it. Neither surface runs
+git — the marker is a working-tree change the user commits via a PR like any
+other, so enablement lands through review, not through a tool's side effect.
+
+An MCP enable/disable tool takes an `action` argument constrained to
+`"enable" | "disable"` — **not** an `enabled: bool`. The boolean shape is the
+retired `y|n` vocabulary (§2.3) wearing a type; the verb shape keeps the one
+vocabulary across both surfaces.
+
+### The per-user layer is separate
+
+Repo enablement (this standard) answers "is the tool on for this project?" It is
+committed and whole-repo. It is **not** the place for a per-user, per-session
+preference such as "I am here but do not deliver messages to me right now." That
+preference is a distinct, **local/gitignored** layer the tool owns separately
+(biff's `mesg y|n` is the reference: a per-user delivery switch, not the
+enablement switch). The two never conflate:
+
+- Repo policy (committed marker) decides whether the tool runs for the project
+  at all. Removing it turns the tool off for everyone on their next clone/pull.
+- The per-user layer decides one contributor's momentary behavior *while the
+  tool is enabled*. It lives in a gitignored file (`*.local.*`,
+  `.punt-labs/<tool>/local/`, §2.9) and never travels in a PR.
+
+A per-user preference verb may keep a `y|n` form (it is a genuine two-state
+preference, not enablement); the `y|n` retirement in §2.3 applies to
+*enablement* only.
