@@ -119,6 +119,7 @@ Standards documents covering the full development lifecycle:
 | [Pharo](standards/pharo.md) | Pharo/Smalltalk, image-based development, in-image linting |
 | [CLI](standards/cli.md) | typer, `punt-` PyPI prefix, entry point naming, global flags |
 | [Shell](standards/shell.md) | POSIX install scripts, bash dev scripts, shellcheck |
+| [CLI-Only Install](standards/install-cli-only.md) | `install.sh --no-plugin` / `<TOOL>_NO_PLUGIN=1`: install the CLI, skip the Claude Code plugin, identically across tools |
 | [GitHub](standards/github.md) | Branch protection, PR workflow, Copilot review, Dependabot |
 | [Workflow](standards/workflow.md) | Beads, branch discipline, micro-commits, session close |
 | [Distribution](standards/distribution.md) | PyPI trusted publishing, `.mcpb` bundles, installers |
