@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `standards/install-cli-only.md` — CLI-only install standard: every tool
+  whose `install.sh` installs both a CLI and a Claude Code plugin MUST offer a
+  `--no-plugin` flag and `<TOOL>_NO_PLUGIN=1` env var (strict `=1`) that skip
+  **only** the marketplace-register and plugin-install steps, work over
+  `curl … | sh` via `sh -s -- --no-plugin` and `<TOOL>_NO_PLUGIN=1 sh`,
+  resolve through a single boolean OR (flag OR env OR capability-absence
+  auto-skip) with no counter-flag, gate CLI-only success messaging on the skip
+  boolean (no "restart Claude Code" line), and never auto-detect an enterprise
+  policy block by probing the plugin command. Includes a 10-item conformance
+  checklist. Reference implementation: ethos `install.sh` (v-next), ratified as
+  ethos ADR DES-063
 - `standards/punt-labs-dir.md` — repo-local state directory standard:
   `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local
   `.punt-labs/local/` zone, committed except local-convention paths
