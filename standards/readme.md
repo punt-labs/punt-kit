@@ -12,8 +12,13 @@ Reference implementations:
 
 Badges appear immediately after the H1 heading (and tagline, if present).
 Order is always: License, CI, then language-specific badges where
-applicable (PyPI + Python for Python; Go Reference + Go Report Card
-for Go). Plugin-only projects stop at License + CI.
+applicable (PyPI + Python for Python; Go Reference for Go). Plugin-only
+projects stop at License + CI.
+
+Go lint status is covered by the **CI badge** — golangci-lint runs in CI
+as the Go lint gate (see the [Go standard](go.md)). There is no separate
+Go Report Card badge: `goreportcard.com` is sunset as of 2026-07-01, and
+golangci-lint is its recommended successor.
 
 **Python projects** (published to PyPI):
 
@@ -37,7 +42,6 @@ for Go). Plugin-only projects stop at License + CI.
 [![License](https://img.shields.io/github/license/punt-labs/{repo})](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/punt-labs/{repo}/{workflow}.yml?label=CI)]({ci-url})
 [![Go Reference](https://pkg.go.dev/badge/github.com/punt-labs/{repo}.svg)](https://pkg.go.dev/github.com/punt-labs/{repo})
-[![Go Report Card](https://goreportcard.com/badge/github.com/punt-labs/{repo})](https://goreportcard.com/report/github.com/punt-labs/{repo})
 ```
 
 **Working Backwards badge** *(optional)*:
