@@ -279,9 +279,13 @@ same analyzer versions regardless of each project's `go.mod` toolchain.
 | `shellcheck` | Shell script linting | Yes (if project has `.sh` files) |
 
 golangci-lint runs under `make check` (in the `lint` target) with zero issues,
-and the same pinned version runs in CI. Do not suppress findings with `//nolint`
-unless the suppression includes a comment explaining why. The Makefile is the
-source of truth for the pinned version; see [Makefile standards](makefile.md).
+and the same pinned version runs in CI. `golangci-lint run` also reports the
+enabled formatters, so it doubles as a format check; the Makefile template pairs
+it with `golangci-lint fmt --diff` to make formatting an explicit gate that does
+not depend on which formatters are enabled. Do not suppress findings with
+`//nolint` unless the suppression includes a comment explaining why. The
+Makefile is the source of truth for the pinned version; see
+[Makefile standards](makefile.md).
 
 ethos is the reference implementation: its `lint` target runs
 `golangci-lint run ./...` plus `shellcheck`, and its `.github/workflows/test.yml`
@@ -292,9 +296,9 @@ separately.
 ### Configuration
 
 Every Go project has a `.golangci.yml` at the repo root on the golangci-lint v2
-schema. Enable a conservative set the tree passes clean on adoption, then widen
-as the code is cleaned up --- a gate that floods on first run gets disabled, not
-fixed. Match `staticcheck` to the standalone baseline: golangci-lint's bundle
+schema. Enable a conservative set that the tree passes clean on adoption, then
+widen as the code is cleaned up --- a gate that floods on first run gets
+disabled, not fixed. Match `staticcheck` to the standalone baseline: golangci-lint's bundle
 enables the opinionated ST stylecheck checks and the QF quickfix category that
 standalone `staticcheck` leaves off, so restate the default ST exclusions and
 drop the QF category to adopt with zero new findings.

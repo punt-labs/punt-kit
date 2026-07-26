@@ -19,7 +19,7 @@ Every project must define these targets. The underlying commands vary by ecosyst
 |--------|---------|----------------|------------|
 | `help` | List available targets with descriptions | `@grep -E ...` | `@grep -E ...` |
 | `test` | Run the default test suite | `uv run pytest` | `go test -race -count=1 ./...` |
-| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `golangci-lint run ./...` |
+| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `golangci-lint run ./... && golangci-lint fmt --diff` |
 | `check` | Run all quality gates | `$(MAKE) lint type test` | `$(MAKE) lint test` |
 | `format` | Auto-fix formatting and lint issues | `uv run ruff format . && uv run ruff check --fix .` | `golangci-lint fmt` |
 | `build` | Build distributable artifacts | `uv build` | `CGO_ENABLED=0 go build -o <binary> .` |
@@ -82,8 +82,14 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 # golangci-lint is the Go lint gate (Go Report Card successor). Pin the
 # version so local and CI run the same analyzer bundle; keep it in sync with
 # the golangci-lint-action version in .github/workflows. Config: .golangci.yml.
+# Resolve the install dir the way `go install` does: GOBIN if set, else
+# GOPATH/bin — so the `tools` target and this path agree when GOBIN is set.
 GOLANGCI_LINT_VERSION := v2.12.2
-GOLANGCI_LINT := $(shell go env GOPATH)/bin/golangci-lint
+GOBIN := $(shell go env GOBIN)
+ifeq ($(GOBIN),)
+GOBIN := $(shell go env GOPATH)/bin
+endif
+GOLANGCI_LINT := $(GOBIN)/golangci-lint
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -91,8 +97,9 @@ help: ## Show available targets
 test: ## Run tests
 	go test -race -count=1 ./...
 
-lint: ## Lint (golangci-lint bundles go vet, staticcheck, gofmt)
+lint: ## Lint and format check (golangci-lint bundles go vet, staticcheck)
 	$(GOLANGCI_LINT) run ./...
+	$(GOLANGCI_LINT) fmt --diff
 
 check: lint test ## Run all quality gates
 
