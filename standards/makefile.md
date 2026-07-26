@@ -82,12 +82,13 @@ LDFLAGS := -s -w -X main.version=$(VERSION)
 # golangci-lint is the Go lint gate (Go Report Card successor). Pin the
 # version so local and CI run the same analyzer bundle; keep it in sync with
 # the golangci-lint-action version in .github/workflows. Config: .golangci.yml.
-# Resolve the install dir the way `go install` does: GOBIN if set, else
-# GOPATH/bin — so the `tools` target and this path agree when GOBIN is set.
+# Resolve the install dir the way `go install` does: GOBIN if set, else the
+# first GOPATH entry + /bin — so the `tools` target and this path agree. GOPATH
+# can be colon-separated, so take the first entry before appending /bin.
 GOLANGCI_LINT_VERSION := v2.12.2
 GOBIN := $(shell go env GOBIN)
 ifeq ($(GOBIN),)
-GOBIN := $(shell go env GOPATH)/bin
+GOBIN := $(shell go env GOPATH | cut -d: -f1)/bin
 endif
 GOLANGCI_LINT := $(GOBIN)/golangci-lint
 
