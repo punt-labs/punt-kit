@@ -267,28 +267,89 @@ func setupExtTest(t *testing.T) *Store {
 
 ## 7. Static Analysis
 
+`golangci-lint` is the Go lint gate. It is the successor to Go Report Card
+(`goreportcard.com`, sunset 2026-07-01) and bundles the checks Go Report Card
+ran --- gofmt, go vet, ineffassign, misspell, gocyclo --- alongside staticcheck
+and unused, running them from a single pinned binary so local and CI use the
+same analyzer versions regardless of each project's `go.mod` toolchain.
+
 | Tool | Purpose | Required? |
 |------|---------|-----------|
-| `go vet` | Built-in correctness checks | Yes |
-| `staticcheck` | Extended static analysis | Yes |
-| `gofmt` / `gofumpt` | Canonical formatting (`make format`) | Yes (non-negotiable; projects may use `gofumpt` as a stricter drop-in) |
+| `golangci-lint` | Umbrella Go lint gate (bundles go vet, staticcheck, gofmt, and more) | Yes |
 | `shellcheck` | Shell script linting | Yes (if project has `.sh` files) |
 
-`go vet` and `staticcheck` both run under `make check` with zero warnings. The two projects wire them slightly differently --- cryptd runs `go vet ./...` as its own `vet` target and `staticcheck ./...` as `lint`, while ethos bundles `go vet`, `staticcheck`, and `shellcheck` into a single `lint` target --- but in both, `make check` will not pass while either tool reports anything. Do not suppress warnings with `//nolint` unless the suppression includes a comment explaining why.
+golangci-lint runs under `make check` (in the `lint` target) with zero issues,
+and the same pinned version runs in CI. Do not suppress findings with `//nolint`
+unless the suppression includes a comment explaining why. The Makefile is the
+source of truth for the pinned version; see [Makefile standards](makefile.md).
 
-The Makefile is the source of truth for which tools run. See [Makefile standards](makefile.md) for the Go template.
+ethos is the reference implementation: its `lint` target runs
+`golangci-lint run ./...` plus `shellcheck`, and its `.github/workflows/test.yml`
+runs the pinned `golangci-lint-action`. Migration of the other Go projects
+(cryptd, beadle-email) off standalone `go vet` / `staticcheck` is tracked
+separately.
 
-### Installing staticcheck
+### Configuration
 
-Pin to a release tag and force the Go toolchain at install time:
+Every Go project has a `.golangci.yml` at the repo root on the golangci-lint v2
+schema. Enable a conservative set the tree passes clean on adoption, then widen
+as the code is cleaned up --- a gate that floods on first run gets disabled, not
+fixed. Match `staticcheck` to the standalone baseline: golangci-lint's bundle
+enables the opinionated ST stylecheck checks and the QF quickfix category that
+standalone `staticcheck` leaves off, so restate the default ST exclusions and
+drop the QF category to adopt with zero new findings.
 
-```bash
-GOTOOLCHAIN=go1.26.1 go install honnef.co/go/tools/cmd/staticcheck@2025.1.1
+```yaml
+version: "2"
+linters:
+  default: none
+  enable:
+    - govet
+    - staticcheck
+    - unused
+  settings:
+    staticcheck:
+      checks:
+        - all
+        - -ST1000
+        - -ST1003
+        - -ST1016
+        - -ST1020
+        - -ST1021
+        - -ST1022
+        - -QF*
+formatters:
+  enable:
+    - gofmt
 ```
 
-`GOTOOLCHAIN` matters at install time only. Without it, Go's toolchain directive in the consumer module can trigger an auto-switch that tries to compile the pinned staticcheck release under a toolchain it was not cut against — the symptom is a `go install` failure or an internal compiler error when running `staticcheck ./...` afterward, and the failure is quiet enough to be mistaken for a project bug. Once installed to `$GOBIN/staticcheck` (or `$(go env GOPATH)/bin/staticcheck` when `GOBIN` is unset), the binary runs clean against projects on any toolchain.
+Add `errcheck`, `ineffassign`, `misspell`, and `gocyclo` as the tree is cleaned
+up to pass them.
 
-Reference: bead `punt-t0j`.
+### Installing golangci-lint
+
+Pin to a release tag in the Makefile and install the same version locally and in
+CI. Locally:
+
+```bash
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
+```
+
+In CI, use the official action pinned by commit SHA to the matching version:
+
+```yaml
+- name: golangci-lint
+  uses: golangci/golangci-lint-action@4afd733a84b1f43292c63897423277bb7f4313a9 # v8
+  with:
+    version: v2.12.2
+```
+
+The Makefile pins the version in a `GOLANGCI_LINT_VERSION` variable so the
+`tools` target, the `lint` target, and the CI workflow all reference one number.
+Keep the CI `version:` in sync with that pin. golangci-lint ships its analyzers
+compiled into one binary, so --- unlike a standalone `staticcheck` install --- it
+needs no `GOTOOLCHAIN` pin to avoid an auto-switch against the consumer module's
+toolchain directive (the failure mode recorded in bead `punt-t0j`).
 
 ## 8. Concurrency
 
@@ -481,4 +542,4 @@ See [CLI standards](cli.md) for naming conventions and [Makefile standards](make
 
 Go carries its coding rules as `.claude/rules/go-*.md` files, the same mechanism the other languages use, loaded by an ancestor walk when an agent touches a matching file. These rules are the Go analog of the Python rules under `.claude/rules/python-*.md` and the C rules xboing-c holds under its own `.claude/rules/`. They are the intended home for the naming, layout, interface-placement, error-wrapping, concurrency, and prohibited-pattern conventions this document describes, and a change to Go must satisfy them the way a change to Python must satisfy its own.
 
-Go has no OO ratchet. The ratchet that scores object-oriented quality against a committed baseline is a Python mechanism, described in [python.md](python.md), and it exists because LLM-generated Python drifts toward procedural code that only looks object-oriented. Go is not object-oriented, so there is nothing for such a ratchet to measure --- it has no class hierarchy to score, no baseline of encapsulation to hold. What holds Go to its standard is the combination the sections above describe: `go vet` and `staticcheck` reporting zero warnings, the race detector on every `go test` run, the table-driven test suite, and the `.claude/rules/go-*.md` files --- all run together by `make check`, in cryptd and ethos alike, before a change ships.
+Go has no OO ratchet. The ratchet that scores object-oriented quality against a committed baseline is a Python mechanism, described in [python.md](python.md), and it exists because LLM-generated Python drifts toward procedural code that only looks object-oriented. Go is not object-oriented, so there is nothing for such a ratchet to measure --- it has no class hierarchy to score, no baseline of encapsulation to hold. What holds Go to its standard is the combination the sections above describe: `golangci-lint` (bundling go vet, staticcheck, and gofmt) reporting zero issues, the race detector on every `go test` run, the table-driven test suite, and the `.claude/rules/go-*.md` files --- all run together by `make check` before a change ships.

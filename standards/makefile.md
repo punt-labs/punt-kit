@@ -19,9 +19,9 @@ Every project must define these targets. The underlying commands vary by ecosyst
 |--------|---------|----------------|------------|
 | `help` | List available targets with descriptions | `@grep -E ...` | `@grep -E ...` |
 | `test` | Run the default test suite | `uv run pytest` | `go test -race -count=1 ./...` |
-| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `go vet ./... && staticcheck ./...` |
+| `lint` | Lint and format check (no mutations) | `uv run ruff check . && uv run ruff format --check .` | `golangci-lint run ./...` |
 | `check` | Run all quality gates | `$(MAKE) lint type test` | `$(MAKE) lint test` |
-| `format` | Auto-fix formatting and lint issues | `uv run ruff format . && uv run ruff check --fix .` | `gofumpt -w .` |
+| `format` | Auto-fix formatting and lint issues | `uv run ruff format . && uv run ruff check --fix .` | `golangci-lint fmt` |
 | `build` | Build distributable artifacts | `uv build` | `CGO_ENABLED=0 go build -o <binary> .` |
 | `clean` | Remove build artifacts and temp files | `rm -rf dist/ .tmp/` | `rm -f <binary> && rm -rf dist/` |
 
@@ -73,11 +73,17 @@ clean: ## Remove build artifacts
 ## Template: Go projects
 
 ```makefile
-.PHONY: help test lint check format build clean
+.PHONY: help test lint check format build clean tools
 
 BINARY  := <binary-name>
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
+
+# golangci-lint is the Go lint gate (Go Report Card successor). Pin the
+# version so local and CI run the same analyzer bundle; keep it in sync with
+# the golangci-lint-action version in .github/workflows. Config: .golangci.yml.
+GOLANGCI_LINT_VERSION := v2.12.2
+GOLANGCI_LINT := $(shell go env GOPATH)/bin/golangci-lint
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -85,14 +91,16 @@ help: ## Show available targets
 test: ## Run tests
 	go test -race -count=1 ./...
 
-lint: ## Lint and vet
-	go vet ./...
-	staticcheck ./...
+lint: ## Lint (golangci-lint bundles go vet, staticcheck, gofmt)
+	$(GOLANGCI_LINT) run ./...
 
 check: lint test ## Run all quality gates
 
 format: ## Auto-format code
-	gofumpt -w .
+	$(GOLANGCI_LINT) fmt
+
+tools: ## Install development tools
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 build: ## Build binary
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(BINARY) .
