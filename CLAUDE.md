@@ -211,7 +211,7 @@ See [DESIGN.md](DESIGN.md) DES-013, DES-014, and DES-016 for the full rationale.
 
 ## Code Review
 
-See [PR and Review standards](standards/pr-review.md) for the full specification. Key rules inlined here:
+See the [PR and Review standard](standards/pr-review.md) for the full specification. Key rules inlined here:
 
 1. **Create PR** via `mcp__github__create_pull_request`. Prefer MCP GitHub tools over `gh` CLI where possible.
 2. **Request Copilot review** via `mcp__github__request_copilot_review`.

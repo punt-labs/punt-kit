@@ -363,7 +363,8 @@ hygiene one:
 function pr_loop(unit):
 
     # A. BUILD — missions, one at a time
-    branch from main                      # feat/ fix/ refactor/ docs/ chore/
+    branch from main                      # feat/ fix/ refactor/ docs/
+                                          #   release/ chore/
     if unit is architectural (new contract, new types, cross-cutting flow —
                               each repo's WORKFLOW.md names its classes):
         design mission first, with no prescribed write-set
