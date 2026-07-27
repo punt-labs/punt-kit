@@ -37,10 +37,6 @@ research/research-*.md
 # Editor/tool local state
 .vscode/
 .cursor/
-!.cursor/skills/
-!.cursor/commands/
-!.cursor/rules/
-!.cursor/punt-generated.json
 Lux.ini
 
 # Local uv overrides (depot find-links, etc.)

@@ -79,6 +79,10 @@ All notable changes to this project will be documented in this file.
   DES-058 invariants (immutable chunks, `(session, ts)` identity, frozen
   legacy lines undeduped); ethos §10 rows moved to local-zone live paths
   with the gitlink case as signaled deferral, bounded until vendored
+- The `/punt auto` executor-protocol skill moved from
+  `.cursor/skills/auto/SKILL.md` to `skills/auto/SKILL.md` at the plugin root,
+  severing it from the removed `.cursor/` tree; `commands/auto.md` and
+  `commands/auto-dev.md` repointed to the new path (no behavior change)
 
 ### Removed
 
@@ -89,6 +93,17 @@ All notable changes to this project will be documented in this file.
   Makefile managed sections (`punt auto makefile`) are unaffected
 - `playbooks/claude.yaml` — its only job was running `punt auto claude`
   across child repos
+- `/punt claude2cursor` and its `-dev` variant, plus the
+  `Skill(punt:claude2cursor)` permission `punt init` wrote into
+  `.claude/settings.json`. Operator ruling (pkit-k29q, product rethink): the
+  Cursor-conversion command is cut from punt-kit entirely — no deprecation
+  shim, no stub
+- The generated `.cursor/` tree that was `claude2cursor`'s output —
+  `.cursor/commands/`, `.cursor/rules/punt-kit-context.mdc`,
+  `.cursor/punt-generated.json`, and the per-command skills under
+  `.cursor/skills/` — orphaned once nothing regenerates it. The hand-authored
+  `/punt auto` executor protocol, which lived at `.cursor/skills/auto/SKILL.md`
+  because the generator wrote alongside it, is preserved (see Changed)
 
 ## [0.11.2] - 2026-03-29
 

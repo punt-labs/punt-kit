@@ -24,7 +24,7 @@ punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, stan
 
 punt-kit is both a Python package (`punt` CLI) and a Claude Code plugin
 (`punt@punt-labs` on the marketplace). The plugin wraps the CLI with slash
-commands (`/punt init`, `/punt audit`, `/punt reconcile`, `/punt claude2cursor`, etc.).
+commands (`/punt init`, `/punt audit`, `/punt reconcile`, etc.).
 
 ### Key rules
 
@@ -39,7 +39,6 @@ commands (`/punt init`, `/punt audit`, `/punt reconcile`, `/punt claude2cursor`,
   side by side. Launch with `claude --plugin-dir .` from the repo root.
 - **Can't run `claude` inside a session** — ask the user to run plugin CLI
   commands in a separate terminal when needed.
-- **`/punt claude2cursor [path]`** — Write Cursor skills (and optional rules) from this plugin's commands into the workspace or the given path. Safe to run repeatedly; overwrites and cleans up obsolete artifacts.
 
 ### Developer launch
 
@@ -240,7 +239,7 @@ punt-kit is the *standards repo* for the entire Punt Labs org. It hosts (1) the 
 | Workflow / process / review-flow standards | `adt` (Hopper) | `mdm` |
 | Python implementation (`punt` CLI, playbook executor) | `rmh` (Hettinger) | `gvr` (van Rossum) |
 | Release playbook / phase logic | `adb` (Lovelace) | `rmh` |
-| Plugin scaffolding / `claude2cursor` / dev/prod swap | `mdm` | `rmh` |
+| Plugin scaffolding / dev/prod swap | `mdm` | `rmh` |
 | CI workflows / branch protection / SHA pin propagation | `adb` | `djb` (Bernstein) |
 | Cross-repo rollout / sibling PR generation | `adb` | `mdm` |
 | Security review of release scripts (PyPI, signing) | `djb` | `adb` |
