@@ -887,6 +887,7 @@ consuming repo's owner before either side merges.
 ## Related Standards
 
 - [PR and Review](pr-review.md) — PR boundaries, review sequencing, installed semantics
+- [Git](git.md) — git mechanics: branch check, no-rewrite rule, conflict resolution, post-merge cleanup, worktrees, submodules
 - [Agent Engineering](agent-engineering.md) — judgment defaults for AI coding agents
 - [Makefile](makefile.md) — quality-gate composition
 - [GitHub](github.md) — branch protection, CI, Copilot configuration

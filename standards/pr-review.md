@@ -171,5 +171,6 @@ is not a dismissal — it is a skipped finding.
 ## Related Standards
 
 - [Workflow](workflow.md) — development loop, branch discipline, commits
+- [Git](git.md) — git mechanics: no-rewrite rule, conflict resolution, post-merge cleanup, worktrees, submodules, stop-and-ask
 - [Agent Engineering](agent-engineering.md) — engineering principles including reversibility and test coverage
 - Destructive git operations (`git reset --hard`, `git push --force`, `git stash drop`, etc.) require explicit operator consent before execution — see org-level `CLAUDE.md` § Destructive Operations

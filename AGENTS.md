@@ -34,6 +34,7 @@ Each standard lives in its own document under `standards/`.
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
 | [PR and Review](standards/pr-review.md) | Local-first review: the PR as merge gate, review agents, remote reviewers as second opinion |
+| [Git](standards/git.md) | Git mechanics: branch check before commit, no-rewrite of pushed branches, conflict resolution, post-merge cleanup ordering, worktree lifecycle, submodules, mission trailers, stop-and-ask |
 | [Release Process](standards/release-process.md) | The `/punt:auto release` playbook, deterministic phases 1–11, cross-repo propagation |
 | [Release Requirements](standards/release-requirements.md) | End-state artifacts a release must satisfy in the originating repo and siblings |
 | [README](standards/readme.md) | Required README structure, install trust tiers, tone and positioning |
