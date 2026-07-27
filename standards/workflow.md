@@ -540,8 +540,9 @@ the entry is part of what gets reviewed, never added retroactively on main.
 
 ### The merge recap
 
-After merging a PR, send a recap email to <jim@punt-labs.com> via beadle —
-every merge, unprompted.
+After merging a PR, send a recap email via beadle to the operator's
+configured recap address (the org-level `CLAUDE.md` names the current
+recipient) — every merge, unprompted.
 
 - **Subject**: `[repo-name] PR #N merged: <title>`
 - **Required**: bead ID, PR link, 1-paragraph summary of what changed, why,
