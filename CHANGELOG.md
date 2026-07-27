@@ -53,6 +53,16 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Standards round-up (pkit-e7m2): `tool-enable-disable.md` §2.4 gains four
+  write-contract corrections from biff's reference implementation
+  (balanced-pair fences, the mandated `.<host-file-name>.punt-import.lock`
+  shared lock, non-indented delimiters only, same-marker close of length ≥
+  opener) and names biff's `ClaudeMdImport` as the canonical reference;
+  `punt-labs-dir.md` §4 gains the redaction-at-write clause for committed
+  content (DES-058) with a `punt pii` audit cross-ref in §8; `python.md`
+  gains a Version Reporting section (`importlib.metadata.version`, no
+  literal `__version__`); `patterns/claude-md-injection.md` renamed to
+  `claude-md-import-includes.md` with all links updated
 - `standards/punt-labs-dir.md` — local-zone amendment per the operator's
   DES-058 overturn: `.punt-labs/local/<tool>/` named as the org convention
   for per-checkout machine-local live state (the one non-tool entry under

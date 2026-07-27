@@ -1,5 +1,7 @@
 # Python Standards
 
+**Updated:** 2026-07-27
+
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
 Current Python projects: punt-kit, Biff, Quarry, LangLearn TTS, LangLearn, LangLearn Types, LangLearn Anki, LangLearn Imagegen.
@@ -224,6 +226,28 @@ Target **3.13+**. Use modern PEP conventions:
 - `Annotated` for metadata
 - `type` statements where appropriate
 
+## Version Reporting
+
+The version lives in `pyproject.toml` and nowhere else. Code that reports it —
+`--version` output, a `doctor` line, a User-Agent string — reads the installed
+package metadata:
+
+```python
+from importlib.metadata import version
+
+def cli_version() -> str:
+    return version("punt-<name>")
+```
+
+- **No literal `__version__ = "X.Y.Z"` anywhere.** A duplicated string needs a
+  release-time bump-and-verify of its own; three fallback patterns and their
+  regex workarounds grew in the release tool before this rule.
+- The argument to `version()` is the **distribution name** (`punt-<name>`, the
+  PyPI name — see Naming below), not the import package name.
+- **No `"0.0.0"` fallback.** An uninstalled package raising
+  `PackageNotFoundError` is a broken environment; fail fast (see Error
+  Handling), do not report a version that does not exist.
+
 ## Quality Gates
 
 Run before every commit. All must pass with zero violations.
@@ -423,7 +447,7 @@ TestPyPI failure blocks PyPI publish. This catches packaging issues before they 
 
 ### Developer steps
 
-1. Bump version in `pyproject.toml` (and any mirrors: `plugin.json`, `manifest.json`, `__init__.py`, `install.sh` VERSION pin)
+1. Bump version in `pyproject.toml` (and any mirrors: `plugin.json`, `manifest.json`, `install.sh` VERSION pin — never `__init__.py`, see Version Reporting)
 2. Move `[Unreleased]` entries in `CHANGELOG.md` to new version section with date
 3. Run all quality gates
 4. Commit: `chore: release vX.Y.Z`
