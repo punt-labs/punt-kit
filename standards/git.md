@@ -102,11 +102,12 @@ git fetch --prune origin
 
 **The order is load-bearing.** A squash merge writes a *new* commit on `main`,
 so the feature branch's tip is not reachable from `main`. `git branch -d`
-verifies the branch is merged by checking reachability through *any* ref,
-including the still-present remote-tracking ref `origin/<branch>` — so it
-succeeds. If you prune first, that remote-tracking ref is gone, `-d` can no
-longer prove the branch merged, and it refuses with a warning — forcing a `-D`
-that discards the safety check entirely.
+verifies the branch is merged against its **upstream** — the remote-tracking
+ref `origin/<branch>` it tracks (falling back to `HEAD` when no upstream is
+set) — and `origin/<branch>` still points at the branch tip, so the check
+passes and the delete succeeds. If you prune first, that upstream ref is gone,
+`-d` can no longer prove the branch merged, and it refuses with a warning —
+forcing a `-D` that discards the safety check entirely.
 
 Use `-D` only after confirming the branch carries nothing unmerged:
 
@@ -162,17 +163,18 @@ is the canonical instance (org-level `CLAUDE.md` § Team Registry).
 - **Detached HEAD is normal.** A submodule checks out a specific commit, not a
   branch. `git status` inside it showing detached HEAD is the expected state,
   not an error.
-- **Updating the pinned ref is two commits.** Advance the child, then record
-  the new SHA in the parent:
+- **Updating the pinned ref is one parent commit.** Advancing the child is a
+  detached checkout of the new commit — not a commit itself; only the parent
+  records a commit, staging the moved gitlink:
 
   ```bash
   git -C .punt-labs/ethos fetch origin
-  git -C .punt-labs/ethos checkout origin/main
-  git add .punt-labs/ethos            # stages the new gitlink SHA
-  git commit -m "chore: update ethos submodule"
+  git -C .punt-labs/ethos checkout origin/main   # detached checkout, no commit
+  git add .punt-labs/ethos                        # stages the new gitlink SHA
+  git commit -m "chore: update ethos submodule"   # the one commit
   ```
 
-  The parent commit moves the pin; consuming repos see the change only after
+  That parent commit moves the pin; consuming repos see the change only after
   their own pin is updated.
 - **A leading `-` in `git submodule status` means uninitialized** — the
   submodule's files are not checked out. Initialize before use:
