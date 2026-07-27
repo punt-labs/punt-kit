@@ -950,10 +950,42 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     _propagate_marketplace(info, "0.2.0", dry_run=False)
 
 
-def test_propagate_install_all_updates_profile_readme(
+def _merging_sibling_pr_merge(
+    calls: list[tuple[str, list[str]]],
+) -> object:
+    """Build a _sibling_pr_merge mock that lands the change on sibling main.
+
+    Committing the staged files mimics the squash merge so a later
+    ``git log -1 -- install-all.sh`` sees the propagated commit.
+    """
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append((name, list(files)))
+        for f in files:
+            _git(["add", f], cwd=str(path))
+        _git(["commit", "-m", message], cwd=str(path))
+        return True
+
+    return mock_sibling_pr_merge
+
+
+def test_propagate_install_all_pins_profile_to_merged_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """10a also updates profile/README.md with install-all.sh SHA."""
+    """Profile README pins the SHA of the merged install-all.sh commit.
+
+    The SHA must be captured after the install-all.sh PR merges — a pin
+    captured before points one commit behind and serves the previous
+    installer on every release.
+    """
     root = _make_release_project(tmp_path)
     d = str(root)
     _git(["tag", "v0.2.0"], cwd=d)
@@ -981,48 +1013,100 @@ def test_propagate_install_all_updates_profile_readme(
         },
     )
 
-    # Get the SHA of the last commit that touched install-all.sh in .github
-    github_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-        cwd=str(sibling),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    # SHA of the last install-all.sh commit BEFORE propagation
+    pre_merge_sha = _get_install_all_short_sha(sibling)
 
     from punt_kit import release as release_mod
 
     calls: list[tuple[str, list[str]]] = []
-
-    def mock_sibling_pr_merge(
-        path: Path,
-        branch: str,
-        files: list[str],
-        message: str,
-        name: str,
-        *,
-        dry_run: bool,
-    ) -> bool:
-        calls.append((name, files))
-        return True
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+    monkeypatch.setattr(
+        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
+    )
 
     from punt_kit.detect import detect
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
 
-    # Verify profile/README.md was updated
+    # The profile pins the merged commit, not the pre-merge one
+    merged_sha = _get_install_all_short_sha(sibling)
+    assert merged_sha != pre_merge_sha
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb002" not in readme
-    assert f".github/{github_sha}/install-all.sh" in readme
+    assert f".github/{merged_sha}/install-all.sh" in readme
 
-    # Both files should be in the same PR
-    assert len(calls) == 1
-    assert calls[0][0] == ".github"
-    assert "install-all.sh" in calls[0][1]
-    assert "profile/README.md" in calls[0][1]
+    # Two sequential PRs: install-all.sh first, then the profile pin
+    assert calls == [
+        (".github", ["install-all.sh"]),
+        (".github", ["profile/README.md"]),
+    ]
+
+
+def test_propagate_install_all_repairs_stale_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale profile pin is repaired even when install-all.sh is current."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    install_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # install-all.sh already current; profile pinned to a stale SHA
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+            "profile/README.md": (
+                "# Punt Labs\n\n"
+                "curl -fsSL https://raw.githubusercontent.com/"
+                "punt-labs/.github/aabb002/install-all.sh | sh\n"
+            ),
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_install_all(info, "0.2.0", dry_run=False)
+
+    # Only the profile PR is needed
+    assert calls == [(".github", ["profile/README.md"])]
+    current_sha = _get_install_all_short_sha(sibling)
+    readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
+    assert f".github/{current_sha}/install-all.sh" in readme
+
+
+def _get_install_all_short_sha(sibling: Path) -> str:
+    """Return the short SHA of the last commit touching install-all.sh."""
+    return subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(sibling),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 # --- Phase 10d: website ---
@@ -2103,6 +2187,75 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     info = detect(root)
 
     # Should raise ReleaseError — profile SHA does not resolve
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_fails_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check fails when the pin resolves but predates the merge.
+
+    A resolvable pin whose content lacks the project's current install SHA
+    serves the previous installer — the exact one-commit-behind failure the
+    propagation phase exists to prevent.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+    sd = str(sibling)
+
+    # Create an OLDER commit whose install-all.sh carries a stale project
+    # SHA, then restore the current content on top of it.
+    current_content = (sibling / "install-all.sh").read_text()
+    stale_content = (
+        '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+        'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+    )
+    (sibling / "install-all.sh").write_text(stale_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "stale entry"], cwd=sd)
+    stale_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=sd,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    (sibling / "install-all.sh").write_text(current_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "current entry"], cwd=sd)
+
+    # Profile pins the stale commit — it resolves, but its content is old
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{stale_commit}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "add stale profile pin"], cwd=sd)
+
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+    info = detect(root)
+
     with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
 

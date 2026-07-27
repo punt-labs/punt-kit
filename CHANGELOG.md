@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` propagation now pins the org profile README to the
+  install-all.sh commit that exists AFTER the install-all.sh PR merges
+  (pkit-vmo) — the pin was captured before the merge, leaving the profile
+  one commit behind (serving the previous installer) on every release;
+  the profile sync is a second sequential PR, also repairs stale pins on
+  resume, and Phase 11 verify now fails on a resolvable-but-stale pin
 - `punt release` preflight now fails on untracked files (pkit-v3k) —
   previously they passed preflight and were swept into release commits
   by `git add -A`; the version-bump and post-release commits also stage

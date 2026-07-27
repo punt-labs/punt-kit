@@ -1561,58 +1561,87 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         _info(f"install-all.sh: no entry for {project_name} — skipping")
         return
 
-    if new_content == content:
-        _ok(f"install-all.sh: {project_name} SHA already current")
-        return
-
     if dry_run:
-        _dry(f"../.github/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        if new_content != content:
+            _dry(
+                f"../.github/install-all.sh: {project_name} SHA → {install_sha} ({tag})"
+            )
+        _dry("../.github/profile/README.md: pin post-merge install-all.sh SHA")
         return
 
     _validate_sibling(sibling, ".github")
 
-    install_all.write_text(new_content, encoding="utf-8")
+    if new_content == content:
+        _ok(f"install-all.sh: {project_name} SHA already current")
+    else:
+        install_all.write_text(new_content, encoding="utf-8")
+        branch = f"propagate/v{version}-{project_name}-github"
+        if _sibling_pr_merge(
+            sibling,
+            branch,
+            ["install-all.sh"],
+            f"chore: update {project_name} install SHA to {tag}",
+            ".github",
+            dry_run=False,
+        ):
+            _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
 
-    # Also update profile README with the current install-all.sh SHA
-    # (the SHA of the last commit that touched install-all.sh in .github)
-    files_to_commit = ["install-all.sh"]
+    # The sibling is back on main with the merge pulled, so the profile can
+    # now pin the commit that actually contains the propagated content.
+    # Pinning before the merge would point one commit behind and serve the
+    # previous installer on every release.
+    _sync_profile_readme(sibling, version, project_name)
+
+
+def _sync_profile_readme(sibling: Path, version: str, project_name: str) -> None:
+    """Pin the org profile README to the install-all.sh commit on main.
+
+    Must run after the install-all.sh PR merges: the profile references
+    install-all.sh by commit SHA, and only the merged commit contains the
+    just-propagated content. Also repairs a stale pin left by an earlier
+    interrupted release even when install-all.sh itself needs no update.
+    """
     readme = sibling / "profile" / "README.md"
-    if readme.exists():
-        github_sha = _run(
-            ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-            cwd=str(sibling),
-        ).stdout.strip()
-        if github_sha:
-            readme_content = readme.read_text(encoding="utf-8")
-            new_readme, readme_count = re.subn(
-                r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
-                rf"\g<1>{github_sha}\2",
-                readme_content,
-            )
-            if readme_count > 0 and new_readme != readme_content:
-                readme.write_text(new_readme, encoding="utf-8")
-                files_to_commit.append("profile/README.md")
-            elif readme_count == 0:
-                _info(
-                    "profile/README.md: no install-all.sh SHA reference found — "
-                    "skipping update"
-                )
-        else:
-            _info(
-                "profile/README.md: no commits touch install-all.sh yet — "
-                "skipping SHA update"
-            )
+    if not readme.exists():
+        return
 
-    branch = f"propagate/v{version}-{project_name}-github"
+    github_sha = _run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(sibling),
+    ).stdout.strip()
+    if not github_sha:
+        _info(
+            "profile/README.md: no commits touch install-all.sh yet — "
+            "skipping SHA update"
+        )
+        return
+
+    readme_content = readme.read_text(encoding="utf-8")
+    new_readme, readme_count = re.subn(
+        r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
+        rf"\g<1>{github_sha}\2",
+        readme_content,
+    )
+    if readme_count == 0:
+        _info(
+            "profile/README.md: no install-all.sh SHA reference found — skipping update"
+        )
+        return
+    if new_readme == readme_content:
+        _ok(f"profile/README.md: install-all.sh SHA already current ({github_sha})")
+        return
+
+    readme.write_text(new_readme, encoding="utf-8")
+    branch = f"propagate/v{version}-{project_name}-github-profile"
     if _sibling_pr_merge(
         sibling,
         branch,
-        files_to_commit,
-        f"chore: update {project_name} install SHA to {tag}",
+        ["profile/README.md"],
+        f"chore: pin profile install-all.sh SHA to {github_sha}",
         ".github",
-        dry_run=dry_run,
+        dry_run=False,
     ):
-        _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        _ok(f"profile/README.md: install-all.sh SHA → {github_sha}")
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -2069,21 +2098,45 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                     )
                 else:
                     profile_sha = sha_match.group(1)
-                    # Verify the SHA resolves to a real install-all.sh
+                    # The pinned SHA must resolve AND its content must carry
+                    # this project's current install SHA — a resolvable pin
+                    # that predates the propagation merge is stale and serves
+                    # the previous installer.
                     show_result = _run(
                         ["git", "show", f"{profile_sha}:install-all.sh"],
                         cwd=str(sibling),
                         check=False,
                     )
-                    sha_valid = show_result.returncode == 0
-                    checks.append(
-                        (
-                            "profile SHA",
-                            sha_valid,
-                            f"SHA={profile_sha}"
-                            + ("" if sha_valid else " (does not resolve)"),
+                    if show_result.returncode != 0:
+                        checks.append(
+                            (
+                                "profile SHA",
+                                False,
+                                f"SHA={profile_sha} (does not resolve)",
+                            )
                         )
-                    )
+                    else:
+                        project_name = repo.split("/")[-1]
+                        install_sha = _get_install_sh_sha(info.root)
+                        current_entry = re.search(
+                            rf"\$GH/{re.escape(project_name)}/"
+                            rf"{re.escape(install_sha)}[0-9a-fA-F]*/install\.sh",
+                            show_result.stdout,
+                        )
+                        checks.append(
+                            (
+                                "profile SHA",
+                                current_entry is not None,
+                                f"SHA={profile_sha}"
+                                + (
+                                    ""
+                                    if current_entry
+                                    else (
+                                        f" (stale — lacks {project_name}@{install_sha})"
+                                    )
+                                ),
+                            )
+                        )
 
     # 7. Website (optional — sibling may not exist)
     if repo:
