@@ -1,6 +1,6 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19
+**Introduced:** 2026-07-19 · **Updated:** 2026-07-27
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo (and,
 for global tools, on a machine): one bare `@`-import line in a user-owned host
@@ -114,28 +114,62 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
   the top level, never inside a code block. Both the presence scan (`enable`) and
   the removal (`disable`) must ignore any matching line that is inside a fenced
   code block or an indented code block. Precise definition, so 15 implementations
-  agree: a **fence delimiter** is a line whose first non-whitespace characters are
-  three or more backticks (or three or more tildes), **optionally followed by an
-  info string** (e.g. ` ```text `, ` ```markdown `) — the delimiter run need not
-  be the whole line. A line is **inside a fenced block** if the number of
-  preceding fence delimiters is odd; it is an **indented code block** line if it
-  begins with a tab or four or more spaces. A line matching neither is top-level.
-  `@`-imports and the canonical string are always written at column 0 with no info
-  string, so they are top-level by construction.
+  agree (reference: `ClaudeMdImport` in `punt-labs/biff` #312):
+  - A **fence delimiter** is a **non-indented** line — at most three leading
+    spaces, no leading tab (CommonMark) — whose first non-blank characters are a
+    run of three or more of a single marker character (backticks or tildes),
+    **optionally followed by an info string** (e.g. ` ```text `, ` ```markdown `)
+    — the delimiter run need not be the whole line. A line indented by a tab or
+    four or more spaces is an inert indented-code line and **never a delimiter**,
+    even when its first non-whitespace characters are ` ``` ` or `~~~` — treating
+    it as one toggles block state and flips the classification of every following
+    line (an indented run inside a real fenced block would otherwise expose the
+    block's remainder as top level).
+  - Fenced blocks are **balanced pairs**. A delimiter opens a block; the block
+    closes only on a later delimiter of the **same marker character** whose run
+    is **at least as long** as the opener's — a ` ``` ` block cannot be closed by
+    `~~~` or by a shorter run; a mismatched or shorter delimiter inside the block
+    is content, not a close. Blocks do not nest: once open, every line up to the
+    matching close is content.
+  - A line is **inside a fenced block** iff it lies after a matched opener and at
+    or before that opener's matching close (the content and the closing delimiter
+    are inside; the opening delimiter is not). An **unterminated trailing opener
+    delimits nothing** — a dangling fence in the user's prose above the import
+    line must not swallow the rest of the file. The naive "odd count of preceding
+    delimiters" rule fails on exactly this case: one stray opener flips the
+    parity of every following line, the tool misclassifies its own column-0
+    import line as fenced, `enable` appends a duplicate, and `disable` cannot
+    remove it — a 404ing `@`-import that loads in every session.
+  - A line is an **indented code block** line if it begins with a tab or four or
+    more spaces. A line matching neither fenced-inside nor indented is top-level.
+    `@`-imports and the canonical string are always written at column 0 with no
+    info string, so they are top-level by construction, and a conformant
+    implementation always matches (and prunes) its own line regardless of a
+    dangling fence above it.
 - **Serialized, atomic, byte-preserving write.** The read-append-replace on the
   host file must be:
-  - **Mutually exclusive — applies to every shared host file.** Hold an exclusive
-    lock (`flock` on the target or a sibling lock file, or the platform
-    equivalent) for the whole read-modify-write. This requirement governs **every
-    shared host-file mutation in this standard** — the `CLAUDE.md` import line here
-    *and* the `.claude/settings.json` entries in § 2.8 — since both are
-    read-modify-write on a file other tools and invocations also touch. Atomic
-    rename prevents a torn file; it does **not** prevent a lost update — two
-    parallel `enable` runs each read the old bytes, write their change, and rename,
-    and the second silently clobbers the first. The lock serializes them. (The old
-    model relied on a stated single-writer assumption; the per-tool model drops it
-    exactly where independent invocations become more likely, so the lock is
-    mandatory, not optional.)
+  - **Mutually exclusive — one mandated sibling lock, every shared host file.**
+    Hold an exclusive lock (`flock`, or the platform equivalent) for the whole
+    read-modify-write. The lock file is the sibling
+    `.<host-file-name>.punt-import.lock` in the host file's own directory — for
+    `~/.claude/CLAUDE.md`, exactly `~/.claude/.CLAUDE.md.punt-import.lock`. That
+    name is mandated and **tool-agnostic by requirement, not by taste**: vox,
+    quarry, and biff all mutate the same `~/.claude/CLAUDE.md` (§ 2.6), so a
+    per-tool lock name (`.CLAUDE.md.<tool>-import.lock`) serializes only a tool
+    against itself and leaves the cross-tool lost update in place — all 15 CLIs
+    must take the identical lock. Locking the **target itself is forbidden**: the
+    atomic rename below replaces the target's inode, so a lock held on the target
+    travels with the dead inode and the next writer serializes against nothing.
+    This requirement governs **every shared host-file mutation in this standard**
+    — the `CLAUDE.md` import line here *and* the `.claude/settings.json` entries
+    in § 2.8 (sibling lock `.settings.json.punt-import.lock`, same rule) — since
+    both are read-modify-write on a file other tools and invocations also touch.
+    Atomic rename prevents a torn file; it does **not** prevent a lost update —
+    two parallel `enable` runs each read the old bytes, write their change, and
+    rename, and the second silently clobbers the first. The lock serializes them.
+    (The old model relied on a stated single-writer assumption; the per-tool
+    model drops it exactly where independent invocations become more likely, so
+    the lock is mandatory, not optional.)
   - **Atomic.** Write a temp file in the target's own directory, then rename it
     over the target (atomic on POSIX; use the platform atomic-replace primitive).
     Never truncate-in-place.
@@ -149,13 +183,17 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
   - **Symlink-resolving.** If the target is a symlink (dotfile managers do this),
     write the real target and preserve the link.
   - **Mode-preserving.** Keep an existing file's mode; a new file gets `0644`.
-- **Canonical reference implementation.** `GlobalClaudeImports` in the **vox
-  repo** (`punt-labs/vox`, `src/punt_vox/claude_md.py`) already satisfies the
-  atomic / symlink / byte-preserving / deterministic contract for the global
-  case. Port its correctness per tool (copy-not-symlink of the logic, each CLI in
-  its own language) — this is distinct from a rejected shared-runtime writer:
-  shared *correctness*, not a shared *process*. The one addition beyond vox today
-  is the exclusive lock above.
+- **Canonical reference implementation.** `ClaudeMdImport` in the **biff repo**
+  (`punt-labs/biff`, `src/biff/claude_md.py`, PR #312) implements this full
+  contract for the bare-line model — balanced-pair fence semantics, the shared
+  sibling lock, and the atomic / symlink-resolving / byte-preserving /
+  mode-preserving write. It ports the write correctness of vox's earlier
+  `GlobalClaudeImports` (`punt-labs/vox`, `src/punt_vox/claude_md.py`), which
+  originated the atomic/symlink/byte-preserving machinery but predates the lock
+  and still carries the retired managed-section markers (§ 2.1). Port the
+  correctness per tool (copy-not-symlink of the logic, each CLI in its own
+  language) — this is distinct from a rejected shared-runtime writer: shared
+  *correctness*, not a shared *process*.
 
 ## 2.5 Every tool ships a user-guide doc
 

@@ -787,7 +787,9 @@ below; the sweep must also catch any others (e.g. `readme.md`, `workflow.md`,
 ### Docs-mission follow-ups (`patterns/`)
 
 - `patterns/claude-md-injection.md`: rewrite to the bare-import model, or retire;
-  it documents the retired marker/reconcile approach.
+  it documents the retired marker/reconcile approach. (Done: rewritten to the
+  bare-import model in #232, renamed to `patterns/claude-md-import-includes.md`
+  per pkit-0vep.)
 - `patterns/two-phase-install.md` Phase 2a bullet: update to the bare-line model.
 - `patterns/doctor-checks.md` (line 32): the informational check currently reads
   "tool's `@`-import registered in the managed section." Reword to "import line

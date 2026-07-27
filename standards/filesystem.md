@@ -63,7 +63,10 @@ the tool's committed vendored subtree `<repo>/.punt-labs/<tool>/`, written by
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 This supersedes the bare repo-root sentinel dotfile (`.biff`, `.quarry.toml`)
 as the enabled signal. These paths are **not** under `~/.punt-labs/` — they
-live in the project directory and are committed to version control.
+live in the project directory and are committed to version control. Which
+files under a repo's `.punt-labs/<tool>/` are committed (e.g. `config.yaml`)
+versus gitignored (`config.local.yaml`, `local/`) is governed by
+[punt-labs-dir.md](punt-labs-dir.md).
 
 ---
 
