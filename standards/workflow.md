@@ -75,7 +75,8 @@ LoopState
   open          : ℙ BEAD    -- open beads: the single work funnel
   validated     : ℙ BEAD    -- re-proven against current main
   claimed       : ℙ BEAD    -- the current batch
-  closed        : ℙ BEAD    -- beads completed by a merged PR
+  closed        : ℙ BEAD    -- beads whose work shipped in a merged
+                            --   or shipping PR
   activeWorkers : ℙ WORKER  -- sub-agents editing a shared worktree
   testCount     : ℕ         -- tests collected by the suite
   ------------------------------------------------------------------
@@ -397,6 +398,11 @@ function pr_loop(unit):
     request Copilot review once, on open
     schedule a background poll            # never a blocking watch, never a
                                           #   foreground sleep loop
+    # Closing at ship time declares the work complete, not the merge: if the
+    # PR is later abandoned or closed unmerged, reopen its bead(s)
+    # (bd update <id> --status=open) as part of abandoning the PR — the one
+    # case where a closed bead returns to the funnel, so "closed" still
+    # means merged at every batch exit.
 
 function poll_tick(pr):
     state = current reviews, threads, checks
