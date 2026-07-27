@@ -1771,6 +1771,53 @@ def test_pr_merge_matching_merged_pr_short_circuits(
     assert waited == []
 
 
+def test_pr_merge_branch_deletion_404_is_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed post-merge branch deletion does not fail a merged PR.
+
+    Repos with "automatically delete head branches" remove the branch
+    during the merge; gh's own DELETE then gets a 404 and exits non-zero
+    even though the merge succeeded.
+    """
+    fake_run, issued = _fake_gh_run(
+        [{"number": 42, "state": "OPEN", "headRefOid": _LOCAL_HEAD}],
+        merge_rc=1,
+        merge_stderr=(
+            "failed to delete remote branch release/v0.2.0: "
+            "HTTP 404: Reference does not exist"
+        ),
+        view_states=["OPEN", "MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    sha = _pr_merge(
+        cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
+    )
+
+    assert sha == "abc1234"
+    merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
+    assert len(merges) == 1, "merge must not be retried once the PR is MERGED"
+
+
+def test_pr_merge_real_merge_failure_still_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merge failure on a PR that is genuinely not merged still fails."""
+    fake_run, _issued = _fake_gh_run(
+        [{"number": 42, "state": "OPEN", "headRefOid": _LOCAL_HEAD}],
+        merge_rc=1,
+        merge_stderr="GraphQL: Merge conflict detected",
+        view_states=["OPEN"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    with pytest.raises(ReleaseError):
+        _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
 # --- _phase11_verify: profile SHA ---
 
 

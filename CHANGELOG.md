@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` no longer aborts when the post-merge branch deletion
+  404s (pkit-k5j, pkit-u8f): repos with "automatically delete head
+  branches" remove the branch during the squash merge, so gh's own
+  deletion fails after a successful merge; the merge helper now checks
+  the PR's actual state and treats a MERGED PR as success regardless of
+  the deletion exit code
 - `punt release` no longer resumes on stale same-named release PRs
   (pkit-g0gv): a CLOSED PR (dead CI, infinite wait) and a MERGED PR whose
   head does not match the local release branch (skipped bump, wrong tag)

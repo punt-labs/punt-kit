@@ -628,6 +628,22 @@ def _select_existing_pr(
     return None, False
 
 
+def _pr_is_merged(gh: str, cwd: str, pr_number: int) -> bool:
+    """Check whether a PR has reached the MERGED state."""
+    state = _run(
+        [gh, "pr", "view", str(pr_number), "--json", "state"],
+        cwd=cwd,
+        check=False,
+    )
+    if state.returncode != 0:
+        return False
+    try:
+        data = cast("dict[str, object]", json.loads(state.stdout))
+    except json.JSONDecodeError:
+        return False
+    return data.get("state") == "MERGED"
+
+
 def _pr_merge(
     *,
     cwd: Path,
@@ -766,6 +782,15 @@ def _pr_merge(
     for merge_attempt in range(6):
         result = _run(merge_cmd, cwd=root, check=False)
         if result.returncode == 0:
+            break
+        # gh exits non-zero when the post-merge branch deletion fails even
+        # though the merge itself succeeded: repos with "automatically
+        # delete head branches" remove the branch during the merge, so
+        # gh's own DELETE gets a 404 (or a transient 503). The
+        # postcondition that matters is the PR state — check it before
+        # classifying the exit code as a failure.
+        if _pr_is_merged(gh, root, pr_number):
+            _info(f"PR #{pr_number} merged; remote branch already deleted — continuing")
             break
         combined = (result.stderr.strip() + "\n" + result.stdout.strip()).strip()
         combined_lower = combined.lower()
