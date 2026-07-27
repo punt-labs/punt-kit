@@ -75,8 +75,9 @@ LoopState
   open          : ℙ BEAD    -- open beads: the single work funnel
   validated     : ℙ BEAD    -- re-proven against current main
   claimed       : ℙ BEAD    -- the current batch
-  closed        : ℙ BEAD    -- beads whose work shipped in a merged
-                            --   or shipping PR
+  closed        : ℙ BEAD    -- beads closed at ship time; merged at
+                            --   every batch exit (reopened if their
+                            --   PR is abandoned)
   activeWorkers : ℙ WORKER  -- sub-agents editing a shared worktree
   testCount     : ℕ         -- tests collected by the suite
   ------------------------------------------------------------------
