@@ -53,6 +53,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/workflow.md` rewritten around the ethos mission harness
+  (pkit-k4fg): tiers tied to pipeline templates, typed mission contracts
+  replace prose delegation, required-vs-optional thresholds, normative
+  human-in-the-loop gates (design→implementation ratification), and
+  ownership boundaries with pr-review.md / agent-engineering.md /
+  makefile.md — review internals and checklists now live solely in their
+  owner docs. Cross-references in `standards/pr-review.md` and
+  `CLAUDE.md` repointed accordingly.
 - `standards/punt-labs-dir.md` — local-zone amendment per the operator's
   DES-058 overturn: `.punt-labs/local/<tool>/` named as the org convention
   for per-checkout machine-local live state (the one non-tool entry under
