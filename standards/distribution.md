@@ -571,7 +571,7 @@ the same contract (§ Uninstall Requirements below).
 Migration from legacy injected blocks and repo-root sentinels:
 [tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration).
 
-Pattern: [CLAUDE.md `@`-import includes](../patterns/claude-md-injection.md).
+Pattern: [CLAUDE.md `@`-import includes](../patterns/claude-md-import-includes.md).
 Reference implementation: **vox** — `GlobalClaudeImports`
 (`src/punt_vox/claude_md.py`) satisfies the atomic / symlink-resolving /
 byte-preserving / deterministic write contract for the global case; the

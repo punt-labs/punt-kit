@@ -68,7 +68,7 @@ bootstrap script after Phase 1):
   and auto-behaviors are available. A **repo-scoped** tool instead deposits its
   guide and adds `@.punt-labs/<tool>/CLAUDE.md` to `<repo>/CLAUDE.md` via
   `<tool> enable`, run per repo. See
-  [CLAUDE.md `@`-import Includes](claude-md-injection.md) and the
+  [CLAUDE.md `@`-import Includes](claude-md-import-includes.md) and the
   [Tool Enable/Disable Standard](../standards/tool-enable-disable.md).
 - **Phase 2b: Ethos extension setup.** Write `session_context` into
   ethos identity extension files so agents receive tool-specific
@@ -94,7 +94,7 @@ Not every tool needs every phase. Only add phases that have callers.
   top-level commands after the plugin is installed.
 - [Doctor Checks](doctor-checks.md) — Validates the results of both phases plus
   external dependencies that neither phase controls.
-- [CLAUDE.md `@`-import Includes](claude-md-injection.md) — Phase 2a: register
+- [CLAUDE.md `@`-import Includes](claude-md-import-includes.md) — Phase 2a: register
   the tool's `@`-import into global agent context.
 - [Ethos Extension Setup](ethos-ext-setup.md) — Phase 2b: write session context
   into ethos identity extensions.

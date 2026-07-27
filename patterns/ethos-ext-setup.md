@@ -134,7 +134,7 @@ identities.
 
 - [Two-Phase Install](two-phase-install.md) — ethos ext setup is Phase 2b
 - [Doctor Checks](doctor-checks.md) — validate `session_context` presence
-- [CLAUDE.md `@`-import Includes](claude-md-injection.md) — complementary
+- [CLAUDE.md `@`-import Includes](claude-md-import-includes.md) — complementary
   mechanism for global agent context
 
 ## Known Uses
