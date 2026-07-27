@@ -3,10 +3,15 @@
 ## Philosophy
 
 A pull request is not a review mechanism — it is a merge gate. All review
-happens before the PR, locally: automated agents, and human review via IDE.
-Remote review (Copilot, Bugbot) is automated-only — a second opinion on
-already-clean code, not a primary quality signal and not where human judgment
-is applied.
+happens before the PR, locally, and code review is agent-owned end to end:
+the local review agents before the PR, and remote review (Copilot, Bugbot)
+as an automated second opinion on already-clean code. There is no human
+code-review gate — the operator may read the diff in the IDE, but that
+inspection is non-gating, feeds design discussion only, and nothing in this
+sequence waits on it. Human judgment binds at the workflow standard's gates:
+direction before code (design ratification) and behavior after (the demo) —
+never the diff between (see the Roles section of the
+[Workflow standard](workflow.md)).
 
 Coding is not the whole task. Code that compiles and passes tests has not been
 verified. Verified means: installed, running, exercised manually and
@@ -95,9 +100,10 @@ local review:
 2. Run both local review agents on the complete diff — cross-mission issues
    only appear when the full change is visible
 3. Fix all findings using the same documentation standard as above
-4. Human IDE review — the human reviews the full diff in their IDE before the
-   PR is opened. This is the only human review in the process. Findings from
-   this review are resolved before proceeding.
+4. Operator IDE inspection **may** happen here — the operator reading the
+   full diff in the IDE. It is optional and non-gating: anything it surfaces
+   feeds design discussion (or is fixed like any other local finding), and
+   nothing in this sequence waits on it.
 5. Run the complete user-facing workflow from install through terminal output,
    including at least one path through a dependency (file I/O, network,
    subprocess). Record the output. Verify that the changed code was actually
@@ -109,12 +115,12 @@ is a procedural violation.
 
 ### Remote review
 
-Remote review (Copilot, Bugbot) is automated-only — there is no human reviewer
-in this phase. Human review happens locally via IDE before the PR is opened.
-Because local review (automated agents + human IDE review) already ran multiple
+Remote review (Copilot, Bugbot) is automated-only — there is no human
+reviewer in this phase, and none earlier: code review is agent-owned
+throughout (see Philosophy). Because local review already ran multiple
 rounds, remote findings should be fewer and more targeted. Expect 2–6 remote
-rounds (see workflow.md "Remote Review"), with the operational goal of driving
-this toward 1–2 as local review improves.
+rounds, with the operational goal of driving this toward 1–2 as local review
+improves.
 
 Every remote finding requires a code fix. To dismiss a finding as inapplicable,
 post in the PR thread: (a) the exact finding text, (b) the specific reason it

@@ -53,6 +53,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/workflow.md` rewritten around the ethos mission harness
+  (pkit-k4fg): tiers tied to pipeline templates, typed mission contracts
+  replace prose delegation, required-vs-optional thresholds, normative
+  human-in-the-loop gates (design→implementation ratification), and
+  ownership boundaries with pr-review.md / agent-engineering.md /
+  makefile.md — review internals and checklists now live solely in their
+  owner docs. Cross-references in `standards/pr-review.md` and
+  `CLAUDE.md` repointed accordingly.
 - Standards round-up (pkit-e7m2): `tool-enable-disable.md` §2.4 gains four
   write-contract corrections from biff's reference implementation
   (balanced-pair fences, the mandated `.<host-file-name>.punt-import.lock`
