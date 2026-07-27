@@ -277,16 +277,27 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
 
     status = _run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout.strip()
     dirty_lines: list[str] = []
+    untracked_lines: list[str] = []
     for ln in status.splitlines():
-        if ln.startswith("?? "):
-            continue
         path = ln[3:] if len(ln) > 3 else ""
         if path == ".beads" or path.startswith(".beads/"):
             continue
-        dirty_lines.append(ln)
-    dirty = "\n".join(dirty_lines)
-    if dirty:
+        if ln.startswith("?? "):
+            untracked_lines.append(ln)
+        else:
+            dirty_lines.append(ln)
+    if dirty_lines:
+        dirty = "\n".join(dirty_lines)
         _fail(f"Working tree is not clean:\n{dirty}")
+    if untracked_lines:
+        # Untracked files at release time are almost always noise (temp
+        # files, forgotten artifacts) that must not ride along in release
+        # commits — force the operator to commit, gitignore, or remove them.
+        untracked = "\n".join(untracked_lines)
+        _fail(
+            "Untracked files present — commit, gitignore, or remove them "
+            f"before releasing:\n{untracked}"
+        )
     _ok("Working tree clean")
 
     fetch = _run(["git", "fetch", "origin"], cwd=str(info.root), check=False)
@@ -607,6 +618,43 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     _fail(f"Timed out waiting for required CI checks on PR #{pr_number}")
 
 
+def _select_existing_pr(
+    prs: list[dict[str, object]], local_head: str
+) -> tuple[int | None, bool]:
+    """Pick which same-named PR, if any, represents the current release.
+
+    Returns ``(pr_number, already_merged)``. An OPEN PR is always the
+    current release. A MERGED PR counts only when its head commit matches
+    the local branch head — a merged PR at a different head is a stale
+    earlier attempt, and treating it as current would skip the version
+    bump and tag an unbumped commit. CLOSED PRs are never current: their
+    CI is dead and waiting on it never completes.
+    """
+    for pr in prs:
+        if pr.get("state") == "OPEN":
+            return cast("int", pr["number"]), False
+    for pr in prs:
+        if pr.get("state") == "MERGED" and pr.get("headRefOid") == local_head:
+            return cast("int", pr["number"]), True
+    return None, False
+
+
+def _pr_is_merged(gh: str, cwd: str, pr_number: int) -> bool:
+    """Check whether a PR has reached the MERGED state."""
+    state = _run(
+        [gh, "pr", "view", str(pr_number), "--json", "state"],
+        cwd=cwd,
+        check=False,
+    )
+    if state.returncode != 0:
+        return False
+    try:
+        data = cast("dict[str, object]", json.loads(state.stdout))
+    except json.JSONDecodeError:
+        return False
+    return data.get("state") == "MERGED"
+
+
 def _pr_merge(
     *,
     cwd: Path,
@@ -637,7 +685,11 @@ def _pr_merge(
         _fail(f"Failed to push branch {branch} — fix and retry")
     _ok(f"Pushed branch {branch}")
 
-    # 2. Check for existing PR (include merged/closed for resume)
+    # 2. Check for existing PRs (include merged/closed for resume). Only an
+    # OPEN PR or a MERGED PR at this exact head represents the current
+    # release — see _select_existing_pr for why CLOSED and stale MERGED
+    # PRs must be ignored.
+    local_head = _run(["git", "rev-parse", branch], cwd=root).stdout.strip()
     existing = _run(
         [
             gh,
@@ -648,9 +700,9 @@ def _pr_merge(
             "--state",
             "all",
             "--json",
-            "number,state",
+            "number,state,headRefOid",
             "--limit",
-            "1",
+            "20",
         ],
         cwd=root,
         check=False,
@@ -658,12 +710,12 @@ def _pr_merge(
     pr_number: int | None = None
     if existing.returncode == 0:
         try:
-            prs = json.loads(existing.stdout)
+            prs = cast("list[dict[str, object]]", json.loads(existing.stdout))
         except json.JSONDecodeError:
             _fail(f"Failed to parse gh pr list output: {existing.stdout[:200]}")
-        if prs:
-            pr_number = prs[0]["number"]
-            if prs[0]["state"] == "MERGED":
+        pr_number, already_merged = _select_existing_pr(prs, local_head)
+        if pr_number is not None:
+            if already_merged:
                 _ok(f"PR #{pr_number} already merged")
                 _run(["git", "checkout", "main"], cwd=root)
                 _run(["git", "pull", "--ff-only"], cwd=root)
@@ -671,7 +723,7 @@ def _pr_merge(
                     ["git", "rev-parse", "--short", "HEAD"], cwd=root
                 ).stdout.strip()
                 return sha
-            _info(f"Found existing PR #{pr_number}")
+            _info(f"Found existing open PR #{pr_number}")
 
     # 3. Create PR if none exists
     if pr_number is None:
@@ -741,6 +793,15 @@ def _pr_merge(
     for merge_attempt in range(6):
         result = _run(merge_cmd, cwd=root, check=False)
         if result.returncode == 0:
+            break
+        # gh exits non-zero when the post-merge branch deletion fails even
+        # though the merge itself succeeded: repos with "automatically
+        # delete head branches" remove the branch during the merge, so
+        # gh's own DELETE gets a 404 (or a transient 503). The
+        # postcondition that matters is the PR state — check it before
+        # classifying the exit code as a failure.
+        if _pr_is_merged(gh, root, pr_number):
+            _info(f"PR #{pr_number} merged; remote branch already deleted — continuing")
             break
         combined = (result.stderr.strip() + "\n" + result.stdout.strip()).strip()
         combined_lower = combined.lower()
@@ -888,9 +949,23 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         if lock_file.exists():
             _run(["uv", "lock"], cwd=str(root))
             _ok("uv.lock refreshed")
-        _run(["git", "add", "-A"], cwd=str(root))
-        status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
-        if status:
+        # Stage only the files this phase edits — `git add -A` would sweep
+        # unrelated untracked files into the release commit.
+        release_files = [
+            pyproject_path,
+            changelog_path,
+            install_sh,
+            plugin_json,
+            lock_file,
+        ]
+        if pkg_dir is not None:
+            release_files.append(pkg_dir / "__init__.py")
+        to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
+        _run(["git", "add", "--", *to_stage], cwd=str(root))
+        staged = _run(
+            ["git", "diff", "--cached", "--name-only"], cwd=str(root)
+        ).stdout.strip()
+        if staged:
             _run(
                 ["git", "commit", "-m", f"chore: release v{version}"],
                 cwd=str(root),
@@ -1294,12 +1369,14 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         else:
             _ok("Plugin already in dev state (resume)")
 
-    # README SHA bump
+    # README SHA bump. Stage README.md explicitly — `git add -A` would
+    # sweep unrelated untracked files into the post-release commit.
     _bump_readme_install_sha(info, version, dry_run=False)
-    # Check if _bump_readme_install_sha made changes
-    status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
+    status = _run(
+        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
+    ).stdout.strip()
     if status:
-        _run(["git", "add", "-A"], cwd=str(root))
+        _run(["git", "add", "--", "README.md"], cwd=str(root))
         msg = f"chore: update README install SHA to v{version}"
         _run(["git", "commit", "-m", msg], cwd=str(root))
         has_changes = True
@@ -1484,58 +1561,87 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         _info(f"install-all.sh: no entry for {project_name} — skipping")
         return
 
-    if new_content == content:
-        _ok(f"install-all.sh: {project_name} SHA already current")
-        return
-
     if dry_run:
-        _dry(f"../.github/install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        if new_content != content:
+            _dry(
+                f"../.github/install-all.sh: {project_name} SHA → {install_sha} ({tag})"
+            )
+        _dry("../.github/profile/README.md: pin post-merge install-all.sh SHA")
         return
 
     _validate_sibling(sibling, ".github")
 
-    install_all.write_text(new_content, encoding="utf-8")
+    if new_content == content:
+        _ok(f"install-all.sh: {project_name} SHA already current")
+    else:
+        install_all.write_text(new_content, encoding="utf-8")
+        branch = f"propagate/v{version}-{project_name}-github"
+        if _sibling_pr_merge(
+            sibling,
+            branch,
+            ["install-all.sh"],
+            f"chore: update {project_name} install SHA to {tag}",
+            ".github",
+            dry_run=False,
+        ):
+            _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
 
-    # Also update profile README with the current install-all.sh SHA
-    # (the SHA of the last commit that touched install-all.sh in .github)
-    files_to_commit = ["install-all.sh"]
+    # The sibling is back on main with the merge pulled, so the profile can
+    # now pin the commit that actually contains the propagated content.
+    # Pinning before the merge would point one commit behind and serve the
+    # previous installer on every release.
+    _sync_profile_readme(sibling, version, project_name)
+
+
+def _sync_profile_readme(sibling: Path, version: str, project_name: str) -> None:
+    """Pin the org profile README to the install-all.sh commit on main.
+
+    Must run after the install-all.sh PR merges: the profile references
+    install-all.sh by commit SHA, and only the merged commit contains the
+    just-propagated content. Also repairs a stale pin left by an earlier
+    interrupted release even when install-all.sh itself needs no update.
+    """
     readme = sibling / "profile" / "README.md"
-    if readme.exists():
-        github_sha = _run(
-            ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-            cwd=str(sibling),
-        ).stdout.strip()
-        if github_sha:
-            readme_content = readme.read_text(encoding="utf-8")
-            new_readme, readme_count = re.subn(
-                r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
-                rf"\g<1>{github_sha}\2",
-                readme_content,
-            )
-            if readme_count > 0 and new_readme != readme_content:
-                readme.write_text(new_readme, encoding="utf-8")
-                files_to_commit.append("profile/README.md")
-            elif readme_count == 0:
-                _info(
-                    "profile/README.md: no install-all.sh SHA reference found — "
-                    "skipping update"
-                )
-        else:
-            _info(
-                "profile/README.md: no commits touch install-all.sh yet — "
-                "skipping SHA update"
-            )
+    if not readme.exists():
+        return
 
-    branch = f"propagate/v{version}-{project_name}-github"
+    github_sha = _run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(sibling),
+    ).stdout.strip()
+    if not github_sha:
+        _info(
+            "profile/README.md: no commits touch install-all.sh yet — "
+            "skipping SHA update"
+        )
+        return
+
+    readme_content = readme.read_text(encoding="utf-8")
+    new_readme, readme_count = re.subn(
+        r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
+        rf"\g<1>{github_sha}\2",
+        readme_content,
+    )
+    if readme_count == 0:
+        _info(
+            "profile/README.md: no install-all.sh SHA reference found — skipping update"
+        )
+        return
+    if new_readme == readme_content:
+        _ok(f"profile/README.md: install-all.sh SHA already current ({github_sha})")
+        return
+
+    readme.write_text(new_readme, encoding="utf-8")
+    branch = f"propagate/v{version}-{project_name}-github-profile"
     if _sibling_pr_merge(
         sibling,
         branch,
-        files_to_commit,
-        f"chore: update {project_name} install SHA to {tag}",
+        ["profile/README.md"],
+        f"chore: pin profile install-all.sh SHA to {github_sha}",
         ".github",
-        dry_run=dry_run,
+        dry_run=False,
     ):
-        _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
+        _ok(f"profile/README.md: install-all.sh SHA → {github_sha}")
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1992,21 +2098,45 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                     )
                 else:
                     profile_sha = sha_match.group(1)
-                    # Verify the SHA resolves to a real install-all.sh
+                    # The pinned SHA must resolve AND its content must carry
+                    # this project's current install SHA — a resolvable pin
+                    # that predates the propagation merge is stale and serves
+                    # the previous installer.
                     show_result = _run(
                         ["git", "show", f"{profile_sha}:install-all.sh"],
                         cwd=str(sibling),
                         check=False,
                     )
-                    sha_valid = show_result.returncode == 0
-                    checks.append(
-                        (
-                            "profile SHA",
-                            sha_valid,
-                            f"SHA={profile_sha}"
-                            + ("" if sha_valid else " (does not resolve)"),
+                    if show_result.returncode != 0:
+                        checks.append(
+                            (
+                                "profile SHA",
+                                False,
+                                f"SHA={profile_sha} (does not resolve)",
+                            )
                         )
-                    )
+                    else:
+                        project_name = repo.split("/")[-1]
+                        install_sha = _get_install_sh_sha(info.root)
+                        current_entry = re.search(
+                            rf"\$GH/{re.escape(project_name)}/"
+                            rf"{re.escape(install_sha)}[0-9a-fA-F]*/install\.sh",
+                            show_result.stdout,
+                        )
+                        checks.append(
+                            (
+                                "profile SHA",
+                                current_entry is not None,
+                                f"SHA={profile_sha}"
+                                + (
+                                    ""
+                                    if current_entry
+                                    else (
+                                        f" (stale — lacks {project_name}@{install_sha})"
+                                    )
+                                ),
+                            )
+                        )
 
     # 7. Website (optional — sibling may not exist)
     if repo:

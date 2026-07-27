@@ -4,6 +4,31 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release` propagation now pins the org profile README to the
+  install-all.sh commit that exists AFTER the install-all.sh PR merges
+  (pkit-vmo) — the pin was captured before the merge, leaving the profile
+  one commit behind (serving the previous installer) on every release;
+  the profile sync is a second sequential PR, also repairs stale pins on
+  resume, and Phase 11 verify now fails on a resolvable-but-stale pin
+- `punt release` preflight now fails on untracked files (pkit-v3k) —
+  previously they passed preflight and were swept into release commits
+  by `git add -A`; the version-bump and post-release commits also stage
+  their edit set explicitly (pyproject.toml, CHANGELOG.md, install.sh,
+  plugin.json, uv.lock, `__init__.py`; README.md) instead of `git add -A`
+- `punt release` no longer aborts when the post-merge branch deletion
+  404s (pkit-k5j, pkit-u8f): repos with "automatically delete head
+  branches" remove the branch during the squash merge, so gh's own
+  deletion fails after a successful merge; the merge helper now checks
+  the PR's actual state and treats a MERGED PR as success regardless of
+  the deletion exit code
+- `punt release` no longer resumes on stale same-named release PRs
+  (pkit-g0gv): a CLOSED PR (dead CI, infinite wait) and a MERGED PR whose
+  head does not match the local release branch (skipped bump, wrong tag)
+  are now ignored and a fresh PR is created; a MERGED PR counts only when
+  its `headRefOid` matches the local branch head
+
 ### Added
 
 - `standards/install-cli-only.md` — CLI-only install standard: every tool

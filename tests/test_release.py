@@ -21,12 +21,14 @@ from punt_kit.release import (
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
+    _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
+    _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
@@ -197,7 +199,12 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
 
 
 def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
-    """Pre-flight fails when there is an untracked file."""
+    """Pre-flight fails when there is an untracked file.
+
+    dry_run=True skips the quality gates so the failure is attributable
+    to the untracked-file check itself, not to gates failing in the
+    scratch project.
+    """
     root = _make_release_project(tmp_path)
     (root / "untracked.txt").write_text("untracked")
 
@@ -205,8 +212,23 @@ def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
-        _phase1_preflight(info, dry_run=False)
+    with pytest.raises(ReleaseError, match="[Uu]ntracked"):
+        _phase1_preflight(info, dry_run=True)
+
+
+def test_preflight_ignores_untracked_beads(tmp_path: Path) -> None:
+    """Untracked .beads/ content does not block a release."""
+    root = _make_release_project(tmp_path)
+    beads = root / ".beads"
+    beads.mkdir()
+    (beads / "state.json").write_text("{}")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    # Should not raise
+    _phase1_preflight(info, dry_run=True)
 
 
 def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
@@ -331,6 +353,96 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     # Files should be unchanged
     content = (root / "pyproject.toml").read_text()
     assert 'version = "0.1.0"' in content
+
+
+def _commit_files(root: Path, ref: str = "HEAD") -> list[str]:
+    """Return the files changed by a commit."""
+    result = subprocess.run(
+        ["git", "show", "--name-only", "--format=", ref],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [ln for ln in result.stdout.strip().splitlines() if ln]
+
+
+def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
+    """The release commit stages only the files the bump edits.
+
+    An untracked file present at bump time must not be swept into the
+    release commit (git add -A would capture it).
+    """
+    root = _make_release_project(tmp_path)
+    (root / "stray-transcript.jsonl").write_text("{}\n")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    committed = _commit_files(root)
+    assert "stray-transcript.jsonl" not in committed
+    assert "pyproject.toml" in committed
+    assert "CHANGELOG.md" in committed
+
+    # The stray file is still present and still untracked
+    assert (root / "stray-transcript.jsonl").exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", "stray-transcript.jsonl"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert status.startswith("??")
+
+
+def test_phase9_commit_excludes_untracked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The post-release README commit stages only README.md."""
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # README with a URL matching the repo directory name so the SHA bump fires
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    # Plugin already in dev state ("test-dev") so the dev restore is skipped
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "matching readme"], cwd=d)
+
+    (root / "stray-transcript.jsonl").write_text("{}\n")
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        return "abc1234"
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    committed = _commit_files(root)
+    assert committed == ["README.md"]
+    assert (root / "stray-transcript.jsonl").exists()
 
 
 # --- README install SHA bump (used in Phase 9: post-release) ---
@@ -838,10 +950,42 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     _propagate_marketplace(info, "0.2.0", dry_run=False)
 
 
-def test_propagate_install_all_updates_profile_readme(
+def _merging_sibling_pr_merge(
+    calls: list[tuple[str, list[str]]],
+) -> object:
+    """Build a _sibling_pr_merge mock that lands the change on sibling main.
+
+    Committing the staged files mimics the squash merge so a later
+    ``git log -1 -- install-all.sh`` sees the propagated commit.
+    """
+
+    def mock_sibling_pr_merge(
+        path: Path,
+        branch: str,
+        files: list[str],
+        message: str,
+        name: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        calls.append((name, list(files)))
+        for f in files:
+            _git(["add", f], cwd=str(path))
+        _git(["commit", "-m", message], cwd=str(path))
+        return True
+
+    return mock_sibling_pr_merge
+
+
+def test_propagate_install_all_pins_profile_to_merged_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """10a also updates profile/README.md with install-all.sh SHA."""
+    """Profile README pins the SHA of the merged install-all.sh commit.
+
+    The SHA must be captured after the install-all.sh PR merges — a pin
+    captured before points one commit behind and serves the previous
+    installer on every release.
+    """
     root = _make_release_project(tmp_path)
     d = str(root)
     _git(["tag", "v0.2.0"], cwd=d)
@@ -869,48 +1013,100 @@ def test_propagate_install_all_updates_profile_readme(
         },
     )
 
-    # Get the SHA of the last commit that touched install-all.sh in .github
-    github_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-        cwd=str(sibling),
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    # SHA of the last install-all.sh commit BEFORE propagation
+    pre_merge_sha = _get_install_all_short_sha(sibling)
 
     from punt_kit import release as release_mod
 
     calls: list[tuple[str, list[str]]] = []
-
-    def mock_sibling_pr_merge(
-        path: Path,
-        branch: str,
-        files: list[str],
-        message: str,
-        name: str,
-        *,
-        dry_run: bool,
-    ) -> bool:
-        calls.append((name, files))
-        return True
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
+    monkeypatch.setattr(
+        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
+    )
 
     from punt_kit.detect import detect
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
 
-    # Verify profile/README.md was updated
+    # The profile pins the merged commit, not the pre-merge one
+    merged_sha = _get_install_all_short_sha(sibling)
+    assert merged_sha != pre_merge_sha
     readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
     assert "aabb002" not in readme
-    assert f".github/{github_sha}/install-all.sh" in readme
+    assert f".github/{merged_sha}/install-all.sh" in readme
 
-    # Both files should be in the same PR
-    assert len(calls) == 1
-    assert calls[0][0] == ".github"
-    assert "install-all.sh" in calls[0][1]
-    assert "profile/README.md" in calls[0][1]
+    # Two sequential PRs: install-all.sh first, then the profile pin
+    assert calls == [
+        (".github", ["install-all.sh"]),
+        (".github", ["profile/README.md"]),
+    ]
+
+
+def test_propagate_install_all_repairs_stale_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stale profile pin is repaired even when install-all.sh is current."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    install_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # install-all.sh already current; profile pinned to a stale SHA
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+            "profile/README.md": (
+                "# Punt Labs\n\n"
+                "curl -fsSL https://raw.githubusercontent.com/"
+                "punt-labs/.github/aabb002/install-all.sh | sh\n"
+            ),
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    calls: list[tuple[str, list[str]]] = []
+    monkeypatch.setattr(
+        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _propagate_install_all(info, "0.2.0", dry_run=False)
+
+    # Only the profile PR is needed
+    assert calls == [(".github", ["profile/README.md"])]
+    current_sha = _get_install_all_short_sha(sibling)
+    readme = (tmp_path / ".github" / "profile" / "README.md").read_text()
+    assert f".github/{current_sha}/install-all.sh" in readme
+
+
+def _get_install_all_short_sha(sibling: Path) -> str:
+    """Return the short SHA of the last commit touching install-all.sh."""
+    return subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+        cwd=str(sibling),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 
 # --- Phase 10d: website ---
@@ -1599,6 +1795,223 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
         _reset_propagation_siblings(info, fail_on_error=True)
 
 
+# --- _select_existing_pr / _pr_merge: stale same-named PRs ---
+
+_LOCAL_HEAD = "a" * 40
+_STALE_HEAD = "b" * 40
+
+
+def test_select_existing_pr_prefers_open() -> None:
+    """An OPEN PR is always the current release."""
+    prs: list[dict[str, object]] = [
+        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
+        {"number": 7, "state": "OPEN", "headRefOid": _LOCAL_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (7, False)
+
+
+def test_select_existing_pr_ignores_closed() -> None:
+    """A CLOSED PR is never reused — its CI is dead."""
+    prs: list[dict[str, object]] = [
+        {"number": 7, "state": "CLOSED", "headRefOid": _LOCAL_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
+
+
+def test_select_existing_pr_ignores_stale_merged() -> None:
+    """A MERGED PR at a different head is a stale earlier attempt."""
+    prs: list[dict[str, object]] = [
+        {"number": 5, "state": "MERGED", "headRefOid": _STALE_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
+
+
+def test_select_existing_pr_accepts_matching_merged() -> None:
+    """A MERGED PR at the local branch head is the completed release."""
+    prs: list[dict[str, object]] = [
+        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (5, True)
+
+
+def test_select_existing_pr_empty() -> None:
+    """No PRs means create a fresh one."""
+    assert _select_existing_pr([], _LOCAL_HEAD) == (None, False)
+
+
+def _fake_gh_run(
+    pr_list: list[dict[str, object]],
+    *,
+    merge_rc: int = 0,
+    merge_stderr: str = "",
+    view_states: list[str] | None = None,
+) -> tuple[object, list[list[str]]]:
+    """Build a fake ``_run`` covering the git/gh commands _pr_merge issues.
+
+    ``view_states`` is consumed one state per ``gh pr view`` call; the last
+    entry repeats once exhausted.
+    """
+    issued: list[list[str]] = []
+    states = list(view_states or ["OPEN"])
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        issued.append(list(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:2] == ["git", "rev-parse"]:
+            r.stdout = "abc1234\n" if "--short" in cmd else _LOCAL_HEAD + "\n"
+        elif cmd[:3] == ["gh", "pr", "list"]:
+            r.stdout = json.dumps(pr_list)
+        elif cmd[:3] == ["gh", "pr", "create"]:
+            r.stdout = "https://github.com/punt-labs/proj/pull/99\n"
+        elif cmd[:3] == ["gh", "pr", "view"]:
+            state = states.pop(0) if len(states) > 1 else states[0]
+            r.stdout = json.dumps({"state": state})
+        elif cmd[:3] == ["gh", "pr", "merge"]:
+            r.returncode = merge_rc
+            r.stderr = merge_stderr
+        return r
+
+    return fake_run, issued
+
+
+def _patch_pr_merge_env(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_run: object,
+    waited_prs: list[int],
+) -> None:
+    """Wire _pr_merge to the fake gh environment."""
+    import shutil
+
+    from punt_kit import release as release_mod
+
+    def fake_which(_name: str) -> str:
+        return "gh"
+
+    def fake_wait(_gh: str, _cwd: str, pr: int) -> None:
+        waited_prs.append(pr)
+
+    def fake_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_wait_for_required_checks", fake_wait)
+    monkeypatch.setattr(release_mod, "_resolve_pr_threads", fake_resolve_threads)
+
+
+def test_pr_merge_ignores_closed_pr_creates_fresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CLOSED same-named PR is not resumed; a fresh PR is created.
+
+    Resuming a closed PR waits forever on CI that will never run again.
+    """
+    fake_run, issued = _fake_gh_run(
+        [{"number": 7, "state": "CLOSED", "headRefOid": _LOCAL_HEAD}],
+        view_states=["MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert created, "expected a fresh PR instead of reusing the closed one"
+    assert waited == [99]
+
+
+def test_pr_merge_stale_merged_pr_not_treated_as_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A MERGED PR at a different head does not short-circuit the release.
+
+    Treating it as current skips the version bump and tags an unbumped
+    commit (build/tag version mismatch).
+    """
+    fake_run, issued = _fake_gh_run(
+        [{"number": 5, "state": "MERGED", "headRefOid": _STALE_HEAD}],
+        view_states=["MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert created, "expected a fresh PR instead of reusing the stale merged one"
+    assert waited == [99]
+
+
+def test_pr_merge_matching_merged_pr_short_circuits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A MERGED PR at the local branch head is the completed release."""
+    fake_run, issued = _fake_gh_run(
+        [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    sha = _pr_merge(
+        cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
+    )
+
+    assert sha == "abc1234"
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert not created
+    assert waited == []
+
+
+def test_pr_merge_branch_deletion_404_is_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed post-merge branch deletion does not fail a merged PR.
+
+    Repos with "automatically delete head branches" remove the branch
+    during the merge; gh's own DELETE then gets a 404 and exits non-zero
+    even though the merge succeeded.
+    """
+    fake_run, issued = _fake_gh_run(
+        [{"number": 42, "state": "OPEN", "headRefOid": _LOCAL_HEAD}],
+        merge_rc=1,
+        merge_stderr=(
+            "failed to delete remote branch release/v0.2.0: "
+            "HTTP 404: Reference does not exist"
+        ),
+        view_states=["OPEN", "MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    sha = _pr_merge(
+        cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
+    )
+
+    assert sha == "abc1234"
+    merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
+    assert len(merges) == 1, "merge must not be retried once the PR is MERGED"
+
+
+def test_pr_merge_real_merge_failure_still_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merge failure on a PR that is genuinely not merged still fails."""
+    fake_run, _issued = _fake_gh_run(
+        [{"number": 42, "state": "OPEN", "headRefOid": _LOCAL_HEAD}],
+        merge_rc=1,
+        merge_stderr="GraphQL: Merge conflict detected",
+        view_states=["OPEN"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    with pytest.raises(ReleaseError):
+        _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
 # --- _phase11_verify: profile SHA ---
 
 
@@ -1774,6 +2187,75 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     info = detect(root)
 
     # Should raise ReleaseError — profile SHA does not resolve
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_fails_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check fails when the pin resolves but predates the merge.
+
+    A resolvable pin whose content lacks the project's current install SHA
+    serves the previous installer — the exact one-commit-behind failure the
+    propagation phase exists to prevent.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+    sd = str(sibling)
+
+    # Create an OLDER commit whose install-all.sh carries a stale project
+    # SHA, then restore the current content on top of it.
+    current_content = (sibling / "install-all.sh").read_text()
+    stale_content = (
+        '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+        'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+    )
+    (sibling / "install-all.sh").write_text(stale_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "stale entry"], cwd=sd)
+    stale_commit = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=sd,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    (sibling / "install-all.sh").write_text(current_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "current entry"], cwd=sd)
+
+    # Profile pins the stale commit — it resolves, but its content is old
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{stale_commit}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "add stale profile pin"], cwd=sd)
+
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+    info = detect(root)
+
     with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
 
