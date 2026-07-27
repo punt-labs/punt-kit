@@ -73,16 +73,19 @@ a glance whether a rule predates its last sync.
 - **Forward-only — no backfill.** The field starts on docs created, or
   normatively amended, after this convention landed (2026-07-19). Existing
   standards are not given retroactive dates — no git archaeology, no uniform
-  stamp. An older doc gains the field the first time it is normatively amended
-  (which also sets `**Updated:**`); until then it has no date, and that is
-  correct.
+  stamp. A doc that predates the convention gains `**Updated:** YYYY-MM-DD`
+  **alone** — the third shape — on its first normative amendment: no
+  backfilled `**Introduced:**`, because a truthful origin date takes
+  archaeology and a fabricated one falsely advertises an old doc as new.
+  Until a doc is amended it has no date line at all, and that is correct.
 - **`**Updated:**` bumps on normative change only** — not for typo or
   formatting fixes. The field is an at-a-glance signal, not a changelog; git
   history is the full record.
 - **Enforcement is format-only, not presence.** Because the rule is
   forward-only, validation must not require every doc to carry the field. It
   checks only that a doc which does carry an `**Introduced:**` line has it
-  well-formed:
+  well-formed. The `**Updated:**`-only shape needs no rule of its own — the
+  grep anchors on `**Introduced:**` lines and never inspects it:
 
   ```bash
   # Fails only a doc whose Introduced line exists but is malformed. Accepts both
