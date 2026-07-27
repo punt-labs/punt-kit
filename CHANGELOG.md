@@ -31,6 +31,23 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `standards/git.md` — git mechanics standard (pkit-krc8): the local git
+  operations between starting work and pushing it, owning what no punt-labs
+  doc previously did. Covers the branch check before every commit, the
+  no-rebase / no-force-push rule on open-PR branches with conflict resolution
+  by merging `origin/main` (both SHA-preserving), the post-merge cleanup
+  ordering (`branch -d` before `fetch --prune`, with the squash-merge
+  reachability rationale), worktree lifecycle and the removal obligation,
+  submodule mechanics (gitlink, detached HEAD normal, update-and-commit-the-ref,
+  leading `-` means uninitialized), the `Mission:` / `Delegation:` commit-trailer
+  convention for mission traceability, the stop-and-ask list harmonized with
+  the org `CLAUDE.md` Destructive Operations enumeration, and the
+  session-close push plus plain-English-over-`HEAD` rule for PR prose.
+  Generalizes the most advanced deployed practice (`xboing-c/docs/GIT.md`) to
+  punt-labs; mechanics only, cross-referencing workflow.md / pr-review.md /
+  github.md and duplicating none of the PR loop, merge gate, or branch-prefix
+  table. Wired into AGENTS.md, README.md, and the Related Standards lists of
+  workflow.md and pr-review.md
 - `standards/install-cli-only.md` — CLI-only install standard: every tool
   whose `install.sh` installs both a CLI and a Claude Code plugin MUST offer a
   `--no-plugin` flag and `<TOOL>_NO_PLUGIN=1` env var (strict `=1`) that skip
@@ -53,6 +70,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/workflow.md` merge_gate Copilot condition corrected (pkit-krc8):
+  the pseudocode assumed Copilot re-reviews on every push, which holds in
+  punt-kit but not fleet-wide (other repos review once on open). The gate now
+  encodes the silence-after-fix rule — if Copilot reviewed an earlier commit
+  but not the latest and CI has been green for more than ten minutes, treat
+  the silence as no-new-findings; a first review is always required. The
+  gate's shape is unchanged
 - `standards/workflow.md` rewritten around the ethos mission harness
   (pkit-k4fg): tiers tied to pipeline templates, typed mission contracts
   replace prose delegation, required-vs-optional thresholds, normative
