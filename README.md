@@ -94,7 +94,6 @@ Punt-kit is also a Claude Code plugin (`punt@punt-labs` on the marketplace). The
 | `/punt:pii` | Scan for PII (wraps `punt pii`) |
 | `/punt:auto <playbook>` | Execute automation playbooks (release, autopilot, standards-rollout) |
 | `/punt:reconcile` | LLM-driven standards reconciliation (no CLI equivalent — prompt-driven) |
-| `/punt:claude2cursor` | Generate Cursor skills and rules from plugin commands |
 
 Install from the marketplace:
 
