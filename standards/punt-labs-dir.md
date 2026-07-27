@@ -170,11 +170,11 @@ and `<repo>` for the repo root before the bytes land in the tracked tree. This
 is the DES-058 path-redaction invariant (`punt-labs/ethos`,
 `docs/audit-seal.md`, merged at `85489ba0ecba1911ed21d7a15e160f7bdd8f2432`),
 extended from audit lines to **all** tool state that lands in tracked history.
-Local-convention and local-zone paths are exempt — they never travel — but a
-secret is exempt from nothing
-([§ 3](#3-repo-versus-home-the-placement-rule)): redaction is about machine
-identity in shared history, not a license to write credentials. `punt pii` is
-the best-effort audit tooth ([§ 8](#8-what-punt-audit-checks)).
+Local-convention and local-zone paths are exempt — they never travel. A secret
+is exempt from nothing: redaction is about machine identity in shared history,
+not a license to write credentials
+([§ 3](#3-repo-versus-home-the-placement-rule)). `punt pii` is the best-effort
+audit tooth ([§ 8](#8-what-punt-audit-checks)).
 
 ---
 
