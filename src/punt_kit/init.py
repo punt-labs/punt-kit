@@ -91,7 +91,6 @@ STANDARD_SKILL_PERMISSIONS: tuple[str, ...] = (
     "Skill(punt:reconcile)",
     "Skill(punt:pii)",
     "Skill(punt:auto)",
-    "Skill(punt:claude2cursor)",
     # quarry
     "Skill(quarry:find)",
     "Skill(quarry:ingest)",
