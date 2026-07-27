@@ -1,6 +1,6 @@
 # Repo-Local State Directory Standard
 
-**Introduced:** 2026-07-20 · **Updated:** 2026-07-20
+**Introduced:** 2026-07-20 · **Updated:** 2026-07-27
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
 the two are told apart. A tool's committed repo state lives under one directory —
@@ -160,6 +160,21 @@ A name that is neither committed content nor a local-convention path is a bug: i
 is either tracked state that should not be
 ([§ 5](#5-live-state-is-never-a-tracked-file)) or ignored state the canonical
 gitignore ([§ 6](#6-the-canonical-gitignore-block)) will not catch.
+
+**Committed content is redacted at write.** Anything a tool writes into a
+committed (non-local-convention) path under `.punt-labs/` — config, mission
+artifacts, delegation prompts, sealed audit chunks — carries **no absolute
+paths, no usernames, and no machine identifiers**. Redaction happens at write
+time, not in review: the writer substitutes `~` for the user's home directory
+and `<repo>` for the repo root before the bytes land in the tracked tree. This
+is the DES-058 path-redaction invariant (`punt-labs/ethos`,
+`docs/audit-seal.md`, merged at `85489ba0ecba1911ed21d7a15e160f7bdd8f2432`),
+extended from audit lines to **all** tool state that lands in tracked history.
+Local-convention and local-zone paths are exempt — they never travel — but a
+secret is exempt from nothing
+([§ 3](#3-repo-versus-home-the-placement-rule)): redaction is about machine
+identity in shared history, not a license to write credentials. `punt pii` is
+the best-effort audit tooth ([§ 8](#8-what-punt-audit-checks)).
 
 ---
 
@@ -609,6 +624,13 @@ These extend the audit list in
   credential-shaped content in repo `.punt-labs/` paths — defense-in-depth
   against a mis-scoped write ([§ 3](#3-repo-versus-home-the-placement-rule)). A
   green result is a tripwire, not proof of absence.
+- **No machine identity in committed `.punt-labs/` content** *(best-effort)*.
+  `punt pii` scans tracked `.punt-labs/` paths for absolute home paths
+  (`/Users/<x>`, `/home/<x>`), email addresses, and `.local` hostnames — the
+  audit tooth for the redaction-at-write rule
+  ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
+  Best-effort exactly like the secret scan above: writer-side redaction is the
+  primary control, the scan is the tripwire.
 - **No legacy root sentinel** *(graded, expiring)*. No `.biff`, `.vox`, `.lux`,
   or `.quarry.toml` at the repo root ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)).
   Graded exactly like the bare-file check, not an unconditional fail: a sentinel
