@@ -21,12 +21,14 @@ from punt_kit.release import (
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
+    _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
+    _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
@@ -1597,6 +1599,176 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
 
     with pytest.raises(ReleaseError):
         _reset_propagation_siblings(info, fail_on_error=True)
+
+
+# --- _select_existing_pr / _pr_merge: stale same-named PRs ---
+
+_LOCAL_HEAD = "a" * 40
+_STALE_HEAD = "b" * 40
+
+
+def test_select_existing_pr_prefers_open() -> None:
+    """An OPEN PR is always the current release."""
+    prs: list[dict[str, object]] = [
+        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
+        {"number": 7, "state": "OPEN", "headRefOid": _LOCAL_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (7, False)
+
+
+def test_select_existing_pr_ignores_closed() -> None:
+    """A CLOSED PR is never reused — its CI is dead."""
+    prs: list[dict[str, object]] = [
+        {"number": 7, "state": "CLOSED", "headRefOid": _LOCAL_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
+
+
+def test_select_existing_pr_ignores_stale_merged() -> None:
+    """A MERGED PR at a different head is a stale earlier attempt."""
+    prs: list[dict[str, object]] = [
+        {"number": 5, "state": "MERGED", "headRefOid": _STALE_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
+
+
+def test_select_existing_pr_accepts_matching_merged() -> None:
+    """A MERGED PR at the local branch head is the completed release."""
+    prs: list[dict[str, object]] = [
+        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
+    ]
+    assert _select_existing_pr(prs, _LOCAL_HEAD) == (5, True)
+
+
+def test_select_existing_pr_empty() -> None:
+    """No PRs means create a fresh one."""
+    assert _select_existing_pr([], _LOCAL_HEAD) == (None, False)
+
+
+def _fake_gh_run(
+    pr_list: list[dict[str, object]],
+    *,
+    merge_rc: int = 0,
+    merge_stderr: str = "",
+    view_states: list[str] | None = None,
+) -> tuple[object, list[list[str]]]:
+    """Build a fake ``_run`` covering the git/gh commands _pr_merge issues.
+
+    ``view_states`` is consumed one state per ``gh pr view`` call; the last
+    entry repeats once exhausted.
+    """
+    issued: list[list[str]] = []
+    states = list(view_states or ["OPEN"])
+
+    def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        issued.append(list(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:2] == ["git", "rev-parse"]:
+            r.stdout = "abc1234\n" if "--short" in cmd else _LOCAL_HEAD + "\n"
+        elif cmd[:3] == ["gh", "pr", "list"]:
+            r.stdout = json.dumps(pr_list)
+        elif cmd[:3] == ["gh", "pr", "create"]:
+            r.stdout = "https://github.com/punt-labs/proj/pull/99\n"
+        elif cmd[:3] == ["gh", "pr", "view"]:
+            state = states.pop(0) if len(states) > 1 else states[0]
+            r.stdout = json.dumps({"state": state})
+        elif cmd[:3] == ["gh", "pr", "merge"]:
+            r.returncode = merge_rc
+            r.stderr = merge_stderr
+        return r
+
+    return fake_run, issued
+
+
+def _patch_pr_merge_env(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_run: object,
+    waited_prs: list[int],
+) -> None:
+    """Wire _pr_merge to the fake gh environment."""
+    import shutil
+
+    from punt_kit import release as release_mod
+
+    def fake_which(_name: str) -> str:
+        return "gh"
+
+    def fake_wait(_gh: str, _cwd: str, pr: int) -> None:
+        waited_prs.append(pr)
+
+    def fake_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_wait_for_required_checks", fake_wait)
+    monkeypatch.setattr(release_mod, "_resolve_pr_threads", fake_resolve_threads)
+
+
+def test_pr_merge_ignores_closed_pr_creates_fresh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CLOSED same-named PR is not resumed; a fresh PR is created.
+
+    Resuming a closed PR waits forever on CI that will never run again.
+    """
+    fake_run, issued = _fake_gh_run(
+        [{"number": 7, "state": "CLOSED", "headRefOid": _LOCAL_HEAD}],
+        view_states=["MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert created, "expected a fresh PR instead of reusing the closed one"
+    assert waited == [99]
+
+
+def test_pr_merge_stale_merged_pr_not_treated_as_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A MERGED PR at a different head does not short-circuit the release.
+
+    Treating it as current skips the version bump and tags an unbumped
+    commit (build/tag version mismatch).
+    """
+    fake_run, issued = _fake_gh_run(
+        [{"number": 5, "state": "MERGED", "headRefOid": _STALE_HEAD}],
+        view_states=["MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert created, "expected a fresh PR instead of reusing the stale merged one"
+    assert waited == [99]
+
+
+def test_pr_merge_matching_merged_pr_short_circuits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A MERGED PR at the local branch head is the completed release."""
+    fake_run, issued = _fake_gh_run(
+        [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    sha = _pr_merge(
+        cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
+    )
+
+    assert sha == "abc1234"
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert not created
+    assert waited == []
 
 
 # --- _phase11_verify: profile SHA ---

@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release` no longer resumes on stale same-named release PRs
+  (pkit-g0gv): a CLOSED PR (dead CI, infinite wait) and a MERGED PR whose
+  head does not match the local release branch (skipped bump, wrong tag)
+  are now ignored and a fresh PR is created; a MERGED PR counts only when
+  its `headRefOid` matches the local branch head
+
 ### Added
 
 - `standards/install-cli-only.md` — CLI-only install standard: every tool

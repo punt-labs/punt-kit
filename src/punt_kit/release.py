@@ -607,6 +607,27 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     _fail(f"Timed out waiting for required CI checks on PR #{pr_number}")
 
 
+def _select_existing_pr(
+    prs: list[dict[str, object]], local_head: str
+) -> tuple[int | None, bool]:
+    """Pick which same-named PR, if any, represents the current release.
+
+    Returns ``(pr_number, already_merged)``. An OPEN PR is always the
+    current release. A MERGED PR counts only when its head commit matches
+    the local branch head — a merged PR at a different head is a stale
+    earlier attempt, and treating it as current would skip the version
+    bump and tag an unbumped commit. CLOSED PRs are never current: their
+    CI is dead and waiting on it never completes.
+    """
+    for pr in prs:
+        if pr.get("state") == "OPEN":
+            return cast("int", pr["number"]), False
+    for pr in prs:
+        if pr.get("state") == "MERGED" and pr.get("headRefOid") == local_head:
+            return cast("int", pr["number"]), True
+    return None, False
+
+
 def _pr_merge(
     *,
     cwd: Path,
@@ -637,7 +658,11 @@ def _pr_merge(
         _fail(f"Failed to push branch {branch} — fix and retry")
     _ok(f"Pushed branch {branch}")
 
-    # 2. Check for existing PR (include merged/closed for resume)
+    # 2. Check for existing PRs (include merged/closed for resume). Only an
+    # OPEN PR or a MERGED PR at this exact head represents the current
+    # release — see _select_existing_pr for why CLOSED and stale MERGED
+    # PRs must be ignored.
+    local_head = _run(["git", "rev-parse", branch], cwd=root).stdout.strip()
     existing = _run(
         [
             gh,
@@ -648,9 +673,9 @@ def _pr_merge(
             "--state",
             "all",
             "--json",
-            "number,state",
+            "number,state,headRefOid",
             "--limit",
-            "1",
+            "20",
         ],
         cwd=root,
         check=False,
@@ -658,12 +683,12 @@ def _pr_merge(
     pr_number: int | None = None
     if existing.returncode == 0:
         try:
-            prs = json.loads(existing.stdout)
+            prs = cast("list[dict[str, object]]", json.loads(existing.stdout))
         except json.JSONDecodeError:
             _fail(f"Failed to parse gh pr list output: {existing.stdout[:200]}")
-        if prs:
-            pr_number = prs[0]["number"]
-            if prs[0]["state"] == "MERGED":
+        pr_number, already_merged = _select_existing_pr(prs, local_head)
+        if pr_number is not None:
+            if already_merged:
                 _ok(f"PR #{pr_number} already merged")
                 _run(["git", "checkout", "main"], cwd=root)
                 _run(["git", "pull", "--ff-only"], cwd=root)
@@ -671,7 +696,7 @@ def _pr_merge(
                     ["git", "rev-parse", "--short", "HEAD"], cwd=root
                 ).stdout.strip()
                 return sha
-            _info(f"Found existing PR #{pr_number}")
+            _info(f"Found existing open PR #{pr_number}")
 
     # 3. Create PR if none exists
     if pr_number is None:
