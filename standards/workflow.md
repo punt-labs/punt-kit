@@ -418,7 +418,12 @@ function poll_tick(pr):
 
 function merge_gate(state) -> bool:
     return CI green on the latest commit
-       and Copilot has reviewed the latest commit   # it re-reviews on push
+       and (Copilot has reviewed the latest commit
+            or Copilot reviewed an earlier commit but not the latest, and
+               CI has been green for more than ten minutes)   # silence after
+                                          #   a fix is no-new-findings; a first
+                                          #   review is always required, since
+                                          #   re-review on push varies by repo
        and (Bugbot has reviewed the latest commit
             or Bugbot never reviewed this PR and more than six minutes
                have passed since CI went green)
