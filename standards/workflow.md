@@ -418,12 +418,20 @@ function poll_tick(pr):
 
 function merge_gate(state) -> bool:
     return CI green on the latest commit
-       and Copilot has reviewed the latest commit   # it re-reviews on push
+       and (Copilot has reviewed the latest commit
+            or Copilot reviewed an earlier commit but not the latest, and
+               CI has been green for more than ten minutes)   # silence after
+                                          #   a fix is no-new-findings; a first
+                                          #   review is always required, since
+                                          #   re-review on push varies by repo
        and (Bugbot has reviewed the latest commit
             or Bugbot never reviewed this PR and more than six minutes
                have passed since CI went green)
        and zero unresolved review threads
-       and the latest review round had zero material findings
+       and the latest review round has no unaddressed material findings
+           # findings fixed and their threads resolved satisfy this; silence
+           # on the fix commit is governed by the Copilot rule above, so a
+           # finding-laden round that was fully addressed does not deadlock
     # When this returns true: merge. Do not ask, do not wait.
 
 function close_out():
@@ -882,6 +890,7 @@ consuming repo's owner before either side merges.
 ## Related Standards
 
 - [PR and Review](pr-review.md) — PR boundaries, review sequencing, installed semantics
+- [Git](git.md) — git mechanics: branch check, no-rewrite rule, conflict resolution, post-merge cleanup, worktrees, submodules
 - [Agent Engineering](agent-engineering.md) — judgment defaults for AI coding agents
 - [Makefile](makefile.md) — quality-gate composition
 - [GitHub](github.md) — branch protection, CI, Copilot configuration

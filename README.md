@@ -121,6 +121,7 @@ Standards documents covering the full development lifecycle:
 | [CLI-Only Install](standards/install-cli-only.md) | `install.sh --no-plugin` / `<TOOL>_NO_PLUGIN=1`: install the CLI, skip the Claude Code plugin, identically across tools |
 | [GitHub](standards/github.md) | Branch protection, PR workflow, Copilot review, Dependabot |
 | [Workflow](standards/workflow.md) | Beads, branch discipline, micro-commits, session close |
+| [Git](standards/git.md) | Git mechanics: branch check, no-rewrite of pushed branches, conflict resolution, post-merge cleanup, worktrees, submodules |
 | [Distribution](standards/distribution.md) | PyPI trusted publishing, `.mcpb` bundles, installers |
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
 | [Hooks](standards/hooks.md) | Claude Code hook events, three-layer dispatch pattern |

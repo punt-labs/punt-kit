@@ -2,6 +2,7 @@
   "ignores": [
     ".beads/",
     ".claude/",
+    ".punt-labs/",
     ".venv/",
     ".tmp/",
     "research/",
