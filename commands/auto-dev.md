@@ -27,7 +27,7 @@ allowed-tools:
 ---
 
 Load and execute the playbook specified below. Follow the executor protocol
-defined in the `auto` skill (`${CLAUDE_PLUGIN_ROOT}/.cursor/skills/auto/SKILL.md`).
+defined in the `auto` skill (`${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md`).
 
 Read the skill file first, then execute the playbook.
 
