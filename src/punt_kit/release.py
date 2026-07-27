@@ -277,16 +277,27 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
 
     status = _run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout.strip()
     dirty_lines: list[str] = []
+    untracked_lines: list[str] = []
     for ln in status.splitlines():
-        if ln.startswith("?? "):
-            continue
         path = ln[3:] if len(ln) > 3 else ""
         if path == ".beads" or path.startswith(".beads/"):
             continue
-        dirty_lines.append(ln)
-    dirty = "\n".join(dirty_lines)
-    if dirty:
+        if ln.startswith("?? "):
+            untracked_lines.append(ln)
+        else:
+            dirty_lines.append(ln)
+    if dirty_lines:
+        dirty = "\n".join(dirty_lines)
         _fail(f"Working tree is not clean:\n{dirty}")
+    if untracked_lines:
+        # Untracked files at release time are almost always noise (temp
+        # files, forgotten artifacts) that must not ride along in release
+        # commits — force the operator to commit, gitignore, or remove them.
+        untracked = "\n".join(untracked_lines)
+        _fail(
+            "Untracked files present — commit, gitignore, or remove them "
+            f"before releasing:\n{untracked}"
+        )
     _ok("Working tree clean")
 
     fetch = _run(["git", "fetch", "origin"], cwd=str(info.root), check=False)
@@ -938,9 +949,23 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         if lock_file.exists():
             _run(["uv", "lock"], cwd=str(root))
             _ok("uv.lock refreshed")
-        _run(["git", "add", "-A"], cwd=str(root))
-        status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
-        if status:
+        # Stage only the files this phase edits — `git add -A` would sweep
+        # unrelated untracked files into the release commit.
+        release_files = [
+            pyproject_path,
+            changelog_path,
+            install_sh,
+            plugin_json,
+            lock_file,
+        ]
+        if pkg_dir is not None:
+            release_files.append(pkg_dir / "__init__.py")
+        to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
+        _run(["git", "add", "--", *to_stage], cwd=str(root))
+        staged = _run(
+            ["git", "diff", "--cached", "--name-only"], cwd=str(root)
+        ).stdout.strip()
+        if staged:
             _run(
                 ["git", "commit", "-m", f"chore: release v{version}"],
                 cwd=str(root),
@@ -1344,12 +1369,14 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         else:
             _ok("Plugin already in dev state (resume)")
 
-    # README SHA bump
+    # README SHA bump. Stage README.md explicitly — `git add -A` would
+    # sweep unrelated untracked files into the post-release commit.
     _bump_readme_install_sha(info, version, dry_run=False)
-    # Check if _bump_readme_install_sha made changes
-    status = _run(["git", "status", "--porcelain"], cwd=str(root)).stdout.strip()
+    status = _run(
+        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
+    ).stdout.strip()
     if status:
-        _run(["git", "add", "-A"], cwd=str(root))
+        _run(["git", "add", "--", "README.md"], cwd=str(root))
         msg = f"chore: update README install SHA to v{version}"
         _run(["git", "commit", "-m", msg], cwd=str(root))
         has_changes = True

@@ -199,7 +199,12 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
 
 
 def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
-    """Pre-flight fails when there is an untracked file."""
+    """Pre-flight fails when there is an untracked file.
+
+    dry_run=True skips the quality gates so the failure is attributable
+    to the untracked-file check itself, not to gates failing in the
+    scratch project.
+    """
     root = _make_release_project(tmp_path)
     (root / "untracked.txt").write_text("untracked")
 
@@ -207,8 +212,23 @@ def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
-        _phase1_preflight(info, dry_run=False)
+    with pytest.raises(ReleaseError, match="[Uu]ntracked"):
+        _phase1_preflight(info, dry_run=True)
+
+
+def test_preflight_ignores_untracked_beads(tmp_path: Path) -> None:
+    """Untracked .beads/ content does not block a release."""
+    root = _make_release_project(tmp_path)
+    beads = root / ".beads"
+    beads.mkdir()
+    (beads / "state.json").write_text("{}")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    # Should not raise
+    _phase1_preflight(info, dry_run=True)
 
 
 def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
@@ -333,6 +353,96 @@ def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     # Files should be unchanged
     content = (root / "pyproject.toml").read_text()
     assert 'version = "0.1.0"' in content
+
+
+def _commit_files(root: Path, ref: str = "HEAD") -> list[str]:
+    """Return the files changed by a commit."""
+    result = subprocess.run(
+        ["git", "show", "--name-only", "--format=", ref],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return [ln for ln in result.stdout.strip().splitlines() if ln]
+
+
+def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
+    """The release commit stages only the files the bump edits.
+
+    An untracked file present at bump time must not be swept into the
+    release commit (git add -A would capture it).
+    """
+    root = _make_release_project(tmp_path)
+    (root / "stray-transcript.jsonl").write_text("{}\n")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    committed = _commit_files(root)
+    assert "stray-transcript.jsonl" not in committed
+    assert "pyproject.toml" in committed
+    assert "CHANGELOG.md" in committed
+
+    # The stray file is still present and still untracked
+    assert (root / "stray-transcript.jsonl").exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--", "stray-transcript.jsonl"],
+        cwd=str(root),
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert status.startswith("??")
+
+
+def test_phase9_commit_excludes_untracked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The post-release README commit stages only README.md."""
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # README with a URL matching the repo directory name so the SHA bump fires
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    # Plugin already in dev state ("test-dev") so the dev restore is skipped
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "matching readme"], cwd=d)
+
+    (root / "stray-transcript.jsonl").write_text("{}\n")
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        return "abc1234"
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    committed = _commit_files(root)
+    assert committed == ["README.md"]
+    assert (root / "stray-transcript.jsonl").exists()
 
 
 # --- README install SHA bump (used in Phase 9: post-release) ---

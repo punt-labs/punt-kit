@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` preflight now fails on untracked files (pkit-v3k) —
+  previously they passed preflight and were swept into release commits
+  by `git add -A`; the version-bump and post-release commits also stage
+  their edit set explicitly (pyproject.toml, CHANGELOG.md, install.sh,
+  plugin.json, uv.lock, `__init__.py`; README.md) instead of `git add -A`
 - `punt release` no longer aborts when the post-merge branch deletion
   404s (pkit-k5j, pkit-u8f): repos with "automatically delete head
   branches" remove the branch during the squash merge, so gh's own
