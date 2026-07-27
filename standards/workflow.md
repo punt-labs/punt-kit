@@ -428,7 +428,10 @@ function merge_gate(state) -> bool:
             or Bugbot never reviewed this PR and more than six minutes
                have passed since CI went green)
        and zero unresolved review threads
-       and the latest review round had zero material findings
+       and the latest review round has no unaddressed material findings
+           # findings fixed and their threads resolved satisfy this; silence
+           # on the fix commit is governed by the Copilot rule above, so a
+           # finding-laden round that was fully addressed does not deadlock
     # When this returns true: merge. Do not ask, do not wait.
 
 function close_out():

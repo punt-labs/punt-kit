@@ -240,16 +240,21 @@ requires: `biff who`, `biff finger @<agent>`, then `git branch` and
 ## 9. Session close and PR prose
 
 **Work is not complete until `git push` succeeds.** A session that ends with
-commits sitting only in the local repo has stranded that work. Before ending
-any session (the full close-out sequence lives in [Workflow](workflow.md) §
-Batch close-out):
+commits sitting only in the local repo has stranded that work. Session close's
+job is to push the *current* branch's committed work (the full close-out
+sequence lives in [Workflow](workflow.md) § Batch close-out):
 
 ```bash
-git pull --ff-only origin main
-git push
-git fetch --prune origin
-git status                    # must report up to date with origin
+git push                      # push the current branch's commits to its upstream
+bd dolt push                  # where the repo tracks issues in dolt
+git status                    # must report the branch up to date with its upstream
 ```
+
+Do not `git pull --ff-only origin main` here: on a feature branch that
+fast-forwards the *current* branch toward `origin/main`, which fails or, worse,
+drags main's history onto the branch. Updating local `main` belongs to
+post-merge cleanup (§4), which runs on `main` after the merge — not to session
+close, which runs on whatever branch you are on.
 
 **Plain English over git internals in PR prose.** In a PR title, body, or
 review reply, name the commit in words a reader need not decode: "the latest
