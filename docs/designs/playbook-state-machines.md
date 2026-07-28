@@ -32,9 +32,10 @@ workflows.
 
 Defined before use, so the sections below can lean on them:
 
-- **Machine** — a playbook that declares `states` instead of `steps`. It has
-  one initial state and at least one terminal state (unless it is a
-  deliberately non-terminating loop, e.g. the backlog loop).
+- **Machine** — a playbook that declares `states` instead of `steps`. Its
+  initial state is the first `states` entry, and it has at least one terminal
+  state (unless it is a deliberately non-terminating loop, e.g. the backlog
+  loop).
 - **State** — a named node with an optional list of **actions** and a list of
   outgoing **transitions**. `e.g. id = watch`.
 - **Action** — a step in the existing vocabulary (`type: script` or
@@ -83,12 +84,24 @@ Two optional top-level keys, valid only when `states` is present:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `states` | list | machine only | The states of the machine. The first entry is the initial state unless `initial` overrides. |
-| `initial` | string | no | `id` of the initial state (default: first `states` entry). |
+| `states` | list | machine only | The states of the machine. **The first entry is the initial state** — the convention is fixed, with no override field. |
 | `instance` | string | no | An expression, e.g. `pr-${pr}`, that names one running instance. Two values run two independent run-states. Default: the machine `name` (one instance per repo). |
 
+The initial state is the first `states` entry, always — there is no `initial`
+field. An earlier draft carried one; it failed this design's own "justified by
+a loop we run" test, since none of the three worked machines (§3, §4) needs an
+initial state other than the first — the earlier draft's `pr-loop` even set
+`initial: watch` where `watch` was already first, a redundancy that proved the
+field unnecessary. First-entry-is-initial is one fewer construct for zero lost
+expressiveness; author order the states so the entry point leads.
+
 `name`, `description`, `parameters`, and `preconditions` keep their current
-meaning. Preconditions run once before the initial state is entered.
+meaning. In `SCHEMA.md` the top-level table marks `steps` **required: yes**;
+under this extension that requiredness becomes **conditional** — `steps` is
+required if and only if `states` is absent, and exactly one of the two is
+present. This changes `steps`'s requiredness, not its meaning: a playbook that
+has `steps` behaves exactly as before. Preconditions run once before the
+initial state is entered.
 
 ### 1.3 State fields
 
@@ -154,6 +167,16 @@ irreducibly a judgment: materiality and "addressed" are what the leader decides
 today. Rather than pretend that clause is shell, the DSL admits a judgment
 guard-check. `script` is the default; `llm` is opt-in and rare.
 
+A judgment guard-check carries a cost that a shell one does not: **it is not
+reproducible across runs.** A shell `check` is a pure function of the world — the
+same inputs give the same exit code every time — so a deterministic transition
+routes identically on every evaluation. An `llm` verdict is not pure; the same
+PR state may route differently on two ticks. A machine with a judgment guard
+therefore trades determinism for expressiveness on exactly the clauses that need
+it. Keep judgment guards to those clauses (open question 1 asks the operator to
+ratify this trade), and keep every other guard shell so the machine's routing is
+reproducible wherever it can be.
+
 ### 1.5 Transition evaluation — the doorway rules
 
 Stated as preconditions before behavior:
@@ -211,7 +234,7 @@ or neither, is a validation error.
 Replacing Phase 2 for machines:
 
 ```text
-resolve initial state (initial, or first states entry)
+initial = first states entry
 write run-state: { instance, parameters, current: <initial>, entered_at }
 loop:
     S = current state
@@ -252,21 +275,57 @@ is "current state changed"). This reuses the org's existing scheduler; the DSL
 does not introduce one. `poll` is therefore a declaration that compiles to a
 `/loop` registration, nothing more.
 
+**This is an explicit dependency, not an implicit one: a machine with any
+`poll` state cannot tick outside a `/loop`-capable executor.** A `/loop`
+registration is session-scoped — it lives in the session that created it and
+dies with that session. So a machine does not tick on its own after the
+session that registered its `/loop` ends (a crash, a compaction that drops the
+cron, a closed terminal). Nothing wakes the machine autonomously; run-state on
+disk is inert until something invokes the executor again.
+
+The minimal honest answer — not a piece of machinery, a documented property —
+is that **any `/punt:auto <name> --resume` re-registers the tick.** On resume,
+the executor reads run-state, finds the current state is a `poll` state with no
+fired transition, and registers a fresh `/loop` before returning, exactly as a
+first entry would. A machine whose session died therefore resumes ticking the
+next time anyone runs `/punt:auto <name> --resume` for that instance — a new
+session at the operator's next sweep, or a supervising loop that periodically
+resumes known-open instances. The limitation stands plainly: between the death
+of one session and the next resume invocation, the machine is paused, not
+progressing. It loses no state (run-state is durable, §2.4) and it cannot act
+wrongly (guards recompute on the next tick), but it also does not advance. This
+is a property to design around — the operator's session-start sweep is the
+natural re-igniter — not a gap the DSL closes with a daemon it deliberately
+does not have.
+
 ### 2.4 Run-state persistence and crash/resume
 
-Run-state persists to a gitignored file keyed by instance:
+Run-state is per-checkout, machine-local **live state**: it is bound to one
+developer's checkout driving one PR, and the executor rewrites it on every
+transition and every tick. `standards/punt-labs-dir.md` §3 routes exactly this
+class of state — "person- or machine-scoped live state, but repo-bound" — to
+the **local zone**, `.punt-labs/local/<tool>/`, never committed (§1 core
+principle, §5 "Live State is Never a Tracked File"). So run-state persists,
+keyed by instance, to:
 
 ```text
-.punt/auto/<name>-<instance-key>.json
+.punt-labs/local/punt/auto/<name>-<instance-key>.json
 {
   "machine": "pr-loop",
   "instance": "pr-317",
   "parameters": { "pr": "317" },
   "current": "watch",
+  "recap_sent": false,
   "entered_at": "2026-07-27T18:04:11Z",
   "history": ["watch", "fixing", "watch"]
 }
 ```
+
+This is inside the tool's own subtree (`punt/`) under the reserved `local/`
+zone — not a new top-level dot-directory, which `punt-labs-dir.md` §2 forbids.
+It needs **no new `.gitignore` rule**: the canonical block's
+`.punt-labs/**/local` line (`punt-labs-dir.md` §6) already ignores the whole
+local zone. (The `recap_sent` flag is used by the idempotency guard in §3.)
 
 Crash/resume semantics rest on one invariant the author must uphold:
 
@@ -275,23 +334,48 @@ Crash/resume semantics rest on one invariant the author must uphold:
 > causes the next `--resume` tick to re-visit the same state; the machine must
 > tolerate that.
 
-Idempotency is achievable because actions read-then-act against live state: the
-`fixing` state re-fetches findings, and if the previous (crashed) visit already
-committed the fix, the re-visit finds nothing to fix, `make check` passes,
-`git commit` no-ops, and the guard back to `watch` fires. No action assumes it
-is running for the first time. The stateless-guard rule (§1.6) is the other
-half: because guards recompute from the world, a resumed tick's decision equals
-the crashed tick's decision.
+Idempotency is achievable because every action reads-then-acts against live
+state, and an action with a side effect the world cannot un-see guards that
+effect with its own precondition. The invariant is not "actions have no side
+effects" — `merging` merges and `closing` sends mail — it is "an action that
+already ran is a no-op the second time." The three action-states in the worked
+example each show how:
 
-Resume therefore needs no transactional journal — only the last committed
-`current` state. If the crash predates the first run-state write, `--resume`
-finds no file and starts from the initial state, which is safe because the
-initial visit is itself idempotent.
+- **`fixing`** re-fetches findings; if the crashed visit already committed the
+  fix, the re-visit finds nothing to fix, `make check` passes, `git commit`
+  no-ops on a clean tree, and the guard back to `watch` fires. Read-then-act
+  makes the repeat empty.
+- **`merging`** guards `gh pr merge` with a check of the PR's live state: it
+  merges only when `gh pr view --json state` reads `OPEN`. A crash after the
+  merge lands but before the run-state write leaves the PR `MERGED`, so the
+  re-visit's guard reads `MERGED`, skips the merge, and falls through to
+  `closing`. Without this guard, `gh pr merge` on a `MERGED` PR exits non-zero
+  and drops into `on_failure: diagnose` — recoverable, but a violation of
+  invariant 5, so the guard is mandatory, not cosmetic.
+- **`closing`**'s recap email is the one effect with no external idempotency
+  key — a second send is a second visible email. It is guarded by a flag the
+  machine owns: `recap_sent` in run-state. The action sends only when
+  `recap_sent` is false, then sets it true and rewrites run-state. A crash
+  after the send but before the flag write re-sends on resume — so the flag is
+  set in the **same** action, immediately after the send returns, and the
+  window is one function call. This is the single place the machine keeps a
+  written fact rather than reading the world, precisely because the world
+  (an inbox) offers no reliable "already sent?" query; §1.6's no-mutable-state
+  rule is about *guards*, and this is an *action* recording its own completion.
 
-`.punt/auto/` is chosen over `.tmp/` deliberately: `.tmp/` is scratch that
-`make clean` wipes, and a PR watch loop can outlive a `make clean`. `.punt/` is
-gitignored runtime state with a semantic name. (Open question 1 records the
-alternative.)
+The stateless-guard rule (§1.6) is the other half of resume safety: because
+guards recompute from the world, a resumed tick's routing decision equals the
+crashed tick's. Resume therefore needs no transactional journal — only the last
+committed `current` state plus the one `recap_sent` flag. If the crash predates
+the first run-state write, `--resume` finds no file and starts from the initial
+state, which is safe because the initial visit is itself idempotent.
+
+The local zone `.punt-labs/local/punt/auto/` (fix chosen in §2.4 above,
+`punt-labs-dir.md` §3) is deliberately not `.tmp/`: `make clean` wipes `.tmp/`
+(confirmed, `Makefile:29` — `clean: rm -rf dist/ .tmp/`), and a PR watch loop
+can outlive a `make clean`. Run-state needs a durable, gitignored home; the
+local zone is exactly that, and unlike `.tmp/` it is not swept by a build
+target.
 
 ### 2.5 What does not change
 
@@ -322,16 +406,15 @@ preconditions:
   - description: The PR exists and is open
     check: test "$(gh pr view ${pr} --json state -q .state)" = "OPEN"
 
-initial: watch
-
 states:
+  # watch is first, so it is the initial state (no `initial` field)
   # --- Decision state: one tick reads live state and routes -------------
   - id: watch
     description: Poll the PR; route to fixing, merging, or wait
     poll: 2m
     # No actions: each guard reads the live PR state it needs.
     transitions:
-      # fixing precedes merging: findings never wait (workflow §8.3)
+      # fixing precedes merging: findings never wait (workflow §8 invariant 3)
       - to: fixing
         when:
           - description: CI is red on the latest commit, OR a review round has
@@ -406,9 +489,16 @@ states:
     description: Squash-merge the PR (reached only through the full gate)
     actions:
       - id: squash-merge
-        description: Squash-merge with branch delete
+        description: Squash-merge with branch delete, only if still OPEN
         type: script
-        command: gh pr merge ${pr} --squash --delete-branch
+        # Idempotent (invariant 5): a crash after the merge lands but before
+        # the run-state write re-visits this state. The `state = OPEN` read-
+        # then-act guard makes the merge a no-op the second time, instead of
+        # `gh pr merge` erroring on an already-MERGED PR.
+        command: |
+          if [ "$(gh pr view ${pr} --json state -q .state)" = "OPEN" ]; then
+            gh pr merge ${pr} --squash --delete-branch
+          fi
         postcondition:
           check: test "$(gh pr view ${pr} --json state -q .state)" = "MERGED"
         on_failure: diagnose
@@ -424,19 +514,37 @@ states:
         type: script
         # Order is load-bearing (git.md §4): checkout, pull --ff-only,
         # branch -d (needs origin/<branch> still present), then fetch --prune.
+        # Idempotent (invariant 5): `checkout main` and `pull --ff-only` are
+        # already no-ops when repeated; `branch -d` is guarded on the branch
+        # still existing, so a re-visit after the branch was deleted skips it
+        # rather than erroring.
         command: |
           git checkout main
           git pull --ff-only origin main
-          git branch -d "$(./scripts/branch-of-pr.sh ${pr})"
+          branch="$(./scripts/branch-of-pr.sh ${pr})"
+          if git show-ref --verify --quiet "refs/heads/$branch"; then
+            git branch -d "$branch"
+          fi
           git fetch --prune origin
       - id: recap
-        description: Send the merge recap email (every merge, unprompted)
+        description: Send the merge recap email once (every merge, unprompted)
         type: llm
+        # Idempotent (invariant 5): a recap email has no external "already
+        # sent?" key, so the machine records sent-ness itself. Send only when
+        # run-state recap_sent is false, then set it true in this same action.
+        # A crash after the send but before the flag write re-sends on resume,
+        # so the flag write follows the send immediately, narrowing the window
+        # to one call. This is the one written fact the machine keeps (§2.4).
         context: |
-          Send the merge recap for PR ${pr} via beadle to the operator's recap
+          If run-state recap_sent is already true, do nothing. Otherwise send
+          the merge recap for PR ${pr} via beadle to the operator's recap
           address: subject "[repo] PR #${pr} merged: <title>", body with the
           bead id, PR link, and one paragraph on what changed, why, and how it
-          left the system better (workflow §5 The merge recap).
+          left the system better (workflow §5 The merge recap). Immediately
+          after the send returns, set recap_sent = true in run-state.
+        # No shell postcondition: recap_sent lives in run-state, which the
+        # executor owns and reads directly (§2.4) — it is not a repo file a
+        # helper script would query.
     transitions:
       - to: done             # unconditional
 
@@ -455,7 +563,8 @@ than `<seconds>` since CI went green. Naming the reviewer and the window as
 arguments keeps the two clauses one script with the difference in data, not two
 copies of shell. The exact `gh`/GraphQL incantations live in `pr-review.md` and
 `git.md`; the point here is the DSL shape and the 1:1 mapping to the five
-clauses, annotated inline.
+clauses, annotated inline. Where these five scripts live and ship — vendored
+with `punt` versus repo-local — is open question 6.
 
 ### 3.1 Invariants this machine maintains
 
@@ -475,7 +584,12 @@ Written as invariants, since state machines are the home ground for them:
    unconditionally; the next tick re-reads CI and reviews on the new commit.
    Workflow invariant 4.
 5. **Idempotent visits.** Every state's actions are safe to re-run, so
-   crash/resume re-visiting a state cannot double-apply an effect (§2.4).
+   crash/resume re-visiting a state cannot double-apply an effect (§2.4). The
+   three states with real side effects prove it in the YAML: `merging` guards
+   `gh pr merge` on the PR still being `OPEN`, `closing`'s cleanup guards
+   `branch -d` on the branch still existing, and `closing`'s recap guards the
+   send on the `recap_sent` flag it then sets. An action that already ran is a
+   no-op the second time; the invariant is not "no side effects."
 6. **Terminal after close-out.** `done` is reachable only after `closing`
    completes both cleanup and recap; the machine cannot report success with the
    branch un-deleted or the recap unsent. Workflow invariant 7 ("close-out is
@@ -490,8 +604,7 @@ three, not in full YAML.
 ### 4.1 Level 1 — the backlog loop (a non-terminating machine)
 
 ```text
-initial: intake        poll: <session cadence>
-states:
+states:                  # intake is first -> the initial state; poll = session cadence
   intake   actions: sweep signals -> beads or close-at-door
            transitions: -> validate (unconditional)
   validate actions: re-prove ready beads against main
@@ -520,8 +633,7 @@ question 4 asks how nesting is expressed.
 ### 4.2 Level 3 — the mission loop (a do-while with a review cycle)
 
 ```text
-initial: dispatch
-states:
+states:                  # dispatch is first -> the initial state
   dispatch actions: write contract; mission create; spawn worker; verify running
            transitions: -> working (unconditional)
   working  poll: <filesystem cadence>
@@ -596,23 +708,42 @@ graph visible in the `states` list.
 
 ## Section 6 — Open Questions
 
+### 6.0 Settled in round-2 review
+
+- **Run-state location — settled: the local zone.** Run-state persists to
+  `.punt-labs/local/punt/auto/<name>-<instance>.json`. It is per-checkout,
+  machine-local live state the executor rewrites every tick, which
+  `standards/punt-labs-dir.md` §3 routes to the local zone
+  `.punt-labs/local/<tool>/` (§1 core principle; §5 "Live State is Never a
+  Tracked File"). This is inside the tool's own subtree, not a new top-level
+  dot-directory — `punt-labs-dir.md` §2 forbids the latter, which an earlier
+  draft's `.punt/auto/` would have created. It needs **no new `.gitignore`
+  rule**: the canonical block's `.punt-labs/**/local` line (§6) already ignores
+  the whole zone. `.tmp/` is ruled out because `make clean` wipes it
+  (confirmed, `Makefile:29`) and a PR watch loop can outlive a clean; that only
+  rules out `.tmp/`, it does not justify a new root. (Details in §2.4.)
+
+### 6.1 Remaining open questions
+
 Each carries a recommendation, per the design-gate discipline.
 
-1. **Run-state location.** `.punt/auto/<name>-<instance>.json` (gitignored
-   runtime dir) versus `.tmp/punt-auto/...` (existing scratch convention).
-   **Recommend `.punt/auto/`**: a PR watch loop can outlive a `make clean`,
-   which wipes `.tmp/`; run-state needs a semantic, durable home. Cost: one new
-   gitignored top-level dir and a `.gitignore` entry.
-
-2. **Judgment guard-checks — admit them, or force everything to shell.**
+1. **Judgment guard-checks — admit them, or force everything to shell.**
    **Recommend admit them** (`type: llm` guard-check), scoped to the one
    `merge_gate` clause that is irreducibly judgment ("no unaddressed material
    findings"). Forcing it to shell would either drop the clause or fake it with
    a brittle comment-scraper; the honest encoding is a judgment guard. Keep
    `script` the default so machines stay mostly deterministic and guard-checks
-   read like preconditions.
+   read like preconditions. **Constraint the operator should accept with it:** a
+   judgment-gated transition is **not reproducible across runs** — the same PR
+   state can route differently on two evaluations because an LLM verdict is not
+   a pure function of the inputs the way a shell exit code is. Deterministic
+   (shell) guards are reproducible; a machine with a judgment guard trades that
+   property for expressiveness on exactly the clauses that need it. This is
+   acceptable here because the clause is judgment in the standard today, but it
+   is a real weakening of the machine's determinism and should be a conscious
+   ratification, not a silent one.
 
-3. **Instance keying and concurrency.** Two open PRs need two independent
+2. **Instance keying and concurrency.** Two open PRs need two independent
    `pr-loop` runs. **Recommend the `instance` expression** (`instance:
    pr-${pr}`) keying the run-state file, so concurrency is one file per
    instance with no shared mutable state. Open sub-question: should the executor
@@ -620,27 +751,53 @@ Each carries a recommendation, per the design-gate discipline.
    second start as a resume? **Recommend treat-as-resume** — it is idempotent
    and avoids a lock file that can leak.
 
-4. **Sub-machine invocation.** The backlog loop runs `pr-loop` per unit
+3. **Sub-machine invocation.** The backlog loop runs `pr-loop` per unit
    (§4.1). Is that a new action type (`type: playbook`), or does the executor
    just `/punt:auto pr-loop pr=<n>` from an `llm` action? **Recommend the
    latter for now** — an `llm` action that invokes the nested playbook — and
    defer a first-class `type: playbook` action until a second nesting case
    exists. Minimal: do not add a construct on one example.
 
-5. **Unbounded polling / stuck safety.** If CI never resolves, `watch` polls
+4. **Unbounded polling / stuck safety.** If CI never resolves, `watch` polls
    forever. **Recommend an optional per-state `deadline`** (e.g. `deadline:
    2h`) that, when exceeded with no transition fired, routes to an operator-
    notify state — opt-in, absent from the core, added to the worked example
    only if the operator wants a ceiling. Not in the minimal core because no
    loop we run today needs it; noted so it is not rediscovered under an
-   incident.
+   incident. A lighter alternative the evaluator raised: an operator-visible
+   "still waiting Nh" ping instead of a full deadline state — cheaper, and
+   worth offering as the first increment.
 
-6. **Scheduling ownership.** `poll` compiles to a `/loop` registration (§2.3).
+5. **Scheduling ownership.** `poll` compiles to a `/loop` registration (§2.3).
    Is that binding correct, or should `/punt:auto` own its own cron primitive?
    **Recommend bind to `/loop`** — the org standard already mandates `/loop`
    over raw `CronCreate`, and a machine's `poll` is exactly the recurring poll
    `/loop` exists for. Reusing it means no new scheduler and one place that
-   knows how to cancel a tick.
+   knows how to cancel a tick. The coupling is an **explicit dependency**, not
+   an implicit convenience (§2.3): a machine with a `poll` state cannot tick
+   outside a `/loop`-capable executor, and because `/loop` registrations are
+   session-scoped, a machine pauses when its session dies and resumes only on
+   the next `/punt:auto <name> --resume`. That is a documented limitation of
+   binding to the session-scoped scheduler, not a defect to engineer away with
+   a daemon the design deliberately rejects (§5.2).
+
+6. **Helper-script packaging and home.** The worked example references five
+   helper scripts — `reviewer-gate.sh`, `pr-needs-work.sh`,
+   `unresolved-threads.sh`, `commit-push-if-dirty.sh`, `branch-of-pr.sh` —
+   that wrap the `gh`/GraphQL specifics of the merge gate and cleanup. Where do
+   they live and ship: packaged with `punt` and deposited into the repo on
+   enable (the vendored zone, `punt-labs-dir.md` §7), or repo-local under
+   `scripts/`? **Recommend punt-packaged and deposited under
+   `.punt-labs/punt/`.** These scripts encode org standards — the exact
+   `merge_gate` clauses (workflow §5) and the `git.md` §4 cleanup — so they must
+   version with the standard and the tool, not be copy-pasted per repo where
+   they would drift out of sync with the gate they enforce. Repo-local
+   `scripts/` would mean fifteen divergent copies of the merge gate; a vendored,
+   tool-shipped set is one authoritative copy that `enable`/upgrade refreshes
+   wholesale (the vendored-zone determinism contract, `punt-labs-dir.md` §7).
+   Sub-question the operator should rule on: whether these are `pr-loop`-specific
+   or a general `punt`-shipped gate library other machines reuse — I lean
+   general, since `merge_gate` is not unique to `pr-loop`.
 
 ## Backward Compatibility
 
