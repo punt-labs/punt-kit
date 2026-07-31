@@ -177,7 +177,7 @@ pressure is not a license to skip testing, skip review, skip thinking.
 - Cyber Week / launch day / demo tomorrow are reasons for *more* care, not less.
 - Don't lower the bar to match the deadline. Adjust the scope instead.
 
-## 16. When behaviour contradicts the source, suspect a stale binary
+## 16. When behavior contradicts the source, suspect a stale binary
 
 Before writing a fix for a tool that misbehaves, confirm the tool you ran is
 built from the source you read. If the source already handles the case you are
@@ -211,6 +211,6 @@ running: that is about not overwriting a binary in use. This is about not
 trusting that the binary in use matches the tree in front of you.
 
 Motivating case: `ethos-kptv`. A release-tooling defect was diagnosed from
-observed behaviour and queued for implementation. Both fixes were already
+observed behavior and queued for implementation. Both fixes were already
 correct on `main`, merged five days earlier and present in no tag; the installed
 CLI predated them. The assigned work was a release, not a code change.

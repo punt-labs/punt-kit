@@ -31,7 +31,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `standards/agent-engineering.md` §16 — when a tool's behaviour contradicts
+- `standards/agent-engineering.md` §16 — when a tool's behavior contradicts
   its source, suspect a stale installed binary before writing a fix
   (pkit-dgel): `git tag --contains <fix-commit>` plus a `<tool> --version`
   comparison distinguishes "not implemented" from "implemented but never
