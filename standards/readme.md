@@ -8,6 +8,31 @@ Reference implementations:
 - [koch-trainer-swift](https://github.com/punt-labs/koch-trainer-swift/blob/main/README.md) — tone and competitor positioning
 - [z-spec](https://github.com/punt-labs/z-spec/blob/main/README.md) — academic grounding and factual framing
 
+## Audience
+
+**The README is written for users.** A user is the person who installs the
+tool and uses it — not the person who develops or extends it. Every section
+answers a user's question: what is this, how do I install it, what can it do,
+how do I drive it.
+
+Developer content is limited to **one short Development section** (the quality
+gate commands — see Required Sections below). Everything else a contributor or
+integrator needs — library API guides, client code walkthroughs, internal
+architecture detail, probe scripts, protocol internals — lives under `docs/`
+and is linked from the Documentation section. A README with an 80-line client
+code walkthrough is mis-addressed: move it to `docs/` and leave a short
+paragraph with a link.
+
+Two corollaries:
+
+- **Document only what works.** A tool, command, or feature that is broken or
+  unimplemented does not appear in the README at all — not even annotated as
+  broken. The issue tracker records defects; the README describes what a user
+  can do today.
+- **An Architecture section, if present, tells the user-relevant story** (what
+  runs where and what that means for the user), not the contributor-relevant
+  one (module layout, dispatch seams). The deep version belongs in `docs/`.
+
 ## Badges
 
 Badges appear immediately after the H1 heading (and tagline, if present).
