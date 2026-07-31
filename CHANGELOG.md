@@ -31,6 +31,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `standards/agent-engineering.md` §16 — when a tool's behavior contradicts
+  its source, suspect a stale installed binary before writing a fix
+  (pkit-dgel): `git tag --contains <fix-commit>` plus a `<tool> --version`
+  comparison distinguishes "not implemented" from "implemented but never
+  released", where the remedy is a release rather than a patch. Cross-linked
+  from §2 (root-cause tracing). Motivated by ethos-kptv, where a
+  release-tooling defect was queued for implementation although both fixes
+  were already correct on `main` and merely unshipped.
 - `standards/git.md` — git mechanics standard (pkit-krc8): the local git
   operations between starting work and pushing it, owning what no punt-labs
   doc previously did. Covers the branch check before every commit, the

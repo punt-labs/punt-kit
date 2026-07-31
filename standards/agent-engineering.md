@@ -27,6 +27,8 @@ to route around, escalate, or fix.
 - When a dependency blocks you, name it explicitly and propose: fix it, work
   around it, or escalate.
 - Trace failures to root cause, not the first plausible symptom. Apply "5 Whys."
+  When the failing thing is a tool, check that the binary you ran matches the
+  source you are reading before you fix the source — see §16.
 - If you touch code, you inherit some responsibility for its operability afterward.
 
 ## 3. Match confidence to evidence
@@ -174,3 +176,41 @@ pressure is not a license to skip testing, skip review, skip thinking.
   without tests, or 30 with. Which do you want?"
 - Cyber Week / launch day / demo tomorrow are reasons for *more* care, not less.
 - Don't lower the bar to match the deadline. Adjust the scope instead.
+
+## 16. When behavior contradicts the source, suspect a stale binary
+
+Before writing a fix for a tool that misbehaves, confirm the tool you ran is
+built from the source you read. If the source already handles the case you are
+debugging — and especially if a comment or docstring describes your exact
+failure — the likely explanation is that the fix exists but was never released.
+Writing it again is the expensive outcome: you spend a round implementing
+something that is already on `main`, and the real defect (an unshipped release)
+survives untouched.
+
+Two commands settle it:
+
+```bash
+git tag --contains <fix-commit>     # empty output → the fix is in no release
+<tool> --version                    # compare against the tag the fix landed after
+```
+
+- Run this check *before* implementing any fix to a tool you did not just build
+  from source. It costs a minute; a wasted implementation round costs hours.
+- Report the corrected root cause even when it contradicts the assignment you
+  were given. An assignment's decision binds; its stated premise does not
+  survive contrary evidence. See §14 — this is the same duty applied to a
+  premise rather than a mistake.
+- When the fix turns out to be unshipped, the remedy is a release, not a patch.
+  Say so plainly rather than writing the patch anyway because it was what you
+  were asked for.
+- Expect it to recur. An unshipped fix keeps reproducing its symptom on every
+  run until the release lands, so note what will regress and when.
+
+Distinct from the operational rule against `make install` while a tool is
+running: that is about not overwriting a binary in use. This is about not
+trusting that the binary in use matches the tree in front of you.
+
+Motivating case: `ethos-kptv`. A release-tooling defect was diagnosed from
+observed behavior and queued for implementation. Both fixes were already
+correct on `main`, merged five days earlier and present in no tag; the installed
+CLI predated them. The assigned work was a release, not a code change.
