@@ -254,9 +254,9 @@ gets into an agent's hands.
 \textbf{Standards.} The corpus is 29 normative prose documents in
 \texttt{standards/}, plus per-language coding rules in \texttt{lang-rules/}
 that agents auto-load when they touch a matching file. They are prose on
-purpose: the consumer is a language model and a human reviewer, and neither
-needs the rules ground into assertions first. What is machine-checkable is
-checked separately and deterministically --- \texttt{punt audit} is
+purpose: the consumer is a language model and a human reviewer, and prose is
+what both read best. What is machine-checkable is checked separately and
+deterministically --- \texttt{punt audit} is
 hand-written Python that verifies the org's conventions in a repo (CI
 workflows, tool config, permissions, Makefile targets, README SHA pins, plugin
 version sync, branch-protection rulesets) and reports each finding with its
@@ -342,13 +342,12 @@ every command runs locally against the checkout in front of it.
 \prsection{Spokesperson Quote}
 
 \begin{spokespersonquote}
-``Our standards stay prose, and that is a decision, not a gap. The consumer of
-a standard is a model and a reviewer, and prose is the right format for both;
-grinding a rule into assertions loses the rationale that lets an agent apply it
-to a case the rule did not anticipate, and the checks that can be deterministic
-are better written as code than derived from a paragraph. What punt-kit is, is
-the manager for the org's kit --- the standards, the tools, the workflows, the
-compliance checks. The part I am investing in is \texttt{/punt:auto}. Every
+``Our standards are prose because the consumer of a standard is a model and a
+reviewer, and prose carries the rationale that lets an agent apply a rule to a
+case the rule did not anticipate. The checks that can be deterministic we
+write as code. What punt-kit is, is the manager for the org's kit --- the
+standards, the tools, the workflows, the compliance checks. The part I am
+investing in is \texttt{/punt:auto}. Every
 recurring prompt I type by hand is a program I have not written yet. Turning
 those into playbooks, and then into state machines with guards and resume,
 means the tool writes the prompt and the agent runs the loop. That is the
@@ -434,7 +433,7 @@ Punt Labs.
 \end{faqpair}
 
 \begin{faqpair}{How do the standards actually reach an agent?}\label{faq:standards-mechanism}
-  Three mechanisms, none of which involve parsing prose into assertions:
+  Three mechanisms:
 
   \begin{itemize}[nosep]
     \item \textbf{Reference.} A repo's \texttt{CLAUDE.md} links the standards it
@@ -927,9 +926,9 @@ convention ships, punt's manager surface does not
   \featureitem{Playbook executor}{\pillar{Workflows}\texttt{/punt:auto} --- YAML
     programs mixing \texttt{script} (deterministic shell) and \texttt{llm}
     (scoped judgment) steps, with postconditions and per-step failure
-    strategies. Cross-repo rollout lives here as \texttt{standards-rollout} and
-    \texttt{permissions-rollout}, not as a dedicated
-    command}\label{feat:playbooks}
+    strategies. Cross-repo rollout is a playbook here ---
+    \texttt{standards-rollout} and \texttt{permissions-rollout} propagate a
+    change across the org}\label{feat:playbooks}
   \featureitem{Compliance scans}{\pillar{Compliance}\texttt{punt pii} ---
     emails, home directory paths, and \texttt{.local} hostnames, with
     \texttt{--staged} for pre-commit}\label{feat:pii}
@@ -950,13 +949,11 @@ convention ships, punt's manager surface does not
 
 \subsection*{Should Do}
 
-Committed, not yet built, and not blocking anything that ships today. Two
-kinds of item live here. Some were built or drafted and then went unused ---
-they are kept because the kit-manager identity gives them a reason to exist.
-The rest are the client surfaces the engine-and-clients model in
-\texttt{standards/architecture.md} calls for: MCP and REST are the
-destination, and they sit here rather than in Must Do because nothing shipping
-today waits on them.
+Committed work, ordered behind Must Do because nothing shipping today waits on
+it. Two kinds of item: the pieces that complete the kit-manager identity ---
+the manager surface, usage logging, an audit scoped to what a repo enables ---
+and the client surfaces the engine-and-clients model in
+\texttt{standards/architecture.md} calls for, MCP and REST.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
   \featureitem{Kit-manager surface}{\pillar{Tools}\texttt{punt install <tool>}
@@ -996,11 +993,9 @@ today waits on them.
 
 \subsection*{Won't Do}
 
-Naming what we will not build, so the boundary is a decision rather than a
-backlog nobody gets to. Each exclusion below stands on its own reason: either
-another tool does the job better, or punt-kit already does it a different way.
-Note what is \emph{not} here --- the MCP server and the REST surface belong in
-Should Do, because the engine-and-clients model is the destination.
+Boundaries someone could reasonably expect punt-kit to cross, and the reason
+it does not. For the first four, another tool owns the job and punt-kit
+integrates with it instead.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
   \featureitem{GUI or web dashboard}{punt-kit ships no user interface of its
@@ -1019,17 +1014,6 @@ Should Do, because the engine-and-clients model is the destination.
   \featureitem{Package management}{validates distribution config and automates
     release pipelines; does not replace PyPI, npm, or
     uv}\label{feat:no-package-mgmt}
-  \featureitem{Standards parsed into checkable assertions}{no engine that reads
-    the markdown corpus and extracts assertions from it. Prose is the right
-    format for a model and a reviewer, and grinding a rule into assertions
-    loses the rationale that lets an agent apply it to a case the rule did not
-    anticipate; the deterministic subset is better written directly as code
-    (\featureref{feat:deterministic-audit})}\label{feat:no-assertions}
-  \featureitem{A dedicated \texttt{punt rollout} command}{the job is already
-    done --- \texttt{standards-rollout} and \texttt{permissions-rollout} are
-    playbooks that propagate a change across the org today
-    (\featureref{feat:playbooks}). A command would be a second way to do one
-    thing}\label{feat:no-rollout}
   \featureitem{External adoption machinery}{no marketing site, no onboarding
     path for non-Punt-Labs teams, no third-party standards packs. Deferred by
     operator direction until the internal product has found its footing
