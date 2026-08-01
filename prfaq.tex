@@ -469,20 +469,25 @@ Punt Labs.
   where it stopped. A linear playbook stays valid --- it is the degenerate
   one-state machine.
 
-  What that buys: the recurring prompts the operator types by hand become
-  files. Watching a PR to merge is a machine with a \texttt{watch} state that
-  routes to \texttt{fixing} or \texttt{merging} on guards; sweeping the backlog
-  is a non-terminating machine; a mission round is a do-while with a review
-  cycle. Written as prose in a cron prompt, the current state lives only in the
-  model's working context and evaporates on compaction. Written as a playbook,
-  it is a reviewed, versioned artifact --- \textbf{the tool generates the
-  prompt, and the agent runs the loop}.
+  What that buys, argued on the one loop we actually run: \textbf{the PR
+  watch.} Today the operator re-authors it as a fresh cron prompt for every
+  open PR --- twice in one session on 2026-07-27, which is the event that
+  motivated the design. As a machine it is a \texttt{watch} state that routes
+  to \texttt{fixing} or \texttt{merging} on guards, with the five-clause merge
+  gate as the guard on the second edge and \texttt{fixing} ordered first so
+  findings never wait. Written as prose in a cron prompt, the current state
+  lives only in the model's working context and evaporates on compaction.
+  Written as a playbook, it is a reviewed, versioned artifact ---
+  \textbf{the tool generates the prompt, and the agent runs the loop}. It is
+  also the first conversion target and carries a decision threshold
+  (\faqref{faq:next-step}), so this claim gets tested rather than asserted.
 
-  \textit{On naming:} candidate playbook names in this document ---
-  \texttt{/punt:auto sprint}, \texttt{/punt:auto backlog-cleanup},
-  \texttt{/punt:auto pr-loop} --- are illustrative. The names are open and the
-  operator wants to debate them; nothing in the design depends on which ones
-  are chosen.
+  The same three constructs express the backlog sweep (a non-terminating
+  machine) and a mission round (a do-while with a review cycle), which is how
+  the design checks that the vocabulary generalizes. Names for those playbooks
+  --- \texttt{sprint}, \texttt{backlog-cleanup}, and the rest --- are
+  illustrative only; the operator wants to debate them and nothing in the
+  design depends on the choice.
 \end{faqpair}
 
 \begin{faqpair}{How do I get started?}
@@ -827,16 +832,19 @@ Punt Labs.
 \toprule
 \textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
 \midrule
-Value & \textcolor{RiskAmber}{Medium} &
-  The shipped halves have demonstrated value: the release engine runs every
-  release, and the standards corpus is referenced by 26 of the org's 30
-  \texttt{CLAUDE.md} files. The risk has moved to the new investment. Whether
-  a prompt state machine actually makes agent-run loops more reliable than a
-  well-written prose prompt is unproven --- the design argues it does, because
-  the current state survives compaction and the guards are reviewable, but no
-  machine has run yet. If a playbook's guards are wrong often enough that the
-  operator distrusts it, the DSL buys nothing and the value is only what
-  already ships (see \faqref{faq:next-step}). \\
+Value & \textcolor{RiskRed}{High} &
+  \textbf{The whole bet rides on one unproven claim: that a prompt state
+  machine beats a well-written prose prompt. Zero machines have run.} The
+  design argues the case --- the current state survives compaction, the guards
+  are reviewable, run-state resumes after a crash --- but argument is not
+  evidence, and this document's own usability row concedes that authoring a
+  machine costs more than typing the prompt it replaces. The operator asking
+  for a thing is not evidence the operator will use it. Rating this Medium
+  would average the proven shipped half (release engine on every release,
+  corpus referenced by 26 of 30 \texttt{CLAUDE.md} files) against the unproven
+  investment and hide the one thing the document knows best about itself. If
+  the guards are wrong often enough to be distrusted, the DSL buys nothing and
+  the value is only what already ships (see \faqref{faq:next-step}). \\
 Usability & \textcolor{RiskAmber}{Medium} &
   The shipped CLI is easy: \texttt{punt init}, \texttt{punt audit},
   \texttt{/punt:auto release}, no configuration. The new surface is not.
