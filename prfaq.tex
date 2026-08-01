@@ -170,9 +170,10 @@
   {\LARGE\bfseries\color{SectionBlue}
   punt-kit Is the Kit Manager for the\\Punt Labs Org} \\[0.8em]
   {\large\color{AccentGray}
-  One tool manages the org's standards, its tools, its workflows, and its
-  compliance checks --- for the operator and for the AI agents that do the
-  work across roughly thirty repositories} \\[0.3em]
+  One tool for what the org knows and what the org does --- its standards and
+  compliance checks, its release workflow and playbooks, and the kit of tools
+  a repo runs on --- for the operator and the AI agents working roughly thirty
+  repositories} \\[0.3em]
   {\large\color{AccentGray}
   \texttt{/punt:auto} turns recurring prompts into reviewed programs:
   playbooks that mix deterministic shell with LLM judgment, and --- next ---
@@ -188,20 +189,24 @@
 
 \section*{Press Release}
 
-PUNT LABS --- December 1, 2026 --- punt-kit is the kit manager for the Punt
-Labs org. One tool now manages the four things the org runs on: its
-\textbf{standards} (author them, activate them in a repo, audit against them),
-its \textbf{tools} (install them, enable them, wire their guidance into a
-session), its \textbf{workflows} (the release engine and the playbooks), and
-its \textbf{compliance} checks (audit, PII scan). The customer is Punt Labs
-itself --- one operator and the AI agents that do the work across roughly
-thirty repositories. External adoption is not the goal of this version and is
-explicitly deferred (see \faqref{faq:what-is-it}, \faqref{faq:external}).
+PUNT LABS --- August 2026 --- punt-kit is the kit manager for the Punt Labs
+org. It manages four things: the org's \textbf{standards} (author them,
+activate them in a repo, audit against them), its \textbf{workflows} (the
+11-phase release engine and the playbooks), its \textbf{compliance} checks
+(convention audit, PII scan), and --- as the direction it is now building
+toward rather than a shipped command --- the \textbf{kit of tools} each repo
+runs on. The customer is Punt Labs itself: one operator and the AI agents that
+do the work across roughly thirty repositories. External adoption is not the
+goal of this version and is explicitly deferred
+(see \faqref{faq:what-is-it}, \faqref{faq:external}).
 
-The new capability in this release is \texttt{/punt:auto} as a
-\textbf{self-prompting engine}: the recurring prompts the operator used to type
-by hand become playbooks --- reviewed, versioned programs that generate the
-prompts and drive the agent themselves (see \faqref{faq:self-prompting}).
+The centerpiece is \texttt{/punt:auto}, and the direction it is headed is a
+\textbf{self-prompting engine}: recurring prompts the operator types by hand
+become playbooks --- reviewed, versioned programs that generate the prompts
+and drive the agent. The executor and six playbooks ship today, the release
+engine among them. Turning that into a general engine for loops is the
+investment this version commits to, not a capability it announces
+(see \faqref{faq:self-prompting}).
 
 \prsection{Problem}
 
@@ -231,6 +236,15 @@ procedure (see \faqref{faq:self-prompting}).
 
 \prsection{Solution}
 
+An org run by agents has to manage two things, and they turn out to be the
+same problem. What the org \textbf{knows} --- its conventions, its rules, what
+``good'' looks like --- has to reach a session that starts with no memory of
+it. What the org \textbf{does} --- its releases, its review loops, its backlog
+sweeps --- has to reach that session too, and today it arrives as a prompt
+somebody retypes. punt-kit manages both: the standards corpus is the knowing,
+the playbooks are the doing, and the four pillars below are how each of them
+gets into an agent's hands.
+
 \textbf{Standards.} The corpus is 29 normative prose documents in
 \texttt{standards/}, plus per-language coding rules in \texttt{lang-rules/}
 that agents auto-load when they touch a matching file. They are prose on
@@ -242,20 +256,31 @@ workflows, tool config, permissions, Makefile targets, README SHA pins, plugin
 version sync, branch-protection rulesets) and reports each finding with its
 rule. \texttt{punt init} scaffolds a new repo that already satisfies them.
 
-\textbf{Tools.} Punt Labs ships around a dozen of its own tools, and a repo
-should be able to say which ones it uses. The
-\texttt{standards/tool-enable-disable.md} convention is how: each tool owns a
-\texttt{.punt-labs/<tool>/} subtree, an \texttt{enabled} marker records the
-choice, and the host \texttt{CLAUDE.md} carries exactly one
-\texttt{@}-import line per enabled tool so its guidance composes into every
-session. \texttt{enable} and \texttt{disable} are the verbs; \texttt{disable}
-is non-destructive. This is the kit-manager direction --- punt-kit installs,
-enables, and audits the kit (see \faqref{faq:kit-manager}).
+\textbf{Tools --- the direction, stated as such.} Punt Labs ships around a
+dozen of its own tools, and a repo should be able to say which ones it uses.
+\texttt{standards/tool-enable-disable.md} defines how: each tool owns the
+vendored zone and the \texttt{enabled} marker of its
+\texttt{.punt-labs/<tool>/} subtree, and the host \texttt{CLAUDE.md} carries
+exactly one \texttt{@}-import line per enabled tool, so that tool's own guide
+composes into every session. \texttt{enable} and \texttt{disable} are the
+verbs, and \texttt{disable} is non-destructive.
+
+\emph{What is true today:} the architecture is specified and adopted --- biff,
+ethos, and vox each implement \texttt{enable}/\texttt{disable} in their own
+CLI, and the markers are committed in nine repos for biff and three for ethos.
+\emph{What is not:} punt has no manager command. At v0.11.2 the CLI is
+\texttt{init}, \texttt{audit}, \texttt{pii}, \texttt{release}, \texttt{auto},
+\texttt{doctor}, \texttt{status}, and \texttt{version} --- there is no
+\texttt{punt install} and no \texttt{punt enable}. That surface is the
+invested next step, not a shipped one
+(see \faqref{faq:kit-manager}, \featureref{feat:kit-manager}).
 
 \textbf{Workflows.} \texttt{punt release} is an 11-phase release engine ---
 preflight, version bump, build, release PR, tag, CI wait, GitHub release, PyPI
 verification, post-release, cross-repo propagation, and a final verify pass.
-It is the most-used feature in the org and runs on every release.
+It runs on every release, and in the operator's judgment it is the most-used
+feature in the org --- judgment rather than measurement, because nothing logs
+usage yet (\faqref{faq:metrics}).
 
 \textbf{Compliance.} \texttt{punt audit} and \texttt{punt pii} are the
 deterministic checks: convention conformance and a scan for emails, home
@@ -376,11 +401,31 @@ Punt Labs.
   \texttt{disable} are the verbs, and \texttt{disable} is non-destructive: it
   removes the import and the marker and leaves the subtree dormant.
 
-  The convention is deployed, not theoretical. Committed \texttt{enabled}
-  markers exist in nine repos for biff and three for ethos. What punt-kit does
-  not yet have is the manager surface itself --- \texttt{punt install} and
-  \texttt{punt enable} --- which is the Should Do investment
-  (\featureref{feat:kit-manager}).
+  The convention is deployed, not theoretical: biff, ethos, and vox each
+  implement the verbs in their own CLI, and committed \texttt{enabled} markers
+  exist in nine repos for biff and three for ethos. What punt-kit does not yet
+  have is the manager surface itself --- there is no \texttt{punt install} and
+  no \texttt{punt enable} at v0.11.2. That is the Should Do investment
+  (\featureref{feat:kit-manager}), and the press release names this pillar as
+  a direction for exactly that reason.
+
+  \textbf{The mechanism is dispatch, not ownership.} When the manager surface
+  arrives, \texttt{punt install <tool>} will run that tool's own
+  \texttt{install.sh}, and \texttt{punt enable <tool>} will delegate to
+  \texttt{<tool> enable}. punt never writes another tool's vendored zone,
+  marker, or import line itself. That is not a convenience choice ---
+  \texttt{tool-enable-disable.md} \S\,2.2 gives each tool ownership of the
+  vendored zone and the \texttt{enabled} marker of its own subtree, and \S\,2.3
+  puts the \texttt{enable}/\texttt{disable} verbs on every tool's own CLI. A
+  manager that wrote those files directly would be a second writer of state
+  the standard assigns to one owner, and would drift the moment a tool changed
+  what it deposits. punt-kit's job is to know what the kit is and to call the
+  right verb on each member of it.
+
+  One naming point, since the standard already claims the bare form: \S\,2.10
+  defines \texttt{punt enable} with no argument as punt enabling \emph{itself}
+  in a repo, like any other tool. The manager form takes an argument ---
+  \texttt{punt enable <tool>} --- and dispatches.
 \end{faqpair}
 
 \begin{faqpair}{How do the standards actually reach an agent?}\label{faq:standards-mechanism}
@@ -532,7 +577,7 @@ Punt Labs.
     \item \textbf{The release engine is exercised on every release.}
       \texttt{punt release} drives all eleven phases, including cross-repo
       propagation into sibling repos, and it is invoked through
-      \texttt{/punt:auto release}. It is the most-used feature in the org.
+      \texttt{/punt:auto release}.
     \item \textbf{The standards corpus is consumed fleet-wide.} 29 normative
       documents, referenced from 26 of the org's 30 \texttt{CLAUDE.md} files,
       plus per-language rules that load automatically on matching files.
@@ -853,7 +898,7 @@ the press release is not true.
     rulesets, each finding reported with its rule}\label{feat:deterministic-audit}
   \featureitem{Release engine}{\texttt{punt release} --- the 11-phase pipeline
     from preflight through cross-repo propagation and a final verify, with
-    \texttt{--resume-from} to restart at any phase. The most-used feature in
+    \texttt{--resume-from} to restart at any phase. Runs on every release in
     the org}\label{feat:release}
   \featureitem{Playbook executor}{\texttt{/punt:auto} --- YAML programs mixing
     \texttt{script} (deterministic shell) and \texttt{llm} (scoped judgment)
@@ -889,11 +934,14 @@ they sit here rather than in Must Do because nothing shipping today waits on
 them.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{Kit-manager surface}{\texttt{punt install} and
-    \texttt{punt enable} --- install an org tool, write its
-    \texttt{.punt-labs/<tool>/} subtree and \texttt{enabled} marker, add the
-    one \texttt{@}-import line, and reverse all of it on \texttt{disable}, per
-    \texttt{standards/tool-enable-disable.md}}\label{feat:kit-manager}
+  \featureitem{Kit-manager surface}{\texttt{punt install <tool>} runs that
+    tool's own \texttt{install.sh}; \texttt{punt enable <tool>} delegates to
+    \texttt{<tool> enable}, and \texttt{disable} likewise. Dispatch, not
+    ownership: punt never writes another tool's vendored zone, marker, or
+    import line, because \texttt{tool-enable-disable.md} \S\,2.2 gives those to
+    the tool and \S\,2.3 puts the verbs on the tool's own CLI. The bare
+    \texttt{punt enable} stays punt enabling itself,
+    per \S\,2.10}\label{feat:kit-manager}
   \featureitem{Usage logging}{record which commands and playbooks actually run,
     locally and internal-only, so the metrics in \faqref{faq:metrics} are
     measured rather than recalled}\label{feat:usage-logging}
