@@ -199,16 +199,16 @@ activate them in a repo, audit against them), its \textbf{workflows} (the
 (convention audit, PII scan), and --- as the direction it is now building
 toward rather than a shipped command --- the \textbf{kit of tools} each repo
 runs on. The customer is Punt Labs itself: one operator and the AI agents that
-do the work across roughly thirty repositories. External adoption is not the
-goal of this version and is explicitly deferred
+do the work across roughly thirty repositories. External adoption is not a goal
+and is explicitly deferred
 (see \faqref{faq:what-is-it}, \faqref{faq:external}).
 
 The centerpiece is \texttt{/punt:auto}, and the direction it is headed is a
 \textbf{self-prompting engine}: recurring prompts the operator types by hand
 become playbooks --- reviewed, versioned programs that generate the prompts
 and drive the agent. The executor and six playbooks ship today, the release
-engine among them. Turning that into a general engine for loops is the
-investment this version commits to, not a capability it announces
+engine among them. Turning that into a general engine for loops is the next
+investment, committed but not yet built
 (see \faqref{faq:self-prompting}).
 
 \prsection{Problem}
@@ -342,20 +342,18 @@ every command runs locally against the checkout in front of it.
 \prsection{Spokesperson Quote}
 
 \begin{spokespersonquote}
-``The first version of this document described a tool that read our markdown
-standards and extracted checkable assertions from them. We never built that,
-and after six months of running the org on it, I do not want it. The consumer
-of a
-standard is a model and a reviewer, and prose is the right format for both;
-the checks that can be deterministic are better written as code than derived
-from a paragraph. What punt-kit actually became is the manager for the org's
-kit --- the standards, the tools, the workflows, the compliance checks --- and
-the honest version of this document says so. The part I am investing in is
-\texttt{/punt:auto}. Every recurring prompt I type by hand is a program I have
-not written yet. Turning those into playbooks, and then into state machines
-with guards and resume, means the tool writes the prompt and the agent runs
-the loop. That is the leverage. Whether anyone outside Punt Labs wants this is
-a question for later, deliberately.''
+``Our standards stay prose, and that is a decision, not a gap. The consumer of
+a standard is a model and a reviewer, and prose is the right format for both;
+grinding a rule into assertions loses the rationale that lets an agent apply it
+to a case the rule did not anticipate, and the checks that can be deterministic
+are better written as code than derived from a paragraph. What punt-kit is, is
+the manager for the org's kit --- the standards, the tools, the workflows, the
+compliance checks. The part I am investing in is \texttt{/punt:auto}. Every
+recurring prompt I type by hand is a program I have not written yet. Turning
+those into playbooks, and then into state machines with guards and resume,
+means the tool writes the prompt and the agent runs the loop. That is the
+leverage. Whether anyone outside Punt Labs wants this is a question for later,
+deliberately.''
 
 \raggedleft --- \textbf{J. Freeman}, Creator, Punt Labs
 \end{spokespersonquote}
@@ -471,11 +469,11 @@ Punt Labs.
   \textbf{A name collision to fix.} \texttt{punt auto <target>}, the CLI
   subcommand, renders and merges managed sections in project files (Makefile,
   \texttt{settings.json}). \texttt{/punt:auto <playbook>}, the slash command,
-  is the playbook executor described here. They share a word and do unrelated
-  jobs, and the one this document makes its centerpiece is the second. Naming
-  the collision is not the same as resolving it: one of the two should be
-  renamed before the state-machine work makes \texttt{auto} load-bearing
-  vocabulary, and that is an open call for the operator.
+  is the playbook executor, and it is the one the self-prompting work builds
+  on. They share a word and do unrelated jobs. Naming the collision is not the
+  same as resolving it: one of the two should be renamed before the
+  state-machine work makes \texttt{auto} load-bearing vocabulary, and that is
+  an open call for the operator.
 
   The investment is turning that DSL into a \textbf{prompt state machine}. The
   drafted design adds named states, guarded transitions (shell checks plus
@@ -540,18 +538,16 @@ Punt Labs.
   (\featureref{feat:rest-api}) so CI jobs and dashboards can read findings
   programmatically rather than scraping CLI output.
 
-  Both were promised in version 1.0 of this document and neither was built ---
-  that is a schedule fact, not a change of intent. The reason to finish them is
-  the property the architecture standard is after: the checks and the playbooks
-  do not fork per caller. One engine answers a human at a terminal, an agent
-  over MCP, and a CI job over HTTP, and a finding means the same thing in all
-  three. What has changed since 1.0 is the honesty about ordering --- they are
-  Should Do behind the state-machine DSL (\faqref{faq:timeline}), not Must Do
-  claimed as already present.
+  The reason to build both is the property the architecture standard is after:
+  the checks and the playbooks do not fork per caller. One engine answers a
+  human at a terminal, an agent over MCP, and a CI job over HTTP, and a finding
+  means the same thing in all three. They sit in Should Do behind the
+  state-machine DSL (\faqref{faq:timeline}) because nothing shipping today
+  waits on them --- an ordering call, not a doubt about the destination.
 \end{faqpair}
 
 \begin{faqpair}{Can a repo use its own standards or playbooks?}
-  Partly, and this is honest rather than aspirational. Playbooks resolve
+  Playbooks yes, standards not yet. Playbooks resolve
   project-local first: \texttt{./playbooks/<name>.yaml} shadows the org-wide
   copy, so a repo overrides any playbook by name. The standards corpus is
   currently referenced from punt-kit rather than pointed at a per-repo
@@ -560,11 +556,11 @@ Punt Labs.
 \end{faqpair}
 
 \begin{faqpair}{Should anyone outside Punt Labs use this?}\label{faq:external}
-  Not a question this version answers. punt-kit is public --- MIT, on PyPI, on
-  the marketplace --- because the org's other tools install it, and public
-  distribution is the cheapest way to do that. Whether it fits a team that is
-  not Punt Labs is deferred by operator direction until the internal product
-  has found its footing (see \faqref{faq:tam}, \faqref{faq:next-step}).
+  Not today. punt-kit is public --- MIT, on PyPI, on the marketplace ---
+  because the org's own tools install it, and public distribution is the
+  cheapest way to do that. Whether it fits a team that is not Punt Labs is
+  deferred by operator direction until the internal product has found its
+  footing (see \faqref{faq:tam}, \faqref{faq:next-step}).
 \end{faqpair}
 
 % ── Internal FAQs (Business-facing) ──────────────────────────────────────────
@@ -574,20 +570,16 @@ Punt Labs.
 
 \subsubsection*{Value \& Customer}
 
-\begin{faqpair}{Who is the customer, and what happened to the market case?}\label{faq:tam}
+\begin{faqpair}{Who is the customer, and what about the market?}\label{faq:tam}
   The customer is Punt Labs: one operator and the org's AI agents, working
-  roughly thirty repositories. That is the whole addressable population this
-  version is designed for.
+  roughly thirty repositories. That is the whole addressable population the
+  product is built for.
 
-  \textbf{Market sizing is deferred, deliberately.} Version 1.0 of this
-  document sized the platform-engineering market and argued that 5--50 engineer
-  teams were an underserved segment. Nothing was ever done to test it, and the
-  decision threshold that version set --- ``if after 6 months fewer than 3
-  non-punt-labs organizations are using punt-kit actively, consider whether the
-  tool should remain internal-only'' --- has now fired. Zero external
-  organizations use it. Rather than keep an untested market thesis in the
-  document, this version drops it: punt-kit is internal, and sizing waits until
-  the internal product has found its footing (see \faqref{faq:external}).
+  \textbf{Market sizing is deferred, deliberately.} punt-kit is an internal
+  tool with zero external organizations using it. Sizing a market it is not
+  competing in would be an exercise, not a plan --- so the question waits until
+  the internal product has found its footing, which is the operator's
+  direction (see \faqref{faq:external}).
 \end{faqpair}
 
 \begin{faqpair}{What evidence do we have that this is worth building?}\label{faq:customer-evidence}
@@ -653,10 +645,11 @@ Punt Labs.
   \renewcommand{\arraystretch}{1.0}
 
   \medskip
-  The one thing none of them does is the thing this version is investing in:
-  running the org's recurring \emph{procedures} as programs that mix
-  deterministic steps with model judgment. That is not a differentiation claim
-  --- it may simply be a problem only an org run by agents has.
+  The one thing none of them does is run the org's recurring
+  \emph{procedures} as programs that mix deterministic steps with model
+  judgment --- which is where punt-kit is investing. That is not a
+  differentiation claim; it may simply be a problem only an org run by agents
+  has.
 \end{faqpair}
 
 \begin{faqpair}{What is the next step to validate the direction?}\label{faq:next-step}
@@ -831,9 +824,9 @@ Punt Labs.
   \textbf{The bottleneck moved from writing code to steering loops.} With
   execution cheap, the scarce resource is the operator's attention on which
   loop is running, what state it is in, and whether it may advance. That is
-  what makes \texttt{/punt:auto} the centerpiece of this version rather than an
-  automation convenience: the loops are now the expensive part, and they are
-  still being typed by hand.
+  what makes \texttt{/punt:auto} the centerpiece rather than an automation
+  convenience: the loops are now the expensive part, and they are still being
+  typed by hand.
 \end{faqpair}
 
 % ══════════════════════════════════════════════════════════════════════════════
@@ -853,14 +846,14 @@ Value & \textcolor{RiskRed}{High} &
   machine beats a well-written prose prompt. Zero machines have run.} The
   design argues the case --- the current state survives compaction, the guards
   are reviewable, run-state resumes after a crash --- but argument is not
-  evidence, and this document's own usability row concedes that authoring a
-  machine costs more than typing the prompt it replaces. The operator asking
-  for a thing is not evidence the operator will use it. Rating this Medium
-  would average the proven shipped half (release engine on every release,
-  corpus referenced by 26 of 30 \texttt{CLAUDE.md} files) against the unproven
-  investment and hide the one thing the document knows best about itself. If
-  the guards are wrong often enough to be distrusted, the DSL buys nothing and
-  the value is only what already ships (see \faqref{faq:next-step}). \\
+  evidence, and authoring a machine costs more than typing the prompt it
+  replaces (see the usability row below). The operator asking for a thing is
+  not evidence the operator will use it. A Medium rating would average the
+  proven shipped half (release engine on every release, corpus referenced by 26
+  of 30 \texttt{CLAUDE.md} files) against the unproven investment, and the
+  unproven half is what this rating exists to flag. If the guards are wrong
+  often enough to be distrusted, the DSL buys nothing and the value is only
+  what already ships (see \faqref{faq:next-step}). \\
 Usability & \textcolor{RiskAmber}{Medium} &
   The shipped CLI is easy: \texttt{punt init}, \texttt{punt audit},
   \texttt{/punt:auto release}, no configuration. The new surface is not.
@@ -901,20 +894,19 @@ Viability & \textcolor{RiskGreen}{Low} &
 
 Defines the scope boundary. Because most of Must Do already ships, this
 appendix does double duty: it records what the product is today, and it names
-what is deliberately not being built --- including the things an earlier
-version of this document promised.
+what is deliberately not being built.
 
 \subsection*{Must Do}
 
 What the product is. Items 1--6 ship today at v0.11.2; item 7 is the one
-investment this version treats as essential rather than optional --- without
-it, \texttt{/punt:auto} stays a script runner and the self-prompting story in
-the press release is not true.
+investment that is essential rather than optional --- without it,
+\texttt{/punt:auto} stays a script runner and the self-prompting story is not
+true.
 
 Each entry is tagged with the pillar it serves, so the appendix can be checked
-against the press release's four-pillar claim. Read the tags and the gap is
-immediate: \textsc{tools} appears nowhere in Must Do. That is the honest
-picture --- the convention ships, punt's manager surface does not
+against the four-pillar claim. Read the tags and the gap is immediate:
+\textsc{tools} appears nowhere in Must Do. That is the honest picture --- the
+convention ships, punt's manager surface does not
 (\featureref{feat:kit-manager}).
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
@@ -958,14 +950,13 @@ picture --- the convention ships, punt's manager surface does not
 
 \subsection*{Should Do}
 
-Committed, not yet built, and not blocking the current version. Two kinds of
-item live here. The \emph{cold features} were built or drafted, went unused,
-and are kept because the kit-manager identity gives them a reason to exist
-they did not have before. The \emph{unbuilt client surfaces} --- MCP and REST
---- were promised in version 1.0 and never delivered; they stay committed
-because \texttt{standards/architecture.md} makes them the destination, and
-they sit here rather than in Must Do because nothing shipping today waits on
-them.
+Committed, not yet built, and not blocking anything that ships today. Two
+kinds of item live here. Some were built or drafted and then went unused ---
+they are kept because the kit-manager identity gives them a reason to exist.
+The rest are the client surfaces the engine-and-clients model in
+\texttt{standards/architecture.md} calls for: MCP and REST are the
+destination, and they sit here rather than in Must Do because nothing shipping
+today waits on them.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
   \featureitem{Kit-manager surface}{\pillar{Tools}\texttt{punt install <tool>}
@@ -1005,12 +996,11 @@ them.
 
 \subsection*{Won't Do}
 
-Naming what we will not build. The first four exclusions were in version 1.0
-of this document and held --- nothing since has argued for reopening them. The
-last three are new, and each retires a claim the earlier version made. Note
-what is \emph{not} here: the MCP server and the REST surface were candidates
-for this list and were kept as commitments instead (Should Do), because the
-engine-and-clients model is still the destination.
+Naming what we will not build, so the boundary is a decision rather than a
+backlog nobody gets to. Each exclusion below stands on its own reason: either
+another tool does the job better, or punt-kit already does it a different way.
+Note what is \emph{not} here --- the MCP server and the REST surface belong in
+Should Do, because the engine-and-clients model is the destination.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
   \featureitem{GUI or web dashboard}{punt-kit ships no user interface of its
@@ -1029,15 +1019,15 @@ engine-and-clients model is still the destination.
   \featureitem{Package management}{validates distribution config and automates
     release pipelines; does not replace PyPI, npm, or
     uv}\label{feat:no-package-mgmt}
-  \featureitem{Standards parsed into checkable assertions}{version 1.0 of this
-    document promised an engine that read markdown standards and extracted
-    assertions from them. It was never built and is not wanted: prose is the
-    right format for a model and a reviewer, and the deterministic subset is
-    better written directly as code (\featureref{feat:deterministic-audit})}\label{feat:no-assertions}
-  \featureitem{A dedicated \texttt{punt rollout} command}{promised in version
-    1.0 and never built --- but the reason it stays unbuilt is that the job is
-    already done: \texttt{standards-rollout} and \texttt{permissions-rollout}
-    are playbooks that propagate a change across the org today
+  \featureitem{Standards parsed into checkable assertions}{no engine that reads
+    the markdown corpus and extracts assertions from it. Prose is the right
+    format for a model and a reviewer, and grinding a rule into assertions
+    loses the rationale that lets an agent apply it to a case the rule did not
+    anticipate; the deterministic subset is better written directly as code
+    (\featureref{feat:deterministic-audit})}\label{feat:no-assertions}
+  \featureitem{A dedicated \texttt{punt rollout} command}{the job is already
+    done --- \texttt{standards-rollout} and \texttt{permissions-rollout} are
+    playbooks that propagate a change across the org today
     (\featureref{feat:playbooks}). A command would be a second way to do one
     thing}\label{feat:no-rollout}
   \featureitem{External adoption machinery}{no marketing site, no onboarding
