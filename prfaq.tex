@@ -337,83 +337,141 @@ the standards reference in \texttt{CLAUDE.md}.
 
 \subsection*{External FAQs}
 
+These are the questions the product's actual users ask --- the operator and the
+org's agents. ``External'' here means outward from the tool, not outward from
+Punt Labs.
+
 \begin{faqpair}{What is punt-kit and who is it for?}\label{faq:what-is-it}
-  punt-kit is a development lifecycle engine that reads engineering standards
-  from a directory of markdown documents and enforces them as executable checks.
-  It is designed for engineering leads and platform-minded engineers at teams of
-  5--50 people who maintain multiple repositories and want their standards
-  enforced automatically --- not just documented. The engine projects through
-  four surfaces: a CLI (\texttt{punt}) for terminal use, a Claude Code plugin
-  (\texttt{/punt}) for AI coding sessions, an MCP server so any AI agent can
-  call the same checks, and a REST API for CI pipelines and dashboards
-  (see \faqref{faq:projection}).
+  punt-kit is the kit manager for the Punt Labs org. It manages four things:
+  \textbf{standards} (author them, activate them in a repo, audit against
+  them), \textbf{tools} (install them, enable them, compose their guidance into
+  a session), \textbf{workflows} (the release engine and the playbooks), and
+  \textbf{compliance} (the conformance audit and the PII scan). Its users are
+  one operator and the AI agents that work roughly thirty repositories. Two
+  surfaces exist and are shipped: the \texttt{punt} CLI and the
+  \texttt{punt@punt-labs} Claude Code plugin. There is no MCP server and no
+  REST API; earlier versions of this document promised both, and neither was
+  built (see \faqref{faq:surfaces}).
 \end{faqpair}
 
-\begin{faqpair}{How is this different from projen, Backstage, or Trunk?}\label{faq:how-different}
-  Each of these tools solves a narrower problem:
+\begin{faqpair}{What does ``kit manager'' mean?}\label{faq:kit-manager}
+  A repo declares which of the org's tools it uses, and punt-kit manages that
+  declaration. Per \texttt{standards/tool-enable-disable.md}: each tool owns a
+  \texttt{.punt-labs/<tool>/} subtree in the repo, an \texttt{enabled} marker
+  records the choice, and the host \texttt{CLAUDE.md} carries exactly one
+  \texttt{@}-import line per enabled tool --- so the tool's own user guide, not
+  a block of managed text, is what lands in the session. \texttt{enable} and
+  \texttt{disable} are the verbs, and \texttt{disable} is non-destructive: it
+  removes the import and the marker and leaves the subtree dormant.
+
+  The convention is deployed, not theoretical. Committed \texttt{enabled}
+  markers exist in nine repos for biff and three for ethos. What punt-kit does
+  not yet have is the manager surface itself --- \texttt{punt install} and
+  \texttt{punt enable} --- which is the Should Do investment
+  (\featureref{feat:kit-manager}).
+\end{faqpair}
+
+\begin{faqpair}{How do the standards actually reach an agent?}\label{faq:standards-mechanism}
+  Three mechanisms, none of which involve parsing prose into assertions:
+
   \begin{itemize}[nosep]
-    \item \textbf{projen}~\cite{projen2024github} enforces project
-      configuration through TypeScript project types. It is the strongest prior
-      art for ``standards as code across repos.'' punt-kit differs in three
-      ways: it reads standards from existing markdown rather than requiring
-      TypeScript; it integrates with AI coding agent sessions as a first-class
-      citizen; and it targets teams that already have standards in docs, not
-      greenfield CDK infrastructure teams.
-    \item \textbf{Backstage}~\cite{backstage2025fiveyears} is a developer
-      portal for large enterprises (3,000+ adopters, but adoption stalls below
-      10\% in most non-Spotify organizations). It requires a dedicated
-      full-time team to run. punt-kit targets 5--50 engineer teams that cannot
-      staff a platform team.
-    \item \textbf{Trunk}~\cite{trunkio2024codequality} is a metalinter that
-      orchestrates 100+ linting tools with unified output. It covers the
-      linting layer. punt-kit covers the layer above it: project structure, CI
-      templates, release pipelines, naming conventions, and cross-repo rollout.
+    \item \textbf{Reference.} A repo's \texttt{CLAUDE.md} links the standards it
+      is bound by; the agent reads the document. 26 of the org's 30
+      \texttt{CLAUDE.md} files reference punt-kit today.
+    \item \textbf{Auto-load.} \texttt{lang-rules/} holds per-language coding
+      rules (Python, Go, C, Swift) that load automatically when an agent touches
+      a matching file, scoped by \texttt{paths:} frontmatter.
+    \item \textbf{Check.} \texttt{punt audit} is hand-written deterministic
+      Python that verifies the conventions a machine can verify --- CI
+      workflows, tool config, permissions, Makefile targets, README SHA pins,
+      plugin version sync, branch-protection rulesets --- and reports each
+      finding with its rule.
   \end{itemize}
-  No existing tool unifies audit, scaffold, rollout, and release under a single
-  standards-as-data model with AI agent integration
-  (see \faqref{faq:competitors}).
+
+  The corpus is prose because its consumers are a language model and a human
+  reviewer. Grinding a standard into assertions would lose the rationale that
+  makes an agent apply it correctly to a case the rule did not anticipate, and
+  the deterministic subset is cheaper to write directly as code.
+\end{faqpair}
+
+\begin{faqpair}{What is \texttt{/punt:auto} and why is it the centerpiece?}\label{faq:self-prompting}
+  \texttt{/punt:auto} runs \textbf{playbooks}: YAML programs whose steps are
+  either \texttt{script} (deterministic shell) or \texttt{llm} (scoped
+  judgment), each with an optional postcondition and a failure strategy
+  (\texttt{retry}, \texttt{diagnose}, \texttt{abort}). The executor is an LLM
+  following \texttt{skills/auto/SKILL.md}, which is why a judgment step can sit
+  next to a shell step in one program --- a daemon could not run half of these
+  steps. Six playbooks ship today; the release playbook is the proof, running
+  the 11-phase engine with LLM diagnosis on failure.
+
+  The investment is turning that DSL into a \textbf{prompt state machine}. The
+  drafted design adds named states, guarded transitions (shell checks plus
+  scoped LLM-judgment guards for the clauses that are irreducibly judgment),
+  \texttt{poll} ticks that compile to a \texttt{/loop} registration, and
+  run-state persisted per instance so a machine survives a crash and resumes
+  where it stopped. A linear playbook stays valid --- it is the degenerate
+  one-state machine.
+
+  What that buys: the recurring prompts the operator types by hand become
+  files. Watching a PR to merge is a machine with a \texttt{watch} state that
+  routes to \texttt{fixing} or \texttt{merging} on guards; sweeping the backlog
+  is a non-terminating machine; a mission round is a do-while with a review
+  cycle. Written as prose in a cron prompt, the current state lives only in the
+  model's working context and evaporates on compaction. Written as a playbook,
+  it is a reviewed, versioned artifact --- \textbf{the tool generates the
+  prompt, and the agent runs the loop}.
+
+  \textit{On naming:} candidate playbook names in this document ---
+  \texttt{/punt:auto sprint}, \texttt{/punt:auto backlog-cleanup},
+  \texttt{/punt:auto pr-loop} --- are illustrative. The names are open and the
+  operator wants to debate them; nothing in the design depends on which ones
+  are chosen.
 \end{faqpair}
 
 \begin{faqpair}{How do I get started?}
-  Install with \texttt{pip install punt-kit} or
-  \texttt{uv tool install punt-kit}. Run \texttt{punt audit} in a repository.
-  Review the findings. Customize the standards directory if the defaults do not
-  match your team's conventions. Most teams see their first compliance report
-  within five minutes.
-\end{faqpair}
-
-\begin{faqpair}{How much does it cost?}
-  punt-kit is free and open-source under the MIT license. There are no paid
-  tiers, no usage limits, and no telemetry. The tool runs entirely on your
-  machine; it does not phone home (see \faqref{faq:revenue-model}).
+  Install via \texttt{install.sh}, or \texttt{uv tool install punt-kit} if uv
+  is already present. In a new repo, \texttt{punt init} scaffolds CI workflows,
+  tool config, permissions, and a \texttt{CLAUDE.md}; it detects the project
+  type and is idempotent, so re-running updates without overwriting
+  customizations. In an existing repo, \texttt{punt audit} reports what
+  diverges. \texttt{/punt:auto list} shows the available playbooks.
 \end{faqpair}
 
 \begin{faqpair}{What happens to my data?}
-  punt-kit runs locally. It reads files from your repositories and your
-  standards directory. It does not transmit data to any external server. The MCP
-  server and REST API run on your machine (or your infrastructure); findings
-  are never sent elsewhere. When used as a Claude Code plugin, the standards
-  context is provided to the AI agent session but never stored by punt-kit
-  itself.
+  punt-kit runs locally against the checkout in front of it. It reads
+  repository files and, when \texttt{gh} is authenticated, queries the GitHub
+  API for repo settings. It transmits nothing to Punt Labs and has no
+  telemetry today. That is about to change in one specific way: the operator
+  wants \textbf{feature usage logged}, because there is currently no way to
+  answer ``which commands does anyone actually run?'' Any such logging is
+  local-first and internal-only by default (\featureref{feat:usage-logging}).
 \end{faqpair}
 
-\begin{faqpair}{Why does punt-kit have four surfaces (CLI, plugin, MCP, API)?}\label{faq:projection}
-  Standards enforcement only works if every actor in the development loop uses
-  the same checks. A human typing in a terminal needs a CLI. An AI coding agent
-  in Claude Code needs a plugin. A different AI agent (Cursor, Windsurf,
-  Codex) needs an MCP server it can call. A CI pipeline or internal dashboard
-  needs a REST API. All four call the same engine --- the checks, the standards,
-  and the findings are identical regardless of which surface invoked them. This
-  projection pattern means adopting punt-kit does not lock a team into any
-  single agent or workflow.
+\begin{faqpair}{Why only two surfaces?}\label{faq:surfaces}
+  Because two is what got built. \texttt{standards/architecture.md} describes
+  the engine-and-clients model --- one engine, thin CLI, plugin, MCP, and REST
+  clients --- and that is a good standard for the org's tools. punt-kit itself
+  implements the CLI and the plugin. The MCP server and the REST API were
+  aspirational and are listed in Won't Do for this version
+  (\featureref{feat:no-mcp-rest}). An MCP surface is a reasonable future
+  direction once a second agent runtime needs punt-kit; nothing today does.
 \end{faqpair}
 
-\begin{faqpair}{Can I use punt-kit with my own standards instead of the defaults?}
-  Yes. The engine and the standards pack are separable. punt-kit ships with the
-  punt-labs conventions as the default, but any team can point it to their own
-  standards directory --- a local folder, a git repository, or a URL. The engine
-  reads the rules; it does not decide what ``good'' looks like
-  (see \featureref{feat:custom-standards}).
+\begin{faqpair}{Can a repo use its own standards or playbooks?}
+  Partly, and this is honest rather than aspirational. Playbooks resolve
+  project-local first: \texttt{./playbooks/<name>.yaml} shadows the org-wide
+  copy, so a repo overrides any playbook by name. The standards corpus is
+  currently referenced from punt-kit rather than pointed at a per-repo
+  directory --- the engine and corpus are separable in principle but not yet
+  parameterized in practice (\featureref{feat:custom-standards}).
+\end{faqpair}
+
+\begin{faqpair}{Should anyone outside Punt Labs use this?}\label{faq:external}
+  Not a question this version answers. punt-kit is public --- MIT, on PyPI, on
+  the marketplace --- because the org's other tools install it, and public
+  distribution is the cheapest way to do that. Whether it fits a team that is
+  not Punt Labs is deferred by operator direction until the internal product
+  has found its footing (see \faqref{faq:tam}, \faqref{faq:next-step}).
 \end{faqpair}
 
 % ── Internal FAQs (Business-facing) ──────────────────────────────────────────
@@ -421,231 +479,252 @@ the standards reference in \texttt{CLAUDE.md}.
 \newpage
 \subsection*{Internal FAQs}
 
-\subsubsection*{Value \& Market}
+\subsubsection*{Value \& Customer}
 
-\begin{faqpair}{What is the total addressable market?}\label{faq:tam}
-  \textbf{Bottom-up estimate (with caveats):}
+\begin{faqpair}{Who is the customer, and what happened to the market case?}\label{faq:tam}
+  The customer is Punt Labs: one operator and the org's AI agents, working
+  roughly thirty repositories. That is the whole addressable population this
+  version is designed for.
 
-  The platform engineering services market was valued at \$7.19 billion in 2024
-  and is projected to reach \$40.17 billion by 2032, growing at 23.99\%
-  CAGR~\cite{snsconsulting2024platformmarket}. Gartner predicts that 80\% of
-  large software engineering organizations will have platform engineering teams
-  by 2026, up from 45\% in 2022~\cite{gartnerplatformeng2022}. Google Cloud
-  found that 55\% of global organizations have already adopted platform
-  engineering, with 86\% saying it is essential to realizing the full business
-  value of AI~\cite{googlecloud2024platformengineering}.
-
-  \textbf{Honest gap:} These numbers describe large organizations with
-  dedicated platform teams --- the opposite of punt-kit's target segment.
-  No public data source directly measures how many 5--50 engineer teams
-  maintain multiple repos with codified standards. GitHub hosts 3+ million
-  organizations, but there is no breakdown by team size or standards maturity.
-
-  \textbf{Hypothesis:} Smaller teams have the same standards-enforcement pain
-  but cannot afford Backstage or a dedicated platform engineer. punt-kit's
-  bet is that this segment is underserved precisely because existing solutions
-  require enterprise-scale investment. This hypothesis is unvalidated and is the
-  highest-priority item to test (see \faqref{faq:next-step}).
+  \textbf{Market sizing is deferred, deliberately.} Version 1.0 of this
+  document sized the platform-engineering market and argued that 5--50 engineer
+  teams were an underserved segment. Nothing was ever done to test it, and the
+  decision threshold that version set --- ``if after 6 months fewer than 3
+  non-punt-labs organizations are using punt-kit actively, consider whether the
+  tool should remain internal-only'' --- has now fired. Zero external
+  organizations use it. Rather than keep an untested market thesis in the
+  document, this version drops it: punt-kit is internal, and sizing waits until
+  the internal product has found its footing (see \faqref{faq:external}).
 \end{faqpair}
 
-\begin{faqpair}{What evidence do we have that customers want this?}\label{faq:customer-evidence}
-  \textbf{At hypothesis stage, we have no primary customer evidence.} What we
-  have instead:
+\begin{faqpair}{What evidence do we have that this is worth building?}\label{faq:customer-evidence}
+  \textbf{Internal usage is the evidence now.} It is real, and it is narrow ---
+  one org, one operator. Stated plainly:
 
   \begin{itemize}[nosep]
-    \item \textbf{Dogfooding:} punt-kit was built to solve a real problem
-      across 14 repositories in the punt-labs org. The tool exists because the
-      manual alternative was unsustainable.
-    \item \textbf{Academic evidence:} Four arXiv papers from 2025--2026
-      validate the context problem. A study of 283 development sessions found
-      that single-file agent manifests ``do not scale beyond modest
-      codebases''~\cite{arxiv2602.20478}. A study of 2,303 context files found
-      security specified in only 14.5\%~\cite{arxiv2511.12884}. Agent sessions
-      without context files consume 28.64\% more runtime and 16.58\% more
-      tokens~\cite{arxiv2601.20404}.
-    \item \textbf{Industry signals:} Code review consumes an estimated 4 hours
-      per week per engineer on standards enforcement that could be
-      automated~\cite{deepsource2025staticanalysis}. 88\% of developers cite
-      negative impacts from AI-generated code~\cite{sonar2026stateofcode}. 23\%
-      of developers use AI agents at least weekly and that number is
-      growing~\cite{stackoverflow2025survey}.
-    \item \textbf{Competitor existence:} projen, Trunk, Copier, and Backstage
-      each solve a slice of this problem, confirming market demand for at least
-      partial solutions.
+    \item \textbf{The release engine is exercised on every release.}
+      \texttt{punt release} drives all eleven phases, including cross-repo
+      propagation into sibling repos, and it is invoked through
+      \texttt{/punt:auto release}. It is the most-used feature in the org.
+    \item \textbf{The standards corpus is consumed fleet-wide.} 29 normative
+      documents, referenced from 26 of the org's 30 \texttt{CLAUDE.md} files,
+      plus per-language rules that load automatically on matching files.
+    \item \textbf{The enable/disable convention has adopters.} biff, ethos, and
+      vox implement it; committed \texttt{enabled} markers exist in nine repos
+      for biff and three for ethos --- the convention survived contact with
+      three independent implementations.
+    \item \textbf{The pain the DSL targets is observed, not hypothesized.} The
+      operator hand-authored the same PR watch loop as a fresh cron prompt
+      twice in a single session on 2026-07-27. That specific event is what
+      motivated the state-machine design.
   \end{itemize}
 
-  The missing evidence is direct conversations with 5--50 engineer teams
-  outside punt-labs confirming that they prioritize this problem highly enough
-  to adopt a new tool.
+  \textbf{The context problem is externally corroborated,} which is why the
+  standards corpus exists at all: single-file agent manifests ``do not scale
+  beyond modest codebases''~\cite{arxiv2602.20478}; a study of 2,303 context
+  files found security specified in only 14.5\%~\cite{arxiv2511.12884}; agent
+  sessions without context files consume 28.64\% more runtime and 16.58\% more
+  tokens~\cite{arxiv2601.20404}.
+
+  \textbf{What is missing:} any evidence from outside Punt Labs. There are no
+  external users, no interviews, and no usage data --- not even internal usage
+  data, because nothing is logged yet (\featureref{feat:usage-logging}). This
+  gap is accepted for now, not closed.
 \end{faqpair}
 
-\begin{faqpair}{Who are the competitors and why will we win?}\label{faq:competitors}
+\begin{faqpair}{What are the reference points in this space?}\label{faq:competitors}
+  These are tools worth reading, not competitors to beat. punt-kit is not
+  competing for adoption right now, so the useful question is which ideas to
+  borrow and which scope to stay out of.
+
   \renewcommand{\arraystretch}{1.4}
   \begin{tabularx}{\linewidth}{@{} l X X @{}}
   \toprule
-  \textbf{Tool} & \textbf{What It Does Well} & \textbf{Gap punt-kit Fills} \\
+  \textbf{Tool} & \textbf{What It Does Well} & \textbf{What We Take From It} \\
   \midrule
   projen & Standards-as-code for project config across N
-    repos~\cite{projen2024github} & Requires TypeScript; AWS-centric; no AI
-    agent integration; high learning curve \\
-  Backstage & Developer portal with golden path
-    scaffolding~\cite{backstage2025fiveyears} & Requires dedicated team to run;
-    stalls at under 10\% adoption outside Spotify \\
+    repos~\cite{projen2024github} & The strongest prior art for cross-repo
+    config. We stayed with prose plus deterministic checks rather than a
+    TypeScript project model \\
+  Backstage & Developer portal with golden-path
+    scaffolding~\cite{backstage2025fiveyears} & A warning: it needs a dedicated
+    team to run. Scope we deliberately stay out of (\featureref{feat:no-gui}) \\
   Trunk & Metalinter orchestrating 100+
-    tools~\cite{trunkio2024codequality} & Covers linting only; no scaffolding,
-    rollout, or release management \\
+    tools~\cite{trunkio2024codequality} & The linting layer, which punt-kit
+    orchestrates rather than reimplements (\featureref{feat:no-linting}) \\
   Copier & Template scaffolding with lifecycle
-    updates~\cite{copier2024comparisons} & No enforcement/audit; no AI
-    integration; template-only \\
-  MegaLinter & Open-source CI linting orchestrator & CI-focused; no scaffolding
-    or release; similar scope to Trunk \\
+    updates~\cite{copier2024comparisons} & Idempotent re-templating, which
+    \texttt{punt init} approximates \\
   \bottomrule
   \end{tabularx}
   \renewcommand{\arraystretch}{1.0}
 
   \medskip
-  punt-kit's structural advantage is the combination of four properties no
-  competitor has together: (1) standards from existing markdown, not new
-  TypeScript or YAML; (2) unified lifecycle (audit + scaffold + rollout +
-  release) under one data model; (3) a projection architecture that serves
-  CLI, plugin, MCP, and REST from the same engine; (4) agent-agnostic
-  integration --- any tool that speaks MCP can enforce standards, not just
-  Claude Code. If a competitor copies one of these, the remaining three still
-  differentiate.
+  The one thing none of them does is the thing this version is investing in:
+  running the org's recurring \emph{procedures} as programs that mix
+  deterministic steps with model judgment. That is not a differentiation claim
+  --- it may simply be a problem only an org run by agents has.
 \end{faqpair}
 
-\begin{faqpair}{What is the customer acquisition strategy?}
-  \textbf{Primary channel:} Claude Code plugin marketplace. punt-kit is already
-  published on the punt-labs marketplace. Engineers who use Claude Code discover
-  \texttt{/punt audit} in their workflow and adopt the CLI for terminal use.
-
-  \textbf{Secondary channels:}
-  \begin{itemize}[nosep]
-    \item PyPI discovery (\texttt{pip install punt-kit})
-    \item GitHub search and stars (open-source visibility)
-    \item Blog posts and conference talks on ``standards as executable
-      assertions''
-    \item Word of mouth from dogfooding across punt-labs projects
-  \end{itemize}
-
-  \textbf{Conversion assumption:} Free, open-source, no signup friction.
-  Adoption is limited by awareness and by whether the problem is painful enough
-  to motivate a tool switch, not by pricing barriers.
-\end{faqpair}
-
-\begin{faqpair}{What is the next step to validate the vision?}\label{faq:next-step}
-  Interview 15--20 engineering leads at Series~A/B companies with 5--50
-  engineers and 5+ repositories. The interview should answer three questions:
+\begin{faqpair}{What is the next step to validate the direction?}\label{faq:next-step}
+  Internal, and concrete:
   \begin{enumerate}[nosep]
-    \item Is standards enforcement a top-3 pain point for you?
-    \item How do you currently propagate standard changes across repos?
-    \item Would you adopt a CLI that audits and fixes standards compliance
-      automatically?
+    \item \textbf{Build the state-machine DSL} and convert exactly one
+      hand-typed loop --- the PR watch --- into a playbook. One loop, not
+      three: if the construct does not carry the loop we run most, it does not
+      carry the others.
+    \item \textbf{Turn on usage logging}, so the metrics below can be measured
+      at all rather than recalled.
+    \item \textbf{Watch for six weeks} whether the operator stops typing the
+      loop by hand.
   \end{enumerate}
-  If fewer than 8 of 20 interviewees identify this as a top-3 pain, the target
-  segment hypothesis is wrong and we should either broaden the customer
-  definition or narrow to a more specific persona.
+  \textbf{Decision threshold:} if after that window the operator is still
+  hand-authoring watch prompts --- because the playbook is harder to invoke,
+  or its guards are wrong often enough to distrust --- then the DSL is not the
+  leverage, and the investment stops at playbooks as they exist today.
 \end{faqpair}
 
 \subsubsection*{Technical}
 
-\begin{faqpair}{What are the major technical risks?}
+\begin{faqpair}{What are the major technical risks?}\label{faq:tech-risks}
   \begin{enumerate}[nosep]
-    \item \textbf{Standards parsing ambiguity.} Markdown is not a schema
-      language. Extracting checkable assertions from prose requires either
-      structured conventions in the markdown or LLM-assisted parsing. Mitigation:
-      the engine uses deterministic parsing first and falls back to LLM only for
-      genuinely ambiguous cases (see \featureref{feat:deterministic-audit}).
-    \item \textbf{Cross-repo rollout safety.} Automatically modifying files
-      across N repos risks breaking things at scale. Mitigation: dry-run mode
-      previews every change before applying; rollout never force-pushes or
-      merges without green CI (see \featureref{feat:rollout}).
-    \item \textbf{Claude Code plugin API stability.} The plugin hooks and slash
-      commands depend on Claude Code's extension API, which is evolving.
-      Mitigation: punt-kit already ships a working plugin (v0.2.0) and tracks
-      API changes as part of ongoing development.
+    \item \textbf{The executor is an LLM, so machines are not fully
+      deterministic.} A shell guard is a pure function of the world and routes
+      identically every evaluation; a judgment guard is not, so the same PR
+      state can route two ways on two ticks. Mitigation: \texttt{script} is the
+      default guard type and \texttt{llm} is opt-in, confined to clauses that
+      are irreducibly judgment (``are these findings addressed?''). The trade is
+      explicit in the design and is a decision the operator ratifies, not a
+      property that leaks in.
+    \item \textbf{Ticks are session-scoped.} A \texttt{poll} compiles to a
+      \texttt{/loop} registration, which lives in the session that created it
+      and dies with it, so a machine pauses when its session ends. Mitigation
+      is a documented property rather than machinery: run-state is durable, and
+      any \texttt{--resume} invocation re-registers the tick. A paused machine
+      loses no state and cannot act wrongly --- it just does not advance.
+    \item \textbf{Idempotency is the playbook author's burden.} Crash/resume
+      re-visits a state, so an action that already ran must be a no-op the
+      second time. The design pushes this onto authors (guard the merge on the
+      PR still being open, guard the branch delete on the branch still
+      existing). Authors will get it wrong; the mitigation is that guards
+      recompute from live state, so a wrong re-visit is usually an empty one.
+    \item \textbf{Claude Code API surface.} Plugins, skills, and \texttt{/loop}
+      are the substrate the executor stands on, and they evolve. Mitigation:
+      punt-kit ships a working plugin and tracks changes as ordinary
+      maintenance; the CLI half (\texttt{init}, \texttt{audit}, \texttt{pii},
+      \texttt{release}) runs without any of it.
   \end{enumerate}
 \end{faqpair}
 
 \begin{faqpair}{What dependencies exist on other teams or systems?}
-  punt-kit depends on Claude Code for plugin distribution and on PyPI for CLI
-  distribution. Both are stable, public infrastructure. There are no
-  dependencies on internal services, proprietary APIs, or third-party SaaS.
-  The LLM-powered reconciliation feature (\texttt{/punt reconcile}) requires an
-  Anthropic API key, but all deterministic features work without one.
+  \texttt{punt release} depends on GitHub (via \texttt{gh}), PyPI, and on
+  sibling repos being checked out locally for cross-repo propagation.
+  Distribution depends on PyPI and the Claude Code plugin marketplace.
+
+  The deeper dependency is the playbook executor: it \emph{is} Claude Code
+  reading \texttt{skills/auto/SKILL.md}, not a program punt-kit ships. That is
+  a deliberate design choice --- half the steps in a real playbook are judgment
+  or sub-agent calls that no daemon could run --- but it means playbooks do not
+  execute outside a Claude Code session. The deterministic CLI has no such
+  dependency.
 \end{faqpair}
 
-\begin{faqpair}{What is the estimated development timeline?}
-  punt-kit v0.1.0 shipped February 2026 with \texttt{/punt audit},
-  \texttt{/punt reconcile}, \texttt{/punt init}, and \texttt{/punt pii}. The
-  vision document describes ten additional commands. Phased delivery:
+\begin{faqpair}{What is the development timeline?}\label{faq:timeline}
+  \textbf{Shipped, through v0.11.x (August 2026):}
   \begin{itemize}[nosep]
-    \item \textbf{Phase 1 (shipped):} Audit, reconcile, init, PII scan
-    \item \textbf{Phase 2 (Q2 2026):} Preflight, per-standard audit
-      subcommands, doctor
-    \item \textbf{Phase 3 (Q3 2026):} Release automation, changelog, status
-    \item \textbf{Phase 4 (Q4 2026):} Cross-repo rollout, PR workflow
-    \item \textbf{Phase 5 (2027):} Autopilot (autonomous backlog execution)
+    \item Standards corpus --- 29 documents plus \texttt{lang-rules/} for
+      Python, Go, C, and Swift
+    \item \texttt{punt init} (scaffold, idempotent, project-type detection),
+      \texttt{punt audit}, \texttt{punt pii}, \texttt{punt doctor},
+      \texttt{punt status}
+    \item \texttt{punt release} --- the 11-phase engine, plus
+      \texttt{--resume-from} for restarting at any phase
+    \item \texttt{/punt:auto} playbook executor and six playbooks; the Claude
+      Code plugin on the punt-labs marketplace
   \end{itemize}
-  If timeline compresses, Phase 5 is cut. Phase 2 is the minimum viable next
-  milestone; it validates the ``standards as data'' engine pattern with
-  deterministic, per-rule checks.
+
+  \textbf{Invested next, in priority order:}
+  \begin{enumerate}[nosep]
+    \item \textbf{Prompt state-machine DSL} --- states, guarded transitions,
+      poll ticks, run-state with crash/resume; convert the PR watch loop as the
+      first machine (\featureref{feat:state-machine}).
+    \item \textbf{\texttt{punt enable} and \texttt{punt install}} --- the
+      kit-manager surface: activate a standard in a repo, install and enable a
+      tool, per \texttt{tool-enable-disable.md}
+      (\featureref{feat:kit-manager}).
+    \item \textbf{Usage logging} --- which commands and playbooks actually get
+      run (\featureref{feat:usage-logging}).
+    \item \textbf{Audit revival keyed to enabled policy} --- \texttt{punt
+      audit} checks a fixed set of conventions today; the revival scopes it to
+      what a repo has actually enabled, so a repo is measured against its own
+      declared kit (\featureref{feat:audit-revival}).
+  \end{enumerate}
+  No dates. One operator, agent-executed work, and a queue that reorders on
+  the operator's ruling --- a dated plan would be fiction, and the last one
+  was.
 \end{faqpair}
 
 \subsubsection*{Business}
 
-\begin{faqpair}{What is the revenue model?}\label{faq:revenue-model}
-  punt-kit is free and open-source with no planned paid tiers. The strategic
-  value is:
+\begin{faqpair}{Why spend time on an internal tool with no revenue?}\label{faq:revenue-model}
+  punt-kit is free and open-source with no paid tiers and no revenue plan. The
+  case for the time is internal leverage:
   \begin{itemize}[nosep]
-    \item \textbf{Ecosystem presence:} punt-kit establishes Punt Labs as a
-      credible voice in developer tooling, driving awareness for adjacent
-      products (quarry, biff).
-    \item \textbf{Dogfooding infrastructure:} punt-kit enforces standards
-      across all punt-labs projects, reducing maintenance cost for the org's own
-      tools.
-    \item \textbf{Platform engineering credibility:} The standards-as-data
-      approach, if validated, positions Punt Labs to offer consulting or
-      enterprise features later. But monetization is explicitly not the goal
-      for v1.
+    \item \textbf{It is the substrate the other tools ship on.} biff, quarry,
+      vox, and lux all document \texttt{punt release} as their release path.
+      Time spent here is amortized across every repo that releases.
+    \item \textbf{It is how conventions reach agents at all.} The corpus plus
+      the \texttt{@}-import architecture is the delivery mechanism for
+      everything the org has decided about how work is done.
+    \item \textbf{The DSL investment targets the operator's own time.} Every
+      recurring prompt replaced by a playbook is a task the operator stops
+      re-deriving from memory.
   \end{itemize}
+  \textbf{The risk this leaves open} is opportunity cost: hours on punt-kit are
+  hours not spent on the products it serves. The DSL work is the sharpest form
+  of that bet (see \faqref{faq:next-step}).
 \end{faqpair}
 
-\begin{faqpair}{What are the key metrics for success?}
+\begin{faqpair}{What are the key metrics for success?}\label{faq:metrics}
+  Internal, and chosen so that a bad number means something is actually wrong:
   \begin{enumerate}[nosep]
-    \item \textbf{Adoption:} 50 GitHub stars and 5 non-punt-labs organizations
-      using punt-kit within 6 months of v1.0. Measurement: GitHub stars, PyPI
-      download counts, Claude Code plugin install count.
-    \item \textbf{Retention:} Of adopting orgs, 3+ run \texttt{punt audit}
-      at least weekly after 3 months.
-    \item \textbf{Standards pack diversity:} At least 2 non-punt-labs standards
-      packs contributed or published within 12 months (evidence that the
-      engine/pack separation works).
-    \item \textbf{Decision threshold:} If after 6 months, fewer than 3 non-punt-labs
-      organizations are using punt-kit actively, revisit the customer
-      definition and consider whether the tool should remain internal-only.
+    \item \textbf{Repos with standards activated} --- how many of the org's
+      repos reference the corpus and pass \texttt{punt audit}. Today: 26 of 30
+      reference it; conformance is unmeasured.
+    \item \textbf{Releases run through the engine} --- the share of releases
+      that complete via \texttt{/punt:auto release} without the operator
+      dropping to manual steps. Resume-from-phase counts as engine; a hand-run
+      merge does not.
+    \item \textbf{Recurring prompts replaced by playbooks} --- how many of the
+      loops the operator used to type are now files that are actually invoked.
+      This is the metric for the DSL investment.
+    \item \textbf{Playbook failure mode mix} --- of playbook runs that fail,
+      how many are recovered by \texttt{diagnose} versus escalated to the
+      operator. Rising escalation means the executor is not carrying its half.
   \end{enumerate}
+  \textbf{Caveat, stated up front:} three of these four cannot be measured
+  today. There is no usage logging, so ``how many releases ran clean'' is
+  currently an act of recall. The metrics are honest only after
+  \featureref{feat:usage-logging} lands --- which is why it is on the invested
+  list rather than a nice-to-have.
 \end{faqpair}
 
 \begin{faqpair}{Why now? What has changed?}\label{faq:why-now}
-  Three shifts converged:
-  \begin{enumerate}[nosep]
-    \item \textbf{AI agents are generating more code faster.} 23\% of
-      developers use AI agents at least weekly~\cite{stackoverflow2025survey},
-      and developers use AI in 60\% of their
-      work~\cite{anthropic2026agentictrendsreport}. More code, generated
-      faster, with no awareness of organizational conventions means standards
-      enforcement scales worse than ever.
-    \item \textbf{Agent context infrastructure is maturing.} CLAUDE.md,
-      AGENTS.md, and Claude Code plugins now provide hooks to inject standards
-      context into every agent session. This infrastructure did not exist 18
-      months ago.
-    \item \textbf{Platform engineering is going mainstream but tools assume
-      enterprise scale.} 55\% of organizations have adopted platform
-      engineering~\cite{googlecloud2024platformengineering}, but the leading
-      tools (Backstage, projen) require dedicated teams. Small teams need
-      the same enforcement without the overhead.
-  \end{enumerate}
+  Two shifts, one external and one internal.
+
+  \textbf{The work moved to agents.} Nearly all code in this org is now written
+  by AI agents in Claude Code sessions, and the agent-context infrastructure
+  that makes that governable --- \texttt{CLAUDE.md}, \texttt{@}-imports,
+  plugins, skills, hooks --- did not exist eighteen months ago. Standards that
+  live only in a senior engineer's head do not reach an agent; standards in a
+  document that the session imports do.
+
+  \textbf{The bottleneck moved from writing code to steering loops.} With
+  execution cheap, the scarce resource is the operator's attention on which
+  loop is running, what state it is in, and whether it may advance. That is
+  what makes \texttt{/punt:auto} the centerpiece of this version rather than an
+  automation convenience: the loops are now the expensive part, and they are
+  still being typed by hand.
 \end{faqpair}
 
 % ══════════════════════════════════════════════════════════════════════════════
