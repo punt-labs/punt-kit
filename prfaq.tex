@@ -73,11 +73,11 @@
 
 % ── Document stage ───────────────────────────────────────────────────────────
 \newcommand{\prfaqstage}[1]{\def\theprfaqstage{#1}}
-\prfaqstage{hypothesis}
+\prfaqstage{internal-adoption}
 
 % ── Document version ─────────────────────────────────────────────────────────
 \newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
-\prfaqversion{1}{0}
+\prfaqversion{2}{0}
 
 % ── Header/footer ────────────────────────────────────────────────────────────
 \usepackage{fancyhdr}
@@ -168,14 +168,16 @@
 % ── Headline block ───────────────────────────────────────────────────────────
 \begin{center}
   {\LARGE\bfseries\color{SectionBlue}
-  Free CLI Turns Engineering Standards Into\\Executable Checks Across Every Repo} \\[0.8em]
+  punt-kit Is the Kit Manager for the\\Punt Labs Org} \\[0.8em]
   {\large\color{AccentGray}
-  punt-kit reads a team's conventions from markdown documents and enforces them
-  as deterministic audits, scaffolding, and cross-repo rollouts} \\[0.3em]
+  One tool manages the org's standards, its tools, its workflows, and its
+  compliance checks --- for the operator and for the AI agents that do the
+  work across roughly thirty repositories} \\[0.3em]
   {\large\color{AccentGray}
-  Same engine projects through four surfaces --- terminal CLI, Claude Code
-  plugin, MCP server, and REST API --- so humans, AI agents, and CI systems
-  all enforce the same rules}
+  \texttt{/punt:auto} turns recurring prompts into reviewed programs:
+  playbooks that mix deterministic shell with LLM judgment, and --- next ---
+  prompt state machines that drive the agent instead of the operator
+  retyping the loop}
 \end{center}
 
 \vspace{0.5em}
@@ -186,107 +188,142 @@
 
 \section*{Press Release}
 
-SAN FRANCISCO --- October 1, 2026 --- Punt Labs today released punt-kit, a
-free, open-source development lifecycle engine that reads engineering standards
-from markdown documents and enforces them as executable checks across every
-repository. Unlike linters that check syntax or developer portals that require
-a dedicated platform team, punt-kit gives small engineering teams (5--50
-engineers) a single tool that audits compliance, scaffolds new projects, and
-rolls out standard changes across multiple repos. The same engine projects
-through four surfaces --- a terminal CLI, a Claude Code plugin, an MCP server
-for any AI agent, and a REST API for CI and dashboards --- so every actor in
-the development loop enforces the same rules
-(see \faqref{faq:what-is-it}).
+PUNT LABS --- December 1, 2026 --- punt-kit is the kit manager for the Punt
+Labs org. One tool now manages the four things the org runs on: its
+\textbf{standards} (author them, activate them in a repo, audit against them),
+its \textbf{tools} (install them, enable them, wire their guidance into a
+session), its \textbf{workflows} (the release engine and the playbooks), and
+its \textbf{compliance} checks (audit, PII scan). The customer is Punt Labs
+itself --- one operator and the AI agents that do the work across roughly
+thirty repositories. External adoption is not the goal of this version and is
+explicitly deferred (see \faqref{faq:what-is-it}, \faqref{faq:external}).
+
+The new capability in this release is \texttt{/punt:auto} as a
+\textbf{self-prompting engine}: the recurring prompts the operator used to type
+by hand become playbooks --- reviewed, versioned programs that generate the
+prompts and drive the agent themselves (see \faqref{faq:self-prompting}).
 
 \prsection{Problem}
 
-Engineering teams with multiple repositories maintain standards in wikis,
-READMEs, and the heads of senior engineers. Enforcement happens through code
-review --- a process that consumes an average of four hours per week per
-engineer on rote standards checks alone~\cite{deepsource2025staticanalysis}.
-When a standard changes, someone manually updates every repo. When a new
-project starts, someone copies config files from the last project and hopes
-they are current~\cite{githubactions2020workflowtemplates}. For multi-repo
-organizations --- the norm for teams that do not want Google-scale monorepo
-infrastructure --- configuration drift is the default
-state~\cite{trunk2024multirepo}.
+Punt Labs is one operator and a roster of AI agents working roughly thirty
+repositories. Two costs dominate, and both scale with the number of repos and
+sessions rather than with the amount of code.
 
-AI coding agents make this worse. A study of 253 CLAUDE.md files found that
-these manifests are optimized for code execution, not organizational
-conventions --- only 8.7\% include security
-guidance~\cite{arxiv2509.14744}. Each new agent session begins with no memory
-of what came before~\cite{anthropic2025contextengineering}, and static context
-files have no feedback loop to detect when the repo has drifted from the
-standards they describe~\cite{claudecodememory}
-(see \faqref{faq:customer-evidence}).
+The first is context. Every agent session starts cold, with no memory of what
+came before~\cite{anthropic2025contextengineering}, and the org's conventions
+--- how a release runs, what a README must contain, when a PR may merge ---
+live in prose that each session has to find. A study of 253 CLAUDE.md files
+found these manifests are optimized for code execution rather than
+organizational convention: only 8.7\% include security
+guidance~\cite{arxiv2509.14744}. Static context files also have no feedback
+loop, so nothing notices when a repo has drifted from the document that
+describes it~\cite{claudecodememory}. Catching that drift in review is the
+expensive path: rote standards checking is estimated at roughly four hours per
+engineer per week~\cite{deepsource2025staticanalysis}.
+
+The second is the operator typing the same prompt again. Watching a pull
+request to merge, sweeping the backlog, running a release --- these are loops
+with named states and guarded transitions, and today the operator re-authors
+each one as a fresh cron prompt, once per PR. A hand-typed loop is
+unreviewable, unversioned, and evaporates when the session compacts. It is the
+same toil the standards corpus removed for conventions, still untouched for
+procedure (see \faqref{faq:self-prompting}).
 
 \prsection{Solution}
 
-punt-kit treats standards as data, not documents. Teams write their conventions
-in markdown --- badge ordering, CI template structure, release pipeline
-patterns, naming rules --- and punt-kit reads those documents, extracts
-checkable assertions, and runs them against any repository. A single command,
-\texttt{punt audit}, checks a repo against all applicable standards and reports
-every violation with its source rule. A second command, \texttt{punt init},
-scaffolds a new project that satisfies those standards from the start. A third,
-\texttt{punt rollout}, applies a standard change to every repo in the org at
-once (see \faqref{faq:competitors}).
+\textbf{Standards.} The corpus is 29 normative prose documents in
+\texttt{standards/}, plus per-language coding rules in \texttt{lang-rules/}
+that agents auto-load when they touch a matching file. They are prose on
+purpose: the consumer is a language model and a human reviewer, and neither
+needs the rules ground into assertions first. What is machine-checkable is
+checked separately and deterministically --- \texttt{punt audit} is
+hand-written Python that verifies the org's conventions in a repo (CI
+workflows, tool config, permissions, Makefile targets, README SHA pins, plugin
+version sync, branch-protection rulesets) and reports each finding with its
+rule. \texttt{punt init} scaffolds a new repo that already satisfies them.
 
-The engine projects through four surfaces: a terminal CLI (\texttt{punt}), a
-Claude Code plugin (\texttt{/punt}), an MCP server that any AI agent can call,
-and a REST API for CI pipelines and dashboards. All four surfaces call the same
-engine, so the same checks run whether a human types \texttt{punt audit}, an AI
-agent calls the MCP tool, or a CI job hits the API. The agent session gets the
-standards as context automatically, and \texttt{/punt preflight} validates
-compliance before every commit (see \faqref{faq:why-now}).
+\textbf{Tools.} Punt Labs ships around a dozen of its own tools, and a repo
+should be able to say which ones it uses. The
+\texttt{standards/tool-enable-disable.md} convention is how: each tool owns a
+\texttt{.punt-labs/<tool>/} subtree, an \texttt{enabled} marker records the
+choice, and the host \texttt{CLAUDE.md} carries exactly one
+\texttt{@}-import line per enabled tool so its guidance composes into every
+session. \texttt{enable} and \texttt{disable} are the verbs; \texttt{disable}
+is non-destructive. This is the kit-manager direction --- punt-kit installs,
+enables, and audits the kit (see \faqref{faq:kit-manager}).
+
+\textbf{Workflows.} \texttt{punt release} is an 11-phase release engine ---
+preflight, version bump, build, release PR, tag, CI wait, GitHub release, PyPI
+verification, post-release, cross-repo propagation, and a final verify pass.
+It is the most-used feature in the org and runs on every release.
+
+\textbf{Compliance.} \texttt{punt audit} and \texttt{punt pii} are the
+deterministic checks: convention conformance and a scan for emails, home
+directory paths, and hostnames, with a \texttt{--staged} mode for pre-commit.
+
+\textbf{The engine underneath.} \texttt{/punt:auto} runs playbooks: YAML
+programs whose steps are either deterministic shell or scoped LLM judgment,
+with postconditions and a per-step failure strategy. The executor is an LLM
+following \texttt{skills/auto/SKILL.md} --- not a daemon --- which is what lets
+a judgment step sit next to a shell step in one program. The release engine is
+the shipped proof: eleven deterministic phases with LLM diagnosis on failure.
+The drafted next step turns the DSL into a prompt state machine --- named
+states, guarded transitions, poll ticks, and persisted run-state with
+crash/resume --- so a loop is a reviewed file rather than a retyped prompt
+(see \faqref{faq:self-prompting}).
 
 \prsection{Customer Quote}
 
 \begin{customerquote}
-\textit{``Before punt-kit, I spent every Monday morning auditing our twelve
-repos by hand --- checking that CI workflows matched our template, that badges
-were in the right order, that new projects had the right pyproject.toml
-settings. I would find three or four repos that had drifted, fix them, and know
-they would drift again by next month. Now I run \texttt{punt audit} across the
-org in thirty seconds and \texttt{punt rollout} fixes everything that has
-drifted. That Monday morning is gone.''}
+\textit{``I run the releases, and every one of them goes through
+\texttt{/punt:auto release} --- eleven phases, and when a phase fails the
+executor reads the error and tries a fix instead of handing me a stack trace.
+That is the part I no longer think about. The part I still think about is the
+watching: I hand-type the same PR poll prompt every time a PR opens, and I
+typed it twice in one session last week. Those prompts are a state machine I
+re-derive from memory each time. I want to run the file instead.''}
 
-\raggedleft --- \textbf{Maria Chen}, Engineering Lead at a 20-person startup
+\raggedleft --- \textbf{Claude Agento}, COO/VP Engineering agent, Punt Labs
 \end{customerquote}
 
 \prsection{Getting Started}
 
-Getting started with punt-kit takes three steps. First, install with
-\texttt{pip install punt-kit} (or \texttt{uv tool install punt-kit}). Second,
-run \texttt{punt audit} in any repository to see how it measures against the
-default standards. Third, customize the standards directory to match the team's
-conventions. Within five minutes, a team has a baseline compliance report for
-every repo. No account, no configuration server, no credit card.
+Install with \texttt{install.sh} (or \texttt{uv tool install punt-kit} if uv is
+already present). In a new repo, \texttt{punt init} scaffolds CI workflows,
+tool config, permissions, and a \texttt{CLAUDE.md} that references the
+standards. \texttt{punt audit} reports where an existing repo diverges.
+\texttt{/punt:auto list} shows the playbooks available, and
+\texttt{/punt:auto release} runs a release end to end. Nothing phones home;
+every command runs locally against the checkout in front of it.
 
 \prsection{Spokesperson Quote}
 
 \begin{spokespersonquote}
-``We built punt-kit because we kept solving the same problem by hand across our
-own repos --- auditing badge order, checking CI templates, rolling out config
-changes one repo at a time. The insight was that every one of those checks was
-a testable assertion, and if we treated our standards as data instead of
-documents, we could automate the entire loop. The second insight was that
-the engine should project through every surface --- CLI, plugin, MCP server,
-REST API --- so the same checks run whether a human, an AI agent, or a CI
-pipeline is doing the work. The engine reads your rules; it does not decide
-what `good' looks like. That means any team, using any tool, can bring their
-own conventions and get the same enforcement.''
+``The first version of this document described a tool that read our markdown
+standards and extracted checkable assertions from them. We never built that,
+and after two years of using the thing, I do not want it. The consumer of a
+standard is a model and a reviewer, and prose is the right format for both;
+the checks that can be deterministic are better written as code than derived
+from a paragraph. What punt-kit actually became is the manager for the org's
+kit --- the standards, the tools, the workflows, the compliance checks --- and
+the honest version of this document says so. The part I am investing in is
+\texttt{/punt:auto}. Every recurring prompt I type by hand is a program I have
+not written yet. Turning those into playbooks, and then into state machines
+with guards and resume, means the tool writes the prompt and the agent runs
+the loop. That is the leverage. Whether anyone outside Punt Labs wants this is
+a question for later, deliberately.''
 
 \raggedleft --- \textbf{J. Freeman}, Creator, Punt Labs
 \end{spokespersonquote}
 
 \prsection{Call to Action}
 
-punt-kit is available today at
-{\small\texttt{github.com/punt-labs/punt-kit}}
-and on PyPI as \texttt{punt-kit}. The tool is free and open-source under the
-MIT license. Documentation, standards templates, and a quickstart guide are at
-{\small\texttt{punt-labs.github.io/punt-kit}}.
+punt-kit is public at {\small\texttt{github.com/punt-labs/punt-kit}}, on PyPI
+as \texttt{punt-kit}, and on the punt-labs Claude Code plugin marketplace as
+\texttt{punt@punt-labs}, under the MIT license. It is public because the org's
+other tools install it, not because it is being marketed. For a Punt Labs repo
+that has not adopted it: run \texttt{punt audit}, fix what it reports, and put
+the standards reference in \texttt{CLAUDE.md}.
 
 \newpage
 
