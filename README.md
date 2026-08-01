@@ -8,9 +8,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/punt-kit)](https://pypi.org/project/punt-kit/)
 [![Working Backwards](https://img.shields.io/badge/Working_Backwards-hypothesis-lightgrey)](./prfaq.pdf)
 
-Punt-kit serves two purposes. For **Punt Labs projects**, it is the standards authority — coding conventions, CI templates, naming rules, and an audit checklist that the `punt` CLI enforces automatically. For **Claude Code plugin developers**, it is a pattern library — ten reusable design patterns extracted from shipping plugins, plus nine standards documents covering Python, CLI, shell, distribution, and more.
+Punt-kit serves two purposes. For **Punt Labs projects**, it is the standards authority — coding conventions, CI templates, naming rules, and an audit checklist that the `punt` CLI enforces automatically. For **Claude Code plugin developers**, it is a pattern library — fourteen reusable design patterns extracted from shipping plugins, plus a standards corpus covering architecture, five languages (Python, Go, C, Swift, Pharo), git and workflow discipline, distribution, and more.
 
-Individual projects reference these standards from their CLAUDE.md rather than duplicating them. The [standards/](standards/) directory is the source of truth; [patterns/](patterns/) documents the design patterns; [AGENTS.md](AGENTS.md) has the full audit checklist.
+Individual projects reference these standards from their CLAUDE.md rather than duplicating them. The [standards/](standards/) directory is the source of truth; [lang-rules/](lang-rules/) carries the per-language coding rules agents load automatically; [patterns/](patterns/) documents the design patterns; [AGENTS.md](AGENTS.md) has the full audit checklist.
 
 **Platforms:** macOS, Linux
 
@@ -42,7 +42,7 @@ uv tool install punt-kit
 | `punt pii` | Scan repo for PII (emails, home paths, hostnames). Supports `--staged` for pre-commit |
 | `punt doctor` | Check installation health (Python, uv, ruff, mypy, pyright) |
 | `punt status` | Show detected project type, standards version, and beads state |
-| `punt version` | Print version (`punt 0.8.0`) |
+| `punt version` | Print the installed punt-kit version |
 
 ### Global Flags
 
@@ -92,7 +92,7 @@ Punt-kit is also a Claude Code plugin (`punt@punt-labs` on the marketplace). The
 | `/punt:init` | Scaffold a Punt Labs project (wraps `punt init`) |
 | `/punt:audit` | Check compliance (wraps `punt audit`) |
 | `/punt:pii` | Scan for PII (wraps `punt pii`) |
-| `/punt:auto <playbook>` | Execute automation playbooks (release, autopilot, standards-rollout) |
+| `/punt:auto <playbook>` | Execute automation playbooks (release, autopilot, makefile, permissions-rollout, reconcile-memory, standards-rollout) |
 | `/punt:reconcile` | LLM-driven standards reconciliation (no CLI equivalent — prompt-driven) |
 
 Install from the marketplace:
@@ -120,7 +120,9 @@ Standards documents covering the full development lifecycle:
 | [Shell](standards/shell.md) | POSIX install scripts, bash dev scripts, shellcheck |
 | [CLI-Only Install](standards/install-cli-only.md) | `install.sh --no-plugin` / `<TOOL>_NO_PLUGIN=1`: install the CLI, skip the Claude Code plugin, identically across tools |
 | [GitHub](standards/github.md) | Branch protection, PR workflow, Copilot review, Dependabot |
-| [Workflow](standards/workflow.md) | Beads, branch discipline, micro-commits, session close |
+| [Workflow](standards/workflow.md) | The three-loop development structure (backlog / PR / mission), doorway conditions, gates, invariants |
+| [PR and Review](standards/pr-review.md) | PR boundaries, the agent-owned review sequence, local review before remote, dismissal discipline |
+| [Agent Engineering](standards/agent-engineering.md) | Operating rules for AI coding agents: reversibility, test coverage, comment discipline |
 | [Git](standards/git.md) | Git mechanics: branch check, no-rewrite of pushed branches, conflict resolution, post-merge cleanup, worktrees, submodules |
 | [Distribution](standards/distribution.md) | PyPI trusted publishing, `.mcpb` bundles, installers |
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
@@ -133,17 +135,23 @@ Standards documents covering the full development lifecycle:
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
 | [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
 | [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
+| [Release Requirements](standards/release-requirements.md) | End-state artifacts every release must satisfy, in the originating repo and siblings |
+| [Integration](standards/integration.md) | (Draft) How tools discover and coordinate each other in a session without hard dependencies |
 | [README](standards/readme.md) | Badge set, section order, anti-patterns for project READMEs |
 
 ---
 
 ## Plugin Development Patterns
 
-Ten design patterns extracted from shipping Claude Code plugins. Each pattern documents the problem, solution, trade-offs, and which projects use it.
+Fourteen design patterns extracted from shipping Claude Code plugins. Each pattern documents the problem, solution, trade-offs, and which projects use it.
 
 | Pattern | What it solves |
 |---------|---------------|
 | [Two-Phase Install](patterns/two-phase-install.md) | `curl \| sh` bootstraps uv, then uv installs the package |
+| [CLAUDE.md @-import Includes](patterns/claude-md-import-includes.md) | Tools own their usage doc; the host CLAUDE.md carries one bare `@`-import line, zero managed content |
+| [Daemon + Proxy MCP](patterns/daemon-proxy-mcp.md) | A resident daemon behind an MCP proxy for tools with heavy initialization costs |
+| [Humble Object Commands](patterns/humble-object-commands.md) | CLI commands as thin shells over testable core calls — no infrastructure in `@app.command()` bodies |
+| [Ethos Extension Setup](patterns/ethos-ext-setup.md) | Tools write session context into ethos identity extension files during install |
 | [Dual Command Path](patterns/dual-command-path.md) | Dev commands use `uv run --directory`, prod commands use the installed CLI |
 | [Two-Channel Display](patterns/two-channel-display.md) | Status bar for ambient state, conversation for interactions |
 | [Stash and Wrap](patterns/stash-and-wrap.md) | PostToolUse hooks suppress raw MCP output, show clean narration |
@@ -163,6 +171,7 @@ The standards and patterns above were extracted from shipping projects. Each has
 - **[biff](https://github.com/punt-labs/biff)** — Team communication for the terminal (BSD Unix vocabulary over NATS)
 - **[quarry](https://github.com/punt-labs/quarry)** — Local semantic search across 30+ document formats
 - **[vox](https://github.com/punt-labs/vox)** — General-purpose TTS engine (ElevenLabs, OpenAI, Polly)
+- **[lux](https://github.com/punt-labs/lux)** — Visual display surface for Claude Code (dashboards, tables, interactive elements)
 - **[ethos](https://github.com/punt-labs/ethos)** — Identity and persona management for Claude Code sessions
 - **[beadle](https://github.com/punt-labs/beadle)** — Email client for Claude Code (Proton Bridge SMTP/IMAP)
 - **[prfaq](https://github.com/punt-labs/prfaq)** — Working Backwards PR/FAQ generator (skill + 8 agents + 10 commands)
