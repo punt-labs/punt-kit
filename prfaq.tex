@@ -156,6 +156,9 @@
 }
 \newcommand{\featureref}[1]{\hyperref[#1]{Feature~\ref*{#1}}}
 
+% ── \pillar{name} — which of the four pillars a feature serves ───────────────
+\newcommand{\pillar}[1]{{\small\textcolor{AccentGray}{[#1]}}\enspace}
+
 % ── adjustwidth (for faqpair indentation) ────────────────────────────────────
 \usepackage{changepage}
 
@@ -223,8 +226,11 @@ organizational convention: only 8.7\% include security
 guidance~\cite{arxiv2509.14744}. Static context files also have no feedback
 loop, so nothing notices when a repo has drifted from the document that
 describes it~\cite{claudecodememory}. Catching that drift in review is the
-expensive path: rote standards checking is estimated at roughly four hours per
-engineer per week~\cite{deepsource2025staticanalysis}.
+expensive path --- a static-analysis vendor puts rote standards checking at
+roughly four hours per engineer per
+week~\cite{deepsource2025staticanalysis}, which is a figure to treat as
+directional, since the vendor is quantifying the pain its own product
+removes.
 
 The second is the operator typing the same prompt again. Watching a pull
 request to merge, sweeping the backlog, running a release --- these are loops
@@ -460,6 +466,15 @@ Punt Labs.
   next to a shell step in one program --- a daemon could not run half of these
   steps. Six playbooks ship today; the release playbook is the proof, running
   the 11-phase engine with LLM diagnosis on failure.
+
+  \textbf{A name collision to fix.} \texttt{punt auto <target>}, the CLI
+  subcommand, renders and merges managed sections in project files (Makefile,
+  \texttt{settings.json}). \texttt{/punt:auto <playbook>}, the slash command,
+  is the playbook executor described here. They share a word and do unrelated
+  jobs, and the one this document makes its centerpiece is the second. Naming
+  the collision is not the same as resolving it: one of the two should be
+  renamed before the state-machine work makes \texttt{auto} load-bearing
+  vocabulary, and that is an open call for the operator.
 
   The investment is turning that DSL into a \textbf{prompt state machine}. The
   drafted design adds named states, guarded transitions (shell checks plus
@@ -895,38 +910,48 @@ investment this version treats as essential rather than optional --- without
 it, \texttt{/punt:auto} stays a script runner and the self-prompting story in
 the press release is not true.
 
+Each entry is tagged with the pillar it serves, so the appendix can be checked
+against the press release's four-pillar claim. Read the tags and the gap is
+immediate: \textsc{tools} appears nowhere in Must Do. That is the honest
+picture --- the convention ships, punt's manager surface does not
+(\featureref{feat:kit-manager}).
+
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{Standards corpus and activation}{29 normative prose documents in
-    \texttt{standards/}, plus \texttt{lang-rules/} per-language rules (Python,
-    Go, C, Swift) that agents auto-load on matching files. A repo activates
-    them by referencing them from \texttt{CLAUDE.md}}\label{feat:standards-corpus}
-  \featureitem{Deterministic conformance audit}{\texttt{punt audit} ---
-    hand-written checks of CI workflows, tool config, permissions, Makefile
-    targets, README SHA pins, plugin version sync, and branch-protection
-    rulesets, each finding reported with its rule}\label{feat:deterministic-audit}
-  \featureitem{Release engine}{\texttt{punt release} --- the 11-phase pipeline
-    from preflight through cross-repo propagation and a final verify, with
-    \texttt{--resume-from} to restart at any phase. Runs on every release in
-    the org}\label{feat:release}
-  \featureitem{Playbook executor}{\texttt{/punt:auto} --- YAML programs mixing
-    \texttt{script} (deterministic shell) and \texttt{llm} (scoped judgment)
-    steps, with postconditions and per-step failure strategies. Cross-repo
-    rollout lives here as \texttt{standards-rollout} and
+  \featureitem{Standards corpus and activation}{\pillar{Standards}29 normative
+    prose documents in \texttt{standards/}, plus \texttt{lang-rules/}
+    per-language rules (Python, Go, C, Swift) that agents auto-load on matching
+    files. A repo activates them by referencing them from
+    \texttt{CLAUDE.md}}\label{feat:standards-corpus}
+  \featureitem{Deterministic conformance audit}{\pillar{Compliance}\texttt{punt
+    audit} --- hand-written checks of CI workflows, tool config, permissions,
+    Makefile targets, README SHA pins, plugin version sync, and
+    branch-protection rulesets, each finding reported with its
+    rule}\label{feat:deterministic-audit}
+  \featureitem{Release engine}{\pillar{Workflows}\texttt{punt release} --- the
+    11-phase pipeline from preflight through cross-repo propagation and a final
+    verify, with \texttt{--resume-from} to restart at any phase. Runs on every
+    release in the org}\label{feat:release}
+  \featureitem{Playbook executor}{\pillar{Workflows}\texttt{/punt:auto} --- YAML
+    programs mixing \texttt{script} (deterministic shell) and \texttt{llm}
+    (scoped judgment) steps, with postconditions and per-step failure
+    strategies. Cross-repo rollout lives here as \texttt{standards-rollout} and
     \texttt{permissions-rollout}, not as a dedicated
     command}\label{feat:playbooks}
-  \featureitem{Compliance scans}{\texttt{punt pii} --- emails, home directory
-    paths, and \texttt{.local} hostnames, with \texttt{--staged} for
-    pre-commit}\label{feat:pii}
-  \featureitem{The two shipped client surfaces}{the \texttt{punt} CLI
-    (\texttt{init}, \texttt{audit}, \texttt{pii}, \texttt{release},
-    \texttt{doctor}, \texttt{status}) and the \texttt{punt@punt-labs} Claude
-    Code plugin that wraps them as slash commands. Two further clients ---
-    MCP and REST --- are committed and sit in Should
-    Do}\label{feat:surfaces}
-  \featureitem{Prompt state-machine DSL}{extend the playbook DSL with named
-    states, guarded transitions (shell checks plus scoped LLM-judgment guards),
-    \texttt{poll} ticks, and per-instance run-state with crash/resume ---
-    turning a hand-typed recurring prompt into a reviewed
+  \featureitem{Compliance scans}{\pillar{Compliance}\texttt{punt pii} ---
+    emails, home directory paths, and \texttt{.local} hostnames, with
+    \texttt{--staged} for pre-commit}\label{feat:pii}
+  \featureitem{The two shipped client surfaces}{\pillar{All four}the
+    \texttt{punt} CLI --- \texttt{init}, \texttt{audit}, \texttt{pii},
+    \texttt{release}, \texttt{auto}, \texttt{doctor}, \texttt{status},
+    \texttt{version} --- and the \texttt{punt@punt-labs} Claude Code plugin
+    that wraps them as slash commands. Note that CLI \texttt{auto} and slash
+    \texttt{/punt:auto} are different things; see the name collision in
+    \faqref{faq:self-prompting}. Two further clients, MCP and REST, are
+    committed and sit in Should Do}\label{feat:surfaces}
+  \featureitem{Prompt state-machine DSL}{\pillar{Workflows}extend the playbook
+    DSL with named states, guarded transitions (shell checks plus scoped
+    LLM-judgment guards), \texttt{poll} ticks, and per-instance run-state with
+    crash/resume --- turning a hand-typed recurring prompt into a reviewed
     file}\label{feat:state-machine}
 \end{enumerate}
 
@@ -942,46 +967,48 @@ they sit here rather than in Must Do because nothing shipping today waits on
 them.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{Kit-manager surface}{\texttt{punt install <tool>} runs that
-    tool's own \texttt{install.sh}; \texttt{punt enable <tool>} delegates to
+  \featureitem{Kit-manager surface}{\pillar{Tools}\texttt{punt install <tool>}
+    runs that tool's own \texttt{install.sh}; \texttt{punt enable <tool>} delegates to
     \texttt{<tool> enable}, and \texttt{disable} likewise. Dispatch, not
     ownership: punt never writes another tool's vendored zone, marker, or
     import line, because \texttt{tool-enable-disable.md} \S\,2.2 gives those to
     the tool and \S\,2.3 puts the verbs on the tool's own CLI. The bare
     \texttt{punt enable} stays punt enabling itself,
     per \S\,2.10}\label{feat:kit-manager}
-  \featureitem{Usage logging}{record which commands and playbooks actually run,
-    locally and internal-only, so the metrics in \faqref{faq:metrics} are
-    measured rather than recalled}\label{feat:usage-logging}
-  \featureitem{Audit revival keyed to enabled policy}{scope \texttt{punt audit}
-    to what a repo has actually enabled, so each repo is measured against its
-    own declared kit instead of one fixed list of
-    conventions}\label{feat:audit-revival}
-  \featureitem{Reconcile on the new engine}{\texttt{/punt:reconcile} ---
-    LLM-driven reconciliation of a repo against changed standards, rebuilt as
-    a playbook rather than a standalone prompt}\label{feat:reconcile}
-  \featureitem{Autopilot as a state machine}{the autonomous backlog loop
-    reborn as a non-terminating machine with guarded transitions, replacing
-    today's prose loop playbook}\label{feat:autopilot}
-  \featureitem{Custom standards directory}{parameterize the corpus location so
-    a repo can point at its own rules. Separable in principle today, not
-    parameterized in practice}\label{feat:custom-standards}
-  \featureitem{MCP server}{expose audit, status, and playbook launch as MCP
-    tools over the same engine the CLI calls, so an agent running outside
-    Claude Code gets identical checks and can start the same playbooks
+  \featureitem{Usage logging}{\pillar{All four}record which commands and
+    playbooks actually run, locally and internal-only, so the metrics in
+    \faqref{faq:metrics} are measured rather than
+    recalled}\label{feat:usage-logging}
+  \featureitem{Audit revival keyed to enabled policy}{\pillar{Compliance +
+    Tools}scope \texttt{punt audit} to what a repo has actually enabled, so
+    each repo is measured against its own declared kit instead of one fixed
+    list of conventions}\label{feat:audit-revival}
+  \featureitem{Reconcile on the new engine}{\pillar{Standards}\texttt{/punt:reconcile}
+    --- LLM-driven reconciliation of a repo against changed standards, rebuilt
+    as a playbook rather than a standalone prompt}\label{feat:reconcile}
+  \featureitem{Autopilot as a state machine}{\pillar{Workflows}the autonomous
+    backlog loop reborn as a non-terminating machine with guarded transitions,
+    replacing today's prose loop playbook}\label{feat:autopilot}
+  \featureitem{Custom standards directory}{\pillar{Standards}parameterize the
+    corpus location so a repo can point at its own rules. Separable in
+    principle today, not parameterized in
+    practice}\label{feat:custom-standards}
+  \featureitem{MCP server}{\pillar{All four}expose audit, status, and playbook
+    launch as MCP tools over the same engine the CLI calls, so an agent running
+    outside Claude Code gets identical checks and can start the same playbooks
     (\faqref{faq:surfaces})}\label{feat:mcp-server}
-  \featureitem{REST surface}{HTTP access to audit findings and run status for
-    CI jobs and internal dashboards, so a pipeline reads structured results
-    instead of scraping CLI output}\label{feat:rest-api}
+  \featureitem{REST surface}{\pillar{All four}HTTP access to audit findings and
+    run status for CI jobs and internal dashboards, so a pipeline reads
+    structured results instead of scraping CLI output}\label{feat:rest-api}
 \end{enumerate}
 
 \subsection*{Won't Do}
 
 Naming what we will not build. The first four exclusions were in version 1.0
 of this document and held --- nothing since has argued for reopening them. The
-last two are new, and each retires a claim the earlier version made. Note what
-is \emph{not} here: the MCP server and the REST surface were candidates for
-this list and were kept as commitments instead (Should Do), because the
+last three are new, and each retires a claim the earlier version made. Note
+what is \emph{not} here: the MCP server and the REST surface were candidates
+for this list and were kept as commitments instead (Should Do), because the
 engine-and-clients model is still the destination.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
@@ -1006,9 +1033,14 @@ engine-and-clients model is still the destination.
     assertions from them. It was never built and is not wanted: prose is the
     right format for a model and a reviewer, and the deterministic subset is
     better written directly as code (\featureref{feat:deterministic-audit})}\label{feat:no-assertions}
+  \featureitem{A dedicated \texttt{punt rollout} command}{promised in version
+    1.0 and never built --- but the reason it stays unbuilt is that the job is
+    already done: \texttt{standards-rollout} and \texttt{permissions-rollout}
+    are playbooks that propagate a change across the org today
+    (\featureref{feat:playbooks}). A command would be a second way to do one
+    thing}\label{feat:no-rollout}
   \featureitem{External adoption machinery}{no marketing site, no onboarding
-    path for non-Punt-Labs teams, no third-party standards packs, no
-    \texttt{punt rollout} command aimed at other orgs' repos. Deferred by
+    path for non-Punt-Labs teams, no third-party standards packs. Deferred by
     operator direction until the internal product has found its footing
     (\faqref{faq:external})}\label{feat:no-adoption}
 \end{enumerate}
