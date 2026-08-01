@@ -740,30 +740,42 @@ Punt Labs.
 \textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
 \midrule
 Value & \textcolor{RiskAmber}{Medium} &
-  The problem is real and well-evidenced by academic research and industry
-  signals. The risk is whether 5--50 engineer teams consider standards
-  enforcement a top-3 pain point worth adopting a new tool for. No primary
-  customer evidence exists outside dogfooding. The ``Why now'' argument
-  (AI agents amplifying drift) is strong but untested with the target
-  segment. \\
-Usability & \textcolor{RiskGreen}{Low} &
-  Three-step onboarding with zero configuration. The tool fits into existing
-  terminal and Claude Code workflows rather than replacing them. Time-to-value
-  is under five minutes. The main usability risk is standards parsing:
-  if teams' existing markdown documents are too unstructured for the engine
-  to parse, the setup cost increases. \\
-Feasibility & \textcolor{RiskGreen}{Low} &
-  Core technology is proven. v0.1.0 is shipped and running across 14
-  repositories. The team has domain expertise (the tool was built to solve
-  the team's own problem). The hardest unsolved problem is cross-repo rollout
-  safety, which is deferred to Phase 4. No dependencies on unproven
-  technology. \\
-Viability & \textcolor{RiskAmber}{Medium} &
-  punt-kit is free with no direct revenue plan. Strategic value (ecosystem
-  presence, dogfooding infrastructure) is real but hard to measure.
-  The risk is opportunity cost: time spent on punt-kit is time not spent on
-  revenue-generating products. Mitigated by the fact that punt-kit directly
-  reduces maintenance cost across all other punt-labs projects. \\
+  The shipped halves have demonstrated value: the release engine runs every
+  release, and the standards corpus is referenced by 26 of the org's 30
+  \texttt{CLAUDE.md} files. The risk has moved to the new investment. Whether
+  a prompt state machine actually makes agent-run loops more reliable than a
+  well-written prose prompt is unproven --- the design argues it does, because
+  the current state survives compaction and the guards are reviewable, but no
+  machine has run yet. If a playbook's guards are wrong often enough that the
+  operator distrusts it, the DSL buys nothing and the value is only what
+  already ships (see \faqref{faq:next-step}). \\
+Usability & \textcolor{RiskAmber}{Medium} &
+  The shipped CLI is easy: \texttt{punt init}, \texttt{punt audit},
+  \texttt{/punt:auto release}, no configuration. The new surface is not.
+  Writing a state machine --- states, ordered guards, idempotent visits --- is
+  a harder authoring task than typing the prompt it replaces, and the person
+  who must do the authoring is the same operator whose time the feature is
+  supposed to save. Authoring cost is paid once per loop and the benefit
+  recurs, so the arithmetic works only for loops that genuinely recur. The
+  mitigation is to ship one machine for the most-repeated loop and see whether
+  it gets used, rather than shipping a library of them. \\
+Feasibility & \textcolor{RiskAmber}{Medium} &
+  The deterministic half is proven: the CLI ships, the 11-phase release engine
+  runs across sibling repos, 210 tests pass. The unproven half is the executor.
+  It is a language model following a protocol document, so a judgment guard is
+  not reproducible across evaluations, and correct crash/resume depends on
+  playbook authors writing idempotent actions. Both are named in the design
+  with mitigations (\texttt{script} guards by default; guards recompute from
+  live state) rather than assumed away. Nothing depends on unproven
+  third-party technology. \\
+Viability & \textcolor{RiskGreen}{Low} &
+  As an internal tool, viability is not about revenue --- there is none
+  planned --- but about whether the org can keep it. It costs one operator's
+  attention, it pays for itself on every release it drives, and it has no
+  hosting, service, or support obligations. The real exposures are opportunity
+  cost (hours here are hours not on the products punt-kit serves) and
+  concentration: it is load-bearing for every release in the org and has one
+  maintainer. \\
 \bottomrule
 \end{tabularx}
 \renewcommand{\arraystretch}{1.0}
@@ -780,53 +792,79 @@ categorized to prevent scope creep and force prioritization decisions upfront.
 
 \subsection*{Must Do}
 
-Features that are essential for launch. Without these, the product does not
-solve the core problem.
+What the product is. Items 1--6 ship today at v0.11.2; item 7 is the one
+investment this version treats as essential rather than optional --- without
+it, \texttt{/punt:auto} stays a script runner and the self-prompting story in
+the press release is not true.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{Standards-as-data engine}{reads a directory of markdown
-    documents, extracts checkable assertions, and runs them against a
-    repository}\label{feat:standards-engine}
-  \featureitem{Deterministic audit}{per-standard checks (README badges, Python
-    config, CI templates, shell scripts, naming conventions) that exit 0 or 1
-    with structured findings}\label{feat:deterministic-audit}
-  \featureitem{Preflight}{run quality gates and PII scan on staged files before
-    commit --- the daily-use entry point}\label{feat:preflight}
-  \featureitem{Custom standards directory}{teams point the engine at their own
-    rules, not just punt-labs defaults}\label{feat:custom-standards}
-  \featureitem{Claude Code plugin}{slash commands (\texttt{/punt audit},
-    \texttt{/punt preflight}) that inject standards context into AI agent
-    sessions}\label{feat:plugin}
-  \featureitem{MCP server}{exposes audit, init, and preflight as MCP tools so
-    any AI agent (Cursor, Windsurf, Codex, custom agents) can enforce the same
-    standards without a plugin}\label{feat:mcp}
+  \featureitem{Standards corpus and activation}{29 normative prose documents in
+    \texttt{standards/}, plus \texttt{lang-rules/} per-language rules (Python,
+    Go, C, Swift) that agents auto-load on matching files. A repo activates
+    them by referencing them from \texttt{CLAUDE.md}}\label{feat:standards-corpus}
+  \featureitem{Deterministic conformance audit}{\texttt{punt audit} ---
+    hand-written checks of CI workflows, tool config, permissions, Makefile
+    targets, README SHA pins, plugin version sync, and branch-protection
+    rulesets, each finding reported with its rule}\label{feat:deterministic-audit}
+  \featureitem{Release engine}{\texttt{punt release} --- the 11-phase pipeline
+    from preflight through cross-repo propagation and a final verify, with
+    \texttt{--resume-from} to restart at any phase. The most-used feature in
+    the org}\label{feat:release}
+  \featureitem{Playbook executor}{\texttt{/punt:auto} --- YAML programs mixing
+    \texttt{script} (deterministic shell) and \texttt{llm} (scoped judgment)
+    steps, with postconditions and per-step failure strategies. Cross-repo
+    rollout lives here as \texttt{standards-rollout} and
+    \texttt{permissions-rollout}, not as a dedicated
+    command}\label{feat:playbooks}
+  \featureitem{Compliance scans}{\texttt{punt pii} --- emails, home directory
+    paths, and \texttt{.local} hostnames, with \texttt{--staged} for
+    pre-commit}\label{feat:pii}
+  \featureitem{Two surfaces: CLI and plugin}{the \texttt{punt} CLI
+    (\texttt{init}, \texttt{audit}, \texttt{pii}, \texttt{release},
+    \texttt{doctor}, \texttt{status}) and the \texttt{punt@punt-labs} Claude
+    Code plugin that wraps them as slash commands}\label{feat:surfaces}
+  \featureitem{Prompt state-machine DSL}{extend the playbook DSL with named
+    states, guarded transitions (shell checks plus scoped LLM-judgment guards),
+    \texttt{poll} ticks, and per-instance run-state with crash/resume ---
+    turning a hand-typed recurring prompt into a reviewed
+    file}\label{feat:state-machine}
 \end{enumerate}
 
 \subsection*{Should Do}
 
-Features that meaningfully improve the product but are not launch-blocking.
-Candidates for fast follow-up.
+Real improvements, not launch-blocking. The cold features live here: they were
+built or drafted, went unused, and are kept because the kit-manager identity
+gives them a reason to exist that they did not have before.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{Release automation}{bump version, tag, push, and monitor the
-    full pipeline (build, TestPyPI, test-install, PyPI) in one
-    command}\label{feat:release}
-  \featureitem{Cross-repo rollout}{detect which repos need a standard change,
-    preview the delta, apply, commit, push, and report across N
-    repos}\label{feat:rollout}
-  \featureitem{Project doctor}{health check that verifies MCP wiring, plugin
-    installation, quality gate configuration, and beads
-    initialization}\label{feat:doctor}
-  \featureitem{Status dashboard}{combined view of beads in-progress, git state,
-    CI status, and unreleased commits}\label{feat:status}
-  \featureitem{REST API}{HTTP interface for CI pipelines and internal dashboards
-    to query audit findings programmatically}\label{feat:rest-api}
+  \featureitem{Kit-manager surface}{\texttt{punt install} and
+    \texttt{punt enable} --- install an org tool, write its
+    \texttt{.punt-labs/<tool>/} subtree and \texttt{enabled} marker, add the
+    one \texttt{@}-import line, and reverse all of it on \texttt{disable}, per
+    \texttt{standards/tool-enable-disable.md}}\label{feat:kit-manager}
+  \featureitem{Usage logging}{record which commands and playbooks actually run,
+    locally and internal-only, so the metrics in \faqref{faq:metrics} are
+    measured rather than recalled}\label{feat:usage-logging}
+  \featureitem{Audit revival keyed to enabled policy}{scope \texttt{punt audit}
+    to what a repo has actually enabled, so each repo is measured against its
+    own declared kit instead of one fixed list of
+    conventions}\label{feat:audit-revival}
+  \featureitem{Reconcile on the new engine}{\texttt{/punt:reconcile} ---
+    LLM-driven reconciliation of a repo against changed standards, rebuilt as
+    a playbook rather than a standalone prompt}\label{feat:reconcile}
+  \featureitem{Autopilot as a state machine}{the autonomous backlog loop
+    reborn as a non-terminating machine with guarded transitions, replacing
+    today's prose loop playbook}\label{feat:autopilot}
+  \featureitem{Custom standards directory}{parameterize the corpus location so
+    a repo can point at its own rules. Separable in principle today, not
+    parameterized in practice}\label{feat:custom-standards}
 \end{enumerate}
 
 \subsection*{Won't Do}
 
-Features explicitly excluded. Naming what we will not build prevents scope
-creep and clarifies the product's identity.
+Naming what we will not build. The first four exclusions were in version 1.0
+of this document and held --- nothing since has argued for reopening them. The
+last three are new, and each retires a claim the earlier version made.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
   \featureitem{GUI or web dashboard}{punt-kit is a terminal tool and a Claude
@@ -843,6 +881,21 @@ creep and clarifies the product's identity.
   \featureitem{Package management}{validates distribution config and automates
     release pipelines; does not replace PyPI, npm, or
     uv}\label{feat:no-package-mgmt}
+  \featureitem{Standards parsed into checkable assertions}{version 1.0 of this
+    document promised an engine that read markdown standards and extracted
+    assertions from them. It was never built and is not wanted: prose is the
+    right format for a model and a reviewer, and the deterministic subset is
+    better written directly as code (\featureref{feat:deterministic-audit})}\label{feat:no-assertions}
+  \featureitem{MCP server and REST API}{promised as two of four surfaces,
+    neither built. A future direction if a second agent runtime or a CI system
+    ever needs to call punt-kit; nothing does today, and building either now
+    would be building for a user that does not
+    exist}\label{feat:no-mcp-rest}
+  \featureitem{External adoption machinery}{no marketing site, no onboarding
+    path for non-Punt-Labs teams, no third-party standards packs, no
+    \texttt{punt rollout} command aimed at other orgs' repos. Deferred by
+    operator direction until the internal product has found its footing
+    (\faqref{faq:external})}\label{feat:no-adoption}
 \end{enumerate}
 
 % ══════════════════════════════════════════════════════════════════════════════
