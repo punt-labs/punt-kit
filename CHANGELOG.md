@@ -96,6 +96,20 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `prfaq.tex` rewritten to describe the product punt-kit is (pkit-batl):
+  an internal kit manager for the Punt Labs org — standards, tools,
+  workflows, compliance — whose customer is the operator and the org's
+  agents, with `/punt:auto` as the self-prompting engine and the drafted
+  prompt state-machine DSL as the centerpiece investment. Claims the
+  earlier version made and the tool never shipped are removed as
+  capability and recorded in Won't Do: standards parsed into checkable
+  assertions, the MCP server, the REST API, `punt rollout`, and
+  `punt preflight`. Market sizing and external-adoption strategy are
+  explicitly deferred rather than dropped; the fictional customer
+  testimonial is replaced with an internal voice. Stage macro moves from
+  `hypothesis` to `internal-adoption` (README badge follows) and the
+  document version to 2.0; `prfaq.bib` drops the twelve entries that only
+  propped the external-market case
 - `standards/workflow.md` merge_gate Copilot condition corrected (pkit-krc8):
   the pseudocode assumed Copilot re-reviews on every push, which holds in
   punt-kit but not fleet-wide (other repos review once on open). The gate now

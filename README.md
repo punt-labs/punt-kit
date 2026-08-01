@@ -6,7 +6,7 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/punt-labs/punt-kit/test.yml?label=CI)](https://github.com/punt-labs/punt-kit/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/punt-kit)](https://pypi.org/project/punt-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/punt-kit)](https://pypi.org/project/punt-kit/)
-[![Working Backwards](https://img.shields.io/badge/Working_Backwards-hypothesis-lightgrey)](./prfaq.pdf)
+[![Working Backwards](https://img.shields.io/badge/Working_Backwards-internal--adoption-blue)](./prfaq.pdf)
 
 Punt-kit serves two purposes. For **Punt Labs projects**, it is the standards authority — coding conventions, CI templates, naming rules, and an audit checklist that the `punt` CLI enforces automatically. For **Claude Code plugin developers**, it is a pattern library — fourteen reusable design patterns extracted from shipping plugins, plus a standards corpus covering architecture, five languages (Python, Go, C, Swift, Pharo), git and workflow discipline, distribution, and more.
 
