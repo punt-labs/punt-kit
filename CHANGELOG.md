@@ -102,9 +102,12 @@ All notable changes to this project will be documented in this file.
   agents, with `/punt:auto` as the self-prompting engine and the drafted
   prompt state-machine DSL as the centerpiece investment. Claims the
   earlier version made and the tool never shipped are removed as
-  capability and recorded in Won't Do: standards parsed into checkable
-  assertions, the MCP server, the REST API, `punt rollout`, and
-  `punt preflight`. Market sizing and external-adoption strategy are
+  capability: standards parsed into checkable assertions, `punt rollout`,
+  and `punt preflight` are retired in Won't Do, while the MCP server and
+  the REST surface stay committed as Should Do roadmap items — the
+  engine-and-clients model in `standards/architecture.md` remains the
+  destination, with the press release and Must Do describing shipped
+  capability only. Market sizing and external-adoption strategy are
   explicitly deferred rather than dropped; the fictional customer
   testimonial is replaced with an internal voice. Stage macro moves from
   `hypothesis` to `internal-adoption` (README badge follows) and the

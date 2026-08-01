@@ -272,6 +272,18 @@ states, guarded transitions, poll ticks, and persisted run-state with
 crash/resume --- so a loop is a reviewed file rather than a retyped prompt
 (see \faqref{faq:self-prompting}).
 
+\textbf{Where this is going.} \emph{Shipped today: the CLI and the plugin. The
+rest of this paragraph is roadmap, not capability.} The destination is the
+engine-and-clients model in \texttt{standards/architecture.md} --- one engine
+behind thin client surfaces --- and two of those clients are committed and
+unbuilt. An \textbf{MCP server} will expose audit, status, and playbook launch
+to any agent runtime, not only Claude Code. A \textbf{REST surface} will serve
+CI jobs and dashboards that need findings programmatically. The point of
+building both is that the checks and the playbooks do not fork per caller: one
+engine answers a human at a terminal, an agent over MCP, and a CI job over
+HTTP identically (see \faqref{faq:surfaces},
+\featureref{feat:mcp-server}, \featureref{feat:rest-api}).
+
 \prsection{Customer Quote}
 
 \begin{customerquote}
@@ -348,10 +360,10 @@ Punt Labs.
   a session), \textbf{workflows} (the release engine and the playbooks), and
   \textbf{compliance} (the conformance audit and the PII scan). Its users are
   one operator and the AI agents that work roughly thirty repositories. Two
-  surfaces exist and are shipped: the \texttt{punt} CLI and the
-  \texttt{punt@punt-labs} Claude Code plugin. There is no MCP server and no
-  REST API; earlier versions of this document promised both, and neither was
-  built (see \faqref{faq:surfaces}).
+  surfaces are shipped --- the \texttt{punt} CLI and the
+  \texttt{punt@punt-labs} Claude Code plugin --- and two more are committed but
+  not yet built: an MCP server and a REST surface
+  (see \faqref{faq:surfaces}).
 \end{faqpair}
 
 \begin{faqpair}{What does ``kit manager'' mean?}\label{faq:kit-manager}
@@ -447,14 +459,29 @@ Punt Labs.
   local-first and internal-only by default (\featureref{feat:usage-logging}).
 \end{faqpair}
 
-\begin{faqpair}{Why only two surfaces?}\label{faq:surfaces}
-  Because two is what got built. \texttt{standards/architecture.md} describes
-  the engine-and-clients model --- one engine, thin CLI, plugin, MCP, and REST
-  clients --- and that is a good standard for the org's tools. punt-kit itself
-  implements the CLI and the plugin. The MCP server and the REST API were
-  aspirational and are listed in Won't Do for this version
-  (\featureref{feat:no-mcp-rest}). An MCP surface is a reasonable future
-  direction once a second agent runtime needs punt-kit; nothing today does.
+\begin{faqpair}{What surfaces exist, and what is coming?}\label{faq:surfaces}
+  \texttt{standards/architecture.md} sets the destination: the
+  engine-and-clients model, one engine behind thin client surfaces. punt-kit
+  is partway there.
+
+  \textbf{Shipped:} the \texttt{punt} CLI, and the \texttt{punt@punt-labs}
+  Claude Code plugin that wraps it as slash commands.
+
+  \textbf{Committed, not yet built:} an \textbf{MCP server}
+  (\featureref{feat:mcp-server}) exposing audit, status, and playbook launch,
+  so an agent running outside Claude Code can call the same checks and start
+  the same playbooks; and a \textbf{REST surface}
+  (\featureref{feat:rest-api}) so CI jobs and dashboards can read findings
+  programmatically rather than scraping CLI output.
+
+  Both were promised in version 1.0 of this document and neither was built ---
+  that is a schedule fact, not a change of intent. The reason to finish them is
+  the property the architecture standard is after: the checks and the playbooks
+  do not fork per caller. One engine answers a human at a terminal, an agent
+  over MCP, and a CI job over HTTP, and a finding means the same thing in all
+  three. What has changed since 1.0 is the honesty about ordering --- they are
+  Should Do behind the state-machine DSL (\faqref{faq:timeline}), not Must Do
+  claimed as already present.
 \end{faqpair}
 
 \begin{faqpair}{Can a repo use its own standards or playbooks?}
@@ -625,8 +652,12 @@ Punt Labs.
   reading \texttt{skills/auto/SKILL.md}, not a program punt-kit ships. That is
   a deliberate design choice --- half the steps in a real playbook are judgment
   or sub-agent calls that no daemon could run --- but it means playbooks do not
-  execute outside a Claude Code session. The deterministic CLI has no such
-  dependency.
+  execute outside a Claude Code session today. The deterministic CLI has no
+  such dependency, and the planned MCP server narrows the gap rather than
+  closing it: another agent runtime will be able to launch a playbook
+  (\featureref{feat:mcp-server}), but the thing executing it is still a
+  language model following the protocol, so the dependency becomes ``some
+  capable LLM host'' rather than ``Claude Code specifically.''
 \end{faqpair}
 
 \begin{faqpair}{What is the development timeline?}\label{faq:timeline}
@@ -658,7 +689,19 @@ Punt Labs.
       audit} checks a fixed set of conventions today; the revival scopes it to
       what a repo has actually enabled, so a repo is measured against its own
       declared kit (\featureref{feat:audit-revival}).
+    \item \textbf{MCP server} --- audit, status, and playbook launch exposed as
+      MCP tools, so an agent outside Claude Code can call the same engine
+      (\featureref{feat:mcp-server}).
+    \item \textbf{REST surface} --- findings over HTTP for CI jobs and
+      dashboards (\featureref{feat:rest-api}).
   \end{enumerate}
+  Items 5 and 6 complete the engine-and-clients model that
+  \texttt{standards/architecture.md} specifies (\faqref{faq:surfaces}). They
+  sit behind the first four because every one of those is load-bearing for
+  work happening now, while the second client surfaces pay off when something
+  outside a Claude Code session needs the engine. That is an ordering call, not
+  a doubt about the destination.
+
   No dates. One operator, agent-executed work, and a queue that reorders on
   the operator's ruling --- a dated plan would be fiction, and the last one
   was.
@@ -821,10 +864,12 @@ the press release is not true.
   \featureitem{Compliance scans}{\texttt{punt pii} --- emails, home directory
     paths, and \texttt{.local} hostnames, with \texttt{--staged} for
     pre-commit}\label{feat:pii}
-  \featureitem{Two surfaces: CLI and plugin}{the \texttt{punt} CLI
+  \featureitem{The two shipped client surfaces}{the \texttt{punt} CLI
     (\texttt{init}, \texttt{audit}, \texttt{pii}, \texttt{release},
     \texttt{doctor}, \texttt{status}) and the \texttt{punt@punt-labs} Claude
-    Code plugin that wraps them as slash commands}\label{feat:surfaces}
+    Code plugin that wraps them as slash commands. Two further clients ---
+    MCP and REST --- are committed and sit in Should
+    Do}\label{feat:surfaces}
   \featureitem{Prompt state-machine DSL}{extend the playbook DSL with named
     states, guarded transitions (shell checks plus scoped LLM-judgment guards),
     \texttt{poll} ticks, and per-instance run-state with crash/resume ---
@@ -834,9 +879,14 @@ the press release is not true.
 
 \subsection*{Should Do}
 
-Real improvements, not launch-blocking. The cold features live here: they were
-built or drafted, went unused, and are kept because the kit-manager identity
-gives them a reason to exist that they did not have before.
+Committed, not yet built, and not blocking the current version. Two kinds of
+item live here. The \emph{cold features} were built or drafted, went unused,
+and are kept because the kit-manager identity gives them a reason to exist
+they did not have before. The \emph{unbuilt client surfaces} --- MCP and REST
+--- were promised in version 1.0 and never delivered; they stay committed
+because \texttt{standards/architecture.md} makes them the destination, and
+they sit here rather than in Must Do because nothing shipping today waits on
+them.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
   \featureitem{Kit-manager surface}{\texttt{punt install} and
@@ -860,19 +910,31 @@ gives them a reason to exist that they did not have before.
   \featureitem{Custom standards directory}{parameterize the corpus location so
     a repo can point at its own rules. Separable in principle today, not
     parameterized in practice}\label{feat:custom-standards}
+  \featureitem{MCP server}{expose audit, status, and playbook launch as MCP
+    tools over the same engine the CLI calls, so an agent running outside
+    Claude Code gets identical checks and can start the same playbooks
+    (\faqref{faq:surfaces})}\label{feat:mcp-server}
+  \featureitem{REST surface}{HTTP access to audit findings and run status for
+    CI jobs and internal dashboards, so a pipeline reads structured results
+    instead of scraping CLI output}\label{feat:rest-api}
 \end{enumerate}
 
 \subsection*{Won't Do}
 
 Naming what we will not build. The first four exclusions were in version 1.0
 of this document and held --- nothing since has argued for reopening them. The
-last three are new, and each retires a claim the earlier version made.
+last two are new, and each retires a claim the earlier version made. Note what
+is \emph{not} here: the MCP server and the REST surface were candidates for
+this list and were kept as commitments instead (Should Do), because the
+engine-and-clients model is still the destination.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{GUI or web dashboard}{punt-kit is a terminal tool and a Claude
-    Code plugin. A web interface would split focus and target a different user.
-    Teams that want a portal should use
-    Backstage}\label{feat:no-gui}
+  \featureitem{GUI or web dashboard}{punt-kit ships no user interface of its
+    own --- a web front end would split focus and target a different user, and
+    teams that want a portal should use Backstage. This is consistent with the
+    planned REST surface (\featureref{feat:rest-api}): punt-kit serves findings
+    to somebody else's dashboard; it does not build
+    one}\label{feat:no-gui}
   \featureitem{CI system replacement}{punt-kit generates and validates CI
     workflows. It does not replace GitHub Actions, GitLab CI, or any CI
     runner}\label{feat:no-ci}
@@ -888,11 +950,6 @@ last three are new, and each retires a claim the earlier version made.
     assertions from them. It was never built and is not wanted: prose is the
     right format for a model and a reviewer, and the deterministic subset is
     better written directly as code (\featureref{feat:deterministic-audit})}\label{feat:no-assertions}
-  \featureitem{MCP server and REST API}{promised as two of four surfaces,
-    neither built. A future direction if a second agent runtime or a CI system
-    ever needs to call punt-kit; nothing does today, and building either now
-    would be building for a user that does not
-    exist}\label{feat:no-mcp-rest}
   \featureitem{External adoption machinery}{no marketing site, no onboarding
     path for non-Punt-Labs teams, no third-party standards packs, no
     \texttt{punt rollout} command aimed at other orgs' repos. Deferred by
