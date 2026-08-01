@@ -102,17 +102,25 @@ All notable changes to this project will be documented in this file.
   agents, with `/punt:auto` as the self-prompting engine and the drafted
   prompt state-machine DSL as the centerpiece investment. Claims the
   earlier version made and the tool never shipped are removed as
-  capability: standards parsed into checkable assertions, `punt rollout`,
-  and `punt preflight` are retired in Won't Do, while the MCP server and
-  the REST surface stay committed as Should Do roadmap items — the
+  capability: standards parsed into checkable assertions and `punt
+  preflight` are retired in Won't Do, and a dedicated `punt rollout`
+  command is retired there for the real reason — the `standards-rollout`
+  and `permissions-rollout` playbooks already do the job. The MCP server
+  and the REST surface stay committed as Should Do roadmap items — the
   engine-and-clients model in `standards/architecture.md` remains the
   destination, with the press release and Must Do describing shipped
-  capability only. Market sizing and external-adoption strategy are
-  explicitly deferred rather than dropped; the fictional customer
-  testimonial is replaced with an internal voice. Stage macro moves from
-  `hypothesis` to `internal-adoption` (README badge follows) and the
-  document version to 2.0; `prfaq.bib` drops the twelve entries that only
-  propped the external-market case
+  capability only. The tools pillar is named as the kit-manager direction
+  rather than a shipped command, since punt has no `install` or `enable`
+  at 0.11.2; the planned surface is specified as dispatch (`punt install
+  <tool>` runs that tool's `install.sh`, `punt enable <tool>` delegates to
+  `<tool> enable`) because `tool-enable-disable.md` §2.2–2.3 give the
+  vendored zone, the marker, and the verbs to each tool itself. Market
+  sizing and external-adoption strategy are explicitly deferred rather
+  than dropped; the fictional customer testimonial is replaced with an
+  internal voice. Stage macro moves from `hypothesis` to
+  `internal-adoption` (README badge follows) and the document version to
+  2.0; `prfaq.bib` drops the twelve entries that only propped the
+  external-market case
 - `standards/workflow.md` merge_gate Copilot condition corrected (pkit-krc8):
   the pseudocode assumed Copilot re-reviews on every push, which holds in
   punt-kit but not fleet-wide (other repos review once on open). The gate now
