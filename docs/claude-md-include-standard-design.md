@@ -1,8 +1,11 @@
 # Design: CLAUDE.md `@`-Include Architecture and the `enable` / `disable` Convention
 
 **Introduced:** 2026-07-19
-**Status:** DESIGN (round 2 — rop/adt review and all operator rulings, including
-the four settled §8 decisions, folded in) — ready for step-2 dispatch
+**Status:** LANDED — the standard this designed shipped as
+[standards/tool-enable-disable.md](../standards/tool-enable-disable.md)
+(with §2.4 corrections from biff's reference implementation) and
+`punt auto claude` was removed; see DESIGN.md DES-020. This document is the
+historical design record, preserved as written.
 **Worker:** mdm · **Evaluators:** rop, adt · **Ticket:** pkit-lu1q
 
 This document proposes one new Punt Labs standard and one meta-convention, then

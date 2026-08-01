@@ -28,8 +28,26 @@ All notable changes to this project will be documented in this file.
   head does not match the local release branch (skipped bump, wrong tag)
   are now ignored and a fresh PR is created; a MERGED PR counts only when
   its `headRefOid` matches the local branch head
+- Incomplete URL substring sanitization in the marketplace check flagged by
+  code scanning (alert 5): the GitHub host comparison now parses the URL
+  instead of substring-matching it
+- `punt init` no longer writes broken permission entries, and the generated
+  `docs.yml` workflow globs match the files it lints
 
 ### Added
+
+- `standards/pr-review.md` and `standards/agent-engineering.md` — the PR/review
+  sequence and the agent operating rules, split out of the old workflow doc
+  into their own normative homes
+- `standards/architecture.md` (engine-and-clients model), `standards/oo.md`
+  (the cross-language OO stance), and per-language standards for Go, C, Swift,
+  and Pharo
+- `lang-rules/` — the per-language coding-rules corpus agents load
+  automatically: canonical Go rules (4 files), canonical Swift rules (7 files,
+  38 rules), and a generalization pass over the seeded Python and C rules,
+  with a README status table
+- `punt init` standard permissions now include 77 `Skill()` entries covering
+  the org plugin surface
 
 - `standards/agent-engineering.md` §16 — when a tool's behavior contradicts
   its source, suspect a stale installed binary before writing a fix
@@ -115,6 +133,16 @@ All notable changes to this project will be documented in this file.
   `.cursor/skills/auto/SKILL.md` to `skills/auto/SKILL.md` at the plugin root,
   severing it from the removed `.cursor/` tree; `commands/auto.md` and
   `commands/auto-dev.md` repointed to the new path (no behavior change)
+- Standards revisions across the corpus: `go.md` adopts golangci-lint as the
+  Go lint gate (Go Report Card successor) and documents the staticcheck
+  GOTOOLCHAIN workaround; `logging.md` revised from the vox logging audit;
+  `distribution.md` gains the daemon v3 pattern and mandates
+  uninstall-before-install with failure detection in `install.sh`;
+  `permissions.md` requires bare `Read`/`Write`/`Edit` for sub-agents;
+  `agent-engineering.md` §8 bans process narration in comments and
+  docstrings; `readme.md` settles section naming, the Go badge set, and
+  states its audience (users); the CLAUDE.md `@`-import include convention
+  is documented global-first with vox as the reference implementation
 
 ### Removed
 

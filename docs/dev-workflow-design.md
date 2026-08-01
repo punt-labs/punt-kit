@@ -1,5 +1,14 @@
 # Design: Punt Labs Development Workflow
 
+**Status:** SUPERSEDED — the `dev.yaml` playbook this proposed was never
+built. The problem it names was solved instead by the three-loop workflow
+standard ([standards/workflow.md](../standards/workflow.md)) with ethos
+missions as the delegation mechanism, and by the review sequence in
+[standards/pr-review.md](../standards/pr-review.md). Several principles
+survived into those documents (delegation-always, postconditions as truth,
+demo before ship); the playbook encoding did not. Preserved as a historical
+design record.
+
 ## Problem
 
 Three systems compete to control the development flow:
