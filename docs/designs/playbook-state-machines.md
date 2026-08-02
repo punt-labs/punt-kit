@@ -426,12 +426,16 @@ states:
             check: ./scripts/pr-needs-work.sh ${pr}
       - to: merging
         when:
-          # merge_gate clause 1: CI green on the latest commit
-          - description: CI green on the latest commit
+          # merge_gate clause 1: CI green on the latest commit. The check
+          # must require a NON-EMPTY check-run list — jq's all() is
+          # vacuously true on [], so a bare all(SUCCESS) would pass a PR
+          # with no CI at all.
+          - description: CI ran and every check succeeded on the latest commit
             check: |
               test "$(gh pr view ${pr} --json statusCheckRollup \
                 -q '[.statusCheckRollup[]|select(.__typename=="CheckRun")
-                     |.conclusion]|all(.=="SUCCESS")')" = "true"
+                     |.conclusion] | (length > 0) and all(.=="SUCCESS")')" \
+                = "true"
           # merge_gate clause 2: Copilot reviewed latest, OR reviewed an
           # earlier commit but not the latest and CI has been green >10min
           - description: Copilot reviewed the latest commit, or reviewed
@@ -785,9 +789,12 @@ Each carries a recommendation, per the design-gate discipline.
    binding to the session-scoped scheduler, not a defect to engineer away with
    a daemon the design deliberately rejects (§5.2).
 
-6. **Helper-script packaging and home.** The worked example references five
-   helper scripts — `reviewer-gate.sh`, `pr-needs-work.sh`,
-   `unresolved-threads.sh`, `commit-push-if-dirty.sh`, `branch-of-pr.sh` —
+6. **Helper-script packaging and home.** The worked example references six
+   helper scripts — `ci-green-latest.sh` (used in §1.4's transition example;
+   the worked example shows the same non-empty-and-all-success check inline
+   to make the vacuity guard explicit), `reviewer-gate.sh`,
+   `pr-needs-work.sh`, `unresolved-threads.sh`, `commit-push-if-dirty.sh`,
+   `branch-of-pr.sh` —
    that wrap the `gh`/GraphQL specifics of the merge gate and cleanup. Where do
    they live and ship: packaged with `punt` and deposited into the repo on
    enable (the vendored zone, `punt-labs-dir.md` §7), or repo-local under
