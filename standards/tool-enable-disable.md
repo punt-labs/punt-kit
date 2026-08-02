@@ -395,7 +395,7 @@ Forward integration, no compatibility shim
 - The `punt auto claude` target and the `CLAUDE_SECTIONS` registry are
   **removed, not deprecated**. The four managed sections stop being rendered into
   any user-owned `CLAUDE.md`. `punt`'s deposited file is punt's user guide (2.10),
-  not a replacement home for that content. The `punt auto makefile` target is
+  not a replacement home for that content. The `punt seed makefile` target is
   **out of scope** and stays as-is — this removal is CLAUDE.md-only.
 - `/punt:init` (or a one-time migration) strips any residual `punt:begin` /
   `punt:end` CLAUDE.md marker sections from a repo `CLAUDE.md`, leaving the user's

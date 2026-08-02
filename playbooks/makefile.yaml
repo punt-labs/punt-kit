@@ -1,5 +1,5 @@
 name: makefile
-description: Run punt auto makefile across all Python child repos
+description: Run punt seed makefile across all Python child repos
 mode: once
 
 parameters:
@@ -24,7 +24,7 @@ steps:
     type: llm
     context: |
       For each project in the target list, run:
-        punt auto makefile <project-path>
+        punt seed makefile <project-path>
 
       If dry_run is true, add --dry-run.
 
