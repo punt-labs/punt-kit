@@ -1,4 +1,4 @@
-"""punt auto — render and merge managed sections in project files.
+"""punt seed — render and merge managed sections in project files.
 
 Uses comment markers to delimit engine-owned sections. Content outside
 markers is preserved untouched. Same input + same templates = identical
@@ -25,7 +25,7 @@ from punt_kit.init import (
 
 console = Console()
 
-TEMPLATES = importlib.resources.files("punt_kit") / "templates" / "auto"
+TEMPLATES = importlib.resources.files("punt_kit") / "templates" / "seed"
 
 # ---------------------------------------------------------------------------
 # Marker patterns by file type
@@ -103,7 +103,7 @@ def parse_segments(content: str, file_type: str) -> list[Segment]:
     if current_id is not None:
         console.print(
             f"[red]Error:[/red] Unclosed marker '{current_id}'"
-            " — fix the end marker before running punt auto"
+            " — fix the end marker before running punt seed"
         )
         raise SystemExit(1)
     if local_lines:
@@ -171,7 +171,7 @@ def merge_file(
 
 @functools.lru_cache(maxsize=1)
 def _jinja_env() -> jinja2.Environment:
-    """Cached Jinja2 environment with a loader for auto templates."""
+    """Cached Jinja2 environment with a loader for seed templates."""
 
     def _load_template(name: str) -> str | None:
         path = TEMPLATES / name
@@ -224,7 +224,7 @@ def render_section(
 # Target definitions: which sections each target manages
 # ---------------------------------------------------------------------------
 
-# Each target maps section_id -> template_name (relative to templates/auto/)
+# Each target maps section_id -> template_name (relative to templates/seed/)
 MAKEFILE_SECTIONS: list[tuple[str, str]] = [
     ("standard-targets", "makefile/python.mk.j2"),
     ("help", "makefile/help.mk.j2"),
@@ -315,7 +315,7 @@ def merge_json_permissions(
 # ---------------------------------------------------------------------------
 
 
-def run_auto(
+def run_seed(
     path: str,
     *,
     target: str,
@@ -334,10 +334,10 @@ def run_auto(
     changed: list[str] = []
 
     if target == "settings":
-        changed.extend(_auto_settings(info, dry_run=dry_run))
+        changed.extend(_seed_settings(info, dry_run=dry_run))
     elif target in TARGETS:
         file_type, sections = TARGETS[target]
-        changed.extend(_auto_file(info, target, file_type, sections, dry_run=dry_run))
+        changed.extend(_seed_file(info, target, file_type, sections, dry_run=dry_run))
     else:
         valid = ", ".join([*TARGETS.keys(), "settings"])
         console.print(
@@ -357,7 +357,7 @@ def run_auto(
     return changed
 
 
-def _auto_file(
+def _seed_file(
     info: ProjectInfo,
     target: str,
     file_type: str,
@@ -409,7 +409,7 @@ def _auto_file(
     return [rel]
 
 
-def _auto_settings(
+def _seed_settings(
     info: ProjectInfo,
     *,
     dry_run: bool,

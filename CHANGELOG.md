@@ -96,6 +96,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Breaking:** `punt auto <target>` is now `punt seed <target>` (pkit-xych).
+  The managed-section renderer shared a name with the `/punt:auto` slash
+  command, which runs playbooks; the CLI side takes the new name and the
+  slash command keeps its own. There is no alias and no deprecation shim —
+  scripts and playbooks invoking `punt auto` must be updated.
 - `prfaq.tex` rewritten to describe the product punt-kit is (pkit-batl):
   an internal kit manager for the Punt Labs org — standards, tools,
   workflows, compliance — whose customer is the operator and the org's

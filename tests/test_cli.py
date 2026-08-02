@@ -119,3 +119,24 @@ def test_status_json() -> None:
     assert "punt_kit_version" in data
     assert "language" in data
     assert "project_type" in data
+
+
+# --- seed ---
+
+
+def test_seed_help_lists_targets() -> None:
+    """The managed-section renderer is spelled 'seed' and names its targets."""
+    result = runner.invoke(app, ["seed", "--help"])
+    assert result.exit_code == 0
+    assert "makefile, settings" in result.output
+
+
+def test_auto_is_not_a_command() -> None:
+    """The old 'auto' spelling is unknown to the parser — no alias, no shim.
+
+    Exit code 2 is the parser rejecting an unknown command. A deprecation
+    shim that warned and exited 1 would satisfy a bare non-zero assertion.
+    """
+    result = runner.invoke(app, ["auto", "makefile"])
+    assert result.exit_code == 2
+    assert "No such command 'auto'" in result.output

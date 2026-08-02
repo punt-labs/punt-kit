@@ -1208,7 +1208,7 @@ design record with the operator rulings is
 
 Consequence: `punt auto claude`, the `CLAUDE_SECTIONS` registry, and the four
 rendered CLAUDE.md section templates were removed. CLAUDE.md templates are not
-standards content. Makefile managed sections (`punt auto makefile`) are
+standards content. Makefile managed sections (`punt seed makefile`) are
 unaffected.
 
 ### Why

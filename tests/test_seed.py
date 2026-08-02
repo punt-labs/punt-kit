@@ -1,4 +1,4 @@
-"""Tests for punt auto — marker-based section management."""
+"""Tests for punt seed — marker-based section management."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from punt_kit.auto import (
+from punt_kit.seed import (
     merge_file,
     merge_json_permissions,
     parse_segments,
     render_section,
-    run_auto,
+    run_seed,
 )
 
 if TYPE_CHECKING:
@@ -303,15 +303,15 @@ class TestMergeJsonPermissions:
 
 
 # ---------------------------------------------------------------------------
-# Integration: run_auto
+# Integration: run_seed
 # ---------------------------------------------------------------------------
 
 
-class TestRunAuto:
-    def test_auto_makefile_creates_managed_sections(self, tmp_path: Path) -> None:
+class TestRunSeed:
+    def test_seed_makefile_creates_managed_sections(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
-        run_auto(str(tmp_path), target="makefile")
+        run_seed(str(tmp_path), target="makefile")
 
         content = (tmp_path / "Makefile").read_text()
         assert "# punt:begin standard-targets" in content
@@ -320,18 +320,18 @@ class TestRunAuto:
         assert "# punt:end help" in content
         assert "uv run pytest" in content
 
-    def test_auto_makefile_idempotent(self, tmp_path: Path) -> None:
+    def test_seed_makefile_idempotent(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
-        run_auto(str(tmp_path), target="makefile")
+        run_seed(str(tmp_path), target="makefile")
         first = (tmp_path / "Makefile").read_text()
 
-        run_auto(str(tmp_path), target="makefile")
+        run_seed(str(tmp_path), target="makefile")
         second = (tmp_path / "Makefile").read_text()
 
         assert first == second
 
-    def test_auto_makefile_updates_managed_preserves_local(
+    def test_seed_makefile_updates_managed_preserves_local(
         self, tmp_path: Path
     ) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
@@ -343,52 +343,52 @@ class TestRunAuto:
             "custom:\n\techo custom\n"
         )
 
-        run_auto(str(tmp_path), target="makefile")
+        run_seed(str(tmp_path), target="makefile")
 
         content = (tmp_path / "Makefile").read_text()
         assert "# Local preamble" in content
         assert "echo custom" in content
         assert "old targets" not in content
 
-    def test_auto_makefile_dry_run_no_changes(self, tmp_path: Path) -> None:
+    def test_seed_makefile_dry_run_no_changes(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
-        run_auto(str(tmp_path), target="makefile", dry_run=True)
+        run_seed(str(tmp_path), target="makefile", dry_run=True)
 
         assert not (tmp_path / "Makefile").exists()
 
-    def test_auto_makefile_skips_non_python(self, tmp_path: Path) -> None:
+    def test_seed_makefile_skips_non_python(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text("# Test\n")
 
-        changed = run_auto(str(tmp_path), target="makefile")
+        changed = run_seed(str(tmp_path), target="makefile")
 
         assert changed == []
         assert not (tmp_path / "Makefile").exists()
 
-    def test_auto_settings(self, tmp_path: Path) -> None:
+    def test_seed_settings(self, tmp_path: Path) -> None:
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
-        run_auto(str(tmp_path), target="settings")
+        run_seed(str(tmp_path), target="settings")
 
         settings = tmp_path / ".claude" / "settings.json"
         assert settings.exists()
         data = json.loads(settings.read_text())
         assert "Bash(git:*)" in data["permissions"]["allow"]
 
-    def test_auto_invalid_target(self, tmp_path: Path) -> None:
+    def test_seed_invalid_target(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text("# Test\n")
 
         with pytest.raises(SystemExit, match="1"):
-            run_auto(str(tmp_path), target="bogus")
+            run_seed(str(tmp_path), target="bogus")
 
-    def test_auto_claude_target_removed(
+    def test_seed_claude_target_removed(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Regression: "punt auto claude" fails listing the remaining targets."""
+        """Regression: the retired claude target fails listing the remaining ones."""
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
         with pytest.raises(SystemExit, match="1"):
-            run_auto(str(tmp_path), target="claude")
+            run_seed(str(tmp_path), target="claude")
 
         out = capsys.readouterr().out
         assert "unknown target 'claude'" in out

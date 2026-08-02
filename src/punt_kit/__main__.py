@@ -124,7 +124,7 @@ def release(
 
 
 @app.command()
-def auto(
+def seed(
     target: str = typer.Argument(help="Target to render: makefile, settings"),
     path: str = typer.Argument(".", help="Path to the project root"),
     dry_run: bool = typer.Option(
@@ -132,9 +132,9 @@ def auto(
     ),
 ) -> None:
     """Render and merge managed sections in project files."""
-    from punt_kit.auto import run_auto
+    from punt_kit.seed import run_seed
 
-    run_auto(path, target=target, dry_run=dry_run)
+    run_seed(path, target=target, dry_run=dry_run)
 
 
 @app.command()
