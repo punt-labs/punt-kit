@@ -261,8 +261,9 @@ so it auto-approves.
 A polling state does not busy-wait; the executor is not resident between ticks.
 On reaching a `poll` state with no fired transition, the executor **registers a
 recurring re-invocation** and returns control. The mechanism is the existing
-`/loop` wrapper (org `CLAUDE.md` — "use `/loop <interval>` for recurring
-polling"): the executor registers
+`/loop` wrapper — the org's standard for recurring polling, as
+`standards/workflow.md` §5 requires ("schedule a background poll — never a
+blocking watch"): the executor registers
 
 ```text
 /loop <poll> /punt:auto <name> --resume --instance <instance-key>
@@ -323,9 +324,12 @@ keyed by instance, to:
 
 This is inside the tool's own subtree (`punt/`) under the reserved `local/`
 zone — not a new top-level dot-directory, which `punt-labs-dir.md` §2 forbids.
-It needs **no new `.gitignore` rule**: the canonical block's
-`.punt-labs/**/local` line (`punt-labs-dir.md` §6) already ignores the whole
-local zone. (The `recap_sent` flag is used by the idempotency guard in §3.)
+It needs **no rule beyond the canonical gitignore block**: the block's
+`.punt-labs/**/local` line (`punt-labs-dir.md` §6) ignores the whole local
+zone. Repos that have not yet adopted the canonical block — punt-kit's own
+`.gitignore` does not carry it today — must adopt it before run-state lands,
+or the run-state files become trackable. (The `recap_sent` flag is used by
+the idempotency guard in §3.)
 
 Crash/resume semantics rest on one invariant the author must uphold:
 
@@ -802,8 +806,8 @@ Each carries a recommendation, per the design-gate discipline.
 ## Backward Compatibility
 
 Restated plainly, since it is a success criterion: every existing linear
-playbook (`release.yaml`, `sync-quarry`, the autopilot loop) remains valid and
-unchanged. The executor selects linear vs. machine by the presence of `steps`
+playbook — `release`, `autopilot`, `makefile`, `permissions-rollout`,
+`reconcile-memory`, `standards-rollout` — remains valid and unchanged. The executor selects linear vs. machine by the presence of `steps`
 vs. `states`. No existing field changes meaning; `mode`, `parameters`,
 `preconditions`, and the step vocabulary are carried verbatim into states as
 actions. A linear playbook is the degenerate one-state machine: the executor
