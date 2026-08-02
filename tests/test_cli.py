@@ -132,6 +132,11 @@ def test_seed_help_lists_targets() -> None:
 
 
 def test_auto_is_not_a_command() -> None:
-    """The old 'auto' spelling is gone — no alias, no shim."""
+    """The old 'auto' spelling is unknown to the parser — no alias, no shim.
+
+    Exit code 2 is the parser rejecting an unknown command. A deprecation
+    shim that warned and exited 1 would satisfy a bare non-zero assertion.
+    """
     result = runner.invoke(app, ["auto", "makefile"])
-    assert result.exit_code != 0
+    assert result.exit_code == 2
+    assert "No such command 'auto'" in result.output
