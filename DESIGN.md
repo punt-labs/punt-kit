@@ -1299,3 +1299,95 @@ the fix is deciding from verified live state.
 | Resume any same-named PR | The original behavior; produced the infinite-wait and wrong-tag failures. |
 | `git add -A` in release commits | Swept untracked scratch into releases; explicit staging makes the commit content a contract. |
 | Abort when branch deletion fails | False release failures on every auto-delete repo; the merge already succeeded. |
+
+## DES-023: Standards Auditor Independence
+
+**Date:** 2026-08-02
+**Status:** SETTLED (design; implementation tracked as pkit-zmca)
+**Topic:** How LLM-judgment enforcement of the standards corpus is structured — who audits, who fixes, who signs off
+
+### Design
+
+`punt audit` gains a second examiner: one **auditor agent** whose reference is
+the named standard, invoked on **one standard at a time** at the user's
+direction. Four rules, ruled by the operator:
+
+1. **The auditor never remediates.** The agent generates findings on the
+   first audit and re-audits after remediation to issue the clean sign-off.
+   It never edits a file. The sign-off is a re-audit with zero findings,
+   issued by a party that did none of the fixing.
+2. **Remediation is different hands.** Findings dispatch to the ethos mission
+   harness where ethos is enabled in the repo (bringing its own
+   worker/evaluator separation), or to a distinct sub-agent where it is not.
+   The fixer never certifies its own fix.
+3. **One engagement, one report.** `punt audit` merges the deterministic
+   rule checks and the agent's judgment findings into a single report, each
+   finding tagged with its examiner type and its standard section. The exit
+   code remains deterministic-only.
+4. **One standard per run.** The audit unit is one standard × one repo ×
+   one run — the bound that keeps the auditor's context sound. Corpus
+   coverage comes from many small engagements over time, never one run over
+   all 29 standards.
+
+There is one shared enforcement harness; the standard document is the agent's
+instructions. No per-standard agent files exist — a new standard is auditable
+the day it is written.
+
+### Why
+
+Auditor independence is the first principle of real-world audit: findings go
+to management, management remediates, the auditor re-examines and issues the
+opinion. An agent that fixes what it audits and signs its own work produces a
+worthless attestation. The same invariant already governs every mission in
+the org (worker ≠ evaluator; the leader never evaluates) — this applies it to
+conformance. The one-standard bound exists because the corpus does not fit an
+agent's context; the harness-plus-reference design exists because prose is
+the corpus's deliberate format and the standard's own text is the highest-
+fidelity brief an enforcer can carry.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| A review-and-fix agent (audit, fix, and sign off in one actor) | Self-certification. No real audit regime permits the remediator to attest their own remediation; proposed and struck by operator ruling. |
+| Fix mode with "structural guards" instead of separated actors | Guards bound the blast radius but not the conflict of interest; the attestation is still self-issued. |
+| Hand-authored agent per standard | Recreates the managed-sections maintenance problem; drifts from the corpus the moment a standard is amended. |
+| All-enabled-standards fan-out in one run | Context explosion; findings quality collapses with corpus-sized input. |
+| A separate verb (`punt review`) for judgment findings | Two conformance reports to reconcile — a split opinion; one engagement produces one report. |
+
+## DES-024: Kit Manager Is Dispatch, Not Ownership
+
+**Date:** 2026-08-01
+**Status:** SETTLED (design; implementation tracked as pkit-pjwn)
+**Topic:** How `punt install <tool>` and `punt enable <tool>` relate to each tool's own install and enable
+
+### Design
+
+The kit-manager surface delegates:
+
+- `punt install <tool>` runs that tool's own `install.sh`.
+- `punt enable <tool>` / `punt disable <tool>` delegate to `<tool> enable` /
+  `<tool> disable`.
+- punt never writes another tool's vendored zone, `enabled` marker, or
+  import line.
+- The bare `punt enable` (no argument) remains punt enabling **itself** in a
+  repo, per tool-enable-disable.md §2.10; the manager form always takes an
+  argument.
+
+### Why
+
+tool-enable-disable.md §2.2 gives each tool sole ownership of its
+`.punt-labs/<tool>/` subtree, and §2.3 puts the enable/disable verbs on each
+tool's own CLI — biff, ethos, and vox already implement it that way. A
+manager that wrote those files directly would be a second writer of
+single-owner state and would drift the moment a tool changed what it
+deposits. punt's job is to know what the kit is and call the right verb on
+each member.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| punt writes other tools' subtrees directly | Second writer of state the standard assigns to one owner; drifts on any tool change; contradicts the standard punt-kit itself publishes. |
+| Overload bare `punt enable` as the manager verb | §2.10 already defines it as punt self-enabling; overloading creates a second naming collision. |
+| punt vendors per-tool install logic | A version-coupling point that turns punt into a lockfile manager; per-repo install.sh already self-versions. |
