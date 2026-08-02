@@ -275,7 +275,7 @@ verbs, and \texttt{disable} is non-destructive.
 ethos, and vox each implement \texttt{enable}/\texttt{disable} in their own
 CLI, and the markers are committed in nine repos for biff and three for ethos.
 \emph{What is not:} punt has no manager command. At v0.11.2 the CLI is
-\texttt{init}, \texttt{audit}, \texttt{pii}, \texttt{release}, \texttt{auto},
+\texttt{init}, \texttt{audit}, \texttt{pii}, \texttt{release}, \texttt{seed},
 \texttt{doctor}, \texttt{status}, and \texttt{version} --- there is no
 \texttt{punt install} and no \texttt{punt enable}. That surface is the
 invested next step, not a shipped one
@@ -465,14 +465,13 @@ Punt Labs.
   steps. Six playbooks ship today; the release playbook is the proof, running
   the 11-phase engine with LLM diagnosis on failure.
 
-  \textbf{A name collision to fix.} \texttt{punt auto <target>}, the CLI
-  subcommand, renders and merges managed sections in project files (Makefile,
-  \texttt{settings.json}). \texttt{/punt:auto <playbook>}, the slash command,
-  is the playbook executor, and it is the one the self-prompting work builds
-  on. They share a word and do unrelated jobs. Naming the collision is not the
-  same as resolving it: one of the two should be renamed before the
-  state-machine work makes \texttt{auto} load-bearing vocabulary, and that is
-  an open call for the operator.
+  \textbf{A name collision, resolved.} The CLI subcommand that renders and
+  merges managed sections in project files (Makefile, \texttt{settings.json})
+  used to be \texttt{punt auto <target>}, one word away from the unrelated
+  playbook executor. It is now \texttt{punt seed <target>}, renamed outright
+  with no alias, so \texttt{auto} belongs to \texttt{/punt:auto <playbook>}
+  alone --- the executor the self-prompting work builds on --- before the
+  state-machine work makes the word load-bearing vocabulary.
 
   The investment is turning that DSL into a \textbf{prompt state machine}. The
   drafted design adds named states, guarded transitions (shell checks plus
@@ -934,11 +933,9 @@ convention ships, punt's manager surface does not
     \texttt{--staged} for pre-commit}\label{feat:pii}
   \featureitem{The two shipped client surfaces}{\pillar{All four}the
     \texttt{punt} CLI --- \texttt{init}, \texttt{audit}, \texttt{pii},
-    \texttt{release}, \texttt{auto}, \texttt{doctor}, \texttt{status},
+    \texttt{release}, \texttt{seed}, \texttt{doctor}, \texttt{status},
     \texttt{version} --- and the \texttt{punt@punt-labs} Claude Code plugin
-    that wraps them as slash commands. Note that CLI \texttt{auto} and slash
-    \texttt{/punt:auto} are different things; see the name collision in
-    \faqref{faq:self-prompting}. Two further clients, MCP and REST, are
+    that wraps them as slash commands. Two further clients, MCP and REST, are
     committed and sit in Should Do}\label{feat:surfaces}
   \featureitem{Prompt state-machine DSL}{\pillar{Workflows}extend the playbook
     DSL with named states, guarded transitions (shell checks plus scoped
