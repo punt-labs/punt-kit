@@ -416,9 +416,20 @@ PLUGIN_RULES='[
   "Edit(*prfaq*.tex)"
 ]'
 
-SETTINGS_FILE="$PROJECT_DIR/.claude/settings.json"
+# Resolve both sides before comparing: an unset, relative, trailing-slash, or
+# symlinked path would slip past a bare string comparison and let the command
+# write the user's global settings file.
+PROJECT_DIR=$(cd "${CLAUDE_PROJECT_DIR:-$PWD}" 2>/dev/null && pwd -P) || {
+  echo "Cannot resolve the project directory." >&2
+  exit 1
+}
 
-[ "$PROJECT_DIR" = "$HOME" ] && fail "Refusing to write the global settings file."
+if [ "$PROJECT_DIR" = "$(cd "$HOME" && pwd -P)" ]; then
+  echo "Refusing to write the global settings file." >&2
+  exit 1
+fi
+
+SETTINGS_FILE="$PROJECT_DIR/.claude/settings.json"
 
 if command -v jq >/dev/null 2>&1; then
   # Ensure valid JSON exists

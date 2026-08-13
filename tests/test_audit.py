@@ -704,3 +704,54 @@ def test_audit_tolerates_malformed_settings_local(tmp_path: Path) -> None:
 
     # Should not raise SystemExit
     run_audit(str(tmp_path))
+
+
+def test_audit_hint_points_at_init_for_fixable_rules(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dead rule in a well-formed tier is one punt init can remove."""
+    _make_compliant_python(tmp_path)
+    _append_rule(tmp_path, "deny", "Write(.env)")
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "run punt init" in out
+    assert "hand" not in out
+
+
+def test_audit_hint_says_hand_edit_for_malformed_tier(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """init skips a tier holding a non-string entry, so don't send the user there."""
+    _make_compliant_python(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    data["permissions"]["deny"].extend(["Write(.env)", {"unexpected": "object"}])
+    settings.write_text(json.dumps(data, indent=2) + "\n")
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "hand" in out
+
+
+def test_audit_hint_covers_both_kinds(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With one of each, the hint names init and the hand-edit remainder."""
+    _make_compliant_python(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    data["permissions"]["allow"].append("Glob(src/**)")
+    data["permissions"]["deny"].extend(["Write(.env)", {"unexpected": "object"}])
+    settings.write_text(json.dumps(data, indent=2) + "\n")
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "run punt init" in out
+    assert "hand" in out

@@ -673,19 +673,33 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
-def _dead_rules_in(perms: dict[str, object]) -> list[str]:
-    """Every rule in a permissions block that Claude Code cannot match."""
-    dead: list[str] = []
+def _dead_rules_in(perms: dict[str, object]) -> tuple[list[str], list[str]]:
+    """Dead rules in a permissions block, split by whether init can fix them.
+
+    ``punt init`` skips a tier holding a non-string entry rather than coerce it
+    to its repr, so dead rules in such a tier need a hand edit. Reporting them
+    all as "run punt init" would send the user round a loop that never
+    converges.
+    """
+    fixable: list[str] = []
+    manual: list[str] = []
     for tier in Tier:
         raw = perms.get(tier.value)
         if not isinstance(raw, list):
             continue
-        entries = [str(x) for x in cast("list[object]", raw)]
-        dead.extend(str(rule) for rule in RuleSet.from_strings(entries).dead)
-    return dead
+        entries = cast("list[object]", raw)
+        texts = [str(x) for x in entries]
+        dead = [str(rule) for rule in RuleSet.from_strings(texts).dead]
+        if not dead:
+            continue
+        if all(isinstance(x, str) for x in entries):
+            fixable.extend(dead)
+        else:
+            manual.extend(dead)
+    return fixable, manual
 
 
-def _dead_rules_in_settings_local(info: ProjectInfo) -> list[str]:
+def _dead_rules_in_settings_local(info: ProjectInfo) -> tuple[list[str], list[str]]:
     """Dead rules in the gitignored local settings file.
 
     Claude Code warns for this file exactly as it does for the checked-in one,
@@ -694,27 +708,43 @@ def _dead_rules_in_settings_local(info: ProjectInfo) -> list[str]:
     """
     settings_path = info.root / ".claude" / "settings.local.json"
     if not settings_path.exists():
-        return []
+        return ([], [])
 
     try:
         raw = json.loads(settings_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return []
+        return ([], [])
     if not isinstance(raw, dict):
-        return []
+        return ([], [])
 
     perms_raw = cast("dict[str, object]", raw).get("permissions")
     if not isinstance(perms_raw, dict):
-        return []
+        return ([], [])
 
     return _dead_rules_in(cast("dict[str, object]", perms_raw))
+
+
+def _dead_rule_remedy(fixable: list[str], manual: list[str]) -> str:
+    """The advice that actually resolves the reported rules."""
+    if not manual:
+        return " — run punt init"
+    if not fixable:
+        return " — edit by hand: the tier holds a non-string entry, so init skips it"
+    return (
+        f" — run punt init; {len(manual)} sit in a tier with a non-string"
+        " entry and need a hand edit"
+    )
 
 
 def _check_dead_permission_rules(
     info: ProjectInfo, perms: dict[str, object]
 ) -> tuple[str, str, str]:
     """Flag path rules Claude Code never matches (permissions.md §1)."""
-    dead = _dead_rules_in(perms) + _dead_rules_in_settings_local(info)
+    settings_fixable, settings_manual = _dead_rules_in(perms)
+    local_fixable, local_manual = _dead_rules_in_settings_local(info)
+    fixable = settings_fixable + local_fixable
+    manual = settings_manual + local_manual
+    dead = fixable + manual
 
     if not dead:
         return (PASS, "No unmatched path rules", "Edit(path) / Read(path) only")
@@ -724,7 +754,7 @@ def _check_dead_permission_rules(
         "No unmatched path rules",
         f"{len(dead)} never match: {', '.join(dead[:5])}"
         + ("..." if len(dead) > 5 else "")
-        + " — run punt init",
+        + _dead_rule_remedy(fixable, manual),
     )
 
 
