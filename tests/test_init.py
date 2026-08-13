@@ -510,3 +510,212 @@ def test_init_settings_json_includes_skill_entries(tmp_path: Path) -> None:
         f"  missing={sorted(set(expected_skills) - set(skill_entries))}\n"
         f"  extra={sorted(set(skill_entries) - set(expected_skills))}"
     )
+
+
+# --- Unmatched path rule tests ---
+
+
+def test_deny_rules_have_no_dead_path_forms() -> None:
+    """The seeder never emits a rule Claude Code cannot match."""
+    from punt_kit.init import build_standard_deny_rules
+    from punt_kit.permission_rules import RuleSet
+
+    assert RuleSet.from_strings(build_standard_deny_rules()).dead == ()
+
+
+def test_standard_permissions_have_no_dead_path_forms(tmp_path: Path) -> None:
+    """The allow list is free of unmatched path rules for every language."""
+    from punt_kit.detect import detect
+    from punt_kit.init import build_standard_permissions
+    from punt_kit.permission_rules import RuleSet
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    info = detect(tmp_path)
+
+    assert RuleSet.from_strings(build_standard_permissions(info)).dead == ()
+
+
+def test_deny_rules_guard_env_via_edit() -> None:
+    """Edit(.env) is the guard; Write(.env) is dead and must not appear."""
+    from punt_kit.init import build_standard_deny_rules
+
+    deny = build_standard_deny_rules()
+    assert "Edit(.env)" in deny
+    assert "Edit(.envrc)" in deny
+    assert "Write(.env)" not in deny
+    assert "Write(.envrc)" not in deny
+
+
+def test_init_prunes_dead_rules_from_existing_settings(tmp_path: Path) -> None:
+    """Init removes seeded Write(...) entries that duplicate a live Edit(...)."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": ["Bash(git:*)"],
+                    "deny": ["Edit(.env)", "Write(.env)", "Edit(.envrc)"],
+                }
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    data = json.loads((settings_dir / "settings.json").read_text())
+    deny = data["permissions"]["deny"]
+    assert "Write(.env)" not in deny
+    assert "Edit(.env)" in deny
+    assert "Edit(.envrc)" in deny
+
+
+def test_init_drops_orphan_dead_allow_rule(tmp_path: Path) -> None:
+    """An allow-tier orphan is dropped — cleanup must not activate a grant."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": ["Write(docs/**)", "Bash(git:*)"]}})
+    )
+
+    run_init(str(tmp_path))
+
+    allow = json.loads((settings_dir / "settings.json").read_text())["permissions"][
+        "allow"
+    ]
+    assert "Write(docs/**)" not in allow
+    assert "Edit(docs/**)" not in allow
+    assert "Bash(git:*)" in allow
+
+
+def test_init_rewrites_orphan_dead_deny_rule(tmp_path: Path) -> None:
+    """A deny-tier orphan is repaired — tightening a guard is safe."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps({"permissions": {"allow": [], "deny": ["Write(secrets/**)"]}})
+    )
+
+    run_init(str(tmp_path))
+
+    deny = json.loads((settings_dir / "settings.json").read_text())["permissions"][
+        "deny"
+    ]
+    assert "Write(secrets/**)" not in deny
+    assert "Edit(secrets/**)" in deny
+
+
+def test_init_output_has_no_dead_rules(tmp_path: Path) -> None:
+    """A freshly seeded settings.json triggers zero startup warnings."""
+    import json
+
+    from punt_kit.permission_rules import RuleSet
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    perms = json.loads((tmp_path / ".claude" / "settings.json").read_text())[
+        "permissions"
+    ]
+    for tier in ("allow", "deny"):
+        assert RuleSet.from_strings(perms[tier]).dead == (), f"dead rule in {tier}"
+
+
+def test_init_leaves_malformed_permission_tier_untouched(tmp_path: Path) -> None:
+    """A non-string entry is preserved verbatim rather than coerced to its repr."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": ["Write(docs/**)", {"unexpected": "object"}],
+                    "deny": ["Edit(.env)", "Write(.env)"],
+                }
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    data = json.loads((settings_dir / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+    # The malformed tier is left alone entirely — including its dead rule.
+    assert {"unexpected": "object"} in allow
+    assert "Write(docs/**)" in allow
+    # A well-formed tier in the same file is still pruned.
+    assert "Write(.env)" not in data["permissions"]["deny"]
+
+
+def test_init_prunes_settings_local(tmp_path: Path) -> None:
+    """The gitignored local file warns too, so init cleans it as well."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.local.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [
+                        "Read(/abs/**)",
+                        "Edit(/abs/**)",
+                        "Write(/abs/**)",
+                        "Bash(say:*)",
+                    ]
+                }
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    allow = json.loads((settings_dir / "settings.local.json").read_text())[
+        "permissions"
+    ]["allow"]
+    assert "Write(/abs/**)" not in allow
+    assert "Edit(/abs/**)" in allow
+    assert "Read(/abs/**)" in allow
+    assert "Bash(say:*)" in allow
+
+
+def test_init_leaves_clean_settings_local_untouched(tmp_path: Path) -> None:
+    """A local file with nothing dead in it is not rewritten at all."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    local = settings_dir / "settings.local.json"
+    original = '{"permissions": {"allow": ["Bash(say:*)"]}}'
+    local.write_text(original)
+
+    run_init(str(tmp_path))
+
+    # Byte-identical: no reformatting of the developer's personal file.
+    assert local.read_text() == original
+
+
+def test_init_tolerates_malformed_settings_local(tmp_path: Path) -> None:
+    """Unparseable local settings are left alone rather than crashing init."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    local = settings_dir / "settings.local.json"
+    local.write_text("{not json")
+
+    run_init(str(tmp_path))
+
+    assert local.read_text() == "{not json"

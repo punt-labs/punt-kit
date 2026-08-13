@@ -15,6 +15,7 @@ import tomli_w
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.permission_rules import RuleSet, Tier
 
 console = Console()
 
@@ -171,6 +172,7 @@ def run_init(path: str, *, language: str | None = None) -> None:
     changed.extend(_init_beads(info))
     changed.extend(_init_claude_md(info))
     changed.extend(_init_permissions(info))
+    changed.extend(_prune_settings_local(info))
     changed.extend(_init_gitignore_claude(info))
 
     if changed:
@@ -575,6 +577,11 @@ def build_standard_deny_rules() -> list[str]:
 
     Deny rules are identical for all project types — no project info needed.
     Public so that both init and audit can share the same logic.
+
+    Path-scoped rules use ``Edit(path)`` only. Claude Code matches file
+    permission rules under ``Read(path)`` and ``Edit(path)``; ``Edit`` covers
+    the Write, Edit, MultiEdit, and NotebookEdit tools. A ``Write(path)`` rule
+    matches nothing and warns once per session.
     """
     return [
         # Destructive operations
@@ -598,9 +605,7 @@ def build_standard_deny_rules() -> list[str]:
         "Bash(socat:*)",
         # Secrets and environment
         "Edit(.env)",
-        "Write(.env)",
         "Edit(.envrc)",
-        "Write(.envrc)",
         "Bash(direnv allow:*)",
     ]
 
@@ -672,7 +677,12 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
             deny.append(rule)
             added_deny.append(rule)
 
-    if not added and not added_deny:
+    # Prune rules Claude Code can never match. Earlier versions of this seeder
+    # wrote Write(.env) / Write(.envrc); every repo it touched warns once per
+    # session until the entries are gone.
+    dead = _prune_dead_rules(permissions)
+
+    if not added and not added_deny and not dead:
         return []
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
@@ -691,8 +701,76 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
             parts.append(f"+{len(added)} allow")
         if added_deny:
             parts.append(f"+{len(added_deny)} deny")
+        if dead:
+            parts.append(f"-{len(dead)} dead")
         console.print(f"  [yellow]↻[/yellow] Updated {rel} ({', '.join(parts)})")
 
+    for rule in dead:
+        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
+
+    return [rel]
+
+
+def _prune_dead_rules(permissions: dict[str, object]) -> list[str]:
+    """Remove unmatched path rules in place; return what was removed.
+
+    Each tier is pruned independently under its own orphan policy, so the
+    result is never more permissive than the input. See
+    :class:`~punt_kit.permission_rules.Tier`.
+    """
+    removed: list[str] = []
+    for tier in Tier:
+        raw = permissions.get(tier.value)
+        if not isinstance(raw, list):
+            continue
+        entries = cast("list[object]", raw)
+        # Rewriting a tier replaces every entry, so a non-string one would be
+        # coerced to its repr. Leave malformed tiers untouched.
+        if not all(isinstance(x, str) for x in entries):
+            continue
+        rule_set = RuleSet.from_strings(cast("list[str]", entries))
+        if not rule_set.dead:
+            continue
+        removed.extend(str(rule) for rule in rule_set.dead)
+        # Slice assignment keeps the caller's reference to this list valid.
+        entries[:] = cast("list[object]", rule_set.pruned(tier).to_strings())
+    return removed
+
+
+def _prune_settings_local(info: ProjectInfo) -> list[str]:
+    """Clean unmatched path rules out of the gitignored local settings file.
+
+    ``settings.local.json`` is machine-specific and never seeded by punt, but
+    it is the natural home for the absolute-path rules the standard describes
+    (§5) — and so it accumulates the same dead forms by hand. The file is only
+    rewritten when there is something dead in it.
+    """
+    settings_path = info.root / ".claude" / "settings.local.json"
+    if not settings_path.exists():
+        return []
+
+    try:
+        raw = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(raw, dict):
+        return []
+
+    data = cast("dict[str, object]", raw)
+    perms_raw = data.get("permissions")
+    if not isinstance(perms_raw, dict):
+        return []
+
+    removed = _prune_dead_rules(cast("dict[str, object]", perms_raw))
+    if not removed:
+        return []
+
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    rel = _relpath(settings_path, info.root)
+    console.print(f"  [yellow]↻[/yellow] Updated {rel} (-{len(removed)} dead)")
+    for rule in removed:
+        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
     return [rel]
 
 

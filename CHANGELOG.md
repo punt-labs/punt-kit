@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt init` no longer seeds `Write(.env)` and `Write(.envrc)` deny
+  rules (pkit-lv32) — Claude Code matches path-scoped rules under
+  `Edit(path)` only, so both entries matched nothing and produced a
+  startup warning; the `Edit(.env)` / `Edit(.envrc)` twins already cover
+  the Write tool, so no guard was ever unenforced
+- `standards/permissions.md` documented `Write(path)` as valid syntax in
+  three sections and prescribed injecting non-MCP plugin rules into the
+  user's global `~/.claude/settings.json` (pkit-lv32); §6 now scopes
+  plugin rules to the project's own `.claude/settings.json`, granted by
+  the plugin's permissions command rather than by its installer, with
+  MCP tool wildcards as the sole global exception
+
 - `punt release` propagation now pins the org profile README to the
   install-all.sh commit that exists AFTER the install-all.sh PR merges
   (pkit-vmo) — the pin was captured before the merge, leaving the profile
@@ -36,6 +48,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `punt audit` reports permission rules Claude Code can never match
+  (pkit-lv32) — `Write(path)`, `MultiEdit(path)`, `NotebookEdit(path)`,
+  and `Glob(path)` are not valid rule forms; each one warns at every
+  session start in every project that carries it. Both
+  `.claude/settings.json` and `.claude/settings.local.json` are checked,
+  since Claude Code warns for either
+- `punt init` removes unmatched path rules from both settings files,
+  under a rule that never widens permissions: an `allow` rule is always
+  dropped, because rewriting it would activate a grant that never worked,
+  while a `deny` or `ask` orphan is rewritten to its live form because
+  tightening a guard is safe. Every removal is printed
 - `standards/pr-review.md` and `standards/agent-engineering.md` — the PR/review
   sequence and the agent operating rules, split out of the old workflow doc
   into their own normative homes
