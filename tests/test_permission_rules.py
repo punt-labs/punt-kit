@@ -75,79 +75,61 @@ class TestRuleSet:
 
     def test_pruned_drops_dead_rule_with_live_twin(self) -> None:
         rules = RuleSet.from_strings(["Edit(.env)", "Write(.env)", "Bash(git:*)"])
-        assert rules.pruned(Tier.DENY).to_strings() == ["Edit(.env)", "Bash(git:*)"]
+        assert rules.pruned().to_strings() == ["Edit(.env)", "Bash(git:*)"]
 
-    def test_deny_orphan_is_rewritten(self) -> None:
-        """A guard that never worked is repaired — tightening is safe."""
+    def test_orphan_is_dropped_never_rewritten(self) -> None:
+        """A cleanup must not switch on a rule that has never been in effect."""
         rules = RuleSet.from_strings(["Write(*prfaq*.tex)", "Bash(git:*)"])
-        assert rules.pruned(Tier.DENY).to_strings() == [
-            "Edit(*prfaq*.tex)",
-            "Bash(git:*)",
-        ]
+        assert rules.pruned().to_strings() == ["Bash(git:*)"]
 
-    def test_ask_orphan_is_rewritten(self) -> None:
-        rules = RuleSet.from_strings(["Write(docs/**)"])
-        assert rules.pruned(Tier.ASK).to_strings() == ["Edit(docs/**)"]
+    def test_pruning_never_changes_policy_in_either_direction(self) -> None:
+        """The kept set is exactly the rules that were already live.
 
-    def test_allow_orphan_is_dropped_not_rewritten(self) -> None:
-        """Cleanup must never activate a grant that never worked."""
-        rules = RuleSet.from_strings(["Write(*prfaq*.tex)", "Bash(git:*)"])
-        assert rules.pruned(Tier.ALLOW).to_strings() == ["Bash(git:*)"]
+        Every rule removed was inert, and nothing live is added, so effective
+        permissions are identical before and after — no grant switched on, no
+        block switched on.
+        """
+        raw = ["Write(a.txt)", "Edit(b.txt)", "Glob(c/**)", "Bash(git:*)", "Write(d)"]
+        live_before = [r for r in raw if not PermissionRule(r).is_dead]
+        assert RuleSet.from_strings(raw).pruned().to_strings() == live_before
 
-    def test_allow_dead_rule_with_twin_is_dropped(self) -> None:
-        rules = RuleSet.from_strings(["Edit(a.txt)", "Write(a.txt)"])
-        assert rules.pruned(Tier.ALLOW).to_strings() == ["Edit(a.txt)"]
-
-    def test_pruning_never_widens_any_tier(self) -> None:
-        """No tier may gain a rule that was not already live in the input."""
-        raw = ["Write(a.txt)", "Edit(b.txt)", "Glob(c/**)", "Bash(git:*)"]
-        live_before = {r for r in raw if not PermissionRule(r).is_dead}
-        allow = set(RuleSet.from_strings(raw).pruned(Tier.ALLOW).to_strings())
-        assert allow <= live_before
+    def test_covered_and_orphans_partition_the_dead_set(self) -> None:
+        rules = RuleSet.from_strings(["Edit(a)", "Write(a)", "Write(b)", "Bash(git:*)"])
+        assert [str(r) for r in rules.covered] == ["Write(a)"]
+        assert [str(r) for r in rules.orphans] == ["Write(b)"]
+        assert len(rules.covered) + len(rules.orphans) == len(rules.dead)
 
     def test_pruned_preserves_order(self) -> None:
         rules = RuleSet.from_strings(
             ["Bash(git:*)", "Write(a.txt)", "Read(/tmp/**)", "Edit(b.txt)"]
         )
-        assert rules.pruned(Tier.DENY).to_strings() == [
+        assert rules.pruned().to_strings() == [
             "Bash(git:*)",
-            "Edit(a.txt)",
             "Read(/tmp/**)",
             "Edit(b.txt)",
         ]
 
-    def test_pruned_collapses_duplicate_dead_rules(self) -> None:
+    def test_duplicate_orphans_collapse_to_nothing(self) -> None:
         rules = RuleSet.from_strings(["Write(a.txt)", "MultiEdit(a.txt)"])
-        assert rules.pruned(Tier.DENY).to_strings() == ["Edit(a.txt)"]
-
-    def test_allow_collapses_duplicate_dead_rules_to_nothing(self) -> None:
-        rules = RuleSet.from_strings(["Write(a.txt)", "MultiEdit(a.txt)"])
-        assert rules.pruned(Tier.ALLOW).to_strings() == []
+        assert rules.pruned().to_strings() == []
 
     def test_pruned_is_idempotent(self) -> None:
         rules = RuleSet.from_strings(["Edit(.env)", "Write(.env)", "Glob(src/**)"])
-        once = rules.pruned(Tier.DENY)
-        assert once.pruned(Tier.DENY).to_strings() == once.to_strings()
+        once = rules.pruned()
+        assert once.pruned().to_strings() == once.to_strings()
 
     def test_clean_set_is_unchanged(self) -> None:
         raw = ["Edit(.env)", "Read(/tmp/**)", "Bash(git:*)", "WebSearch"]
         rules = RuleSet.from_strings(raw)
         assert rules.dead == ()
-        assert rules.pruned(Tier.DENY).to_strings() == raw
+        assert rules.pruned().to_strings() == raw
 
     def test_empty_set(self) -> None:
         rules = RuleSet.from_strings([])
         assert rules.dead == ()
-        assert rules.pruned(Tier.DENY).to_strings() == []
+        assert rules.pruned().to_strings() == []
 
 
 class TestTier:
-    def test_allow_does_not_rewrite_orphans(self) -> None:
-        assert not Tier.ALLOW.rewrites_orphans
-
-    @pytest.mark.parametrize("tier", [Tier.DENY, Tier.ASK])
-    def test_restrictive_tiers_rewrite_orphans(self, tier: Tier) -> None:
-        assert tier.rewrites_orphans
-
     def test_values_match_settings_json_keys(self) -> None:
         assert [t.value for t in Tier] == ["allow", "deny", "ask"]

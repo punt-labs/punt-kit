@@ -731,9 +731,17 @@ def _prune_dead_rules(permissions: dict[str, object]) -> list[str]:
         rule_set = RuleSet.from_strings(cast("list[str]", entries))
         if not rule_set.dead:
             continue
-        removed.extend(str(rule) for rule in rule_set.dead)
+        covered = set(rule_set.covered)
+        for rule in rule_set.dead:
+            if rule in covered:
+                removed.append(f"{rule} — {rule.live_equivalent} already covers it")
+            else:
+                removed.append(
+                    f"{rule} — never took effect;"
+                    f" add {rule.live_equivalent} to {tier.value} if you meant it"
+                )
         # Slice assignment keeps the caller's reference to this list valid.
-        entries[:] = cast("list[object]", rule_set.pruned(tier).to_strings())
+        entries[:] = cast("list[object]", rule_set.pruned().to_strings())
     return removed
 
 

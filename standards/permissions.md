@@ -47,16 +47,32 @@ valid: it gates the tool itself rather than a path. See section 3.
 This applies to `settings.local.json` exactly as it does to `settings.json` —
 the warning names whichever file the rule came from.
 
-`punt audit` reports unmatched rules in both files. `punt init` removes them,
-under a rule that never widens permissions:
+`punt audit` reports unmatched rules in both files. `punt init` removes them.
 
-| Tier | Dead rule with a live twin | Orphan (no live twin) |
-|------|---------------------------|-----------------------|
-| `allow` | dropped | **dropped** — rewriting would activate a grant that never worked |
-| `deny`, `ask` | dropped | rewritten to the live form — tightening a guard is safe |
+**Cleanup drops dead rules; it never rewrites them.** Every rule it removes
+was already inert, so effective permissions are identical before and after.
+Rewriting would not be — in either tier:
 
-Every removal is printed. An allow-tier orphan is reported so the grant can be
-re-added deliberately in its live form, rather than switched on by a cleanup.
+| Tier | Rewriting an orphan would... |
+|------|------------------------------|
+| `allow` | switch on a grant that has never been in effect |
+| `deny`, `ask` | switch on a block that has never been in effect |
+
+Neither is a cleanup; both are policy changes wearing a cleanup's clothes. The
+deny case is the more damaging of the two, because a deny cannot be overridden
+by approval — activating one can hard-break a workflow that has been writing
+that path for months, with no escape but editing the file.
+
+So the tool reports and lets the operator decide. Each removal says which case
+it was:
+
+```text
+dead rule removed: Write(.env) — Edit(.env) already covers it
+dead rule removed: Write(build/**) — never took effect; add Edit(build/**) to deny if you meant it
+```
+
+The first is purely redundant. The second is a rule that never did anything,
+and only a human can say whether it was supposed to.
 
 ---
 

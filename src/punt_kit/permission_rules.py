@@ -41,32 +41,11 @@ _BASH_PREFIX_MARKER = ":*"
 
 
 class Tier(StrEnum):
-    """A permission list in ``settings.json``.
-
-    The tier decides what happens to a dead rule with no live twin, and the
-    rule is the same one a careful operator would apply by hand: cleaning up
-    dead config must never grant anything that was not already granted.
-    """
+    """A permission list in ``settings.json``."""
 
     ALLOW = "allow"
     DENY = "deny"
     ASK = "ask"
-
-    @property
-    def rewrites_orphans(self) -> bool:
-        """Whether an orphan dead rule is rewritten rather than dropped.
-
-        A dead ``allow`` rule grants nothing today. Rewriting it to the live
-        form would *activate* a grant the user believes they already have —
-        a silent widening of permissions during a cleanup. So allow-tier
-        orphans are dropped and reported, and the user re-adds the live form
-        if they meant it.
-
-        A dead ``deny`` or ``ask`` rule blocks or prompts for nothing today,
-        so rewriting it can only tighten. That direction is safe to repair
-        automatically.
-        """
-        return self is not Tier.ALLOW
 
 
 @final
@@ -134,26 +113,41 @@ class RuleSet:
         """Every rule that matches nothing, in list order."""
         return tuple(rule for rule in self.rules if rule.is_dead)
 
-    def pruned(self, tier: Tier) -> RuleSet:
-        """Remove every rule Claude Code cannot match.
+    @property
+    def covered(self) -> tuple[PermissionRule, ...]:
+        """Dead rules whose live twin is already in the list.
 
-        A dead rule whose live twin is already present is always dropped —
-        the twin already carries its meaning. An orphan is dropped or
-        rewritten according to ``tier.rewrites_orphans``, so the result is
-        never more permissive than the input.
+        Removing one of these cannot change behavior: the twin already
+        carries the meaning the dead rule was reaching for.
         """
         live_texts = {rule.text for rule in self.rules if not rule.is_dead}
-        kept: list[PermissionRule] = []
-        for rule in self.rules:
-            if not rule.is_dead:
-                kept.append(rule)
-                continue
-            replacement = rule.live_equivalent
-            if replacement.text in live_texts or not tier.rewrites_orphans:
-                continue
-            live_texts.add(replacement.text)
-            kept.append(replacement)
-        return RuleSet(tuple(kept))
+        return tuple(r for r in self.dead if r.live_equivalent.text in live_texts)
+
+    @property
+    def orphans(self) -> tuple[PermissionRule, ...]:
+        """Dead rules with no live twin.
+
+        Removing one of these cannot change behavior either — it grants
+        nothing and blocks nothing today. *Rewriting* one would, which is why
+        this is a separate category worth reporting: the operator may want to
+        add the live form deliberately.
+        """
+        covered = set(self.covered)
+        return tuple(r for r in self.dead if r not in covered)
+
+    def pruned(self) -> RuleSet:
+        """Remove every rule Claude Code cannot match.
+
+        Dead rules are dropped, never rewritten. A cleanup must not change
+        effective policy in either direction: rewriting an ``allow`` orphan
+        would switch on a grant that has never been in effect, and rewriting
+        a ``deny`` orphan would switch on a block that has never been in
+        effect — and a deny cannot be overridden by approval, so that can
+        hard-break a workflow that has been writing the path for months.
+        Dropping is the only edit that provably preserves behavior, because
+        every rule removed here was already inert.
+        """
+        return RuleSet(tuple(rule for rule in self.rules if not rule.is_dead))
 
     def to_strings(self) -> list[str]:
         """Render back to the raw JSON string list."""
