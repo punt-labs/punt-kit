@@ -15,7 +15,7 @@ from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
-from punt_kit.permission_rules import RuleSet
+from punt_kit.permission_rules import RuleSet, Tier
 
 console = Console()
 
@@ -610,7 +610,7 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         return results
 
     perms = cast("dict[str, object]", perms_raw)
-    results.append(_check_dead_permission_rules(perms))
+    results.append(_check_dead_permission_rules(info, perms))
 
     allow_raw = perms.get("allow")
     if not isinstance(allow_raw, list):
@@ -673,15 +673,48 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
-def _check_dead_permission_rules(perms: dict[str, object]) -> tuple[str, str, str]:
-    """Flag path rules Claude Code never matches (permissions.md §4)."""
+def _dead_rules_in(perms: dict[str, object]) -> list[str]:
+    """Every rule in a permissions block that Claude Code cannot match."""
     dead: list[str] = []
-    for tier in ("allow", "deny", "ask"):
-        raw = perms.get(tier)
+    for tier in Tier:
+        raw = perms.get(tier.value)
         if not isinstance(raw, list):
             continue
         entries = [str(x) for x in cast("list[object]", raw)]
         dead.extend(str(rule) for rule in RuleSet.from_strings(entries).dead)
+    return dead
+
+
+def _dead_rules_in_settings_local(info: ProjectInfo) -> list[str]:
+    """Dead rules in the gitignored local settings file.
+
+    Claude Code warns for this file exactly as it does for the checked-in one,
+    so the audit has to read both or it reports clean while the developer sees
+    warnings every session.
+    """
+    settings_path = info.root / ".claude" / "settings.local.json"
+    if not settings_path.exists():
+        return []
+
+    try:
+        raw = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(raw, dict):
+        return []
+
+    perms_raw = cast("dict[str, object]", raw).get("permissions")
+    if not isinstance(perms_raw, dict):
+        return []
+
+    return _dead_rules_in(cast("dict[str, object]", perms_raw))
+
+
+def _check_dead_permission_rules(
+    info: ProjectInfo, perms: dict[str, object]
+) -> tuple[str, str, str]:
+    """Flag path rules Claude Code never matches (permissions.md §1)."""
+    dead = _dead_rules_in(perms) + _dead_rules_in_settings_local(info)
 
     if not dead:
         return (PASS, "No unmatched path rules", "Edit(path) / Read(path) only")

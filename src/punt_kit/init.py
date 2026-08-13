@@ -15,7 +15,7 @@ import tomli_w
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
-from punt_kit.permission_rules import RuleSet
+from punt_kit.permission_rules import RuleSet, Tier
 
 console = Console()
 
@@ -172,6 +172,7 @@ def run_init(path: str, *, language: str | None = None) -> None:
     changed.extend(_init_beads(info))
     changed.extend(_init_claude_md(info))
     changed.extend(_init_permissions(info))
+    changed.extend(_prune_settings_local(info))
     changed.extend(_init_gitignore_claude(info))
 
     if changed:
@@ -711,15 +712,15 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
 
 
 def _prune_dead_rules(permissions: dict[str, object]) -> list[str]:
-    """Rewrite unmatched path rules in place; return what was removed.
+    """Remove unmatched path rules in place; return what was removed.
 
-    Each ``permissions`` list is pruned independently. A dead rule whose live
-    twin is already present is dropped; one without a twin is rewritten to the
-    live form, so no intended grant or guard is lost.
+    Each tier is pruned independently under its own orphan policy, so the
+    result is never more permissive than the input. See
+    :class:`~punt_kit.permission_rules.Tier`.
     """
     removed: list[str] = []
-    for tier in ("allow", "deny", "ask"):
-        raw = permissions.get(tier)
+    for tier in Tier:
+        raw = permissions.get(tier.value)
         if not isinstance(raw, list):
             continue
         entries = cast("list[object]", raw)
@@ -732,8 +733,45 @@ def _prune_dead_rules(permissions: dict[str, object]) -> list[str]:
             continue
         removed.extend(str(rule) for rule in rule_set.dead)
         # Slice assignment keeps the caller's reference to this list valid.
-        entries[:] = cast("list[object]", rule_set.pruned().to_strings())
+        entries[:] = cast("list[object]", rule_set.pruned(tier).to_strings())
     return removed
+
+
+def _prune_settings_local(info: ProjectInfo) -> list[str]:
+    """Clean unmatched path rules out of the gitignored local settings file.
+
+    ``settings.local.json`` is machine-specific and never seeded by punt, but
+    it is the natural home for the absolute-path rules the standard describes
+    (§5) — and so it accumulates the same dead forms by hand. The file is only
+    rewritten when there is something dead in it.
+    """
+    settings_path = info.root / ".claude" / "settings.local.json"
+    if not settings_path.exists():
+        return []
+
+    try:
+        raw = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    if not isinstance(raw, dict):
+        return []
+
+    data = cast("dict[str, object]", raw)
+    perms_raw = data.get("permissions")
+    if not isinstance(perms_raw, dict):
+        return []
+
+    removed = _prune_dead_rules(cast("dict[str, object]", perms_raw))
+    if not removed:
+        return []
+
+    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+    rel = _relpath(settings_path, info.root)
+    console.print(f"  [yellow]↻[/yellow] Updated {rel} (-{len(removed)} dead)")
+    for rule in removed:
+        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
+    return [rel]
 
 
 _CLAUDE_GITIGNORE_LINES = [

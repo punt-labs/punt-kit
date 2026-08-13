@@ -51,11 +51,14 @@ All notable changes to this project will be documented in this file.
 - `punt audit` reports permission rules Claude Code can never match
   (pkit-lv32) — `Write(path)`, `MultiEdit(path)`, `NotebookEdit(path)`,
   and `Glob(path)` are not valid rule forms; each one warns at every
-  session start in every project that carries it
-- `punt init` rewrites unmatched path rules to their live form
-  (`Edit(path)` / `Read(path)`), dropping the dead entry when the live
-  twin is already present — this clears the entries earlier versions of
-  the seeder wrote into ten repos
+  session start in every project that carries it. Both
+  `.claude/settings.json` and `.claude/settings.local.json` are checked,
+  since Claude Code warns for either
+- `punt init` removes unmatched path rules from both settings files,
+  under a rule that never widens permissions: an `allow` rule is always
+  dropped, because rewriting it would activate a grant that never worked,
+  while a `deny` or `ask` orphan is rewritten to its live form because
+  tightening a guard is safe. Every removal is printed
 - `standards/pr-review.md` and `standards/agent-engineering.md` — the PR/review
   sequence and the agent operating rules, split out of the old workflow doc
   into their own normative homes

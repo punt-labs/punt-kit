@@ -21,9 +21,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import final
 
-__all__ = ["PermissionRule", "RuleSet"]
+__all__ = ["PermissionRule", "RuleSet", "Tier"]
 
 # Dead path-scoped tool name -> the tool name that actually matches.
 _LIVE_FORM = {
@@ -37,6 +38,35 @@ _RULE_PATTERN = re.compile(r"^(?P<tool>[A-Za-z_][A-Za-z0-9_]*)\((?P<content>.*)\
 
 # Bash prefix marker. A rule containing it is a command rule, not a path rule.
 _BASH_PREFIX_MARKER = ":*"
+
+
+class Tier(StrEnum):
+    """A permission list in ``settings.json``.
+
+    The tier decides what happens to a dead rule with no live twin, and the
+    rule is the same one a careful operator would apply by hand: cleaning up
+    dead config must never grant anything that was not already granted.
+    """
+
+    ALLOW = "allow"
+    DENY = "deny"
+    ASK = "ask"
+
+    @property
+    def rewrites_orphans(self) -> bool:
+        """Whether an orphan dead rule is rewritten rather than dropped.
+
+        A dead ``allow`` rule grants nothing today. Rewriting it to the live
+        form would *activate* a grant the user believes they already have —
+        a silent widening of permissions during a cleanup. So allow-tier
+        orphans are dropped and reported, and the user re-adds the live form
+        if they meant it.
+
+        A dead ``deny`` or ``ask`` rule blocks or prompts for nothing today,
+        so rewriting it can only tighten. That direction is safe to repair
+        automatically.
+        """
+        return self is not Tier.ALLOW
 
 
 @final
@@ -104,12 +134,13 @@ class RuleSet:
         """Every rule that matches nothing, in list order."""
         return tuple(rule for rule in self.rules if rule.is_dead)
 
-    def pruned(self) -> RuleSet:
-        """Drop dead rules whose live equivalent is already present.
+    def pruned(self, tier: Tier) -> RuleSet:
+        """Remove every rule Claude Code cannot match.
 
-        A dead rule without its live twin is *not* dropped — it is rewritten to
-        the live form, so an intended grant or guard survives the cleanup
-        instead of disappearing silently.
+        A dead rule whose live twin is already present is always dropped —
+        the twin already carries its meaning. An orphan is dropped or
+        rewritten according to ``tier.rewrites_orphans``, so the result is
+        never more permissive than the input.
         """
         live_texts = {rule.text for rule in self.rules if not rule.is_dead}
         kept: list[PermissionRule] = []
@@ -118,7 +149,7 @@ class RuleSet:
                 kept.append(rule)
                 continue
             replacement = rule.live_equivalent
-            if replacement.text in live_texts:
+            if replacement.text in live_texts or not tier.rewrites_orphans:
                 continue
             live_texts.add(replacement.text)
             kept.append(replacement)

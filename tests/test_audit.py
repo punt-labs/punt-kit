@@ -673,3 +673,34 @@ def test_audit_reports_the_dead_rule(
         run_audit(str(tmp_path))
 
     assert "unmatched path rules" in capsys.readouterr().out
+
+
+def test_audit_flags_dead_rule_in_settings_local(tmp_path: Path) -> None:
+    """The audit reads the gitignored local file — Claude Code warns on it too."""
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.local.json").write_text(
+        json.dumps({"permissions": {"allow": ["Write(/abs/**)"]}})
+    )
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_passes_with_clean_settings_local(tmp_path: Path) -> None:
+    """A local file using the live forms does not fail the audit."""
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.local.json").write_text(
+        json.dumps({"permissions": {"allow": ["Read(/abs/**)", "Edit(/abs/**)"]}})
+    )
+
+    # Should not raise SystemExit
+    run_audit(str(tmp_path))
+
+
+def test_audit_tolerates_malformed_settings_local(tmp_path: Path) -> None:
+    """Unparseable local settings do not crash or fail the audit."""
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.local.json").write_text("{not json")
+
+    # Should not raise SystemExit
+    run_audit(str(tmp_path))

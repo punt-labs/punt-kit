@@ -44,8 +44,19 @@ session, so it must still be removed.
 The bare tool name (`Write` with no parentheses) is a different thing and is
 valid: it gates the tool itself rather than a path. See section 3.
 
-`punt audit` reports unmatched rules; `punt init` rewrites them to the live
-form, dropping the dead entry when its live twin is already present.
+This applies to `settings.local.json` exactly as it does to `settings.json` —
+the warning names whichever file the rule came from.
+
+`punt audit` reports unmatched rules in both files. `punt init` removes them,
+under a rule that never widens permissions:
+
+| Tier | Dead rule with a live twin | Orphan (no live twin) |
+|------|---------------------------|-----------------------|
+| `allow` | dropped | **dropped** — rewriting would activate a grant that never worked |
+| `deny`, `ask` | dropped | rewritten to the live form — tightening a guard is safe |
+
+Every removal is printed. An allow-tier orphan is reported so the grant can be
+re-added deliberately in its live form, rather than switched on by a cleanup.
 
 ---
 
@@ -509,13 +520,13 @@ Run `punt audit` to check compliance. The audit checks:
 - All required deny rules are present
 - All required MCP wildcards are present
 - No unmatched path rules (`Write(path)`, `MultiEdit(path)`,
-  `NotebookEdit(path)`, `Glob(path)`) in any tier
+  `NotebookEdit(path)`, `Glob(path)`) in any tier of either settings file
 - No `Skill()` entries in allow list (not enforced by Claude Code)
 - `settings.local.json` is gitignored
 - No local paths appear in `settings.json`
 
-`punt init` rewrites unmatched path rules to their live form and drops the
-dead entry when the live twin is already present.
+`punt init` removes unmatched path rules from both `settings.json` and
+`settings.local.json`, per the table in section 1.
 
 ### Adding new deny rules
 
