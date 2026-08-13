@@ -15,6 +15,7 @@ from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
+from punt_kit.permission_rules import RuleSet
 
 console = Console()
 
@@ -609,6 +610,8 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         return results
 
     perms = cast("dict[str, object]", perms_raw)
+    results.append(_check_dead_permission_rules(perms))
+
     allow_raw = perms.get("allow")
     if not isinstance(allow_raw, list):
         results.append((FAIL, "Standard permissions present", "Missing allow array"))
@@ -668,6 +671,28 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
 
     return results
+
+
+def _check_dead_permission_rules(perms: dict[str, object]) -> tuple[str, str, str]:
+    """Flag path rules Claude Code never matches (permissions.md §4)."""
+    dead: list[str] = []
+    for tier in ("allow", "deny", "ask"):
+        raw = perms.get(tier)
+        if not isinstance(raw, list):
+            continue
+        entries = [str(x) for x in cast("list[object]", raw)]
+        dead.extend(str(rule) for rule in RuleSet.from_strings(entries).dead)
+
+    if not dead:
+        return (PASS, "No unmatched path rules", "Edit(path) / Read(path) only")
+
+    return (
+        FAIL,
+        "No unmatched path rules",
+        f"{len(dead)} never match: {', '.join(dead[:5])}"
+        + ("..." if len(dead) > 5 else "")
+        + " — run punt init",
+    )
 
 
 _REQUIRED_MAKE_TARGETS = {"help", "test", "lint", "check", "format"}

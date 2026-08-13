@@ -20,6 +20,33 @@ The prompt tier is the safety net. Most tools fall here by default. Only
 promote to allow when the tool is safe for autonomous use; only promote to
 deny when the tool should never run, even with explicit approval.
 
+### Path-scoped rule syntax
+
+Claude Code matches path-scoped rules under exactly two tool names:
+
+| Form | Covers |
+|------|--------|
+| `Read(path)` | Read, Glob |
+| `Edit(path)` | Write, Edit, MultiEdit, NotebookEdit |
+
+**`Write(path)`, `MultiEdit(path)`, `NotebookEdit(path)`, and `Glob(path)` are
+not valid rule forms.** Each matches nothing and prints a warning at every
+session start, in every project that carries it:
+
+> Permission allow rule (...): `Write(.env)` is not matched by file permission
+> checks — only `Edit(path)` rules are. Use `Edit(.env)` instead (Edit rules
+> cover all file-editing tools).
+
+This applies to all three tiers. A dead `deny` rule is not an unenforced guard
+— it grants nothing and blocks nothing — but it is warning noise in every
+session, so it must still be removed.
+
+The bare tool name (`Write` with no parentheses) is a different thing and is
+valid: it gates the tool itself rather than a path. See section 3.
+
+`punt audit` reports unmatched rules; `punt init` rewrites them to the live
+form, dropping the dead entry when its live twin is already present.
+
 ---
 
 ## 2. File Split
@@ -45,7 +72,7 @@ Machine-specific permissions tied to local paths or OS-specific tools.
 
 Contains:
 
-- `Read`/`Edit`/`Write` with absolute or `~` paths
+- `Read(path)`/`Edit(path)` with absolute or `~` paths
 - OS-specific commands (e.g., `Bash(say:*)` on macOS)
 
 **Every project must gitignore `settings.local.json`.** Add to `.gitignore`:
@@ -138,7 +165,7 @@ needed for these.
 ### Cross-project file access
 
 Every project must allow file operations across the monorepo workspace.
-Sub-agents do not honor path-scoped `Read`/`Write`/`Edit` rules from
+Sub-agents do not honor path-scoped `Read(path)`/`Edit(path)` rules from
 `settings.json` or `settings.local.json` — only the bare tool-name form
 unblocks sub-agent file operations. The team hit this three times
 (2026-04-05, 2026-04-06, 2026-04-08) and routed around it each time before
@@ -223,11 +250,13 @@ entirely — the user cannot approve them even if prompted.
 
 | Rule | Rationale |
 |------|-----------|
-| `Edit(.env)` | Prevent modifying environment secrets |
-| `Write(.env)` | Prevent creating/overwriting environment secrets |
-| `Edit(.envrc)` | Prevent modifying direnv configuration |
-| `Write(.envrc)` | Prevent creating/overwriting direnv configuration |
+| `Edit(.env)` | Prevent creating or modifying environment secrets |
+| `Edit(.envrc)` | Prevent creating or modifying direnv configuration |
 | `Bash(direnv allow:*)` | Prevent trusting untrusted `.envrc` files |
+
+`Edit(.env)` covers the Write tool as well as Edit — there is no separate
+`Write(.env)` rule to add, and adding one produces a startup warning without
+adding any protection (section 1).
 
 ### Known limitations
 
@@ -251,7 +280,7 @@ not checked in because they contain local paths or OS-specific commands.
 
 ```json
 "Read(/tmp/**)",
-"Write(/tmp/**)"
+"Edit(/tmp/**)"
 ```
 
 ### OS-specific commands
@@ -265,13 +294,53 @@ not checked in because they contain local paths or OS-specific commands.
 ## 6. Plugin-Distributed Permissions
 
 Plugins installed via the marketplace operate in arbitrary projects — not just
-the plugin's own repo. They need permissions in the **user's**
-`~/.claude/settings.json` so commands, skills, and hooks can run without
-constant approval prompts.
+the plugin's own repo. They still need permissions so commands, skills, and
+hooks run without constant approval prompts. Where those rules land is the
+whole of this section.
 
-The SessionStart hook (see [plugins.md](plugins.md)) handles MCP tool
-wildcards. This section covers everything else: Bash commands, file
-write/edit patterns, and web access.
+### Principles
+
+1. **Project scope, never global.** Non-MCP rules go in the project's
+   `.claude/settings.json`. A plugin has no business granting itself standing
+   permission in projects the user never pointed it at.
+
+2. **MCP tool wildcards are the sole global exception.** An MCP server is
+   process-global and its tool names are namespaced to the plugin
+   (`mcp__plugin_<name>_<server>__*`), so a global allow entry grants nothing
+   outside the plugin's own tools. The SessionStart hook handles these — see
+   [plugins.md](plugins.md).
+
+3. **The user asks for it.** The installer installs; it does not grant. Rules
+   land when the user runs the plugin's own permissions command inside a
+   project. Installing a plugin is not consent to edit files in every repo on
+   the machine.
+
+4. **Least privilege.** Only allow operations the plugin performs
+   autonomously. Risky, rare, or destructive operations stay at the prompt
+   tier.
+
+5. **Pattern specificity.** Patterns must be narrow enough not to reach
+   unrelated files — use the plugin name or a domain term (`*prfaq*.tex`, not
+   `*.tex`).
+
+6. **`Edit(path)` for every path rule.** `Write(path)` matches nothing and
+   warns at every session start (section 1).
+
+7. **Idempotent.** Running the command twice must not duplicate rules,
+   reorder existing user permissions, or rewrite the file when there is
+   nothing to add. A no-op that dirties the user's git status is not a no-op.
+
+8. **Order preservation.** New rules append; existing order is preserved.
+
+9. **Reversible.** Every rule the plugin adds must be removable by the plugin,
+   and the file must be backed up before it changes — including rules earlier
+   versions added to places the plugin no longer writes.
+
+Precedent: prfaq shipped installer-injected global rules in v1.5.0 and carried
+them to v1.6.1. The result was a plugin holding standing permission to edit
+`README.md` and `.gitignore` and to reach the web in every project the user
+ever opened. A user hit it in an unrelated repo — eight warnings per session,
+from a plugin that repo does not use. Removed in v1.7.0.
 
 ### What to auto-allow
 
@@ -280,11 +349,14 @@ write/edit patterns, and web access.
 | Bash (build tools) | Deterministic, non-destructive | `Bash(bash */compile_prfaq.sh *)` |
 | Bash (scaffolding) | Creates empty directories only | `Bash(mkdir -p meetings)` |
 | Bash (utilities) | No side effects, no network | `Bash(uuidgen)` |
-| Write (plugin output) | Pattern contains plugin name or is plugin-owned | `Write(*prfaq*.tex)` |
-| Write (plugin config) | Plugin's own config directory | `Write(.tts/**)` |
-| Edit (plugin output) | Same constraint as Write | `Edit(*prfaq*.tex)` |
+| Edit (plugin output) | Pattern contains plugin name or is plugin-owned | `Edit(*prfaq*.tex)` |
+| Edit (plugin config) | Plugin's own config files | `Edit(.claude/prfaq.local.md)` |
 | WebSearch | Plugin performs research as core functionality | `WebSearch` |
 | WebFetch | Plugin fetches from arbitrary domains as core functionality | `WebFetch` |
+| MCP tools | Plugin's own MCP server tools | `mcp__plugin_<name>_<server>__*` |
+
+There is no separate Write row. `Edit(pattern)` is the only path-scoped
+edit form and it already covers the Write tool.
 
 ### What to never auto-allow
 
@@ -292,44 +364,50 @@ write/edit patterns, and web access.
 |----------|-----------|
 | `Bash(curl *)`, `Bash(wget *)` | Network requests to external endpoints |
 | `Bash(rm *)` | File deletion — users approve every delete |
-| Broad `Write(*)` / `Edit(*)` | Patterns that match files outside the plugin's domain |
+| Broad `Edit(*)` | Patterns that match files outside the plugin's domain |
+| `Write(anything)` | Not a working form — use `Edit(...)` |
+| Anything in `~/.claude/settings.json` except MCP wildcards | Applies in every project the user opens |
 | Bash with side effects | Package installs, process management, system config |
 
 ### Pattern specificity
 
-Permission patterns must be narrow enough that they don't grant access to
-unrelated files. Include the plugin name or a domain-specific identifier:
-
 ```text
 # Good — scoped to plugin output
-"Write(*prfaq*.tex)"
-"Write(.tts/**)"
+"Edit(*prfaq*.tex)"
+"Edit(.punt-labs/vox/**)"
 "Edit(*prfaq*.bib)"
 
 # Bad — matches any .tex file
-"Write(*.tex)"
 "Edit(*.tex)"
+
+# Bad — matches nothing, warns every session
+"Write(*prfaq*.tex)"
 ```
 
 ### Implementation pattern
 
-Define rules as a JSON array. Use `jq` for atomic, order-preserving merge.
-Fall back to manual instructions when `jq` is unavailable.
+The plugin ships one script, invoked by one command
+(`/<plugin>:permissions`), operating on one file:
+`<project>/.claude/settings.json`. It supports `--add`, `--check`, and
+`--remove`, refuses to write when the target resolves to `$HOME`, backs up
+before changing anything, and exits without touching the file when there is
+nothing to do.
 
 **Note on Bash rule syntax.** Project-level settings (section 3) use broad
 patterns like `Bash(bash:*)` because the developer trusts their own project.
-Plugin-distributed permissions use narrow patterns like
-`Bash(bash */compile_prfaq.sh *)` because they are injected into the user's
-global settings and should match only the specific commands the plugin needs.
+Plugin-distributed rules use narrow patterns like
+`Bash(bash */compile_prfaq.sh *)` because the user is granting them to a
+plugin, not to themselves.
 
 ```sh
 PLUGIN_RULES='[
   "Bash(bash */compile_prfaq.sh *)",
-  "Write(*prfaq*.tex)",
   "Edit(*prfaq*.tex)"
 ]'
 
-SETTINGS_FILE="$HOME/.claude/settings.json"
+SETTINGS_FILE="$PROJECT_DIR/.claude/settings.json"
+
+[ "$PROJECT_DIR" = "$HOME" ] && fail "Refusing to write the global settings file."
 
 if command -v jq >/dev/null 2>&1; then
   # Ensure valid JSON exists
@@ -363,9 +441,36 @@ else
 fi
 ```
 
+### Legacy global cleanup
+
+An installer that previously injected non-MCP rules into
+`~/.claude/settings.json` is responsible for removing them on upgrade. The
+list of rules to remove is frozen historical data — every rule the plugin ever
+wrote globally — and is never added to.
+
+```sh
+LEGACY_GLOBAL_RULES='[ ... ]'
+
+FOUND=$(jq -r --argjson legacy "$LEGACY_GLOBAL_RULES" '
+  [(.permissions.allow // [])[] | select(. as $r | $legacy | index($r))] | length
+' "$SETTINGS_FILE")
+
+if [ "$FOUND" -gt 0 ]; then
+  cp "$SETTINGS_FILE" "${SETTINGS_FILE}.backup.$(date +%Y%m%d%H%M%S)"
+  jq --argjson legacy "$LEGACY_GLOBAL_RULES" '
+    .permissions.allow = [(.permissions.allow // [])[] | select(. as $r | $legacy | index($r) | not)]
+  ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
+fi
+```
+
+Print every rule removed. Cleanup cannot distinguish a rule the plugin
+injected from an identical rule the user wrote by hand, so the backup and the
+printed list are what make the operation safe.
+
 ### Uninstall cleanup
 
-The uninstaller must remove only the rules the plugin added:
+The uninstaller removes only the rules the plugin added, from the project file
+it added them to:
 
 ```sh
 jq --argjson remove "$PLUGIN_RULES" '
@@ -403,9 +508,14 @@ Run `punt audit` to check compliance. The audit checks:
 
 - All required deny rules are present
 - All required MCP wildcards are present
+- No unmatched path rules (`Write(path)`, `MultiEdit(path)`,
+  `NotebookEdit(path)`, `Glob(path)`) in any tier
 - No `Skill()` entries in allow list (not enforced by Claude Code)
 - `settings.local.json` is gitignored
 - No local paths appear in `settings.json`
+
+`punt init` rewrites unmatched path rules to their live form and drops the
+dead entry when the live twin is already present.
 
 ### Adding new deny rules
 

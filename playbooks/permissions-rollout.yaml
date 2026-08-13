@@ -8,8 +8,10 @@ parameters:
     required: true
     description: >
       Permission rules to add, comma-separated
-      (e.g. 'Read(../**),Edit(../**),Write(../**)').
+      (e.g. 'Read(../**),Edit(../**)').
       For a single rule, just pass the rule string.
+      Path-scoped rules use Read(path) or Edit(path) only — Write(path),
+      MultiEdit(path), NotebookEdit(path), and Glob(path) match nothing.
   - name: section
     type: string
     default: allow

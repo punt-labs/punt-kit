@@ -201,8 +201,12 @@ Deny rules cover four categories:
 2. **Privilege escalation** — `sudo`, `su`
 3. **Network access** — `curl`, `wget`, `ssh`, `scp`, `ftp`, `tftp`, `nc`,
    `netcat`, `ncat`, `telnet`, `socat`
-4. **Secrets and environment** — `Edit(.env)`, `Write(.env)`, `Edit(.envrc)`,
-   `Write(.envrc)`, `Bash(direnv allow:*)`
+4. **Secrets and environment** — `Edit(.env)`, `Edit(.envrc)`,
+   `Bash(direnv allow:*)`
+
+Path-scoped rules use `Edit(path)` only — it covers Write, Edit, MultiEdit,
+and NotebookEdit. `Write(path)` matches nothing and warns at every session
+start, so the seeder never emits it and `punt init` rewrites any it finds.
 
 The standard is codified in `standards/permissions.md` and enforced by
 `punt audit`.

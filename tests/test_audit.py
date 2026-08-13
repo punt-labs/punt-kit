@@ -622,3 +622,54 @@ def test_audit_fails_missing_skill_entries(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="1"):
         run_audit(str(tmp_path))
+
+
+# --- Unmatched path rule tests ---
+
+
+def _append_rule(tmp_path: Path, tier: str, rule: str) -> None:
+    """Add one raw rule to a permission tier in the project's settings.json."""
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    perms = data["permissions"]
+    perms[tier].append(rule)
+    settings.write_text(json.dumps(data, indent=2) + "\n")
+
+
+def test_audit_flags_dead_deny_rule(tmp_path: Path) -> None:
+    """A Write(path) deny rule fails the audit — Claude Code never matches it."""
+    _make_compliant_python(tmp_path)
+    _append_rule(tmp_path, "deny", "Write(.env)")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_flags_dead_allow_rule(tmp_path: Path) -> None:
+    """The check covers the allow tier, not just deny."""
+    _make_compliant_python(tmp_path)
+    _append_rule(tmp_path, "allow", "Glob(src/**)")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+
+def test_audit_passes_on_seeded_permissions(tmp_path: Path) -> None:
+    """A settings.json built from the standard rules has nothing unmatched."""
+    _make_compliant_python(tmp_path)
+
+    # Should not raise SystemExit
+    run_audit(str(tmp_path))
+
+
+def test_audit_reports_the_dead_rule(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The failure names the offending rule so it can be found and removed."""
+    _make_compliant_python(tmp_path)
+    _append_rule(tmp_path, "deny", "Write(.env)")
+
+    with pytest.raises(SystemExit):
+        run_audit(str(tmp_path))
+
+    assert "unmatched path rules" in capsys.readouterr().out
