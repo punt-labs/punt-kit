@@ -63,6 +63,28 @@ deny case is the more damaging of the two, because a deny cannot be overridden
 by approval — activating one can hard-break a workflow that has been writing
 that path for months, with no escape but editing the file.
 
+#### Why the wrong intuition is attractive
+
+The rule above was originally written the other way round, on the reasoning
+that repairing a broken *guard* only tightens things, and tightening is the
+safe direction. That reasoning is wrong, and it is worth naming the error
+because it is easy to re-derive.
+
+**"Safe direction for security" and "safe to do silently" are different
+properties.** They come apart precisely when the operation is billed as a
+cleanup, because a cleanup carries an implicit promise: nothing about the
+system's behavior changes, only dead weight goes away. A silent tightening
+breaks that promise. That is what makes it a defect rather than an
+improvement — not the direction it moves in, but the fact that it moves at
+all while claiming not to.
+
+The test to apply is not *"is this change more restrictive?"* but *"could a
+user observe a behavior difference after this command that they did not ask
+for?"* If yes, it belongs behind an explicit action, not inside a cleanup.
+
+A tool may always report what it found. Deciding what a rule was *supposed*
+to do requires knowing the author's intent, and the tool does not have it.
+
 So the tool reports and lets the operator decide. Each removal says which case
 it was:
 
