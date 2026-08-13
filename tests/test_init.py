@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from pathlib import Path
 
+    import pytest
+
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 
 _EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
@@ -594,8 +596,15 @@ def test_init_drops_orphan_dead_allow_rule(tmp_path: Path) -> None:
     assert "Bash(git:*)" in allow
 
 
-def test_init_rewrites_orphan_dead_deny_rule(tmp_path: Path) -> None:
-    """A deny-tier orphan is repaired — tightening a guard is safe."""
+def test_init_drops_orphan_dead_deny_rule_without_activating_it(
+    tmp_path: Path,
+) -> None:
+    """A deny orphan is removed, not switched on.
+
+    Rewriting it to Edit(secrets/**) would activate a block that has never
+    been in effect, and a deny cannot be overridden by approval — that can
+    hard-break a workflow that has been writing the path for months.
+    """
     import json
 
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
@@ -611,7 +620,35 @@ def test_init_rewrites_orphan_dead_deny_rule(tmp_path: Path) -> None:
         "deny"
     ]
     assert "Write(secrets/**)" not in deny
-    assert "Edit(secrets/**)" in deny
+    assert "Edit(secrets/**)" not in deny
+
+
+def test_init_reports_why_each_rule_was_removed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A covered rule and an orphan are different situations for the operator."""
+    import json
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    settings_dir = tmp_path / ".claude"
+    settings_dir.mkdir()
+    (settings_dir / "settings.json").write_text(
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": [],
+                    "deny": ["Edit(.env)", "Write(.env)", "Write(secrets/**)"],
+                }
+            }
+        )
+    )
+
+    run_init(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "already covers it" in out
+    assert "never took effect" in out
+    assert "Edit(secrets/**)" in out
 
 
 def test_init_output_has_no_dead_rules(tmp_path: Path) -> None:

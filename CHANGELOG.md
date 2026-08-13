@@ -54,11 +54,14 @@ All notable changes to this project will be documented in this file.
   session start in every project that carries it. Both
   `.claude/settings.json` and `.claude/settings.local.json` are checked,
   since Claude Code warns for either
-- `punt init` removes unmatched path rules from both settings files,
-  under a rule that never widens permissions: an `allow` rule is always
-  dropped, because rewriting it would activate a grant that never worked,
-  while a `deny` or `ask` orphan is rewritten to its live form because
-  tightening a guard is safe. Every removal is printed
+- `punt init` removes unmatched path rules from both settings files. It
+  drops them and never rewrites them, in any tier, so effective
+  permissions are identical before and after — every rule it removes was
+  already inert. Rewriting an orphan would switch on a grant (`allow`) or
+  a block (`deny`, `ask`) that has never been in effect, which is a policy
+  change, not a cleanup. Each removal is printed with which case it was:
+  redundant with an existing live twin, or a rule that never took effect
+  and may need the live form added deliberately
 - `standards/pr-review.md` and `standards/agent-engineering.md` — the PR/review
   sequence and the agent operating rules, split out of the old workflow doc
   into their own normative homes
