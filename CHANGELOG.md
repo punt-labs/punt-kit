@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-08-14
+
 ### Fixed
 
 - `standards/permissions.md` claimed Claude Code does not enforce
