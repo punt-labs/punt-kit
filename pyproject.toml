@@ -39,6 +39,35 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/punt_kit"]
 
+# Declare what the sdist SHIPS rather than what it must not. Hatchling's default
+# is include-everything-not-VCS-ignored, which fails open: any untracked file in
+# the tree — editor config, scratch notes, local agent state — lands in a
+# published tarball, permanently and unlistably. An allowlist fails closed, so a
+# new stray file is absent by default rather than published by default.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/docs",
+    "/standards",
+    "/patterns",
+    "/playbooks",
+    "/lang-rules",
+    "/commands",
+    "/skills",
+    "/scripts",
+    "/.claude-plugin",
+    "/AGENTS.md",
+    "/CHANGELOG.md",
+    "/CLAUDE.md",
+    "/DESIGN.md",
+    "/LICENSE",
+    "/Makefile",
+    "/README.md",
+    "/install.sh",
+    "/uv.lock",
+]
+
 [tool.ruff]
 line-length = 88
 target-version = "py313"

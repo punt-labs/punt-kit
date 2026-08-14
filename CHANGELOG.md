@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The source distribution no longer ships every untracked file in the
+  working tree (pkit-fkkv). Hatchling's default sdist includes everything
+  not VCS-ignored, so editor config, scratch files, local agent state, and
+  internal tracker content were all published — permanently and unlistably.
+  `pyproject.toml` now declares an explicit
+  `[tool.hatch.build.targets.sdist]` allowlist, so the sdist ships what it
+  names rather than whatever happens to be present: 566 members before,
+  148 after, nothing added. The wheel was never affected, which is why a
+  wheel-only check reported clean
+
 - `punt init` no longer seeds `Write(.env)` and `Write(.envrc)` deny
   rules (pkit-lv32) — Claude Code matches path-scoped rules under
   `Edit(path)` only, so both entries matched nothing and produced a
