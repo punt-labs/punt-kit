@@ -789,51 +789,77 @@ _CLAUDE_GITIGNORE_LINES = [
 ]
 
 
+def _names_claude_dir(pattern: str) -> bool:
+    """True when a gitignore pattern names the ``.claude`` directory.
+
+    Matches every spelling git accepts — ``.claude/``, ``.claude/*``,
+    ``/.claude/`` (root-anchored), ``**/.claude/*`` — by testing path
+    segments rather than the leading characters. An anchored form reaching
+    the "no reference" branch would get the unanchored block appended, which
+    broadens the ignore from root-only to any depth.
+    """
+    stripped = pattern.strip().lstrip("!")
+    if not stripped or stripped.startswith("#"):
+        return False
+    return ".claude" in stripped.split("/")
+
+
 def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
-    """Ensure .gitignore has the .claude/ pattern with settings.json exception."""
+    """Ensure .gitignore has the .claude/ pattern with settings.json exception.
+
+    The exception lines are only meaningful under the exact ``.claude/`` parent
+    this function writes. Under a different parent — ``.claude/*``, say — git
+    descends into the directory and the same negations become live rules that
+    re-include paths the repo has never tracked. So a stanza punt did not write
+    is left alone: seeding must not change what a repo currently ignores.
+    """
     gitignore_path = info.root / ".gitignore"
 
     existing = ""
     if gitignore_path.exists():
         existing = gitignore_path.read_text(encoding="utf-8")
 
-    # Check if the pattern is already present (all three lines)
-    if all(line in existing for line in _CLAUDE_GITIGNORE_LINES):
-        return []
+    lines = existing.split("\n")
+    stripped = [line.strip() for line in lines]
 
-    # Find which lines are missing
-    missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in existing]
+    missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in stripped]
     if not missing:
         return []
 
-    # Append the full block if the anchor line (.claude/) is missing,
-    # otherwise just append the missing exception lines
-    block = "\n".join(_CLAUDE_GITIGNORE_LINES)
-    if ".claude/" not in existing:
-        # Append the full block
+    rel = _relpath(gitignore_path, info.root)
+    anchor = _CLAUDE_GITIGNORE_LINES[0]
+
+    if anchor in stripped:
+        # The parent is the form punt wrote, so the negations behave as intended.
+        insert_idx = stripped.index(anchor) + 1
+        for entry in missing:
+            lines.insert(insert_idx, entry)
+            insert_idx += 1
+        updated = "\n".join(lines)
+    elif any(_names_claude_dir(s) for s in stripped):
+        # A deliberate stanza this function did not write. Appending to it can
+        # activate rules that have never been in effect, or broaden an anchored
+        # pattern, so report and leave the file untouched. Only the exceptions
+        # are suggested — recommending the `.claude/` anchor to a repo that
+        # deliberately chose a different parent would contradict its own stanza.
+        suggestions = [entry for entry in missing if entry.startswith("!")]
+        detail = (
+            " Add these by hand if you want them: " + ", ".join(suggestions)
+            if suggestions
+            else ""
+        )
+        console.print(
+            f"  [yellow]![/yellow] {rel} has its own .claude stanza — left as is."
+            f"{detail}"
+        )
+        return []
+    else:
+        block = "\n".join(_CLAUDE_GITIGNORE_LINES)
         separator = "\n" if existing and not existing.endswith("\n") else ""
         extra_newline = "\n" if existing else ""
         updated = existing + separator + extra_newline + block + "\n"
-    else:
-        # .claude/ exists but exceptions are missing — append them after .claude/ line
-        lines = existing.split("\n")
-        insert_idx = None
-        for i, line in enumerate(lines):
-            if line.strip() == ".claude/":
-                insert_idx = i + 1
-                break
-        if insert_idx is not None:
-            for m in missing:
-                lines.insert(insert_idx, m)
-                insert_idx += 1
-            updated = "\n".join(lines)
-        else:
-            separator = "\n" if existing and not existing.endswith("\n") else ""
-            updated = existing + separator + "\n".join(missing) + "\n"
 
     gitignore_path.write_text(updated, encoding="utf-8")
-
-    rel = _relpath(gitignore_path, info.root)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (.claude/ exceptions)")
     return [rel]
 
