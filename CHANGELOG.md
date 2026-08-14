@@ -16,7 +16,6 @@ All notable changes to this project will be documented in this file.
   the same never-activate discipline the permission seeder got in 0.12.0,
   applied to the gitignore seeder
 
-
 ## [0.12.0] - 2026-08-13
 
 ### Fixed
