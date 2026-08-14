@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `standards/permissions.md` claimed Claude Code does not enforce
+  `Skill()` permission rules. It does. `SkillTool` has its own permission
+  layer: deny rules win first, then explicit allow rules are honored, and
+  anything outside the safe-property allowlist prompts the user. The
+  seeded `Skill()` entries are therefore load-bearing, not the dead
+  weight the standard described, and the audit checklist no longer tells
+  projects to remove them
+
 ### Changed
 
 - `punt init` no longer seeds `Bash(bash:*)` or `Bash(sed:*)`.
