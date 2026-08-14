@@ -76,10 +76,120 @@ corresponding `-dev` variant.
 
 ---
 
+## Plugin Directory Layout
+
+Plugin content lives in a top-level `plugin/` subdirectory. The marketplace
+catalog uses the `git-subdir` source type so only that subdirectory reaches a
+user's plugin cache — repo source, tests, docs, and other internal files stay
+in the repo and never ship. Rationale and rejected alternatives: see
+[DES-025 in punt-kit DESIGN.md](../DESIGN.md).
+
+### The `plugin/` subdirectory
+
+Every Claude Code plugin repo places its plugin content under a top-level
+`plugin/` directory:
+
+```text
+<repo>/
+├── plugin/                              ← ships to users
+│   ├── .claude-plugin/
+│   │   └── plugin.json                  ← manifest
+│   ├── commands/                        ← slash command definitions
+│   ├── hooks/                           ← hook scripts (+ hooks.json)
+│   ├── skills/                          ← skills (if any)
+│   ├── agents/                          ← agents (if any)
+│   ├── README.md                        ← plugin-user-facing readme
+│   └── LICENSE
+│
+├── src/, cmd/, internal/, tests/, docs/, Makefile, ...   ← stays in repo,
+├── .envrc, .beads/, .punt-labs/, prfaq.*, ...            ← does not ship
+```
+
+The `.claude-plugin/` directory sits **inside** `plugin/`, not at the repo
+root. Hook scripts still resolve their paths from
+`${CLAUDE_PLUGIN_ROOT}` — the environment variable Claude Code sets to
+whatever it treats as the plugin root — so `${CLAUDE_PLUGIN_ROOT}/hooks/…`
+works identically whether the plugin was installed from a `github` source
+(root = repo root) or a `git-subdir` source (root = `plugin/` subtree). No
+hook script changes are needed.
+
+### Marketplace catalog entry
+
+The `claude-plugins/marketplace.json` entry names the subdirectory via
+`git-subdir`:
+
+```json
+{
+  "name": "vox",
+  "source": {
+    "source": "git-subdir",
+    "url":    "https://github.com/punt-labs/vox.git",
+    "path":   "plugin",
+    "ref":    "v4.17.0"
+  },
+  "description": "Text-to-speech for Claude Code: /unmute, /mute, /vibe, /recap",
+  "version": "4.17.0",
+  "author": { "name": "Punt Labs", "email": "hello@punt-labs.com" }
+}
+```
+
+The `ref` field is required — pin to a release tag so a user's cache
+resolves deterministically. The `sha` field is optional but recommended for
+supply-chain hygiene (Anthropic's own catalog includes it on every entry).
+
+### What ships vs what stays
+
+| Content | Ships (in `plugin/`) | Stays in repo |
+|---------|---------------------|---------------|
+| `plugin.json` manifest | ✓ | |
+| `commands/*.md`, `hooks/*.sh`, `hooks.json` | ✓ | |
+| `skills/`, `agents/` | ✓ | |
+| Plugin `README.md`, `LICENSE` | ✓ | |
+| Source code (`src/`, `cmd/`, `internal/`) | | ✓ |
+| Tests (`tests/`, `*_test.go`) | | ✓ |
+| Internal docs (`docs/`, `DESIGN.md`, `CHANGELOG.md`) | | ✓ |
+| Product materials (`prfaq.tex`, `prfaq.pdf`) | | ✓ |
+| Dev environment (`.envrc`, `.beads/`, `.punt-labs/`) | | ✓ |
+| Build/CI (`Makefile`, `pyproject.toml`, `go.mod`, `.github/`) | | ✓ |
+
+The plugin ships the *Claude Code integration* (manifest + wrappers). It does
+not ship the code the wrappers invoke — MCP servers declared in
+`plugin.json` reference a binary on `$PATH` (`vox`, `beadle-email`), which
+users install through PyPI (Python projects) or by building from the repo's
+Go sources.
+
+### Python and Go projects: same layout
+
+The rule is identical for both. In a Python project the runtime installs
+from PyPI (`uv tool install punt-vox`), and the plugin's
+`command: "vox"` reaches the installed binary; in a Go project the runtime
+installs by building from source (`make install`), and the plugin's
+`command: "beadle-email"` reaches the installed binary. The plugin
+subdirectory contains neither `src/` nor `cmd/` in either case — only the
+Claude Code integration files.
+
+### Makefile and CI path updates
+
+If a repo's Makefile or CI workflow references plugin content by path
+(`hooks/*.sh`, `commands/*.md`, `.claude-plugin/`), the paths become
+`plugin/hooks/*.sh`, `plugin/commands/*.md`, `plugin/.claude-plugin/` after
+restructure. Grep for those prefixes in `Makefile`, `install.sh`, `scripts/`,
+and `.github/workflows/` before restructuring; the scope is bounded
+(measured 2026-08-14: three files in vox, one in lux, zero in the other
+seven plugin repos).
+
+### Client version floor
+
+`git-subdir` requires Claude Code ≥ v2.1.69. Older clients fail to parse the
+marketplace catalog. This is accepted as the punt-labs client baseline.
+
+---
+
 ## plugin.json
 
-Every Claude Code plugin must have `.claude-plugin/plugin.json` at the repo
-root with at minimum:
+Every Claude Code plugin must have `.claude-plugin/plugin.json` inside the
+`plugin/` subdirectory (see [Plugin Directory Layout](#plugin-directory-layout))
+with at minimum:
 
 ```json
 {
