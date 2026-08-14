@@ -1,5 +1,7 @@
 # README Standard
 
+**Updated:** 2026-08-14
+
 How every Punt Labs project README should be structured and written.
 
 Reference implementations:
@@ -25,10 +27,17 @@ paragraph with a link.
 
 Two corollaries:
 
-- **Document only what works.** A tool, command, or feature that is broken or
-  unimplemented does not appear in the README at all — not even annotated as
-  broken. The issue tracker records defects; the README describes what a user
-  can do today.
+- **Document only what works.** A broken or unimplemented feature is never
+  listed as something the user can use — not in a feature list, not in a
+  command table, not with a caveat attached. A caveat does not rescue it: a
+  reader scanning a table sees the row, not the footnote. The issue tracker
+  records defects; the README describes what a user can do today.
+
+  This is about *features presented as available*, and does not weaken
+  "Be truthful about status" under [Tone](#tone). Saying a project is at
+  hypothesis stage, or marking a shipped feature alpha, is required — those
+  are honest statements about what exists. Listing a command that errors on
+  every invocation, annotated "currently broken", is not.
 - **An Architecture section, if present, tells the user-relevant story** (what
   runs where and what that means for the user), not the contributor-relevant
   one (module layout, dispatch seams). The deep version belongs in `docs/`.
