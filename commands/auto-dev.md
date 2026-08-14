@@ -1,5 +1,5 @@
 ---
-description: "Execute an automation playbook"
+description: "[DEV] Execute an automation playbook using the working tree"
 allowed-tools:
   - "Read"
   - "Edit"
