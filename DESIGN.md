@@ -1399,7 +1399,7 @@ each member.
 ## DES-025: Marketplace Plugins Ship a Subdirectory, Not the Whole Repo
 
 **Date:** 2026-08-14
-**Status:** SETTLED (design; rollout tracked as pkit-<TBD>)
+**Status:** SETTLED (design; rollout tracked as `pkit-TBD`)
 **Topic:** What a plugin published through the `claude-plugins` marketplace catalog physically ships to a user's plugin cache
 
 ### Design
