@@ -244,6 +244,7 @@ tooltip: str | None = None
 # OK — third-party library has no type stubs (see PY-TS-9).
 config: Any  # type: ignore[no-any-unimported]  # untyped_lib.Config
 
+
 # OK — wire boundary; JSON deserialization yields object until narrowed.
 def decode(self, raw: dict[str, object]) -> ScenePayload: ...
 ```
@@ -255,34 +256,40 @@ don't have to reverse-engineer the intent.
 **Examples — bad**:
 
 ```python
-def parse(text: str) -> Config | None:        # PY-EH-8 + PY-TS-14: raise or return Config
+def parse(text: str) -> Config | None:  # PY-EH-8 + PY-TS-14: raise or return Config
     ...
 
-def merge(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:   # PY-OO-4 + PY-TS-14
+
+def merge(
+    left: dict[str, Any], right: dict[str, Any]
+) -> dict[str, Any]:  # PY-OO-4 + PY-TS-14
     ...
+
 
 class Element:
-    color: str | None = None                  # is None a state or a default?
-    style: dict[str, Any] | None = None       # what shape? unknown to types.
-    metadata: Any = None                      # the type system gave up entirely.
+    color: str | None = None  # is None a state or a default?
+    style: dict[str, Any] | None = None  # what shape? unknown to types.
+    metadata: Any = None  # the type system gave up entirely.
 ```
 
 **Examples — good**:
 
 ```python
-def parse(text: str) -> Config:               # raises on bad input (PY-EH-8)
+def parse(text: str) -> Config:  # raises on bad input (PY-EH-8)
     ...
 
+
 @dataclass(frozen=True, slots=True)
-class MergeArgs:                              # the shape that was implicit becomes a class
+class MergeArgs:  # the shape that was implicit becomes a class
     left: Config
     right: Config
 
-def merge(args: MergeArgs) -> Config:
-    ...
+
+def merge(args: MergeArgs) -> Config: ...
+
 
 class Element:
-    color: str = "#FFFFFF"                    # default is total, not absent
+    color: str = "#FFFFFF"  # default is total, not absent
     style: Literal["body", "heading"] = "body"  # constrained, not Any
     # metadata: extracted into its own typed class — see [[MetadataBlock]]
 ```

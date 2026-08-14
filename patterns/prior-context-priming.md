@@ -20,7 +20,7 @@ Use the MCP server's `instructions` field to deliver formatting and behavioral g
 app = FastMCP(
     "my-server",
     instructions="Output formatting: emit tables with unicode characters. "
-    "Do not wrap output in code fences or markdown tables."
+    "Do not wrap output in code fences or markdown tables.",
 )
 ```
 

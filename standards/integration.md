@@ -73,6 +73,7 @@ skip the integration silently.
 # Good — L0 presence check
 from pathlib import Path
 
+
 def has_biff() -> bool:
     return Path(".punt-labs/biff/enabled").exists()
 ```
@@ -164,8 +165,8 @@ A shared Python module providing typed access to peer discovery and state.
 ```python
 from punt_kit.integration import discover_peers, read_peer_state
 
-peers = discover_peers()       # Returns available peers with their tiers
-state = read_peer_state("vox") # Typed accessor for vox config
+peers = discover_peers()  # Returns available peers with their tiers
+state = read_peer_state("vox")  # Typed accessor for vox config
 ```
 
 **Rule**: The integration library must not import any peer's code. It reads

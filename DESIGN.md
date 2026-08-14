@@ -544,7 +544,9 @@ content = install_sh.read_text()
 new_content = re.sub(
     r'^(VERSION=")[^"]*(")',
     rf"\g<1>{version}\2",
-    content, count=1, flags=re.MULTILINE,
+    content,
+    count=1,
+    flags=re.MULTILINE,
 )
 ```
 

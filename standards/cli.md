@@ -217,18 +217,23 @@ def _run(coro_factory: Callable[[CliContext], Awaitable[CommandResult]]) -> None
         async with cli_context() as ctx:
             result = await coro_factory(ctx)
             if json_output:
-                print_json(result.json_data if result.json_data is not None else result.text)
+                print_json(
+                    result.json_data if result.json_data is not None else result.text
+                )
             elif result.error:
                 print(result.text, file=sys.stderr)
             else:
                 print(result.text)
             if result.error:
                 raise typer.Exit(code=1)
+
     asyncio.run(_inner())
+
 
 @app.command()
 def who() -> None:
     _run(commands.who)
+
 
 @app.command()
 def finger(user: Annotated[str, typer.Argument(...)]) -> None:

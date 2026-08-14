@@ -23,9 +23,9 @@ A frozen dataclass returned by every command function:
 ```python
 @dataclass(frozen=True)
 class CommandResult:
-    text: str                                # Human-readable output
+    text: str  # Human-readable output
     json_data: object | None = field(default=None)  # JSON payload; None means use text
-    error: bool = False                      # True → exit code 1 in CLI
+    error: bool = False  # True → exit code 1 in CLI
 ```
 
 Commands return expected user-facing errors as `CommandResult(text="User not found", error=True)` rather than raising. This keeps error paths testable with `assert result.error` instead of `pytest.raises`. Programmer errors and violated invariants still raise exceptions.
@@ -65,6 +65,7 @@ def _run(coro_factory: Callable[[CliContext], Awaitable[CommandResult]]) -> None
                 print(result.text)
             if result.error:
                 raise typer.Exit(code=1)
+
     asyncio.run(_inner())
 ```
 
@@ -74,6 +75,7 @@ Typer commands become one-liners:
 @app.command()
 def who() -> None:
     _run(commands.who)
+
 
 @app.command()
 def finger(user: Annotated[str, typer.Argument(...)]) -> None:
@@ -88,6 +90,7 @@ The context's core dependency (e.g., relay, database client) must be typed as a 
 class Relay(Protocol):
     async def get_sessions(self) -> list[Session]: ...
     async def send_message(self, to: str, message: str) -> None: ...
+
 
 @dataclass
 class CliContext:

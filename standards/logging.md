@@ -128,8 +128,10 @@ class PrivateRotatingFileHandler(RotatingFileHandler):
 
     def _open(self):
         return open(
-            self.baseFilename, self.mode,
-            encoding=self.encoding, errors=self.errors,
+            self.baseFilename,
+            self.mode,
+            encoding=self.encoding,
+            errors=self.errors,
             opener=_private_opener,
         )
 
@@ -375,7 +377,7 @@ Rules:
 _SANITIZE = {c: f"\\x{c:02x}" for c in (*range(0x20), *range(0x7F, 0xA0))}
 _SANITIZE.update({cp: f"\\u{cp:04x}" for cp in (0x85, 0x2028, 0x2029)})
 safe = str(value).translate(_SANITIZE)  # str() first — value may be an exception,
-                                        # bytes, etc.; result is one physical line
+# bytes, etc.; result is one physical line
 ```
 
 ---
