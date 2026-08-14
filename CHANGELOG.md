@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `punt init` no longer seeds `Bash(bash:*)` or `Bash(sed:*)`.
+  `Bash(bash:*)` permits any command — `bash -c "<anything>"` matches it —
+  which made every other Bash entry decorative and reached straight
+  through the deny rules, since `bash -c "curl ..."` satisfies the allow
+  list while `Bash(curl:*)` is denied. A scaffolded repo was getting an
+  unrestricted shell in a committed file nobody re-reads. `Bash(sed:*)`
+  edits any file in place, bypassing the `Edit(path)` rules. `git` and
+  `gh` are unchanged — they are development tools and this scaffolds a
+  development environment
+- The seeded MCP wildcard list is now every Punt Labs plugin that ships an
+  MCP server, rather than a subset. It previously named
+  `mcp__plugin_github_github__*`, for which no plugin exists, so it had
+  never matched anything; carried two spellings of quarry; and omitted
+  beadle, dungeon, ethos, lux, vox and z-spec. Each entry is now derived
+  from the plugin's own manifest, and a test asserts the list still
+  matches
+
 ### Fixed
 
 - `punt init` no longer appends `.claude` exception lines to a `.gitignore`

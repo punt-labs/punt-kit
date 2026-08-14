@@ -501,22 +501,44 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
     MCP wildcards, generic Bash commands, and language-specific tools.
     Public so that both init and audit can share the same logic.
     """
-    # MCP plugin wildcards (§3)
+    # MCP wildcards (§3). Every Punt Labs plugin that ships an MCP server, and
+    # nothing else — the set is all-or-nothing rather than a subset someone
+    # picked. Each entry is the tool prefix Claude Code derives from the
+    # plugin's manifest: mcp__plugin_<plugin>_<server>__*. Verify against a
+    # plugin's .claude-plugin/plugin.json "mcpServers" key before editing.
+    # github is not a Punt Labs plugin; it ships with Claude Code and is
+    # included because this file scaffolds a development environment.
     perms: list[str] = [
-        "mcp__plugin_biff_tty__*",
-        "mcp__plugin_github_github__*",
-        "mcp__plugin_quarry_quarry__*",
         "mcp__github__*",
-        "mcp__quarry__*",
+        "mcp__plugin_beadle_email__*",
+        "mcp__plugin_biff_tty__*",
+        "mcp__plugin_dungeon_grimoire__*",
+        "mcp__plugin_ethos_self__*",
+        "mcp__plugin_lux_lux__*",
+        "mcp__plugin_quarry_quarry__*",
+        "mcp__plugin_vox_mic__*",
+        "mcp__plugin_z-spec_zspec__*",
     ]
 
     # Cross-project file access belongs in settings.local.json with absolute
     # paths per DES-004 rule 3 — not in the portable settings.json.
 
-    # Generic Bash commands required for all projects (§3)
+    # Generic Bash commands required for all projects (§3).
+    #
+    # Deliberately absent: Bash(bash:*) and Bash(sed:*).
+    #
+    # Bash(bash:*) permits any command at all — `bash -c "<anything>"` matches
+    # it — which makes every other entry here decorative and reaches straight
+    # through the deny list in §4. Seeding it granted a scaffolded repo an
+    # unrestricted shell in a committed file that nobody reviews.
+    #
+    # Bash(sed:*) edits any file in place, bypassing the Edit(path) rules that
+    # gate file modification.
+    #
+    # git and gh stay: they are development tools, and this file scaffolds a
+    # development environment.
     perms.extend(
         [
-            "Bash(bash:*)",
             "Bash(bd:*)",
             "Bash(cat:*)",
             "Bash(chmod +x:*)",
@@ -530,7 +552,6 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
             "Bash(make:*)",
             "Bash(pip index:*)",
             "Bash(punt:*)",
-            "Bash(sed:*)",
             "Bash(shellcheck:*)",
             "Bash(tail:*)",
             "Bash(test:*)",
