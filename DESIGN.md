@@ -1491,3 +1491,109 @@ accepted: punt-labs users track current Claude Code.
 - Users install the plugin the same way as before
   (`claude plugin install biff@punt-labs`); the payload shrinks from
   ~10-20 MB to ~50 KB but the interface does not change.
+
+---
+
+## DES-026: `uv_build` Is the Python Build Backend
+
+**Date:** 2026-08-14
+**Status:** SETTLED
+**Topic:** Which build backend Punt Labs Python projects use, and why the default matters more than the configuration
+
+### Design
+
+Punt Labs Python projects use `uv_build`:
+
+```toml
+[build-system]
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "<package>"
+```
+
+`standards/python.md` previously mandated `hatchling`. It is amended to
+match.
+
+### Context
+
+The standard said `hatchling`. The fleet did not:
+
+| Backend | Repos |
+|---------|-------|
+| `uv_build` | biff, quarry, vox, lux, z-spec, langlearn, langlearn-{anki,imagegen,tts,types} — **10** |
+| `hatchling` | punt-kit — **1** |
+| none declared | refactory — **1** |
+
+punt-kit was the only compliant repo. It was also the only one that leaked.
+
+The 0.12.0 release shipped an sdist containing `.punt-labs/local/` — local
+agent session audit logs, with `tool_input` fields up to 29,739 characters
+including biff message bodies — plus `.idea/`, `resume.md`, and `.envrc`.
+Nothing had gone wrong in the repo. Hatchling's default sdist ships
+everything not VCS-ignored, so any untracked file in the working tree
+becomes a published artifact.
+
+The other ten repos were never exposed, and not because anyone configured
+them carefully. `uv_build` ships the declared module plus metadata and
+nothing else. They were safe by construction.
+
+### Decision
+
+Standardise on `uv_build`, and record the reason as a property rather than a
+preference:
+
+**A build backend that ships everything by default fails open. One that
+ships a declared module fails closed.** For a package published to a public
+index, where a mistake is permanent and unlistable, the default is the whole
+decision. Configuration is what you do when the default is wrong, and it
+only protects the repos where someone remembered.
+
+punt-kit was fixed in 0.12.0 with an explicit
+`[tool.hatch.build.targets.sdist]` allowlist — 566 members before, 148
+after. That works, and it is still the wrong shape: an allowlist is a list
+someone must maintain, and a new top-level directory silently does not ship
+until someone notices.
+
+### Alternatives Rejected
+
+| Alternative | Why not |
+|-------------|---------|
+| Keep `hatchling`, mandate an sdist allowlist fleet-wide | Fails closed by configuration rather than construction. Every new repo must remember; every audit must verify. The ten repos already on `uv_build` would gain a maintenance burden to reach the safety they already have. |
+| Keep both, document the tradeoff | The standard already said one thing while the fleet did another for six months, and nobody noticed until an artifact leaked. A standard that permits both permits the unsafe one. |
+| Move to `hatchling` fleet-wide, matching the written standard | Would take ten repos from fails-closed to fails-open to satisfy a document. The document is what is wrong. |
+| Leave punt-kit on `hatchling` since its allowlist now works | Leaves the tool that scaffolds and audits every other repo as the sole exception to the fleet's shape, and leaves its safety dependent on a list. A standards repo that is the exception to its own standard is a defect in itself. |
+
+### Consequences
+
+- punt-kit migrates to `uv_build`. Verified before adopting: the wheel
+  already ships only `punt_kit/` and dist-info — no root-level content —
+  and package data inside the module survives (vox's `uv_build` wheel ships
+  `punt_vox/assets/*.mp3` and `py.typed`). Nothing punt-kit needs from
+  hatchling was in use.
+- The published sdist stops carrying `standards/`, `docs/`, `playbooks/`.
+  Nothing consumes them from PyPI; they are browsed on GitHub. The wheel is
+  unchanged, which is what users install.
+- `[tool.hatch.build.targets.sdist]` is deleted, and with it the obligation
+  to keep an allowlist current.
+- refactory declares no build backend at all and cannot be built or
+  published as-is. It is a spike, and it gets the same block.
+- A backend swap on the repo that runs the release process is not a
+  free change. It is verified by building both backends and diffing the
+  wheel and sdist member lists, not by reasoning — the same discipline
+  applied to the sdist allowlist itself.
+
+### Note on how this was found
+
+The standard was written on 2026-02-17, in punt-kit's first commit, and
+never revisited. The fleet migrated to `uv_build` afterwards and the
+document did not follow. It took a published artifact carrying session
+transcripts to notice, and even then the discovery was incidental — the
+question asked was "why did the release fail", not "is the standard true".
+
+The standing rule in this repo's CLAUDE.md is that a standard generalises
+the most advanced deployed reality or explicitly supersedes it with stated
+rationale. Neither happened here. This ADR is the correction, and the
+finding it should leave behind is that *the compliant repo was the
+vulnerable one* — compliance with a stale standard is not safety.

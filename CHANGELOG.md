@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/python.md` now mandates `uv_build` rather than `hatchling`
+  as the build backend, with DES-026 recording why. The standard had
+  said `hatchling` since punt-kit's first commit while ten of the eleven
+  Python repos migrated to `uv_build`; punt-kit was the only compliant
+  repo and the only one that leaked local agent session logs into a
+  published sdist. Hatchling's default sdist ships everything not
+  VCS-ignored — fails open — while `uv_build` ships the declared module
+  and fails closed by construction
+
 - Dependency upgrades, consolidating five Dependabot PRs that all edited
   `uv.lock` and therefore conflicted with each other: mypy 1.19.1 → 2.3.0,
   ruff 0.15.1 → 0.16.3, pyright 1.1.408 → 1.1.411, rich 14.3.2 → 15.0.0,

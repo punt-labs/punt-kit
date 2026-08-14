@@ -1,6 +1,6 @@
 # Python Standards
 
-**Updated:** 2026-07-27
+**Updated:** 2026-08-14
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
@@ -363,9 +363,40 @@ Repository = "https://github.com/punt-labs/<repo>"
 <name>-server = "<package>.server:run_server"  # MCP server entry point (if applicable)
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "<package>"          # underscored import name
 ```
+
+### Build backend
+
+**`uv_build`, not `hatchling`.** The reason is the default, not a
+preference between tools.
+
+`uv_build` ships the declared module plus metadata. Hatchling's default
+sdist ships everything in the tree that is not VCS-ignored, so any
+untracked file — editor config, scratch notes, local agent state — becomes
+part of a published artifact. For a package on a public index, where a
+mistake is permanent and cannot be unlisted, that difference is the whole
+decision.
+
+This is not hypothetical: punt-kit shipped an sdist containing local agent
+session logs before it was caught. It was the only repo in the fleet using
+hatchling, and the only one affected. See
+[DES-026](../DESIGN.md) for the incident and the rejected alternatives.
+
+A hatchling project can be made safe with an explicit
+`[tool.hatch.build.targets.sdist]` allowlist, and that is the right
+immediate fix for one — but it fails closed by *configuration*, which
+someone has to maintain and every new top-level directory can silently
+fall out of. `uv_build` fails closed by *construction*.
+
+Verify rather than assume when changing a backend: build both, diff the
+wheel and sdist member lists, and confirm entry points and package data
+survive. Package data inside the module ships normally — `uv_build` wheels
+carry `py.typed`, asset directories, and templates.
 
 ### Naming
 
