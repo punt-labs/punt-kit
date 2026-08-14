@@ -14,9 +14,9 @@ type: ## Type check with mypy and pyright
 	uv run mypy src/ tests/
 	uv run pyright src/ tests/
 
-check: lint type test skills-check ## Run all quality gates
+check: lint type test ## Run all quality gates
 
-skills-check: ## Verify Skill() permissions match the installed plugin set
+skills-check: ## Verify Skill() permissions match installed plugins (local only — CI has none)
 	uv run python tools/skills_check.py
 
 skills-check-fix: ## Regenerate Skill() permissions from installed plugins

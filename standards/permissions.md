@@ -226,7 +226,7 @@ documented in Claude Code's skills architecture:
 >   `skill:*` local-settings rule suggestions.
 
 So a seeded `Skill()` allow entry is load-bearing: without it, a skill whose
-prompt-command properties fall outside the safe allowlist prompts the user on
+prompt-command properties fall outside the safe-property allowlist prompts the user on
 every invocation. The design is deliberately future-conservative — new
 properties default to requiring permission until reviewed — which means a
 skill that is auto-allowed today can start prompting after an upstream change.

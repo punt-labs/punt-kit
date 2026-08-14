@@ -17,8 +17,10 @@ All notable changes to this project will be documented in this file.
   `commit-commands`, which is not a Punt Labs plugin and was never
   installed, and 13 real skills were missing including `biff:poll`,
   `vox:music` and `quarry:use`. It is now generated from the installed
-  plugin set (86 entries across 10 plugins), and `make check` fails on
-  drift via `tools/skills_check.py`. The old test encoded the drift — it
+  plugin set (86 entries across 10 plugins), with `make skills-check` to
+  report drift. That target is deliberately not in `make check`: it can
+  only see plugins installed on the machine running it, and CI has none,
+  so a gate there would pass vacuously. The old test encoded the drift — it
   asserted the non-existent `Skill(commit-commands:commit)` was present,
   so it passed while the list was wrong
 
