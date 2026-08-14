@@ -4,12 +4,9 @@ from __future__ import annotations
 
 import json
 import tomllib
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 import pytest
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 
@@ -884,3 +881,70 @@ def test_foreign_stanza_warning_has_no_empty_suggestion_list(
     run_init(str(tmp_path))
 
     assert "Add these by hand" not in capsys.readouterr().out
+
+
+# --- seeded permission set tests ---
+
+
+def test_seeder_never_grants_an_unrestricted_shell() -> None:
+    """Bash(bash:*) matches `bash -c "<anything>"`.
+
+    It would make every other Bash entry decorative and reach straight through
+    the deny rules — `bash -c "curl ..."` satisfies the allow list while
+    Bash(curl:*) is denied.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
+
+    perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
+    assert "Bash(bash:*)" not in perms
+    assert "Bash(sed:*)" not in perms
+
+
+def test_seeder_keeps_the_development_tools() -> None:
+    """git and gh are dev tools; this scaffolds a dev environment."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
+
+    perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
+    assert "Bash(git:*)" in perms
+    assert "Bash(gh:*)" in perms
+
+
+def test_mcp_wildcards_name_real_plugin_servers() -> None:
+    """Each wildcard must be derivable from a plugin manifest.
+
+    A wildcard naming a plugin that ships no MCP server matches nothing while
+    looking like a working grant — that is how `mcp__plugin_github_github__*`
+    survived in this list despite there being no github plugin.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
+
+    perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
+    plugin_wildcards = {p for p in perms if p.startswith("mcp__plugin_")}
+
+    # plugin -> server key, from each plugin's .claude-plugin/plugin.json
+    known = {
+        "beadle": "email",
+        "biff": "tty",
+        "dungeon": "grimoire",
+        "ethos": "self",
+        "lux": "lux",
+        "quarry": "quarry",
+        "vox": "mic",
+        "z-spec": "zspec",
+    }
+    expected = {f"mcp__plugin_{p}_{s}__*" for p, s in known.items()}
+    assert plugin_wildcards == expected
+
+
+def test_mcp_wildcards_are_all_or_nothing() -> None:
+    """A subset is not a policy — it is whoever edited the list last."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
+
+    perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
+    # prfaq and punt ship no MCP server, so they must not appear.
+    assert not any("prfaq" in p for p in perms if p.startswith("mcp__"))
+    assert not any(p.startswith("mcp__plugin_punt_") for p in perms)

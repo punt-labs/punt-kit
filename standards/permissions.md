@@ -134,27 +134,44 @@ Contains:
 
 ## 3. Required Allow Rules
 
-### MCP plugin wildcards
+### MCP wildcards
 
-Every project must allow all Punt Labs plugin MCP tools:
+**All Punt Labs plugin MCP servers, or none.** A subset is not a policy — it
+is whoever edited the list last. Every plugin that ships an MCP server is
+allowed; plugins without one contribute nothing:
 
 ```json
-"mcp__plugin_biff_tty__*",
-"mcp__plugin_github_github__*",
-"mcp__plugin_quarry_quarry__*",
 "mcp__github__*",
-"mcp__quarry__*"
+"mcp__plugin_beadle_email__*",
+"mcp__plugin_biff_tty__*",
+"mcp__plugin_dungeon_grimoire__*",
+"mcp__plugin_ethos_self__*",
+"mcp__plugin_lux_lux__*",
+"mcp__plugin_quarry_quarry__*",
+"mcp__plugin_vox_mic__*",
+"mcp__plugin_z-spec_zspec__*"
 ```
 
-Projects with their own MCP servers add project-specific wildcards (e.g.,
-`"mcp__plugin_tts_vox__*"`).
+`github` is not a Punt Labs plugin — it ships with Claude Code. It is included
+because these settings scaffold a development environment.
+
+Each entry is the tool prefix Claude Code derives from the plugin manifest:
+`mcp__plugin_<plugin>_<server>__*`, where `<server>` is a key under
+`mcpServers` in the plugin's `.claude-plugin/plugin.json`. Derive the prefix
+from the manifest rather than guessing it — `prfaq` and `punt` ship no MCP
+server, and a wildcard naming a plugin that has none matches nothing while
+looking like a working grant.
+
+A server configured directly rather than through its plugin has a different
+prefix (`mcp__quarry__*` instead of `mcp__plugin_quarry_quarry__*`). Which one
+a machine uses is a local choice, so it belongs in `settings.local.json`, not
+in the checked-in file.
 
 ### Build tools
 
 Every project must allow these generic Bash commands:
 
 ```json
-"Bash(bash:*)",
 "Bash(bd:*)",
 "Bash(cat:*)",
 "Bash(chmod +x:*)",
@@ -168,11 +185,24 @@ Every project must allow these generic Bash commands:
 "Bash(make:*)",
 "Bash(pip index:*)",
 "Bash(punt:*)",
-"Bash(sed:*)",
 "Bash(shellcheck:*)",
 "Bash(tail:*)",
 "Bash(test:*)"
 ```
+
+**`Bash(bash:*)` and `Bash(sed:*)` must not be allowed.**
+
+`Bash(bash:*)` permits any command at all, because `bash -c "<anything>"`
+matches it. That makes every other entry in this list decorative and reaches
+straight through the deny rules in section 4 — `bash -c "curl ..."` satisfies
+the allow list while `Bash(curl:*)` is denied. Allowing it grants an
+unrestricted shell in a file that is committed and rarely re-read.
+
+`Bash(sed:*)` edits any file in place, bypassing the `Edit(path)` rules that
+gate file modification.
+
+`git` and `gh` stay. They are development tools, and these settings scaffold a
+development environment.
 
 Projects add their own build tools as needed:
 
