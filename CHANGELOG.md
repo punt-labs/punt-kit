@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt init` no longer appends `.claude` exception lines to a `.gitignore`
+  stanza it did not write (pkit-zzx3). The guard was a substring test, so a
+  `.claude/*` parent satisfied it and the negations were appended to the end
+  of the file. Those lines are inert under the `.claude/` parent punt writes —
+  git never descends into an excluded directory — but live under `.claude/*`,
+  so seeding *activated* a re-include that had never taken effect in that
+  repo's history. A foreign stanza is now reported and left untouched. This is
+  the same never-activate discipline the permission seeder got in 0.12.0,
+  applied to the gitignore seeder
+
+
 ## [0.12.0] - 2026-08-13
 
 ### Fixed

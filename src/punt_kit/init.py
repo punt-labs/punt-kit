@@ -790,50 +790,53 @@ _CLAUDE_GITIGNORE_LINES = [
 
 
 def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
-    """Ensure .gitignore has the .claude/ pattern with settings.json exception."""
+    """Ensure .gitignore has the .claude/ pattern with settings.json exception.
+
+    The exception lines are only meaningful under the exact ``.claude/`` parent
+    this function writes. Under a different parent — ``.claude/*``, say — git
+    descends into the directory and the same negations become live rules that
+    re-include paths the repo has never tracked. So a stanza punt did not write
+    is left alone: seeding must not change what a repo currently ignores.
+    """
     gitignore_path = info.root / ".gitignore"
 
     existing = ""
     if gitignore_path.exists():
         existing = gitignore_path.read_text(encoding="utf-8")
 
-    # Check if the pattern is already present (all three lines)
-    if all(line in existing for line in _CLAUDE_GITIGNORE_LINES):
-        return []
+    lines = existing.split("\n")
+    stripped = [line.strip() for line in lines]
 
-    # Find which lines are missing
-    missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in existing]
+    missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in stripped]
     if not missing:
         return []
 
-    # Append the full block if the anchor line (.claude/) is missing,
-    # otherwise just append the missing exception lines
-    block = "\n".join(_CLAUDE_GITIGNORE_LINES)
-    if ".claude/" not in existing:
-        # Append the full block
+    rel = _relpath(gitignore_path, info.root)
+    anchor = _CLAUDE_GITIGNORE_LINES[0]
+
+    if anchor in stripped:
+        # The parent is the form punt wrote, so the negations behave as intended.
+        insert_idx = stripped.index(anchor) + 1
+        for entry in missing:
+            lines.insert(insert_idx, entry)
+            insert_idx += 1
+        updated = "\n".join(lines)
+    elif any(s.lstrip("!").startswith(".claude") for s in stripped if s):
+        # A deliberate stanza this function did not write. Appending negations
+        # to it can activate rules that have never been in effect, so report
+        # and leave the file untouched.
+        console.print(
+            f"  [yellow]![/yellow] {rel} has its own .claude stanza — left as is."
+            " Add these by hand if you want them: " + ", ".join(missing)
+        )
+        return []
+    else:
+        block = "\n".join(_CLAUDE_GITIGNORE_LINES)
         separator = "\n" if existing and not existing.endswith("\n") else ""
         extra_newline = "\n" if existing else ""
         updated = existing + separator + extra_newline + block + "\n"
-    else:
-        # .claude/ exists but exceptions are missing — append them after .claude/ line
-        lines = existing.split("\n")
-        insert_idx = None
-        for i, line in enumerate(lines):
-            if line.strip() == ".claude/":
-                insert_idx = i + 1
-                break
-        if insert_idx is not None:
-            for m in missing:
-                lines.insert(insert_idx, m)
-                insert_idx += 1
-            updated = "\n".join(lines)
-        else:
-            separator = "\n" if existing and not existing.endswith("\n") else ""
-            updated = existing + separator + "\n".join(missing) + "\n"
 
     gitignore_path.write_text(updated, encoding="utf-8")
-
-    rel = _relpath(gitignore_path, info.root)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (.claude/ exceptions)")
     return [rel]
 

@@ -756,3 +756,81 @@ def test_init_tolerates_malformed_settings_local(tmp_path: Path) -> None:
     run_init(str(tmp_path))
 
     assert local.read_text() == "{not json"
+
+
+# --- gitignore .claude stanza tests ---
+
+
+def test_init_leaves_a_foreign_claude_stanza_alone(tmp_path: Path) -> None:
+    """A stanza punt did not write is never appended to.
+
+    Under a `.claude/*` parent git descends into the directory, so the
+    exception lines become live rules that re-include paths the repo has
+    never tracked. Seeding must not change what a repo currently ignores.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    gitignore = tmp_path / ".gitignore"
+    original = "# deliberate stanza\n.claude/*\n!.claude/settings.json\n"
+    gitignore.write_text(original)
+
+    run_init(str(tmp_path))
+
+    assert gitignore.read_text() == original
+
+
+def test_init_seeds_exceptions_under_the_exact_parent(tmp_path: Path) -> None:
+    """Under the parent punt writes, the exceptions behave as intended."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text(".claude/\n")
+
+    run_init(str(tmp_path))
+
+    lines = [ln.strip() for ln in gitignore.read_text().split("\n")]
+    assert "!.claude/settings.json" in lines
+    assert "!.claude/hooks/" in lines
+
+
+def test_init_writes_the_full_block_when_no_claude_stanza_exists(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    gitignore = tmp_path / ".gitignore"
+    gitignore.write_text("node_modules/\n")
+
+    run_init(str(tmp_path))
+
+    lines = [ln.strip() for ln in gitignore.read_text().split("\n")]
+    assert "node_modules/" in lines
+    assert ".claude/" in lines
+    assert "!.claude/hooks/" in lines
+
+
+def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
+    """The invariant, not the case: what git ignores must not change.
+
+    Asserted by asking git itself, before and after, rather than by
+    inspecting the file.
+    """
+    import subprocess
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    (tmp_path / ".gitignore").write_text(".claude/*\n!.claude/settings.json\n")
+    hooks = tmp_path / ".claude" / "hooks"
+    hooks.mkdir(parents=True)
+    (hooks / "pre.sh").write_text("#!/bin/sh\n")
+    subprocess.run(["git", "init", "-q", "."], cwd=tmp_path, check=True)
+
+    def ignored() -> bool:
+        return (
+            subprocess.run(
+                ["git", "check-ignore", "-q", ".claude/hooks/pre.sh"],
+                cwd=tmp_path,
+                check=False,
+            ).returncode
+            == 0
+        )
+
+    before = ignored()
+    run_init(str(tmp_path))
+    assert ignored() == before, "punt init changed what git ignores"
