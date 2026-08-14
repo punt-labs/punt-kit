@@ -14,6 +14,15 @@ All notable changes to this project will be documented in this file.
   published sdist. Hatchling's default sdist ships everything not
   VCS-ignored — fails open — while `uv_build` ships the declared module
   and fails closed by construction
+- punt-kit migrated to `uv_build`, and the
+  `[tool.hatch.build.targets.sdist]` allowlist added in 0.12.0 is deleted
+  — there is no longer a list to keep current. Verified by building both
+  backends and diffing member lists: the wheel is unchanged in content
+  (templates and `py.typed` still ship) and the sdist drops from 151
+  members to 31, carrying `src/` and metadata only. The migration
+  silently dropped `LICENSE` from the wheel until PEP 639
+  `license-files` was added — a licensing regression the member diff
+  caught and a test now guards
 
 - Dependency upgrades, consolidating five Dependabot PRs that all edited
   `uv.lock` and therefore conflicted with each other: mypy 1.19.1 → 2.3.0,
