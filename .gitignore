@@ -51,3 +51,19 @@ uv.toml
 
 # Quarry session-transcript captures (pkit-kcps)
 .punt-labs/quarry/captures/
+
+# Editor project config (JetBrains)
+.idea/
+
+# Local agent state — ethos session audit logs and mission lockfiles.
+# Never publishable: these carry tool inputs including message bodies.
+.punt-labs/local/
+
+# Per-repo CLAUDE.md lockfile
+.CLAUDE.md.lock
+
+# Beads-managed git hooks (installed locally, not shared)
+.beads/hooks/
+
+# Working notes, not part of the package
+resume.md
