@@ -168,15 +168,71 @@ installs by building from source (`make install`), and the plugin's
 subdirectory contains neither `src/` nor `cmd/` in either case — only the
 Claude Code integration files.
 
-### Makefile and CI path updates
+### Path references that break under restructure
 
-If a repo's Makefile or CI workflow references plugin content by path
-(`hooks/*.sh`, `commands/*.md`, `.claude-plugin/`), the paths become
-`plugin/hooks/*.sh`, `plugin/commands/*.md`, `plugin/.claude-plugin/` after
-restructure. Grep for those prefixes in `Makefile`, `install.sh`, `scripts/`,
-and `.github/workflows/` before restructuring; the scope is bounded
-(measured 2026-08-14: three files in vox, one in lux, zero in the other
-seven plugin repos).
+Every file that names plugin content by a repo-root path breaks when that
+content moves under `plugin/`. Before restructuring, grep the **whole repo**
+(source, config, packaging manifests, tests — not just shell and CI) for the
+following prefixes:
+
+- `.claude-plugin/`
+- `commands/` (as a path literal)
+- `hooks/` (as a path literal)
+- `skills/` (as a path literal)
+- `agents/` (as a path literal)
+
+Enumerating a fixed set of *file types* (Makefile, install.sh, scripts,
+workflows) is not enough. Both the *packaging manifest* and the *source code
+that manages other plugins* commonly reference these paths. Two concrete
+examples worth calling out because they are easy to miss:
+
+- **Packaging manifests.** `pyproject.toml` (or `MANIFEST.in`, `setup.cfg`,
+  `hatch_build.py`) may allowlist plugin content by path in the sdist
+  configuration — e.g. `include = [".claude-plugin", ...]` in a Hatch
+  `tool.hatch.build.targets.sdist`. Move the path under `plugin/` in the
+  manifest at the same time as the filesystem move, or the release build
+  will silently drop the plugin from the wheel/sdist.
+- **Meta-tooling that reads plugin content.** In a repo whose product is
+  itself plugin tooling (punt-kit ships the `punt` CLI, which detects,
+  audits, and releases plugins), source code will use
+  `root / ".claude-plugin" / "plugin.json"` as its detection anchor.
+  Moving `.claude-plugin/` under `plugin/` without updating the detection
+  code breaks the tool on its own repo. Update the anchor to
+  `root / "plugin" / ".claude-plugin" / "plugin.json"` (and grep for
+  every other `.claude-plugin` reference) in the same commit that moves
+  the files.
+
+Scope was measured 2026-08-14 across the nine plugin repos: three files in
+vox, one in lux, and — for punt-kit specifically — 12+ hits across `src/`
+and `pyproject.toml`. Zero hits in the other six. Do the grep per repo
+before the move; scope varies dramatically by whether the repo is a
+plain plugin, a hybrid plugin+CLI, or a plugin-tooling repo.
+
+### Version field precedence
+
+The marketplace catalog entry carries a `version` field, and so does the
+plugin's own `plugin.json`. At install time Claude Code computes a plugin's
+version through `calculatePluginVersion` (in
+`src/utils/plugins/pluginVersioning.ts`) with this precedence, verbatim from
+the source:
+
+1. `manifest.version` — the version in `plugin.json`
+2. `providedVersion` — the version in the marketplace entry (fallback)
+3. Git SHA (for `git-subdir`, `<shortSha>-<pathHash>`)
+4. Git SHA from install path
+5. `'unknown'`
+
+Because every well-formed plugin has a `plugin.json` with a `version`, the
+marketplace entry's `version` is effectively fallback-only — it is used to
+render the marketplace UI's version column, not to decide what a user has
+installed. If the two disagree, the UI shows one number while
+`/plugin` reports the other, and the user has no way to see the mismatch.
+
+Treat `plugin.json.version` as authoritative. Keep the marketplace entry's
+`version` in sync with it through the release playbook (see
+[release-process.md](release-process.md) phase 10b, which bumps both from a
+single source), but never treat the marketplace-entry version as the truth
+when auditing what is actually installed.
 
 ### Client version floor
 
