@@ -4,7 +4,8 @@ version = "0.13.0"
 description = "Standards, scaffolding, and compliance tooling for Punt Labs projects"
 requires-python = ">=3.13"
 authors = [{ name = "Punt Labs" }]
-license = { text = "MIT" }
+license = "MIT"
+license-files = ["LICENSE"]
 classifiers = [
     "Development Status :: 4 - Beta",
 ]
@@ -33,40 +34,11 @@ Repository = "https://github.com/punt-labs/punt-kit"
 punt = "punt_kit.__main__:app"
 
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/punt_kit"]
-
-# Declare what the sdist SHIPS rather than what it must not. Hatchling's default
-# is include-everything-not-VCS-ignored, which fails open: any untracked file in
-# the tree — editor config, scratch notes, local agent state — lands in a
-# published tarball, permanently and unlistably. An allowlist fails closed, so a
-# new stray file is absent by default rather than published by default.
-[tool.hatch.build.targets.sdist]
-include = [
-    "/src",
-    "/tests",
-    "/docs",
-    "/standards",
-    "/patterns",
-    "/playbooks",
-    "/lang-rules",
-    "/commands",
-    "/skills",
-    "/scripts",
-    "/.claude-plugin",
-    "/AGENTS.md",
-    "/CHANGELOG.md",
-    "/CLAUDE.md",
-    "/DESIGN.md",
-    "/LICENSE",
-    "/Makefile",
-    "/README.md",
-    "/install.sh",
-    "/uv.lock",
-]
+[tool.uv.build-backend]
+module-name = "punt_kit"
 
 [tool.ruff]
 line-length = 88
