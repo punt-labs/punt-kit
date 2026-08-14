@@ -1395,3 +1395,97 @@ each member.
 | punt writes other tools' subtrees directly | Second writer of state the standard assigns to one owner; drifts on any tool change; contradicts the standard punt-kit itself publishes. |
 | Overload bare `punt enable` as the manager verb | §2.10 already defines it as punt self-enabling; overloading creates a second naming collision. |
 | punt vendors per-tool install logic | A version-coupling point that turns punt into a lockfile manager; per-repo install.sh already self-versions. |
+
+## DES-025: Marketplace Plugins Ship a Subdirectory, Not the Whole Repo
+
+**Date:** 2026-08-14
+**Status:** SETTLED (design; rollout tracked as `pkit-TBD`)
+**Topic:** What a plugin published through the `claude-plugins` marketplace catalog physically ships to a user's plugin cache
+
+### Design
+
+Every Punt Labs plugin repo places its plugin content under a top-level
+`plugin/` directory:
+
+- `plugin/.claude-plugin/plugin.json`
+- `plugin/commands/`, `plugin/hooks/`, `plugin/skills/`, `plugin/agents/`
+  (whichever apply)
+- `plugin/README.md`, `plugin/LICENSE`
+
+Everything else — source, tests, docs, `.envrc`, `.beads/`, `.punt-labs/`,
+`.oo-*`, `prfaq.tex`, `Makefile`, `pyproject.toml`, `go.mod` — stays at the
+repo root and is **not** shipped to plugin users.
+
+The `claude-plugins/marketplace.json` entry uses the `git-subdir` source type
+instead of `github`:
+
+```json
+{
+  "name": "vox",
+  "source": {
+    "source": "git-subdir",
+    "url":    "https://github.com/punt-labs/vox.git",
+    "path":   "plugin",
+    "ref":    "v4.17.0"
+  }
+}
+```
+
+Hooks continue to resolve paths from `${CLAUDE_PLUGIN_ROOT}`, which Claude Code
+sets to whatever it treated as the plugin root — repo root under `github`, the
+`plugin/` subtree under `git-subdir`. No hook script changes.
+
+MCP servers declared in `plugin.json` still invoke a binary on `$PATH` (`vox`,
+`beadle-email`) that the user installed from PyPI or built from the repo's Go
+sources. The plugin channel carries the Claude Code integration; the code
+channel carries the runtime.
+
+### Why
+
+The `github` source type in a marketplace catalog clones the *entire tracked
+tree at the tag* into every user's plugin cache. Measured on 2026-08-14 across
+nine punt-labs plugin repos, that averages ~14 MB per plugin (~5 MB of it
+`.git/` history) and includes every internal file the repo happens to
+track — `.envrc`, mission logs, prfaq drafts, session captures, test
+fixtures, source code duplicated from PyPI. beadle-efv is the recorded case:
+v0.16.0 and v0.16.1 shipped a 6151-line quarry session transcript to every
+installed user because the file was tracked in the repo the marketplace
+pointed at. v0.16.2 dropped that specific file, and v0.16.3 (2026-08-14)
+dropped four more (`research/`, `meetings/`, `prfaq.*`, `.envrc`) — but the
+underlying mechanism (whole-tree clone) was still in place.
+
+The `git-subdir` source type solves this at the mechanism, not per file.
+Anthropic's own `claude-plugins-official` catalog uses it for third-party
+plugins (Adobe, 42Crunch, Salesforce, Semgrep). It clones the repo but treats
+only the named `path` as the plugin content — everything outside the path is
+absent from the user's cache. The public-facing Claude Code documentation
+covers `github`, `url`, and `git-subdir` as supported source types.
+
+The client-version floor (Claude Code ≥ v2.1.69 for `git-subdir` support) is
+accepted: punt-labs users track current Claude Code.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Accept the whole-tree ship, sanitize per-repo `.gitignore` | Every repo is one accidental `git add` away from re-leaking. `.envrc`, mission logs, and session transcripts have all reached users this way. Structural fix beats vigilance. |
+| Ask upstream Claude Code for `--depth 1 --no-tags` on marketplace clones | Would halve payload size by removing `.git/` history but does not filter which working-tree files ship; internal docs, tests, and source still reach users. Also depends on Anthropic's schedule. |
+| Maintain an orphan `release` branch per plugin repo containing only plugin content | Solves the same problem, but the `git-subdir` mechanism already exists in Claude Code and needs no branch synchronization logic in the release playbook. |
+| Split each hybrid repo into `<name>` (source, tests, PyPI) and `<name>-plugin` (marketplace) | Doubles the repo count and forces cross-repo release choreography for a problem the source-type field solves in place. |
+| Use `.gitattributes export-ignore` | Applies to `git archive`, not `git clone` — the marketplace uses `clone`. |
+
+### Consequences
+
+- One-time restructure per plugin repo: mechanical move of
+  `.claude-plugin/`, `commands/`, `hooks/`, `skills/`, `agents/` under a
+  new `plugin/` subdirectory, plus Makefile/CI path updates. Measured
+  scope across nine repos: vox (3 files), lux (1 file), zero elsewhere.
+- `plugins.md` gains a `plugin/` layout rule and a template
+  marketplace-entry using `git-subdir`.
+- The release playbook (`release-process.md`) already touches the
+  marketplace ref in phase 10b; the same phase now confirms the
+  `source: git-subdir` shape rather than migrating anything at release
+  time.
+- Users install the plugin the same way as before
+  (`claude plugin install biff@punt-labs`); the payload shrinks from
+  ~10-20 MB to ~50 KB but the interface does not change.
