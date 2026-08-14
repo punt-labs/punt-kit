@@ -478,18 +478,23 @@ def test_build_standard_permissions_includes_skill_entries(tmp_path: Path) -> No
         f"  extra={sorted(set(skill_perms) - set(expected_skills))}"
     )
 
-    # One representative per plugin group
-    assert "Skill(beadle:mail)" in skill_perms
-    assert "Skill(biff:who)" in skill_perms
-    assert "Skill(commit-commands:commit)" in skill_perms
-    assert "Skill(dungeon:d)" in skill_perms
-    assert "Skill(ethos:identity)" in skill_perms
-    assert "Skill(lux:lux)" in skill_perms
-    assert "Skill(prfaq:vote)" in skill_perms
-    assert "Skill(punt:audit)" in skill_perms
-    assert "Skill(quarry:find)" in skill_perms
-    assert "Skill(vox:vox)" in skill_perms
-    assert "Skill(z-spec:check)" in skill_perms
+    # Every Punt Labs plugin that ships skills is represented. Naming
+    # individual skills here is what let the list drift: the old assertion
+    # required Skill(commit-commands:commit), which is not a Punt Labs plugin
+    # and was never installed, so the test passed while the list was wrong.
+    plugins = {p.split("(")[1].split(":")[0] for p in skill_perms}
+    assert plugins >= {
+        "beadle",
+        "biff",
+        "dungeon",
+        "ethos",
+        "lux",
+        "prfaq",
+        "punt",
+        "quarry",
+        "vox",
+        "z-spec",
+    }
 
 
 def test_init_settings_json_includes_skill_entries(tmp_path: Path) -> None:

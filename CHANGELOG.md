@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.
   seeded `Skill()` entries are therefore load-bearing, not the dead
   weight the standard described, and the audit checklist no longer tells
   projects to remove them
+- The seeded `Skill()` list was 16 entries wrong: 3 named
+  `commit-commands`, which is not a Punt Labs plugin and was never
+  installed, and 13 real skills were missing including `biff:poll`,
+  `vox:music` and `quarry:use`. It is now generated from the installed
+  plugin set (86 entries across 10 plugins), and `make check` fails on
+  drift via `tools/skills_check.py`. The old test encoded the drift — it
+  asserted the non-existent `Skill(commit-commands:commit)` was present,
+  so it passed while the list was wrong
 
 ### Changed
 
@@ -32,9 +40,6 @@ All notable changes to this project will be documented in this file.
   beadle, dungeon, ethos, lux, vox and z-spec. Each entry is now derived
   from the plugin's own manifest, and a test asserts the list still
   matches
-
-### Fixed
-
 - `punt init` no longer appends `.claude` exception lines to a `.gitignore`
   stanza it did not write (pkit-zzx3). The guard was a substring test, so a
   `.claude/*` parent satisfied it and the negations were appended to the end
