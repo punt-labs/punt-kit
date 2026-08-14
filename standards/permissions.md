@@ -472,11 +472,12 @@ The plugin ships one script, invoked by one command
 before changing anything, and exits without touching the file when there is
 nothing to do.
 
-**Note on Bash rule syntax.** Project-level settings (section 3) use broad
-patterns like `Bash(bash:*)` because the developer trusts their own project.
-Plugin-distributed rules use narrow patterns like
-`Bash(bash */compile_prfaq.sh *)` because the user is granting them to a
-plugin, not to themselves.
+**Note on Bash rule syntax.** Project-level settings (section 3) use
+per-command patterns like `Bash(make:*)` — broad within one tool, but naming
+the tool. Plugin-distributed rules are narrower still, like
+`Bash(bash */compile_prfaq.sh *)`, because the user is granting them to a
+plugin rather than to themselves. Neither tier may use `Bash(bash:*)`: it
+names no tool at all and permits everything (section 3).
 
 ```sh
 PLUGIN_RULES='[
