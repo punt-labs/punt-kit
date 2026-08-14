@@ -4,6 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `standards/permissions.md` claimed Claude Code does not enforce
+  `Skill()` permission rules. It does. `SkillTool` has its own permission
+  layer: deny rules win first, then explicit allow rules are honored, and
+  anything outside the safe-property allowlist prompts the user. The
+  seeded `Skill()` entries are therefore load-bearing, not the dead
+  weight the standard described, and the audit checklist no longer tells
+  projects to remove them
+- The seeded `Skill()` list was 16 entries wrong: 3 named
+  `commit-commands`, which is not a Punt Labs plugin and was never
+  installed, and 13 real skills were missing including `biff:poll`,
+  `vox:music` and `quarry:use`. It is now generated from the installed
+  plugin set (86 entries across 10 plugins), with `make skills-check` to
+  report drift. That target is deliberately not in `make check`: it can
+  only see plugins installed on the machine running it, and CI has none,
+  so a gate there would pass vacuously. The old test encoded the drift — it
+  asserted the non-existent `Skill(commit-commands:commit)` was present,
+  so it passed while the list was wrong
+
 ### Changed
 
 - `punt init` no longer seeds `Bash(bash:*)` or `Bash(sed:*)`.
@@ -22,9 +42,6 @@ All notable changes to this project will be documented in this file.
   beadle, dungeon, ethos, lux, vox and z-spec. Each entry is now derived
   from the plugin's own manifest, and a test asserts the list still
   matches
-
-### Fixed
-
 - `punt init` no longer appends `.claude` exception lines to a `.gitignore`
   stanza it did not write (pkit-zzx3). The guard was a substring test, so a
   `.claude/*` parent satisfied it and the negations were appended to the end

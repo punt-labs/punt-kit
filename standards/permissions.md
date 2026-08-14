@@ -215,10 +215,25 @@ Projects add their own build tools as needed:
 
 ### Skills
 
-Skills do not have a permission gate — Claude Code does not enforce `Skill()`
-rules in `settings.json`. The list below is informational: it documents which
-plugin skills are available across the org. No `settings.json` entries are
-needed for these.
+`Skill()` rules **are** enforced. `SkillTool` has its own permission layer,
+documented in Claude Code's skills architecture:
+
+> - explicit deny rules win first;
+> - explicit allow rules are honored next;
+> - prompt commands whose populated properties are all in a safe-property
+>   allowlist are auto-allowed;
+> - otherwise, the runtime asks the user and offers exact-skill and
+>   `skill:*` local-settings rule suggestions.
+
+So a seeded `Skill()` allow entry is load-bearing: without it, a skill whose
+prompt-command properties fall outside the safe-property allowlist prompts the user on
+every invocation. The design is deliberately future-conservative — new
+properties default to requiring permission until reviewed — which means a
+skill that is auto-allowed today can start prompting after an upstream change.
+
+This section previously stated the opposite. It was wrong, and the error was
+load-bearing in both directions: it invited deleting 76 working entries as
+dead weight, and it told `punt audit` to flag them as a defect.
 
 - **biff**: `biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
   `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
@@ -601,7 +616,6 @@ Run `punt audit` to check compliance. The audit checks:
 - All required MCP wildcards are present
 - No unmatched path rules (`Write(path)`, `MultiEdit(path)`,
   `NotebookEdit(path)`, `Glob(path)`) in any tier of either settings file
-- No `Skill()` entries in allow list (not enforced by Claude Code)
 - `settings.local.json` is gitignored
 - No local paths appear in `settings.json`
 
