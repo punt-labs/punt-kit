@@ -170,10 +170,12 @@ def coerce_number(raw: object) -> float | None:
         return None
     return float(raw)
 
+
 def object_sequence(raw: object) -> tuple[object, ...] | None:
     if not isinstance(raw, list | tuple):
         return None
     return tuple(raw)
+
 
 # Every caller is forced into the same pattern:
 n = coerce_number(raw)
@@ -189,6 +191,7 @@ def require_number(self, raw: object, field: str) -> float:
     if isinstance(raw, bool) or not isinstance(raw, int | float):
         raise self.field_error(field, "a number", raw)
     return float(raw)
+
 
 def require_sequence(self, raw: object, field: str) -> tuple[object, ...]:
     if not isinstance(raw, list | tuple):

@@ -36,6 +36,7 @@ default access pattern.
 ```python
 _name: str
 
+
 @property
 def name(self) -> str:
     return self._name

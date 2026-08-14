@@ -233,8 +233,9 @@ or a daemon thread to avoid blocking the hook timeout:
 
 ```python
 # CORRECT: fire-and-forget for side effects
-subprocess.Popen(["vox", "play", chime_path],
-                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+subprocess.Popen(
+    ["vox", "play", chime_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+)
 return None  # Don't wait
 
 # WRONG: blocks until audio finishes playing
@@ -262,6 +263,7 @@ import json
 import os
 import select
 import sys
+
 
 def _read_hook_input() -> dict[str, object]:
     """Read JSON hook payload from stdin (non-blocking).
@@ -329,6 +331,7 @@ The CLI exposes hook handlers as hidden subcommands:
 ```python
 hook_app = typer.Typer(hidden=True)
 
+
 @hook_app.command("post-bash")
 def cc_post_bash() -> None:
     """PostToolUse Bash — internal hook dispatcher."""
@@ -336,6 +339,7 @@ def cc_post_bash() -> None:
     result = handle_post_bash(data)
     if result:
         print(json.dumps(result))
+
 
 app.add_typer(hook_app, name="hook")
 ```
@@ -455,7 +459,7 @@ def handle_pre_tool_use(data: dict) -> dict | None:
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
-                "permissionDecisionReason": "Set a plan with /plan before editing files."
+                "permissionDecisionReason": "Set a plan with /plan before editing files.",
             }
         }
     return None  # Allow
@@ -586,7 +590,10 @@ Every `handle_<event>()` function should have unit tests:
 
 ```python
 def test_handle_post_bash_detects_test_pass():
-    data = {"tool_input": {"command": "pytest"}, "tool_response": {"stdout": "5 passed"}}
+    data = {
+        "tool_input": {"command": "pytest"},
+        "tool_response": {"stdout": "5 passed"},
+    }
     result = handle_post_bash(data)
     assert "tests-pass" in result
 ```
@@ -693,15 +700,18 @@ duplication.
 Every function in this module MUST use only stdlib imports.
 Adding a third-party import here defeats the entire purpose.
 """
+
 from __future__ import annotations
 
 import json
 import subprocess
 from pathlib import Path
 
+
 def find_git_root() -> Path | None:
     """Walk up from cwd to find .git directory."""
     ...
+
 
 def is_enabled(repo_root: Path) -> bool:
     """Check if tool is enabled in this repo."""

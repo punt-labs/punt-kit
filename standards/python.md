@@ -235,6 +235,7 @@ package metadata:
 ```python
 from importlib.metadata import version
 
+
 def cli_version() -> str:
     return version("punt-<name>")
 ```

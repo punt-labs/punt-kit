@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Dependency upgrades, consolidating five Dependabot PRs that all edited
+  `uv.lock` and therefore conflicted with each other: mypy 1.19.1 → 2.3.0,
+  ruff 0.15.1 → 0.16.3, pyright 1.1.408 → 1.1.411, rich 14.3.2 → 15.0.0,
+  typer 0.24.0 → 0.27.1, pytest 9.0.3 → 9.1.1
+- ruff 0.16 formats Python code blocks inside Markdown, which reformatted
+  12 documentation files. The change is meaning-preserving but it does
+  flatten column-aligned comments in the teaching examples under
+  `lang-rules/`. Accepted deliberately: those documents teach the style
+  `ruff format` enforces, so samples that disagree with the formatter
+  teach a style the formatter would immediately undo
+
 ## [0.13.0] - 2026-08-14
 
 ### Fixed
