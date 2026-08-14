@@ -1525,7 +1525,9 @@ The standard said `hatchling`. The fleet did not:
 | `uv_build` | biff, quarry, vox, lux, z-spec, langlearn, langlearn-{anki,imagegen,tts,types} — **10** |
 | `hatchling` | punt-kit, refactory — **2** |
 
-punt-kit was the only compliant repo. It was also the only one that leaked.
+Two repos still followed the standard. punt-kit is the one that leaked; the
+other, refactory, is a spike that had not been published yet and so had not
+had the chance to.
 
 The 0.12.0 release shipped an sdist containing `.punt-labs/local/` — local
 agent session audit logs, with `tool_input` fields up to 29,739 characters
