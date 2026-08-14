@@ -383,9 +383,8 @@ mistake is permanent and cannot be unlisted, that difference is the whole
 decision.
 
 This is not hypothetical: punt-kit shipped an sdist containing local agent
-session logs before it was caught. It was the only repo in the fleet using
-hatchling, and the only one affected. See
-[DES-026](../DESIGN.md) for the incident and the rejected alternatives.
+session logs before it was caught. See [DES-026](../DESIGN.md) for the
+incident and the rejected alternatives.
 
 A hatchling project can be made safe with an explicit
 `[tool.hatch.build.targets.sdist]` allowlist, and that is the right

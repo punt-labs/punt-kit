@@ -8,9 +8,9 @@ All notable changes to this project will be documented in this file.
 
 - `standards/python.md` now mandates `uv_build` rather than `hatchling`
   as the build backend, with DES-026 recording why. The standard had
-  said `hatchling` since punt-kit's first commit while ten of the eleven
-  Python repos migrated to `uv_build`; punt-kit was the only compliant
-  repo and the only one that leaked local agent session logs into a
+  said `hatchling` since punt-kit's first commit while ten of the twelve
+  Python repos migrated to `uv_build`; punt-kit was one of the two that
+  did not, and the one that leaked local agent session logs into a
   published sdist. Hatchling's default sdist ships everything not
   VCS-ignored — fails open — while `uv_build` ships the declared module
   and fails closed by construction
@@ -23,6 +23,15 @@ All notable changes to this project will be documented in this file.
   silently dropped `LICENSE` from the wheel until PEP 639
   `license-files` was added — a licensing regression the member diff
   caught and a test now guards
+- DES-026's repo census corrected: refactory declares `hatchling` too, so
+  the fleet had two hatchling repos, not one. The original count came from
+  grepping a three-line window after `[build-system]`, which refactory's
+  multi-line `requires` pushed `build-backend` out of; parsing the TOML
+  gives the right answer. The incident and the decision are unchanged —
+  the count is not, nor is the method that produced it. refactory migrates
+  in punt-labs/refactory#34, where the same fails-open default was live:
+  its sdist carried 303 members, 245 of them `.punt-labs/` submodule
+  content plus `.envrc` and `.beads/`, against 12 members of actual `src/`
 
 - Dependency upgrades, consolidating five Dependabot PRs that all edited
   `uv.lock` and therefore conflicted with each other: mypy 1.19.1 → 2.3.0,

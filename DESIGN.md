@@ -1523,10 +1523,11 @@ The standard said `hatchling`. The fleet did not:
 | Backend | Repos |
 |---------|-------|
 | `uv_build` | biff, quarry, vox, lux, z-spec, langlearn, langlearn-{anki,imagegen,tts,types} — **10** |
-| `hatchling` | punt-kit — **1** |
-| none declared | refactory — **1** |
+| `hatchling` | punt-kit, refactory — **2** |
 
-punt-kit was the only compliant repo. It was also the only one that leaked.
+Two repos still followed the standard. punt-kit is the one that leaked; the
+other, refactory, is a spike that had not been published yet and so had not
+had the chance to.
 
 The 0.12.0 release shipped an sdist containing `.punt-labs/local/` — local
 agent session audit logs, with `tool_input` fields up to 29,739 characters
@@ -1577,8 +1578,9 @@ until someone notices.
   unchanged, which is what users install.
 - `[tool.hatch.build.targets.sdist]` is deleted, and with it the obligation
   to keep an allowlist current.
-- refactory declares no build backend at all and cannot be built or
-  published as-is. It is a spike, and it gets the same block.
+- refactory also uses `hatchling` and migrates too. It is a spike, which
+  is why it was overlooked, and a spike is exactly where an untracked
+  scratch file is most likely to be sitting when someone builds.
 - A backend swap on the repo that runs the release process is not a
   free change. It is verified by building both backends and diffing the
   wheel and sdist member lists, not by reasoning — the same discipline
@@ -1597,3 +1599,22 @@ the most advanced deployed reality or explicitly supersedes it with stated
 rationale. Neither happened here. This ADR is the correction, and the
 finding it should leave behind is that *the compliant repo was the
 vulnerable one* — compliance with a stale standard is not safety.
+
+### Correction, 2026-08-14
+
+This ADR was first written claiming refactory declared no build backend. It
+does declare one — `hatchling` — so the fleet had **two** hatchling repos,
+not one, and the sentence "punt-kit was the only compliant repo" was wrong
+about the census while right about the incident.
+
+The error came from the measurement, not the reasoning. The census grepped a
+three-line window after `[build-system]`, and refactory spreads `requires`
+across multiple lines, which pushed `build-backend` outside the window. The
+repo was silently miscounted as having none. Parsing the TOML instead of
+grepping around it gives the true answer in one pass and cannot drift with
+formatting.
+
+The finding this ADR ends on — that compliance with a stale standard is not
+safety — survives unchanged. What changes is the count, and the discipline
+that produced it: a census assembled by grep is a claim about text, not about
+configuration. Ask the parser.
