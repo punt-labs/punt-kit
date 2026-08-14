@@ -11,7 +11,9 @@ under `uv_build` there is no allowlist left to guard. See DES-026.
 
 from __future__ import annotations
 
+import subprocess
 import tomllib
+import zipfile
 from pathlib import Path
 from typing import cast
 
@@ -75,12 +77,12 @@ def test_no_stale_hatch_configuration() -> None:
     assert _table(_pyproject(), "tool", "hatch") is None
 
 
-def test_license_ships_in_the_artifact() -> None:
-    """Named explicitly because the backend change silently dropped it.
+def test_license_is_declared_in_metadata() -> None:
+    """The PEP 639 fields that make the license ship.
 
-    hatchling included LICENSE in dist-info without being asked; uv_build
-    does not. The migration lost it until PEP 639 `license-files` was added,
-    which is a licensing regression rather than a packaging detail.
+    This reads pyproject only — it proves the declaration exists, not that
+    the built artifact carries the file. The artifact claim is
+    test_built_wheel_carries_license_and_templates.
     """
     project = _table(_pyproject(), "project")
     assert project is not None
@@ -88,6 +90,38 @@ def test_license_ships_in_the_artifact() -> None:
     license_files = project["license-files"]
     assert isinstance(license_files, list)
     assert "LICENSE" in [str(entry) for entry in cast("list[object]", license_files)]
+
+
+def test_built_wheel_carries_license_and_templates(tmp_path: Path) -> None:
+    """Inspect a real wheel, because the config said nothing was wrong.
+
+    The migration to uv_build silently dropped LICENSE from dist-info.
+    pyproject looked correct throughout — hatchling had been adding the file
+    without being asked, and nothing in the configuration recorded that.
+    Only diffing the built members caught it.
+
+    A metadata assertion would not have failed then and would not fail if the
+    backend changes again, so this builds the wheel and reads what is in it.
+    """
+    subprocess.run(
+        ["uv", "build", "--wheel", "--out-dir", str(tmp_path)],
+        cwd=PROJECT_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    wheels = list(tmp_path.glob("*.whl"))
+    assert len(wheels) == 1, f"expected one wheel, got {wheels}"
+
+    with zipfile.ZipFile(wheels[0]) as archive:
+        members = archive.namelist()
+
+    assert any(name.endswith("licenses/LICENSE") for name in members), (
+        "LICENSE absent from the wheel — the regression this test exists for"
+    )
+    assert any("/templates/" in name for name in members), (
+        "package data absent from the wheel"
+    )
+    assert any(name.endswith("py.typed") for name in members)
 
 
 def test_never_ship_paths_are_not_package_data() -> None:
