@@ -789,6 +789,21 @@ _CLAUDE_GITIGNORE_LINES = [
 ]
 
 
+def _names_claude_dir(pattern: str) -> bool:
+    """True when a gitignore pattern names the ``.claude`` directory.
+
+    Matches every spelling git accepts — ``.claude/``, ``.claude/*``,
+    ``/.claude/`` (root-anchored), ``**/.claude/*`` — by testing path
+    segments rather than the leading characters. An anchored form reaching
+    the "no reference" branch would get the unanchored block appended, which
+    broadens the ignore from root-only to any depth.
+    """
+    stripped = pattern.strip().lstrip("!")
+    if not stripped or stripped.startswith("#"):
+        return False
+    return ".claude" in stripped.split("/")
+
+
 def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
     """Ensure .gitignore has the .claude/ pattern with settings.json exception.
 
@@ -821,13 +836,21 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
             lines.insert(insert_idx, entry)
             insert_idx += 1
         updated = "\n".join(lines)
-    elif any(s.lstrip("!").startswith(".claude") for s in stripped if s):
-        # A deliberate stanza this function did not write. Appending negations
-        # to it can activate rules that have never been in effect, so report
-        # and leave the file untouched.
+    elif any(_names_claude_dir(s) for s in stripped):
+        # A deliberate stanza this function did not write. Appending to it can
+        # activate rules that have never been in effect, or broaden an anchored
+        # pattern, so report and leave the file untouched. Only the exceptions
+        # are suggested — recommending the `.claude/` anchor to a repo that
+        # deliberately chose a different parent would contradict its own stanza.
+        suggestions = [entry for entry in missing if entry.startswith("!")]
+        detail = (
+            " Add these by hand if you want them: " + ", ".join(suggestions)
+            if suggestions
+            else ""
+        )
         console.print(
             f"  [yellow]![/yellow] {rel} has its own .claude stanza — left as is."
-            " Add these by hand if you want them: " + ", ".join(missing)
+            f"{detail}"
         )
         return []
     else:

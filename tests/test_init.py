@@ -6,10 +6,10 @@ import json
 import tomllib
 from typing import TYPE_CHECKING
 
+import pytest
+
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 
@@ -834,3 +834,53 @@ def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
     before = ignored()
     run_init(str(tmp_path))
     assert ignored() == before, "punt init changed what git ignores"
+
+
+@pytest.mark.parametrize(
+    "stanza", ["/.claude/", ".claude/*", "/.claude/*", "**/.claude/*", ".claude"]
+)
+def test_init_respects_every_claude_stanza_spelling(
+    tmp_path: Path, stanza: str
+) -> None:
+    """Anchored and globbed forms are stanzas too.
+
+    An anchored `/.claude/` reaching the "no reference" branch would get the
+    unanchored block appended, broadening the ignore from root-only to any
+    depth — the same invariant violation this guard exists to prevent.
+    """
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    gitignore = tmp_path / ".gitignore"
+    original = stanza + "\n"
+    gitignore.write_text(original)
+
+    run_init(str(tmp_path))
+
+    assert gitignore.read_text() == original
+
+
+def test_foreign_stanza_warning_omits_the_anchor(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Suggesting `.claude/` to a repo that chose `.claude/*` contradicts it."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    (tmp_path / ".gitignore").write_text(".claude/*\n")
+
+    run_init(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "stanza" in out
+    assert "!.claude/settings.json" in out or "settings.json" in out
+
+
+def test_foreign_stanza_warning_has_no_empty_suggestion_list(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """With every exception already present there is nothing to suggest."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
+    (tmp_path / ".gitignore").write_text(
+        ".claude/*\n!.claude/settings.json\n!.claude/hooks/\n"
+    )
+
+    run_init(str(tmp_path))
+
+    assert "Add these by hand" not in capsys.readouterr().out
