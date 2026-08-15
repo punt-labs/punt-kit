@@ -529,11 +529,12 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                 check=False,
             )
         except subprocess.TimeoutExpired:
-            # A query that does not return is a query that failed, and this
-            # loop has hours of budget left to wait out a slow GitHub. Route
-            # the timeout through the same five-strikes path a non-zero exit
-            # takes so one slow response cannot abort a release that still
-            # has most of its polling window.
+            # A query that does not return is a query that failed. Route the
+            # timeout through the same five-strikes path a non-zero exit
+            # takes, so an isolated slow response costs one strike instead of
+            # aborting a release whose polling window has barely opened. Five
+            # consecutive failures still stop the release — a GitHub that
+            # never answers is not something to wait out.
             result = subprocess.CompletedProcess(
                 args=[],
                 returncode=1,
