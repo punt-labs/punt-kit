@@ -1193,8 +1193,30 @@ class _TagRunSelector:
             "--limit",
             "20",
             "--json",
-            "databaseId,headBranch,event,headSha",
+            "databaseId,headBranch,event,headSha,conclusion",
         ]
+
+    def describe_misses(self, runs: Sequence[Mapping[str, object]]) -> str:
+        """Name the runs that were seen and rejected, and why.
+
+        ``list_command`` filters by ref, so every run offered here already
+        belongs to this tag. A non-match therefore means a commit or trigger
+        mismatch — never that the tag failed to trigger CI. Reporting what was
+        rejected turns the phase's most misleading message into its most
+        useful one: a delete-and-recreate leaves a run at the old commit, and
+        its conclusion is usually the fact the operator most needs.
+        """
+        seen: list[str] = []
+        for run in runs:
+            if self.matches(run):
+                continue
+            sha = run.get("headSha")
+            where = sha[:8] if isinstance(sha, str) else "an unknown commit"
+            conclusion = run.get("conclusion") or "still running"
+            seen.append(f"a {run.get('event')} run at {where} ({conclusion})")
+        if not seen:
+            return ""
+        return f"{'; '.join(seen)}, but the local tag is at {self._commit[:8]}"
 
     def matches(self, run: Mapping[str, object]) -> bool:
         """True when ``run`` was triggered by this tag at this commit."""
@@ -1244,6 +1266,49 @@ class _TagRunSelector:
         raise ReleaseError(msg)
 
 
+# Conclusions that are a genuine verdict from CI, as opposed to gh being
+# unable to tell us one. Anything outside this set means the watch exited
+# non-zero for a reason of its own — a deleted run, an expired token, a
+# dropped connection — and phase 6 has no verdict to report.
+_CI_ADVERSE_CONCLUSIONS = frozenset(
+    {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}
+)
+_CI_WATCH_TIMEOUT = 7200
+
+
+def _watch_failure_message(gh: str, root: Path, run_id: int, returncode: int) -> str:
+    """Explain a non-zero ``gh run watch`` without inventing a CI verdict.
+
+    ``gh run watch`` exits non-zero when the run failed, but also when it
+    cannot reach the run at all: a deleted run answers 404 and an expired
+    token answers 401, both with the same exit code. Reporting either as
+    "CI failed" sends the operator to a green run, from which the natural
+    recovery is to resume past this phase — publishing to PyPI and
+    propagating to the fleet with no CI verdict ever obtained.
+    """
+    verdict = _run(
+        [gh, "run", "view", str(run_id), "--json", "status,conclusion"],
+        cwd=str(root),
+        check=False,
+    )
+    conclusion = ""
+    if verdict.returncode == 0:
+        try:
+            parsed = json.loads(verdict.stdout)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            raw = cast("dict[str, object]", parsed).get("conclusion")
+            conclusion = raw if isinstance(raw, str) else ""
+    if conclusion in _CI_ADVERSE_CONCLUSIONS:
+        return f"CI run {run_id} concluded {conclusion} — fix before continuing"
+    return (
+        f"could not confirm CI run {run_id} passed: gh run watch exited "
+        f"{returncode} and the run reports {conclusion or 'no conclusion'}. "
+        f"Check the run itself — do not resume past this phase until it is green"
+    )
+
+
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 6: Wait for CI."""
     console.print("\n[bold]Phase 6: Wait for CI[/bold]")
@@ -1272,18 +1337,20 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _info(f"Looking for the release.yml run for {tag} ({commit[:8]})...")
 
     list_cmd = _TagRunSelector.list_command(gh, tag)
-    # A gh failure must not masquerade as "no run yet". Polling tolerates a
-    # transient one, but if gh never worked at all the release stops with gh's
-    # own error rather than a misleading "the tag did not trigger CI". This
-    # tracks whether any call ever succeeded — not whether the last one did,
-    # which would misreport a late transient blip after 23 clean polls.
-    gh_ever_succeeded = False
+    # A gh failure must not masquerade as "no run yet", and a lookup that never
+    # happened must not be silently dropped from the account. Counting both
+    # outcomes keeps the two facts separable: a blip after clean polls is not
+    # "gh never worked", and 23 failures after one success is not "no run".
+    gh_ok = 0
+    gh_failed = 0
     last_gh_error = ""
+    latest: Sequence[Mapping[str, object]] = ()
 
     def list_runs() -> Sequence[Mapping[str, object]]:
-        nonlocal gh_ever_succeeded, last_gh_error
+        nonlocal gh_ok, gh_failed, last_gh_error, latest
         result = _run(list_cmd, cwd=str(info.root), check=False)
         if result.returncode != 0:
+            gh_failed += 1
             last_gh_error = result.stderr.strip() or "gh run list failed"
             return ()
         try:
@@ -1292,6 +1359,7 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             # A zero exit with unparseable stdout is still a failed lookup.
             # Letting the decode error escape would bypass both _fail sites
             # and end the release in a traceback instead of a diagnosis.
+            gh_failed += 1
             last_gh_error = f"gh run list returned unparseable JSON: {exc}"
             return ()
         # Valid JSON of the wrong shape is the same problem one step later: gh
@@ -1300,13 +1368,15 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         if not isinstance(parsed, list) or not all(
             isinstance(run, dict) for run in cast("list[object]", parsed)
         ):
+            gh_failed += 1
             last_gh_error = (
                 f"gh run list returned an unexpected JSON shape: "
                 f"{result.stdout.strip()[:200]}"
             )
             return ()
-        gh_ever_succeeded = True
-        return cast("Sequence[Mapping[str, object]]", parsed)
+        gh_ok += 1
+        latest = cast("Sequence[Mapping[str, object]]", parsed)
+        return latest
 
     try:
         run_id = selector.poll(
@@ -1315,21 +1385,45 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             interval=_CI_RUN_POLL_INTERVAL,
         )
     except ReleaseError as exc:
-        if not gh_ever_succeeded:
+        if gh_ok == 0:
             _fail(f"gh run list never succeeded: {last_gh_error}")
-        _fail(str(exc))
+        reasons = [str(exc)]
+        # Failed lookups shrink the real search budget, so say how many there
+        # were. Silence here reads as "we looked 24 times and found nothing".
+        if gh_failed:
+            reasons.append(
+                f"{gh_failed} of {gh_ok + gh_failed} lookups failed ({last_gh_error})"
+            )
+        # Every run in the list is already this tag's, so a near-miss is the
+        # most useful thing phase 6 knows — and the thing that contradicts
+        # "the tag push may not have triggered CI".
+        if misses := selector.describe_misses(latest):
+            reasons.append(f"saw {misses}")
+        _fail("; ".join(reasons))
 
     _info(f"Watching run {run_id}...")
 
-    result = _run(
-        [gh, "run", "watch", str(run_id), "--exit-status"],
-        cwd=str(info.root),
-        check=False,
-        capture=False,
-        timeout=7200,
-    )
+    try:
+        result = _run(
+            [gh, "run", "watch", str(run_id), "--exit-status"],
+            cwd=str(info.root),
+            check=False,
+            capture=False,
+            timeout=_CI_WATCH_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        # The pypi job gates on a manually-approved environment, so a release
+        # left overnight can outlast the watch while the run is perfectly
+        # healthy. Dying in a traceback here tells the operator nothing about
+        # which of those two happened.
+        _fail(
+            f"stopped watching run {run_id} after "
+            f"{_CI_WATCH_TIMEOUT // 3600}h — it may still be waiting for the "
+            f"release environment approval. Check the run, then "
+            f"--resume-from github-release once it is green"
+        )
     if result.returncode != 0:
-        _fail(f"CI run {run_id} failed — fix before continuing")
+        _fail(_watch_failure_message(gh, info.root, run_id, result.returncode))
     _ok("CI passed")
 
 
