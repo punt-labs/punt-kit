@@ -3166,3 +3166,30 @@ def test_phase6_timeout_explains_itself_instead_of_raising(
 
     with pytest.raises(ReleaseError, match="release environment approval"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_phase6_treats_a_hung_run_list_as_a_failed_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hung listing must be a failed lookup, not a traceback.
+
+    The watch call was hardened against TimeoutExpired; the listing goes
+    through the same _run and would escape poll the same way.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="timed out"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)

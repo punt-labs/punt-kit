@@ -1274,6 +1274,10 @@ _CI_ADVERSE_CONCLUSIONS = frozenset(
     {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}
 )
 _CI_WATCH_TIMEOUT = 7200
+# Listing runs is a fast metadata call, so it does not inherit the watch's
+# two-hour budget — a listing that blocks that long has failed, and waiting
+# on it burns the poll window that exists to find the run.
+_CI_RUN_LIST_TIMEOUT = 60
 
 
 def _watch_failure_message(gh: str, root: Path, run_id: int, returncode: int) -> str:
@@ -1348,7 +1352,20 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     def list_runs() -> Sequence[Mapping[str, object]]:
         nonlocal gh_ok, gh_failed, last_gh_error, latest
-        result = _run(list_cmd, cwd=str(info.root), check=False)
+        try:
+            result = _run(
+                list_cmd,
+                cwd=str(info.root),
+                check=False,
+                timeout=_CI_RUN_LIST_TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            # A listing that hangs is a lookup that did not happen, not a
+            # reason to end the release in a traceback. Polling already
+            # tolerates a failed lookup, so route it there.
+            gh_failed += 1
+            last_gh_error = f"gh run list timed out after {_CI_RUN_LIST_TIMEOUT}s"
+            return ()
         if result.returncode != 0:
             gh_failed += 1
             last_gh_error = result.stderr.strip() or "gh run list failed"
