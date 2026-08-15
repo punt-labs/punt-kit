@@ -38,6 +38,31 @@ _interrupted = threading.Event()
 PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
 # ---------------------------------------------------------------------------
+# Timeout budgets
+# ---------------------------------------------------------------------------
+# The _run default is short by design. Metadata calls — git rev-parse, gh api
+# graphql, gh pr view, git status — return promptly or not at all, so a call
+# that outlives this budget has hung, and the release surfaces that as a
+# diagnosis instead of a two-hour stall. Long-running call sites opt in
+# explicitly to one of the named budgets below.
+_DEFAULT_RUN_TIMEOUT = 60
+
+# uv resolves dependencies, downloads wheels, and may build native bindings.
+# A first-run resolve on a cold cache takes minutes; anything past ten is a
+# wedge, not a slow install.
+_UV_TIMEOUT = 600
+
+# git fetch/push/pull over the network. Usually finishes in a second; the
+# budget is wide enough to swallow a transient hiccup but narrower than a
+# wedge on a broken socket.
+_GIT_NETWORK_TIMEOUT = 300
+
+# Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The
+# full test suite on a cold cache can take a few minutes; a release aborts if
+# it cannot complete inside the budget.
+_QUALITY_GATE_TIMEOUT = 1800
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -46,11 +71,16 @@ def _run(
     cmd: list[str],
     *,
     cwd: str | None = None,
-    timeout: int = 7200,
+    timeout: int = _DEFAULT_RUN_TIMEOUT,
     check: bool = True,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess with standard options."""
+    """Run a subprocess with standard options.
+
+    ``timeout`` defaults to a short metadata budget. Call sites that
+    legitimately need longer — package installs, quality gates, network git,
+    ``gh run watch`` — must pass one of the named budgets defined above.
+    """
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -303,7 +333,12 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         )
     _ok("Working tree clean")
 
-    fetch = _run(["git", "fetch", "origin"], cwd=str(info.root), check=False)
+    fetch = _run(
+        ["git", "fetch", "origin"],
+        cwd=str(info.root),
+        check=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
+    )
     if fetch.returncode != 0:
         _fail(f"git fetch origin failed:\n{fetch.stderr.strip()}")
     diff = _run(
@@ -370,7 +405,13 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
             ["uv", "run", "pytest", "tests/", "-v"],
         ]
         for gate in gates:
-            result = _run(gate, cwd=str(info.root), check=False, capture=False)
+            result = _run(
+                gate,
+                cwd=str(info.root),
+                check=False,
+                capture=False,
+                timeout=_QUALITY_GATE_TIMEOUT,
+            )
             if result.returncode != 0:
                 _fail(f"Quality gate failed: {' '.join(gate)}")
         _ok("All quality gates passed")
@@ -379,13 +420,23 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         makefile = info.root / "Makefile"
         if makefile.exists():
             result = _run(
-                ["make", "check"], cwd=str(info.root), check=False, capture=False
+                ["make", "check"],
+                cwd=str(info.root),
+                check=False,
+                capture=False,
+                timeout=_QUALITY_GATE_TIMEOUT,
             )
             if result.returncode != 0:
                 _fail("Quality gate failed: make check")
         else:
             for gate in [["go", "vet", "./..."], ["go", "test", "-race", "./..."]]:
-                result = _run(gate, cwd=str(info.root), check=False, capture=False)
+                result = _run(
+                    gate,
+                    cwd=str(info.root),
+                    check=False,
+                    capture=False,
+                    timeout=_QUALITY_GATE_TIMEOUT,
+                )
                 if result.returncode != 0:
                     _fail(f"Quality gate failed: {' '.join(gate)}")
         _ok("All quality gates passed")
@@ -682,7 +733,11 @@ def _pr_merge(
 
     # 1. Push branch (idempotent)
     result = _run(
-        ["git", "push", "-u", "origin", branch], cwd=root, check=False, capture=False
+        ["git", "push", "-u", "origin", branch],
+        cwd=root,
+        check=False,
+        capture=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Failed to push branch {branch} — fix and retry")
@@ -721,7 +776,11 @@ def _pr_merge(
             if already_merged:
                 _ok(f"PR #{pr_number} already merged")
                 _run(["git", "checkout", "main"], cwd=root)
-                _run(["git", "pull", "--ff-only"], cwd=root)
+                _run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=root,
+                    timeout=_GIT_NETWORK_TIMEOUT,
+                )
                 sha = _run(
                     ["git", "rev-parse", "--short", "HEAD"], cwd=root
                 ).stdout.strip()
@@ -774,7 +833,11 @@ def _pr_merge(
     if pr_state == "MERGED":
         _ok(f"PR #{pr_number} already merged")
         _run(["git", "checkout", "main"], cwd=root)
-        _run(["git", "pull", "--ff-only"], cwd=root)
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=root,
+            timeout=_GIT_NETWORK_TIMEOUT,
+        )
         sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
         return sha
 
@@ -831,7 +894,11 @@ def _pr_merge(
 
     # 7. Update local main
     _run(["git", "checkout", "main"], cwd=root)
-    _run(["git", "pull", "--ff-only"], cwd=root)
+    _run(
+        ["git", "pull", "--ff-only"],
+        cwd=root,
+        timeout=_GIT_NETWORK_TIMEOUT,
+    )
     sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
     return sha
 
@@ -950,7 +1017,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     else:
         lock_file = root / "uv.lock"
         if lock_file.exists():
-            _run(["uv", "lock"], cwd=str(root))
+            _run(["uv", "lock"], cwd=str(root), timeout=_UV_TIMEOUT)
             _ok("uv.lock refreshed")
         # Stage only the files this phase edits — `git add -A` would sweep
         # unrelated untracked files into the release commit.
@@ -993,7 +1060,7 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     if dist.exists():
         shutil.rmtree(dist)
 
-    _run(["uv", "build"], cwd=str(info.root), capture=False)
+    _run(["uv", "build"], cwd=str(info.root), capture=False, timeout=_UV_TIMEOUT)
 
     # twine check on built artifacts only (.whl and .tar.gz)
     dist_dir = info.root / "dist"
@@ -1062,7 +1129,11 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
         _run(["git", "checkout", "main"], cwd=str(root))
-        _run(["git", "pull", "--ff-only"], cwd=str(root))
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(root),
+            timeout=_GIT_NETWORK_TIMEOUT,
+        )
 
     # Check if tag already exists
     existing = _run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
@@ -1083,7 +1154,12 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _ok(f"Tagged {tag}")
 
     # Push tag (not blocked by branch protection — targets refs/tags/*)
-    _run(["git", "push", "origin", tag], cwd=str(root), capture=False)
+    _run(
+        ["git", "push", "origin", tag],
+        cwd=str(root),
+        capture=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
+    )
     _ok(f"Pushed tag {tag}")
 
 
@@ -1525,6 +1601,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
             cwd=str(info.root),
             check=False,
             capture=False,
+            timeout=_UV_TIMEOUT,
         )
         if result.returncode == 0:
             break
@@ -1553,6 +1630,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
         ["uv", "tool", "install", "--force", "--editable", "."],
         cwd=str(info.root),
         capture=False,
+        timeout=_UV_TIMEOUT,
     )
     _ok("Editable install restored")
 
@@ -1583,7 +1661,11 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
         _run(["git", "checkout", "main"], cwd=str(root))
-        _run(["git", "pull", "--ff-only"], cwd=str(root))
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(root),
+            timeout=_GIT_NETWORK_TIMEOUT,
+        )
 
     existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
     if existing:
@@ -1703,6 +1785,7 @@ def _validate_sibling(path: Path, name: str) -> None:
         ["git", "pull", "--ff-only", "origin", "main"],
         cwd=str(path),
         check=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
@@ -2428,6 +2511,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         result = _run(
             ["uv", "run", "pip", "index", "versions", package_name],
             check=False,
+            timeout=_UV_TIMEOUT,
         )
         pypi_ok = (
             bool(re.search(rf"\b{re.escape(version)}\b", result.stdout))
