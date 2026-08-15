@@ -3370,6 +3370,49 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     assert _phase_name(1) == suggested
 
 
+def test_run_release_credits_propagate_when_resuming_from_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A P10 hang while resuming past P9 must diagnose as propagate.
+
+    When ``start == 10``, ``_run_phases_9_10`` runs phase 10 alone on
+    the main thread — the thread-boundary rationale for crediting phase
+    9 does not apply. Naming this hang ``post-release`` and telling the
+    operator ``--resume-from post-release`` would re-run phase 9,
+    which is the exact contract failure the phase-in-diagnosis fix
+    exists to close.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    hung_cmd = ["gh", "pr", "merge", "42", "--squash"]
+
+    def fake_run_phases_9_10(
+        _info: object, _version: str, *, dry_run: bool, start: int
+    ) -> None:
+        # Sanity: exercised only in the start == 10 path.
+        assert start == 10
+        assert dry_run is False
+        raise subprocess.TimeoutExpired(hung_cmd, 300)
+
+    monkeypatch.setattr(release_mod, "_run_phases_9_10", fake_run_phases_9_10)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
+
+    assert exc_info.value.code == 1
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "phase 10 (propagate)" in normalized
+    assert "post-release" not in normalized
+    assert "--resume-from propagate" in normalized
+    assert "propagate" in PHASE_NAMES
+    assert _phase_name(10) == "propagate"
+
+
 def test_phase_name_round_trips_through_phase_names() -> None:
     """Every phase number 1..N round-trips through PHASE_NAMES.
 

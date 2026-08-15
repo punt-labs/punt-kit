@@ -2714,12 +2714,16 @@ def run_release(
             if start <= 8:
                 current_phase_num = 8
                 _phase8_verify_pypi(info, version, dry_run=dry_run)
-            # P9 and P10 are independent — run concurrently when both are in
-            # scope. A TimeoutExpired raised inside either thread crosses the
-            # thread boundary as a ReleaseError via _collect_thread_results,
-            # so the phase number here is the pair's entry point (9); the
-            # in-thread failure carries its own diagnosis.
-            current_phase_num = 9
+            # P9 and P10. When both are in scope they run concurrently and
+            # any in-thread TimeoutExpired crosses the boundary as a
+            # ReleaseError via _collect_thread_results, so crediting the
+            # pair's entry point (9) is honest for the concurrent path.
+            # When start == 10, P9 is already done and _run_phases_9_10
+            # runs P10 alone on the main thread — a TimeoutExpired there
+            # is a propagate hang, and telling the operator
+            # `--resume-from post-release` would re-run phase 9. Credit
+            # the phase that is actually executing.
+            current_phase_num = 9 if start <= 9 else 10
             _run_phases_9_10(info, version, dry_run=dry_run, start=start)
             if start <= 11:
                 current_phase_num = 11
