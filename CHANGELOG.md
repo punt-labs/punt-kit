@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Action pin comments now state the version actually pinned. Dependabot
+  bumped `actions/checkout` to v7.0.1's SHA in five workflows and left the
+  `# v4` comment behind, so the label disagreed with the pin. The comment
+  is the only part a human reads, so a wrong one hides a stale pin — the
+  same rot that let `gh-action-pypi-publish` sit on a version whose twine
+  rejected metadata 2.5 and broke the 0.12.0 release
+- `markdownlint-cli2-action` was pinned to an unreleased commit on the
+  action's default branch — ahead of every release tag including v24.2.0 —
+  and labelled `# v22`. Repinned to the v24.2.0 release commit, so the pin
+  is an immutable released artifact rather than a moving branch head
+
 ### Changed
 
 - `standards/python.md` now mandates `uv_build` rather than `hatchling`
