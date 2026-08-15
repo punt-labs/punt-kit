@@ -16,7 +16,7 @@ warn() { printf '  %b!%b %s\n' "$YELLOW" "$NC" "$1"; }
 fail() { printf '  %b✗%b %s\n' "$YELLOW" "$NC" "$1"; exit 1; }
 
 PACKAGE="punt-kit"
-VERSION="0.13.0"
+VERSION="0.14.0"
 BINARY="punt"
 
 # --- Step 1: uv ---
