@@ -89,7 +89,11 @@ set -euo pipefail
 
 ### `--help` handler
 
-Every script that takes arguments must respond to `--help`/`-h` by printing usage and exiting `0`. Zero-arg invocation of a script that requires args must also print usage — never error with an unhelpful shell trace, never fall through to real work. Convention:
+Every script that takes arguments must respond to `--help`/`-h` by printing usage and exiting `0`. Zero-arg invocation of a script that *requires* args (e.g. `resolve-threads.sh <branch>`) must also print usage — never error with an unhelpful shell trace, never fall through to real work.
+
+Zero-arg invocation of a script that *accepts* an optional `--apply` (the destructive-scripts-default-to-preview pattern below) is not the same case: zero-arg means "preview" and exits `0` on its own path, NOT via the help handler. Do not conflate the two.
+
+Convention for both:
 
 ```bash
 usage() {
@@ -100,9 +104,15 @@ Usage: $(basename "$0") [--dry-run] [--apply]
 EOF
 }
 
+# All scripts: respond to --help/-h.
 case "${1:-}" in
-  -h|--help|"") usage; exit 0 ;;
+  -h|--help) usage; exit 0 ;;
 esac
+
+# Scripts that REQUIRE args add this after the case:
+#   if [ $# -eq 0 ]; then usage; exit 0; fi
+# Scripts that ACCEPT --apply (preview-by-default) omit that guard —
+# zero-arg falls through to the preview loop.
 ```
 
 ### Destructive scripts default to preview
