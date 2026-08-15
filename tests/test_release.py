@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import threading
 from typing import TYPE_CHECKING
@@ -20,6 +21,7 @@ from punt_kit.release import (
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
@@ -30,12 +32,14 @@ from punt_kit.release import (
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
+    _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -2572,3 +2576,654 @@ def test_phases_9_10_both_fail_reports_both(
 
     with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 run selection
+#
+# The failure this guards against is a false green: phase 6 attaching to a
+# successful run that predates the tag and reporting "CI passed" for a release
+# that was never tested. It cannot be reproduced by running a release, because
+# the trigger is GitHub being slow to register a run. So the selection logic is
+# driven directly against synthesised `gh run list` payloads instead.
+#
+# Payload shapes are copied from real `gh run list --workflow release.yml
+# --json databaseId,headBranch,event,headSha` output on punt-labs/punt-kit.
+# ---------------------------------------------------------------------------
+
+TAG = "v0.13.0"
+COMMIT = "d613f08eb7deedbcdf78f550a88201ca5541ad26"
+
+# The run this tag actually triggered.
+MATCHING_RUN: dict[str, object] = {
+    "databaseId": 31806710142,
+    "headBranch": TAG,
+    "event": "push",
+    "headSha": COMMIT,
+    "name": "Release",
+}
+
+# The previous release's run — succeeded, and sits at runs[0] until the new
+# run registers. This is the one the old code would have watched.
+STALE_SUCCESS_RUN: dict[str, object] = {
+    "databaseId": 31761285776,
+    "headBranch": "v0.12.0",
+    "event": "push",
+    "headSha": "4265f57b75d733211227917e10e07bc739575584",
+    "name": "Release",
+}
+
+
+def _selector() -> _TagRunSelector:
+    return _TagRunSelector(TAG, COMMIT)
+
+
+def _never_sleep(_seconds: float) -> None:
+    """Collapse the poll interval so tests do not actually wait."""
+
+
+def test_phase6_fails_on_stale_success_with_no_matching_run() -> None:
+    """A previous release's green run must not be accepted for this tag.
+
+    This is the false green the fix exists for: without the tag filter, the
+    old code took runs[0] — the stale success — and reported CI passed.
+    """
+    selector = _selector()
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll(
+            lambda: [STALE_SUCCESS_RUN], attempts=2, interval=0, sleep=_never_sleep
+        )
+
+
+def test_phase6_selects_the_matching_run_among_stale_ones() -> None:
+    """The tag's own run is picked even when stale runs are listed first."""
+    selector = _selector()
+
+    run_id = selector.poll(
+        lambda: [STALE_SUCCESS_RUN, MATCHING_RUN],
+        attempts=2,
+        interval=0,
+        sleep=_never_sleep,
+    )
+
+    assert run_id == 31806710142
+
+
+def test_phase6_waits_for_a_run_that_registers_late() -> None:
+    """A slow registration extends the wait instead of selecting the wrong run."""
+    selector = _selector()
+    calls: list[int] = []
+    slept: list[float] = []
+
+    def list_runs() -> list[dict[str, object]]:
+        calls.append(1)
+        # The tag's run only shows up on the third poll.
+        if len(calls) < 3:
+            return [STALE_SUCCESS_RUN]
+        return [MATCHING_RUN, STALE_SUCCESS_RUN]
+
+    run_id = selector.poll(list_runs, attempts=5, interval=5.0, sleep=slept.append)
+
+    assert run_id == 31806710142
+    assert len(calls) == 3
+    assert slept == [5.0, 5.0], "should sleep between polls, not after the match"
+
+
+def test_phase6_fails_when_no_runs_exist_at_all() -> None:
+    """An empty run list must fail after the attempts, not hang."""
+    selector = _selector()
+    attempts_made: list[int] = []
+
+    def list_runs() -> list[dict[str, object]]:
+        attempts_made.append(1)
+        return []
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll(list_runs, attempts=3, interval=0, sleep=_never_sleep)
+
+    assert len(attempts_made) == 3, "must stop after the configured attempts"
+
+
+def test_phase6_rejects_a_retagged_run_at_a_different_commit() -> None:
+    """Same tag name, different commit — a delete-and-recreate leftover.
+
+    Real case: v0.12.0 had two push runs at different headShas. Matching on
+    the tag name alone would accept the older one.
+    """
+    selector = _selector()
+    leftover = {**MATCHING_RUN, "headSha": "70111ff62936f5cbb64f8c6235bbe106258088a2"}
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll([leftover].copy, attempts=2, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_rejects_a_branch_run_at_the_same_commit() -> None:
+    """A run at the right commit but the wrong ref is still the wrong run.
+
+    The tag points at main's HEAD, so a main-branch run shares the tag run's
+    headSha exactly. Only headBranch separates them — without that check the
+    wait can attach to the branch run and never watch the tag's release at all.
+    """
+    selector = _selector()
+    branch_run = {**MATCHING_RUN, "databaseId": 31806700000, "headBranch": "main"}
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll([branch_run].copy, attempts=2, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_rejects_a_manual_dispatch_of_the_same_tag() -> None:
+    """workflow_dispatch is not the tag push, even at the right commit."""
+    selector = _selector()
+    dispatched = {**MATCHING_RUN, "event": "workflow_dispatch"}
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll([dispatched].copy, attempts=2, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_rejects_a_run_without_a_usable_id() -> None:
+    """A malformed payload fails loudly rather than watching run 'None'."""
+    selector = _selector()
+    malformed = {**MATCHING_RUN, "databaseId": None}
+
+    with pytest.raises(ReleaseError, match="no usable databaseId"):
+        selector.poll([malformed].copy, attempts=1, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_error_names_the_tag_and_commit() -> None:
+    """The failure message must say what was looked for, not just that it failed."""
+    selector = _selector()
+
+    with pytest.raises(ReleaseError) as caught:
+        selector.poll(list, attempts=1, interval=0, sleep=_never_sleep)
+
+    message = str(caught.value)
+    assert TAG in message
+    assert COMMIT[:8] in message
+
+
+def _fake_which(_name: str) -> str:
+    """Stand in for a gh binary so phase 6 gets past its tool check."""
+    return "/usr/bin/gh"
+
+
+def test_phase6_fails_when_the_tag_cannot_be_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tag missing locally fails cleanly instead of raising CalledProcessError."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    with pytest.raises(ReleaseError, match="Cannot resolve"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_reports_gh_failure_rather_than_a_missing_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken gh must not be reported as 'the tag did not trigger CI'.
+
+    Both produce an empty run list, but the operator's next action is
+    completely different, so the two must not share a message.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="gh: not authenticated"
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="not authenticated"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_blames_the_missing_run_when_gh_worked_at_least_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A late transient gh blip must not be blamed for a run that never existed.
+
+    The interleaved case: gh answers cleanly for most polls (no matching run,
+    because the tag genuinely never triggered CI) and then fails once at the
+    end. Reporting that blip as "gh never succeeded" points the operator at
+    their network when the real story is that no run was ever created.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    gh_calls: list[int] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        gh_calls.append(1)
+        # Clean empty answers, then one transient failure on the last poll.
+        if len(gh_calls) < 3:
+            return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="gh: connection reset"
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_lists_runs_filtered_to_the_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run list is filtered by ref server-side, not truncated client-side.
+
+    Without --branch, a busy release.yml history can push the target run past
+    the limit, which reads identically to "the tag never triggered CI".
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    seen: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+    assert seen, "gh run list should have been invoked"
+    assert "--branch" in seen[0]
+    assert seen[0][seen[0].index("--branch") + 1] == "v9.9.9"
+
+
+def test_phase6_reports_the_time_it_actually_waited() -> None:
+    """The failure message must not claim an interval it never slept.
+
+    poll sleeps between attempts, not after the last one, so N attempts wait
+    (N-1) intervals.
+    """
+    selector = _selector()
+    slept: list[float] = []
+
+    with pytest.raises(ReleaseError, match="after 15s"):
+        selector.poll(list, attempts=4, interval=5.0, sleep=slept.append)
+
+    assert sum(slept) == 15.0, "reported wait must match the wait performed"
+
+
+def test_phase6_survives_unparseable_gh_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Garbage on stdout with a zero exit must diagnose, not traceback.
+
+    A JSONDecodeError escaping list_runs would bypass both _fail sites and
+    end the release in a stack trace instead of a message.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="not json at all", stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="unparseable JSON"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_dry_run_prints_the_command_it_would_execute(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The dry run must show the real invocation, not a paraphrase.
+
+    A dry run that prints an approximation of the command is worse than
+    useless for debugging: it diverges silently from what actually runs.
+    """
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    _phase6_ci_wait(info, "9.9.9", dry_run=True)
+
+    printed = capsys.readouterr().out
+    executed = " ".join(_TagRunSelector.list_command("gh", "v9.9.9"))
+    # Rich wraps long lines, so compare on the argument tokens.
+    for token in executed.split():
+        assert token in printed, f"dry run omitted {token!r}"
+
+
+def test_phase6_survives_wrong_shaped_gh_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valid JSON of the wrong shape must diagnose, not raise TypeError.
+
+    gh reports some errors as a JSON object rather than a run array. Casting
+    one to a run sequence surfaces as a TypeError from inside poll, which
+    escapes both _fail sites the same way a decode error would.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout='{"message":"Not Found"}', stderr=""
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="unexpected JSON shape"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_reports_a_sub_second_interval_without_truncating() -> None:
+    """A fractional interval must not be rounded down in the message.
+
+    int() on (attempts - 1) * interval would report 2s for a 2.5s wait,
+    understating how long the release actually blocked.
+    """
+    selector = _selector()
+
+    with pytest.raises(ReleaseError, match="after 2.5s"):
+        selector.poll(list, attempts=3, interval=1.25, sleep=_never_sleep)
+
+
+def _run_stub(
+    responses: dict[str, subprocess.CompletedProcess[str]],
+) -> Callable[..., subprocess.CompletedProcess[str]]:
+    """Route fake _run calls by the gh subcommand (or git) they invoke."""
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        key = cmd[2] if len(cmd) > 2 else ""
+        return responses[key]
+
+    return fake_run
+
+
+def test_phase6_reports_failed_lookups_alongside_the_missing_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Lookups that never happened must not vanish from the account.
+
+    One success latches "gh worked"; without a count, 23 subsequent failures
+    read as 24 clean looks that found nothing, and the operator concludes the
+    tag never triggered CI when most of the search never ran.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    calls: list[int] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        calls.append(1)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="gh: API rate limit exceeded"
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError) as caught:
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+    message = str(caught.value)
+    assert "2 of 3 lookups failed" in message
+    assert "rate limit" in message
+
+
+def test_phase6_names_the_near_miss_run_it_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A run for this tag at another commit is the fact the operator needs.
+
+    The list is filtered by ref, so a rejected run cannot mean "the tag never
+    triggered CI" — saying that while holding evidence to the contrary is the
+    worst message this phase can print.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    stale = json.dumps(
+        [
+            {
+                "databaseId": 31760774397,
+                "headBranch": TAG,
+                "event": "push",
+                "headSha": "70111ff62936f5cbb64f8c6235bbe106258088a2",
+                "conclusion": "failure",
+            }
+        ]
+    )
+    monkeypatch.setattr(
+        release_mod,
+        "_run",
+        _run_stub(
+            {"list": subprocess.CompletedProcess([], 0, stdout=stale, stderr="")}
+        ),
+    )
+
+    with pytest.raises(ReleaseError) as caught:
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+    message = str(caught.value)
+    assert "70111ff6" in message, "must name the commit it saw"
+    assert "failure" in message, "must name that run's conclusion"
+    assert COMMIT[:8] in message, "must name the commit it wanted"
+
+
+def test_phase6_does_not_call_an_unreachable_run_a_ci_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A 404 or 401 from gh run watch is not a verdict from CI.
+
+    Both exit non-zero exactly like a real failure. Reporting them as "CI
+    failed" sends the operator to a green run, and the natural recovery from
+    there is to resume past this phase — publishing with no verdict at all.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    listed = json.dumps([MATCHING_RUN | {"conclusion": "success"}])
+    monkeypatch.setattr(
+        release_mod,
+        "_run",
+        _run_stub(
+            {
+                "list": subprocess.CompletedProcess([], 0, stdout=listed, stderr=""),
+                "watch": subprocess.CompletedProcess(
+                    [], 1, stdout="", stderr="HTTP 401: Bad credentials"
+                ),
+                "view": subprocess.CompletedProcess(
+                    [],
+                    0,
+                    stdout='{"status":"completed","conclusion":"success"}',
+                    stderr="",
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="could not confirm"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_phase6_still_reports_a_genuine_ci_failure_as_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The unreachable-run handling must not soften a real red build."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    listed = json.dumps([MATCHING_RUN | {"conclusion": "failure"}])
+    monkeypatch.setattr(
+        release_mod,
+        "_run",
+        _run_stub(
+            {
+                "list": subprocess.CompletedProcess([], 0, stdout=listed, stderr=""),
+                "watch": subprocess.CompletedProcess([], 1, stdout="", stderr=""),
+                "view": subprocess.CompletedProcess(
+                    [],
+                    0,
+                    stdout='{"status":"completed","conclusion":"failure"}',
+                    stderr="",
+                ),
+            }
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="concluded failure"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_phase6_timeout_explains_itself_instead_of_raising(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A watch timeout must diagnose, not exit in a traceback.
+
+    run_release catches ReleaseError only, so TimeoutExpired escapes as a
+    stack trace — and the release environment's manual approval gate makes
+    outlasting the two-hour watch a routine occurrence, not an exotic one.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        if cmd[2] == "watch":
+            raise subprocess.TimeoutExpired(cmd, 7200)
+        return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="release environment approval"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_phase6_treats_a_hung_run_list_as_a_failed_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hung listing must be a failed lookup, not a traceback.
+
+    The watch call was hardened against TimeoutExpired; the listing goes
+    through the same _run and would escape poll the same way.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="timed out"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_phase6_survives_a_hung_verdict_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure-reporting path must survive the failure it reports on.
+
+    The broken connection that makes gh run watch exit non-zero is the
+    likeliest reason the follow-up status query hangs, so a timeout there
+    must produce the could-not-confirm message rather than a traceback.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        if cmd[2] == "view":
+            raise subprocess.TimeoutExpired(cmd, 60)
+        if cmd[2] == "watch":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="could not confirm"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
