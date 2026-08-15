@@ -1290,13 +1290,24 @@ def _watch_failure_message(gh: str, root: Path, run_id: int, returncode: int) ->
     recovery is to resume past this phase — publishing to PyPI and
     propagating to the fleet with no CI verdict ever obtained.
     """
-    verdict = _run(
-        [gh, "run", "view", str(run_id), "--json", "status,conclusion"],
-        cwd=str(root),
-        check=False,
-    )
+    # A verdict query that never answers leaves no conclusion, which is a
+    # state this function already models — so None routes into the same
+    # "could not confirm" path rather than escaping as TimeoutExpired. The
+    # broken connection that made the watch exit non-zero is the likeliest
+    # reason this call hangs too, so the failure-reporting path must survive
+    # it; dying here would kill the diagnosis it was written to produce.
+    verdict: subprocess.CompletedProcess[str] | None
+    try:
+        verdict = _run(
+            [gh, "run", "view", str(run_id), "--json", "status,conclusion"],
+            cwd=str(root),
+            check=False,
+            timeout=_CI_RUN_LIST_TIMEOUT,
+        )
+    except subprocess.TimeoutExpired:
+        verdict = None
     conclusion = ""
-    if verdict.returncode == 0:
+    if verdict is not None and verdict.returncode == 0:
         try:
             parsed = json.loads(verdict.stdout)
         except json.JSONDecodeError:

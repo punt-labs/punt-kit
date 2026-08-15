@@ -3193,3 +3193,37 @@ def test_phase6_treats_a_hung_run_list_as_a_failed_lookup(
 
     with pytest.raises(ReleaseError, match="timed out"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_phase6_survives_a_hung_verdict_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The failure-reporting path must survive the failure it reports on.
+
+    The broken connection that makes gh run watch exit non-zero is the
+    likeliest reason the follow-up status query hangs, so a timeout there
+    must produce the could-not-confirm message rather than a traceback.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
+        if cmd[2] == "view":
+            raise subprocess.TimeoutExpired(cmd, 60)
+        if cmd[2] == "watch":
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="could not confirm"):
+        _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
