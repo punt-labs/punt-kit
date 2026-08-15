@@ -38,6 +38,31 @@ _interrupted = threading.Event()
 PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
 # ---------------------------------------------------------------------------
+# Timeout budgets
+# ---------------------------------------------------------------------------
+# The _run default is short by design. Metadata calls — git rev-parse, gh api
+# graphql, gh pr view, git status — return promptly or not at all, so a call
+# that outlives this budget has hung, and the release surfaces that as a
+# diagnosis instead of a two-hour stall. Long-running call sites opt in
+# explicitly to one of the named budgets below.
+_DEFAULT_RUN_TIMEOUT = 60
+
+# uv resolves dependencies, downloads wheels, and may build native bindings.
+# A first-run resolve on a cold cache takes minutes; anything past ten is a
+# wedge, not a slow install.
+_UV_TIMEOUT = 600
+
+# git fetch/push/pull over the network. Usually finishes in a second; the
+# budget is wide enough to swallow a transient hiccup but narrower than a
+# wedge on a broken socket.
+_GIT_NETWORK_TIMEOUT = 300
+
+# Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The
+# full test suite on a cold cache can take a few minutes; a release aborts if
+# it cannot complete inside the budget.
+_QUALITY_GATE_TIMEOUT = 1800
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -46,11 +71,16 @@ def _run(
     cmd: list[str],
     *,
     cwd: str | None = None,
-    timeout: int = 7200,
+    timeout: int = _DEFAULT_RUN_TIMEOUT,
     check: bool = True,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess with standard options."""
+    """Run a subprocess with standard options.
+
+    ``timeout`` defaults to a short metadata budget. Call sites that
+    legitimately need longer — package installs, quality gates, network git,
+    ``gh run watch`` — must pass one of the named budgets defined above.
+    """
     return subprocess.run(
         cmd,
         cwd=cwd,
@@ -303,7 +333,12 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         )
     _ok("Working tree clean")
 
-    fetch = _run(["git", "fetch", "origin"], cwd=str(info.root), check=False)
+    fetch = _run(
+        ["git", "fetch", "origin"],
+        cwd=str(info.root),
+        check=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
+    )
     if fetch.returncode != 0:
         _fail(f"git fetch origin failed:\n{fetch.stderr.strip()}")
     diff = _run(
@@ -370,7 +405,13 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
             ["uv", "run", "pytest", "tests/", "-v"],
         ]
         for gate in gates:
-            result = _run(gate, cwd=str(info.root), check=False, capture=False)
+            result = _run(
+                gate,
+                cwd=str(info.root),
+                check=False,
+                capture=False,
+                timeout=_QUALITY_GATE_TIMEOUT,
+            )
             if result.returncode != 0:
                 _fail(f"Quality gate failed: {' '.join(gate)}")
         _ok("All quality gates passed")
@@ -379,13 +420,23 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
         makefile = info.root / "Makefile"
         if makefile.exists():
             result = _run(
-                ["make", "check"], cwd=str(info.root), check=False, capture=False
+                ["make", "check"],
+                cwd=str(info.root),
+                check=False,
+                capture=False,
+                timeout=_QUALITY_GATE_TIMEOUT,
             )
             if result.returncode != 0:
                 _fail("Quality gate failed: make check")
         else:
             for gate in [["go", "vet", "./..."], ["go", "test", "-race", "./..."]]:
-                result = _run(gate, cwd=str(info.root), check=False, capture=False)
+                result = _run(
+                    gate,
+                    cwd=str(info.root),
+                    check=False,
+                    capture=False,
+                    timeout=_QUALITY_GATE_TIMEOUT,
+                )
                 if result.returncode != 0:
                     _fail(f"Quality gate failed: {' '.join(gate)}")
         _ok("All quality gates passed")
@@ -471,11 +522,25 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     )
 
     while time.time() < deadline:
-        result = _run(
-            [gh, "api", "graphql", "-f", f"query={query}"],
-            cwd=cwd,
-            check=False,
-        )
+        try:
+            result = _run(
+                [gh, "api", "graphql", "-f", f"query={query}"],
+                cwd=cwd,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            # A query that does not return is a query that failed. Route the
+            # timeout through the same five-strikes path a non-zero exit
+            # takes, so an isolated slow response costs one strike instead of
+            # aborting a release whose polling window has barely opened. Five
+            # consecutive failures still stop the release — a GitHub that
+            # never answers is not something to wait out.
+            result = subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="gh api graphql timed out",
+            )
         if result.returncode != 0:
             consecutive_errors += 1
             _info(
@@ -682,7 +747,11 @@ def _pr_merge(
 
     # 1. Push branch (idempotent)
     result = _run(
-        ["git", "push", "-u", "origin", branch], cwd=root, check=False, capture=False
+        ["git", "push", "-u", "origin", branch],
+        cwd=root,
+        check=False,
+        capture=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Failed to push branch {branch} — fix and retry")
@@ -721,7 +790,11 @@ def _pr_merge(
             if already_merged:
                 _ok(f"PR #{pr_number} already merged")
                 _run(["git", "checkout", "main"], cwd=root)
-                _run(["git", "pull", "--ff-only"], cwd=root)
+                _run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=root,
+                    timeout=_GIT_NETWORK_TIMEOUT,
+                )
                 sha = _run(
                     ["git", "rev-parse", "--short", "HEAD"], cwd=root
                 ).stdout.strip()
@@ -774,7 +847,11 @@ def _pr_merge(
     if pr_state == "MERGED":
         _ok(f"PR #{pr_number} already merged")
         _run(["git", "checkout", "main"], cwd=root)
-        _run(["git", "pull", "--ff-only"], cwd=root)
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=root,
+            timeout=_GIT_NETWORK_TIMEOUT,
+        )
         sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
         return sha
 
@@ -831,7 +908,11 @@ def _pr_merge(
 
     # 7. Update local main
     _run(["git", "checkout", "main"], cwd=root)
-    _run(["git", "pull", "--ff-only"], cwd=root)
+    _run(
+        ["git", "pull", "--ff-only"],
+        cwd=root,
+        timeout=_GIT_NETWORK_TIMEOUT,
+    )
     sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
     return sha
 
@@ -950,7 +1031,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     else:
         lock_file = root / "uv.lock"
         if lock_file.exists():
-            _run(["uv", "lock"], cwd=str(root))
+            _run(["uv", "lock"], cwd=str(root), timeout=_UV_TIMEOUT)
             _ok("uv.lock refreshed")
         # Stage only the files this phase edits — `git add -A` would sweep
         # unrelated untracked files into the release commit.
@@ -993,7 +1074,7 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     if dist.exists():
         shutil.rmtree(dist)
 
-    _run(["uv", "build"], cwd=str(info.root), capture=False)
+    _run(["uv", "build"], cwd=str(info.root), capture=False, timeout=_UV_TIMEOUT)
 
     # twine check on built artifacts only (.whl and .tar.gz)
     dist_dir = info.root / "dist"
@@ -1062,7 +1143,11 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
         _run(["git", "checkout", "main"], cwd=str(root))
-        _run(["git", "pull", "--ff-only"], cwd=str(root))
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(root),
+            timeout=_GIT_NETWORK_TIMEOUT,
+        )
 
     # Check if tag already exists
     existing = _run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
@@ -1083,7 +1168,12 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _ok(f"Tagged {tag}")
 
     # Push tag (not blocked by branch protection — targets refs/tags/*)
-    _run(["git", "push", "origin", tag], cwd=str(root), capture=False)
+    _run(
+        ["git", "push", "origin", tag],
+        cwd=str(root),
+        capture=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
+    )
     _ok(f"Pushed tag {tag}")
 
 
@@ -1525,6 +1615,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
             cwd=str(info.root),
             check=False,
             capture=False,
+            timeout=_UV_TIMEOUT,
         )
         if result.returncode == 0:
             break
@@ -1553,6 +1644,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
         ["uv", "tool", "install", "--force", "--editable", "."],
         cwd=str(info.root),
         capture=False,
+        timeout=_UV_TIMEOUT,
     )
     _ok("Editable install restored")
 
@@ -1583,7 +1675,11 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
         _run(["git", "checkout", "main"], cwd=str(root))
-        _run(["git", "pull", "--ff-only"], cwd=str(root))
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(root),
+            timeout=_GIT_NETWORK_TIMEOUT,
+        )
 
     existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
     if existing:
@@ -1703,6 +1799,7 @@ def _validate_sibling(path: Path, name: str) -> None:
         ["git", "pull", "--ff-only", "origin", "main"],
         cwd=str(path),
         check=False,
+        timeout=_GIT_NETWORK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
@@ -2428,6 +2525,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         result = _run(
             ["uv", "run", "pip", "index", "versions", package_name],
             check=False,
+            timeout=_UV_TIMEOUT,
         )
         pypi_ok = (
             bool(re.search(rf"\b{re.escape(version)}\b", result.stdout))
@@ -2476,21 +2574,39 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 # Phase name → number mapping for --resume-from
 # ---------------------------------------------------------------------------
 
-PHASE_NAMES: dict[str, int] = {
-    "preflight": 1,
-    "bump": 2,
-    "build": 3,
-    "release-pr": 4,
-    "tag": 5,
-    "ci": 6,
-    "github-release": 7,
-    "pypi": 8,
-    "post-release": 9,
-    "propagate": 10,
-    "verify": 11,
-    # Aliases for muscle-memory from old phase names
-    "release": 4,
-}
+# Canonical phase order. Index + 1 is the phase number; the name at that index
+# is the string the operator passes to --resume-from. Kept as the single source
+# of truth so PHASE_NAMES and _phase_name cannot drift out of sync.
+_PHASE_ORDER: tuple[str, ...] = (
+    "preflight",
+    "bump",
+    "build",
+    "release-pr",
+    "tag",
+    "ci",
+    "github-release",
+    "pypi",
+    "post-release",
+    "propagate",
+    "verify",
+)
+
+PHASE_NAMES: dict[str, int] = {name: i + 1 for i, name in enumerate(_PHASE_ORDER)}
+# Aliases for muscle-memory from old phase names.
+PHASE_NAMES["release"] = PHASE_NAMES["release-pr"]
+
+
+def _phase_name(number: int) -> str:
+    """Return the --resume-from name for a phase number, or 'unknown'.
+
+    Only in-range phase numbers map to a name; 0 (nothing running yet) and
+    anything outside 1..len(_PHASE_ORDER) fall through to 'unknown' so the
+    diagnosis path never fabricates a phase that would not round-trip
+    through --resume-from.
+    """
+    if 1 <= number <= len(_PHASE_ORDER):
+        return _PHASE_ORDER[number - 1]
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -2512,6 +2628,10 @@ def run_release(
     repos via PRs. Phase 11 runs final verification checks.
     """
     root = Path(path).resolve()
+    # Updated inside every `if start <= N:` guard below so the TimeoutExpired
+    # handler can name the phase that was running and hand the operator the
+    # exact --resume-from string, not a placeholder they have to figure out.
+    current_phase_num = 0
     try:
         if not root.is_dir():
             _fail(f"{root} is not a directory")
@@ -2547,6 +2667,7 @@ def run_release(
 
         # Run preflight before version detection (need clean tree for accurate reads)
         if start <= 1:
+            current_phase_num = 1
             _phase1_preflight(info, dry_run=dry_run)
 
         # Determine version
@@ -2574,22 +2695,39 @@ def run_release(
 
         try:
             if start <= 2:
+                current_phase_num = 2
                 _phase2_version_bump(info, version, dry_run=dry_run)
             if start <= 3:
+                current_phase_num = 3
                 _phase3_build(info, dry_run=dry_run)
             if start <= 4:
+                current_phase_num = 4
                 _phase4_release_pr(info, version, dry_run=dry_run)
             if start <= 5:
+                current_phase_num = 5
                 _phase5_tag(info, version, dry_run=dry_run)
             if start <= 6:
+                current_phase_num = 6
                 _phase6_ci_wait(info, version, dry_run=dry_run)
             if start <= 7:
+                current_phase_num = 7
                 _phase7_github_release(info, version, dry_run=dry_run)
             if start <= 8:
+                current_phase_num = 8
                 _phase8_verify_pypi(info, version, dry_run=dry_run)
-            # P9 and P10 are independent — run concurrently when both are in scope
+            # P9 and P10. When both are in scope they run concurrently and
+            # any in-thread TimeoutExpired crosses the boundary as a
+            # ReleaseError via _collect_thread_results, so crediting the
+            # pair's entry point (9) is honest for the concurrent path.
+            # When start == 10, P9 is already done and _run_phases_9_10
+            # runs P10 alone on the main thread — a TimeoutExpired there
+            # is a propagate hang, and telling the operator
+            # `--resume-from post-release` would re-run phase 9. Credit
+            # the phase that is actually executing.
+            current_phase_num = 9 if start <= 9 else 10
             _run_phases_9_10(info, version, dry_run=dry_run, start=start)
             if start <= 11:
+                current_phase_num = 11
                 _phase11_verify(info, version, dry_run=dry_run)
 
             _phase_summary(info, version, dry_run=dry_run)
@@ -2599,4 +2737,36 @@ def run_release(
                 _reset_propagation_siblings(info, fail_on_error=False)
                 sys.exit(1)
     except ReleaseError:
+        raise SystemExit(1) from None
+    except subprocess.TimeoutExpired as exc:
+        # A call site that forgets to opt into a longer budget — or a genuine
+        # subprocess wedge — must not exit the release in a traceback. Convert
+        # it to the same diagnosed failure path ReleaseError takes and hand
+        # the operator the exact --resume-from string; a placeholder here is
+        # advice that is not actionable, and resuming from the wrong phase
+        # skips a gate.
+        raw_cmd = cast("object", exc.cmd)
+        if isinstance(raw_cmd, list | tuple):
+            parts = cast("Sequence[object]", raw_cmd)
+            cmd_str = " ".join(str(part) for part in parts)
+        else:
+            cmd_str = str(raw_cmd)
+        phase_label = _phase_name(current_phase_num)
+        if phase_label == "unknown":
+            resume_hint = (
+                "Investigate the command; a phase could not be identified, "
+                "so pick the earliest --resume-from that covers the failure."
+            )
+            location = "before the first phase started"
+        else:
+            resume_hint = (
+                f"Investigate the command, then resume with "
+                f"--resume-from {phase_label}."
+            )
+            location = f"in phase {current_phase_num} ({phase_label})"
+        console.print(
+            f"[red]Error:[/red] release aborted {location} — "
+            f"`{cmd_str}` did not return within {exc.timeout}s. "
+            f"{resume_hint}"
+        )
         raise SystemExit(1) from None

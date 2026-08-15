@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import pytest
 
 from punt_kit.detect import detect
 from punt_kit.release import (
+    _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
@@ -23,12 +25,14 @@ from punt_kit.release import (
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
+    _phase_name,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
+    _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
@@ -1653,6 +1657,76 @@ def test_wait_for_required_checks_status_context_error(
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
+def test_wait_for_required_checks_survives_a_slow_graphql_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A TimeoutExpired from one gh api graphql must not abort the poll.
+
+    The loop has a two-hour deadline and models a failed query with a
+    five-strikes counter. One slow GitHub response must route into that
+    counter — the release still has most of its polling window left —
+    rather than escape as a traceback and abort the whole run.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+
+    call_count = 0
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise subprocess.TimeoutExpired(cmd, 60)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    _wait_for_required_checks("gh", "/tmp", 42)
+    assert call_count == 2
+
+
+def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Five consecutive timeouts trip the same failure path as five errors.
+
+    The timeout route must not launder a permanently-broken GitHub into an
+    infinite retry — routing into consecutive_errors means the existing
+    five-strikes ceiling still trips.
+    """
+    from punt_kit import release as release_mod
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    with pytest.raises(ReleaseError, match="5 consecutive times"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
 # --- _reset_propagation_siblings ---
 
 
@@ -3227,3 +3301,134 @@ def test_phase6_survives_a_hung_verdict_query(
 
     with pytest.raises(ReleaseError, match="could not confirm"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_run_default_timeout_is_short() -> None:
+    """A hung subprocess must fail loud in seconds, not silently in hours.
+
+    The default was 7200s so gh run watch could inherit it without arguing;
+    every other of the ~90 _run call sites in release.py inherited that same
+    two-hour hang budget silently. Pin the short default here — a regression
+    to a long default puts the whole release one forgotten call site away
+    from a two-hour stall.
+    """
+    sig = inspect.signature(_run)
+    default = sig.parameters["timeout"].default
+    assert default == _DEFAULT_RUN_TIMEOUT
+    assert _DEFAULT_RUN_TIMEOUT <= 60
+
+
+def test_run_release_converts_timeout_expired_to_diagnosed_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A TimeoutExpired from any phase must exit cleanly, not traceback.
+
+    The signature change prevents new call sites inheriting the wrong
+    budget; this test pins the containment side of the fix — if some
+    call site forgets to opt into a longer timeout, run_release still
+    surfaces the hang as a diagnosis naming the command that timed out,
+    the phase it was in, and the exact --resume-from string to retry with.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    hung_cmd = ["git", "fetch", "origin"]
+
+    def fake_preflight(*_args: object, **_kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(hung_cmd, 300)
+
+    monkeypatch.setattr(release_mod, "_phase1_preflight", fake_preflight)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False)
+
+    assert exc_info.value.code == 1
+    # Rich wraps at the terminal width, so a bare "--resume-from preflight"
+    # substring check would fail on the newline between the two tokens.
+    # Collapse whitespace before asserting.
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "git fetch origin" in normalized
+    assert "300s" in normalized
+    assert "--resume-from" in normalized
+
+    # The message must name the phase (not a <placeholder>) and hand the
+    # operator the exact --resume-from value.  Advice with a placeholder is
+    # advice that is not actionable, and resuming from the wrong phase
+    # skips a gate.
+    assert "phase 1 (preflight)" in normalized
+    assert "--resume-from preflight" in normalized
+
+    # And the suggested value must be a real member of PHASE_NAMES — this is
+    # what stops the message drifting into naming a phase that does not
+    # exist for --resume-from to accept.
+    suggested = "preflight"
+    assert suggested in PHASE_NAMES
+    assert _phase_name(1) == suggested
+
+
+def test_run_release_credits_propagate_when_resuming_from_it(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A P10 hang while resuming past P9 must diagnose as propagate.
+
+    When ``start == 10``, ``_run_phases_9_10`` runs phase 10 alone on
+    the main thread — the thread-boundary rationale for crediting phase
+    9 does not apply. Naming this hang ``post-release`` and telling the
+    operator ``--resume-from post-release`` would re-run phase 9,
+    which is the exact contract failure the phase-in-diagnosis fix
+    exists to close.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    hung_cmd = ["gh", "pr", "merge", "42", "--squash"]
+
+    def fake_run_phases_9_10(
+        _info: object, _version: str, *, dry_run: bool, start: int
+    ) -> None:
+        # Sanity: exercised only in the start == 10 path.
+        assert start == 10
+        assert dry_run is False
+        raise subprocess.TimeoutExpired(hung_cmd, 300)
+
+    monkeypatch.setattr(release_mod, "_run_phases_9_10", fake_run_phases_9_10)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
+
+    assert exc_info.value.code == 1
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "phase 10 (propagate)" in normalized
+    assert "post-release" not in normalized
+    assert "--resume-from propagate" in normalized
+    assert "propagate" in PHASE_NAMES
+    assert _phase_name(10) == "propagate"
+
+
+def test_phase_name_round_trips_through_phase_names() -> None:
+    """Every phase number 1..N round-trips through PHASE_NAMES.
+
+    The TimeoutExpired diagnosis hands the operator ``--resume-from
+    <phase_name>``; if _phase_name ever produced a string that is not a
+    key of PHASE_NAMES, that advice would fail at the very next command.
+    Out-of-range numbers must fall through to 'unknown' rather than
+    fabricating a name.
+    """
+    for phase_num in range(1, 12):
+        name = _phase_name(phase_num)
+        assert name != "unknown"
+        assert name in PHASE_NAMES
+        assert PHASE_NAMES[name] == phase_num
+
+    # 0 (nothing started yet) and out-of-range numbers must not fabricate.
+    assert _phase_name(0) == "unknown"
+    assert _phase_name(12) == "unknown"
+    assert _phase_name(-1) == "unknown"
