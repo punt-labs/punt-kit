@@ -19,6 +19,24 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` no longer stalls for two hours on a hung command. `_run`
+  defaulted its timeout to 7200s — correct for `gh run watch`, which waits
+  on CI, and silently inherited by 88 of the 92 call sites. Any wedged
+  subprocess therefore hung a release for two hours and then exited in a
+  traceback. The default is now 60s, with four named budgets that
+  long-running calls opt into explicitly (git network 300s, uv 600s,
+  quality gates 1800s, CI watch 7200s); every call site was audited
+  individually. A wrong short budget fails loudly and is cheap to correct,
+  where a wrong long one costs two hours
+- `punt release` diagnoses a timeout instead of exiting in a traceback.
+  `subprocess.TimeoutExpired` escaped `run_release`, which caught only
+  `ReleaseError`, so the operator got a stack trace with no statement of
+  what hung or whether the release was safe to resume. It now names the
+  phase, the command, the budget it exceeded, and the exact
+  `--resume-from` string to continue with — previously a placeholder the
+  operator had to work out, which matters because resuming from the wrong
+  phase skips a gate. `PHASE_NAMES` is derived from a single canonical
+  order so that name and number cannot drift apart
 - `punt release` phase 6 now watches the CI run that the release tag
   actually triggered, instead of whichever `release.yml` run happened to be
   newest. The old code requested `headBranch` and `event` in its JSON and
