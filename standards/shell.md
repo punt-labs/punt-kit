@@ -68,6 +68,78 @@ set -euo pipefail
 - Use `[[ ]]` for conditionals (not `[ ]`).
 - Use `$(command)` for command substitution (not backticks).
 
+## Operational Safety
+
+Shell scripts that operators run directly — cross-repo workspace scripts, install helpers, fleet rollouts — are an agent interface just as much as a Python CLI. Apply the same discipline: a header that explains what runs and how, a `--help` handler, no destructive default, and a per-target ledger for anything that iterates.
+
+The four rules below apply to every `.sh` file in `.bin/` and to any other operator-facing shell script. They do not apply to hook scripts (thin gates called by lifecycle events; see [hooks.md](hooks.md)) or to `install.sh` (covered by *Cross-Platform Install Scripts* below).
+
+### Header contract
+
+Every script must open with a one-line purpose comment followed by a `Usage:` block. A reader must be able to tell what the script does and how to run it from the first ten lines.
+
+```bash
+#!/usr/bin/env bash
+# Purpose: single-sentence description of what the script does.
+# Usage: script-name.sh [--dry-run] [--skip repo] [--apply]
+#
+# Optional expanded explanation of behavior, safety, and side effects.
+set -euo pipefail
+```
+
+### `--help` handler
+
+Every script that takes arguments must respond to `--help`/`-h` by printing usage and exiting `0`. Zero-arg invocation of a script that *requires* args (e.g. `resolve-threads.sh <branch>`) must also print usage — never error with an unhelpful shell trace, never fall through to real work.
+
+Zero-arg invocation of a script that *accepts* an optional `--apply` (the destructive-scripts-default-to-preview pattern below) is not the same case: zero-arg means "preview" and exits `0` on its own path, NOT via the help handler. Do not conflate the two.
+
+Convention for both:
+
+```bash
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") [--dry-run] [--apply]
+  --dry-run  Preview changes without applying (default).
+  --apply    Apply changes.
+EOF
+}
+
+# All scripts: respond to --help/-h.
+case "${1:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+# Scripts that REQUIRE args add this after the case:
+#   if [ $# -eq 0 ]; then usage; exit 0; fi
+# Scripts that ACCEPT --apply (preview-by-default) omit that guard —
+# zero-arg falls through to the preview loop.
+```
+
+### Destructive scripts default to preview
+
+Any script that mutates state — git write (`commit`, `push`, `checkout`, `branch`, `tag`, `reset`), filesystem write outside `.tmp/`, network POST/PATCH/DELETE (`gh api -X POST`, `curl -X PATCH`), `launchctl bootstrap/kickstart/bootout`, or `security add/delete-generic-password` — must EITHER:
+
+- **Require a positional target argument.** `resolve-threads.sh <branch>` and `cascade-commit.sh <file>` are the pattern: no argument, no work.
+- **Accept `--apply` with `--dry-run` as the implicit default.** Zero-arg invocation shows what would happen and exits `0`. `--apply` runs the mutation.
+
+The pattern this replaces: `--dry-run=false` by default, so an unadorned `.bin/envrc-gitignore-rollout.sh` opens a PR-per-repo on any invocation. That surprised operators; it surprises agents more. The muscle-memory cost of the flip is worth it.
+
+Use `--apply` for repeatable rollout/settings scripts. Use `--yes` for one-shot destructive operations (e.g. `depot-sync.sh` clears wheels then rebuilds). Do not mix — pick per file, stay consistent per category.
+
+### Per-target outcome ledger
+
+Scripts that iterate over multiple targets (child repos, PRs, files) must emit one line per target to stdout with the outcome and reason:
+
+```text
+ok    biff       branch pushed
+skip  quarry     safety: dirty working tree
+fail  vox        gh api: 422
+```
+
+Rollout-class scripts additionally write `.tmp/<script>-status.json` with the same information, so a follow-up invocation or a health-check module can inspect what happened. `envrc-canonical-rollout.sh --report` is the reference implementation; the ledger is not opt-in — a silent skip is a bug regardless of exit code.
+
+The rule: an operator or agent reading the last screen of output must be able to tell whether each target succeeded, was skipped intentionally, or failed. `Done.` without per-target detail is a script bug.
+
 ## Cross-Platform Install Scripts
 
 Projects that ship an `install.sh` must also ship an `install.ps1` for Windows (PowerShell). This follows the pattern established by Claude Code, Bun, and Deno.

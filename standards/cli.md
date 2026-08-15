@@ -137,6 +137,8 @@ text is vague or incomplete, the agent will hallucinate flags.
 - Every flag must appear in `--help` with its type and default (if optional)
 - The app-level help must document `--json` as a global flag (see Global Flags)
 
+The same rule extends to operator-facing shell scripts (workspace `.bin/*.sh`, fleet rollouts, install helpers): a header + `Usage:` block + `--help` handler are mandatory. See [shell.md § Operational Safety](shell.md#operational-safety) for the shell-side details.
+
 ### Subcommand naming
 
 Subcommands are **single verbs**: `search`, `ingest`, `explain`, `talk`, `write`.

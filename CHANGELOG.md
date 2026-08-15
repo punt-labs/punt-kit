@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- `standards/shell.md` gains an **Operational Safety** section covering four
+  rules for operator-facing shell scripts: (1) header contract (purpose +
+  `Usage:` block), (2) mandatory `--help` handler with zero-arg-prints-usage,
+  (3) destructive scripts default to preview (require a positional target OR
+  `--apply` with implicit `--dry-run`), (4) per-target outcome ledger for
+  multi-target iterators (one line per target, plus `.tmp/<script>-status.json`
+  for rollouts). Companion sentence added to `standards/cli.md § Help text`
+  extending the "help is an agent interface" rule to `.bin/*.sh` scripts.
+  Motivated by the 2026-08-15 `.bin/` audit in `punt-labs`, which surfaced 18
+  silent-runner scripts (destructive on zero args, no `--help`).
+
 ### Fixed
 
 - `punt release` phase 6 now watches the CI run that the release tag
