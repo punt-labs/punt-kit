@@ -25,6 +25,7 @@ from punt_kit.release import (
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
+    _phase_name,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
@@ -3257,7 +3258,8 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     The signature change prevents new call sites inheriting the wrong
     budget; this test pins the containment side of the fix — if some
     call site forgets to opt into a longer timeout, run_release still
-    surfaces the hang as a diagnosis naming the command that timed out.
+    surfaces the hang as a diagnosis naming the command that timed out,
+    the phase it was in, and the exact --resume-from string to retry with.
     """
     from punt_kit import release as release_mod
 
@@ -3275,7 +3277,45 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
         run_release(str(root), version="0.2.0", dry_run=False)
 
     assert exc_info.value.code == 1
-    captured = capsys.readouterr()
-    assert "git fetch origin" in captured.out
-    assert "300s" in captured.out
-    assert "--resume-from" in captured.out
+    # Rich wraps at the terminal width, so a bare "--resume-from preflight"
+    # substring check would fail on the newline between the two tokens.
+    # Collapse whitespace before asserting.
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "git fetch origin" in normalized
+    assert "300s" in normalized
+    assert "--resume-from" in normalized
+
+    # The message must name the phase (not a <placeholder>) and hand the
+    # operator the exact --resume-from value.  Advice with a placeholder is
+    # advice that is not actionable, and resuming from the wrong phase
+    # skips a gate.
+    assert "phase 1 (preflight)" in normalized
+    assert "--resume-from preflight" in normalized
+
+    # And the suggested value must be a real member of PHASE_NAMES — this is
+    # what stops the message drifting into naming a phase that does not
+    # exist for --resume-from to accept.
+    suggested = "preflight"
+    assert suggested in PHASE_NAMES
+    assert _phase_name(1) == suggested
+
+
+def test_phase_name_round_trips_through_phase_names() -> None:
+    """Every phase number 1..N round-trips through PHASE_NAMES.
+
+    The TimeoutExpired diagnosis hands the operator ``--resume-from
+    <phase_name>``; if _phase_name ever produced a string that is not a
+    key of PHASE_NAMES, that advice would fail at the very next command.
+    Out-of-range numbers must fall through to 'unknown' rather than
+    fabricating a name.
+    """
+    for phase_num in range(1, 12):
+        name = _phase_name(phase_num)
+        assert name != "unknown"
+        assert name in PHASE_NAMES
+        assert PHASE_NAMES[name] == phase_num
+
+    # 0 (nothing started yet) and out-of-range numbers must not fabricate.
+    assert _phase_name(0) == "unknown"
+    assert _phase_name(12) == "unknown"
+    assert _phase_name(-1) == "unknown"

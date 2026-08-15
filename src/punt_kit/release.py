@@ -2560,21 +2560,39 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 # Phase name → number mapping for --resume-from
 # ---------------------------------------------------------------------------
 
-PHASE_NAMES: dict[str, int] = {
-    "preflight": 1,
-    "bump": 2,
-    "build": 3,
-    "release-pr": 4,
-    "tag": 5,
-    "ci": 6,
-    "github-release": 7,
-    "pypi": 8,
-    "post-release": 9,
-    "propagate": 10,
-    "verify": 11,
-    # Aliases for muscle-memory from old phase names
-    "release": 4,
-}
+# Canonical phase order. Index + 1 is the phase number; the name at that index
+# is the string the operator passes to --resume-from. Kept as the single source
+# of truth so PHASE_NAMES and _phase_name cannot drift out of sync.
+_PHASE_ORDER: tuple[str, ...] = (
+    "preflight",
+    "bump",
+    "build",
+    "release-pr",
+    "tag",
+    "ci",
+    "github-release",
+    "pypi",
+    "post-release",
+    "propagate",
+    "verify",
+)
+
+PHASE_NAMES: dict[str, int] = {name: i + 1 for i, name in enumerate(_PHASE_ORDER)}
+# Aliases for muscle-memory from old phase names.
+PHASE_NAMES["release"] = PHASE_NAMES["release-pr"]
+
+
+def _phase_name(number: int) -> str:
+    """Return the --resume-from name for a phase number, or 'unknown'.
+
+    Only in-range phase numbers map to a name; 0 (nothing running yet) and
+    anything outside 1..len(_PHASE_ORDER) fall through to 'unknown' so the
+    diagnosis path never fabricates a phase that would not round-trip
+    through --resume-from.
+    """
+    if 1 <= number <= len(_PHASE_ORDER):
+        return _PHASE_ORDER[number - 1]
+    return "unknown"
 
 
 # ---------------------------------------------------------------------------
@@ -2596,6 +2614,10 @@ def run_release(
     repos via PRs. Phase 11 runs final verification checks.
     """
     root = Path(path).resolve()
+    # Updated inside every `if start <= N:` guard below so the TimeoutExpired
+    # handler can name the phase that was running and hand the operator the
+    # exact --resume-from string, not a placeholder they have to figure out.
+    current_phase_num = 0
     try:
         if not root.is_dir():
             _fail(f"{root} is not a directory")
@@ -2631,6 +2653,7 @@ def run_release(
 
         # Run preflight before version detection (need clean tree for accurate reads)
         if start <= 1:
+            current_phase_num = 1
             _phase1_preflight(info, dry_run=dry_run)
 
         # Determine version
@@ -2658,22 +2681,35 @@ def run_release(
 
         try:
             if start <= 2:
+                current_phase_num = 2
                 _phase2_version_bump(info, version, dry_run=dry_run)
             if start <= 3:
+                current_phase_num = 3
                 _phase3_build(info, dry_run=dry_run)
             if start <= 4:
+                current_phase_num = 4
                 _phase4_release_pr(info, version, dry_run=dry_run)
             if start <= 5:
+                current_phase_num = 5
                 _phase5_tag(info, version, dry_run=dry_run)
             if start <= 6:
+                current_phase_num = 6
                 _phase6_ci_wait(info, version, dry_run=dry_run)
             if start <= 7:
+                current_phase_num = 7
                 _phase7_github_release(info, version, dry_run=dry_run)
             if start <= 8:
+                current_phase_num = 8
                 _phase8_verify_pypi(info, version, dry_run=dry_run)
-            # P9 and P10 are independent — run concurrently when both are in scope
+            # P9 and P10 are independent — run concurrently when both are in
+            # scope. A TimeoutExpired raised inside either thread crosses the
+            # thread boundary as a ReleaseError via _collect_thread_results,
+            # so the phase number here is the pair's entry point (9); the
+            # in-thread failure carries its own diagnosis.
+            current_phase_num = 9
             _run_phases_9_10(info, version, dry_run=dry_run, start=start)
             if start <= 11:
+                current_phase_num = 11
                 _phase11_verify(info, version, dry_run=dry_run)
 
             _phase_summary(info, version, dry_run=dry_run)
@@ -2687,18 +2723,32 @@ def run_release(
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
         # subprocess wedge — must not exit the release in a traceback. Convert
-        # it to the same diagnosed failure path ReleaseError takes so the
-        # operator sees which command hung, in which phase, before deciding
-        # whether to resume.
+        # it to the same diagnosed failure path ReleaseError takes and hand
+        # the operator the exact --resume-from string; a placeholder here is
+        # advice that is not actionable, and resuming from the wrong phase
+        # skips a gate.
         raw_cmd = cast("object", exc.cmd)
         if isinstance(raw_cmd, list | tuple):
             parts = cast("Sequence[object]", raw_cmd)
             cmd_str = " ".join(str(part) for part in parts)
         else:
             cmd_str = str(raw_cmd)
+        phase_label = _phase_name(current_phase_num)
+        if phase_label == "unknown":
+            resume_hint = (
+                "Investigate the command; a phase could not be identified, "
+                "so pick the earliest --resume-from that covers the failure."
+            )
+            location = "before the first phase started"
+        else:
+            resume_hint = (
+                f"Investigate the command, then resume with "
+                f"--resume-from {phase_label}."
+            )
+            location = f"in phase {current_phase_num} ({phase_label})"
         console.print(
-            f"[red]Error:[/red] release aborted — `{cmd_str}` did not return "
-            f"within {exc.timeout}s. Investigate the command, then resume "
-            f"with --resume-from <phase>."
+            f"[red]Error:[/red] release aborted {location} — "
+            f"`{cmd_str}` did not return within {exc.timeout}s. "
+            f"{resume_hint}"
         )
         raise SystemExit(1) from None
