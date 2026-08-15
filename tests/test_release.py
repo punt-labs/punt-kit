@@ -2918,3 +2918,45 @@ def test_phase6_dry_run_prints_the_command_it_would_execute(
     # Rich wraps long lines, so compare on the argument tokens.
     for token in executed.split():
         assert token in printed, f"dry run omitted {token!r}"
+
+
+def test_phase6_survives_wrong_shaped_gh_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valid JSON of the wrong shape must diagnose, not raise TypeError.
+
+    gh reports some errors as a JSON object rather than a run array. Casting
+    one to a run sequence surfaces as a TypeError from inside poll, which
+    escapes both _fail sites the same way a decode error would.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout='{"message":"Not Found"}', stderr=""
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="unexpected JSON shape"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_reports_a_sub_second_interval_without_truncating() -> None:
+    """A fractional interval must not be rounded down in the message.
+
+    int() on (attempts - 1) * interval would report 2s for a 2.5s wait,
+    understating how long the release actually blocked.
+    """
+    selector = _selector()
+
+    with pytest.raises(ReleaseError, match="after 2.5s"):
+        selector.poll(list, attempts=3, interval=1.25, sleep=_never_sleep)

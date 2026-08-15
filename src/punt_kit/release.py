@@ -1234,10 +1234,12 @@ class _TagRunSelector:
                 sleep(interval)
         # The loop sleeps between polls, not after the last one, so the time
         # actually spent waiting is one interval short of attempts * interval.
-        waited = int((attempts - 1) * interval)
+        # Formatted with :g rather than int() so a sub-second interval is not
+        # truncated to a figure smaller than the wait actually performed.
+        waited = (attempts - 1) * interval
         msg = (
             f"no release.yml run found for {self._tag} at {self._commit[:8]} "
-            f"after {waited}s — the tag push may not have triggered CI"
+            f"after {waited:g}s — the tag push may not have triggered CI"
         )
         raise ReleaseError(msg)
 
@@ -1291,6 +1293,17 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             # Letting the decode error escape would bypass both _fail sites
             # and end the release in a traceback instead of a diagnosis.
             last_gh_error = f"gh run list returned unparseable JSON: {exc}"
+            return ()
+        # Valid JSON of the wrong shape is the same problem one step later: gh
+        # reports errors as an object, and casting one to a run sequence would
+        # surface as a TypeError from inside poll rather than a diagnosis.
+        if not isinstance(parsed, list) or not all(
+            isinstance(run, dict) for run in cast("list[object]", parsed)
+        ):
+            last_gh_error = (
+                f"gh run list returned an unexpected JSON shape: "
+                f"{result.stdout.strip()[:200]}"
+            )
             return ()
         gh_ever_succeeded = True
         return cast("Sequence[Mapping[str, object]]", parsed)
