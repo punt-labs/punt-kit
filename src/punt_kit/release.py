@@ -57,6 +57,19 @@ _UV_TIMEOUT = 600
 # wedge on a broken socket.
 _GIT_NETWORK_TIMEOUT = 300
 
+# git commands that fire a repo hook — checkout, commit, merge, push, pull.
+# Every punt-labs repo installs beads client hooks (post-checkout,
+# pre-commit, post-commit, post-merge, pre-push) that run
+# `bd hooks run <event>` against a networked Dolt server with its own
+# BEADS_HOOK_TIMEOUT default of 300s. Under phase 9 + phase 10 concurrency,
+# several hooks hit Dolt at once and the tail latency runs up against that
+# ceiling. The budget here must live above the hook's own tolerance — not
+# equal to it — because git does its own I/O around the hook (write index,
+# resolve refs, network for push/pull). Raising the shared metadata
+# default is the wrong lever: 60s is what turns a two-hour hang into a
+# one-minute diagnosis for genuine metadata calls, and must stay that way.
+_GIT_HOOK_TIMEOUT = 600
+
 # Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The
 # full test suite on a cold cache can take a few minutes; a release aborts if
 # it cannot complete inside the budget.
@@ -745,13 +758,14 @@ def _pr_merge(
         _dry("gh pr merge <number> --squash --delete-branch")
         return "<SHA>"
 
-    # 1. Push branch (idempotent)
+    # 1. Push branch (idempotent). pre-push fires bd hooks — needs the
+    # hook budget, which subsumes _GIT_NETWORK_TIMEOUT.
     result = _run(
         ["git", "push", "-u", "origin", branch],
         cwd=root,
         check=False,
         capture=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Failed to push branch {branch} — fix and retry")
@@ -789,11 +803,15 @@ def _pr_merge(
         if pr_number is not None:
             if already_merged:
                 _ok(f"PR #{pr_number} already merged")
-                _run(["git", "checkout", "main"], cwd=root)
+                _run(
+                    ["git", "checkout", "main"],
+                    cwd=root,
+                    timeout=_GIT_HOOK_TIMEOUT,
+                )
                 _run(
                     ["git", "pull", "--ff-only"],
                     cwd=root,
-                    timeout=_GIT_NETWORK_TIMEOUT,
+                    timeout=_GIT_HOOK_TIMEOUT,
                 )
                 sha = _run(
                     ["git", "rev-parse", "--short", "HEAD"], cwd=root
@@ -846,11 +864,11 @@ def _pr_merge(
         _fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
     if pr_state == "MERGED":
         _ok(f"PR #{pr_number} already merged")
-        _run(["git", "checkout", "main"], cwd=root)
+        _run(["git", "checkout", "main"], cwd=root, timeout=_GIT_HOOK_TIMEOUT)
         _run(
             ["git", "pull", "--ff-only"],
             cwd=root,
-            timeout=_GIT_NETWORK_TIMEOUT,
+            timeout=_GIT_HOOK_TIMEOUT,
         )
         sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
         return sha
@@ -907,11 +925,11 @@ def _pr_merge(
     _ok(f"PR #{pr_number} merged")
 
     # 7. Update local main
-    _run(["git", "checkout", "main"], cwd=root)
+    _run(["git", "checkout", "main"], cwd=root, timeout=_GIT_HOOK_TIMEOUT)
     _run(
         ["git", "pull", "--ff-only"],
         cwd=root,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
     return sha
@@ -933,10 +951,18 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             ["git", "branch", "--list", branch], cwd=str(root)
         ).stdout.strip()
         if existing:
-            _run(["git", "checkout", branch], cwd=str(root))
+            _run(
+                ["git", "checkout", branch],
+                cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             _info(f"Checked out existing branch {branch}")
         else:
-            _run(["git", "checkout", "-b", branch], cwd=str(root))
+            _run(
+                ["git", "checkout", "-b", branch],
+                cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             _ok(f"Created branch {branch}")
 
     # 2b. Bump version in pyproject.toml
@@ -1053,6 +1079,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             _run(
                 ["git", "commit", "-m", f"chore: release v{version}"],
                 cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
             )
             _ok("Release commit created")
         else:
@@ -1142,11 +1169,11 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     # Ensure we're on main (resume may leave us on release branch)
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         _run(
             ["git", "pull", "--ff-only"],
             cwd=str(root),
-            timeout=_GIT_NETWORK_TIMEOUT,
+            timeout=_GIT_HOOK_TIMEOUT,
         )
 
     # Check if tag already exists
@@ -1167,12 +1194,13 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _run(["git", "tag", tag], cwd=str(root))
     _ok(f"Tagged {tag}")
 
-    # Push tag (not blocked by branch protection — targets refs/tags/*)
+    # Push tag (not blocked by branch protection — targets refs/tags/*).
+    # pre-push still fires bd hooks, so use the hook budget.
     _run(
         ["git", "push", "origin", tag],
         cwd=str(root),
         capture=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     _ok(f"Pushed tag {tag}")
 
@@ -1674,19 +1702,23 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     # Ensure we're on main first
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         _run(
             ["git", "pull", "--ff-only"],
             cwd=str(root),
-            timeout=_GIT_NETWORK_TIMEOUT,
+            timeout=_GIT_HOOK_TIMEOUT,
         )
 
     existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
     if existing:
-        _run(["git", "checkout", branch], cwd=str(root))
+        _run(["git", "checkout", branch], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         _info(f"Checked out existing branch {branch}")
     else:
-        _run(["git", "checkout", "-b", branch], cwd=str(root))
+        _run(
+            ["git", "checkout", "-b", branch],
+            cwd=str(root),
+            timeout=_GIT_HOOK_TIMEOUT,
+        )
         _ok(f"Created branch {branch}")
 
     # Dev restore (hybrid/plugin — idempotent: skip if already dev)
@@ -1716,6 +1748,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                         "--no-verify",
                     ],
                     cwd=str(root),
+                    timeout=_GIT_HOOK_TIMEOUT,
                 )
             _ok("Dev plugin state restored")
             has_changes = True
@@ -1731,7 +1764,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if status:
         _run(["git", "add", "--", "README.md"], cwd=str(root))
         msg = f"chore: update README install SHA to v{version}"
-        _run(["git", "commit", "-m", msg], cwd=str(root))
+        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         has_changes = True
 
     if not has_changes:
@@ -1743,7 +1776,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         if ahead:
             has_changes = True
         else:
-            _run(["git", "checkout", "main"], cwd=str(root))
+            _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
             _run(["git", "branch", "-D", branch], cwd=str(root))
             _ok("No post-release changes needed")
             return
@@ -1799,7 +1832,7 @@ def _validate_sibling(path: Path, name: str) -> None:
         ["git", "pull", "--ff-only", "origin", "main"],
         cwd=str(path),
         check=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
@@ -1836,9 +1869,9 @@ def _sibling_pr_merge(
     try:
         existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
         if existing:
-            _run(["git", "checkout", branch], cwd=cwd)
+            _run(["git", "checkout", branch], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
         else:
-            _run(["git", "checkout", "-b", branch], cwd=cwd)
+            _run(["git", "checkout", "-b", branch], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
         for f in files:
             _run(["git", "add", f], cwd=cwd)
         # Skip commit if nothing staged (resume case: already committed)
@@ -1846,7 +1879,7 @@ def _sibling_pr_merge(
             ["git", "status", "--porcelain", "--", *files], cwd=cwd
         ).stdout.strip()
         if staged:
-            _run(["git", "commit", "-m", message], cwd=cwd)
+            _run(["git", "commit", "-m", message], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
 
         _pr_merge(
             cwd=path,
@@ -1864,7 +1897,12 @@ def _sibling_pr_merge(
         if current is None:
             _info(f"Could not read current branch for sibling {name} after operation")
         elif current != "main":
-            checkout = _run(["git", "checkout", "main"], cwd=cwd, check=False)
+            checkout = _run(
+                ["git", "checkout", "main"],
+                cwd=cwd,
+                check=False,
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             if checkout.returncode != 0:
                 _info(
                     f"Warning: could not return sibling {name} to main: "
@@ -2166,7 +2204,12 @@ def _reset_propagation_siblings(
                 )
                 continue
             _info(f"Returning sibling {sib_name} to main (was on '{branch}')...")
-            checkout = _run(["git", "checkout", "main"], cwd=str(sib_path), check=False)
+            checkout = _run(
+                ["git", "checkout", "main"],
+                cwd=str(sib_path),
+                check=False,
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             if checkout.returncode != 0:
                 msg = (
                     f"Could not return sibling {sib_name} to main: "

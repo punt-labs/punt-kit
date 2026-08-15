@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 import json
 import os
 import shutil
 import subprocess
 import threading
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 
+from punt_kit import release
 from punt_kit.detect import detect
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
+    _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
@@ -3316,6 +3320,72 @@ def test_run_default_timeout_is_short() -> None:
     default = sig.parameters["timeout"].default
     assert default == _DEFAULT_RUN_TIMEOUT
     assert _DEFAULT_RUN_TIMEOUT <= 60
+
+
+def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
+    """The hook budget must live above BEADS_HOOK_TIMEOUT (300s), not equal to it.
+
+    A git command that fires a bd hook spends time on git's own I/O
+    (write index, resolve refs, network for push/pull) in addition to the
+    hook. Setting the budget to 300s — the hook's own ceiling — leaves no
+    headroom, and the release aborts the moment the hook uses its full
+    tolerance. The v0.14.0 release lost two phases exactly this way.
+    """
+    assert _GIT_HOOK_TIMEOUT > 300
+
+
+def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
+    """Every _run call for a hook-firing git command must pass an explicit timeout.
+
+    checkout, commit, merge, push, and pull all fire bd hooks against the
+    networked Dolt server; the 60s metadata default is not enough. An
+    audit-by-command-name that silently reclassified these back to the
+    default is exactly how the v0.14.0 defect was introduced — this test
+    pins the classification in code so the next audit cannot undo it
+    without a test failure to answer for.
+    """
+    src = _Path(release.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    hook_firing = {"checkout", "commit", "merge", "push", "pull"}
+
+    def _first_git_verb(call: ast.Call) -> str | None:
+        if not call.args:
+            return None
+        first = call.args[0]
+        if not isinstance(first, ast.List) or len(first.elts) < 2:
+            return None
+        head, verb = first.elts[0], first.elts[1]
+        if not (isinstance(head, ast.Constant) and head.value == "git"):
+            return None
+        if not (isinstance(verb, ast.Constant) and isinstance(verb.value, str)):
+            return None
+        return verb.value
+
+    def _run_name(call: ast.Call) -> str | None:
+        f = call.func
+        if isinstance(f, ast.Name):
+            return f.id
+        if isinstance(f, ast.Attribute):
+            return f.attr
+        return None
+
+    offenders: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if _run_name(node) != "_run":
+            continue
+        verb = _first_git_verb(node)
+        if verb not in hook_firing:
+            continue
+        kw_names = {kw.arg for kw in node.keywords}
+        if "timeout" not in kw_names:
+            offenders.append((node.lineno, verb))
+
+    assert offenders == [], (
+        "hook-firing git commands with no explicit timeout "
+        f"(need timeout=_GIT_HOOK_TIMEOUT): {offenders}"
+    )
 
 
 def test_run_release_converts_timeout_expired_to_diagnosed_exit(

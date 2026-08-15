@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release`: git commands that fire bd hooks (checkout, commit, merge,
+  push, pull) now use a dedicated 600s `_GIT_HOOK_TIMEOUT` budget instead of
+  the 60s metadata default. Beads client hooks call `bd hooks run <event>`
+  against a networked Dolt server with a 300s tolerance of their own; phases 9
+  and 10 run concurrently and stack several hooks against Dolt at once, so the
+  short budget aborted mid-release under load. The v0.14.0 release lost two
+  phases exactly this way. Every hook-firing call site is pinned by an AST
+  audit test so a future command-name reclassification cannot silently
+  reintroduce the defect.
+
 ## [0.14.0] - 2026-08-15
 
 ### Added
