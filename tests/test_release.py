@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import threading
 from typing import TYPE_CHECKING
@@ -20,6 +21,7 @@ from punt_kit.release import (
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
@@ -30,6 +32,7 @@ from punt_kit.release import (
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
+    _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
@@ -2572,3 +2575,213 @@ def test_phases_9_10_both_fail_reports_both(
 
     with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 run selection
+#
+# The failure this guards against is a false green: phase 6 attaching to a
+# successful run that predates the tag and reporting "CI passed" for a release
+# that was never tested. It cannot be reproduced by running a release, because
+# the trigger is GitHub being slow to register a run. So the selection logic is
+# driven directly against synthesised `gh run list` payloads instead.
+#
+# Payload shapes are copied from real `gh run list --workflow release.yml
+# --json databaseId,headBranch,event,headSha` output on punt-labs/punt-kit.
+# ---------------------------------------------------------------------------
+
+TAG = "v0.13.0"
+COMMIT = "d613f08eb7deedbcdf78f550a88201ca5541ad26"
+
+# The run this tag actually triggered.
+MATCHING_RUN: dict[str, object] = {
+    "databaseId": 31806710142,
+    "headBranch": TAG,
+    "event": "push",
+    "headSha": COMMIT,
+    "name": "Release",
+}
+
+# The previous release's run — succeeded, and sits at runs[0] until the new
+# run registers. This is the one the old code would have watched.
+STALE_SUCCESS_RUN: dict[str, object] = {
+    "databaseId": 31761285776,
+    "headBranch": "v0.12.0",
+    "event": "push",
+    "headSha": "4265f57b75d733211227917e10e07bc739575584",
+    "name": "Release",
+}
+
+
+def _selector() -> _TagRunSelector:
+    return _TagRunSelector(TAG, COMMIT)
+
+
+def _never_sleep(_seconds: float) -> None:
+    """Collapse the poll interval so tests do not actually wait."""
+
+
+def test_phase6_fails_on_stale_success_with_no_matching_run() -> None:
+    """A previous release's green run must not be accepted for this tag.
+
+    This is the false green the fix exists for: without the tag filter, the
+    old code took runs[0] — the stale success — and reported CI passed.
+    """
+    selector = _selector()
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll(
+            lambda: [STALE_SUCCESS_RUN], attempts=2, interval=0, sleep=_never_sleep
+        )
+
+
+def test_phase6_selects_the_matching_run_among_stale_ones() -> None:
+    """The tag's own run is picked even when stale runs are listed first."""
+    selector = _selector()
+
+    run_id = selector.poll(
+        lambda: [STALE_SUCCESS_RUN, MATCHING_RUN],
+        attempts=2,
+        interval=0,
+        sleep=_never_sleep,
+    )
+
+    assert run_id == 31806710142
+
+
+def test_phase6_waits_for_a_run_that_registers_late() -> None:
+    """A slow registration extends the wait instead of selecting the wrong run."""
+    selector = _selector()
+    calls: list[int] = []
+    slept: list[float] = []
+
+    def list_runs() -> list[dict[str, object]]:
+        calls.append(1)
+        # The tag's run only shows up on the third poll.
+        if len(calls) < 3:
+            return [STALE_SUCCESS_RUN]
+        return [MATCHING_RUN, STALE_SUCCESS_RUN]
+
+    run_id = selector.poll(list_runs, attempts=5, interval=5.0, sleep=slept.append)
+
+    assert run_id == 31806710142
+    assert len(calls) == 3
+    assert slept == [5.0, 5.0], "should sleep between polls, not after the match"
+
+
+def test_phase6_fails_when_no_runs_exist_at_all() -> None:
+    """An empty run list must fail after the attempts, not hang."""
+    selector = _selector()
+    attempts_made: list[int] = []
+
+    def list_runs() -> list[dict[str, object]]:
+        attempts_made.append(1)
+        return []
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll(list_runs, attempts=3, interval=0, sleep=_never_sleep)
+
+    assert len(attempts_made) == 3, "must stop after the configured attempts"
+
+
+def test_phase6_rejects_a_retagged_run_at_a_different_commit() -> None:
+    """Same tag name, different commit — a delete-and-recreate leftover.
+
+    Real case: v0.12.0 had two push runs at different headShas. Matching on
+    the tag name alone would accept the older one.
+    """
+    selector = _selector()
+    leftover = {**MATCHING_RUN, "headSha": "70111ff62936f5cbb64f8c6235bbe106258088a2"}
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll([leftover].copy, attempts=2, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_rejects_a_branch_run_at_the_same_commit() -> None:
+    """A run at the right commit but the wrong ref is still the wrong run.
+
+    The tag points at main's HEAD, so a main-branch run shares the tag run's
+    headSha exactly. Only headBranch separates them — without that check the
+    wait can attach to the branch run and never watch the tag's release at all.
+    """
+    selector = _selector()
+    branch_run = {**MATCHING_RUN, "databaseId": 31806700000, "headBranch": "main"}
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll([branch_run].copy, attempts=2, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_rejects_a_manual_dispatch_of_the_same_tag() -> None:
+    """workflow_dispatch is not the tag push, even at the right commit."""
+    selector = _selector()
+    dispatched = {**MATCHING_RUN, "event": "workflow_dispatch"}
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        selector.poll([dispatched].copy, attempts=2, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_rejects_a_run_without_a_usable_id() -> None:
+    """A malformed payload fails loudly rather than watching run 'None'."""
+    selector = _selector()
+    malformed = {**MATCHING_RUN, "databaseId": None}
+
+    with pytest.raises(ReleaseError, match="no usable databaseId"):
+        selector.poll([malformed].copy, attempts=1, interval=0, sleep=_never_sleep)
+
+
+def test_phase6_error_names_the_tag_and_commit() -> None:
+    """The failure message must say what was looked for, not just that it failed."""
+    selector = _selector()
+
+    with pytest.raises(ReleaseError) as caught:
+        selector.poll(list, attempts=1, interval=0, sleep=_never_sleep)
+
+    message = str(caught.value)
+    assert TAG in message
+    assert COMMIT[:8] in message
+
+
+def _fake_which(_name: str) -> str:
+    """Stand in for a gh binary so phase 6 gets past its tool check."""
+    return "/usr/bin/gh"
+
+
+def test_phase6_fails_when_the_tag_cannot_be_resolved(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A tag missing locally fails cleanly instead of raising CalledProcessError."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    with pytest.raises(ReleaseError, match="Cannot resolve"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_reports_gh_failure_rather_than_a_missing_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A broken gh must not be reported as 'the tag did not trigger CI'.
+
+    Both produce an empty run list, but the operator's next action is
+    completely different, so the two must not share a message.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="gh: not authenticated"
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="not authenticated"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)

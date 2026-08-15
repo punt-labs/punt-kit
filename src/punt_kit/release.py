@@ -13,12 +13,15 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import NoReturn, cast
+from typing import TYPE_CHECKING, NoReturn, Self, cast, final
 from urllib.parse import urlparse
 
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
 
 console = Console()
 
@@ -1131,6 +1134,86 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
     _ok(f"README.md: install URLs → {short_sha} ({tag})")
 
 
+# GitHub does not register a tag-triggered run instantly, so phase 6 polls
+# rather than sleeping a fixed interval: a slow registration extends the wait
+# instead of selecting whatever run happens to be newest at the moment we look.
+_CI_RUN_POLL_INTERVAL = 5.0
+_CI_RUN_POLL_ATTEMPTS = 24
+
+
+@final
+class _TagRunSelector:
+    """Picks the workflow run that one specific tag push triggered.
+
+    Three predicates, each closing a distinct way of watching the wrong run.
+    ``headBranch`` rejects a run belonging to a different tag — the case that
+    let a previous release's green run stand in for this one. ``event`` rejects
+    a manual dispatch of the same tag. ``headSha`` rejects a run left on the
+    remote by an earlier tag of the same name pointing at a different commit,
+    which is what a delete-and-recreate leaves behind. A run passing all three
+    either is this push's run or ran against byte-identical code, so treating
+    its verdict as this release's verdict is sound either way.
+
+    There is deliberately no fallback to "some other recent run". A wait that
+    cannot find its run has learned nothing about the release, and reporting a
+    result the tag never earned is worse than stopping.
+    """
+
+    __slots__ = ("_commit", "_tag")
+
+    _commit: str
+    _tag: str
+
+    def __new__(cls, tag: str, commit: str) -> Self:
+        self = super().__new__(cls)
+        self._tag = tag
+        self._commit = commit
+        return self
+
+    def matches(self, run: Mapping[str, object]) -> bool:
+        """True when ``run`` was triggered by this tag at this commit."""
+        return (
+            run.get("headBranch") == self._tag
+            and run.get("event") == "push"
+            and run.get("headSha") == self._commit
+        )
+
+    def run_id(self, run: Mapping[str, object]) -> int:
+        """Return the run's numeric id, or raise when the payload lacks one."""
+        candidate = run.get("databaseId")
+        if not isinstance(candidate, int):
+            msg = f"CI run for {self._tag} has no usable databaseId: {run!r}"
+            raise ReleaseError(msg)
+        return candidate
+
+    def poll(
+        self,
+        list_runs: Callable[[], Sequence[Mapping[str, object]]],
+        *,
+        attempts: int,
+        interval: float,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> int:
+        """Return this tag's run id, waiting for the run to appear.
+
+        Raises ``ReleaseError`` when no run matches within ``attempts`` polls.
+        """
+        for attempt in range(1, attempts + 1):
+            # gh lists runs newest first, so the first match is the most
+            # recent attempt for this tag.
+            for run in list_runs():
+                if self.matches(run):
+                    return self.run_id(run)
+            if attempt < attempts:
+                sleep(interval)
+        waited = int(attempts * interval)
+        msg = (
+            f"no release.yml run found for {self._tag} at {self._commit[:8]} "
+            f"after {waited}s — the tag push may not have triggered CI"
+        )
+        raise ReleaseError(msg)
+
+
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 6: Wait for CI."""
     console.print("\n[bold]Phase 6: Wait for CI[/bold]")
@@ -1138,7 +1221,7 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     tag = f"v{version}"
 
     if dry_run:
-        _dry("gh run list --branch main --limit 5")
+        _dry(f"gh run list --workflow release.yml (matching {tag})")
         _dry("gh run watch <run-id>")
         return
 
@@ -1146,45 +1229,54 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     if gh is None:
         _fail("gh CLI not found — install from https://cli.github.com")
 
-    # Find the run triggered by the tag push
-    _info(f"Looking for CI run triggered by {tag}...")
+    # Resolve the tag to a commit so the run's headSha can be checked against
+    # it. Annotated tags need the ^{commit} peel; lightweight tags ignore it.
+    peel = _run(
+        ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=str(info.root), check=False
+    )
+    if peel.returncode != 0:
+        _fail(f"Cannot resolve {tag} to a commit — is the tag fetched locally?")
+    commit = peel.stdout.strip()
 
-    # Give CI a moment to start
-    time.sleep(5)
+    selector = _TagRunSelector(tag, commit)
+    _info(f"Looking for the release.yml run for {tag} ({commit[:8]})...")
 
-    # Try release workflow first, fall back to any recent run
-    release_run = None
-    runs: list[dict[str, object]] = []
-    for workflow in ["release.yml", ""]:
-        cmd = [
-            gh,
-            "run",
-            "list",
-            "--limit",
-            "3",
-            "--json",
-            "databaseId,headBranch,event,status,name",
-        ]
-        if workflow:
-            cmd.extend(["--workflow", workflow])
-        result = _run(cmd, cwd=str(info.root), check=False)
+    list_cmd = [
+        gh,
+        "run",
+        "list",
+        "--workflow",
+        "release.yml",
+        "--limit",
+        "20",
+        "--json",
+        "databaseId,headBranch,event,headSha",
+    ]
+    # A gh failure must not masquerade as "no run yet". Polling tolerates a
+    # transient one, but if every call failed the release stops with gh's own
+    # error rather than a misleading "the tag did not trigger CI".
+    gh_errors: list[str] = []
+
+    def list_runs() -> Sequence[Mapping[str, object]]:
+        result = _run(list_cmd, cwd=str(info.root), check=False)
         if result.returncode != 0:
-            continue
-        runs = json.loads(result.stdout)
-        if runs:
-            release_run = runs[0]
-            break
+            gh_errors.append(result.stderr.strip() or "gh run list failed")
+            return ()
+        gh_errors.clear()
+        return cast("Sequence[Mapping[str, object]]", json.loads(result.stdout))
 
-    if release_run is None:
-        _info("No release workflow run found — checking for any recent run...")
-        if runs:
-            release_run = runs[0]
+    try:
+        run_id = selector.poll(
+            list_runs,
+            attempts=_CI_RUN_POLL_ATTEMPTS,
+            interval=_CI_RUN_POLL_INTERVAL,
+        )
+    except ReleaseError as exc:
+        if gh_errors:
+            _fail(f"gh run list never succeeded: {gh_errors[-1]}")
+        _fail(str(exc))
 
-    if release_run is None:
-        _fail("No CI runs found")
-
-    run_id = release_run["databaseId"]
-    _info(f"Watching run {run_id} ({release_run.get('name', 'unknown')})...")
+    _info(f"Watching run {run_id}...")
 
     result = _run(
         [gh, "run", "watch", str(run_id), "--exit-status"],

@@ -6,7 +6,22 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- Action pin comments now state the version actually pinned. Dependabot
+- `punt release` phase 6 now watches the CI run that the release tag
+  actually triggered, instead of whichever `release.yml` run happened to be
+  newest. The old code requested `headBranch` and `event` in its JSON and
+  then read neither, took `runs[0]`, and fell back to any recent run of any
+  workflow when `release.yml` returned nothing. Composed with a fixed
+  five-second sleep, that produced a false green in one direction: when the
+  previous release had succeeded and GitHub had not yet registered the new
+  run, phase 6 attached to the old run, `gh run watch` returned immediately
+  with exit 0, and the release proceeded to PyPI and cross-repo propagation
+  without the tag's own CI ever being checked. A run is now matched on
+  `headBranch`, `event`, and `headSha` together, and the fallback is gone —
+  no matching run is a failure, not a cue to watch something else
+- `punt release` phase 6 polls for the tag's run to appear rather than
+  sleeping a fixed five seconds, so a slow registration extends the wait
+  instead of selecting the wrong run. It waits up to two minutes and then
+  fails, naming the tag and commit it looked for Dependabot
   bumped `actions/checkout` to v7.0.1's SHA in five workflows and left the
   `# v4` comment behind, so the label disagreed with the pin. The comment
   is the only part a human reads, so a wrong one hides a stale pin — the
