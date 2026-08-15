@@ -1206,7 +1206,9 @@ class _TagRunSelector:
                     return self.run_id(run)
             if attempt < attempts:
                 sleep(interval)
-        waited = int(attempts * interval)
+        # The loop sleeps between polls, not after the last one, so the time
+        # actually spent waiting is one interval short of attempts * interval.
+        waited = int((attempts - 1) * interval)
         msg = (
             f"no release.yml run found for {self._tag} at {self._commit[:8]} "
             f"after {waited}s — the tag push may not have triggered CI"
@@ -1241,28 +1243,38 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     selector = _TagRunSelector(tag, commit)
     _info(f"Looking for the release.yml run for {tag} ({commit[:8]})...")
 
+    # --branch filters by ref server-side, so the list holds only this tag's
+    # runs. Without it the limit is a truncation risk: enough unrelated
+    # releases between a failure and a --resume-from ci retry would push the
+    # target run off the end and read as "the tag never triggered CI".
     list_cmd = [
         gh,
         "run",
         "list",
         "--workflow",
         "release.yml",
+        "--branch",
+        tag,
         "--limit",
         "20",
         "--json",
         "databaseId,headBranch,event,headSha",
     ]
     # A gh failure must not masquerade as "no run yet". Polling tolerates a
-    # transient one, but if every call failed the release stops with gh's own
-    # error rather than a misleading "the tag did not trigger CI".
-    gh_errors: list[str] = []
+    # transient one, but if gh never worked at all the release stops with gh's
+    # own error rather than a misleading "the tag did not trigger CI". This
+    # tracks whether any call ever succeeded — not whether the last one did,
+    # which would misreport a late transient blip after 23 clean polls.
+    gh_ever_succeeded = False
+    last_gh_error = ""
 
     def list_runs() -> Sequence[Mapping[str, object]]:
+        nonlocal gh_ever_succeeded, last_gh_error
         result = _run(list_cmd, cwd=str(info.root), check=False)
         if result.returncode != 0:
-            gh_errors.append(result.stderr.strip() or "gh run list failed")
+            last_gh_error = result.stderr.strip() or "gh run list failed"
             return ()
-        gh_errors.clear()
+        gh_ever_succeeded = True
         return cast("Sequence[Mapping[str, object]]", json.loads(result.stdout))
 
     try:
@@ -1272,8 +1284,8 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
             interval=_CI_RUN_POLL_INTERVAL,
         )
     except ReleaseError as exc:
-        if gh_errors:
-            _fail(f"gh run list never succeeded: {gh_errors[-1]}")
+        if not gh_ever_succeeded:
+            _fail(f"gh run list never succeeded: {last_gh_error}")
         _fail(str(exc))
 
     _info(f"Watching run {run_id}...")

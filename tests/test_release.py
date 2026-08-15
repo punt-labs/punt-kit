@@ -2785,3 +2785,89 @@ def test_phase6_reports_gh_failure_rather_than_a_missing_run(
 
     with pytest.raises(ReleaseError, match="not authenticated"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_blames_the_missing_run_when_gh_worked_at_least_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A late transient gh blip must not be blamed for a run that never existed.
+
+    The interleaved case: gh answers cleanly for most polls (no matching run,
+    because the tag genuinely never triggered CI) and then fails once at the
+    end. Reporting that blip as "gh never succeeded" points the operator at
+    their network when the real story is that no run was ever created.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    gh_calls: list[int] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        gh_calls.append(1)
+        # Clean empty answers, then one transient failure on the last poll.
+        if len(gh_calls) < 3:
+            return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+        return subprocess.CompletedProcess(
+            cmd, 1, stdout="", stderr="gh: connection reset"
+        )
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="no release.yml run found"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_lists_runs_filtered_to_the_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The run list is filtered by ref server-side, not truncated client-side.
+
+    Without --branch, a busy release.yml history can push the target run past
+    the limit, which reads identically to "the tag never triggered CI".
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    seen: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+    assert seen, "gh run list should have been invoked"
+    assert "--branch" in seen[0]
+    assert seen[0][seen[0].index("--branch") + 1] == "v9.9.9"
+
+
+def test_phase6_reports_the_time_it_actually_waited() -> None:
+    """The failure message must not claim an interval it never slept.
+
+    poll sleeps between attempts, not after the last one, so N attempts wait
+    (N-1) intervals.
+    """
+    selector = _selector()
+    slept: list[float] = []
+
+    with pytest.raises(ReleaseError, match="after 15s"):
+        selector.poll(list, attempts=4, interval=5.0, sleep=slept.append)
+
+    assert sum(slept) == 15.0, "reported wait must match the wait performed"
