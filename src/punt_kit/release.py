@@ -522,11 +522,24 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     )
 
     while time.time() < deadline:
-        result = _run(
-            [gh, "api", "graphql", "-f", f"query={query}"],
-            cwd=cwd,
-            check=False,
-        )
+        try:
+            result = _run(
+                [gh, "api", "graphql", "-f", f"query={query}"],
+                cwd=cwd,
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            # A query that does not return is a query that failed, and this
+            # loop has hours of budget left to wait out a slow GitHub. Route
+            # the timeout through the same five-strikes path a non-zero exit
+            # takes so one slow response cannot abort a release that still
+            # has most of its polling window.
+            result = subprocess.CompletedProcess(
+                args=[],
+                returncode=1,
+                stdout="",
+                stderr="gh api graphql timed out",
+            )
         if result.returncode != 0:
             consecutive_errors += 1
             _info(

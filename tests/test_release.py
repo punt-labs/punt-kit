@@ -1657,6 +1657,76 @@ def test_wait_for_required_checks_status_context_error(
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
+def test_wait_for_required_checks_survives_a_slow_graphql_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A TimeoutExpired from one gh api graphql must not abort the poll.
+
+    The loop has a two-hour deadline and models a failed query with a
+    five-strikes counter. One slow GitHub response must route into that
+    counter — the release still has most of its polling window left —
+    rather than escape as a traceback and abort the whole run.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+
+    call_count = 0
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise subprocess.TimeoutExpired(cmd, 60)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    _wait_for_required_checks("gh", "/tmp", 42)
+    assert call_count == 2
+
+
+def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Five consecutive timeouts trip the same failure path as five errors.
+
+    The timeout route must not launder a permanently-broken GitHub into an
+    infinite retry — routing into consecutive_errors means the existing
+    five-strikes ceiling still trips.
+    """
+    from punt_kit import release as release_mod
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    with pytest.raises(ReleaseError, match="5 consecutive times"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
 # --- _reset_propagation_siblings ---
 
 
