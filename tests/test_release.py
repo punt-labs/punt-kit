@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import os
 import shutil
@@ -14,6 +15,7 @@ import pytest
 
 from punt_kit.detect import detect
 from punt_kit.release import (
+    _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
@@ -29,6 +31,7 @@ from punt_kit.release import (
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
+    _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
@@ -3227,3 +3230,52 @@ def test_phase6_survives_a_hung_verdict_query(
 
     with pytest.raises(ReleaseError, match="could not confirm"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+def test_run_default_timeout_is_short() -> None:
+    """A hung subprocess must fail loud in seconds, not silently in hours.
+
+    The default was 7200s so gh run watch could inherit it without arguing;
+    every other of the ~90 _run call sites in release.py inherited that same
+    two-hour hang budget silently. Pin the short default here — a regression
+    to a long default puts the whole release one forgotten call site away
+    from a two-hour stall.
+    """
+    sig = inspect.signature(_run)
+    default = sig.parameters["timeout"].default
+    assert default == _DEFAULT_RUN_TIMEOUT
+    assert _DEFAULT_RUN_TIMEOUT <= 60
+
+
+def test_run_release_converts_timeout_expired_to_diagnosed_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A TimeoutExpired from any phase must exit cleanly, not traceback.
+
+    The signature change prevents new call sites inheriting the wrong
+    budget; this test pins the containment side of the fix — if some
+    call site forgets to opt into a longer timeout, run_release still
+    surfaces the hang as a diagnosis naming the command that timed out.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    hung_cmd = ["git", "fetch", "origin"]
+
+    def fake_preflight(*_args: object, **_kwargs: object) -> None:
+        raise subprocess.TimeoutExpired(hung_cmd, 300)
+
+    monkeypatch.setattr(release_mod, "_phase1_preflight", fake_preflight)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False)
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    assert "git fetch origin" in captured.out
+    assert "300s" in captured.out
+    assert "--resume-from" in captured.out

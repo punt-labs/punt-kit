@@ -2684,3 +2684,21 @@ def run_release(
                 sys.exit(1)
     except ReleaseError:
         raise SystemExit(1) from None
+    except subprocess.TimeoutExpired as exc:
+        # A call site that forgets to opt into a longer budget — or a genuine
+        # subprocess wedge — must not exit the release in a traceback. Convert
+        # it to the same diagnosed failure path ReleaseError takes so the
+        # operator sees which command hung, in which phase, before deciding
+        # whether to resume.
+        raw_cmd = cast("object", exc.cmd)
+        if isinstance(raw_cmd, list | tuple):
+            parts = cast("Sequence[object]", raw_cmd)
+            cmd_str = " ".join(str(part) for part in parts)
+        else:
+            cmd_str = str(raw_cmd)
+        console.print(
+            f"[red]Error:[/red] release aborted — `{cmd_str}` did not return "
+            f"within {exc.timeout}s. Investigate the command, then resume "
+            f"with --resume-from <phase>."
+        )
+        raise SystemExit(1) from None
