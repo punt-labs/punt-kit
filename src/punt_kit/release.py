@@ -1169,6 +1169,33 @@ class _TagRunSelector:
         self._commit = commit
         return self
 
+    @classmethod
+    def list_command(cls, gh: str, tag: str) -> list[str]:
+        """The gh invocation listing the runs worth considering for ``tag``.
+
+        ``--branch`` filters by ref server-side, so the list holds only this
+        tag's runs. Without it the limit is a truncation risk: enough
+        unrelated releases between a failure and a ``--resume-from ci`` retry
+        would push the target run off the end, which reads identically to the
+        tag never having triggered CI.
+
+        Built here rather than at the call site so the dry run prints the
+        command the real run executes, instead of a paraphrase that can drift.
+        """
+        return [
+            gh,
+            "run",
+            "list",
+            "--workflow",
+            "release.yml",
+            "--branch",
+            tag,
+            "--limit",
+            "20",
+            "--json",
+            "databaseId,headBranch,event,headSha",
+        ]
+
     def matches(self, run: Mapping[str, object]) -> bool:
         """True when ``run`` was triggered by this tag at this commit."""
         return (
@@ -1222,8 +1249,8 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     tag = f"v{version}"
 
     if dry_run:
-        _dry(f"gh run list --workflow release.yml (matching {tag})")
-        _dry("gh run watch <run-id>")
+        _dry(" ".join(_TagRunSelector.list_command("gh", tag)))
+        _dry(f"gh run watch <run-id matching {tag}> --exit-status")
         return
 
     gh = shutil.which("gh")
@@ -1242,23 +1269,7 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     selector = _TagRunSelector(tag, commit)
     _info(f"Looking for the release.yml run for {tag} ({commit[:8]})...")
 
-    # --branch filters by ref server-side, so the list holds only this tag's
-    # runs. Without it the limit is a truncation risk: enough unrelated
-    # releases between a failure and a --resume-from ci retry would push the
-    # target run off the end and read as "the tag never triggered CI".
-    list_cmd = [
-        gh,
-        "run",
-        "list",
-        "--workflow",
-        "release.yml",
-        "--branch",
-        tag,
-        "--limit",
-        "20",
-        "--json",
-        "databaseId,headBranch,event,headSha",
-    ]
+    list_cmd = _TagRunSelector.list_command(gh, tag)
     # A gh failure must not masquerade as "no run yet". Polling tolerates a
     # transient one, but if gh never worked at all the release stops with gh's
     # own error rather than a misleading "the tag did not trigger CI". This

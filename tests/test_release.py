@@ -2898,3 +2898,23 @@ def test_phase6_survives_unparseable_gh_output(
 
     with pytest.raises(ReleaseError, match="unparseable JSON"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
+
+
+def test_phase6_dry_run_prints_the_command_it_would_execute(
+    capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """The dry run must show the real invocation, not a paraphrase.
+
+    A dry run that prints an approximation of the command is worse than
+    useless for debugging: it diverges silently from what actually runs.
+    """
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    _phase6_ci_wait(info, "9.9.9", dry_run=True)
+
+    printed = capsys.readouterr().out
+    executed = " ".join(_TagRunSelector.list_command("gh", "v9.9.9"))
+    # Rich wraps long lines, so compare on the argument tokens.
+    for token in executed.split():
+        assert token in printed, f"dry run omitted {token!r}"
