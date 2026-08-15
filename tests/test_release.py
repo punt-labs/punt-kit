@@ -2871,3 +2871,30 @@ def test_phase6_reports_the_time_it_actually_waited() -> None:
         selector.poll(list, attempts=4, interval=5.0, sleep=slept.append)
 
     assert sum(slept) == 15.0, "reported wait must match the wait performed"
+
+
+def test_phase6_survives_unparseable_gh_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Garbage on stdout with a zero exit must diagnose, not traceback.
+
+    A JSONDecodeError escaping list_runs would bypass both _fail sites and
+    end the release in a stack trace instead of a message.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
+        return subprocess.CompletedProcess(cmd, 0, stdout="not json at all", stderr="")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="unparseable JSON"):
+        _phase6_ci_wait(info, "9.9.9", dry_run=False)

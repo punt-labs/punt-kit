@@ -21,7 +21,8 @@ All notable changes to this project will be documented in this file.
 - `punt release` phase 6 polls for the tag's run to appear rather than
   sleeping a fixed five seconds, so a slow registration extends the wait
   instead of selecting the wrong run. It waits up to two minutes and then
-  fails, naming the tag and commit it looked for Dependabot
+  fails, naming the tag and commit it looked for
+- Action pin comments now state the version actually pinned. Dependabot
   bumped `actions/checkout` to v7.0.1's SHA in five workflows and left the
   `# v4` comment behind, so the label disagreed with the pin. The comment
   is the only part a human reads, so a wrong one hides a stale pin — the

@@ -1145,14 +1145,13 @@ _CI_RUN_POLL_ATTEMPTS = 24
 class _TagRunSelector:
     """Picks the workflow run that one specific tag push triggered.
 
-    Three predicates, each closing a distinct way of watching the wrong run.
-    ``headBranch`` rejects a run belonging to a different tag — the case that
-    let a previous release's green run stand in for this one. ``event`` rejects
-    a manual dispatch of the same tag. ``headSha`` rejects a run left on the
-    remote by an earlier tag of the same name pointing at a different commit,
-    which is what a delete-and-recreate leaves behind. A run passing all three
-    either is this push's run or ran against byte-identical code, so treating
-    its verdict as this release's verdict is sound either way.
+    Three predicates, each rejecting a distinct kind of wrong run.
+    ``headBranch`` rejects a run belonging to a different tag. ``event``
+    rejects a manual dispatch rather than the tag push. ``headSha`` rejects a
+    run left on the remote by an earlier tag of the same name pointing at a
+    different commit, which is what a delete-and-recreate leaves behind. A run
+    passing all three either is this push's run or ran against identical code,
+    so its verdict is this release's verdict either way.
 
     There is deliberately no fallback to "some other recent run". A wait that
     cannot find its run has learned nothing about the release, and reporting a
@@ -1274,8 +1273,16 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         if result.returncode != 0:
             last_gh_error = result.stderr.strip() or "gh run list failed"
             return ()
+        try:
+            parsed = json.loads(result.stdout)
+        except json.JSONDecodeError as exc:
+            # A zero exit with unparseable stdout is still a failed lookup.
+            # Letting the decode error escape would bypass both _fail sites
+            # and end the release in a traceback instead of a diagnosis.
+            last_gh_error = f"gh run list returned unparseable JSON: {exc}"
+            return ()
         gh_ever_succeeded = True
-        return cast("Sequence[Mapping[str, object]]", json.loads(result.stdout))
+        return cast("Sequence[Mapping[str, object]]", parsed)
 
     try:
         run_id = selector.poll(
