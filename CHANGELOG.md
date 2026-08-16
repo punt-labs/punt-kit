@@ -23,6 +23,24 @@ All notable changes to this project will be documented in this file.
   affect `release.yml`, which fires on tag push and whose tag is placed
   in phase 5, before this commit exists — the marker is load-bearing on
   phase 4's commit, which the tag does land on
+- Plugin-swap and dev-restore idempotency now ask git what is *committed*
+  at HEAD, not what happens to be on disk. Removing `--no-verify` from
+  the release path (above) let a pre-commit hook abort
+  `release-plugin.sh` after it had already mutated `plugin.json` and
+  staged the change, and the on-disk read then reported the swap
+  complete. `_pr_merge` would push a release branch whose HEAD still
+  carried the `-dev` plugin name, and the tag placed in phase 5 could
+  land on it — silent, and shipped. The mirror-image window opened in
+  phase 9: a staged-but-uncommitted dev restore would be treated as
+  done, then the following README-SHA `git commit` would sweep the
+  staged `plugin.json` into itself under the wrong message and no
+  properly-labelled restore commit would exist. Both predicates now
+  consult `git show HEAD:.claude-plugin/plugin.json`, phase 9 requires
+  the released version at HEAD (not just the `-dev` name), and each
+  path resets the swap files to HEAD before re-running so the script's
+  fresh-run precondition holds on retry. The flag was hiding a fragile
+  idempotency check, not just skipping hooks; removing the flag exposed
+  the check that had leaned on it
 
 ## [0.14.2] - 2026-08-15
 
