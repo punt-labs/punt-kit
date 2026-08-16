@@ -37,6 +37,21 @@ _interrupted = threading.Event()
 # Must stay in sync with the _propagate_* functions.
 PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
+# Files each sibling's propagation writes. _reset_propagation_siblings uses
+# this map to reconcile a sibling left dirty by an interrupted phase 10 —
+# the propagation writes the file, then calls into _sibling_pr_merge which
+# checks out a branch, and if the checkout times out (see _GIT_HOOK_TIMEOUT
+# above) the sibling stays on main with the write still on disk. Restricted
+# to files the release owns so unrelated operator work in the same repo
+# survives the reset — the guard in _validate_sibling still trips on
+# anything outside this set. Must stay in sync with the _propagate_*
+# functions and _sync_profile_readme.
+_PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
+    ".github": ("install-all.sh", "profile/README.md"),
+    "claude-plugins": (".claude-plugin/marketplace.json",),
+    "public-website": ("src/data/projects.json",),
+}
+
 # ---------------------------------------------------------------------------
 # Timeout budgets
 # ---------------------------------------------------------------------------
@@ -2167,13 +2182,96 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         _ok(f"website: {project_name} already current")
 
 
+def _reset_sibling_owned_dirt(
+    sib_path: Path, sib_name: str, *, fail_on_error: bool
+) -> None:
+    """Restore propagation-owned files if a sibling on main is dirty in them.
+
+    The propagation writes a tracked file before calling into
+    ``_sibling_pr_merge``; any interruption between those two steps leaves
+    the sibling on main with the write on disk. ``_validate_sibling``
+    correctly refuses to proceed against a dirty sibling — this restores
+    the owned files so the retry can re-run the same idempotent write.
+
+    Only touches files in ``_PROPAGATION_OWNED_PATHS[sib_name]``. If any
+    other file in the sibling is modified, this function does nothing and
+    lets ``_validate_sibling`` fail — the whole point of the ownership
+    map is that a human's unrelated work in the sibling survives the
+    reset. On sibling names with no ownership entry (a future addition
+    to ``PROPAGATION_SIBLINGS`` without a paired entry here), also do
+    nothing rather than guess.
+    """
+    owned = _PROPAGATION_OWNED_PATHS.get(sib_name)
+    if not owned:
+        return
+
+    status = _run(["git", "status", "--porcelain"], cwd=str(sib_path), check=False)
+    if status.returncode != 0:
+        _info(
+            f"Could not read status for sibling {sib_name} "
+            f"({status.stderr.strip()}) — skipping owned-file reset"
+        )
+        return
+
+    dirty_owned: list[str] = []
+    for ln in status.stdout.splitlines():
+        # Same filter _validate_sibling applies: untracked and .beads noise
+        # do not block propagation and are not ours to reset.
+        if ln.startswith("?? "):
+            continue
+        file_path = ln[3:] if len(ln) > 3 else ""
+        if file_path == ".beads" or file_path.startswith(".beads/"):
+            continue
+        if file_path in owned:
+            dirty_owned.append(file_path)
+            continue
+        # A modification outside the ownership map. Leave the whole sibling
+        # alone — _validate_sibling will surface it, and the operator
+        # decides how to handle their own work.
+        return
+
+    if not dirty_owned:
+        return
+
+    _info(
+        f"Restoring propagation-owned files in sibling {sib_name} "
+        f"(was dirty on main): {', '.join(dirty_owned)}"
+    )
+    restore = _run(
+        ["git", "checkout", "HEAD", "--", *dirty_owned],
+        cwd=str(sib_path),
+        check=False,
+        timeout=_GIT_HOOK_TIMEOUT,
+    )
+    if restore.returncode != 0:
+        msg = (
+            f"Could not restore propagation-owned files in sibling "
+            f"{sib_name}: {restore.stderr.strip()}\n"
+            "Fix manually before retrying propagation."
+        )
+        if fail_on_error:
+            _fail(msg)
+        else:
+            _info(f"Warning: {msg}")
+
+
 def _reset_propagation_siblings(
     info: ProjectInfo, *, fail_on_error: bool = True
 ) -> None:
     """Return all propagation sibling repos to the main branch.
 
-    No-op for siblings already on main. Used by the interrupt handler and
-    at the start of Phase 10 to recover from prior interrupted runs.
+    No-op for siblings already on main and clean. Used by the interrupt
+    handler and at the start of Phase 10 to recover from prior interrupted
+    runs. Handles two residues a mid-phase-10 interruption can leave:
+
+    * a sibling on a ``propagate/v*`` branch — check it out back to main
+    * a sibling on main with a propagation-owned file dirty — the more
+      likely residue, since the propagation writes the file *before*
+      calling _sibling_pr_merge and any interruption between the two
+      leaves exactly that. Restored to HEAD so the idempotent retry
+      re-runs the same write. Restricted to files in
+      ``_PROPAGATION_OWNED_PATHS`` — unrelated operator work in the
+      same sibling is left for _validate_sibling to guard.
 
     ``fail_on_error=False`` should be used from the signal handler so that a
     checkout failure on one sibling does not abort cleanup of the remaining
@@ -2220,6 +2318,11 @@ def _reset_propagation_siblings(
                     _fail(msg)
                 else:
                     _info(f"Warning: {msg}")
+                continue
+        # Sibling is on main (either was already, or just returned to it).
+        # Reconcile a dirty propagation-owned file left by an interrupted
+        # write; leave unrelated modifications alone.
+        _reset_sibling_owned_dirt(sib_path, sib_name, fail_on_error=fail_on_error)
 
 
 def _collect_thread_results(

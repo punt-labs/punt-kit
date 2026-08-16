@@ -1877,6 +1877,163 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
         _reset_propagation_siblings(info, fail_on_error=True)
 
 
+def _make_dirty_sibling(parent: Path, name: str, tracked_files: dict[str, str]) -> Path:
+    """Create a sibling repo committed with ``tracked_files`` at HEAD.
+
+    Returns the sibling path. Caller mutates any tracked file after the
+    initial commit to produce the dirty-on-main state phase 10's mid-write
+    interruption leaves behind.
+    """
+    sib = parent / name
+    sib.mkdir(parents=True)
+    d = str(sib)
+    _git(["init", "-b", "main"], cwd=d)
+    _git(["config", "user.email", "test@test.com"], cwd=d)
+    _git(["config", "user.name", "Test"], cwd=d)
+    for rel, content in tracked_files.items():
+        target = sib / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "seed"], cwd=d)
+    return sib
+
+
+def test_reset_propagation_siblings_restores_dirty_owned_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sibling on main with only propagation-owned file dirty is reconciled.
+
+    This is the v0.14.0 residue: phase 10 wrote projects.json, then the
+    subsequent `git checkout -b propagate/...` timed out. The sibling
+    was left on main with the write on disk, and the guarded retry
+    refused to run. _reset_propagation_siblings must restore that file
+    so --resume-from propagate can retry the same idempotent write.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    original = '[{"id": "punt-kit", "version": "0.1.0"}]\n'
+    sib = _make_dirty_sibling(
+        tmp_path, "public-website", {"src/data/projects.json": original}
+    )
+    # Simulate the mid-phase-10 interruption: the propagation write landed
+    # before _sibling_pr_merge's checkout hung.
+    (sib / "src" / "data" / "projects.json").write_text(
+        '[{"id": "punt-kit", "version": "0.2.0"}]\n'
+    )
+
+    def fake_resolve(_root: object, name: str) -> Path | None:
+        return sib if name == "public-website" else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+
+    _reset_propagation_siblings(info)
+
+    restored = (sib / "src" / "data" / "projects.json").read_text()
+    assert restored == original, "propagation-owned file should be restored to HEAD"
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(sib),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout.strip() == "", "sibling should be clean after reset"
+
+
+def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unrelated operator work in a sibling survives the reset.
+
+    The whole point of restricting the reset to _PROPAGATION_OWNED_PATHS
+    is that we never destroy work in another repo. If a sibling has only
+    unrelated modifications, the reset leaves them entirely and lets the
+    existing _validate_sibling guard trip on them as it does today.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    original_unrelated = "operator was here\n"
+    sib = _make_dirty_sibling(
+        tmp_path,
+        "public-website",
+        {
+            "src/data/projects.json": '[{"id": "punt-kit", "version": "0.1.0"}]\n',
+            "docs/notes.md": original_unrelated,
+        },
+    )
+    # Operator work — not owned by punt release.
+    (sib / "docs" / "notes.md").write_text("operator edited this\n")
+
+    def fake_resolve(_root: object, name: str) -> Path | None:
+        return sib if name == "public-website" else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+
+    _reset_propagation_siblings(info)
+
+    assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(sib),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # Modification survives — the guard is expected to trip on it next.
+    assert "docs/notes.md" in status.stdout
+
+
+def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When both owned and unrelated files are dirty, unrelated survives.
+
+    This is the sharp edge: an interrupted propagation left the owned
+    file dirty AND the operator has a modification of their own in the
+    same sibling. The reset must not destroy the operator's file, even
+    at the cost of leaving the owned file dirty for the guard to trip
+    on — losing operator work is unrecoverable, letting the guard fail
+    once is not.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    owned_original = '[{"id": "punt-kit", "version": "0.1.0"}]\n'
+    unrelated_original = "operator was here\n"
+    sib = _make_dirty_sibling(
+        tmp_path,
+        "public-website",
+        {
+            "src/data/projects.json": owned_original,
+            "docs/notes.md": unrelated_original,
+        },
+    )
+    (sib / "src" / "data" / "projects.json").write_text(
+        '[{"id": "punt-kit", "version": "0.2.0"}]\n'
+    )
+    (sib / "docs" / "notes.md").write_text("operator edited this\n")
+
+    def fake_resolve(_root: object, name: str) -> Path | None:
+        return sib if name == "public-website" else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+
+    _reset_propagation_siblings(info)
+
+    # The one that MUST survive.
+    assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
+
+
 # --- _select_existing_pr / _pr_merge: stale same-named PRs ---
 
 _LOCAL_HEAD = "a" * 40
