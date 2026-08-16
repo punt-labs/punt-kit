@@ -40,8 +40,9 @@ PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 # Files each sibling's propagation writes. _reset_propagation_siblings uses
 # this map to reconcile a sibling left dirty by an interrupted phase 10 —
 # the propagation writes the file, then calls into _sibling_pr_merge which
-# checks out a branch, and if the checkout times out (see _GIT_HOOK_TIMEOUT
-# above) the sibling stays on main with the write still on disk. Restricted
+# checks out a branch, and if the checkout times out (see the timeout
+# budgets defined below) the sibling stays on main with the write still
+# on disk. Restricted
 # to files the release owns so unrelated operator work in the same repo
 # survives the reset — the guard in _validate_sibling still trips on
 # anything outside this set. Must stay in sync with the _propagate_*

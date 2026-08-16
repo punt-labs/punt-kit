@@ -1948,12 +1948,14 @@ def test_reset_propagation_siblings_restores_dirty_owned_file(
 def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Unrelated operator work in a sibling survives the reset.
+    """Modifications outside _PROPAGATION_OWNED_PATHS survive the reset.
 
-    The whole point of restricting the reset to _PROPAGATION_OWNED_PATHS
-    is that we never destroy work in another repo. If a sibling has only
-    unrelated modifications, the reset leaves them entirely and lets the
-    existing _validate_sibling guard trip on them as it does today.
+    The guarantee is scoped to paths, not to intent: a change to a file
+    the release owns IS discarded, including one an operator made by
+    hand, because the reset cannot tell the two apart. What it can
+    promise is that nothing outside the owned set is touched — a sibling
+    with only unrelated modifications is left entirely alone for the
+    existing _validate_sibling guard to trip on, as it does today.
     """
     from punt_kit import release as release_mod
 
@@ -3535,13 +3537,23 @@ def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
         verb = _first_git_verb(node)
         if verb not in hook_firing:
             continue
-        kw_names = {kw.arg for kw in node.keywords}
-        if "timeout" not in kw_names:
-            offenders.append((node.lineno, verb))
+        # Presence of `timeout=` is not enough. _GIT_NETWORK_TIMEOUT is 300s,
+        # exactly the beads hook ceiling with no headroom, so a call site set
+        # to it would pass a presence check and still reintroduce the hang
+        # this test exists to prevent. Pin the identifier, not the keyword.
+        budget: str | None = None
+        for kw in node.keywords:
+            if kw.arg == "timeout" and isinstance(kw.value, ast.Name):
+                budget = kw.value.id
+            elif kw.arg == "timeout":
+                budget = "<non-name expression>"
+        if budget != "_GIT_HOOK_TIMEOUT":
+            offenders.append((node.lineno, f"{verb} (timeout={budget})"))
 
     assert offenders == [], (
-        "hook-firing git commands with no explicit timeout "
-        f"(need timeout=_GIT_HOOK_TIMEOUT): {offenders}"
+        "hook-firing git commands must use timeout=_GIT_HOOK_TIMEOUT — a bare "
+        "`timeout=` or any other budget is not sufficient, because the hook's "
+        f"own ceiling is 300s: {offenders}"
     )
 
 
