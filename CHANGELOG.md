@@ -18,8 +18,11 @@ All notable changes to this project will be documented in this file.
   Phase 9 re-stamps the version and lands the restore and re-stamp as a
   single commit with hooks running. `release-plugin.sh` still commits on
   its own (Phase 4 has no follow-up edit to bundle) with the flag dropped.
-  The `[skip ci]` marker in the restore commit is preserved so the
-  tag-triggered `release.yml` workflow does not fire on the chore commit.
+  The CI-skip marker in the restore commit is preserved; it spares a
+  push-CI run on `main` once the post-release PR merges. It does not
+  affect `release.yml`, which fires on tag push and whose tag is placed
+  in phase 5, before this commit exists — the marker is load-bearing on
+  phase 4's commit, which the tag does land on
 
 ## [0.14.2] - 2026-08-15
 

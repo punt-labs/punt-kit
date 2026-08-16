@@ -1776,10 +1776,13 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                     encoding="utf-8",
                 )
                 _run(["git", "add", str(plugin_json)], cwd=str(root))
-            # [skip ci] keeps the tag-triggered release.yml workflow
-            # from re-firing on this chore commit (see historical
-            # regression in punt-kit and biff when the marker was
-            # dropped from an analogous release script).
+            # The CI-skip marker spares a push-CI run on main once the
+            # post-release PR squash-merges: this commit only restores dev
+            # plugin state and re-stamps a version. It does NOT affect
+            # release.yml, which triggers on tag push and whose tag was
+            # placed back in phase 5 — the marker matters on phase 4's
+            # release-plugin.sh commit, which the tag does land on, and
+            # that is where the historical regression happened.
             _run(
                 [
                     "git",

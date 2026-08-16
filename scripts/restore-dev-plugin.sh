@@ -59,5 +59,7 @@ git -C "$REPO_ROOT" add "$PLUGIN_JSON" commands/
 # Deliberately no commit — see CONTRACT above. The caller re-stamps the
 # version in plugin.json and commits both the restore and the re-stamp
 # together, so the commit passes the pre-commit hook and the message
-# still carries [skip ci] to keep the tag-triggered release.yml
-# workflow from firing on this chore commit.
+# still carries the CI-skip marker, which spares a push-CI run on main
+# after the post-release PR merges. That marker does not affect
+# release.yml — that workflow fires on tag push, and the tag is placed in
+# phase 5, before this commit exists.
