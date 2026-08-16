@@ -623,7 +623,18 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
             commits = cast("dict[str, object]", pull_request["commits"])
             nodes = cast("list[dict[str, object]]", commits["nodes"])
             commit = cast("dict[str, object]", nodes[0]["commit"])
-            rollup_obj = cast("dict[str, object]", commit["statusCheckRollup"])
+            rollup = commit["statusCheckRollup"]
+            # GitHub returns a null rollup until the first check run is
+            # attached to the commit, which on a freshly-opened PR is every
+            # poll for the first few seconds. That is the normal state, not a
+            # malformed response — reporting it as "unexpected" fired on every
+            # PR of every release and taught the operator to read warnings as
+            # noise. Say what is actually happening and keep waiting.
+            if rollup is None:
+                _info("No checks registered on the commit yet — waiting...")
+                time.sleep(15)
+                continue
+            rollup_obj = cast("dict[str, object]", rollup)
             contexts = cast("dict[str, object]", rollup_obj["contexts"])
             check_nodes = cast("list[dict[str, object]]", contexts["nodes"])
         except (KeyError, IndexError, TypeError) as exc:

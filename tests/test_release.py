@@ -3671,3 +3671,126 @@ def test_phase_name_round_trips_through_phase_names() -> None:
     assert _phase_name(0) == "unknown"
     assert _phase_name(12) == "unknown"
     assert _phase_name(-1) == "unknown"
+
+
+def _graphql_null_rollup_response() -> dict[str, object]:
+    """A real GitHub response for a PR whose commit has no checks yet.
+
+    GitHub returns ``statusCheckRollup: null`` until the first check run is
+    attached. This is what every freshly-opened PR returns for the first
+    few seconds.
+    """
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "commits": {"nodes": [{"commit": {"statusCheckRollup": None}}]}
+                }
+            }
+        }
+    }
+
+
+def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A null rollup is the normal pre-registration state, not an anomaly.
+
+    This fired on every PR of every release — three propagation PRs plus
+    the release and post-release PRs each logged it — because a null
+    rollup was reaching a subscript and raising TypeError into the
+    malformed-response handler. A warning that appears on every single
+    run is not a warning; it teaches the operator to skim past the ones
+    that matter.
+    """
+    from punt_kit import release as release_mod
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+
+    calls = 0
+
+    def fake_run(_cmd: list[str], **_kwargs: object) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        # Checks appear only on the third poll, as they do in a real release.
+        if calls < 3:
+            result.stdout = json.dumps(_graphql_null_rollup_response())
+        else:
+            result.stdout = json.dumps(
+                _graphql_checks_response(
+                    [
+                        {
+                            "name": "lint",
+                            "isRequired": True,
+                            "conclusion": "SUCCESS",
+                            "status": "COMPLETED",
+                        }
+                    ]
+                )
+            )
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "No checks registered on the commit yet" in out
+    assert "Unexpected GraphQL response structure" not in out, (
+        "a null rollup is the documented pre-registration state, not a "
+        "malformed response"
+    )
+    assert calls == 3
+
+
+def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Naming the null-rollup case must not silence real structure errors."""
+    from punt_kit import release as release_mod
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+
+    calls = 0
+
+    def fake_run(_cmd: list[str], **_kwargs: object) -> MagicMock:
+        nonlocal calls
+        calls += 1
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if calls < 2:
+            # Shape GitHub never sends: pullRequest present, commits absent.
+            result.stdout = json.dumps({"data": {"repository": {"pullRequest": {}}}})
+        else:
+            result.stdout = json.dumps(
+                _graphql_checks_response(
+                    [
+                        {
+                            "name": "lint",
+                            "isRequired": True,
+                            "conclusion": "SUCCESS",
+                            "status": "COMPLETED",
+                        }
+                    ]
+                )
+            )
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Unexpected GraphQL response structure" in out
