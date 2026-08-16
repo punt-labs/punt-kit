@@ -219,3 +219,9 @@ uv.toml
 
 # Working notes, not part of the package
 resume.md
+
+# Ethos org registry — was a git submodule here (SSH URL, ~1 MB / 246 files).
+# Claude Code clones plugins with --recurse-submodules, so it aborted every
+# keyless install. Removed; identity resolves from ~/.punt-labs/ethos/ instead.
+# The repo-local .punt-labs/ethos.yaml identity pointer stays tracked.
+/.punt-labs/ethos/

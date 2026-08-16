@@ -1,8 +1,0 @@
-[submodule ".punt-labs/ethos"]
-	path = .punt-labs/ethos
-	url = git@github.com:punt-labs/team.git
-	# ethos writes local run state into the submodule — missions/, sessions/,
-	# missions.jsonl. It is per-machine, belongs to no repo, and reporting it
-	# leaves the parent permanently dirty, which blocks release preflight.
-	# Commit-level changes to the submodule are still reported.
-	ignore = untracked
