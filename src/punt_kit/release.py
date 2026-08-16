@@ -37,6 +37,22 @@ _interrupted = threading.Event()
 # Must stay in sync with the _propagate_* functions.
 PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
+# Files each sibling's propagation writes. _reset_propagation_siblings uses
+# this map to reconcile a sibling left dirty by an interrupted phase 10 —
+# the propagation writes the file, then calls into _sibling_pr_merge which
+# checks out a branch, and if the checkout times out (see the timeout
+# budgets defined below) the sibling stays on main with the write still
+# on disk. Restricted
+# to files the release owns so unrelated operator work in the same repo
+# survives the reset — the guard in _validate_sibling still trips on
+# anything outside this set. Must stay in sync with the _propagate_*
+# functions and _sync_profile_readme.
+_PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
+    ".github": ("install-all.sh", "profile/README.md"),
+    "claude-plugins": (".claude-plugin/marketplace.json",),
+    "public-website": ("src/data/projects.json",),
+}
+
 # ---------------------------------------------------------------------------
 # Timeout budgets
 # ---------------------------------------------------------------------------
@@ -56,6 +72,19 @@ _UV_TIMEOUT = 600
 # budget is wide enough to swallow a transient hiccup but narrower than a
 # wedge on a broken socket.
 _GIT_NETWORK_TIMEOUT = 300
+
+# git commands that fire a repo hook — checkout, commit, merge, push, pull.
+# Every punt-labs repo installs beads client hooks (post-checkout,
+# pre-commit, post-commit, post-merge, pre-push) that run
+# `bd hooks run <event>` against a networked Dolt server with its own
+# BEADS_HOOK_TIMEOUT default of 300s. Under phase 9 + phase 10 concurrency,
+# several hooks hit Dolt at once and the tail latency runs up against that
+# ceiling. The budget here must live above the hook's own tolerance — not
+# equal to it — because git does its own I/O around the hook (write index,
+# resolve refs, network for push/pull). Raising the shared metadata
+# default is the wrong lever: 60s is what turns a two-hour hang into a
+# one-minute diagnosis for genuine metadata calls, and must stay that way.
+_GIT_HOOK_TIMEOUT = 600
 
 # Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The
 # full test suite on a cold cache can take a few minutes; a release aborts if
@@ -745,13 +774,14 @@ def _pr_merge(
         _dry("gh pr merge <number> --squash --delete-branch")
         return "<SHA>"
 
-    # 1. Push branch (idempotent)
+    # 1. Push branch (idempotent). pre-push fires bd hooks — needs the
+    # hook budget, which subsumes _GIT_NETWORK_TIMEOUT.
     result = _run(
         ["git", "push", "-u", "origin", branch],
         cwd=root,
         check=False,
         capture=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Failed to push branch {branch} — fix and retry")
@@ -789,11 +819,15 @@ def _pr_merge(
         if pr_number is not None:
             if already_merged:
                 _ok(f"PR #{pr_number} already merged")
-                _run(["git", "checkout", "main"], cwd=root)
+                _run(
+                    ["git", "checkout", "main"],
+                    cwd=root,
+                    timeout=_GIT_HOOK_TIMEOUT,
+                )
                 _run(
                     ["git", "pull", "--ff-only"],
                     cwd=root,
-                    timeout=_GIT_NETWORK_TIMEOUT,
+                    timeout=_GIT_HOOK_TIMEOUT,
                 )
                 sha = _run(
                     ["git", "rev-parse", "--short", "HEAD"], cwd=root
@@ -846,11 +880,11 @@ def _pr_merge(
         _fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
     if pr_state == "MERGED":
         _ok(f"PR #{pr_number} already merged")
-        _run(["git", "checkout", "main"], cwd=root)
+        _run(["git", "checkout", "main"], cwd=root, timeout=_GIT_HOOK_TIMEOUT)
         _run(
             ["git", "pull", "--ff-only"],
             cwd=root,
-            timeout=_GIT_NETWORK_TIMEOUT,
+            timeout=_GIT_HOOK_TIMEOUT,
         )
         sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
         return sha
@@ -907,11 +941,11 @@ def _pr_merge(
     _ok(f"PR #{pr_number} merged")
 
     # 7. Update local main
-    _run(["git", "checkout", "main"], cwd=root)
+    _run(["git", "checkout", "main"], cwd=root, timeout=_GIT_HOOK_TIMEOUT)
     _run(
         ["git", "pull", "--ff-only"],
         cwd=root,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
     return sha
@@ -933,10 +967,18 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             ["git", "branch", "--list", branch], cwd=str(root)
         ).stdout.strip()
         if existing:
-            _run(["git", "checkout", branch], cwd=str(root))
+            _run(
+                ["git", "checkout", branch],
+                cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             _info(f"Checked out existing branch {branch}")
         else:
-            _run(["git", "checkout", "-b", branch], cwd=str(root))
+            _run(
+                ["git", "checkout", "-b", branch],
+                cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             _ok(f"Created branch {branch}")
 
     # 2b. Bump version in pyproject.toml
@@ -1053,6 +1095,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             _run(
                 ["git", "commit", "-m", f"chore: release v{version}"],
                 cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
             )
             _ok("Release commit created")
         else:
@@ -1142,11 +1185,11 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     # Ensure we're on main (resume may leave us on release branch)
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         _run(
             ["git", "pull", "--ff-only"],
             cwd=str(root),
-            timeout=_GIT_NETWORK_TIMEOUT,
+            timeout=_GIT_HOOK_TIMEOUT,
         )
 
     # Check if tag already exists
@@ -1167,12 +1210,13 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _run(["git", "tag", tag], cwd=str(root))
     _ok(f"Tagged {tag}")
 
-    # Push tag (not blocked by branch protection — targets refs/tags/*)
+    # Push tag (not blocked by branch protection — targets refs/tags/*).
+    # pre-push still fires bd hooks, so use the hook budget.
     _run(
         ["git", "push", "origin", tag],
         cwd=str(root),
         capture=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     _ok(f"Pushed tag {tag}")
 
@@ -1674,19 +1718,23 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     # Ensure we're on main first
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
     if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root))
+        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         _run(
             ["git", "pull", "--ff-only"],
             cwd=str(root),
-            timeout=_GIT_NETWORK_TIMEOUT,
+            timeout=_GIT_HOOK_TIMEOUT,
         )
 
     existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
     if existing:
-        _run(["git", "checkout", branch], cwd=str(root))
+        _run(["git", "checkout", branch], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         _info(f"Checked out existing branch {branch}")
     else:
-        _run(["git", "checkout", "-b", branch], cwd=str(root))
+        _run(
+            ["git", "checkout", "-b", branch],
+            cwd=str(root),
+            timeout=_GIT_HOOK_TIMEOUT,
+        )
         _ok(f"Created branch {branch}")
 
     # Dev restore (hybrid/plugin — idempotent: skip if already dev)
@@ -1716,6 +1764,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                         "--no-verify",
                     ],
                     cwd=str(root),
+                    timeout=_GIT_HOOK_TIMEOUT,
                 )
             _ok("Dev plugin state restored")
             has_changes = True
@@ -1731,7 +1780,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if status:
         _run(["git", "add", "--", "README.md"], cwd=str(root))
         msg = f"chore: update README install SHA to v{version}"
-        _run(["git", "commit", "-m", msg], cwd=str(root))
+        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
         has_changes = True
 
     if not has_changes:
@@ -1743,7 +1792,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         if ahead:
             has_changes = True
         else:
-            _run(["git", "checkout", "main"], cwd=str(root))
+            _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
             _run(["git", "branch", "-D", branch], cwd=str(root))
             _ok("No post-release changes needed")
             return
@@ -1799,7 +1848,7 @@ def _validate_sibling(path: Path, name: str) -> None:
         ["git", "pull", "--ff-only", "origin", "main"],
         cwd=str(path),
         check=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
+        timeout=_GIT_HOOK_TIMEOUT,
     )
     if result.returncode != 0:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
@@ -1836,9 +1885,9 @@ def _sibling_pr_merge(
     try:
         existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
         if existing:
-            _run(["git", "checkout", branch], cwd=cwd)
+            _run(["git", "checkout", branch], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
         else:
-            _run(["git", "checkout", "-b", branch], cwd=cwd)
+            _run(["git", "checkout", "-b", branch], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
         for f in files:
             _run(["git", "add", f], cwd=cwd)
         # Skip commit if nothing staged (resume case: already committed)
@@ -1846,7 +1895,7 @@ def _sibling_pr_merge(
             ["git", "status", "--porcelain", "--", *files], cwd=cwd
         ).stdout.strip()
         if staged:
-            _run(["git", "commit", "-m", message], cwd=cwd)
+            _run(["git", "commit", "-m", message], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
 
         _pr_merge(
             cwd=path,
@@ -1864,7 +1913,12 @@ def _sibling_pr_merge(
         if current is None:
             _info(f"Could not read current branch for sibling {name} after operation")
         elif current != "main":
-            checkout = _run(["git", "checkout", "main"], cwd=cwd, check=False)
+            checkout = _run(
+                ["git", "checkout", "main"],
+                cwd=cwd,
+                check=False,
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             if checkout.returncode != 0:
                 _info(
                     f"Warning: could not return sibling {name} to main: "
@@ -2129,13 +2183,96 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         _ok(f"website: {project_name} already current")
 
 
+def _reset_sibling_owned_dirt(
+    sib_path: Path, sib_name: str, *, fail_on_error: bool
+) -> None:
+    """Restore propagation-owned files if a sibling on main is dirty in them.
+
+    The propagation writes a tracked file before calling into
+    ``_sibling_pr_merge``; any interruption between those two steps leaves
+    the sibling on main with the write on disk. ``_validate_sibling``
+    correctly refuses to proceed against a dirty sibling — this restores
+    the owned files so the retry can re-run the same idempotent write.
+
+    Only touches files in ``_PROPAGATION_OWNED_PATHS[sib_name]``. If any
+    other file in the sibling is modified, this function does nothing and
+    lets ``_validate_sibling`` fail — the whole point of the ownership
+    map is that a human's unrelated work in the sibling survives the
+    reset. On sibling names with no ownership entry (a future addition
+    to ``PROPAGATION_SIBLINGS`` without a paired entry here), also do
+    nothing rather than guess.
+    """
+    owned = _PROPAGATION_OWNED_PATHS.get(sib_name)
+    if not owned:
+        return
+
+    status = _run(["git", "status", "--porcelain"], cwd=str(sib_path), check=False)
+    if status.returncode != 0:
+        _info(
+            f"Could not read status for sibling {sib_name} "
+            f"({status.stderr.strip()}) — skipping owned-file reset"
+        )
+        return
+
+    dirty_owned: list[str] = []
+    for ln in status.stdout.splitlines():
+        # Same filter _validate_sibling applies: untracked and .beads noise
+        # do not block propagation and are not ours to reset.
+        if ln.startswith("?? "):
+            continue
+        file_path = ln[3:] if len(ln) > 3 else ""
+        if file_path == ".beads" or file_path.startswith(".beads/"):
+            continue
+        if file_path in owned:
+            dirty_owned.append(file_path)
+            continue
+        # A modification outside the ownership map. Leave the whole sibling
+        # alone — _validate_sibling will surface it, and the operator
+        # decides how to handle their own work.
+        return
+
+    if not dirty_owned:
+        return
+
+    _info(
+        f"Restoring propagation-owned files in sibling {sib_name} "
+        f"(was dirty on main): {', '.join(dirty_owned)}"
+    )
+    restore = _run(
+        ["git", "checkout", "HEAD", "--", *dirty_owned],
+        cwd=str(sib_path),
+        check=False,
+        timeout=_GIT_HOOK_TIMEOUT,
+    )
+    if restore.returncode != 0:
+        msg = (
+            f"Could not restore propagation-owned files in sibling "
+            f"{sib_name}: {restore.stderr.strip()}\n"
+            "Fix manually before retrying propagation."
+        )
+        if fail_on_error:
+            _fail(msg)
+        else:
+            _info(f"Warning: {msg}")
+
+
 def _reset_propagation_siblings(
     info: ProjectInfo, *, fail_on_error: bool = True
 ) -> None:
     """Return all propagation sibling repos to the main branch.
 
-    No-op for siblings already on main. Used by the interrupt handler and
-    at the start of Phase 10 to recover from prior interrupted runs.
+    No-op for siblings already on main and clean. Used by the interrupt
+    handler and at the start of Phase 10 to recover from prior interrupted
+    runs. Handles two residues a mid-phase-10 interruption can leave:
+
+    * a sibling on a ``propagate/v*`` branch — check it out back to main
+    * a sibling on main with a propagation-owned file dirty — the more
+      likely residue, since the propagation writes the file *before*
+      calling _sibling_pr_merge and any interruption between the two
+      leaves exactly that. Restored to HEAD so the idempotent retry
+      re-runs the same write. Restricted to files in
+      ``_PROPAGATION_OWNED_PATHS`` — unrelated operator work in the
+      same sibling is left for _validate_sibling to guard.
 
     ``fail_on_error=False`` should be used from the signal handler so that a
     checkout failure on one sibling does not abort cleanup of the remaining
@@ -2166,7 +2303,12 @@ def _reset_propagation_siblings(
                 )
                 continue
             _info(f"Returning sibling {sib_name} to main (was on '{branch}')...")
-            checkout = _run(["git", "checkout", "main"], cwd=str(sib_path), check=False)
+            checkout = _run(
+                ["git", "checkout", "main"],
+                cwd=str(sib_path),
+                check=False,
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             if checkout.returncode != 0:
                 msg = (
                     f"Could not return sibling {sib_name} to main: "
@@ -2177,6 +2319,11 @@ def _reset_propagation_siblings(
                     _fail(msg)
                 else:
                     _info(f"Warning: {msg}")
+                continue
+        # Sibling is on main (either was already, or just returned to it).
+        # Reconcile a dirty propagation-owned file left by an interrupted
+        # write; leave unrelated modifications alone.
+        _reset_sibling_owned_dirt(sib_path, sib_name, fail_on_error=fail_on_error)
 
 
 def _collect_thread_results(

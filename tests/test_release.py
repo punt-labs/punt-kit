@@ -2,20 +2,24 @@
 
 from __future__ import annotations
 
+import ast
 import inspect
 import json
 import os
 import shutil
 import subprocess
 import threading
+from pathlib import Path as _Path
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 import pytest
 
+from punt_kit import release
 from punt_kit.detect import detect
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
+    _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
@@ -1873,6 +1877,165 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
         _reset_propagation_siblings(info, fail_on_error=True)
 
 
+def _make_dirty_sibling(parent: Path, name: str, tracked_files: dict[str, str]) -> Path:
+    """Create a sibling repo committed with ``tracked_files`` at HEAD.
+
+    Returns the sibling path. Caller mutates any tracked file after the
+    initial commit to produce the dirty-on-main state phase 10's mid-write
+    interruption leaves behind.
+    """
+    sib = parent / name
+    sib.mkdir(parents=True)
+    d = str(sib)
+    _git(["init", "-b", "main"], cwd=d)
+    _git(["config", "user.email", "test@test.com"], cwd=d)
+    _git(["config", "user.name", "Test"], cwd=d)
+    for rel, content in tracked_files.items():
+        target = sib / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "seed"], cwd=d)
+    return sib
+
+
+def test_reset_propagation_siblings_restores_dirty_owned_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Sibling on main with only propagation-owned file dirty is reconciled.
+
+    This is the v0.14.0 residue: phase 10 wrote projects.json, then the
+    subsequent `git checkout -b propagate/...` timed out. The sibling
+    was left on main with the write on disk, and the guarded retry
+    refused to run. _reset_propagation_siblings must restore that file
+    so --resume-from propagate can retry the same idempotent write.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    original = '[{"id": "punt-kit", "version": "0.1.0"}]\n'
+    sib = _make_dirty_sibling(
+        tmp_path, "public-website", {"src/data/projects.json": original}
+    )
+    # Simulate the mid-phase-10 interruption: the propagation write landed
+    # before _sibling_pr_merge's checkout hung.
+    (sib / "src" / "data" / "projects.json").write_text(
+        '[{"id": "punt-kit", "version": "0.2.0"}]\n'
+    )
+
+    def fake_resolve(_root: object, name: str) -> Path | None:
+        return sib if name == "public-website" else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+
+    _reset_propagation_siblings(info)
+
+    restored = (sib / "src" / "data" / "projects.json").read_text()
+    assert restored == original, "propagation-owned file should be restored to HEAD"
+
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(sib),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout.strip() == "", "sibling should be clean after reset"
+
+
+def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Modifications outside _PROPAGATION_OWNED_PATHS survive the reset.
+
+    The guarantee is scoped to paths, not to intent: a change to a file
+    the release owns IS discarded, including one an operator made by
+    hand, because the reset cannot tell the two apart. What it can
+    promise is that nothing outside the owned set is touched — a sibling
+    with only unrelated modifications is left entirely alone for the
+    existing _validate_sibling guard to trip on, as it does today.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    original_unrelated = "operator was here\n"
+    sib = _make_dirty_sibling(
+        tmp_path,
+        "public-website",
+        {
+            "src/data/projects.json": '[{"id": "punt-kit", "version": "0.1.0"}]\n',
+            "docs/notes.md": original_unrelated,
+        },
+    )
+    # Operator work — not owned by punt release.
+    (sib / "docs" / "notes.md").write_text("operator edited this\n")
+
+    def fake_resolve(_root: object, name: str) -> Path | None:
+        return sib if name == "public-website" else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+
+    _reset_propagation_siblings(info)
+
+    assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(sib),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    # Modification survives — the guard is expected to trip on it next.
+    assert "docs/notes.md" in status.stdout
+
+
+def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When both owned and unrelated files are dirty, unrelated survives.
+
+    This is the sharp edge: an interrupted propagation left the owned
+    file dirty AND the operator has a modification of their own in the
+    same sibling. The reset must not destroy the operator's file, even
+    at the cost of leaving the owned file dirty for the guard to trip
+    on — losing operator work is unrecoverable, letting the guard fail
+    once is not.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    owned_original = '[{"id": "punt-kit", "version": "0.1.0"}]\n'
+    unrelated_original = "operator was here\n"
+    sib = _make_dirty_sibling(
+        tmp_path,
+        "public-website",
+        {
+            "src/data/projects.json": owned_original,
+            "docs/notes.md": unrelated_original,
+        },
+    )
+    (sib / "src" / "data" / "projects.json").write_text(
+        '[{"id": "punt-kit", "version": "0.2.0"}]\n'
+    )
+    (sib / "docs" / "notes.md").write_text("operator edited this\n")
+
+    def fake_resolve(_root: object, name: str) -> Path | None:
+        return sib if name == "public-website" else None
+
+    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+
+    _reset_propagation_siblings(info)
+
+    # The one that MUST survive.
+    assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
+
+
 # --- _select_existing_pr / _pr_merge: stale same-named PRs ---
 
 _LOCAL_HEAD = "a" * 40
@@ -3316,6 +3479,82 @@ def test_run_default_timeout_is_short() -> None:
     default = sig.parameters["timeout"].default
     assert default == _DEFAULT_RUN_TIMEOUT
     assert _DEFAULT_RUN_TIMEOUT <= 60
+
+
+def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
+    """The hook budget must live above BEADS_HOOK_TIMEOUT (300s), not equal to it.
+
+    A git command that fires a bd hook spends time on git's own I/O
+    (write index, resolve refs, network for push/pull) in addition to the
+    hook. Setting the budget to 300s — the hook's own ceiling — leaves no
+    headroom, and the release aborts the moment the hook uses its full
+    tolerance. The v0.14.0 release lost two phases exactly this way.
+    """
+    assert _GIT_HOOK_TIMEOUT > 300
+
+
+def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
+    """Every _run call for a hook-firing git command must pass an explicit timeout.
+
+    checkout, commit, merge, push, and pull all fire bd hooks against the
+    networked Dolt server; the 60s metadata default is not enough. An
+    audit-by-command-name that silently reclassified these back to the
+    default is exactly how the v0.14.0 defect was introduced — this test
+    pins the classification in code so the next audit cannot undo it
+    without a test failure to answer for.
+    """
+    src = _Path(release.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    hook_firing = {"checkout", "commit", "merge", "push", "pull"}
+
+    def _first_git_verb(call: ast.Call) -> str | None:
+        if not call.args:
+            return None
+        first = call.args[0]
+        if not isinstance(first, ast.List) or len(first.elts) < 2:
+            return None
+        head, verb = first.elts[0], first.elts[1]
+        if not (isinstance(head, ast.Constant) and head.value == "git"):
+            return None
+        if not (isinstance(verb, ast.Constant) and isinstance(verb.value, str)):
+            return None
+        return verb.value
+
+    def _run_name(call: ast.Call) -> str | None:
+        f = call.func
+        if isinstance(f, ast.Name):
+            return f.id
+        if isinstance(f, ast.Attribute):
+            return f.attr
+        return None
+
+    offenders: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if _run_name(node) != "_run":
+            continue
+        verb = _first_git_verb(node)
+        if verb not in hook_firing:
+            continue
+        # Presence of `timeout=` is not enough. _GIT_NETWORK_TIMEOUT is 300s,
+        # exactly the beads hook ceiling with no headroom, so a call site set
+        # to it would pass a presence check and still reintroduce the hang
+        # this test exists to prevent. Pin the identifier, not the keyword.
+        budget: str | None = None
+        for kw in node.keywords:
+            if kw.arg == "timeout" and isinstance(kw.value, ast.Name):
+                budget = kw.value.id
+            elif kw.arg == "timeout":
+                budget = "<non-name expression>"
+        if budget != "_GIT_HOOK_TIMEOUT":
+            offenders.append((node.lineno, f"{verb} (timeout={budget})"))
+
+    assert offenders == [], (
+        "hook-firing git commands must use timeout=_GIT_HOOK_TIMEOUT — a bare "
+        "`timeout=` or any other budget is not sufficient, because the hook's "
+        f"own ceiling is 300s: {offenders}"
+    )
 
 
 def test_run_release_converts_timeout_expired_to_diagnosed_exit(

@@ -4,6 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release`: git commands that fire bd hooks (checkout, commit, merge,
+  push, pull) now use a dedicated 600s `_GIT_HOOK_TIMEOUT` budget instead of
+  the 60s metadata default. Beads client hooks call `bd hooks run <event>`
+  against a networked Dolt server with a 300s tolerance of their own; phases 9
+  and 10 run concurrently and stack several hooks against Dolt at once, so the
+  short budget aborted mid-release under load. The v0.14.0 release lost two
+  phases exactly this way. Every hook-firing call site is pinned by an AST
+  audit test so a future command-name reclassification cannot silently
+  reintroduce the defect.
+- `punt release --resume-from propagate` now reconciles a sibling left dirty
+  on `main` — the more common residue of an interrupted phase 10, since the
+  propagation writes a tracked file *before* `_sibling_pr_merge` checks out
+  its branch, and any interruption between those two steps leaves exactly
+  that. `_reset_propagation_siblings` previously only recovered siblings on
+  a `propagate/v*` branch, so v0.14.0 needed a hand-typed `git stash` to
+  unblock the retry. The reset is restricted to files in a new
+  `_PROPAGATION_OWNED_PATHS` map (`install-all.sh`, `profile/README.md`,
+  `.claude-plugin/marketplace.json`, `src/data/projects.json`); a sibling
+  with any modification outside that map is left alone and the existing
+  guard trips as before, so unrelated operator work in the sibling is
+  never destroyed.
+
 ## [0.14.0] - 2026-08-15
 
 ### Added
