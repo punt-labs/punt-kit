@@ -1748,16 +1748,26 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         )
         _ok(f"Created branch {branch}")
 
-    # Dev restore (hybrid/plugin — idempotent: skip if already dev)
+    # Dev restore (hybrid/plugin — idempotent: skip if already dev).
+    #
+    # The restore script stages the reverted files but does not commit
+    # (see scripts/restore-dev-plugin.sh CONTRACT). That lets this phase
+    # re-stamp the version — the historical dev commit's plugin.json has
+    # the old version — and land the restore + re-stamp as one commit
+    # with hooks running. The previous shape committed inside the script
+    # and then --amend --no-verify'd here to fix up the version; the
+    # org bans --no-verify outright and the amend existed only because
+    # the script committed too early.
     if info.is_hybrid or info.is_plugin:
         plugin_json = root / ".claude-plugin" / "plugin.json"
         pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
         if not pj_data.get("name", "").endswith("-dev"):
             restore_script = root / "scripts" / "restore-dev-plugin.sh"
             _run(["bash", str(restore_script)], cwd=str(root), capture=False)
-            # Re-stamp version — the restore script does
-            # `git checkout HEAD~1 -- plugin.json` which reverts the
-            # version field along with the name.
+            # The restore checks plugin.json out of the last dev commit,
+            # which reverts the version field along with the name. Put
+            # the just-released version back before committing so main
+            # advertises the current release, not the previous one.
             pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
             if pj_data.get("version") != version:
                 pj_data["version"] = version
@@ -1766,17 +1776,20 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                     encoding="utf-8",
                 )
                 _run(["git", "add", str(plugin_json)], cwd=str(root))
-                _run(
-                    [
-                        "git",
-                        "commit",
-                        "--amend",
-                        "--no-edit",
-                        "--no-verify",
-                    ],
-                    cwd=str(root),
-                    timeout=_GIT_HOOK_TIMEOUT,
-                )
+            # [skip ci] keeps the tag-triggered release.yml workflow
+            # from re-firing on this chore commit (see historical
+            # regression in punt-kit and biff when the marker was
+            # dropped from an analogous release script).
+            _run(
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    "chore: restore dev plugin state [skip ci]",
+                ],
+                cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             _ok("Dev plugin state restored")
             has_changes = True
         else:

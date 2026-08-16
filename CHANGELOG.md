@@ -4,6 +4,23 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Release path no longer bypasses git hooks. Three `--no-verify` uses ran
+  on every hybrid/plugin release — `scripts/release-plugin.sh` (Phase 4),
+  `scripts/restore-dev-plugin.sh` (Phase 9), and a
+  `git commit --amend --no-verify` in `punt_kit.release._phase9_post_release`
+  — and the org bans the flag outright. The amend was a symptom, not the
+  bug: `restore-dev-plugin.sh` committed the dev restore, then Phase 9
+  noticed the historical dev commit had reverted `plugin.json`'s version
+  along with the name and rewrote the commit with `--amend` to fix it up.
+  `restore-dev-plugin.sh` now restores and stages but does not commit;
+  Phase 9 re-stamps the version and lands the restore and re-stamp as a
+  single commit with hooks running. `release-plugin.sh` still commits on
+  its own (Phase 4 has no follow-up edit to bundle) with the flag dropped.
+  The `[skip ci]` marker in the restore commit is preserved so the
+  tag-triggered `release.yml` workflow does not fire on the chore commit.
+
 ## [0.14.2] - 2026-08-15
 
 ### Fixed
