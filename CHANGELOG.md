@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The release path's shell scripts are budgeted for the hooks they now
+  fire. `release-plugin.sh` and `restore-dev-plugin.sh` are invoked via
+  `_run(["bash", ...])`, which inherited the 60s metadata default while
+  the `git commit` and `git checkout` inside them run the bd hooks that
+  allow themselves 300s — a gap created by this same change, since those
+  commits only started running hooks when `--no-verify` was removed. The
+  existing audit could not see it: it inspects `_run(["git", ...])` calls
+  and a script runs git one level down. A second audit now requires every
+  `_run(["bash", ...])` to carry the hook budget, grounded in a scan of
+  `scripts/` for hook-firing git verbs rather than a hardcoded list
 - Release path no longer bypasses git hooks. Three `--no-verify` uses ran
   on every hybrid/plugin release — `scripts/release-plugin.sh` (Phase 4),
   `scripts/restore-dev-plugin.sh` (Phase 9), and a

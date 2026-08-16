@@ -1223,6 +1223,12 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
                     ["bash", str(release_script)],
                     cwd=str(root),
                     capture=False,
+                    # The script commits, and that commit now runs the repo
+                    # hooks — the bd pre-commit hook alone allows itself 300s
+                    # against a networked Dolt server. Budgeting the script at
+                    # the 60s metadata default would abort a release for hook
+                    # latency that is not a fault.
+                    timeout=_GIT_HOOK_TIMEOUT,
                 )
                 _ok("Plugin swapped to prod")
             else:
@@ -1833,7 +1839,14 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         if not restore_done:
             _reset_plugin_swap_paths(root)
             restore_script = root / "scripts" / "restore-dev-plugin.sh"
-            _run(["bash", str(restore_script)], cwd=str(root), capture=False)
+            _run(
+                ["bash", str(restore_script)],
+                cwd=str(root),
+                capture=False,
+                # git checkout inside the script fires the post-checkout hook;
+                # same reasoning as the phase 4 swap above.
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             # The restore checks plugin.json out of the last dev commit,
             # which reverts the version field along with the name. Put
             # the just-released version back before committing so main

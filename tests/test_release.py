@@ -6,6 +6,7 @@ import ast
 import inspect
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -4265,3 +4266,68 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "Unexpected GraphQL response structure" in out
+
+
+def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> None:
+    """A script that runs hook-firing git commands needs the hook budget too.
+
+    The sibling audit inspects `_run(["git", ...])` calls directly, which
+    makes a script invisible to it: `_run(["bash", script])` runs git one
+    level down, so the call site inherits the 60s metadata default while
+    the work behind it fires the bd pre-commit and post-checkout hooks
+    that allow themselves 300s. That gap is how release-plugin.sh and
+    restore-dev-plugin.sh kept the short budget after the commits inside
+    them started running hooks.
+
+    The rule is deliberately broad — every `_run(["bash", ...])` must
+    carry the budget — because the script path arrives as a variable and
+    cannot be resolved statically. Over-budgeting a fast script costs
+    nothing: the timeout is a ceiling, not a wait. Under-budgeting one
+    aborts a release.
+    """
+    src = _Path(release.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Every shell script the release path invokes lives here and is checked
+    # for hook-firing git verbs, so the rule below is grounded in what the
+    # scripts actually do rather than assumed.
+    scripts_dir = _Path(release.__file__).parent.parent.parent / "scripts"
+    # The scripts call `git -C "$REPO_ROOT" commit`, so a literal "git commit"
+    # never matches — the verb is separated from `git` by the -C flag.
+    hook_verb_re = re.compile(r"\bgit\b[^\n]*\b(commit|checkout|merge|push|pull)\b")
+    hook_firing_scripts = sorted(
+        p.name
+        for p in scripts_dir.glob("*.sh")
+        if hook_verb_re.search(p.read_text(encoding="utf-8"))
+    )
+    assert hook_firing_scripts, (
+        "expected at least one release script to run hook-firing git commands; "
+        "if that is no longer true this audit needs revisiting, not deleting"
+    )
+
+    offenders: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if name != "_run" or not node.args:
+            continue
+        first = node.args[0]
+        if not isinstance(first, ast.List) or not first.elts:
+            continue
+        head = first.elts[0]
+        if not (isinstance(head, ast.Constant) and head.value == "bash"):
+            continue
+        budget = None
+        for kw in node.keywords:
+            if kw.arg == "timeout":
+                budget = kw.value.id if isinstance(kw.value, ast.Name) else "<expr>"
+        if budget != "_GIT_HOOK_TIMEOUT":
+            offenders.append((node.lineno, f"timeout={budget}"))
+
+    assert offenders == [], (
+        "shell scripts invoked by the release path run hook-firing git "
+        f"commands ({', '.join(hook_firing_scripts)}) and must be given "
+        f"timeout=_GIT_HOOK_TIMEOUT: {offenders}"
+    )
