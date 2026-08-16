@@ -43,4 +43,9 @@ done
 
 git -C "$REPO_ROOT" add "$PLUGIN_JSON"
 git -C "$REPO_ROOT" rm "${dev_files[@]}"
-git -C "$REPO_ROOT" commit --no-verify -m "chore: prepare plugin for release"
+# Phase 4 does not follow the swap with any additional edit that needs
+# to land in this commit, so this script commits on its own (unlike
+# restore-dev-plugin.sh, which stages and lets the caller commit). The
+# hooks fire — the org bans --no-verify — and this remains one commit
+# per logical step.
+git -C "$REPO_ROOT" commit -m "chore: prepare plugin for release"

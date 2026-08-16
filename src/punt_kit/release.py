@@ -1147,6 +1147,52 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     _ok("Build artifacts pass twine check")
 
 
+_PLUGIN_JSON_REL = ".claude-plugin/plugin.json"
+_PLUGIN_SWAP_PATHS = (_PLUGIN_JSON_REL, "commands/")
+
+
+def _head_plugin_state(root: Path) -> dict[str, object]:
+    """Read plugin.json as committed at HEAD, not from the working tree.
+
+    Idempotency checks in phases 4 and 9 answer "is the swap done?" and
+    the only source of truth for "done" is the commit that lands on the
+    release branch — never the working tree. A prior run that mutated
+    plugin.json and then hit a failing pre-commit hook leaves the tree
+    already showing the target name with nothing committed; trusting
+    disk would report the phase complete and skip past the missing
+    commit (Bugbot on pkit-sliw follow-up). ``git show HEAD:<path>``
+    always describes HEAD alone, regardless of the index state.
+    """
+    result = _run(
+        ["git", "show", f"HEAD:{_PLUGIN_JSON_REL}"],
+        cwd=str(root),
+    )
+    return cast("dict[str, object]", json.loads(result.stdout))
+
+
+def _reset_plugin_swap_paths(root: Path) -> None:
+    """Revert plugin.json and commands/ to their state at HEAD.
+
+    The plugin swap and dev restore each mutate the working tree AND
+    stage the changes before committing. If the commit fails on a
+    pre-commit hook, resume needs a clean slate to re-run the script:
+    ``release-plugin.sh`` errors out with "Plugin name is already
+    '<prod>'" when the tree it starts on already shows the target
+    state, and ``restore-dev-plugin.sh`` behaves similarly. Restoring
+    the swap paths to HEAD undoes only the failed run's own edits —
+    every other path is left alone.
+
+    Paths not present at HEAD are silently ignored (a fresh test repo
+    without ``commands/`` at HEAD is still a valid input).
+    """
+    _run(
+        ["git", "checkout", "HEAD", "--", *_PLUGIN_SWAP_PATHS],
+        cwd=str(root),
+        check=False,
+        timeout=_GIT_HOOK_TIMEOUT,
+    )
+
+
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 4: Plugin swap, push branch, create PR, merge."""
     console.print(f"\n[bold]Phase 4: Release PR v{version}[/bold]")
@@ -1154,23 +1200,39 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     root = info.root
     branch = f"release/v{version}"
 
-    # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already prod)
+    # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already
+    # committed at HEAD). The old shape read plugin.json from the
+    # working tree, which is only correct while --no-verify guarantees
+    # the commit cannot fail. With hooks live (pkit-sliw), a failed
+    # commit leaves plugin.json prod-shaped on disk without a
+    # corresponding commit; a working-tree read then reports the swap
+    # done and _pr_merge pushes a release branch whose HEAD still
+    # carries the -dev name — the release tag lands on it, silently.
+    # Consult HEAD, and reset the swap paths so the script's fresh-run
+    # precondition (dev name on disk) holds even on retry.
     if info.is_hybrid or info.is_plugin:
         release_script = root / "scripts" / "release-plugin.sh"
         if dry_run:
             _dry("bash scripts/release-plugin.sh")
         else:
-            plugin_json = root / ".claude-plugin" / "plugin.json"
-            pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
-            if pj_data.get("name", "").endswith("-dev"):
+            head_data = _head_plugin_state(root)
+            head_name = str(head_data.get("name", ""))
+            if head_name.endswith("-dev"):
+                _reset_plugin_swap_paths(root)
                 _run(
                     ["bash", str(release_script)],
                     cwd=str(root),
                     capture=False,
+                    # The script commits, and that commit now runs the repo
+                    # hooks — the bd pre-commit hook alone allows itself 300s
+                    # against a networked Dolt server. Budgeting the script at
+                    # the 60s metadata default would abort a release for hook
+                    # latency that is not a fault.
+                    timeout=_GIT_HOOK_TIMEOUT,
                 )
                 _ok("Plugin swapped to prod")
             else:
-                _ok("Plugin already in prod state (resume)")
+                _ok("Plugin already swapped at HEAD (resume)")
 
     # 4b. Push branch, create PR, wait for CI, squash-merge
     _pr_merge(
@@ -1748,16 +1810,48 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         )
         _ok(f"Created branch {branch}")
 
-    # Dev restore (hybrid/plugin — idempotent: skip if already dev)
+    # Dev restore (hybrid/plugin — idempotent: skip only when the
+    # restore commit is already at HEAD). Mirror of the phase 4 check.
+    #
+    # The restore script stages the reverted files but does not commit
+    # (see scripts/restore-dev-plugin.sh CONTRACT). That lets this phase
+    # re-stamp the version — the historical dev commit's plugin.json has
+    # the old version — and land the restore + re-stamp as one commit
+    # with hooks running. The previous shape committed inside the script
+    # and then --amend --no-verify'd here to fix up the version; the
+    # org bans --no-verify outright and the amend existed only because
+    # the script committed too early.
+    #
+    # Consulting the working tree here has the same failure mode phase
+    # 4 does: if the commit fails on a pre-commit hook, the restore is
+    # already staged and the tree already shows the dev name — a disk
+    # read would report "already in dev state (resume)" and fall
+    # through to the README-SHA commit, which would then sweep the
+    # staged plugin.json into itself under the wrong commit message.
+    # Consult HEAD, and require BOTH the dev name AND the released
+    # version at HEAD before treating the restore as done — a partial
+    # historical commit with a mismatched version must still re-run.
     if info.is_hybrid or info.is_plugin:
-        plugin_json = root / ".claude-plugin" / "plugin.json"
-        pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
-        if not pj_data.get("name", "").endswith("-dev"):
+        head_data = _head_plugin_state(root)
+        head_name = str(head_data.get("name", ""))
+        head_version = str(head_data.get("version", ""))
+        restore_done = head_name.endswith("-dev") and head_version == version
+        if not restore_done:
+            _reset_plugin_swap_paths(root)
             restore_script = root / "scripts" / "restore-dev-plugin.sh"
-            _run(["bash", str(restore_script)], cwd=str(root), capture=False)
-            # Re-stamp version — the restore script does
-            # `git checkout HEAD~1 -- plugin.json` which reverts the
-            # version field along with the name.
+            _run(
+                ["bash", str(restore_script)],
+                cwd=str(root),
+                capture=False,
+                # git checkout inside the script fires the post-checkout hook;
+                # same reasoning as the phase 4 swap above.
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
+            # The restore checks plugin.json out of the last dev commit,
+            # which reverts the version field along with the name. Put
+            # the just-released version back before committing so main
+            # advertises the current release, not the previous one.
+            plugin_json = root / ".claude-plugin" / "plugin.json"
             pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
             if pj_data.get("version") != version:
                 pj_data["version"] = version
@@ -1766,21 +1860,27 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                     encoding="utf-8",
                 )
                 _run(["git", "add", str(plugin_json)], cwd=str(root))
-                _run(
-                    [
-                        "git",
-                        "commit",
-                        "--amend",
-                        "--no-edit",
-                        "--no-verify",
-                    ],
-                    cwd=str(root),
-                    timeout=_GIT_HOOK_TIMEOUT,
-                )
+            # The CI-skip marker spares a push-CI run on main once the
+            # post-release PR squash-merges: this commit only restores dev
+            # plugin state and re-stamps a version. It does NOT affect
+            # release.yml, which triggers on tag push and whose tag was
+            # placed back in phase 5 — the marker matters on phase 4's
+            # release-plugin.sh commit, which the tag does land on, and
+            # that is where the historical regression happened.
+            _run(
+                [
+                    "git",
+                    "commit",
+                    "-m",
+                    "chore: restore dev plugin state [skip ci]",
+                ],
+                cwd=str(root),
+                timeout=_GIT_HOOK_TIMEOUT,
+            )
             _ok("Dev plugin state restored")
             has_changes = True
         else:
-            _ok("Plugin already in dev state (resume)")
+            _ok("Dev restore already at HEAD (resume)")
 
     # README SHA bump. Stage README.md explicitly — `git add -A` would
     # sweep unrelated untracked files into the post-release commit.

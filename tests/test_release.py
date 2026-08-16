@@ -6,6 +6,7 @@ import ast
 import inspect
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -2512,6 +2513,39 @@ _RESTORE_SCRIPT = os.path.join(
 )
 
 
+def test_release_path_never_bypasses_git_hooks() -> None:
+    """No release-path file may pass ``--no-verify`` to git.
+
+    The org CLAUDE.md bans ``--no-verify`` outright; the release path is
+    the historical repeat offender (Phases 4 and 9 previously carried
+    three uses across ``release.py``, ``release-plugin.sh``, and
+    ``restore-dev-plugin.sh``). This test greps the files themselves so
+    a reintroduction fails immediately, not on the next release. Comments
+    describing the ban are stripped before scanning so this file's own
+    prose does not trigger it.
+    """
+    root = _Path(__file__).parent.parent
+    targets = [
+        root / "src" / "punt_kit" / "release.py",
+        root / "scripts" / "release-plugin.sh",
+        root / "scripts" / "restore-dev-plugin.sh",
+    ]
+    for path in targets:
+        text = path.read_text(encoding="utf-8")
+        code_only_lines: list[str] = []
+        for raw in text.splitlines():
+            stripped = raw.lstrip()
+            if stripped.startswith("#"):
+                continue
+            code, sep, _ = raw.partition("#")
+            code_only_lines.append(code if sep else raw)
+        code_only = "\n".join(code_only_lines)
+        assert "--no-verify" not in code_only, (
+            f"{path.name} reintroduced --no-verify — org CLAUDE.md bans "
+            "the flag; let the hooks run or surface a real hook failure."
+        )
+
+
 def _install_restore_script(root: Path) -> None:
     """Copy the real restore-dev-plugin.sh into a test repo."""
     scripts_dir = root / "scripts"
@@ -2566,6 +2600,16 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(tmp_path: Path) -> None:
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "add restore script"], cwd=d)
 
+    # Capture HEAD before running the script so the "no commit" contract
+    # can be asserted against a concrete baseline rather than by absence.
+    head_before = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
     # Run the script
     subprocess.run(
         ["bash", str(root / "scripts" / "restore-dev-plugin.sh")],
@@ -2580,6 +2624,31 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(tmp_path: Path) -> None:
 
     # Verify the dev command was restored
     assert (commands_dir / "hello.md").read_text() == "# Hello\nDev command\n"
+
+    # Contract: the script stages but does NOT commit — HEAD is unchanged
+    # and the restored files are in the index, waiting for the caller
+    # (Phase 9) to re-stamp the version and commit once.
+    head_after = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert head_after == head_before, "restore-dev-plugin.sh must not commit"
+
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    # Only plugin.json differs from the dev commit — commands/hello.md
+    # was never removed by the simulated release swap so `git add
+    # commands/` finds nothing new to stage. What matters for the
+    # contract is that the name-flip landed in the index.
+    assert ".claude-plugin/plugin.json" in staged
 
 
 def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
@@ -2615,6 +2684,409 @@ def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
     )
     assert result.returncode != 0
     assert "No commit found with dev plugin name" in result.stderr
+
+
+def test_phase9_dev_restore_single_commit_with_restamp(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 9 lands the dev restore and version re-stamp in one commit.
+
+    The previous shape ran restore-dev-plugin.sh (which committed on its
+    own with --no-verify), noticed the version had been reverted along
+    with the name, and then --amend --no-edit --no-verify'd to correct
+    it. Both --no-verify uses are banned. The new shape has the script
+    stage but not commit; this phase re-stamps and commits once with
+    hooks running. The observable evidence of the new shape is: HEAD is
+    a single new commit (not an amend of one, not a commit-plus-amend
+    pair), it carries both the name flip and the correct version, and
+    its message keeps the [skip ci] marker.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Establish a dev-state commit that also carries a -dev command
+    # file, so restore-dev-plugin.sh's `git checkout ... commands/` has
+    # something to walk back to. The commit must touch plugin.json —
+    # the script walks plugin.json history, so a commit that only adds
+    # commands/ would be invisible to it and it would keep walking back
+    # to the initial scaffold commit (which has no commands/).
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    commands_dir = root / "commands"
+    commands_dir.mkdir(exist_ok=True)
+    (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
+    # Force plugin.json to differ from the scaffold — the restore
+    # script walks plugin.json history and picks the newest commit
+    # whose JSON has a -dev name. A no-op write leaves plugin.json out
+    # of this commit and the script walks back past it to the scaffold
+    # (which has no commands/) and errors on the checkout.
+    plugin_json.write_text(
+        json.dumps(
+            {"name": "test-dev", "version": "0.1.0", "description": "d"},
+            indent=2,
+        )
+        + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev command"], cwd=d)
+
+    # Simulate the release-branch merge: on main plugin.json is already in
+    # prod state at the just-released version and the -dev command has
+    # been removed. The dev-named commit that restore-dev-plugin.sh
+    # walks back to still has the previous version and the dev command.
+    plugin_json.write_text(
+        json.dumps({"name": "test", "version": "0.2.0"}, indent=2) + "\n"
+    )
+    (commands_dir / "hello-dev.md").unlink()
+    _git(["add", "-A"], cwd=d)
+    _git(["commit", "-m", "chore: release v0.2.0 (post-merge)"], cwd=d)
+
+    # Swap in the real restore script (the fake in _make_release_project
+    # only does `git commit --allow-empty`, which does not exercise the
+    # stage-only contract this test is asserting).
+    scripts_dir = root / "scripts"
+    real_script = _Path(__file__).parent.parent / "scripts" / "restore-dev-plugin.sh"
+    (scripts_dir / "restore-dev-plugin.sh").write_text(real_script.read_text())
+    (scripts_dir / "restore-dev-plugin.sh").chmod(0o755)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "install real restore script"], cwd=d)
+
+    # README pointing at the project so the SHA bump has something to
+    # rewrite — this exercises the second Phase 9 commit as well and
+    # lets us assert the exact commit sequence.
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "sha-pinned readme"], cwd=d)
+
+    base_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        return "abc1234"
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    # Post-release branch has the restore commit and the README-SHA
+    # commit — exactly two commits ahead of the base. The restore
+    # commit is a single new commit, not a commit-plus-amend pair, so
+    # the count is the primary evidence that the amend is gone.
+    log = (
+        subprocess.run(
+            ["git", "log", "--format=%s", f"{base_head}..HEAD"],
+            cwd=d,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+    assert log == [
+        "chore: update README install SHA to v0.2.0",
+        "chore: restore dev plugin state [skip ci]",
+    ], log
+
+    # The restore commit — HEAD~1 — must contain both the plugin.json
+    # revert and the version re-stamp. If the script had committed
+    # first, the re-stamp would either be in HEAD (a second commit) or
+    # would have required the --amend path this refactor deleted.
+    restore_files = _commit_files(root, ref="HEAD~1")
+    assert ".claude-plugin/plugin.json" in restore_files
+
+    restored = json.loads(plugin_json.read_text())
+    assert restored["name"] == "test-dev"
+    assert restored["version"] == "0.2.0"
+
+
+def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 4 must NOT skip the swap when a prior run failed mid-commit.
+
+    Removing --no-verify (pkit-sliw) let pre-commit hooks abort
+    release-plugin.sh AFTER it mutated the working tree and staged the
+    changes. A working-tree read of plugin.json then reports the swap
+    complete, phase 4 falls through to _pr_merge, and the release tag
+    lands on a commit still carrying the -dev plugin name. The correct
+    predicate is whether the swap is committed AT HEAD.
+
+    This test simulates the failed-hook state by staging a prod-shaped
+    plugin.json without committing, then runs the phase and asserts
+    the swap commit lands. Mutation-checked by reverting the predicate
+    to read the working tree — the assertion that HEAD advanced fails
+    because the buggy code takes the "already in prod state" branch
+    and _pr_merge sees an unchanged HEAD.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Install the real release-plugin.sh — the _make_release_project
+    # fake is `git commit --allow-empty` and would not exercise the
+    # tree-mutation-and-stage path this test asserts against.
+    real_script = _Path(__file__).parent.parent / "scripts" / "release-plugin.sh"
+    (root / "scripts" / "release-plugin.sh").write_text(real_script.read_text())
+    (root / "scripts" / "release-plugin.sh").chmod(0o755)
+
+    # release-plugin.sh removes commands/*-dev.md as part of the swap;
+    # the fixture ships no commands/ directory, so add one -dev command
+    # so the script has something to `git rm`.
+    commands_dir = root / "commands"
+    commands_dir.mkdir(exist_ok=True)
+    (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
+
+    # Switch to the release branch phase 2 would have created and
+    # commit the fixture into that branch's HEAD. HEAD's plugin.json
+    # name is dev at this point — the correct starting state for the
+    # phase 4 swap.
+    _git(["checkout", "-b", "release/v0.2.0"], cwd=d)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "chore: bump versions to 0.2.0"], cwd=d)
+
+    pre_phase_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    # Simulate the failed-hook state: release-plugin.sh mutated the
+    # working tree and staged, but the commit did not land. Do exactly
+    # what the script does short of the commit itself.
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    prod_pj = json.loads(plugin_json.read_text())
+    prod_pj["name"] = "test"
+    plugin_json.write_text(json.dumps(prod_pj, indent=2) + "\n")
+    _git(["rm", "commands/hello-dev.md"], cwd=d)
+    _git(["add", ".claude-plugin/plugin.json"], cwd=d)
+
+    # Confirm the setup matches the defect scenario: disk reports prod
+    # but HEAD still carries dev.
+    assert json.loads(plugin_json.read_text())["name"] == "test"
+    head_pj = subprocess.run(
+        ["git", "show", "HEAD:.claude-plugin/plugin.json"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert json.loads(head_pj)["name"] == "test-dev"
+
+    # Capture what _pr_merge sees. If the swap was skipped, the SHA
+    # captured here equals pre_phase_head — the release branch that
+    # would be pushed does not contain the swap.
+    captured: dict[str, str] = {}
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        captured["head_at_push"] = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        captured["head_name_at_push"] = json.loads(
+            subprocess.run(
+                ["git", "show", "HEAD:.claude-plugin/plugin.json"],
+                cwd=str(cwd),
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout
+        )["name"]
+        return "abc1234"
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    info = detect(root)
+    _phase4_release_pr(info, "0.2.0", dry_run=False)
+
+    assert captured["head_at_push"] != pre_phase_head, (
+        "phase 4 skipped the swap and pushed an unchanged branch — the "
+        "release tag would land on a commit still carrying the -dev name"
+    )
+    assert captured["head_name_at_push"] == "test"
+
+
+def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 9 must NOT skip the restore when a prior commit failed on a hook.
+
+    Mirror of the phase 4 defect: the restore script stages but does
+    not commit, so if the following ``git commit`` fails on a hook the
+    working tree already shows the dev name with no commit backing it.
+    A working-tree read would then treat the restore as done and fall
+    through to the README-SHA bump, whose ``git commit`` would sweep
+    the still-staged plugin.json into itself under the wrong message —
+    a silent fusion with no restore commit and a mislabelled second
+    commit. Consulting HEAD (name AND version) forces the retry to
+    complete and land a properly-labelled restore commit.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.release import (
+        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Build the same dev-history scaffold the single-commit test uses:
+    # a prior dev commit for restore-dev-plugin.sh to walk back to,
+    # then the release-branch merge landing prod on main.
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    commands_dir = root / "commands"
+    commands_dir.mkdir(exist_ok=True)
+    (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
+    plugin_json.write_text(
+        json.dumps(
+            {"name": "test-dev", "version": "0.1.0", "description": "d"},
+            indent=2,
+        )
+        + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev command"], cwd=d)
+
+    plugin_json.write_text(
+        json.dumps({"name": "test", "version": "0.2.0"}, indent=2) + "\n"
+    )
+    (commands_dir / "hello-dev.md").unlink()
+    _git(["add", "-A"], cwd=d)
+    _git(["commit", "-m", "chore: release v0.2.0 (post-merge)"], cwd=d)
+
+    real_script = _Path(__file__).parent.parent / "scripts" / "restore-dev-plugin.sh"
+    (root / "scripts" / "restore-dev-plugin.sh").write_text(real_script.read_text())
+    (root / "scripts" / "restore-dev-plugin.sh").chmod(0o755)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "install real restore script"], cwd=d)
+
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "sha-pinned readme"], cwd=d)
+
+    # Enter phase 9 as if a prior run had staged the restore and the
+    # commit hook failed. Create the post-release branch by hand (phase
+    # 9 will find it and reuse it), then run the script (which stages
+    # plugin.json into the dev shape) without following it with a
+    # commit.
+    _git(["checkout", "-b", "post-release/v0.2.0"], cwd=d)
+    subprocess.run(
+        ["bash", str(root / "scripts" / "restore-dev-plugin.sh")],
+        cwd=d,
+        check=True,
+        capture_output=True,
+    )
+    assert json.loads(plugin_json.read_text())["name"] == "test-dev"
+    head_pj = subprocess.run(
+        ["git", "show", "HEAD:.claude-plugin/plugin.json"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert json.loads(head_pj)["name"] == "test"
+    # Return to main so phase 9's branch-management code re-enters
+    # post-release/v0.2.0 through its own path, matching the real
+    # resume shape.
+    _git(["checkout", "main"], cwd=d)
+
+    base_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        return "abc1234"
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    log = (
+        subprocess.run(
+            ["git", "log", "--format=%s", f"{base_head}..HEAD"],
+            cwd=d,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        .stdout.strip()
+        .splitlines()
+    )
+    # Two commits, in the correct order, with the correct messages —
+    # not one fused commit under the README title.
+    assert log == [
+        "chore: update README install SHA to v0.2.0",
+        "chore: restore dev plugin state [skip ci]",
+    ], log
+
+    # The README commit must NOT carry plugin.json. A skipped restore
+    # would leave the staged plugin.json to fall into this commit.
+    readme_files = _commit_files(root, ref="HEAD")
+    assert ".claude-plugin/plugin.json" not in readme_files, (
+        "README-SHA commit swept a stray staged plugin.json — the phase "
+        "took the resume shortcut and never made a restore commit"
+    )
+
+    restore_files = _commit_files(root, ref="HEAD~1")
+    assert ".claude-plugin/plugin.json" in restore_files
+
+    restored = json.loads(plugin_json.read_text())
+    assert restored["name"] == "test-dev"
+    assert restored["version"] == "0.2.0"
 
 
 # --- Phase 10 concurrent propagation ---
@@ -3794,3 +4266,68 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "Unexpected GraphQL response structure" in out
+
+
+def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> None:
+    """A script that runs hook-firing git commands needs the hook budget too.
+
+    The sibling audit inspects `_run(["git", ...])` calls directly, which
+    makes a script invisible to it: `_run(["bash", script])` runs git one
+    level down, so the call site inherits the 60s metadata default while
+    the work behind it fires the bd pre-commit and post-checkout hooks
+    that allow themselves 300s. That gap is how release-plugin.sh and
+    restore-dev-plugin.sh kept the short budget after the commits inside
+    them started running hooks.
+
+    The rule is deliberately broad — every `_run(["bash", ...])` must
+    carry the budget — because the script path arrives as a variable and
+    cannot be resolved statically. Over-budgeting a fast script costs
+    nothing: the timeout is a ceiling, not a wait. Under-budgeting one
+    aborts a release.
+    """
+    src = _Path(release.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Every shell script the release path invokes lives here and is checked
+    # for hook-firing git verbs, so the rule below is grounded in what the
+    # scripts actually do rather than assumed.
+    scripts_dir = _Path(release.__file__).parent.parent.parent / "scripts"
+    # The scripts call `git -C "$REPO_ROOT" commit`, so a literal "git commit"
+    # never matches — the verb is separated from `git` by the -C flag.
+    hook_verb_re = re.compile(r"\bgit\b[^\n]*\b(commit|checkout|merge|push|pull)\b")
+    hook_firing_scripts = sorted(
+        p.name
+        for p in scripts_dir.glob("*.sh")
+        if hook_verb_re.search(p.read_text(encoding="utf-8"))
+    )
+    assert hook_firing_scripts, (
+        "expected at least one release script to run hook-firing git commands; "
+        "if that is no longer true this audit needs revisiting, not deleting"
+    )
+
+    offenders: list[tuple[int, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
+        if name != "_run" or not node.args:
+            continue
+        first = node.args[0]
+        if not isinstance(first, ast.List) or not first.elts:
+            continue
+        head = first.elts[0]
+        if not (isinstance(head, ast.Constant) and head.value == "bash"):
+            continue
+        budget = None
+        for kw in node.keywords:
+            if kw.arg == "timeout":
+                budget = kw.value.id if isinstance(kw.value, ast.Name) else "<expr>"
+        if budget != "_GIT_HOOK_TIMEOUT":
+            offenders.append((node.lineno, f"timeout={budget}"))
+
+    assert offenders == [], (
+        "shell scripts invoked by the release path run hook-firing git "
+        f"commands ({', '.join(hook_firing_scripts)}) and must be given "
+        f"timeout=_GIT_HOOK_TIMEOUT: {offenders}"
+    )

@@ -4,6 +4,54 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- The release path's shell scripts are budgeted for the hooks they now
+  fire. `release-plugin.sh` and `restore-dev-plugin.sh` are invoked via
+  `_run(["bash", ...])`, which inherited the 60s metadata default while
+  the `git commit` and `git checkout` inside them run the bd hooks that
+  allow themselves 300s — a gap created by this same change, since those
+  commits only started running hooks when `--no-verify` was removed. The
+  existing audit could not see it: it inspects `_run(["git", ...])` calls
+  and a script runs git one level down. A second audit now requires every
+  `_run(["bash", ...])` to carry the hook budget, grounded in a scan of
+  `scripts/` for hook-firing git verbs rather than a hardcoded list
+- Release path no longer bypasses git hooks. Three `--no-verify` uses ran
+  on every hybrid/plugin release — `scripts/release-plugin.sh` (Phase 4),
+  `scripts/restore-dev-plugin.sh` (Phase 9), and a
+  `git commit --amend --no-verify` in `punt_kit.release._phase9_post_release`
+  — and the org bans the flag outright. The amend was a symptom, not the
+  bug: `restore-dev-plugin.sh` committed the dev restore, then Phase 9
+  noticed the historical dev commit had reverted `plugin.json`'s version
+  along with the name and rewrote the commit with `--amend` to fix it up.
+  `restore-dev-plugin.sh` now restores and stages but does not commit;
+  Phase 9 re-stamps the version and lands the restore and re-stamp as a
+  single commit with hooks running. `release-plugin.sh` still commits on
+  its own (Phase 4 has no follow-up edit to bundle) with the flag dropped.
+  The CI-skip marker in the restore commit is preserved; it spares a
+  push-CI run on `main` once the post-release PR merges. It does not
+  affect `release.yml`, which fires on tag push and whose tag is placed
+  in phase 5, before this commit exists — the marker is load-bearing on
+  phase 4's commit, which the tag does land on
+- Plugin-swap and dev-restore idempotency now ask git what is *committed*
+  at HEAD, not what happens to be on disk. Removing `--no-verify` from
+  the release path (above) let a pre-commit hook abort
+  `release-plugin.sh` after it had already mutated `plugin.json` and
+  staged the change, and the on-disk read then reported the swap
+  complete. `_pr_merge` would push a release branch whose HEAD still
+  carried the `-dev` plugin name, and the tag placed in phase 5 could
+  land on it — silent, and shipped. The mirror-image window opened in
+  phase 9: a staged-but-uncommitted dev restore would be treated as
+  done, then the following README-SHA `git commit` would sweep the
+  staged `plugin.json` into itself under the wrong message and no
+  properly-labelled restore commit would exist. Both predicates now
+  consult `git show HEAD:.claude-plugin/plugin.json`, phase 9 requires
+  the released version at HEAD (not just the `-dev` name), and each
+  path resets the swap files to HEAD before re-running so the script's
+  fresh-run precondition holds on retry. The flag was hiding a fragile
+  idempotency check, not just skipping hooks; removing the flag exposed
+  the check that had leaned on it
+
 ## [0.14.2] - 2026-08-15
 
 ### Fixed

@@ -6,6 +6,14 @@ set -euo pipefail
 # Instead of assuming HEAD~1 has the dev state (which breaks when multiple
 # PRs merge between the release swap and Phase 9), walk plugin.json history
 # to find the most recent commit where the name ended with -dev.
+#
+# CONTRACT: This script restores dev-state files and stages them. It does
+# NOT commit. The caller (Phase 9 in punt_kit.release) re-stamps the
+# version in plugin.json (which the historical dev commit reverted along
+# with the name) and then creates a single commit with hooks running. If
+# this script committed on its own, the re-stamp would land in a separate
+# commit that had to be squashed with --amend, and the org bans the
+# --no-verify escape hatch that the amend previously used.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." || exit 1; pwd)"
 PLUGIN_JSON=".claude-plugin/plugin.json"
@@ -48,4 +56,10 @@ fi
 echo "Restoring dev state from commit ${DEV_COMMIT:0:12}..."
 git -C "$REPO_ROOT" checkout "$DEV_COMMIT" -- "$PLUGIN_JSON" commands/
 git -C "$REPO_ROOT" add "$PLUGIN_JSON" commands/
-git -C "$REPO_ROOT" commit --no-verify -m "chore: restore dev plugin state [skip ci]"
+# Deliberately no commit — see CONTRACT above. The caller re-stamps the
+# version in plugin.json and commits both the restore and the re-stamp
+# together, so the commit passes the pre-commit hook and the message
+# still carries the CI-skip marker, which spares a push-CI run on main
+# after the post-release PR merges. That marker does not affect
+# release.yml — that workflow fires on tag push, and the tag is placed in
+# phase 5, before this commit exists.
