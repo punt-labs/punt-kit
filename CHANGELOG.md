@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt release` no longer reports the normal pre-registration state as a
+  malformed response. GitHub returns `statusCheckRollup: null` until the
+  first check run is attached to a commit, so every freshly-opened PR hit
+  a subscript on `None` and logged `Unexpected GraphQL response structure
+  (will retry)`. It fired on every PR of every release — the release PR,
+  the post-release PR, and all three propagation PRs — while recovering
+  silently each time. A warning that appears on every run is not a
+  warning; it trains an operator to skim past the ones that matter. The
+  null rollup is now named for what it is (`No checks registered on the
+  commit yet`), and genuinely malformed responses still report as such
+
 ## [0.14.1] - 2026-08-15
 
 ### Fixed
