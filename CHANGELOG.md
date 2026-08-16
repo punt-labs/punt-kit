@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-08-15
+
 ### Fixed
 
 - `punt release` no longer reports the normal pre-registration state as a
