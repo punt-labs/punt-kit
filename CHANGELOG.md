@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-08-19
+
 ### Fixed
 
 - Keyless plugin installs. Claude Code clones a plugin repo with
