@@ -363,3 +363,47 @@ logic, and degrades gracefully when the external tool is absent.
 - **Reverse awareness**: A building block importing or checking for its
   consumers. Arrows are unidirectional — consumers discover blocks, never the
   reverse.
+
+---
+
+## Cross-repo rename trains
+
+When a building block renames a public surface (MCP tool, CLI verb,
+REST route, library entry point) its consumers depend on, the rename
+is a **coordinated train**, not a per-consumer migration.
+
+**No shims, no aliases, no deprecation windows.** Two names for one
+operation is exactly the drift that breaks consumers over time — one
+consumer moves, one does not, and the surface carries both names
+forever. The coordination cost of a train is paid once; the cost of
+aliases is paid every time a caller has to decide which name to use
+and every time a review has to check both are still working.
+
+**The runbook** (the block author executes):
+
+1. **Enumerate consumers.** Every repo that names the old surface
+   (grep the org, ask by biff). Record the migration cost per
+   consumer.
+2. **Biff every consumer** before the rename PR opens. Include the
+   rename table and the ETA. Address by session name from `/who`
+   (never `@repo` aliases — they deliver nowhere. Biff is the only
+   cross-repo coordination channel; beads and GitHub issues do not
+   reach another repo's agent).
+3. **Wait for `ack` from every consumer.** Silence is not consent —
+   hold the rename PR until every consumer replies.
+4. **Merge the rename atomically.** No two-phase deploy. The old
+   names disappear in the same commit the new names appear in.
+5. **Follow up on merge** with the release version and the
+   `pip install` line. Each consumer updates their end.
+6. **Verify end-to-end.** Each consumer's demo gate exercises the new
+   surface against the new block version.
+
+**Offline consumers** — repos whose agent is not currently in `/who`
+— get a bead in their own repo (`cd ../<consumer> && bd create ...`)
+naming the rename and the ETA. That is their inbox until the agent
+returns.
+
+This applies at the client-surface boundary of any project realizing
+the [projection model](architecture.md#the-projection-model-canonical).
+The block author owns the rename; consumers own their adoption
+inside their own release cycle.

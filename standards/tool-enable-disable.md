@@ -60,6 +60,16 @@ Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. This extends the `enable` / `disable` entry in
 [cli.md § Required Subcommands](cli.md#enable--disable).
 
+**`enable` and `disable` are their own tier: per-repo tool
+integration.** They are neither admin-tier (cli.md § Layer 2) nor
+client-vocabulary (the noun-first product surface) — enablement is a
+distinct concern, orthogonal to that split, and every Punt Labs tool
+implements it across the surfaces this standard defines. Today that
+means CLI + MCP + slash + library, per vox's shipped pattern
+(`vox enable`/`vox disable` on the CLI, `mic:enablement
+action="enable"` on MCP, `/vox enable` as a slash command) — see
+§2.14 for the full surface mapping.
+
 **Vocabulary is `enable` / `disable` — `y` / `n` is retired.** The two verbs are
 the fleet-wide vocabulary for turning a tool on and off, at both surfaces (§2.14).
 A boolean `y|n` / `true|false` toggle is **not** permitted for enablement: it

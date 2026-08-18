@@ -28,13 +28,50 @@ Organize subcommands into three layers. Product commands come first in `--help`.
 The reason the tool exists. These are verbs that do the tool's core job.
 
 ```text
-quarry search <query>        biff who              vox unmute <text>
-quarry ingest <path-or-url>  biff finger <user>    vox notify y/n/c
-quarry explain <topic>       biff talk <user>      vox speak y/n
-quarry sync                  biff write <user>     vox voice <name>
+quarry search <query>        biff who              lux scene show <spec>
+quarry ingest <path-or-url>  biff finger <user>    lux session ls
+quarry explain <topic>       biff talk <user>      lux topic publish <t>
+quarry sync                  biff write <user>     lux ping
 ```
 
-Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. All three are thin clients of the same engine code — the CLI holds no logic the others lack.
+Product commands are **noun-first** when the tool has more than one
+kind of noun to act on — `lux scene show`, `lux session ls`,
+`bd issue list` — and are a **single verb** when the tool has only one
+noun (`quarry search`, `biff who`). Noun-first is the default at
+scale; the single-verb form is reserved for genuinely single-noun
+tools. Grouping by noun keeps related operations together in `--help`,
+in library discovery, and in the MCP tool list, and lets the vocabulary
+grow without renaming the surface.
+
+`lux ping` in the example above is not an exception to noun-first: it
+is a **diagnostics-tier** top-level singleton, not a product command.
+Diagnostics (`ping`, `doctor`, `version`) sit outside both the
+noun-first product vocabulary and the admin tier — they are read-only,
+safe to run from any surface, and named for what they check rather
+than a domain noun. See [Layer 2](#layer-2-admin-commands) for the
+full tier breakdown.
+
+Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. Every REST route has a corresponding CLI command. Every library method has a corresponding CLI command. All four are thin clients of the same engine code — the CLI holds no logic the others lack.
+
+**Assess omissions, not inclusions.** The default is equivalence: an operation on any surface is presumed to exist on every surface. An absence is a *considered exception* with a stated reason recorded in the project's design record, not a default. When reviewing surface coverage, list the omissions and demand justification for each; do not audit the inclusions.
+
+**Admin verbs are CLI-only.** Operations that install, uninstall, or
+supervise the tool's process (`install`, `uninstall`, `doctor`, `mcp`,
+`hub install|uninstall|start|stop|restart|status`) are the admin
+tier. They appear on the CLI and nowhere else — an agent-turn is not
+a legitimate caller of a process-supervision verb. Exposing an admin
+verb on MCP recreates the superuser MCP surface the identity model
+forbids (see the reference lux epic `lux-0shg` and its DES-086
+precedent for the invariant statement). The converse also holds:
+every MCP tool has a slash-command equivalent unless a considered
+exception is stated (e.g., non-blocking receive verbs,
+programmatic-only registrations).
+
+`enable` / `disable` are **not** admin-tier — they are their own
+tier, per-repo tool integration, defined in full in
+[tool-enable-disable.md](tool-enable-disable.md#23-the-enable--disable-convention).
+Every Punt Labs tool implements them across CLI + MCP + slash +
+library.
 
 ### Layer 2: Admin commands
 
@@ -46,7 +83,7 @@ Setup, health, and lifecycle. Universal across all CLIs.
 | `doctor` | Check installation health | Yes |
 | `status` | Current state summary | Yes |
 | `install` | Machine-scoped setup (MCP registration, models, data dirs) | Yes |
-| `enable` / `disable` | Toggle the tool in the current project | If repo-scoped |
+| `enable` / `disable` | Toggle the tool in the current project — its own tier, not admin-tier; see above | If repo-scoped |
 | `serve` | Start the MCP server | If MCP project |
 
 ### Layer 3: Hook dispatcher (internal)
@@ -141,7 +178,16 @@ The same rule extends to operator-facing shell scripts (workspace `.bin/*.sh`, f
 
 ### Subcommand naming
 
-Subcommands are **single verbs**: `search`, `ingest`, `explain`, `talk`, `write`.
+Subcommands are **`noun verb`** for tools with more than one kind of
+noun to act on (`lux scene show`, `lux session ls`, `bd issue list`),
+and **single verbs** for tools with only one noun (`quarry search`,
+`biff who`, `vox unmute`). Noun-first is the default at scale; the
+single-verb form is reserved for genuinely single-noun tools.
+
+Nouns are stable — they name what the engine holds (`scene`,
+`session`, `issue`) — and verbs grow around them. Grouping by noun
+means adding an operation adds a new verb under an existing noun, not
+a new top-level command; the surface grows without reshuffling.
 
 Arguments disambiguate, not subcommand names. `quarry ingest ./doc.pdf` and `quarry ingest https://example.com` are the same subcommand --- the tool infers the type from the input. Not `ingest-file` and `ingest-url`.
 
@@ -151,11 +197,22 @@ Exception: batch variants may use a suffix when the interface genuinely differs 
 
 ## Command Architecture
 
-CLI commands follow one of two patterns depending on complexity. See [Python standards](python.md#rules) for the decision criteria.
+Every non-leaf project uses the **Humble Object Commands** pattern
+(Pattern 2 below). Direct delegation (Pattern 1) is the exception,
+reserved for projects with one client surface and no orchestration.
+Any project that ships two or more client surfaces (CLI + MCP,
+CLI + REST, etc.) uses the commands layer — otherwise the same
+operation is written once per surface, and the surfaces drift.
 
-### Pattern 1: Direct Delegation
+See [Python standards](python.md#rules) for the language mechanics and
+[Humble Object Commands](../patterns/humble-object-commands.md) for
+the full pattern.
 
-Each CLI command calls one core function and formats the result. This is the default for most projects.
+### Pattern 1: Direct Delegation (single-surface exception)
+
+Each CLI command calls one core function and formats the result. Use
+only when the project has one client surface and no shared
+orchestration.
 
 **Python:**
 
@@ -190,25 +247,61 @@ var searchCmd = &cobra.Command{
 }
 ```
 
-### Pattern 2: Humble Object Commands
+### Pattern 2: Humble Object Commands (default)
 
-When a CLI command orchestrates multiple core calls, manages session state, or formats composite results, extract the logic into a pure async function returning `CommandResult`:
+Every engine operation is a `@final` callable class in
+`src/<package>/commands/`, exported as a module-level singleton the
+four client adapters (CLI, MCP, REST, library) share. The class takes
+a `Ctx` (collaborators) plus operation-specific arguments and returns
+a `CommandResult`. The CLI wrapper interprets `text` and `exit_code`;
+the MCP adapter JSON-encodes `json_data`; the REST adapter maps the
+same envelope onto HTTP status; the library caller inspects fields
+directly. Vox's `src/punt_vox/commands/voice.py` is the reference:
 
 ```python
 # src/<package>/commands/_result.py
-@dataclass(frozen=True)
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
 class CommandResult:
     text: str
-    json_data: object | None = field(default=None)
+    json_data: dict[str, object] | None = None
     error: bool = False
+    exit_code: int = 0
 ```
 
 ```python
-# src/<package>/commands/who.py
-async def who(ctx: CliContext) -> CommandResult:
-    sessions = await ctx.relay.get_sessions()
-    return CommandResult(text=format_who(sessions), json_data=[...])
+# src/<package>/commands/voice.py
+from typing import Self, final
+
+
+@final
+class VoiceCommand:
+    """List or set the session voice for the active provider."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+    async def __call__(self, ctx: Ctx, name: str | None = None) -> CommandResult:
+        if name is None:
+            return self._list(ctx)
+        ctx.store.write_field("voice", name)
+        return CommandResult(text=f"voice: {name}", json_data={"voice": name})
+
+
+voice: VoiceCommand = VoiceCommand()
 ```
+
+The class-per-verb shape is deliberate: it satisfies the OO ratchet
+(behavior lives with the operation, not in a module-level function),
+it composes cleanly with `Ctx` for dependency injection, and it lets
+the four adapters share one instance without re-wrapping. The
+module-level singleton (`voice: VoiceCommand = VoiceCommand()`) is
+how each adapter reaches it — `from <package>.commands import voice`,
+then `await voice(ctx, ...)`.
 
 The CLI entry point uses a single `_run()` adapter for all plumbing:
 

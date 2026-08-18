@@ -21,9 +21,11 @@ CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are the client
 surfaces, and the library import surface — `from <package> import ...` — is a
 client too, each reaching the engine over its transport.
 
-Simple projects delegate directly from a client to core functions. Complex
-projects add a **commands layer** inside the engine — between the client surfaces
-and core — when a command orchestrates multiple core calls.
+Every non-leaf project — one shipping two or more client surfaces — adds a
+**commands layer** inside the engine, between the client surfaces and core, as
+the default (see Rule 5 below). Direct delegation, where each client routes
+straight to core with no commands layer between, is the exception: it is
+reserved for single-surface projects with no orchestration to share.
 
 ```text
 Direct delegation (quarry):              Commands layer (biff):
@@ -55,18 +57,22 @@ Direct delegation (quarry):              Commands layer (biff):
 
 4. **CLI, MCP, and REST are thin clients.** `cli.py` parses arguments, calls engine functions, formats output. `server.py` registers MCP tools, calls engine functions, returns results. A FastAPI app maps routes to the same engine functions. None of the three adapters contains business logic — they translate; the engine decides.
 
-5. **Extract commands when CLI orchestrates.** When a CLI command does more than delegate to one core function — combining multiple calls, managing session state, or formatting composite results — extract it to a `commands/` package as a pure async function returning `CommandResult`. Use `CommandResult(error=True, ...)` for expected user-facing failures (invalid input, missing resources, service errors) that should be reported cleanly. Programmer errors and violated invariants still raise exceptions per the Error Handling section. See [Humble Object Commands](../patterns/humble-object-commands.md).
+5. **Every non-leaf project uses the commands layer.** Any project shipping two or more client surfaces (CLI + MCP, CLI + REST, etc.) puts every engine operation in `src/<package>/commands/` as a `@final` callable class exported as a module-level singleton the four adapters share. The class returns `CommandResult`; expected user-facing failures set `error=True` (`CommandResult(error=True, ...)`), while programmer errors and violated invariants still raise per the Error Handling section. Direct delegation (no commands layer) is the exception, reserved for single-surface projects with no orchestration — otherwise the same operation is written once per adapter and the adapters drift. Vox's `src/punt_vox/commands/voice.py` is the reference shape (`@final` callable class, `__new__` constructor per PY-CC-1, `async def __call__(self, ctx: Ctx, ...)` signature, module-level singleton `voice: VoiceCommand = VoiceCommand()`). See [Humble Object Commands](../patterns/humble-object-commands.md).
 
 ### When to add a commands layer
 
+The commands layer is the **default** for every non-leaf project. The
+table below is the decision:
+
 | Signal | Architecture |
 |--------|-------------|
-| Each CLI command maps to one core function | **Direct delegation** — no commands layer needed |
-| CLI commands combine multiple core calls, manage sessions, or format composite output | **Commands layer** — extract to `commands/` |
-| MCP tools and CLI commands share orchestration logic | **Commands layer** — both surfaces call command functions |
-| MCP tools call core directly while CLI has its own orchestration | **Commands layer** for CLI only; MCP stays thin |
+| One client surface, each command maps to one core function | **Direct delegation** — no commands layer (single-surface exception) |
+| Two or more client surfaces (CLI + MCP, CLI + REST, all four) | **Commands layer** — one `@final` callable class per operation, shared by every adapter |
+| Growing project expected to add a second surface | **Commands layer from the start** — retrofitting after the second surface arrives means rewriting both |
 
-Most projects start with direct delegation and never need more. Add the commands layer when the CLI grows beyond simple dispatch.
+Retrofitting the layer after a second surface exists is a
+per-operation rewrite. Starting with it is one-time scaffolding. The
+default is the layer.
 
 ### Reference: direct delegation
 
@@ -97,19 +103,51 @@ Direct delegation is an engine-internal choice — how the engine routes a call,
 
 ### Reference: commands layer
 
-Biff is the reference for the commands pattern (see [DES-022](https://github.com/punt-labs/biff/blob/main/DESIGN.md)):
+Vox is the reference for the commands pattern — `@final` callable
+classes, one per operation, exported as module-level singletons
+(`src/punt_vox/commands/voice.py`):
 
 ```python
-# biff/commands/__init__.py — command functions as library API
-from biff.commands._result import CommandResult
-from biff.commands.who import who
-from biff.commands.finger import finger
-from biff.commands.wall import wall
+# src/<package>/commands/__init__.py — command singletons as library API
+from <package>.commands._result import CommandResult, Ctx
+from <package>.commands.model import model
+from <package>.commands.provider import provider
+from <package>.commands.voice import voice
 
-__all__ = ["CommandResult", "who", "finger", "wall", ...]
+__all__ = ["CommandResult", "Ctx", "model", "provider", "voice"]
 ```
 
-A downstream Python app can `from biff.commands import who, CommandResult` and invoke commands without CLI plumbing.
+```python
+# src/<package>/commands/voice.py
+from typing import Self, final
+
+
+@final
+class VoiceCommand:
+    """One-line docstring naming the operation."""
+
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+    async def __call__(self, ctx: Ctx, name: str | None = None) -> CommandResult: ...
+
+
+voice: VoiceCommand = VoiceCommand()
+```
+
+A downstream Python app can `from <package>.commands import voice, Ctx`
+and `await voice(ctx, name="matilda")` without CLI plumbing. The MCP
+adapter, the REST adapter, and the CLI adapter each hold the same
+`voice` instance and translate its `CommandResult` into their transport
+envelope.
+
+Biff's earlier module-level-function shape (`async def who(ctx)`) is
+the historical form; the `@final` callable class is the current
+standard. Existing biff commands are welcome to converge on the class
+shape as they are touched — nothing forces a rewrite for its own
+sake.
 
 ### Dependency layering
 
