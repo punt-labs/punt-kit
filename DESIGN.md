@@ -1618,3 +1618,122 @@ The finding this ADR ends on — that compliance with a stale standard is not
 safety — survives unchanged. What changes is the count, and the discipline
 that produced it: a census assembled by grep is a claim about text, not about
 configuration. Ask the parser.
+
+## DES-027: Four-Surface Parity, DRY Commands, Noun-First Grouping
+
+**Date:** 2026-08-18
+**Status:** SETTLED
+**Topic:** How every Punt Labs project shapes its client surfaces —
+one vocabulary across CLI, MCP, REST, and library; one command class
+per operation; noun-first grouping; rename trains, never aliases
+
+### Design
+
+Every Punt Labs project realizing the projection model
+(`standards/architecture.md`) applies three rules to its client
+surfaces:
+
+1. **One vocabulary across the four surfaces.** An engine operation
+   has one name — the same noun and verb — on the library, the CLI,
+   the MCP tool, and the REST route, adjusted only for transport
+   syntax. Grouping is **noun-first** for tools with more than one
+   noun (`lux scene show`, `lux session ls`, `bd issue list`) and
+   single-verb only for genuinely single-noun tools (`quarry
+   search`, `biff who`).
+
+2. **DRY commands as the default.** Every non-leaf project puts each
+   engine operation in `src/<package>/commands/` as a `@final`
+   callable class returning `CommandResult`, exported as a
+   module-level singleton the four adapters share. Direct delegation
+   is the single-surface exception, not the default. Vox's
+   `src/punt_vox/commands/voice.py` is the reference shape.
+
+3. **Rename trains, never aliases.** A rename lands atomically across
+   every surface. No shims, no aliases, no deprecation windows.
+   Cross-repo consumers are notified before merge per
+   `standards/integration.md § Cross-repo rename trains`.
+
+The corresponding standards updates:
+
+- **`standards/cli.md`** — the `noun verb` naming rule replaces
+  "subcommands are single verbs"; Humble Object Commands are Pattern
+  1 (default), direct delegation is the single-surface exception;
+  every MCP tool has a slash equivalent unless a considered
+  exception is stated; the assess-omissions rule is stated.
+- **`standards/python.md`** — Rule 5 now says every non-leaf project
+  uses the commands layer; the reference example is the `@final`
+  callable class shape (vox's `voice.py`), not the earlier
+  module-level-function shape (biff's `who.py`); the
+  "when to add a commands layer" table now defaults to the layer.
+- **`standards/plugins.md`** — MCP tool names are `noun_verb`; every
+  tool has a slash equivalent unless a considered exception is
+  stated.
+- **`standards/architecture.md`** — the vocabulary-and-renames rule
+  is added as a cross-cutting section, so a future project reads it
+  alongside the four projection-model invariants.
+- **`standards/tool-enable-disable.md`** — `enable`/`disable` are
+  explicitly admin-tier: CLI-only, never MCP/REST/library.
+- **`standards/permissions.md`** — a new §5 (Engine-Level Scoping)
+  documents the no-superuser rule: every write and every content
+  read is scoped to the caller's identity; the CLI's identity flags
+  are per-invocation, not privilege elevation; admin verbs stay on
+  the CLI.
+- **`standards/integration.md`** — a new §Cross-repo rename trains
+  documents the coordination runbook consumers depend on.
+- **`standards/workflow.md`** — the `DESIGN.md` guidance is amended:
+  a design mission always produces both a design doc and a
+  `DESIGN.md` ADR entry.
+
+### Context
+
+The rules are ratified by the reference lux epic `lux-0shg`
+(DES-087, design mission `m-2026-08-18-002`). The lux epic
+motivates them concretely: lux had four client surfaces of one
+engine, four different vocabularies for the same operations, 23 MCP
+tools with no grouping convention, admin-only CLI, and library
+surfaces that exposed transport objects rather than engine nouns.
+Every operation was written four times. The vocabulary tables and
+the Humble Object commands pattern are how the epic reunifies the
+surfaces.
+
+Vox is the load-bearing reference for the DRY pattern.
+`../vox/src/punt_vox/commands/voice.py` shows the `@final` callable
+class shape, `CommandResult` return type with `Ctx` dependency
+injection, and four thin adapters sharing one instance. That is the
+shape the standard now names as the default.
+
+The standards updates lag no more than one PR behind the lux
+epic's ratified decisions; both PRs merge before implementation
+begins in either repo (bead `lux-0shg.1`).
+
+### Alternatives rejected
+
+**Per-project decision, no org-wide standard.** Rejected because the
+four-surface problem is not lux-specific. Every project shipping
+multiple client surfaces faces the same drift; leaving the decision
+to each project produces four different shapes across the org. The
+one-vocabulary rule is the one that pays off across a portfolio, not
+inside one repo.
+
+**Keep the commands layer conditional (the pre-DES-027 python.md).**
+Rejected because "conditional" in a project with four adapters over
+30 operations is "always" — the conditional was a hedge, and the
+hedge cost is drift between adapters. Making the layer the default
+puts the decision above the code, where it belongs.
+
+**Verb-first grouping (`show scene`, `list scenes`).** Rejected. The
+noun is the stable axis; the verbs vary and grow. Noun-first groups
+related operations in help output, in library discovery, and in the
+MCP tool list, and lets the vocabulary grow without renaming the
+surface.
+
+**Aliases during rename trains.** Rejected. Two names for one
+operation across four surfaces is exactly the drift the standard
+exists to end. The coordination cost of a train is paid once; the
+cost of aliases is paid every time a caller has to decide, every
+time a review has to check both, and every time a new consumer
+arrives to a surface that speaks two languages.
+
+**Superuser MCP surface for admin verbs.** Rejected per DES-086
+(lux) and per the no-superuser rule stated in permissions.md §5.
+MCP is a client surface, not an operator one.

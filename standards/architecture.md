@@ -107,3 +107,42 @@ A pure stateless leaf has no engine. langlearn-types exports types and protocols
 only — no state, no device, no authority — so it is plain importable code, the
 one non-client case. This is not an exception to invariant 1; it is the absence
 of an engine to have clients of.
+
+---
+
+## Vocabulary and Renames Across the Four Surfaces
+
+The projection model above says every surface is a thin client of one
+engine. Two rules on the *shape* of that surface follow.
+
+**One vocabulary across the four surfaces.** An engine operation has
+one name, applied identically on the library, CLI, MCP, and REST
+surfaces — adjusted only for transport syntax. A REST route uses
+`/nouns/{id}`, a CLI uses `noun verb`, an MCP tool uses `noun_verb`,
+a library caller uses `client.noun.verb`; the *vocabulary* — the nouns
+and the verbs — is the same. A surface that ships an operation under
+one name while another surface ships the same operation under a
+different name has broken the one-code-path invariant at the
+vocabulary layer: even if the code path is one, the caller reads four
+different languages for one system. Grouping is **noun-first** — the
+noun names what the engine holds, the verb names what happens to it —
+because the noun is the stable axis and the verbs grow around it.
+
+**Rename trains, never aliases.** When an engine operation is renamed,
+every surface's name changes in one atomic release. No shims. No
+aliases. No deprecation windows. Two names for one operation across
+the four surfaces is exactly the drift that erodes the one-code-path
+invariant over time — one caller moves, one does not, and the
+surface carries both names forever. The coordination cost of a rename
+train is paid once; the cost of aliases is paid every time a caller
+has to decide which name to use, every time a reviewer has to check
+both are still working, and every time a new consumer arrives and
+learns the surface has two vocabularies. Consumers in other repos
+are notified in advance (per
+[integration.md § Cross-repo rename trains](integration.md#cross-repo-rename-trains))
+and update in lockstep with the merge.
+
+These rules extend the projection model's four invariants; they do
+not replace them. The reference implementation is the lux
+`lux-0shg` epic (DES-087 — client surface parity across CLI, MCP,
+REST, and library).

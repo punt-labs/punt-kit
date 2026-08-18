@@ -548,6 +548,17 @@ the entry is part of what gets reviewed, never added retroactively on main.
   evidence. See [Design Decision Log](../patterns/design-decision-log.md)
   for the full pattern.
 
+  **A design mission always produces a `DESIGN.md` ADR entry.** A design
+  mission (per §6 The Mission Loop) exists precisely for the non-obvious
+  cases the paragraph above describes — that is the mission's trigger.
+  Ratification of a design mission's output therefore always produces
+  two artifacts: the design doc (the record of the decision, the
+  alternatives, and the reasoning) *and* the ADR entry in `DESIGN.md`
+  (the log entry a future reader finds by grep). Draft the proposed
+  ADR text at the end of the design doc so the leader can paste it at
+  merge time; a design mission that closes without a `DESIGN.md`
+  entry has left the log incomplete.
+
 ### The merge recap
 
 After merging a PR, send a recap email via beadle to the operator's

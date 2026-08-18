@@ -304,13 +304,33 @@ Tool names are deterministic based on registration method:
 
 | Method | Pattern | Example |
 |--------|---------|---------|
-| Plugin `mcpServers` | `mcp__plugin_{plugin}_{server}__{tool}` | `mcp__plugin_biff_tty__who` |
+| Plugin `mcpServers` | `mcp__plugin_{plugin}_{server}__{tool}` | `mcp__plugin_lux_lux__scene_show` |
 | `claude mcp add` | `mcp__{server}__{tool}` | `mcp__quarry__search` |
 
 Choose a **server key that adds meaning** rather than repeating the plugin name.
 For example, biff uses `tty` (the MCP server is the terminal interface), and
 dungeon uses `grimoire` (the game state engine). All command files, hook
 matchers, and permission entries must use the full prefix.
+
+**Tool names are `noun_verb` when the server has more than one noun.**
+`scene_show`, `session_identify`, `topic_publish`, `menu_ls` — the
+same noun-first grouping [cli.md § Subcommand naming](cli.md#subcommand-naming)
+requires. Single-verb tool names (`search`, `who`) are reserved for
+servers with only one kind of noun to act on. Grouping by noun keeps
+related tools together in the client's tool list and lets the vocabulary
+grow without renaming the surface.
+
+**Every MCP tool has a slash-command equivalent** unless a considered
+exception is stated. The equivalence is symmetric with [cli.md § Layer 1
+Product commands](cli.md#layer-1-product-commands): every MCP tool
+also has a CLI command; the slash surface tracks the MCP surface with
+the same rule. Common considered exceptions: non-blocking receive verbs
+(`topic recv` — a slash fires once with an empty result almost always),
+identity-declaration verbs (`session identify` — declared once at
+session start, not mid-turn), and programmatic-only registrations
+(`callback register` — the id is opaque; a user typing a slash has no
+meaningful value to supply). Every exception is recorded in the
+project's design record.
 
 ---
 
@@ -324,7 +344,7 @@ Choose the right extension point for each capability:
 | **Command** | A discrete, user-invocable operation mapped to a slash command. One command per slash command. Self-contained. |
 | **Agent** | A specialized sub-task that a skill or command delegates to. Has a distinct role, model preference, and tool restrictions. Use when the sub-task benefits from isolation or a different model. |
 | **Hook** | Event-driven automation triggered by tool calls or lifecycle events. Use for output suppression, validation, or side effects. |
-| **MCP Server** | Exposes tools that Claude (or any MCP client) can call. Use when the project has deterministic operations (I/O, computation, state management) that should not be prompt-driven. |
+| **MCP Server** | Exposes tools that Claude (or any MCP client) can call. Use when the project has deterministic operations (I/O, computation, state management) that should not be prompt-driven. Tool names follow the `noun_verb` convention (see MCP tool naming above); every tool has a slash-command equivalent unless a considered exception is stated. |
 
 ---
 

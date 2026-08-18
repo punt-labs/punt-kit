@@ -60,6 +60,15 @@ Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. This extends the `enable` / `disable` entry in
 [cli.md § Required Subcommands](cli.md#enable--disable).
 
+**`enable` and `disable` are admin-tier verbs** per
+[cli.md § Layer 2 Admin commands](cli.md#layer-2-admin-commands). They
+appear on the CLI only — never on MCP, never on REST, never on the
+library surface. Enablement is a machine/repo state change run by an
+operator or an install hook; exposing it on MCP would let an
+agent-turn silently install or uninstall the tool in a repo, which is
+the class of superuser action the identity model (see the lux
+DES-086 precedent) forbids on a client surface.
+
 **Vocabulary is `enable` / `disable` — `y` / `n` is retired.** The two verbs are
 the fleet-wide vocabulary for turning a tool on and off, at both surfaces (§2.14).
 A boolean `y|n` / `true|false` toggle is **not** permitted for enablement: it

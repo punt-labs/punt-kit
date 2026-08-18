@@ -627,3 +627,45 @@ Run `punt audit` to check compliance. The audit checks:
 When adding a new deny rule, apply it to all projects simultaneously. Use a
 script to merge the rule into every project's `settings.json` to maintain
 consistency.
+
+---
+
+## 5. Engine-Level Scoping — the No-Superuser Rule
+
+The Claude Code permission tiers above gate Claude's *tool
+invocations*. They do not gate what one engine operation, running on
+behalf of one client, is allowed to see or change on behalf of
+another. That scoping is the engine's responsibility, not the
+permission file's.
+
+**Every write is caller-scoped.** An engine operation invoked over
+any client surface (CLI, MCP, REST, library) composes its store keys,
+its ownership fields, and its authorization checks on the caller's
+identity — the `ConnectionId` in the lux reference (DES-086),
+whatever the equivalent shape is in a given project. No operation on
+any client surface accepts an `owner=` override letting the caller
+act on someone else's state. The engine has no admin path exposed on
+a client surface.
+
+**Every content read is caller-scoped.** Operations that return
+content another client owns (`scene inspect`, `event ls`, `error ls`,
+`screenshot` — the lux vocabulary; the equivalent in any other
+project) compose on the caller's identity and return only what the
+caller owns. Metadata that is not confidential (peer-discovery lists,
+identity strings, connect times) can stay visible to all callers;
+content cannot.
+
+**The CLI's per-invocation identity flags are not privilege
+elevation.** A CLI that accepts `--as/--kind/--name/--repo/--agent`
+(lux) or an equivalent identity-composition flag lets one invocation
+*be* a different client for that call. It does not grant the caller
+any operation the declared identity would not have; it declares a
+fresh identity for the invocation. This is how tests exercise
+multi-client scenarios without a superuser path.
+
+**Admin verbs stay on the CLI.** Process supervision, install,
+uninstall, enable, disable, and doctor never appear on MCP, REST, or
+the library surface (see [tool-enable-disable.md § 2.3](tool-enable-disable.md#23-the-enable--disable-convention)
+and [cli.md § Layer 2](cli.md#layer-2-admin-commands)). Exposing them
+on any client surface an agent-turn can reach recreates the
+superuser surface this rule forbids.
