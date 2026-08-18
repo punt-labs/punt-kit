@@ -386,8 +386,9 @@ and every time a review has to check both are still working.
    consumer.
 2. **Biff every consumer** before the rename PR opens. Include the
    rename table and the ETA. Address by session name from `/who`
-   (never `@repo` aliases — they deliver nowhere;
-   [`memory:feedback_biff_is_the_only_cross_repo_channel`]).
+   (never `@repo` aliases — they deliver nowhere. Biff is the only
+   cross-repo coordination channel; beads and GitHub issues do not
+   reach another repo's agent).
 3. **Wait for `ack` from every consumer.** Silence is not consent —
    hold the rename PR until every consumer replies.
 4. **Merge the rename atomically.** No two-phase deploy. The old

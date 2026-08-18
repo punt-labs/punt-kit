@@ -1657,9 +1657,10 @@ The corresponding standards updates:
 
 - **`standards/cli.md`** — the `noun verb` naming rule replaces
   "subcommands are single verbs"; Humble Object Commands are Pattern
-  1 (default), direct delegation is the single-surface exception;
-  every MCP tool has a slash equivalent unless a considered
-  exception is stated; the assess-omissions rule is stated.
+  2 (default), direct delegation (Pattern 1) is the single-surface
+  exception; every MCP tool has a slash equivalent unless a
+  considered exception is stated; the assess-omissions rule is
+  stated.
 - **`standards/python.md`** — Rule 5 now says every non-leaf project
   uses the commands layer; the reference example is the `@final`
   callable class shape (vox's `voice.py`), not the earlier
@@ -1672,8 +1673,11 @@ The corresponding standards updates:
   is added as a cross-cutting section, so a future project reads it
   alongside the four projection-model invariants.
 - **`standards/tool-enable-disable.md`** — `enable`/`disable` are
-  explicitly admin-tier: CLI-only, never MCP/REST/library.
-- **`standards/permissions.md`** — a new §5 (Engine-Level Scoping)
+  named as their own tier — per-repo tool integration — orthogonal to
+  the admin/client split; every Punt Labs tool implements it across
+  the surfaces that standard defines (today CLI + MCP + slash +
+  library, per vox's shipped pattern).
+- **`standards/permissions.md`** — a new §8 (Engine-Level Scoping)
   documents the no-superuser rule: every write and every content
   read is scoped to the caller's identity; the CLI's identity flags
   are per-invocation, not privilege elevation; admin verbs stay on
@@ -1735,5 +1739,5 @@ time a review has to check both, and every time a new consumer
 arrives to a surface that speaks two languages.
 
 **Superuser MCP surface for admin verbs.** Rejected per DES-086
-(lux) and per the no-superuser rule stated in permissions.md §5.
+(lux) and per the no-superuser rule stated in permissions.md §8.
 MCP is a client surface, not an operator one.

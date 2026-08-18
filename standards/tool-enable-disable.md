@@ -60,14 +60,15 @@ Every tool CLI with per-repo presence exposes two commands, run from inside a
 repo. This extends the `enable` / `disable` entry in
 [cli.md § Required Subcommands](cli.md#enable--disable).
 
-**`enable` and `disable` are admin-tier verbs** per
-[cli.md § Layer 2 Admin commands](cli.md#layer-2-admin-commands). They
-appear on the CLI only — never on MCP, never on REST, never on the
-library surface. Enablement is a machine/repo state change run by an
-operator or an install hook; exposing it on MCP would let an
-agent-turn silently install or uninstall the tool in a repo, which is
-the class of superuser action the identity model (see the lux
-DES-086 precedent) forbids on a client surface.
+**`enable` and `disable` are their own tier: per-repo tool
+integration.** They are neither admin-tier (cli.md § Layer 2) nor
+client-vocabulary (the noun-first product surface) — enablement is a
+distinct concern, orthogonal to that split, and every Punt Labs tool
+implements it across the surfaces this standard defines. Today that
+means CLI + MCP + slash + library, per vox's shipped pattern
+(`vox enable`/`vox disable` on the CLI, `mic:enablement
+action="enable"` on MCP, `/vox enable` as a slash command) — see
+§2.14 for the full surface mapping.
 
 **Vocabulary is `enable` / `disable` — `y` / `n` is retired.** The two verbs are
 the fleet-wide vocabulary for turning a tool on and off, at both surfaces (§2.14).

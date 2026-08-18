@@ -21,9 +21,11 @@ CLI (Typer), the MCP server (FastMCP), and the REST API (FastAPI) are the client
 surfaces, and the library import surface — `from <package> import ...` — is a
 client too, each reaching the engine over its transport.
 
-Simple projects delegate directly from a client to core functions. Complex
-projects add a **commands layer** inside the engine — between the client surfaces
-and core — when a command orchestrates multiple core calls.
+Every non-leaf project — one shipping two or more client surfaces — adds a
+**commands layer** inside the engine, between the client surfaces and core, as
+the default (see Rule 5 below). Direct delegation, where each client routes
+straight to core with no commands layer between, is the exception: it is
+reserved for single-surface projects with no orchestration to share.
 
 ```text
 Direct delegation (quarry):              Commands layer (biff):

@@ -43,11 +43,35 @@ tools. Grouping by noun keeps related operations together in `--help`,
 in library discovery, and in the MCP tool list, and lets the vocabulary
 grow without renaming the surface.
 
+`lux ping` in the example above is not an exception to noun-first: it
+is a **diagnostics-tier** top-level singleton, not a product command.
+Diagnostics (`ping`, `doctor`, `version`) sit outside both the
+noun-first product vocabulary and the admin tier — they are read-only,
+safe to run from any surface, and named for what they check rather
+than a domain noun. See [Layer 2](#layer-2-admin-commands) for the
+full tier breakdown.
+
 Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. Every REST route has a corresponding CLI command. Every library method has a corresponding CLI command. All four are thin clients of the same engine code — the CLI holds no logic the others lack.
 
 **Assess omissions, not inclusions.** The default is equivalence: an operation on any surface is presumed to exist on every surface. An absence is a *considered exception* with a stated reason recorded in the project's design record, not a default. When reviewing surface coverage, list the omissions and demand justification for each; do not audit the inclusions.
 
-**Admin verbs are CLI-only.** Operations that install, uninstall, enable, disable, or supervise the tool itself (`install`, `uninstall`, `enable`, `disable`, `doctor`, `mcp`, `hub install|uninstall|start|stop|restart|status`) are the admin tier. They appear on the CLI and nowhere else — an agent-turn is not a legitimate caller of a process-supervision verb. Exposing an admin verb on MCP recreates the superuser MCP surface the identity model forbids (see the reference lux epic `lux-0shg` and its DES-086 precedent for the invariant statement). The converse also holds: every MCP tool has a slash-command equivalent unless a considered exception is stated (e.g., non-blocking receive verbs, programmatic-only registrations).
+**Admin verbs are CLI-only.** Operations that install, uninstall, or
+supervise the tool's process (`install`, `uninstall`, `doctor`, `mcp`,
+`hub install|uninstall|start|stop|restart|status`) are the admin
+tier. They appear on the CLI and nowhere else — an agent-turn is not
+a legitimate caller of a process-supervision verb. Exposing an admin
+verb on MCP recreates the superuser MCP surface the identity model
+forbids (see the reference lux epic `lux-0shg` and its DES-086
+precedent for the invariant statement). The converse also holds:
+every MCP tool has a slash-command equivalent unless a considered
+exception is stated (e.g., non-blocking receive verbs,
+programmatic-only registrations).
+
+`enable` / `disable` are **not** admin-tier — they are their own
+tier, per-repo tool integration, defined in full in
+[tool-enable-disable.md](tool-enable-disable.md#23-the-enable--disable-convention).
+Every Punt Labs tool implements them across CLI + MCP + slash +
+library.
 
 ### Layer 2: Admin commands
 
@@ -59,7 +83,7 @@ Setup, health, and lifecycle. Universal across all CLIs.
 | `doctor` | Check installation health | Yes |
 | `status` | Current state summary | Yes |
 | `install` | Machine-scoped setup (MCP registration, models, data dirs) | Yes |
-| `enable` / `disable` | Toggle the tool in the current project | If repo-scoped |
+| `enable` / `disable` | Toggle the tool in the current project — its own tier, not admin-tier; see above | If repo-scoped |
 | `serve` | Start the MCP server | If MCP project |
 
 ### Layer 3: Hook dispatcher (internal)

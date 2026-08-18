@@ -630,7 +630,7 @@ consistency.
 
 ---
 
-## 5. Engine-Level Scoping — the No-Superuser Rule
+## 8. Engine-Level Scoping — the No-Superuser Rule
 
 The Claude Code permission tiers above gate Claude's *tool
 invocations*. They do not gate what one engine operation, running on
