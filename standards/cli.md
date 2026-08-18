@@ -31,7 +31,7 @@ The reason the tool exists. These are verbs that do the tool's core job.
 quarry search <query>        biff who              lux scene show <spec>
 quarry ingest <path-or-url>  biff finger <user>    lux session ls
 quarry explain <topic>       biff talk <user>      lux topic publish <t>
-quarry sync                  biff write <user>     lux hub ping
+quarry sync                  biff write <user>     lux ping
 ```
 
 Product commands are **noun-first** when the tool has more than one
