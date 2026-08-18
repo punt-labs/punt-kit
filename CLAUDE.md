@@ -231,6 +231,8 @@ architecture. Log new decisions there when they involve rejected alternatives.
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. Sub-agent calls (`Agent(subagent_type=…)`) match ethos identity handles.
 
+**Do not add the `punt-labs/team` submodule here.** The org convention of mounting the identity registry at `.punt-labs/ethos/` does not apply to this repo: it ships as a marketplace plugin, Claude Code clones plugin repos with `--recurse-submodules`, and an SSH gitlink aborts every install for a user without a GitHub SSH key. An HTTPS gitlink would still push ~1 MB of the org roster onto every consumer's disk. The registry resolves from the global `~/.punt-labs/ethos/`. The mount path is gitignored, which makes a re-add fail loudly rather than silently: `git submodule add` refuses an ignored path outright (`fatal: Failed to add submodule`). It is a guardrail, not a lock — `-f` overrides it on both `git add` and `git submodule add` — so the rule above is the one that binds.
+
 punt-kit is the *standards repo* for the entire Punt Labs org. It hosts (1) the `punt` Python CLI + plugin, (2) the canonical standards docs that all sibling repos reference, and (3) the multi-phase release playbook. Changes here ripple to ~15 sibling repos. Two distinct surfaces: the *standards* (markdown, normative) and the *tooling* (Python, executable). Within each row, the worker and evaluator must be distinct handles. Claude is the leader, never the evaluator.
 
 | Task type | Worker | Evaluator |

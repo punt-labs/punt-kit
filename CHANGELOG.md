@@ -6,6 +6,21 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Keyless plugin installs. Claude Code clones a plugin repo with
+  `--recurse-submodules`, and this repo carried a `.punt-labs/ethos`
+  submodule pointing at `git@github.com:punt-labs/team.git`. Any user
+  without a GitHub SSH key hit `Failed to clone '.punt-labs/ethos' a second
+  time, aborting` — `punt-labs/team` being public does not help, because SSH
+  authentication fails before repo visibility is consulted. Switching the
+  submodule to HTTPS would have fixed the auth failure but still pushed
+  ~1 MB of internal identity data (246 files: identities, personalities,
+  writing styles, talents, roles, teams) onto every consumer's disk, so the
+  submodule and `.gitmodules` are removed outright and the mount path is
+  gitignored. Agents working in this repo resolve identity from the global
+  `~/.punt-labs/ethos/` instead. The two-line `.punt-labs/ethos.yaml`
+  identity pointer that `CLAUDE.md` names stays tracked — it is project
+  config, not the org roster.
+
 - The release path's shell scripts are budgeted for the hooks they now
   fire. `release-plugin.sh` and `restore-dev-plugin.sh` are invoked via
   `_run(["bash", ...])`, which inherited the 60s metadata default while
