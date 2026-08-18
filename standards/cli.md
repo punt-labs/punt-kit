@@ -261,9 +261,7 @@ class VoiceCommand:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    async def __call__(
-        self, ctx: Ctx, name: str | None = None
-    ) -> CommandResult:
+    async def __call__(self, ctx: Ctx, name: str | None = None) -> CommandResult:
         if name is None:
             return self._list(ctx)
         ctx.store.write_field("voice", name)

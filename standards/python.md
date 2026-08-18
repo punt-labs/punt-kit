@@ -129,10 +129,7 @@ class VoiceCommand:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    async def __call__(
-        self, ctx: Ctx, name: str | None = None
-    ) -> CommandResult:
-        ...
+    async def __call__(self, ctx: Ctx, name: str | None = None) -> CommandResult: ...
 
 
 voice: VoiceCommand = VoiceCommand()
