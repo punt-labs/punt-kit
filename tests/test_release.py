@@ -2800,8 +2800,9 @@ def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
     assert "No commit found with dev plugin name" in result.stderr
 
 
+@pytest.mark.parametrize("subdir", [False, True])
 def test_phase9_dev_restore_single_commit_with_restamp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool
 ) -> None:
     """Phase 9 lands the dev restore and version re-stamp in one commit.
 
@@ -2820,8 +2821,9 @@ def test_phase9_dev_restore_single_commit_with_restamp(
         _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
     )
 
-    root = _make_release_project(tmp_path)
+    root = _make_release_project(tmp_path, subdir=subdir)
     d = str(root)
+    plugin_root = root / "plugin" if subdir else root
 
     # Establish a dev-state commit that also carries a -dev command
     # file, so restore-dev-plugin.sh's `git checkout ... commands/` has
@@ -2829,9 +2831,9 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     # the script walks plugin.json history, so a commit that only adds
     # commands/ would be invisible to it and it would keep walking back
     # to the initial scaffold commit (which has no commands/).
-    plugin_json = root / ".claude-plugin" / "plugin.json"
-    commands_dir = root / "commands"
-    commands_dir.mkdir(exist_ok=True)
+    plugin_json = plugin_root / ".claude-plugin" / "plugin.json"
+    commands_dir = plugin_root / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
     (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
     # Force plugin.json to differ from the scaffold — the restore
     # script walks plugin.json history and picks the newest commit
@@ -2929,7 +2931,7 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     # first, the re-stamp would either be in HEAD (a second commit) or
     # would have required the --amend path this refactor deleted.
     restore_files = _commit_files(root, ref="HEAD~1")
-    assert ".claude-plugin/plugin.json" in restore_files
+    assert plugin_json.relative_to(root).as_posix() in restore_files
 
     restored = json.loads(plugin_json.read_text())
     assert restored["name"] == "test-dev"
