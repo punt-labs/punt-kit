@@ -66,6 +66,22 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Neither release script aborts on a plugin that ships no `commands/`.**
+  `release-plugin.sh` exited non-zero when `find` turned up no `*-dev.md`, and
+  `restore-dev-plugin.sh` passed `commands/` to `git checkout` unconditionally,
+  which aborts on a pathspec matching nothing — under `set -e` inside phase 9
+  that kills the post-release run and leaves `main` advertising the prod plugin
+  name. A skills-, agents-, or hooks-only plugin is valid and `punt audit`
+  reports its missing `commands/` as informational, so both scripts now skip
+  that step and say which path they took. Two cases stay hard errors, because
+  neither is a plugin that legitimately has no commands: a `commands/` that
+  exists with no `-dev` variants (either they were never written or a prior run
+  already swapped), and a `commands/` tracked at `HEAD` but missing from the
+  working tree. The second is the one a `[ -d ]` test cannot see — `find` inside
+  a process substitution discards its exit status, so a directory that vanished
+  would read exactly like a plugin that never had one, and the release would tag
+  a "prod" commit still carrying every `-dev` command.
+
 - **Both release scripts resolve the plugin root and refuse when they cannot.**
   `release-plugin.sh` and `restore-dev-plugin.sh` named
   `.claude-plugin/plugin.json` and `commands/` at the repo root. After the move

@@ -101,11 +101,12 @@ Install from the marketplace:
 /plugin install punt@punt-labs
 ```
 
-Everything the plugin ships lives in [plugin/](plugin/) — the manifest,
-`commands/`, `skills/`, and the `playbooks/` the `auto` skill loads. The
-marketplace installs that one subdirectory, so `src/`, `tests/`,
-`standards/`, `lang-rules/`, `patterns/`, and `docs/` never reach a plugin
-install. The `punt` binary the commands invoke comes from PyPI, not from the
+The plugin surface lives in [plugin/](plugin/) — the manifest, `commands/`,
+`skills/`, and the `playbooks/` the `auto` skill loads. The marketplace
+installs that subdirectory, so `src/`, `tests/`, `standards/`, `lang-rules/`,
+`patterns/`, and `docs/` never reach a plugin install; repo-root files still
+do, because the underlying cone sparse checkout excludes directories rather
+than files. The `punt` binary the commands invoke comes from PyPI, not from the
 plugin.
 
 ---

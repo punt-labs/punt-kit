@@ -2658,6 +2658,54 @@ def test_release_plugin_swaps_a_plugin_with_no_commands(tmp_path: Path) -> None:
     assert "swapping the name only" in result.stdout
 
 
+def test_release_plugin_errors_when_commands_vanished_from_the_tree(
+    tmp_path: Path,
+) -> None:
+    """commands/ tracked at HEAD but gone from disk aborts the preparation.
+
+    This is the case a `[ -d ]` test cannot see. `find` inside a process
+    substitution discards its exit status, so a directory that vanished yields
+    an empty match and reads exactly like a plugin that never had commands —
+    and the release would tag a "prod" commit still carrying every -dev file.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    plugin_dir = root / "plugin" / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    commands_dir = root / "plugin" / "commands"
+    commands_dir.mkdir(parents=True)
+    (commands_dir / "hello.md").write_text("# Hello\n")
+    (commands_dir / "hello-dev.md").write_text("# Hello dev\n")
+    script = _install_script(root, _RELEASE_SCRIPT)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev plugin state"], cwd=d)
+
+    # Vanish the directory without committing the deletion.
+    shutil.rmtree(commands_dir)
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=d, capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    assert "tracked at HEAD but missing from the working tree" in result.stderr
+    # The name swap must not have been committed either.
+    subject = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert subject == "add dev plugin state", "no release commit may land"
+
+
 def test_release_plugin_errors_when_commands_exist_without_dev_variants(
     tmp_path: Path,
 ) -> None:

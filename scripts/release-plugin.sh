@@ -45,14 +45,29 @@ d['name'] = '${prod_name}'
 p.write_text(json.dumps(d, indent=2) + '\n')
 "
 
-# Remove -dev commands.
+# Remove -dev commands. Three outcomes, and telling them apart is the point:
 #
-# A plugin with no commands/ at all — skills or hooks only — is valid, and the
-# name swap alone is a complete release preparation for it. Aborting there would
-# block its release for a step that does not apply. But a plugin that HAS
-# commands/ and no *-dev.md is a different thing: either the dev variants were
-# never written or a previous run already swapped, and both need a human. So the
-# absent directory is a skip and the empty match is still an error.
+#   1. commands/ is tracked at HEAD but missing from the working tree.
+#      Something deleted it out from under the release. Abort — continuing
+#      would tag a "prod" commit still carrying every *-dev command.
+#   2. commands/ is absent at HEAD too. A plugin that ships only skills,
+#      agents, or hooks is valid, and for it the name swap IS the whole
+#      preparation. Skip the removal and say so.
+#   3. commands/ is present with no *-dev.md. Either the variants were never
+#      written or a prior run already swapped. Both need a human. Abort.
+#
+# A bare `[[ -d ]]` cannot separate 1 from 2, and `find` below cannot either:
+# inside a process substitution its exit status is discarded, so a directory
+# that vanished yields an empty dev_files and reads exactly like case 2. Hence
+# the HEAD check — git knows what this plugin is supposed to have.
+commands_rel="${COMMANDS_DIR#"${REPO_ROOT}/"}"
+if git -C "$REPO_ROOT" ls-tree HEAD -- "$commands_rel" | grep -q . \
+   && [[ ! -d "$COMMANDS_DIR" ]]; then
+  echo "ERROR: ${commands_rel} is tracked at HEAD but missing from the working tree" >&2
+  echo "       Refusing to prepare a release that would keep every -dev command." >&2
+  exit 1
+fi
+
 dev_files=()
 if [[ -d "$COMMANDS_DIR" ]]; then
   while IFS= read -r -d '' f; do

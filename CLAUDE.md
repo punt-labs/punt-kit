@@ -42,8 +42,8 @@ commands (`/punt init`, `/punt audit`, `/punt reconcile`, etc.).
 
 ### Repository layout
 
-Everything the plugin ships lives under `plugin/`, and nothing else does
-(DES-025, DES-028):
+The plugin surface — everything a marketplace install is meant to use — lives
+under `plugin/` (DES-025, DES-028):
 
 | Path | Contents |
 |------|----------|
@@ -53,8 +53,12 @@ Everything the plugin ships lives under `plugin/`, and nothing else does
 | `plugin/playbooks/` | Playbook YAMLs the `auto` skill loads from `${CLAUDE_PLUGIN_ROOT}/playbooks/`. |
 
 `src/`, `tests/`, `standards/`, `lang-rules/`, `patterns/`, `docs/`,
-`scripts/`, `tools/`, and this repo's `.beads/` and `.punt-labs/` stay at the
-root and never reach a plugin install.
+`scripts/`, `tools/`, and this repo's `.beads/` and `.punt-labs/` never reach a
+plugin install. Repo-root *files* do: `git-subdir` is a cone sparse checkout,
+cone mode excludes directories rather than files, so `README.md`, `DESIGN.md`,
+`CHANGELOG.md`, `AGENTS.md`, `prfaq.*`, `.envrc`, and `.biff` all travel with
+an install — measured 584 KB of a 720 KB checkout against `plugin/`'s 136 KB.
+Do not describe a root file as excluded. See DES-028.
 
 Two rules follow, and both are load-bearing:
 
