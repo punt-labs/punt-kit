@@ -9,6 +9,7 @@ test: ## Run tests (excludes slow integration tests)
 lint: ## Lint and format check
 	uv run ruff check .
 	uv run ruff format --check .
+	shellcheck install.sh scripts/*.sh
 
 type: ## Type check with mypy and pyright
 	uv run mypy src/ tests/

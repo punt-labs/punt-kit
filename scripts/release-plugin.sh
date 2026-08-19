@@ -5,8 +5,27 @@ set -euo pipefail
 # The tagged commit has only prod artifacts; the marketplace cache clones from it.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." || exit 1; pwd)"
-PLUGIN_JSON="${REPO_ROOT}/.claude-plugin/plugin.json"
-COMMANDS_DIR="${REPO_ROOT}/commands"
+
+# The shippable surface lives under plugin/ (DES-025), but this script is
+# copied verbatim into every plugin repo and the fleet migrates one repo at a
+# time, so resolve the plugin root instead of hardcoding it. Silence here
+# would tag a release whose plugin.json was never swapped, so an unresolvable
+# root is a hard error, not a fallback to the repo root.
+PLUGIN_ROOT=""
+for candidate in "${REPO_ROOT}/plugin" "${REPO_ROOT}"; do
+  if [[ -f "${candidate}/.claude-plugin/plugin.json" ]]; then
+    PLUGIN_ROOT="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$PLUGIN_ROOT" ]]; then
+  echo "ERROR: no .claude-plugin/plugin.json under ${REPO_ROOT}/plugin or ${REPO_ROOT}" >&2
+  exit 1
+fi
+
+PLUGIN_JSON="${PLUGIN_ROOT}/.claude-plugin/plugin.json"
+COMMANDS_DIR="${PLUGIN_ROOT}/commands"
 
 # Swap plugin name from *-dev to prod
 current_name="$(python3 -c "import json; print(json.load(open('${PLUGIN_JSON}'))['name'])")"

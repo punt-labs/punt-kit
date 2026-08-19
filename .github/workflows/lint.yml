@@ -19,5 +19,6 @@ jobs:
       - run: uv sync --frozen
       - run: uv run ruff check .
       - run: uv run ruff format --check .
+      - run: shellcheck install.sh scripts/*.sh
       - run: uv run mypy src/ tests/
       - run: uv run pyright src/ tests/
