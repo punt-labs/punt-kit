@@ -378,15 +378,47 @@ def test_audit_plugin_fails_on_two_manifests(
     assert ".claude-plugin/plugin.json," in out, "both paths must be named"
 
 
-def test_audit_plugin_fails_missing_release_scripts(tmp_path: Path) -> None:
-    """Audit fails when release/restore scripts are missing."""
+def test_audit_hybrid_fails_missing_release_scripts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hybrid project without the release scripts fails.
+
+    The scripts drive the name swap that the release tag lands on, and a
+    hybrid project releases through `punt release`, which runs them.
+    """
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "scripts" / "release-plugin.sh").unlink()
+    (tmp_path / "scripts" / "restore-dev-plugin.sh").unlink()
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "scripts/release-plugin.sh" in out, "must fail on the scripts, not elsewhere"
+    assert "scripts/restore-dev-plugin.sh" in out
+
+
+def test_audit_pure_plugin_without_release_scripts_passes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pure plugin without the scripts is compliant, not a failure.
+
+    plugins.md "Release flow for pure plugins" says a pure plugin may lack
+    scripts/release-plugin.sh and do the swap-tag-restore by hand. Failing
+    dungeon, prfaq, and z-spec for following the standard is a
+    false-positive gate — and it must still emit a row, so the reader learns
+    the manual sequence applies rather than seeing nothing.
+    """
     _make_compliant_plugin(tmp_path)
     (tmp_path / "scripts" / "release-plugin.sh").unlink()
     (tmp_path / "scripts" / "restore-dev-plugin.sh").unlink()
     (tmp_path / "scripts").rmdir()
 
-    with pytest.raises(SystemExit, match="1"):
-        run_audit(str(tmp_path))
+    run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "Release/restore scripts exist" in out
+    assert "Pure plugin" in out
 
 
 def test_audit_plugin_non_plugin_skips_check(tmp_path: Path) -> None:

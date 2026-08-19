@@ -825,8 +825,8 @@ def _check_plugin_dev_isolation(
     Checks:
     1. Exactly one plugin.json — a second one means a half-finished move
     2. plugin.json name ends in -dev (working tree is the dev namespace)
-    3. Every prod command has a -dev variant
-    4. Release/restore scripts exist
+    3. Release/restore scripts exist (hybrid projects only)
+    4. Every prod command has a -dev variant
     """
     if not info.is_plugin:
         return []
@@ -865,19 +865,36 @@ def _check_plugin_dev_isolation(
                 )
             )
 
-    # Check release/restore scripts exist
+    # Check release/restore scripts exist. Required of hybrid projects only:
+    # plugins.md "Release flow for pure plugins" states a pure plugin may lack
+    # scripts/release-plugin.sh and do the swap-tag-restore by hand (DES-007).
+    # Failing dungeon, prfaq, and z-spec for following the standard is a
+    # false-positive gate, and a gate that cries wolf gets ignored wholesale.
     release_script = info.root / "scripts" / "release-plugin.sh"
     restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
-    if release_script.exists() and restore_script.exists():
+    missing_scripts: list[str] = []
+    if not release_script.exists():
+        missing_scripts.append("scripts/release-plugin.sh")
+    if not restore_script.exists():
+        missing_scripts.append("scripts/restore-dev-plugin.sh")
+    if not missing_scripts:
         results.append((PASS, "Release/restore scripts exist", ""))
+    elif info.is_hybrid:
+        results.append(
+            (
+                FAIL,
+                "Release/restore scripts exist",
+                f"Missing: {', '.join(missing_scripts)}",
+            )
+        )
     else:
-        missing_scripts: list[str] = []
-        if not release_script.exists():
-            missing_scripts.append("scripts/release-plugin.sh")
-        if not restore_script.exists():
-            missing_scripts.append("scripts/restore-dev-plugin.sh")
-        detail = f"Missing: {', '.join(missing_scripts)}"
-        results.append((FAIL, "Release/restore scripts exist", detail))
+        results.append(
+            (
+                INFO,
+                "Release/restore scripts exist",
+                "Pure plugin — swap-tag-restore is manual (plugins.md, DES-007)",
+            )
+        )
 
     # Check -dev command variants. Anchored on the plugin root, not the repo
     # root: under the plugin/ layout the commands moved with the manifest, and

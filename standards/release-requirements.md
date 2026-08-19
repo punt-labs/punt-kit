@@ -13,10 +13,15 @@ These artifacts are modified in the project being released.
 |------|-------|---------|
 | `pyproject.toml` | `version` | `"0.7.1"` |
 | `src/<pkg>/__init__.py` | `__version__` | `"0.7.1"` |
-| `plugin/.claude-plugin/plugin.json` | `version` | `"0.7.1"` (hybrid/plugin only) |
+| `.claude-plugin/plugin.json` under the plugin root | `version` | `"0.7.1"` (hybrid/plugin only) |
 | `install.sh` | `VERSION` | `VERSION="0.7.1"` |
 
 All four locations must agree on the same version string.
+
+The manifest row is deliberately relative to the plugin root rather than the
+repo root: in a DES-025 repo it is `plugin/.claude-plugin/plugin.json`, and in
+one that has not migrated yet it is `.claude-plugin/plugin.json`. `punt release`
+resolves both, so a not-yet-migrated repo still satisfies this requirement.
 
 ### Changelog
 

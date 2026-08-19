@@ -44,6 +44,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **`punt audit` no longer fails a pure plugin for lacking the release
+  scripts.** `standards/plugins.md` "Release flow for pure plugins" says a pure
+  plugin may lack `scripts/release-plugin.sh` and do the swap-tag-restore by
+  hand (DES-007), so the check was failing dungeon, prfaq, and z-spec for
+  following the standard. It is now required of hybrid projects and reported as
+  informational — naming the manual sequence — for pure plugins. A gate that
+  cries wolf gets ignored wholesale.
+
 - **`punt audit` fails when a repo has more than one plugin manifest.** A
   manifest left at the repo root after an incomplete move to `plugin/` is worse
   than a missing one — every reader takes the `plugin/` copy and the stale one
