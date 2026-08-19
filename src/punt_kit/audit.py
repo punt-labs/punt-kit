@@ -823,14 +823,33 @@ def _check_plugin_dev_isolation(
     """Check plugin repos follow the dev/prod namespace isolation standard.
 
     Checks:
-    1. plugin.json name ends in -dev (working tree is the dev namespace)
-    2. Every prod command has a -dev variant
-    3. Release/restore scripts exist
+    1. Exactly one plugin.json — a second one means a half-finished move
+    2. plugin.json name ends in -dev (working tree is the dev namespace)
+    3. Every prod command has a -dev variant
+    4. Release/restore scripts exist
     """
     if not info.is_plugin:
         return []
 
     results: list[tuple[str, str, str]] = []
+
+    # A stale manifest left behind by an incomplete move to the plugin/
+    # layout is worse than a missing one: every reader takes the winning
+    # candidate and the loser drifts unnoticed until a release swaps the
+    # wrong file.
+    if len(info.plugin_manifests) > 1:
+        found = ", ".join(
+            p.relative_to(info.root).as_posix() for p in info.plugin_manifests
+        )
+        results.append((FAIL, "Exactly one plugin manifest", f"Found: {found}"))
+    else:
+        results.append(
+            (
+                PASS,
+                "Exactly one plugin manifest",
+                info.plugin_manifest.relative_to(info.root).as_posix(),
+            )
+        )
 
     # Check plugin name has -dev suffix
     plugin_name = _read_plugin_field(info, "name")
@@ -860,8 +879,10 @@ def _check_plugin_dev_isolation(
         detail = f"Missing: {', '.join(missing_scripts)}"
         results.append((FAIL, "Release/restore scripts exist", detail))
 
-    # Check -dev command variants
-    commands_dir = info.root / "commands"
+    # Check -dev command variants. Anchored on the plugin root, not the repo
+    # root: under the plugin/ layout the commands moved with the manifest, and
+    # a repo-root glob would find nothing and report no findings at all.
+    commands_dir = info.plugin_root / "commands"
     if commands_dir.is_dir():
         prod_commands = sorted(
             f.stem for f in commands_dir.glob("*.md") if not f.stem.endswith("-dev")
@@ -888,6 +909,17 @@ def _check_plugin_dev_isolation(
                         f"{len(dev_commands)} dev commands",
                     )
                 )
+    else:
+        # Say the directory is absent instead of emitting no row. A plugin
+        # may legitimately ship only hooks or agents, but "the check found
+        # nowhere to look" and "the check passed" must not read alike.
+        results.append(
+            (
+                INFO,
+                "Dev command variants exist",
+                f"No {commands_dir.relative_to(info.root).as_posix()}/ directory",
+            )
+        )
 
     return results
 
@@ -1015,19 +1047,20 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
 
 def _read_plugin_field(info: ProjectInfo, field: str) -> str | None:
-    """Read a string field from plugin.json."""
-    for pj_path in (
-        info.root / ".claude-plugin" / "plugin.json",
-        info.root / "plugin.json",
-    ):
-        if pj_path.exists():
-            try:
-                data = json.loads(pj_path.read_text(encoding="utf-8"))
-                value = data.get(field)
-                if isinstance(value, str):
-                    return value
-            except (json.JSONDecodeError, OSError):
-                pass
+    """Read a string field from plugin.json.
+
+    None when no manifest declares the field — the callers turn that into a
+    skipped check, since a plugin that omits a field is a different finding
+    from one whose value is wrong.
+    """
+    for pj_path in info.plugin_manifests:
+        try:
+            data = json.loads(pj_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        value = data.get(field)
+        if isinstance(value, str):
+            return value
     return None
 
 

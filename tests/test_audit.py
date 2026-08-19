@@ -260,8 +260,14 @@ def test_audit_passes_with_extra_permissions(tmp_path: Path) -> None:
 # --- Plugin dev-command tests ---
 
 
-def _make_compliant_plugin(tmp_path: Path) -> None:
-    """Create a compliant plugin project scaffold with dev commands."""
+def _make_compliant_plugin(tmp_path: Path, *, subdir: bool = False) -> Path:
+    """Create a compliant plugin project scaffold with dev commands.
+
+    ``subdir`` selects the DES-025 layout, where the whole surface lives under
+    ``plugin/``. Returns the plugin root so callers name paths the way the
+    audit does, rather than hardcoding a layout the fleet is migrating off.
+    """
+    plugin_root = tmp_path / "plugin" if subdir else tmp_path
     (tmp_path / "README.md").write_text("# Test Plugin\n")
     (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
@@ -271,8 +277,8 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
     workflows = tmp_path / ".github" / "workflows"
     workflows.mkdir(parents=True)
     (workflows / "docs.yml").write_text("name: Docs\n")
-    plugin_dir = tmp_path / ".claude-plugin"
-    plugin_dir.mkdir()
+    plugin_dir = plugin_root / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps(
             {
@@ -300,8 +306,8 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
         )
         + "\n"
     )
-    commands_dir = tmp_path / "commands"
-    commands_dir.mkdir()
+    commands_dir = plugin_root / "commands"
+    commands_dir.mkdir(parents=True)
     (commands_dir / "audit.md").write_text("---\ndescription: Audit\n---\n")
     (commands_dir / "audit-dev.md").write_text("---\ndescription: Audit dev\n---\n")
     (commands_dir / "init.md").write_text("---\ndescription: Init\n---\n")
@@ -310,33 +316,66 @@ def _make_compliant_plugin(tmp_path: Path) -> None:
     scripts_dir.mkdir()
     (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
     (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    return plugin_root
 
 
-def test_audit_plugin_dev_isolation_passes(tmp_path: Path) -> None:
+@pytest.mark.parametrize("subdir", [False, True])
+def test_audit_plugin_dev_isolation_passes(tmp_path: Path, *, subdir: bool) -> None:
     """Audit passes when plugin follows full dev/prod isolation standard."""
-    _make_compliant_plugin(tmp_path)
+    _make_compliant_plugin(tmp_path, subdir=subdir)
     run_audit(str(tmp_path))
 
 
-def test_audit_plugin_fails_missing_dev_command(tmp_path: Path) -> None:
-    """Audit fails when a prod command is missing its -dev variant."""
-    _make_compliant_plugin(tmp_path)
-    (tmp_path / "commands" / "init-dev.md").unlink()
+@pytest.mark.parametrize("subdir", [False, True])
+def test_audit_plugin_fails_missing_dev_command(
+    tmp_path: Path, *, subdir: bool
+) -> None:
+    """Audit fails when a prod command is missing its -dev variant.
+
+    Under the plugin/ layout this only fails if the check globs the plugin
+    root. Anchored on the repo root it finds no commands at all and reports
+    nothing — a green audit for a broken plugin.
+    """
+    plugin_root = _make_compliant_plugin(tmp_path, subdir=subdir)
+    (plugin_root / "commands" / "init-dev.md").unlink()
 
     with pytest.raises(SystemExit, match="1"):
         run_audit(str(tmp_path))
 
 
-def test_audit_plugin_fails_missing_dev_suffix(tmp_path: Path) -> None:
+@pytest.mark.parametrize("subdir", [False, True])
+def test_audit_plugin_fails_missing_dev_suffix(tmp_path: Path, *, subdir: bool) -> None:
     """Audit fails when plugin name lacks -dev suffix."""
-    _make_compliant_plugin(tmp_path)
-    plugin_json = tmp_path / ".claude-plugin" / "plugin.json"
+    plugin_root = _make_compliant_plugin(tmp_path, subdir=subdir)
+    plugin_json = plugin_root / ".claude-plugin" / "plugin.json"
     data = json.loads(plugin_json.read_text())
     data["name"] = "test"  # no -dev suffix
     plugin_json.write_text(json.dumps(data, indent=2) + "\n")
 
     with pytest.raises(SystemExit, match="1"):
         run_audit(str(tmp_path))
+
+
+def test_audit_plugin_fails_on_two_manifests(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A manifest left at the repo root after the plugin/ move is a failure.
+
+    Every reader takes the plugin/ copy, so the stale one drifts silently
+    until a release swaps a file nobody is looking at.
+    """
+    _make_compliant_plugin(tmp_path, subdir=True)
+    stale = tmp_path / ".claude-plugin"
+    stale.mkdir()
+    (stale / "plugin.json").write_text('{"name": "test-dev", "version": "1.0.0"}\n')
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "Exactly one plugin manifest" in out
+    assert "plugin/.claude-plugin/plugin.json" in out
+    assert ".claude-plugin/plugin.json," in out, "both paths must be named"
 
 
 def test_audit_plugin_fails_missing_release_scripts(tmp_path: Path) -> None:

@@ -72,8 +72,12 @@ def _init_git_repo(path: Path) -> None:
     _git(["fetch", "origin"], cwd=d)
 
 
-def _make_release_project(tmp_path: Path) -> Path:
-    """Create a minimal Python project ready for release testing."""
+def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
+    """Create a minimal Python project ready for release testing.
+
+    ``subdir`` selects the DES-025 layout, where the plugin surface lives
+    under ``plugin/``.
+    """
     root = tmp_path / "proj"
     root.mkdir()
 
@@ -91,8 +95,8 @@ def _make_release_project(tmp_path: Path) -> Path:
     (src / "__init__.py").write_text('__version__ = "0.1.0"\n')
     (src / "py.typed").write_text("")
 
-    plugin_dir = root / ".claude-plugin"
-    plugin_dir.mkdir()
+    plugin_dir = (root / "plugin" if subdir else root) / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps(
             {"name": "test-dev", "version": "0.1.0"},
@@ -291,9 +295,16 @@ def test_preflight_passes_clean(tmp_path: Path) -> None:
 # --- phase 2 version bump ---
 
 
-def test_version_bump_updates_all_files(tmp_path: Path) -> None:
-    """Version bump updates all version locations."""
-    root = _make_release_project(tmp_path)
+@pytest.mark.parametrize("subdir", [False, True])
+def test_version_bump_updates_all_files(tmp_path: Path, *, subdir: bool) -> None:
+    """Version bump updates all version locations.
+
+    Run against both layouts: the plugin.json bump is the one place where a
+    stale repo-root path silently skips a file rather than failing, and a
+    release that ships a plugin.json one version behind is invisible until a
+    user's /plugin reports the wrong number.
+    """
+    root = _make_release_project(tmp_path, subdir=subdir)
 
     from punt_kit.detect import detect
 
@@ -311,8 +322,7 @@ def test_version_bump_updates_all_files(tmp_path: Path) -> None:
     assert '__version__ = "0.2.0"' in init_content
 
     # Check plugin.json
-    pj = root / ".claude-plugin" / "plugin.json"
-    plugin_data = json.loads(pj.read_text())
+    plugin_data = json.loads(info.plugin_manifest.read_text())
     assert plugin_data["version"] == "0.2.0"
 
     # Check install.sh VERSION pin
@@ -2512,6 +2522,14 @@ _RESTORE_SCRIPT = os.path.join(
     "restore-dev-plugin.sh",
 )
 
+# Path to the real release-plugin.sh script
+_RELEASE_SCRIPT = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)),
+    os.pardir,
+    "scripts",
+    "release-plugin.sh",
+)
+
 
 def test_release_path_never_bypasses_git_hooks() -> None:
     """No release-path file may pass ``--no-verify`` to git.
@@ -2546,21 +2564,115 @@ def test_release_path_never_bypasses_git_hooks() -> None:
         )
 
 
-def _install_restore_script(root: Path) -> None:
-    """Copy the real restore-dev-plugin.sh into a test repo."""
+def _install_script(root: Path, source: str) -> Path:
+    """Copy one of the real release scripts into a test repo."""
     scripts_dir = root / "scripts"
     scripts_dir.mkdir(exist_ok=True)
-    dest = scripts_dir / "restore-dev-plugin.sh"
-    with open(_RESTORE_SCRIPT) as f:
+    dest = scripts_dir / os.path.basename(source)
+    with open(source) as f:
         dest.write_text(f.read())
     dest.chmod(0o755)
+    return dest
 
 
-def test_restore_dev_plugin_finds_dev_commit_past_head1(tmp_path: Path) -> None:
+def _install_restore_script(root: Path) -> None:
+    """Copy the real restore-dev-plugin.sh into a test repo."""
+    _install_script(root, _RESTORE_SCRIPT)
+
+
+@pytest.mark.parametrize("subdir", [False, True])
+def test_release_plugin_swaps_both_layouts(tmp_path: Path, *, subdir: bool) -> None:
+    """release-plugin.sh finds the manifest under plugin/ and at the root.
+
+    The script is copied verbatim into nine plugin repos that migrate to the
+    plugin/ layout one at a time. A hardcoded repo-root path would abort the
+    release on a migrated repo; a hardcoded plugin/ path would abort it on an
+    unmigrated one.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    plugin_root = root / "plugin" if subdir else root
+    plugin_dir = plugin_root / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    commands_dir = plugin_root / "commands"
+    commands_dir.mkdir(parents=True)
+    (commands_dir / "hello.md").write_text("# Hello\n")
+    (commands_dir / "hello-dev.md").write_text("# Hello dev\n")
+    script = _install_script(root, _RELEASE_SCRIPT)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev plugin state"], cwd=d)
+
+    subprocess.run(["bash", str(script)], cwd=d, check=True, capture_output=True)
+
+    swapped = json.loads((plugin_dir / "plugin.json").read_text())
+    assert swapped["name"] == "test", "the -dev suffix must be gone from the tag"
+    assert not (commands_dir / "hello-dev.md").exists()
+    assert (commands_dir / "hello.md").exists()
+
+    subject = subprocess.run(
+        ["git", "log", "-1", "--format=%s"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    assert subject == "chore: prepare plugin for release"
+
+
+def test_release_plugin_errors_when_no_manifest(tmp_path: Path) -> None:
+    """No manifest in either location is a hard error, not a silent no-op.
+
+    Exiting 0 here would let phase 4 tag a release whose plugin was never
+    swapped to its prod name — the failure the idempotency check exists for.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    script = _install_script(root, _RELEASE_SCRIPT)
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=str(root), capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    assert "no .claude-plugin/plugin.json" in result.stderr
+
+
+def test_restore_dev_plugin_errors_when_no_manifest(tmp_path: Path) -> None:
+    """Same contract for the restore side: refuse rather than restore nothing.
+
+    A silent exit would leave main advertising the prod plugin name, so every
+    developer's --plugin-dir session would collide with the marketplace copy.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    script = _install_script(root, _RESTORE_SCRIPT)
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=str(root), capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    assert "no .claude-plugin/plugin.json" in result.stderr
+
+
+@pytest.mark.parametrize("subdir", [False, True])
+def test_restore_dev_plugin_finds_dev_commit_past_head1(
+    tmp_path: Path, *, subdir: bool
+) -> None:
     """restore-dev-plugin.sh finds dev state even when HEAD~1 is unrelated.
 
     Simulates the scenario where multiple PRs merge between the release swap
     and Phase 9 (post-release), so HEAD~1 no longer has the dev plugin state.
+    Run against both layouts: the script walks plugin.json's history by path,
+    so naming the wrong path yields an empty log and an early exit.
     """
     root = tmp_path / "repo"
     root.mkdir()
@@ -2568,13 +2680,14 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(tmp_path: Path) -> None:
     d = str(root)
 
     # Create dev plugin state
-    plugin_dir = root / ".claude-plugin"
-    plugin_dir.mkdir()
+    plugin_root = root / "plugin" if subdir else root
+    plugin_dir = plugin_root / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
     (plugin_dir / "plugin.json").write_text(
         json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
     )
-    commands_dir = root / "commands"
-    commands_dir.mkdir()
+    commands_dir = plugin_root / "commands"
+    commands_dir.mkdir(parents=True)
     (commands_dir / "hello.md").write_text("# Hello\nDev command\n")
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "add dev plugin state"], cwd=d)
@@ -2648,7 +2761,8 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(tmp_path: Path) -> None:
     # was never removed by the simulated release swap so `git add
     # commands/` finds nothing new to stage. What matters for the
     # contract is that the name-flip landed in the index.
-    assert ".claude-plugin/plugin.json" in staged
+    expected = (plugin_dir / "plugin.json").relative_to(root).as_posix()
+    assert expected in staged
 
 
 def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
@@ -2822,8 +2936,9 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     assert restored["version"] == "0.2.0"
 
 
+@pytest.mark.parametrize("subdir", [False, True])
 def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool
 ) -> None:
     """Phase 4 must NOT skip the swap when a prior run failed mid-commit.
 
@@ -2840,14 +2955,22 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     to read the working tree — the assertion that HEAD advanced fails
     because the buggy code takes the "already in prod state" branch
     and _pr_merge sees an unchanged HEAD.
+
+    Run against both layouts, because the predicate is a ``git show
+    HEAD:<path>`` and a path that does not exist at HEAD makes the phase
+    raise rather than answer.
     """
     from punt_kit import release as release_mod
     from punt_kit.release import (
         _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
     )
 
-    root = _make_release_project(tmp_path)
+    root = _make_release_project(tmp_path, subdir=subdir)
     d = str(root)
+    plugin_root = root / "plugin" if subdir else root
+    pj_rel = (plugin_root / ".claude-plugin" / "plugin.json").relative_to(root)
+    pj_spec = pj_rel.as_posix()
+    commands_rel = (plugin_root / "commands").relative_to(root).as_posix()
 
     # Install the real release-plugin.sh — the _make_release_project
     # fake is `git commit --allow-empty` and would not exercise the
@@ -2859,8 +2982,8 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     # release-plugin.sh removes commands/*-dev.md as part of the swap;
     # the fixture ships no commands/ directory, so add one -dev command
     # so the script has something to `git rm`.
-    commands_dir = root / "commands"
-    commands_dir.mkdir(exist_ok=True)
+    commands_dir = plugin_root / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
     (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
 
     # Switch to the release branch phase 2 would have created and
@@ -2882,18 +3005,18 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     # Simulate the failed-hook state: release-plugin.sh mutated the
     # working tree and staged, but the commit did not land. Do exactly
     # what the script does short of the commit itself.
-    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json = root / pj_rel
     prod_pj = json.loads(plugin_json.read_text())
     prod_pj["name"] = "test"
     plugin_json.write_text(json.dumps(prod_pj, indent=2) + "\n")
-    _git(["rm", "commands/hello-dev.md"], cwd=d)
-    _git(["add", ".claude-plugin/plugin.json"], cwd=d)
+    _git(["rm", f"{commands_rel}/hello-dev.md"], cwd=d)
+    _git(["add", pj_spec], cwd=d)
 
     # Confirm the setup matches the defect scenario: disk reports prod
     # but HEAD still carries dev.
     assert json.loads(plugin_json.read_text())["name"] == "test"
     head_pj = subprocess.run(
-        ["git", "show", "HEAD:.claude-plugin/plugin.json"],
+        ["git", "show", f"HEAD:{pj_spec}"],
         cwd=d,
         capture_output=True,
         text=True,
@@ -2923,7 +3046,7 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
         ).stdout.strip()
         captured["head_name_at_push"] = json.loads(
             subprocess.run(
-                ["git", "show", "HEAD:.claude-plugin/plugin.json"],
+                ["git", "show", f"HEAD:{pj_spec}"],
                 cwd=str(cwd),
                 capture_output=True,
                 text=True,

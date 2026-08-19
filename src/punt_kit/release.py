@@ -1032,9 +1032,10 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
                     init_py.write_text(new_content, encoding="utf-8")
                     _ok(f'{init_py.name}: __version__ = "{version}"')
 
-    # Bump plugin.json version
-    plugin_json = root / ".claude-plugin" / "plugin.json"
-    if plugin_json.exists():
+    # Bump plugin.json version. None for a non-plugin project — absence is the
+    # contract, and 2d below stages only the files that exist.
+    plugin_json = info.plugin_manifest if info.is_plugin else None
+    if plugin_json is not None:
         data = json.loads(plugin_json.read_text(encoding="utf-8"))
         data["version"] = version
         if dry_run:
@@ -1092,9 +1093,10 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             pyproject_path,
             changelog_path,
             install_sh,
-            plugin_json,
             lock_file,
         ]
+        if plugin_json is not None:
+            release_files.append(plugin_json)
         if pkg_dir is not None:
             release_files.append(pkg_dir / "__init__.py")
         to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
@@ -1147,11 +1149,24 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     _ok("Build artifacts pass twine check")
 
 
-_PLUGIN_JSON_REL = ".claude-plugin/plugin.json"
-_PLUGIN_SWAP_PATHS = (_PLUGIN_JSON_REL, "commands/")
+def _plugin_json_rel(info: ProjectInfo) -> str:
+    """The repo-relative plugin.json path, spelled for a git pathspec.
+
+    Resolved rather than hardcoded: since DES-025 the manifest lives at
+    ``plugin/.claude-plugin/plugin.json``, and ``punt release`` runs in every
+    plugin repo, which migrate one at a time. A stale literal would make
+    ``git show HEAD:<path>`` fail mid-release.
+    """
+    return info.plugin_manifest.relative_to(info.root).as_posix()
 
 
-def _head_plugin_state(root: Path) -> dict[str, object]:
+def _plugin_swap_paths(info: ProjectInfo) -> tuple[str, ...]:
+    """The paths the release swap and the dev restore both rewrite."""
+    commands = (info.plugin_root / "commands").relative_to(info.root).as_posix()
+    return (_plugin_json_rel(info), f"{commands}/")
+
+
+def _head_plugin_state(info: ProjectInfo) -> dict[str, object]:
     """Read plugin.json as committed at HEAD, not from the working tree.
 
     Idempotency checks in phases 4 and 9 answer "is the swap done?" and
@@ -1164,13 +1179,13 @@ def _head_plugin_state(root: Path) -> dict[str, object]:
     always describes HEAD alone, regardless of the index state.
     """
     result = _run(
-        ["git", "show", f"HEAD:{_PLUGIN_JSON_REL}"],
-        cwd=str(root),
+        ["git", "show", f"HEAD:{_plugin_json_rel(info)}"],
+        cwd=str(info.root),
     )
     return cast("dict[str, object]", json.loads(result.stdout))
 
 
-def _reset_plugin_swap_paths(root: Path) -> None:
+def _reset_plugin_swap_paths(info: ProjectInfo) -> None:
     """Revert plugin.json and commands/ to their state at HEAD.
 
     The plugin swap and dev restore each mutate the working tree AND
@@ -1186,8 +1201,8 @@ def _reset_plugin_swap_paths(root: Path) -> None:
     without ``commands/`` at HEAD is still a valid input).
     """
     _run(
-        ["git", "checkout", "HEAD", "--", *_PLUGIN_SWAP_PATHS],
-        cwd=str(root),
+        ["git", "checkout", "HEAD", "--", *_plugin_swap_paths(info)],
+        cwd=str(info.root),
         check=False,
         timeout=_GIT_HOOK_TIMEOUT,
     )
@@ -1215,10 +1230,10 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         if dry_run:
             _dry("bash scripts/release-plugin.sh")
         else:
-            head_data = _head_plugin_state(root)
+            head_data = _head_plugin_state(info)
             head_name = str(head_data.get("name", ""))
             if head_name.endswith("-dev"):
-                _reset_plugin_swap_paths(root)
+                _reset_plugin_swap_paths(info)
                 _run(
                     ["bash", str(release_script)],
                     cwd=str(root),
@@ -1832,12 +1847,12 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     # version at HEAD before treating the restore as done — a partial
     # historical commit with a mismatched version must still re-run.
     if info.is_hybrid or info.is_plugin:
-        head_data = _head_plugin_state(root)
+        head_data = _head_plugin_state(info)
         head_name = str(head_data.get("name", ""))
         head_version = str(head_data.get("version", ""))
         restore_done = head_name.endswith("-dev") and head_version == version
         if not restore_done:
-            _reset_plugin_swap_paths(root)
+            _reset_plugin_swap_paths(info)
             restore_script = root / "scripts" / "restore-dev-plugin.sh"
             _run(
                 ["bash", str(restore_script)],
@@ -1851,7 +1866,7 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             # which reverts the version field along with the name. Put
             # the just-released version back before committing so main
             # advertises the current release, not the previous one.
-            plugin_json = root / ".claude-plugin" / "plugin.json"
+            plugin_json = info.plugin_manifest
             pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
             if pj_data.get("version") != version:
                 pj_data["version"] = version
@@ -2570,9 +2585,8 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                         ("__init__.py", init_ver == version, f"__version__={init_ver}")
                     )
 
-    plugin_json = info.root / ".claude-plugin" / "plugin.json"
-    if plugin_json.exists():
-        pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+    if info.is_plugin:
+        pj_data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
         pj_ver = pj_data.get("version", "not found")
         checks.append(("plugin.json", pj_ver == version, f"version={pj_ver}"))
 

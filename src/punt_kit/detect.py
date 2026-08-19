@@ -11,6 +11,34 @@ from typing import TYPE_CHECKING, cast
 if TYPE_CHECKING:
     from pathlib import Path
 
+# Where a plugin manifest can sit, most specific first.
+#
+# ``plugin/.claude-plugin/`` is the DES-025 layout: the shippable surface lives
+# in one subdirectory so the marketplace can install it with a ``git-subdir``
+# source. The two repo-root shapes are the pre-DES-025 layout, which the fleet
+# still carries while it migrates one repo at a time — and ``punt audit`` /
+# ``punt release`` run against those repos, not just this one.
+PLUGIN_MANIFEST_CANDIDATES: tuple[tuple[str, ...], ...] = (
+    ("plugin", ".claude-plugin", "plugin.json"),
+    (".claude-plugin", "plugin.json"),
+    ("plugin.json",),
+)
+
+
+def plugin_manifests(root: Path) -> list[Path]:
+    """Every plugin manifest present under ``root``, in precedence order.
+
+    Normally at most one exists. More than one means a half-finished move to
+    the ``plugin/`` layout left a stale manifest behind, and callers that only
+    read the first would silently ignore the other — so the full list is
+    returned and ``punt audit`` reports the ambiguity.
+    """
+    return [
+        candidate
+        for parts in PLUGIN_MANIFEST_CANDIDATES
+        if (candidate := root.joinpath(*parts)).is_file()
+    ]
+
 
 @dataclass(frozen=True)
 class ProjectInfo:
@@ -30,11 +58,39 @@ class ProjectInfo:
     standards_refs: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     cli_commands: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     plugin_mcp_servers: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    # Every manifest found, in precedence order. Empty for a non-plugin
+    # project — absence is the contract there, not a failed lookup.
+    plugin_manifests: list[Path] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
 
     @property
     def is_hybrid(self) -> bool:
         """True when the project has both a CLI binary and a plugin shell."""
         return self.is_plugin and len(self.cli_commands) > 0
+
+    @property
+    def plugin_manifest(self) -> Path:
+        """The manifest that governs the plugin.
+
+        Raises when the project has none. Guard with ``is_plugin`` — a caller
+        that reaches for the manifest of a non-plugin project has a bug, and a
+        ``None`` here would push that bug downstream into a path join.
+        """
+        if not self.plugin_manifests:
+            raise ValueError(f"no plugin manifest under {self.root}")
+        return self.plugin_manifests[0]
+
+    @property
+    def plugin_root(self) -> Path:
+        """The directory Claude Code treats as ``CLAUDE_PLUGIN_ROOT``.
+
+        This is the manifest's grandparent under a ``.claude-plugin/`` layout
+        and its parent under the bare ``plugin.json`` shape — never assume the
+        repo root, which is what breaks once the surface moves to ``plugin/``.
+        """
+        manifest = self.plugin_manifest
+        if manifest.parent.name == ".claude-plugin":
+            return manifest.parent.parent
+        return manifest.parent
 
 
 def detect(root: Path) -> ProjectInfo:
@@ -84,9 +140,8 @@ def detect(root: Path) -> ProjectInfo:
         project_type = "app"
 
     # Check Claude Code plugin
-    plugin_json = root / ".claude-plugin" / "plugin.json"
-    plugin_json_alt = root / "plugin.json"
-    if plugin_json.exists() or plugin_json_alt.exists():
+    manifests = plugin_manifests(root)
+    if manifests:
         is_plugin = True
         if project_type is None:
             project_type = "plugin"
@@ -141,16 +196,14 @@ def detect(root: Path) -> ProjectInfo:
 
     # Extract MCP server names from plugin.json
     plugin_mcp_servers: list[str] = []
-    for pj_path in (plugin_json, plugin_json_alt):
-        if pj_path.exists():
-            try:
-                pj_data = json.loads(pj_path.read_text(encoding="utf-8"))
-                servers = pj_data.get("mcpServers")
-                if isinstance(servers, dict):
-                    plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
-            except (json.JSONDecodeError, OSError):
-                pass
-            break
+    if manifests:
+        try:
+            pj_data = json.loads(manifests[0].read_text(encoding="utf-8"))
+            servers = pj_data.get("mcpServers")
+            if isinstance(servers, dict):
+                plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
+        except (json.JSONDecodeError, OSError):
+            pass
 
     # All projects get these standard refs
     standards_refs.append("github")
@@ -173,6 +226,7 @@ def detect(root: Path) -> ProjectInfo:
         standards_refs=standards_refs,
         cli_commands=cli_commands,
         plugin_mcp_servers=plugin_mcp_servers,
+        plugin_manifests=manifests,
     )
 
 

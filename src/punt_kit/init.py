@@ -7,6 +7,7 @@ import json
 import shutil
 import subprocess
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
@@ -250,21 +251,15 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
     if language == "go" and "cli" not in standards_refs:
         standards_refs.append("cli")
 
-    return ProjectInfo(
-        root=info.root,
+    # replace(), not a field-by-field rebuild: this function overrides three
+    # fields and must carry the rest through untouched. A rebuild silently
+    # drops any field added to ProjectInfo later — a language override would
+    # have quietly erased the plugin manifests it never mentioned.
+    return replace(
+        info,
         language=language,
         project_type=project_type,
-        has_ci=info.has_ci,
-        has_claude_md=info.has_claude_md,
-        has_beads=info.has_beads,
-        is_mcp_server=info.is_mcp_server,
-        is_plugin=info.is_plugin,
-        pyproject=info.pyproject,
-        package_json=info.package_json,
-        workflow_files=info.workflow_files,
         standards_refs=standards_refs,
-        cli_commands=info.cli_commands,
-        plugin_mcp_servers=info.plugin_mcp_servers,
     )
 
 
@@ -646,18 +641,14 @@ def build_standard_deny_rules() -> list[str]:
 
 def _get_plugin_name(info: ProjectInfo) -> str:
     """Extract plugin name from plugin.json for MCP permission patterns."""
-    for pj_path in (
-        info.root / ".claude-plugin" / "plugin.json",
-        info.root / "plugin.json",
-    ):
-        if pj_path.exists():
-            try:
-                data = json.loads(pj_path.read_text(encoding="utf-8"))
-                name = data.get("name")
-                if isinstance(name, str):
-                    return name
-            except (json.JSONDecodeError, OSError):
-                pass
+    for pj_path in info.plugin_manifests:
+        try:
+            data = json.loads(pj_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        name = data.get("name")
+        if isinstance(name, str):
+            return name
     return info.root.name
 
 

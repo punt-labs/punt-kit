@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import pytest
+
 from punt_kit.detect import detect
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _write_manifest(root: Path, *parts: str, body: str = '{"name": "test"}') -> Path:
+    """Write a plugin manifest at ``root/parts`` and return its path."""
+    path = root.joinpath(*parts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return path
 
 
 def test_detect_python_package(tmp_path: Path) -> None:
@@ -64,6 +74,60 @@ def test_detect_plugin(tmp_path: Path) -> None:
 
     assert info.is_plugin is True
     assert "plugins" in info.standards_refs
+
+
+def test_detect_plugin_subdir_layout(tmp_path: Path) -> None:
+    """The DES-025 layout is detected, and the plugin root is plugin/.
+
+    plugin_root is what every ${CLAUDE_PLUGIN_ROOT}-relative path is anchored
+    on. Returning the repo root here is the specific bug that makes the audit
+    glob commands/ in a directory that no longer holds any.
+    """
+    manifest = _write_manifest(tmp_path, "plugin", ".claude-plugin", "plugin.json")
+
+    info = detect(tmp_path)
+
+    assert info.is_plugin is True
+    assert info.plugin_manifest == manifest
+    assert info.plugin_root == tmp_path / "plugin"
+
+
+def test_detect_plugin_subdir_wins_over_repo_root(tmp_path: Path) -> None:
+    """A half-finished move leaves two manifests; plugin/ is authoritative."""
+    subdir = _write_manifest(
+        tmp_path, "plugin", ".claude-plugin", "plugin.json", body='{"name": "new"}'
+    )
+    _write_manifest(tmp_path, ".claude-plugin", "plugin.json", body='{"name": "old"}')
+
+    info = detect(tmp_path)
+
+    assert info.plugin_manifest == subdir
+    assert len(info.plugin_manifests) == 2, "the stale manifest must stay visible"
+
+
+def test_detect_plugin_root_for_bare_manifest(tmp_path: Path) -> None:
+    """With plugin.json loose at the repo root, that root is the plugin root."""
+    _write_manifest(tmp_path, "plugin.json")
+
+    info = detect(tmp_path)
+
+    assert info.is_plugin is True
+    assert info.plugin_root == tmp_path
+
+
+def test_plugin_manifest_raises_for_non_plugin(tmp_path: Path) -> None:
+    """Reaching for a manifest that cannot exist is a caller bug, so it raises.
+
+    Returning None would push the failure into a path join and surface it as a
+    nonsense filename far from the code that asked the wrong question.
+    """
+    (tmp_path / "README.md").write_text("# Docs")
+
+    info = detect(tmp_path)
+
+    assert info.is_plugin is False
+    with pytest.raises(ValueError, match="no plugin manifest"):
+        _ = info.plugin_manifest
 
 
 def test_detect_ci_workflows(tmp_path: Path) -> None:
