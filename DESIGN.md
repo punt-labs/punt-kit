@@ -15,12 +15,14 @@ format spec.
 
 The working tree's `plugin.json` uses `name: "<project>-dev"` (e.g.
 `punt-dev`). The marketplace uses `name: "<project>"` (e.g. `punt`). Developers
-launch with `claude --plugin-dir .` to load both plugins simultaneously. The
-`-dev` suffix at the plugin name level isolates all extension points: commands,
-MCP tools, skills, agents, hooks.
+launch with `claude --plugin-dir plugin` to load both plugins simultaneously.
+The `-dev` suffix at the plugin name level isolates all extension points:
+commands, MCP tools, skills, agents, hooks.
 
 Each prod command has a `-dev` variant that runs via
-`uv run --directory ${CLAUDE_PLUGIN_ROOT}` against the working tree code.
+`uv run --directory ${CLAUDE_PLUGIN_ROOT}/..` against the working tree code.
+The `/..` is required since DES-025: `${CLAUDE_PLUGIN_ROOT}` is the `plugin/`
+subdirectory, which carries no `pyproject.toml`.
 
 At release time, `scripts/release-plugin.sh` swaps the plugin name to prod and
 removes `-dev` commands. `scripts/restore-dev-plugin.sh` restores dev state
@@ -35,9 +37,12 @@ Plugin authors need to test local changes without waiting for marketplace
 publish cycles. The marketplace-installed plugin and the local working tree
 must coexist in the same session without name collisions.
 
-`--plugin-dir .` is the documented, supported mechanism for loading plugins
+`--plugin-dir <dir>` is the documented, supported mechanism for loading plugins
 from a local directory. CWD auto-discovery is unreliable when marketplace
-plugins exist.
+plugins exist. The directory named must be the one holding
+`.claude-plugin/plugin.json` — since DES-025 that is `plugin/`, not the repo
+root, so a dev session resolves `${CLAUDE_PLUGIN_ROOT}` exactly the way a
+`git-subdir` install does.
 
 ### Rejected Alternatives
 
@@ -472,7 +477,7 @@ pattern as hybrid projects, even without release scripts:
 ```bash
 # 1. Swap to prod name
 # Edit plugin.json: "name": "<project>"
-git add .claude-plugin/plugin.json
+git add plugin/.claude-plugin/plugin.json
 git commit -m "chore: swap plugin name <project>-dev → <project> for release"
 
 # 2. Tag
@@ -480,7 +485,7 @@ git tag vX.Y.Z
 
 # 3. Restore dev name
 # Edit plugin.json: "name": "<project>-dev"
-git add .claude-plugin/plugin.json
+git add plugin/.claude-plugin/plugin.json
 git commit -m "chore: restore dev plugin state"
 
 # 4. Push both commits and the tag
@@ -1741,3 +1746,102 @@ arrives to a surface that speaks two languages.
 **Superuser MCP surface for admin verbs.** Rejected per DES-086
 (lux) and per the no-superuser rule stated in permissions.md §8.
 MCP is a client surface, not an operator one.
+
+---
+
+## DES-028: Playbooks Are Plugin Content; Root Files Still Ship
+
+**Date:** 2026-08-19
+**Status:** SETTLED
+**Topic:** What moved into `plugin/` when punt-kit adopted DES-025, and what
+`git-subdir` does not exclude
+
+### Design
+
+punt-kit's shippable surface is `plugin/.claude-plugin/`, `plugin/commands/`,
+`plugin/skills/`, and — the repo-specific part — **`plugin/playbooks/`**.
+
+DES-025 enumerates `.claude-plugin/`, `commands/`, `hooks/`, `skills/`, and
+`agents/`. `playbooks/` is not on that list, but it is part of punt-kit's
+runtime surface: the `auto` skill's discovery order names
+`${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml`, and no Python code reads
+playbooks at all — discovery is entirely the skill's job. Under the old
+`github` marketplace source the whole repo landed in the plugin cache, so that
+path happened to resolve. Under `git-subdir` a `playbooks/` left at the repo
+root is neither inside `${CLAUDE_PLUGIN_ROOT}` nor shipped, so
+`/punt:auto release` would find no playbooks at all on a marketplace install.
+
+The generalizable rule, which DES-025's file list only implies: **the surface
+is whatever `${CLAUDE_PLUGIN_ROOT}` names, not a fixed set of directory
+names.** Grep for `${CLAUDE_PLUGIN_ROOT}` before the move and move everything
+it reaches.
+
+The single deliberate outward reference that remains is the `-dev` commands'
+`uv run --directory ${CLAUDE_PLUGIN_ROOT}/..`, which needs this repo's
+`pyproject.toml`. `release-plugin.sh` deletes every `*-dev.md` from the tagged
+commit, so no released plugin contains it.
+
+### Cone mode still ships every repo-root file
+
+Measured on this branch, 2026-08-19. A blobless partial clone plus
+`git sparse-checkout set --cone plugin` materializes `plugin/` **and every
+file sitting in the repo root**:
+
+```text
+AGENTS.md  CHANGELOG.md  CLAUDE.md  DESIGN.md  .envrc  .gitattributes
+.gitignore  install.sh  LICENSE  Makefile  .markdownlint*.jsonc  plugin/
+prfaq.bib  prfaq.pdf  prfaq.tex  pyproject.toml  README.md  scoreboard.md
+uv.lock
+```
+
+Cone mode excludes whole *directories*, not root files. Every directory is
+gone — `src/`, `tests/`, `standards/`, `lang-rules/`, `patterns/`, `docs/`,
+`scripts/`, `tools/`, `research/`, `.github/`, `.beads/`, `.punt-labs/`,
+`.claude/` — which is where the size win comes from. But DES-025's claim that
+`.envrc` and `prfaq.tex` "stay at the repo root and are **not** shipped to
+plugin users" is **false as written**: they are root files, so they travel.
+`.envrc` in particular carries the Dolt server hostname and database user.
+
+That is not a regression — those files ship today under the `github` source
+too, so `git-subdir` is still a strict improvement. It is a correction to the
+DES-025 text and a bound on what the mechanism buys. Shrinking the remainder
+means moving root documents into a subdirectory or untracking `.envrc`; both
+are org-wide decisions affecting all ten plugin repos and neither is attempted
+here.
+
+### Why
+
+Leaving `playbooks/` at the root and dropping discovery path 2 was the
+alternative. It would have made `/punt:auto` work only for developers who
+happen to have punt-kit checked out as a sibling — path 3 is
+`../punt-kit/plugin/playbooks/`. The playbooks are how the org runs releases
+and rollouts; a marketplace install that cannot see them is not a working
+plugin.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep `playbooks/` at the repo root, delete discovery path 2 | Degrades `/punt:auto` to sibling-checkout-only for every marketplace user. The playbooks are the product of the `auto` command. |
+| Keep `playbooks/` at the root and have the skill read `${CLAUDE_PLUGIN_ROOT}/../playbooks/` | Depends on cone mode materializing a sibling directory, which it does not — cone mode excludes directories. It would resolve in a checkout and silently fail on every install: the worst of both. |
+| Duplicate `playbooks/` into `plugin/` and keep the root copy | Two writable copies of the release procedure, drifting. `punt audit` would have to grow a sync check for a problem the move removes. |
+| Ship `AGENTS.md` inside `plugin/` so `claude2cursor` finds its rules source | AGENTS.md is a 1,000-line internal standards index, not plugin-user documentation. The command reads the plugin root's parent instead and reports when it finds nothing. |
+| Move root documents into `docs/` to shrink the install further | Correct direction, but it is a ten-repo decision about repo shape, not part of adopting `git-subdir` in one repo. Recorded here as the open remainder. |
+
+### Consequences
+
+- `${CLAUDE_PLUGIN_ROOT}` is `plugin/`. `make`-less dev launch is
+  `claude --plugin-dir plugin`.
+- `punt`'s own detection code no longer assumes the repo root:
+  `ProjectInfo.plugin_manifest` / `.plugin_root` resolve
+  `plugin/.claude-plugin/plugin.json` first and the two pre-DES-025 shapes
+  after, because `punt audit` and `punt release` run against the eight
+  siblings that have not migrated. `punt audit` fails when it finds more than
+  one manifest, so a half-finished move cannot sit unnoticed.
+- Both release scripts resolve the plugin root the same way and exit non-zero
+  when neither shape is present. A silent no-op there tags a release whose
+  plugin was never swapped to its prod name.
+- The marketplace entry for `punt` must move to
+  `"source": "git-subdir"` + `"path": "plugin"` with a post-restructure
+  `ref`. Until it does, installs keep working from the old `ref`; after it
+  does, an install stops carrying `src/`, `tests/`, and `standards/`.

@@ -4,6 +4,93 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **The shippable plugin surface moved to `plugin/`, so a marketplace install
+  fetches the plugin instead of the repo.** `.claude-plugin/`, `commands/`,
+  `skills/`, and `playbooks/` now live under `plugin/`, which lets the
+  marketplace entry use Claude Code's `git-subdir` source (`"source":
+  "git-subdir"`, `"path": "plugin"`) — a blobless partial clone plus
+  `git sparse-checkout set --cone plugin`. Measured on this branch: a cone
+  checkout materializes `plugin/` and the repo-root files and nothing else, so
+  `src/`, `tests/`, `standards/`, `lang-rules/`, `patterns/`, `docs/`,
+  `scripts/`, `tools/`, `research/`, `.github/`, `.beads/`, `.punt-labs/`, and
+  `.claude/` all stop shipping. Cone mode does *not* exclude repo-root files —
+  `.envrc`, `prfaq.pdf`, and `prfaq.tex` still travel with an install, exactly
+  as they do today; DES-025's claim to the contrary is corrected in
+  `standards/plugins.md` and DES-028. `playbooks/` moved with the rest even
+  though DES-025 does not list it, because the `auto` skill reaches it through
+  `${CLAUDE_PLUGIN_ROOT}/playbooks/` and no Python code reads playbooks at all:
+  left at the repo root it would have been neither inside the plugin root nor
+  shipped, and `/punt:auto release` would have found zero playbooks on a
+  marketplace install while still working in a checkout. Two consequences for
+  anyone working in this repo: the dev launch is `claude --plugin-dir plugin`
+  (the argument must name the directory holding `.claude-plugin/plugin.json`),
+  and every `-dev` command runs `uv run --directory ${CLAUDE_PLUGIN_ROOT}/..`
+  because the plugin root carries no `pyproject.toml`. Existing installs are
+  unaffected until the marketplace entry is repointed. See DES-028.
+
+- **`punt`'s plugin detection resolves the manifest instead of assuming the
+  repo root.** punt-kit's product is plugin tooling, so twelve places in `src/`
+  hardcoded `.claude-plugin/plugin.json` or `commands/` as repo-root paths —
+  the failure `standards/plugins.md` warns about, where moving the manifest
+  breaks the tool on its own repo. `ProjectInfo` now exposes `plugin_manifest`
+  and `plugin_root`, resolved from `plugin/.claude-plugin/plugin.json` first
+  and the two pre-DES-025 shapes after, so `punt audit` and `punt release`
+  keep working against the eight sibling plugin repos that have not migrated.
+  The audit's `-dev` command check is the one that mattered most: anchored on
+  the repo root it would have globbed a directory holding no commands and
+  reported nothing, passing a plugin with no dev variants at all.
+
+### Added
+
+- **`punt audit` fails when a repo has more than one plugin manifest.** A
+  manifest left at the repo root after an incomplete move to `plugin/` is worse
+  than a missing one — every reader takes the `plugin/` copy and the stale one
+  drifts unnoticed until a release swaps a file nobody is watching. The finding
+  names both paths.
+
+- **`make lint` and CI run `shellcheck` on `install.sh` and `scripts/*.sh`.**
+  `standards/shell.md` §202 requires a repo with `.sh` files to gate them in
+  lint CI; punt-kit publishes that standard and had no such gate, in make or in
+  CI, so nothing checked the two scripts that drive every release. Clean under
+  shellcheck 0.9.0.
+
+### Fixed
+
+- **Both release scripts resolve the plugin root and refuse when they cannot.**
+  `release-plugin.sh` and `restore-dev-plugin.sh` named
+  `.claude-plugin/plugin.json` and `commands/` at the repo root. After the move
+  the swap would abort on a missing manifest and the restore would stage
+  nothing — leaving `main` advertising the prod plugin name, so every
+  developer's `--plugin-dir` session would collide with the marketplace copy.
+  Both now try `plugin/` then the repo root and exit non-zero when neither
+  shape is present. They are copied verbatim into nine plugin repos that
+  migrate one at a time, and a silent no-op in either one corrupts a release.
+
+- **`/punt:auto` pointed at a skill file that has not existed since #243.**
+  `commands/auto.md` and `auto-dev.md` told the executor to read
+  `${CLAUDE_PLUGIN_ROOT}/.cursor/skills/auto/SKILL.md`. The `.cursor/` tree was
+  deleted when claude2cursor was removed and the reference was left dangling,
+  so the path resolved nowhere in any layout. It is now
+  `${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md`.
+
+- **A `punt init --language` override silently dropped fields it did not
+  mention.** `_with_language` rebuilt `ProjectInfo` field by field, so any
+  field added to the dataclass later was reset to its default — the language
+  override would have erased the plugin manifests. It uses
+  `dataclasses.replace` now, which cannot lose a field.
+
+- **Three prompt surfaces reported nothing where they used to report
+  something.** The `auto` skill now names every path it searched and stops when
+  a playbook is not found, instead of improvising steps for a contract it could
+  not read; its org-wide fallback points at `../punt-kit/plugin/playbooks/`.
+  `claude2cursor`'s optional rules source reads the plugin root and then its
+  parent, and reports the paths it checked when neither has a `CLAUDE.md` or
+  `AGENTS.md`, rather than completing a conversion that quietly wrote no rule
+  file. `punt audit` emits an informational row when a plugin has no
+  `commands/` directory, so "nowhere to look" and "passed" stop reading alike.
+
 ## [0.14.3] - 2026-08-19
 
 ### Fixed

@@ -157,7 +157,7 @@ because these settings scaffold a development environment.
 
 Each entry is the tool prefix Claude Code derives from the plugin manifest:
 `mcp__plugin_<plugin>_<server>__*`, where `<server>` is a key under
-`mcpServers` in the plugin's `.claude-plugin/plugin.json`. Derive the prefix
+`mcpServers` in the plugin's `plugin/.claude-plugin/plugin.json`. Derive the prefix
 from the manifest rather than guessing it — `prfaq` and `punt` ship no MCP
 server, and a wildcard naming a plugin that has none matches nothing while
 looking like a working grant.

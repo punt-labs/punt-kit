@@ -13,7 +13,7 @@ These artifacts are modified in the project being released.
 |------|-------|---------|
 | `pyproject.toml` | `version` | `"0.7.1"` |
 | `src/<pkg>/__init__.py` | `__version__` | `"0.7.1"` |
-| `.claude-plugin/plugin.json` | `version` | `"0.7.1"` (hybrid/plugin only) |
+| `plugin/.claude-plugin/plugin.json` | `version` | `"0.7.1"` (hybrid/plugin only) |
 | `install.sh` | `VERSION` | `VERSION="0.7.1"` |
 
 All four locations must agree on the same version string.

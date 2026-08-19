@@ -20,8 +20,15 @@ and dev commands side by side.
 
 ```bash
 # Developer launch (from the plugin's repo root)
-claude --plugin-dir .
+claude --plugin-dir plugin
 ```
+
+The argument is the directory holding `.claude-plugin/plugin.json`, which is
+`plugin/` — see [Plugin Directory Layout](#plugin-directory-layout). Naming the
+repo root instead leaves `${CLAUDE_PLUGIN_ROOT}` one level above the manifest,
+so a dev session resolves every plugin-relative path differently from a real
+`git-subdir` install and the mismatch surfaces as hooks and skills that
+silently read nothing.
 
 This gives you:
 
@@ -30,10 +37,12 @@ This gives you:
 | Marketplace `punt` | `/punt init`, `/punt audit` | Installed CLI |
 | Local `punt-dev` | `/punt-dev init-dev`, `/punt-dev audit-dev` | `uv run` against working tree |
 
-The `-dev` commands use `uv run --directory ${CLAUDE_PLUGIN_ROOT}` to execute
-the working tree code directly, bypassing the installed CLI. For editable-install
-projects (tts, biff), the installed binary already points to the working tree, so
-dev commands can use the binary name directly. The key invariant is that dev
+The `-dev` commands use `uv run --directory ${CLAUDE_PLUGIN_ROOT}/..` to
+execute the working tree code directly, bypassing the installed CLI. The `/..`
+is required, not incidental: `${CLAUDE_PLUGIN_ROOT}` is the `plugin/`
+subdirectory, which carries no `pyproject.toml`. For editable-install projects
+(tts, biff), the installed binary already points to the working tree, so dev
+commands can use the binary name directly. The key invariant is that dev
 commands always execute the working tree.
 
 ### Namespace scope
@@ -137,6 +146,25 @@ The `ref` field is required — pin to a release tag so a user's cache
 resolves deterministically. The `sha` field is optional but recommended for
 supply-chain hygiene (Anthropic's own catalog includes it on every entry).
 
+### What cone mode does not exclude
+
+`git-subdir` is a blobless partial clone plus `git sparse-checkout set --cone
+<path>`. Cone mode excludes whole **directories**; it always materializes the
+files sitting in the **repo root**. Measured on punt-kit, 2026-08-19, a cone
+checkout of `plugin` produced `plugin/` plus `AGENTS.md`, `CHANGELOG.md`,
+`CLAUDE.md`, `DESIGN.md`, `.envrc`, `.gitattributes`, `.gitignore`,
+`install.sh`, `LICENSE`, `Makefile`, both markdownlint configs, `prfaq.bib`,
+`prfaq.pdf`, `prfaq.tex`, `pyproject.toml`, `README.md`, `scoreboard.md`, and
+`uv.lock`. Every directory was absent.
+
+So the "Stays in repo" column below is accurate for directories and **not** for
+root files. `.envrc`, `prfaq.pdf`, and `prfaq.tex` ship with an install today
+and continue to under `git-subdir`; `.envrc` in particular carries
+infrastructure hostnames and database usernames. The win is real — it is a
+directory-shaped win — but do not describe a root file as excluded. Excluding
+those means moving them into a subdirectory or untracking them, which is a
+separate decision per repo.
+
 ### What ships vs what stays
 
 | Content | Ships (in `plugin/`) | Stays in repo |
@@ -180,6 +208,20 @@ following prefixes:
 - `hooks/` (as a path literal)
 - `skills/` (as a path literal)
 - `agents/` (as a path literal)
+
+The prefix list above is not the surface definition — it is a starting point.
+**The surface is whatever `${CLAUDE_PLUGIN_ROOT}` reaches**, so grep for that
+variable across the whole repo and move everything it names. A directory not on
+the list above still ships if a command or skill resolves it through the plugin
+root. punt-kit is the recorded case: its `auto` skill loads
+`${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml`, no code path reads playbooks at
+all, and a `playbooks/` left at the repo root would have been neither inside
+the plugin root nor shipped — so `/punt:auto release` would have found zero
+playbooks on a marketplace install while continuing to work in a checkout. The
+symmetric trap: a reference rewritten to `${CLAUDE_PLUGIN_ROOT}/../<dir>`
+resolves in a checkout and fails on every install, because cone mode excludes
+directories (see [What cone mode does not
+exclude](#what-cone-mode-does-not-exclude)).
 
 Enumerating a fixed set of *file types* (Makefile, install.sh, scripts,
 workflows) is not enough. Both the *packaging manifest* and the *source code
