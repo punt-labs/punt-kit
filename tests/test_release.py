@@ -2625,6 +2625,112 @@ def test_release_plugin_swaps_both_layouts(tmp_path: Path, *, subdir: bool) -> N
     assert subject == "chore: prepare plugin for release"
 
 
+def test_release_plugin_swaps_a_plugin_with_no_commands(tmp_path: Path) -> None:
+    """A skills-only plugin releases on the name swap alone.
+
+    plugins.md allows a plugin that ships only skills, agents, or hooks, and
+    `punt audit` reports a missing commands/ as informational. Aborting the
+    release preparation here would block such a plugin from ever tagging.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    plugin_dir = root / "plugin" / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    skill_dir = root / "plugin" / "skills" / "demo"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: demo\n---\n")
+    script = _install_script(root, _RELEASE_SCRIPT)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev plugin state"], cwd=d)
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=d, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads((plugin_dir / "plugin.json").read_text())["name"] == "test"
+    assert "swapping the name only" in result.stdout
+
+
+def test_release_plugin_errors_when_commands_exist_without_dev_variants(
+    tmp_path: Path,
+) -> None:
+    """A commands/ directory with no -dev variants still aborts.
+
+    Distinct from having no commands/ at all: either the dev variants were
+    never written or a prior run already swapped, and both need a human.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    plugin_dir = root / "plugin" / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    commands_dir = root / "plugin" / "commands"
+    commands_dir.mkdir(parents=True)
+    (commands_dir / "hello.md").write_text("# Hello\n")
+    script = _install_script(root, _RELEASE_SCRIPT)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add plugin without dev variants"], cwd=d)
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=d, capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    assert "No -dev commands found" in result.stderr
+
+
+def test_restore_dev_plugin_restores_a_plugin_with_no_commands(tmp_path: Path) -> None:
+    """The restore names commands/ only when the dev commit has it.
+
+    git checkout aborts on a pathspec matching nothing, and this runs under
+    `set -e` inside phase 9 — so an unconditional commands/ would kill the
+    post-release run for a plugin that never had one.
+    """
+    root = tmp_path / "repo"
+    root.mkdir()
+    _init_git_repo(root)
+    d = str(root)
+
+    plugin_dir = root / "plugin" / ".claude-plugin"
+    plugin_dir.mkdir(parents=True)
+    plugin_json = plugin_dir / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev plugin state"], cwd=d)
+
+    plugin_json.write_text(
+        json.dumps({"name": "test", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "chore: prepare plugin for release"], cwd=d)
+
+    script = _install_script(root, _RESTORE_SCRIPT)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add restore script"], cwd=d)
+
+    result = subprocess.run(
+        ["bash", str(script)], cwd=d, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(plugin_json.read_text())["name"] == "test-dev"
+    assert "restoring the manifest only" in result.stdout
+
+
 def test_release_plugin_errors_when_no_manifest(tmp_path: Path) -> None:
     """No manifest in either location is a hard error, not a silent no-op.
 

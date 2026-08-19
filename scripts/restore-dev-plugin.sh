@@ -77,8 +77,20 @@ if [ -z "$DEV_COMMIT" ]; then
 fi
 
 echo "Restoring dev state from commit ${DEV_COMMIT:0:12}..."
-git -C "$REPO_ROOT" checkout "$DEV_COMMIT" -- "$PLUGIN_JSON" "$COMMANDS_DIR"
-git -C "$REPO_ROOT" add "$PLUGIN_JSON" "$COMMANDS_DIR"
+
+# Only name commands/ when the dev commit actually has it. git checkout aborts
+# on a pathspec that matches nothing, and this runs under `set -e` in phase 9 —
+# so a plugin that ships only skills or hooks would kill the post-release run
+# even though restoring plugin.json alone is the whole job for it.
+RESTORE_PATHS=("$PLUGIN_JSON")
+if git -C "$REPO_ROOT" ls-tree "$DEV_COMMIT" -- "$COMMANDS_DIR" | grep -q .; then
+  RESTORE_PATHS+=("$COMMANDS_DIR")
+else
+  echo "No ${COMMANDS_DIR} at ${DEV_COMMIT:0:12} — restoring the manifest only"
+fi
+
+git -C "$REPO_ROOT" checkout "$DEV_COMMIT" -- "${RESTORE_PATHS[@]}"
+git -C "$REPO_ROOT" add "${RESTORE_PATHS[@]}"
 # Deliberately no commit — see CONTRACT above. The caller re-stamps the
 # version in plugin.json and commits both the restore and the re-stamp
 # together, so the commit passes the pre-commit hook and the message

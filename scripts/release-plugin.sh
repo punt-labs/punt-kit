@@ -45,23 +45,36 @@ d['name'] = '${prod_name}'
 p.write_text(json.dumps(d, indent=2) + '\n')
 "
 
-# Remove -dev commands
+# Remove -dev commands.
+#
+# A plugin with no commands/ at all — skills or hooks only — is valid, and the
+# name swap alone is a complete release preparation for it. Aborting there would
+# block its release for a step that does not apply. But a plugin that HAS
+# commands/ and no *-dev.md is a different thing: either the dev variants were
+# never written or a previous run already swapped, and both need a human. So the
+# absent directory is a skip and the empty match is still an error.
 dev_files=()
-while IFS= read -r -d '' f; do
-  dev_files+=("$f")
-done < <(find "$COMMANDS_DIR" -name '*-dev.md' -print0)
+if [[ -d "$COMMANDS_DIR" ]]; then
+  while IFS= read -r -d '' f; do
+    dev_files+=("$f")
+  done < <(find "$COMMANDS_DIR" -name '*-dev.md' -print0)
 
-if [[ ${#dev_files[@]} -eq 0 ]]; then
-  echo "No -dev commands found in ${COMMANDS_DIR}" >&2
-  exit 1
+  if [[ ${#dev_files[@]} -eq 0 ]]; then
+    echo "No -dev commands found in ${COMMANDS_DIR}" >&2
+    exit 1
+  fi
+
+  for f in "${dev_files[@]}"; do
+    echo "Removing: $(basename "$f")"
+  done
+else
+  echo "No ${COMMANDS_DIR} — swapping the name only"
 fi
 
-for f in "${dev_files[@]}"; do
-  echo "Removing: $(basename "$f")"
-done
-
 git -C "$REPO_ROOT" add "$PLUGIN_JSON"
-git -C "$REPO_ROOT" rm "${dev_files[@]}"
+if [[ ${#dev_files[@]} -gt 0 ]]; then
+  git -C "$REPO_ROOT" rm "${dev_files[@]}"
+fi
 # Phase 4 does not follow the swap with any additional edit that needs
 # to land in this commit, so this script commits on its own (unlike
 # restore-dev-plugin.sh, which stages and lets the caller commit). The
