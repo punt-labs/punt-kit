@@ -27,10 +27,15 @@ Search for playbooks in order:
 
 1. `./playbooks/<name>.yaml` — project-local (current working directory)
 2. `${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml` — punt-kit plugin root (when invoked as a command)
-3. `../punt-kit/playbooks/<name>.yaml` — org-wide fallback (when run from a sibling repo)
+3. `../punt-kit/plugin/playbooks/<name>.yaml` — org-wide fallback (when run from a sibling repo)
 
 Project-local playbooks take precedence over org-wide playbooks with the same name.
 When `${CLAUDE_PLUGIN_ROOT}` is not set, skip path 2.
+
+If a named playbook is not found in any applicable location, report every path
+that was searched and stop. Do not substitute a similarly-named playbook and do
+not improvise the steps — a playbook is a contract, and guessing at one is how a
+release runs the wrong phases.
 
 For `list`, scan all applicable locations and print a table:
 

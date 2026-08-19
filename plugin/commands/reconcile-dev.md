@@ -19,10 +19,12 @@ Project path: $ARGUMENTS (defaults to `.` if empty)
 Follow the same process as `/punt reconcile`, but replace any `punt` CLI calls with:
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT} punt <subcommand> $ARGUMENTS
+uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt <subcommand> $ARGUMENTS
 ```
 
 This ensures the working tree code is exercised, not the installed release.
+`${CLAUDE_PLUGIN_ROOT}` is the repo's `plugin/` subdirectory, which carries no
+`pyproject.toml`; `uv run` needs the project root, hence the `/..`.
 
 Refer to the full reconciliation process in `${CLAUDE_PLUGIN_ROOT}/commands/reconcile.md`
 for the complete workflow (detect, audit, load standards, reconcile workflows/CLAUDE.md/pyproject.toml, report).

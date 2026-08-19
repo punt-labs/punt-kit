@@ -21,7 +21,7 @@ Convert this Punt Labs plugin's prod commands (and optionally CLAUDE.md/AGENTS.m
 
 2. **Slug rule:** For each command file, the **slug** is the filename with `.md` removed, lowercased (e.g. `audit.md` → `audit`, `release.md` → `release`). Use this slug for the output directory name and for the Cursor skill `name` field.
 
-3. **Optional rules source:** If `${CLAUDE_PLUGIN_ROOT}/CLAUDE.md` or `${CLAUDE_PLUGIN_ROOT}/AGENTS.md` exist, read them for the optional rule file (see Output step 3 below).
+3. **Optional rules source:** The plugin ships as the repo's `plugin/` subdirectory, so its agent docs sit one level above the plugin root, not inside it. Read the first of these that exists: `${CLAUDE_PLUGIN_ROOT}/CLAUDE.md`, `${CLAUDE_PLUGIN_ROOT}/AGENTS.md`, `${CLAUDE_PLUGIN_ROOT}/../CLAUDE.md`, `${CLAUDE_PLUGIN_ROOT}/../AGENTS.md`. Use it for the optional rule file (see Output step 3 below). If none exists, skip step 3 and say so in the final report — name the paths you checked rather than reporting a conversion that quietly wrote no rule file.
 
 ## Output (what to write)
 

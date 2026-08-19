@@ -15,23 +15,26 @@ Project path: $ARGUMENTS (defaults to `.` if empty)
 
 ## Process
 
+`${CLAUDE_PLUGIN_ROOT}` is the repo's `plugin/` subdirectory, which carries no
+`pyproject.toml`; `uv run` needs the project root, hence the `/..` below.
+
 First, run detection to see what we're working with:
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT} punt init --language "" $ARGUMENTS 2>&1 || true
+uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt init --language "" $ARGUMENTS 2>&1 || true
 ```
 
 If the output shows `Language: none`, ask the user which language the project
 uses (python, node, swift) via AskUserQuestion, then re-run with the flag:
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT} punt init --language <chosen-language> $ARGUMENTS
+uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt init --language <chosen-language> $ARGUMENTS
 ```
 
 If a language was detected, just run:
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT} punt init $ARGUMENTS
+uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt init $ARGUMENTS
 ```
 
 Report the output to the user. Explain what files were generated and what manual steps remain.
