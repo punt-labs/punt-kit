@@ -71,11 +71,17 @@ All notable changes to this project will be documented in this file.
   binary, so the command failed to spawn (`Failed to spawn: pip`) and the check
   reported `✗ PyPI` on every release even when the package published fine (`uv
   pip index` is also not a valid subcommand, so the naive swap does not work).
-  It now runs `uv pip install --dry-run --no-deps <pkg>==<version>` in the
-  project dir, using uv's own resolver with no external `pip`: a resolvable
-  published version exits 0, an absent version exits non-zero. `--no-deps`
-  isolates the signal to the exact `package==version`, so a transiently
-  unresolvable transitive dependency cannot mask a successful publish.
+  It now runs `uv pip install --dry-run --no-deps --no-cache --reinstall
+  <pkg>==<version>` in the project dir, using uv's own resolver with no external
+  `pip`: a resolvable published version exits 0, an absent version exits
+  non-zero. The check must assert *index* presence, not local resolvability —
+  by Phase 11 the wheel was built locally (Phase 3) and installed from PyPI
+  (Phase 8), so the version is almost certainly in uv's cache and environment.
+  `--no-cache` forbids satisfying the resolve from the download cache and
+  `--reinstall` forbids satisfying it from the installed environment, forcing a
+  fresh index query so a green result can only mean the version is actually
+  published. `--no-deps` isolates the signal to the exact `package==version`,
+  so a transiently unresolvable transitive dependency cannot mask a publish.
 
 - **An absent `.github` sibling no longer fails an already-published release.**
   Phase 10a (`_propagate_install_all`) aborted the entire release with a

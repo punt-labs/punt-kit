@@ -2427,21 +2427,42 @@ def _setup_verify_project(
     return root, sibling
 
 
-def _patch_pypi_probe(monkeypatch: pytest.MonkeyPatch, *, present: bool = True) -> None:
+# Exact argv prefix of the Phase 11 PyPI probe (everything but the trailing
+# ``<pkg>==<ver>``). Single source of truth: the mock predicate and the
+# regression test both match against this, so a change to the probe's shape
+# fails loudly here rather than silently falling through to a real command.
+_PYPI_PROBE_CMD: tuple[str, ...] = (
+    "uv",
+    "pip",
+    "install",
+    "--dry-run",
+    "--no-deps",
+    "--no-cache",
+    "--reinstall",
+)
+
+
+def _patch_pypi_probe(
+    monkeypatch: pytest.MonkeyPatch, *, present: bool = True
+) -> list[tuple[list[str], dict[str, object]]]:
     """Fake the Phase 11 PyPI probe so verify runs offline.
 
-    Phase 11 checks a published version with ``uv pip install --dry-run
-    --no-deps <pkg>==<ver>`` and reads only the exit code: 0 means the version
-    resolves from the index, non-zero means it is absent. This intercepts that
-    command and returns the requested outcome, leaving every other ``_run`` call
-    to the real implementation. No ``pip`` binary is involved.
+    Phase 11 checks a published version with the exact ``_PYPI_PROBE_CMD`` argv
+    plus a trailing ``<pkg>==<ver>`` and reads only the exit code: 0 means the
+    version resolves from the index, non-zero means it is absent. This intercepts
+    only that exact command, returns the requested outcome, and leaves every
+    other ``_run`` call to the real implementation. No ``pip`` binary is
+    involved. Returns the list of intercepted ``(cmd, kwargs)`` pairs so callers
+    can assert the probe ran exactly once and inspect its ``cwd``.
     """
     from punt_kit import release as release_mod
 
     original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+    calls: list[tuple[list[str], dict[str, object]]] = []
 
     def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "pip" in cmd and "install" in cmd and "--dry-run" in cmd:
+        if len(cmd) == len(_PYPI_PROBE_CMD) + 1 and tuple(cmd[:-1]) == _PYPI_PROBE_CMD:
+            calls.append((list(cmd), dict(kwargs)))
             result = MagicMock()
             result.returncode = 0 if present else 1
             result.stdout = ""
@@ -2450,6 +2471,7 @@ def _patch_pypi_probe(monkeypatch: pytest.MonkeyPatch, *, present: bool = True) 
         return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
 
     monkeypatch.setattr(release_mod, "_run", patched_run)
+    return calls
 
 
 def _setup_fully_passing_verify(tmp_path: Path, version: str) -> Path:
@@ -2689,12 +2711,13 @@ def test_phase11_verify_pypi_present_passes(
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
 
-    _patch_pypi_probe(monkeypatch, present=True)
+    calls = _patch_pypi_probe(monkeypatch, present=True)
     info = detect(root)
 
     _phase11_verify(info, version, dry_run=False)
 
     assert "✓ PyPI" in capsys.readouterr().out
+    assert len(calls) == 1
 
 
 def test_phase11_verify_pypi_absent_fails(
@@ -2709,58 +2732,50 @@ def test_phase11_verify_pypi_absent_fails(
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
 
-    _patch_pypi_probe(monkeypatch, present=False)
+    calls = _patch_pypi_probe(monkeypatch, present=False)
     info = detect(root)
 
     with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
 
     assert "✗ PyPI" in capsys.readouterr().out
+    assert len(calls) == 1
 
 
-def test_phase11_pypi_probe_uses_uv_resolver_not_pip_binary(
+def test_phase11_pypi_probe_shape_index_authoritative_and_cwd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The PyPI check must resolve via uv, never spawn a `pip` binary.
+    """The PyPI probe must be index-authoritative, uv-native, and run in-project.
 
-    uv-managed project venvs ship no `pip`, so `uv run pip …` fails with
-    "Failed to spawn: pip". The check must use uv's own resolver
-    (`uv pip install --dry-run --no-deps <pkg>==<ver>`), run in the project dir.
+    Guards three regressions at once:
+    - uv-managed venvs ship no `pip`, so `uv run pip …` fails to spawn — the
+      probe must be `uv pip …` (uv's own resolver), never `uv run pip …`.
+    - a cached/installed copy must not satisfy the check (`--no-cache` +
+      `--reinstall` force a fresh index query), else a locally-built-but-never-
+      published version would false-positive.
+    - the probe must run in the project dir (`cwd=info.root`).
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
 
-    from punt_kit import release as release_mod
-
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
-    captured: list[list[str]] = []
-
-    def recording_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "pip" in cmd:
-            captured.append(list(cmd))
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = ""
-            result.stderr = ""
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
-
-    monkeypatch.setattr(release_mod, "_run", recording_run)
+    calls = _patch_pypi_probe(monkeypatch, present=True)
     info = detect(root)
 
     _phase11_verify(info, version, dry_run=False)
 
-    # Exactly one pip-related command, and it is uv's own resolver.
-    assert len(captured) == 1
-    cmd = captured[0]
-    assert cmd[:2] == ["uv", "pip"]
-    assert "install" in cmd
-    assert "--dry-run" in cmd
-    assert "--no-deps" in cmd
+    # Exactly one probe call, matching the exact uv-native argv shape.
+    assert len(calls) == 1
+    cmd, kwargs = calls[0]
+    assert tuple(cmd[:-1]) == _PYPI_PROBE_CMD
     # Not `uv run pip …` — that path spawns the absent pip binary.
     assert "run" not in cmd
+    # Cache/env bypass so the check asserts index presence, not local resolvability.
+    assert "--no-cache" in cmd
+    assert "--reinstall" in cmd
     # The target is pinned to the exact published version.
     assert cmd[-1].endswith(f"=={version}")
+    # The probe runs in the project dir.
+    assert kwargs["cwd"] == str(info.root)
 
 
 # --- restore-dev-plugin.sh ---
