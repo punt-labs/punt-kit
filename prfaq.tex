@@ -295,7 +295,7 @@ directory paths, and hostnames, with a \texttt{--staged} mode for pre-commit.
 \textbf{The engine underneath.} \texttt{/punt:auto} runs playbooks: YAML
 programs whose steps are either deterministic shell or scoped LLM judgment,
 with postconditions and a per-step failure strategy. The executor is an LLM
-following \texttt{skills/auto/SKILL.md} --- not a daemon --- which is what lets
+following \texttt{plugin/skills/auto/SKILL.md} --- not a daemon --- which is what lets
 a judgment step sit next to a shell step in one program. The release engine is
 the shipped proof: eleven deterministic phases with LLM diagnosis on failure.
 The drafted next step turns the DSL into a prompt state machine --- named
@@ -460,7 +460,7 @@ Punt Labs.
   either \texttt{script} (deterministic shell) or \texttt{llm} (scoped
   judgment), each with an optional postcondition and a failure strategy
   (\texttt{retry}, \texttt{diagnose}, \texttt{abort}). The executor is an LLM
-  following \texttt{skills/auto/SKILL.md}, which is why a judgment step can sit
+  following \texttt{plugin/skills/auto/SKILL.md}, which is why a judgment step can sit
   next to a shell step in one program --- a daemon could not run half of these
   steps. Six playbooks ship today; the release playbook is the proof, running
   the 11-phase engine with LLM diagnosis on failure.
@@ -706,7 +706,7 @@ Punt Labs.
   Distribution depends on PyPI and the Claude Code plugin marketplace.
 
   The deeper dependency is the playbook executor: it \emph{is} Claude Code
-  reading \texttt{skills/auto/SKILL.md}, not a program punt-kit ships. That is
+  reading \texttt{plugin/skills/auto/SKILL.md}, not a program punt-kit ships. That is
   a deliberate design choice --- half the steps in a real playbook are judgment
   or sub-agent calls that no daemon could run --- but it means playbooks do not
   execute outside a Claude Code session today. The deterministic CLI has no

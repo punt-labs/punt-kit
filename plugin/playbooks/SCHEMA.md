@@ -158,7 +158,7 @@ The executor searches for playbooks in order:
 
 1. `./playbooks/<name>.yaml` — project-local playbooks (current working directory)
 2. `${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml` — punt-kit plugin root (when invoked as a command)
-3. `../punt-kit/playbooks/<name>.yaml` — org-wide fallback (when run from a sibling repo)
+3. `../punt-kit/plugin/playbooks/<name>.yaml` — org-wide fallback (when run from a sibling repo)
 
 Project-local playbooks take precedence over org-wide playbooks with the same name.
 When `${CLAUDE_PLUGIN_ROOT}` is not set, path 2 is skipped.

@@ -7,7 +7,7 @@
 
 ## Problem
 
-The playbook DSL (`playbooks/SCHEMA.md`) describes **linear** processes: an
+The playbook DSL (`plugin/playbooks/SCHEMA.md`) describes **linear** processes: an
 ordered list of `steps`, each `script` (deterministic shell) or `llm`
 (judgment), with `mode: once | loop`. `mode: loop` restarts from step 1 after
 the last step; there is no other control flow. A playbook is a straight line
@@ -218,7 +218,7 @@ everything from the world, so it cannot disagree with the tick that crashed.
 
 ## Section 2 — The Executor Contract
 
-The executor is an LLM reading `skills/auto/SKILL.md`, not a daemon. The
+The executor is an LLM reading `plugin/skills/auto/SKILL.md`, not a daemon. The
 protocol additions below are the changes that skill needs; they are additive —
 the linear protocol (Phase 0–3) is untouched.
 

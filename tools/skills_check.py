@@ -51,6 +51,21 @@ def _version_key(path: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _plugin_root(version_dir: str) -> str:
+    """The directory inside a cache entry that holds .claude-plugin/.
+
+    A ``git-subdir`` marketplace source sparse-checks-out the repo, so the
+    cache entry may hold the checkout with the plugin one level down rather
+    than the plugin contents directly. Probing both keeps the tool honest
+    across the fleet's migration; guessing one would report a plugin as
+    shipping zero skills, which reads as "no drift" instead of "not read".
+    """
+    for candidate in (os.path.join(version_dir, "plugin"), version_dir):
+        if os.path.isdir(os.path.join(candidate, ".claude-plugin")):
+            return candidate
+    return version_dir
+
+
 def installed_skills() -> dict[str, list[str]]:
     """Map plugin name to its skill names, from the newest installed version."""
     found: dict[str, list[str]] = {}
@@ -58,16 +73,16 @@ def installed_skills() -> dict[str, list[str]]:
         versions = sorted(glob.glob(plugin_dir + "/*/"), key=_version_key)
         if not versions:
             continue
-        latest = versions[-1]
+        root = _plugin_root(versions[-1])
         name = os.path.basename(plugin_dir)
-        manifest = os.path.join(latest, ".claude-plugin", "plugin.json")
+        manifest = os.path.join(root, ".claude-plugin", "plugin.json")
         if os.path.exists(manifest):
             with open(manifest, encoding="utf-8") as fh:
                 name = json.load(fh).get("name", name)
         skills: set[str] = set()
-        for path in glob.glob(latest + "skills/*/SKILL.md"):
+        for path in glob.glob(os.path.join(root, "skills", "*", "SKILL.md")):
             skills.add(os.path.basename(os.path.dirname(path)))
-        for path in glob.glob(latest + "commands/*.md"):
+        for path in glob.glob(os.path.join(root, "commands", "*.md")):
             skills.add(os.path.basename(path)[:-3])
         if skills:
             found[name] = sorted(skills)

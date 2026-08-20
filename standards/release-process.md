@@ -3,7 +3,8 @@
 ## Status: SETTLED
 
 Releases are invoked via `/punt:auto release [version=X.Y.Z]`, which runs the
-`release` playbook (`playbooks/release.yaml`). The playbook delegates to the
+`release` playbook (`plugin/playbooks/release.yaml` in punt-kit;
+`${CLAUDE_PLUGIN_ROOT}/playbooks/release.yaml` at runtime). The playbook delegates to the
 `punt release` CLI (`src/punt_kit/release.py`) for the deterministic phases 1–11,
 then runs an LLM verification step that spot-checks artifacts across all repos.
 The playbook executor provides `on_failure: diagnose` recovery — if `punt release`

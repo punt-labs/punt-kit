@@ -101,6 +101,14 @@ Install from the marketplace:
 /plugin install punt@punt-labs
 ```
 
+The plugin surface lives in [plugin/](plugin/) — the manifest, `commands/`,
+`skills/`, and the `playbooks/` the `auto` skill loads. The marketplace
+installs that subdirectory, so `src/`, `tests/`, `standards/`, `lang-rules/`,
+`patterns/`, and `docs/` never reach a plugin install; repo-root files still
+do, because the underlying cone sparse checkout excludes directories rather
+than files. The `punt` binary the commands invoke comes from PyPI, not from the
+plugin.
+
 ---
 
 ## Standards
@@ -184,12 +192,15 @@ The standards and patterns above were extracted from shipping projects. Each has
 
 ```bash
 uv sync                        # Install dependencies
-uv run ruff check .            # Lint
-uv run ruff format --check .   # Check formatting
-uv run mypy src/ tests/        # Type check (mypy)
-uv run pyright src/ tests/     # Type check (pyright)
-uv run pytest                  # Test
+make check                     # All gates: lint, shellcheck, types, tests
+claude --plugin-dir plugin     # Load the local plugin as punt-dev:*
 ```
+
+`make check` runs `ruff check`, `ruff format --check`, `shellcheck` on
+`install.sh` and `scripts/*.sh`, `mypy`, `pyright`, and `pytest`. The
+`--plugin-dir` argument is `plugin`, not `.` — it must name the directory
+holding `.claude-plugin/plugin.json` so `${CLAUDE_PLUGIN_ROOT}` matches what a
+marketplace install sees.
 
 ## License
 

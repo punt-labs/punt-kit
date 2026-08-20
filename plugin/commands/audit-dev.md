@@ -15,10 +15,12 @@ Arguments: $ARGUMENTS (defaults to `.` if empty; pass `--fix` to auto-create mis
 
 ## Process
 
-Run from the working tree:
+Run from the working tree. `${CLAUDE_PLUGIN_ROOT}` is the repo's `plugin/`
+subdirectory, which carries no `pyproject.toml`; `uv run` needs the project
+root, hence the `/..`.
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT} punt audit $ARGUMENTS
+uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt audit $ARGUMENTS
 ```
 
 Report the output to the user. Summarize the pass/fail results.

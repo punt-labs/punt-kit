@@ -608,7 +608,7 @@ tier-conditional logic is encoded in the LLM context prose. This ships
 faster and lets us learn from real runs before committing to schema
 changes.
 
-1. **Write `dev.yaml`** in `punt-kit/playbooks/`. All steps are `type: llm`
+1. **Write `dev.yaml`** in `punt-kit/plugin/playbooks/`. All steps are `type: llm`
    or `type: script`. Agent delegation happens via the Agent tool within
    LLM steps.
 

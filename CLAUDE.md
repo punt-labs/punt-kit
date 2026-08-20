@@ -36,21 +36,50 @@ commands (`/punt init`, `/punt audit`, `/punt reconcile`, etc.).
   `/plugin update`.
 - **Dev/prod isolation**: the working tree uses `name: "punt-dev"` so
   developers see both `punt:*` (marketplace) and `punt-dev:*` (local) commands
-  side by side. Launch with `claude --plugin-dir .` from the repo root.
+  side by side. Launch with `claude --plugin-dir plugin` from the repo root.
 - **Can't run `claude` inside a session** — ask the user to run plugin CLI
   commands in a separate terminal when needed.
 
-### Developer launch
+### Repository layout
 
-```bash
-claude --plugin-dir .                       # Load local plugin alongside marketplace
-```
+The plugin surface — everything a marketplace install is meant to use — lives
+under `plugin/` (DES-025, DES-028):
+
+| Path | Contents |
+|------|----------|
+| `plugin/.claude-plugin/plugin.json` | Manifest. No `mcpServers` — punt is a prompt-and-command surface over the `punt` binary from PyPI. |
+| `plugin/commands/` | Slash commands (`name.md` + `name-dev.md` pairs). |
+| `plugin/skills/` | The `auto` playbook-executor skill. |
+| `plugin/playbooks/` | Playbook YAMLs the `auto` skill loads from `${CLAUDE_PLUGIN_ROOT}/playbooks/`. |
+
+`src/`, `tests/`, `standards/`, `lang-rules/`, `patterns/`, `docs/`,
+`scripts/`, `tools/`, and this repo's `.beads/` and `.punt-labs/` never reach a
+plugin install. Repo-root *files* do: `git-subdir` is a cone sparse checkout,
+cone mode excludes directories rather than files, so `README.md`, `DESIGN.md`,
+`CHANGELOG.md`, `AGENTS.md`, `prfaq.*`, `.envrc`, and `.biff` all travel with
+an install — measured 584 KB of a 720 KB checkout against `plugin/`'s 136 KB.
+Do not describe a root file as excluded. See DES-028.
+
+Two rules follow, and both are load-bearing:
+
+- **`${CLAUDE_PLUGIN_ROOT}` is `plugin/`, and the surface must not reach
+  outside itself at runtime.** A command or skill may name a path under the
+  plugin root or under the *consumer's* repo, not a path elsewhere in this
+  repo — that path will not exist on an installed plugin. The one deliberate
+  exception is the `-dev` commands' `uv run --directory
+  ${CLAUDE_PLUGIN_ROOT}/..`, which needs this repo's `pyproject.toml`; those
+  commands are stripped from every release, so they only ever run against a
+  checkout.
+- **`claude --plugin-dir plugin`**, not `--plugin-dir .`. The plugin root has
+  to be the same directory the `git-subdir` marketplace source checks out, or
+  a dev session resolves `${CLAUDE_PLUGIN_ROOT}` differently from a real
+  install.
 
 ### Marketplace publish flow
 
-1. Bump `version` in `.claude-plugin/plugin.json`
+1. Bump `version` in `plugin/.claude-plugin/plugin.json`
 2. Push to main
-3. Update `punt-labs/claude-plugins` marketplace catalog (version + description)
+3. Update `punt-labs/claude-plugins` marketplace catalog (version + `source.ref`)
 4. Users pick up changes via `/plugin update`
 
 ## Claude Code CLI Reference
@@ -150,7 +179,7 @@ These are available within a running Claude Code session, not from the shell:
 ## Release Workflow
 
 Releases are invoked via `/punt:auto release [version=X.Y.Z]`. This runs the
-`release` playbook (`playbooks/release.yaml`) through the playbook executor,
+`release` playbook (`plugin/playbooks/release.yaml`) through the playbook executor,
 which provides LLM-driven error diagnosis and a post-release verification step.
 
 The playbook has two steps:

@@ -16,7 +16,30 @@ set -euo pipefail
 # --no-verify escape hatch that the amend previously used.
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." || exit 1; pwd)"
-PLUGIN_JSON=".claude-plugin/plugin.json"
+
+# Paths below are git pathspecs, so they must stay repo-relative. The
+# shippable surface lives under plugin/ (DES-025); this script is copied
+# verbatim into every plugin repo and the fleet migrates one repo at a time,
+# so resolve the prefix rather than hardcode it. An unresolvable prefix is a
+# hard error — restoring nothing would leave main advertising the prod plugin
+# name, which is exactly what this script exists to prevent.
+PLUGIN_PREFIX=""
+PREFIX_FOUND=0
+for candidate in "plugin/" ""; do
+  if [ -f "${REPO_ROOT}/${candidate}.claude-plugin/plugin.json" ]; then
+    PLUGIN_PREFIX="$candidate"
+    PREFIX_FOUND=1
+    break
+  fi
+done
+
+if [ "$PREFIX_FOUND" -eq 0 ]; then
+  echo "ERROR: no .claude-plugin/plugin.json under ${REPO_ROOT}/plugin or ${REPO_ROOT}" >&2
+  exit 1
+fi
+
+PLUGIN_JSON="${PLUGIN_PREFIX}.claude-plugin/plugin.json"
+COMMANDS_DIR="${PLUGIN_PREFIX}commands/"
 
 # Find the most recent commit where plugin.json contained the dev name.
 # Dev plugin names always end with -dev. Walk plugin.json history and
@@ -54,8 +77,20 @@ if [ -z "$DEV_COMMIT" ]; then
 fi
 
 echo "Restoring dev state from commit ${DEV_COMMIT:0:12}..."
-git -C "$REPO_ROOT" checkout "$DEV_COMMIT" -- "$PLUGIN_JSON" commands/
-git -C "$REPO_ROOT" add "$PLUGIN_JSON" commands/
+
+# Only name commands/ when the dev commit actually has it. git checkout aborts
+# on a pathspec that matches nothing, and this runs under `set -e` in phase 9 —
+# so a plugin that ships only skills or hooks would kill the post-release run
+# even though restoring plugin.json alone is the whole job for it.
+RESTORE_PATHS=("$PLUGIN_JSON")
+if git -C "$REPO_ROOT" ls-tree "$DEV_COMMIT" -- "$COMMANDS_DIR" | grep -q .; then
+  RESTORE_PATHS+=("$COMMANDS_DIR")
+else
+  echo "No ${COMMANDS_DIR} at ${DEV_COMMIT:0:12} — restoring the manifest only"
+fi
+
+git -C "$REPO_ROOT" checkout "$DEV_COMMIT" -- "${RESTORE_PATHS[@]}"
+git -C "$REPO_ROOT" add "${RESTORE_PATHS[@]}"
 # Deliberately no commit — see CONTRACT above. The caller re-stamps the
 # version in plugin.json and commits both the restore and the re-stamp
 # together, so the commit passes the pre-commit hook and the message
