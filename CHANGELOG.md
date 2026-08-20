@@ -66,6 +66,20 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **An absent `.github` sibling no longer fails an already-published release.**
+  Phase 10a (`_propagate_install_all`) aborted the entire release with a
+  `ReleaseError` when the `.github` sibling did not resolve as a git repo
+  root. That check runs *after* phases 5-7 (tag, PyPI publish, GitHub release)
+  have irreversibly landed, so the release published to PyPI and reported
+  failure at propagation. It also contradicted Phase 1d preflight, which
+  already skips propagation siblings that resolve to `None`. In the workspace
+  meta-repo layout the `.github` path is the meta-repo's own folder and can
+  never resolve as a sibling. The absent-sibling case now skips install-all.sh
+  and profile-README propagation with a loud warning naming the repo, version,
+  and the files to update by hand, then returns cleanly. A `.github` sibling
+  that *is* present but is missing `install-all.sh` remains a hard failure —
+  that is a genuine misconfiguration, not the meta-repo case.
+
 - **Neither release script aborts on a plugin that ships no `commands/`.**
   `release-plugin.sh` exited non-zero when `find` turned up no `*-dev.md`, and
   `restore-dev-plugin.sh` passed `commands/` to `git checkout` unconditionally,

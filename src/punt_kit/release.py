@@ -138,6 +138,17 @@ def _dry(msg: str) -> None:
     console.print(f"  [yellow]DRY[/yellow] {msg}")
 
 
+def _warn(msg: str) -> None:
+    """Emit a loud, unmistakable warning without aborting the release.
+
+    For conditions the operator must see and act on but that are not
+    failures — e.g. a post-publish propagation step skipped because a
+    sibling is absent. Louder than ``_info`` (which is dimmed and easily
+    swallowed) so the skip does not read as routine progress.
+    """
+    console.print(f"  [yellow]⚠ WARNING:[/yellow] {msg}")
+
+
 def _get_install_sh_sha(root: Path) -> str:
     """Get the short SHA of the commit that last modified install.sh.
 
@@ -2064,6 +2075,14 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     Also updates the org profile README with the install-all.sh commit SHA
     so that both changes land in a single .github PR.
+
+    When the ``.github`` sibling is absent (does not resolve as a git repo
+    root), propagation is skipped with a loud warning and a clean return
+    rather than a failure: this phase runs after the release has already
+    published, and the workspace meta-repo layout legitimately has no
+    resolvable ``.github`` sibling. A ``.github`` sibling that *is* present
+    but is missing ``install-all.sh`` remains a hard failure — that is a
+    genuine misconfiguration, not the expected meta-repo case.
     """
     if not (info.root / "install.sh").exists():
         return
@@ -2075,8 +2094,21 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
     sibling = _resolve_sibling(info.root, ".github")
     if sibling is None:
-        _fail("Sibling .github not found — required for install-all.sh propagation")
-        return  # unreachable, makes type checker happy
+        # Phase 10a runs *after* the tag, PyPI publish, and GitHub release
+        # (phases 5-7) have irreversibly landed, so aborting here would report
+        # failure on an already-published release. The absent-sibling case is
+        # also legitimate: in the workspace meta-repo layout the ``.github``
+        # path is occupied by the meta-repo's own (non-git-root) folder and can
+        # never resolve as a propagation sibling — Phase 1d already tolerates
+        # this by skipping siblings that resolve to None. Mirror that here:
+        # skip loudly and tell the operator exactly what to do by hand.
+        _warn(
+            f"SKIPPED — manual action required: no .github sibling resolved, so "
+            f"the org install-all.sh SHA and profile README were NOT propagated "
+            f"for {project_name} v{version}. Update ../.github/install-all.sh "
+            f"and ../.github/profile/README.md manually."
+        )
+        return
 
     install_all = sibling / "install-all.sh"
     if not install_all.exists():

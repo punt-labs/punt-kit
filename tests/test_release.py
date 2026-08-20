@@ -881,6 +881,67 @@ def test_propagate_install_all_idempotent(
     assert len(calls) == 0
 
 
+def test_propagate_install_all_skips_when_github_absent(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Absent .github sibling → skip loudly, do not abort the release.
+
+    Phase 10a runs after the tag, PyPI publish, and GitHub release have
+    already landed. In the workspace meta-repo layout the ``.github`` path
+    is occupied by the meta-repo's own (non-git-root) folder, so it can
+    never resolve as a propagation sibling. A ``ReleaseError`` here would
+    report failure on an already-published release. The skip must return
+    cleanly and tell the operator what did not happen.
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    # No .github sibling created — _resolve_sibling returns None.
+    info = detect(root)
+
+    # Must not raise.
+    _propagate_install_all(info, "0.2.0", dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "SKIPPED" in out
+    assert "manual" in out.lower()
+    assert "install-all.sh" in out
+    # Names the repo and version so the operator knows what to fix.
+    assert "proj" in out
+    assert "v0.2.0" in out
+
+
+def test_propagate_install_all_fails_when_install_all_missing(
+    tmp_path: Path,
+) -> None:
+    """Present .github sibling but no install-all.sh → still a hard failure.
+
+    A resolvable ``.github`` sibling that lacks ``install-all.sh`` is a
+    genuine misconfiguration, distinct from the absent-sibling case, and
+    must still abort loudly.
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    # .github sibling exists but has no install-all.sh inside it.
+    _make_sibling(tmp_path, ".github", {"README.md": "# org profile\n"})
+
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _propagate_install_all(info, "0.2.0", dry_run=False)
+
+
 # --- Phase 10b: marketplace ---
 
 
