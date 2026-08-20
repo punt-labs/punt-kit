@@ -91,7 +91,10 @@ All notable changes to this project will be documented in this file.
   is missing or stale, still fails as before. Every propagation/verification
   step skipped mid-run is now recorded and recapped in the end-of-run summary
   under "Manual action required", so a skip surfaced from a concurrent Phase 10
-  worker is never the only notice the operator gets.
+  worker is never the only notice the operator gets. Phase 10a and both Phase 11
+  checks share one skip message, so `.github` absent for a whole run yields a
+  single deduplicated recap line describing the one manual action, not three
+  near-identical warnings for the same root cause.
 
 - **Neither release script aborts on a plugin that ships no `commands/`.**
   `release-plugin.sh` exited non-zero when `find` turned up no `*-dev.md`, and

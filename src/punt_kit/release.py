@@ -37,14 +37,18 @@ _interrupted = threading.Event()
 # Must stay in sync with the _propagate_* functions.
 PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
-# Recorded by Phase 11 when the .github sibling does not resolve. Shared by the
-# install-all.sh and profile-SHA checks so _skips deduplicates them into a single
-# recap line. Names the repo and version so the operator knows what to verify.
+# Recorded whenever the .github sibling does not resolve — by Phase 10a
+# (propagation) and by both Phase 11 checks (install-all.sh, profile SHA). One
+# shared template, worded to cover both the propagation-skip and the verify-skip,
+# so _skips deduplicates every phase's notice into a SINGLE recap line for the
+# common meta-repo case where .github is absent for the whole run. The repo and
+# version make the interpolated message identical across phases within one
+# release (one release, one project — so dedup still collapses them).
 _GITHUB_ABSENT_SKIP = (
-    "SKIPPED — manual action required: no .github sibling resolved, so "
-    "install-all.sh and profile README propagation could not be verified for "
-    "{name} v{ver}. Confirm ../.github/install-all.sh and "
-    "../.github/profile/README.md were updated manually."
+    "SKIPPED — manual action required: the .github sibling did not resolve, so "
+    "the org install-all.sh SHA and profile README were neither propagated nor "
+    "verified for {name} v{ver}. Update ../.github/install-all.sh and "
+    "../.github/profile/README.md manually."
 )
 
 # Files each sibling's propagation writes. _reset_propagation_siblings uses
@@ -2167,14 +2171,10 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         # never resolve as a propagation sibling — Phase 1d already tolerates
         # this by skipping siblings that resolve to None. Mirror that here:
         # skip loudly and tell the operator exactly what to do by hand. Recorded
-        # so the end-of-run summary recaps it even if this line scrolls past
-        # among the concurrent Phase 10 output.
-        _skips.record(
-            f"SKIPPED — manual action required: no .github sibling resolved, so "
-            f"the org install-all.sh SHA and profile README were NOT propagated "
-            f"for {project_name} v{version}. Update ../.github/install-all.sh "
-            f"and ../.github/profile/README.md manually."
-        )
+        # through the shared template so the end-of-run summary recaps it even if
+        # this line scrolls past among the concurrent Phase 10 output — and so it
+        # deduplicates against the identical Phase 11 verify-skip into one line.
+        _skips.record(_GITHUB_ABSENT_SKIP.format(name=project_name, ver=version))
         return
 
     install_all = sibling / "install-all.sh"

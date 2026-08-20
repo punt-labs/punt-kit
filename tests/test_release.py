@@ -2686,6 +2686,35 @@ def test_phase_summary_recaps_skipped_propagation(
     assert release._skips.drain() == ()  # pyright: ignore[reportPrivateUsage]
 
 
+def test_absent_github_dedups_to_single_recap_across_phases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`.github` absent for a whole run → exactly ONE recap bullet.
+
+    Phase 10a (propagation) and both Phase 11 checks (install-all.sh, profile
+    SHA) all skip for the same reason and describe the same manual remediation.
+    They record through one shared template so _skips collapses them to a single
+    notice, rather than flooding the operator with duplicate warnings for one
+    root cause — the common meta-repo case where .github never resolves.
+    """
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # .github absent for the entire run.
+    shutil.rmtree(sibling)
+
+    _patch_pip_index(monkeypatch, version)
+    info = detect(root)
+
+    # Phase 10a records its propagation skip; Phase 11 records two verify skips.
+    _propagate_install_all(info, version, dry_run=False)
+    _phase11_verify(info, version, dry_run=False)
+
+    # All three collapse to a single deduplicated recap line.
+    notices = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    assert len(notices) == 1
+
+
 # --- restore-dev-plugin.sh ---
 
 # Path to the real restore-dev-plugin.sh script
