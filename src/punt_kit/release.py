@@ -2901,19 +2901,39 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                 if not web_found:
                     checks.append(("website", False, f"no entry for {project_name}"))
 
-    # 8. PyPI
+    # 8. PyPI — confirm the exact published version resolves from the INDEX.
+    # `uv pip install --dry-run` uses uv's own resolver, so it needs no `pip`
+    # binary (uv-managed project venvs do not ship one — `uv run pip` fails with
+    # "Failed to spawn: pip"). This must assert index presence, not mere local
+    # resolvability: by this phase the wheel was built locally (Phase 3) and
+    # installed from PyPI (Phase 8), so `<pkg>==<version>` is almost certainly in
+    # uv's cache and the environment. `--no-cache` forbids satisfying the resolve
+    # from the download cache, and `--reinstall` forbids satisfying it from the
+    # already-installed environment — together they force a fresh index query, so
+    # a green result can only mean the version is actually published. `--no-deps`
+    # isolates the signal to this one package==version, so a transiently
+    # unresolvable transitive dependency cannot mask a successful publish.
+    # `--dry-run` installs nothing. Resolvable → exit 0; absent → non-zero
+    # ("unsatisfiable"). Run in the project dir so uv resolves against the
+    # project's environment.
     if info.language == "python":
         package_name = _get_package_name(info)
         result = _run(
-            ["uv", "run", "pip", "index", "versions", package_name],
+            [
+                "uv",
+                "pip",
+                "install",
+                "--dry-run",
+                "--no-deps",
+                "--no-cache",
+                "--reinstall",
+                f"{package_name}=={version}",
+            ],
+            cwd=str(info.root),
             check=False,
             timeout=_UV_TIMEOUT,
         )
-        pypi_ok = (
-            bool(re.search(rf"\b{re.escape(version)}\b", result.stdout))
-            if result.returncode == 0
-            else False
-        )
+        pypi_ok = result.returncode == 0
         checks.append(("PyPI", pypi_ok, f"{package_name}=={version}"))
 
     # Print results
