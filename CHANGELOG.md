@@ -66,6 +66,17 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Phase 11's PyPI check no longer red-flags every release.** The check ran
+  `uv run pip index versions <pkg>`, but uv-managed project venvs ship no `pip`
+  binary, so the command failed to spawn (`Failed to spawn: pip`) and the check
+  reported `✗ PyPI` on every release even when the package published fine (`uv
+  pip index` is also not a valid subcommand, so the naive swap does not work).
+  It now runs `uv pip install --dry-run --no-deps <pkg>==<version>` in the
+  project dir, using uv's own resolver with no external `pip`: a resolvable
+  published version exits 0, an absent version exits non-zero. `--no-deps`
+  isolates the signal to the exact `package==version`, so a transiently
+  unresolvable transitive dependency cannot mask a successful publish.
+
 - **An absent `.github` sibling no longer fails an already-published release.**
   Phase 10a (`_propagate_install_all`) aborted the entire release with a
   `ReleaseError` when the `.github` sibling did not resolve as a git repo

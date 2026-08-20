@@ -2427,22 +2427,40 @@ def _setup_verify_project(
     return root, sibling
 
 
-def test_phase11_verify_profile_sha_passes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Profile SHA check passes when README contains a resolvable SHA."""
+def _patch_pypi_probe(monkeypatch: pytest.MonkeyPatch, *, present: bool = True) -> None:
+    """Fake the Phase 11 PyPI probe so verify runs offline.
+
+    Phase 11 checks a published version with ``uv pip install --dry-run
+    --no-deps <pkg>==<ver>`` and reads only the exit code: 0 means the version
+    resolves from the index, non-zero means it is absent. This intercepts that
+    command and returns the requested outcome, leaving every other ``_run`` call
+    to the real implementation. No ``pip`` binary is involved.
+    """
     from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
-    )
 
-    version = "0.1.0"
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "install" in cmd and "--dry-run" in cmd:
+            result = MagicMock()
+            result.returncode = 0 if present else 1
+            result.stdout = ""
+            result.stderr = "" if present else "unsatisfiable"
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+
+def _setup_fully_passing_verify(tmp_path: Path, version: str) -> Path:
+    """Build a project where every Phase 11 check passes but the PyPI probe.
+
+    Extends _setup_verify_project by pinning the profile README to the real
+    install-all.sh commit, so the only remaining variable is the PyPI probe's
+    exit code — flip it with ``_patch_pypi_probe(present=...)``.
+    """
     root, sibling = _setup_verify_project(tmp_path, version)
-
-    # Get the real SHA of install-all.sh in the .github sibling
     sha = _get_install_all_sha(sibling)
-
-    # Add profile/README.md with the real SHA
     profile_dir = sibling / "profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
     (profile_dir / "README.md").write_text(
@@ -2452,20 +2470,17 @@ def test_phase11_verify_profile_sha_passes(
     )
     _git(["add", "profile/README.md"], cwd=str(sibling))
     _git(["commit", "-m", "add profile"], cwd=str(sibling))
+    return root
 
-    # Monkeypatch _run to intercept uv/pip calls that won't work in test
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
 
-    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "pip" in cmd and "index" in cmd:
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = f"test-pkg ({version})"
-            result.stderr = ""
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+def test_phase11_verify_profile_sha_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Profile SHA check passes when README contains a resolvable SHA."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
 
-    monkeypatch.setattr(release_mod, "_run", patched_run)
+    _patch_pypi_probe(monkeypatch)
 
     info = detect(root)
 
@@ -2477,11 +2492,6 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Profile SHA check fails when README contains a non-resolvable SHA."""
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
-    )
-
     version = "0.1.0"
     root, sibling = _setup_verify_project(tmp_path, version)
 
@@ -2497,19 +2507,7 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     _git(["add", "profile/README.md"], cwd=str(sibling))
     _git(["commit", "-m", "add profile with bad SHA"], cwd=str(sibling))
 
-    # Monkeypatch _run to intercept uv/pip calls
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
-
-    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "pip" in cmd and "index" in cmd:
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = f"test-pkg ({version})"
-            result.stderr = ""
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
-
-    monkeypatch.setattr(release_mod, "_run", patched_run)
+    _patch_pypi_probe(monkeypatch)
 
     info = detect(root)
 
@@ -2527,11 +2525,6 @@ def test_phase11_verify_profile_sha_fails_stale(
     serves the previous installer — the exact one-commit-behind failure the
     propagation phase exists to prevent.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase11_verify,  # pyright: ignore[reportPrivateUsage]
-    )
-
     version = "0.1.0"
     root, sibling = _setup_verify_project(tmp_path, version)
     sd = str(sibling)
@@ -2568,41 +2561,12 @@ def test_phase11_verify_profile_sha_fails_stale(
     _git(["add", "profile/README.md"], cwd=sd)
     _git(["commit", "-m", "add stale profile pin"], cwd=sd)
 
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
-
-    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "pip" in cmd and "index" in cmd:
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = f"test-pkg ({version})"
-            result.stderr = ""
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
-
-    monkeypatch.setattr(release_mod, "_run", patched_run)
+    _patch_pypi_probe(monkeypatch)
 
     info = detect(root)
 
     with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
-
-
-def _patch_pip_index(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
-    """Fake the PyPI ``pip index versions`` probe so Phase 11 can run offline."""
-    from punt_kit import release as release_mod
-
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
-
-    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
-        if "pip" in cmd and "index" in cmd:
-            result = MagicMock()
-            result.returncode = 0
-            result.stdout = f"test-pkg ({version})"
-            result.stderr = ""
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
-
-    monkeypatch.setattr(release_mod, "_run", patched_run)
 
 
 def test_phase11_verify_skips_when_github_absent(
@@ -2624,7 +2588,7 @@ def test_phase11_verify_skips_when_github_absent(
     # Remove the .github sibling so _resolve_sibling(".github") returns None.
     shutil.rmtree(sibling)
 
-    _patch_pip_index(monkeypatch, version)
+    _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
     # Must NOT raise — the two .github checks are skipped, all others pass.
@@ -2654,7 +2618,7 @@ def test_phase11_verify_fails_when_install_all_missing(
     # Sibling resolves, but its install-all.sh is gone.
     (sibling / "install-all.sh").unlink()
 
-    _patch_pip_index(monkeypatch, version)
+    _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
     with pytest.raises(ReleaseError):
@@ -2703,7 +2667,7 @@ def test_absent_github_dedups_to_single_recap_across_phases(
     # .github absent for the entire run.
     shutil.rmtree(sibling)
 
-    _patch_pip_index(monkeypatch, version)
+    _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
     # Phase 10a records its propagation skip; Phase 11 records two verify skips.
@@ -2713,6 +2677,90 @@ def test_absent_github_dedups_to_single_recap_across_phases(
     # All three collapse to a single deduplicated recap line.
     notices = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
     assert len(notices) == 1
+
+
+# --- Phase 11: PyPI check ---
+
+
+def test_phase11_verify_pypi_present_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Published version resolves → PyPI check passes, verify does not raise."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    _patch_pypi_probe(monkeypatch, present=True)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)
+
+    assert "✓ PyPI" in capsys.readouterr().out
+
+
+def test_phase11_verify_pypi_absent_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Unresolvable version → PyPI check fails, verify raises.
+
+    With every other check passing, flipping only the PyPI probe's exit code to
+    non-zero must flip verify to failure — so a genuinely missing publish is
+    still caught, not masked.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    _patch_pypi_probe(monkeypatch, present=False)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    assert "✗ PyPI" in capsys.readouterr().out
+
+
+def test_phase11_pypi_probe_uses_uv_resolver_not_pip_binary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The PyPI check must resolve via uv, never spawn a `pip` binary.
+
+    uv-managed project venvs ship no `pip`, so `uv run pip …` fails with
+    "Failed to spawn: pip". The check must use uv's own resolver
+    (`uv pip install --dry-run --no-deps <pkg>==<ver>`), run in the project dir.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    from punt_kit import release as release_mod
+
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+    captured: list[list[str]] = []
+
+    def recording_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd:
+            captured.append(list(cmd))
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = ""
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", recording_run)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)
+
+    # Exactly one pip-related command, and it is uv's own resolver.
+    assert len(captured) == 1
+    cmd = captured[0]
+    assert cmd[:2] == ["uv", "pip"]
+    assert "install" in cmd
+    assert "--dry-run" in cmd
+    assert "--no-deps" in cmd
+    # Not `uv run pip …` — that path spawns the absent pip binary.
+    assert "run" not in cmd
+    # The target is pinned to the exact published version.
+    assert cmd[-1].endswith(f"=={version}")
 
 
 # --- restore-dev-plugin.sh ---

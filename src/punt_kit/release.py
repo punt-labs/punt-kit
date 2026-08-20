@@ -2901,19 +2901,31 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                 if not web_found:
                     checks.append(("website", False, f"no entry for {project_name}"))
 
-    # 8. PyPI
+    # 8. PyPI — confirm the exact published version resolves from the index.
+    # `uv pip install --dry-run --no-deps` uses uv's own resolver, so it needs
+    # no `pip` binary (uv-managed project venvs do not ship one — `uv run pip`
+    # fails with "Failed to spawn: pip"). `--dry-run` installs nothing;
+    # `--no-deps` isolates the check to this one package==version, so a
+    # transiently-unresolvable transitive dependency cannot mask a successful
+    # publish. A resolvable target exits 0; an absent version exits non-zero
+    # ("unsatisfiable"). Run in the project dir so uv resolves against the
+    # project's environment.
     if info.language == "python":
         package_name = _get_package_name(info)
         result = _run(
-            ["uv", "run", "pip", "index", "versions", package_name],
+            [
+                "uv",
+                "pip",
+                "install",
+                "--dry-run",
+                "--no-deps",
+                f"{package_name}=={version}",
+            ],
+            cwd=str(info.root),
             check=False,
             timeout=_UV_TIMEOUT,
         )
-        pypi_ok = (
-            bool(re.search(rf"\b{re.escape(version)}\b", result.stdout))
-            if result.returncode == 0
-            else False
-        )
+        pypi_ok = result.returncode == 0
         checks.append(("PyPI", pypi_ok, f"{package_name}=={version}"))
 
     # Print results
