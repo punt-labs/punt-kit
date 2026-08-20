@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-08-20
+
 ### Changed
 
 - **The shippable plugin surface moved to `plugin/`, so a marketplace install
