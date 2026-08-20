@@ -30,7 +30,9 @@ from punt_kit.release import (
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
+    _phase11_verify,  # pyright: ignore[reportPrivateUsage]
     _phase_name,  # pyright: ignore[reportPrivateUsage]
+    _phase_summary,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
@@ -48,8 +50,20 @@ from punt_kit.release import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from pathlib import Path
+
+
+@pytest.fixture(autouse=True)
+def isolate_skip_recorder() -> Iterator[None]:
+    """Clear the module-scoped skip recorder around every test.
+
+    ``release._skips`` persists for the process; a test that records a skip
+    would otherwise leak the notice into the next test's summary recap.
+    """
+    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 def _git(args: list[str], cwd: str) -> None:
@@ -2571,6 +2585,105 @@ def test_phase11_verify_profile_sha_fails_stale(
 
     with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
+
+
+def _patch_pip_index(monkeypatch: pytest.MonkeyPatch, version: str) -> None:
+    """Fake the PyPI ``pip index versions`` probe so Phase 11 can run offline."""
+    from punt_kit import release as release_mod
+
+    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+
+    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+        if "pip" in cmd and "index" in cmd:
+            result = MagicMock()
+            result.returncode = 0
+            result.stdout = f"test-pkg ({version})"
+            result.stderr = ""
+            return result
+        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setattr(release_mod, "_run", patched_run)
+
+
+def test_phase11_verify_skips_when_github_absent(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Absent .github sibling → Phase 11 skips its two checks, does not fail.
+
+    Phase 11 runs after tag/PyPI/GitHub-release have published. A False check on
+    an absent .github sibling would exit non-zero on an already-published release
+    and read identically to a real defect — the exact ambiguity the Phase 10 fix
+    removed. The install-all.sh and profile-SHA checks must skip (not fail) and
+    surface the skip, consistent with Phase 10a and Phase 1d.
+    """
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # Remove the .github sibling so _resolve_sibling(".github") returns None.
+    shutil.rmtree(sibling)
+
+    _patch_pip_index(monkeypatch, version)
+    info = detect(root)
+
+    # Must NOT raise — the two .github checks are skipped, all others pass.
+    _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "SKIPPED" in out
+    assert "manual" in out.lower()
+    # The skip must not be rendered as a failed check.
+    assert "✗ install-all.sh" not in out
+    assert "✗ profile SHA" not in out
+    # Recorded (once, deduplicated) for the end-of-run recap.
+    assert len(release._skips.drain()) == 1  # pyright: ignore[reportPrivateUsage]
+
+
+def test_phase11_verify_fails_when_install_all_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Present .github sibling but no install-all.sh → still a hard failure.
+
+    Only the absent-sibling case is tolerated. A resolvable .github sibling that
+    lacks install-all.sh is a genuine misconfiguration and must still fail.
+    """
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+
+    # Sibling resolves, but its install-all.sh is gone.
+    (sibling / "install-all.sh").unlink()
+
+    _patch_pip_index(monkeypatch, version)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase_summary_recaps_skipped_propagation(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End-of-run summary recaps recorded skips and drains them.
+
+    With Phase 11 no longer the backstop, a skip recorded mid-run must be
+    re-surfaced at the end so a scrolled-past warning is never the only notice.
+    """
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    release._skips.record(  # pyright: ignore[reportPrivateUsage]
+        "SKIPPED — manual action required: verify ../.github by hand"
+    )
+    capsys.readouterr()  # discard the inline warning emitted by record()
+
+    _phase_summary(info, "0.2.0", dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "Manual action required" in out
+    assert "verify ../.github by hand" in out
+    # drain() inside the summary consumed the notice — nothing left to recap.
+    assert release._skips.drain() == ()  # pyright: ignore[reportPrivateUsage]
 
 
 # --- restore-dev-plugin.sh ---

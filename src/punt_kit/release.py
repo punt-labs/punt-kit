@@ -37,6 +37,16 @@ _interrupted = threading.Event()
 # Must stay in sync with the _propagate_* functions.
 PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
 
+# Recorded by Phase 11 when the .github sibling does not resolve. Shared by the
+# install-all.sh and profile-SHA checks so _skips deduplicates them into a single
+# recap line. Names the repo and version so the operator knows what to verify.
+_GITHUB_ABSENT_SKIP = (
+    "SKIPPED — manual action required: no .github sibling resolved, so "
+    "install-all.sh and profile README propagation could not be verified for "
+    "{name} v{ver}. Confirm ../.github/install-all.sh and "
+    "../.github/profile/README.md were updated manually."
+)
+
 # Files each sibling's propagation writes. _reset_propagation_siblings uses
 # this map to reconcile a sibling left dirty by an interrupted phase 10 —
 # the propagation writes the file, then calls into _sibling_pr_merge which
@@ -147,6 +157,61 @@ def _warn(msg: str) -> None:
     swallowed) so the skip does not read as routine progress.
     """
     console.print(f"  [yellow]⚠ WARNING:[/yellow] {msg}")
+
+
+@final
+class _SkipRecorder:
+    """Thread-safe log of propagation/verification steps skipped mid-release.
+
+    Phase 10 propagates to siblings concurrently, so a warning printed from a
+    worker thread can scroll past among interleaved output; and Phase 11 no
+    longer hard-fails when a sibling is absent, so nothing downstream re-raises
+    the condition. Each recorded skip is surfaced immediately as a loud warning
+    and retained so ``_phase_summary`` can recap every outstanding manual action
+    at the end of the run, whichever phase skipped.
+    """
+
+    __slots__ = ("_lock", "_notices")
+
+    _lock: threading.Lock
+    _notices: list[str]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._lock = threading.Lock()
+        self._notices = []
+        return self
+
+    def record(self, message: str) -> None:
+        """Retain a skip notice and surface it immediately as a warning.
+
+        Deduplicates: a message already recorded is neither stored again nor
+        re-warned, so two phases reporting the same absent sibling collapse to
+        one recap line and one inline warning.
+        """
+        with self._lock:
+            if message in self._notices:
+                return
+            self._notices.append(message)
+        _warn(message)
+
+    def drain(self) -> tuple[str, ...]:
+        """Return every retained notice and clear the log."""
+        with self._lock:
+            notices = tuple(self._notices)
+            self._notices.clear()
+        return notices
+
+    def clear(self) -> None:
+        """Discard retained notices without surfacing them."""
+        with self._lock:
+            self._notices.clear()
+
+
+# Module-scoped so any phase can record a skip and the end-of-run summary can
+# recap them. Cleared at the start of every ``run_release`` so one release's
+# skips never leak into the next in a long-lived process.
+_skips = _SkipRecorder()
 
 
 def _get_install_sh_sha(root: Path) -> str:
@@ -2101,8 +2166,10 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
         # path is occupied by the meta-repo's own (non-git-root) folder and can
         # never resolve as a propagation sibling — Phase 1d already tolerates
         # this by skipping siblings that resolve to None. Mirror that here:
-        # skip loudly and tell the operator exactly what to do by hand.
-        _warn(
+        # skip loudly and tell the operator exactly what to do by hand. Recorded
+        # so the end-of-run summary recaps it even if this line scrolls past
+        # among the concurrent Phase 10 output.
+        _skips.record(
             f"SKIPPED — manual action required: no .github sibling resolved, so "
             f"the org install-all.sh SHA and profile README were NOT propagated "
             f"for {project_name} v{version}. Update ../.github/install-all.sh "
@@ -2649,7 +2716,13 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         project_name = repo.split("/")[-1]
         sibling = _resolve_sibling(info.root, ".github")
         if not sibling:
-            checks.append(("install-all.sh", False, "sibling .github not found"))
+            # An absent .github sibling is not a verification failure: Phase 10a
+            # already skipped propagation for the same reason (the workspace
+            # meta-repo layout has no resolvable .github sibling), and this phase
+            # runs after the release has published. Recording the skip surfaces
+            # it without flipping all_pass — a False here would exit non-zero on
+            # an already-published release and read identically to a real defect.
+            _skips.record(_GITHUB_ABSENT_SKIP.format(name=project_name, ver=version))
         else:
             install_all = sibling / "install-all.sh"
             if not install_all.exists():
@@ -2735,7 +2808,12 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     if repo and install_sh.exists():
         sibling = _resolve_sibling(info.root, ".github")
         if not sibling:
-            checks.append(("profile SHA", False, "sibling .github not found"))
+            # Absent sibling — same tolerated case as the install-all.sh check
+            # above. The shared message deduplicates in _skips, so the two
+            # checks collapse to one recap line rather than double-reporting.
+            _skips.record(
+                _GITHUB_ABSENT_SKIP.format(name=repo.split("/")[-1], ver=version)
+            )
         else:
             readme = sibling / "profile" / "README.md"
             if not readme.exists():
@@ -2873,6 +2951,16 @@ def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         console.print("  Restart Claude Code to pick up marketplace changes.")
     console.print()
 
+    # Recap every propagation/verification step skipped mid-run. Drained here so
+    # the operator sees the outstanding manual actions as the last thing printed,
+    # even if the inline warnings scrolled past during concurrent Phase 10 work.
+    skipped = _skips.drain()
+    if skipped:
+        console.print("[bold yellow]⚠ Manual action required[/bold yellow]")
+        for notice in skipped:
+            console.print(f"  [yellow]•[/yellow] {notice}")
+        console.print()
+
 
 # ---------------------------------------------------------------------------
 # Phase name → number mapping for --resume-from
@@ -2946,6 +3034,9 @@ def run_release(
             _fail("Cannot detect project type — is this a Punt Labs project?")
 
         _interrupted.clear()
+        # Drop any skips retained from a prior release in this process so this
+        # run's summary recaps only its own outstanding manual actions.
+        _skips.clear()
 
         if not dry_run:
 

@@ -80,6 +80,19 @@ All notable changes to this project will be documented in this file.
   that *is* present but is missing `install-all.sh` remains a hard failure —
   that is a genuine misconfiguration, not the meta-repo case.
 
+- **Phase 11 verify no longer hard-fails an already-published release on an
+  absent `.github` sibling.** The install-all.sh and profile-SHA checks recorded
+  a failed check when `.github` did not resolve, so `punt release` still exited
+  non-zero at verification — after phases 5-7 had published — defeating the
+  Phase 10a skip above and making the exit code useless for distinguishing the
+  expected meta-repo case from a real defect. Both checks now skip (not fail)
+  when `.github` is absent, consistent with Phase 10a and Phase 1d. A `.github`
+  sibling that *is* present but lacks `install-all.sh`, or whose profile README
+  is missing or stale, still fails as before. Every propagation/verification
+  step skipped mid-run is now recorded and recapped in the end-of-run summary
+  under "Manual action required", so a skip surfaced from a concurrent Phase 10
+  worker is never the only notice the operator gets.
+
 - **Neither release script aborts on a plugin that ships no `commands/`.**
   `release-plugin.sh` exited non-zero when `find` turned up no `*-dev.md`, and
   `restore-dev-plugin.sh` passed `commands/` to `git checkout` unconditionally,
