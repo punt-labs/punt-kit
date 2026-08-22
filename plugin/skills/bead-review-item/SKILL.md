@@ -61,11 +61,10 @@ one to close. Read the other bead too, to confirm the pairing still holds
 if it does, treat this as an invalidity case (Step 3) and close this bead
 with a reason pointing at the surviving bead. Do not re-decide which
 member of the pair should close — that decision was made once, upstream,
-specifically so that two independent reviews of the same pair (which can
-run concurrently under fork fan-out) never both decide to close, or both
-decide to survive. If the pairing looks wrong on a closer read (not
-actually a duplicate), fall through to a normal Step 2/3 review instead of
-closing.
+so that two reviews of the same pair never both decide to close, or both
+decide to survive, regardless of review order. If the pairing looks wrong
+on a closer read (not actually a duplicate), fall through to a normal
+Step 2/3 review instead of closing.
 
 ## Step 2: Assess clarity
 

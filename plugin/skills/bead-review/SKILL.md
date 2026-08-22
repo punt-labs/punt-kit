@@ -124,13 +124,27 @@ The only case `bead-review-item` surfaces mid-run is `needs-human-review`,
 and that's a label + a bead comment + a line in the final report, not a
 blocking question.
 
-**Batch size for large backlogs:** if the repo has more than ~30 open
-beads, reviewing one at a time in the main loop can be slow. In that case,
-fan out `bead-review-item` across fork agents in batches (e.g. 5-10
-concurrent), collecting each fork's one-line report the same way. Do not
-parallelize by skipping the per-bead rubric — every bead still gets the
-full read/assess/verify/act sequence, just concurrently rather than
-strictly sequentially.
+**Large backlogs run sequentially, not fanned out to fork agents.**
+`bead-review-item` has `disable-model-invocation: true`, and that blocks
+the Skill tool for *any* forked/sub-agent caller — only the top-level
+session that received this skill's own instructions can invoke it.
+Delegating batches to fork agents was tried and fails outright: every
+fork gets a hard tool-layer refusal ("cannot be used with Skill tool due
+to disable-model-invocation... do not replicate this skill's workflow by
+other means"), not a permission prompt, so there is nothing to grant your
+way past. Do not attempt to route around this by having a fork replicate
+`bead-review-item`'s steps by hand instead of calling it — that produces
+an unreviewed, drifting copy of the rubric instead of the real one, and
+the tool's own refusal message explicitly says not to.
+
+Review every bead in this same top-level session, one at a time, in
+order, for however many beads that takes. This is slower than the
+concurrent fan-out this section originally described, but it is the only
+path that actually executes `bead-review-item` as designed. If a backlog
+is large enough that this becomes impractical in one sitting, split by
+theme or by a `bd list` filter across multiple sessions rather than
+fanning out within one — never trade correctness (the full rubric
+running) for speed.
 
 ## Step 5: Group by theme
 
