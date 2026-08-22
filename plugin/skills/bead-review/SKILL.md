@@ -133,42 +133,40 @@ Delegating batches to fork agents was tried against a real 46-bead
 backlog and mostly failed: 7 of 8 forks got a hard tool-layer refusal
 ("cannot be used with Skill tool due to disable-model-invocation... do
 not replicate this skill's workflow by other means"), not a permission
-prompt, so there is nothing to grant your way past. The 8th fork did not
-hit the same refusal — instead of calling the tool, it disobeyed the
-refusal text and hand-replicated `bead-review-item`'s steps itself,
-producing an unreviewed, drifting copy of the rubric rather than a real
-run of it. Do not rely on forking working, and do not accept a fork's
-result that arrived by working around the block instead of through it —
+prompt, so there is nothing to grant your way past. The 8th fork never
+issued the Skill call at all: instead of calling the tool and hitting
+that refusal, it hand-replicated `bead-review-item`'s steps directly from
+this document's text, producing an unreviewed, drifting copy of the
+rubric rather than a real run of it — a self-directed workaround, not a
+response to the refusal. Do not rely on forking working, and do not
+accept a result that arrived this way instead of through a real call —
 see "Discard second-hand results" below.
 
 Review every bead in this same top-level session, one at a time, in
-order, for however many beads that takes. This is slower than the
-concurrent fan-out this section originally described, but it is the only
-reliable path that actually executes `bead-review-item` as designed.
+order, for however many beads that takes, regardless of backlog size.
+This is slower than the concurrent fan-out this section originally
+described, but it is the only reliable path that actually executes
+`bead-review-item` as designed. **There is no supported way to split a
+single audit run across multiple sessions or agents** — every attempt at
+that (fork fan-out; a since-removed multi-session split) turned out to
+lose or duplicate state across the split boundary (a discovered duplicate
+pair, a partial count, a bead silently dropped from one slice's
+enumeration) with no reliable way to detect the loss after the fact. If a
+backlog is too large for one sitting, that is a decision for the human
+running this skill, not something this skill should paper over with an
+unverified splitting procedure.
 
-If a backlog is large enough that this becomes impractical in one
-sitting, split across multiple sessions run one after another, never
-concurrently, and never by `theme:*` — themes are *produced by* this
-review (Step 6 of `bead-review-item` adds them), so an unaudited backlog
-has none to split on yet. Split on a stable, pre-existing axis instead
-(e.g. a `bd list` id-range or priority filter). Only the first session in
-the sequence runs Step 3's duplicate scan — it queries the whole backlog
-in one call by design, not a filtered subset, so running it again in a
-later session against a different slice would miss cross-slice pairs and
-reopen the exact race Step 3 exists to prevent. Later sessions skip
-Step 3 and treat any bead already carrying a `duplicate-of:` outcome from
-an earlier session as settled. Each session still produces its own Step 6
-report for its slice; assemble the final combined report (including one
-combined Step 5 batching plan over the full backlog) after the last
-session finishes, not per-slice.
-
-**Discard second-hand results.** Every real disposition line came from an
-actual `Skill(punt:bead-review-item, ...)` (or `punt-dev:`) call and has
-the exact shape Step 7 of that skill specifies. If a result shows up in
-your collected set without that shape, discard it and redo that bead
-yourself, in this session, via the real call. A plausible-looking report
-built partly from unreviewed replicas is worse than a slower one built
-entirely from real invocations.
+**Discard second-hand results.** A disposition line is only good if this
+session itself made the `Skill(punt:bead-review-item, ...)` (or
+`punt-dev:`) call that produced it — matching Step 7's shape is not
+sufficient evidence, since a hand-replicated fabrication (as the 8th fork
+produced) reproduces that shape too. Before accepting a line into the
+final report, confirm the bead's actual state in `bd` matches the claimed
+disposition — a `closed` line has a real `bd close --reason` on the bead,
+a `confirmed-good`/`rewritten` line has the `theme:*` label Step 6 of
+`bead-review-item` adds. If a line's claimed disposition doesn't match
+what `bd show` actually returns for that bead, discard it and redo the
+bead yourself, in this session, via the real call.
 
 ## Step 5: Group by theme
 
