@@ -158,25 +158,32 @@ unverified splitting procedure.
 
 **Discard second-hand results.** A disposition line is only good if this
 session itself made the `Skill(punt:bead-review-item, ...)` (or
-`punt-dev:`) call that produced it. Matching Step 7's shape is not
-sufficient evidence — a hand-replicated fabrication (as the 8th fork
-produced) reproduces that shape too, *and* can write real `bd` mutations
-in the course of faking the steps, so a bare "does some matching mutation
-exist" check is not sufficient either: it can't distinguish a bead closed
-after Step 3's `git grep` actually ran and found evidence from one closed
-on a hand-waved guess that happened to also call `bd close`. There is no
-fully reliable way to verify this from outside the session that did the
-work — this is prose guiding an LLM, not an enforced technical control.
-The best available check, before accepting a line into the final report,
-is to read the *content* the mutation cites, not just confirm it exists:
+`punt-dev:`) call that produced it. Matching the report-line shape
+`bead-review-item`'s Step 7 specifies is not sufficient evidence — a
+hand-replicated fabrication (as the 8th fork produced) reproduces that
+shape too, *and* can write real `bd` mutations in the course of faking
+the steps, so a bare "does some matching mutation exist" check is not
+sufficient either: it can't distinguish a bead closed after
+`bead-review-item` Step 3's verification actually ran and found evidence
+from one closed on a hand-waved guess that happened to also call
+`bd close`. There is no fully reliable way to verify this from outside
+the session that did the work — this is prose guiding an LLM, not an
+enforced technical control. The best available check, before accepting a
+line into the final report, is to read the *content* the mutation cites,
+not just confirm it exists:
 
 - `closed` — read the `--reason` text on the bead. It must cite specific
   evidence (a file:line, a command's actual output, a PR/CHANGELOG/bead
   reference) per Step 5a of `bead-review-item`, not a vague "no longer
   needed."
-- `confirmed-good` / `rewritten` — confirm the `theme:*` label Step 6 of
-  `bead-review-item` adds is present, and for `rewritten`, that the title
-  and description actually changed from what Step 2 recorded.
+- `confirmed-good` — confirm the `theme:*` label `bead-review-item`
+  Step 6 adds is present.
+- `rewritten` — confirm the `theme:*` label is present, and that *at
+  least one* of title, description, or priority actually changed from
+  what Step 2 recorded — Step 5b of `bead-review-item` allows rewriting
+  any subset of those fields, not all three, so a priority-only or
+  single-field rewrite is still a real rewrite and must not be discarded
+  for failing to touch fields it was never meant to touch.
 - `needs-human-review` — confirm both the `needs-human-review` label and
   the `bd comment` Step 3 of `bead-review-item` requires are present, and
   that the comment states what was checked and why it stayed uncertain.
