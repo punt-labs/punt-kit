@@ -21,21 +21,24 @@ one final report — not to relay 40 individual questions to the user.
 
 `args` (optional): a repo directory to scope to (defaults to the current
 working directory). Beads are stored in a shared org-wide database but
-scoped per repo via `.beads/metadata.json`'s prefix — running this from
-inside a repo, or passing that repo's path, is what determines scope. To
-audit multiple repos, invoke this skill once per repo; it does not fan
-out across repos on its own.
+scoped per repo via `.beads/metadata.json`'s prefix. To audit multiple
+repos, invoke this skill once per repo; it does not fan out across repos
+on its own.
 
 ```text
 Skill(bead-review)                      # audits the current repo
 Skill(bead-review, args="../vox")       # audits a sibling repo
 ```
 
+Set `REPO` once at the start of the run: `args` if given, otherwise the
+current directory. **Never `cd`** — every `bd` command below takes `-C
+"$REPO"` instead, so the skill works regardless of what tools are
+allow-listed for the invoking command.
+
 ## Step 1: Confirm scope
 
 ```bash
-cd <target-repo>   # only if args gave a different repo
-cat .beads/metadata.json   # confirm the prefix, sanity-check this is the right db
+cat "$REPO/.beads/metadata.json"   # confirm the prefix, sanity-check this is the right db
 ```
 
 State the repo and prefix you're about to audit in one line before
@@ -46,10 +49,12 @@ the run is legible if it's being watched.
 
 "Open" means any non-closed status, not just `bd ready`'s narrower
 no-blockers view — blocked and deferred beads still need clarity/validity
-review even if they can't be worked yet:
+review even if they can't be worked yet. Do **not** add `--all` here — that
+flag means "include closed issues too," the opposite of what this step
+wants; the explicit `--status` list is the complete filter on its own:
 
 ```bash
-bd list --status open,in_progress,blocked,deferred --all -n 0 --no-pager --sort created --json
+bd -C "$REPO" list --status open,in_progress,blocked,deferred -n 0 --no-pager --sort created --json
 ```
 
 Sort by `created` (oldest first) — age is a priority signal per
@@ -61,46 +66,70 @@ Record the total count. This is the number you're accountable for at the
 end — every single one gets a disposition line in the final report, not a
 sample.
 
-## Step 3: Review each bead
+## Step 3: Scan for duplicates once, up front
+
+`bd find-duplicates` operates on the whole backlog in one call — it has no
+per-bead `--id` mode, so this only runs once here, not inside the per-bead
+loop:
+
+```bash
+bd -C "$REPO" find-duplicates --status open --json
+```
+
+Keep the resulting pairs in context. When Step 4 reaches a bead that's a
+member of a reported pair, pass that fact along to `bead-review-item` so
+it can fold the duplicate check into its own validity assessment instead
+of re-running a scan per bead.
+
+## Step 4: Review each bead
 
 For each bead ID from Step 2, in order:
 
 ```text
-Skill(bead-review-item, args="<id>")
+Skill(bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
 ```
+
+Pass `-C "$REPO"` in the args so the inner skill's `bd` calls target the
+right database without needing its own `cd`. If Step 3 found this bead in
+a duplicate pair, say so in the args too.
 
 Collect that skill's one-line report output. Do not stop between beads to
 ask whether to proceed, whether a disposition was correct, or whether to
 continue — that defeats the purpose of an autonomous full-backlog pass.
 The only case `bead-review-item` surfaces mid-run is `needs-human-review`,
-and that's a label + a line in the final report, not a blocking question.
+and that's a label + a bead comment + a line in the final report, not a
+blocking question.
 
 **Batch size for large backlogs:** if the repo has more than ~30 open
-beads, this can be slow run one at a time in the main loop. In that case,
+beads, reviewing one at a time in the main loop can be slow. In that case,
 fan out `bead-review-item` across fork agents in batches (e.g. 5-10
 concurrent), collecting each fork's one-line report the same way. Do not
 parallelize by skipping the per-bead rubric — every bead still gets the
 full read/assess/verify/act sequence, just concurrently rather than
 strictly sequentially.
 
-## Step 4: Group by theme
+## Step 5: Group by theme
 
-Once every bead has a `theme:*` label (from `bead-review-item` Step 6),
-pull the grouping:
+Once every surviving bead has a `theme:*` label (from `bead-review-item`
+Step 6), pull the grouping. Use the same non-closed status filter as
+Step 2 — closed beads (including the ones this run just closed) must not
+appear in a *future work* batching plan:
 
 ```bash
-bd list --label-pattern "theme:*" --all -n 0 --no-pager --sort priority --json
+bd -C "$REPO" list --status open,in_progress,blocked,deferred --label-pattern "theme:*" -n 0 --no-pager --sort priority --json
 ```
 
-Group the surviving (non-closed) beads by their `theme:` label. Within
-each theme, sort by priority. This is the artifact that makes the audit
-useful beyond "the backlog is now tidy" — it's a batching plan: which
-groups of beads touch the same code and could reasonably be worked
-together in one pass.
+Group by `theme:` label; within each theme, sort by priority. This is the
+artifact that makes the audit useful beyond "the backlog is now tidy" —
+it's a batching plan: which groups of beads touch the same code and could
+reasonably be worked together in one pass.
 
-## Step 5: Final report
+## Step 6: Final report
 
-Print one report, not N questions. Structure:
+Print one report, not N questions. Every bead reviewed in Step 4 appears
+in exactly one of the first four tables — including beads that were
+confirmed good with no changes, which get their own (typically short)
+table rather than being silently omitted:
 
 ```markdown
 # Bead Review: <repo> (<prefix>)
@@ -123,6 +152,12 @@ Print one report, not N questions. Structure:
 |----|-----------|----------|-------|
 | ... | ... | ... | ... |
 
+## Confirmed good
+
+| ID | Title | Priority | Theme |
+|----|-------|----------|-------|
+| ... | ... | ... | ... |
+
 ## Needs human review
 
 | ID | Title | Why uncertain |
@@ -141,11 +176,9 @@ Print one report, not N questions. Structure:
 ...
 ```
 
-Every bead reviewed appears in exactly one of the first three tables
-(Closed / Rewritten / Needs human review) — beads that were confirmed
-good with no changes don't need their own row, but the summary count at
-the top must still include them, and they still appear in the batching
-plan since they're still open and still need eventual work.
+The batching plan includes every surviving bead (Rewritten + Confirmed
+good + Needs human review) — Closed beads are gone from future work by
+definition and don't appear there.
 
 This report is the deliverable. Nothing further happens automatically —
 batching the actual fix work into missions/PRs is a separate, later step

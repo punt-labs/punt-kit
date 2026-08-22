@@ -10,18 +10,29 @@ Given one bead ID, decide whether it is well-written, still valid, and
 correctly prioritized — then act on that decision immediately. This skill
 never asks the user for confirmation per bead; it makes the call, documents
 why, and moves on. It is normally invoked by `bead-review` (the outer loop),
-once per bead, but works standalone: `Skill(bead-review-item, args="<bead-id>")`.
+once per bead, but works standalone.
 
 ## Usage
 
-`args` is a single bead ID (e.g. `biff-kmv`). If a repo/beads scope was
-already established by the caller (via `cd` or `bd -C`), commands below run
-unqualified; otherwise pass `-C <repo-dir>` on every `bd` call.
+`args` is a bead ID, optionally followed by `-C <repo-dir>` (pass every
+`bd` call in this repo instead of the caller's cwd — needed when a caller
+isn't already scoped there) and/or `duplicate-of: <other-id>` (set by the
+outer loop when its one-time backlog-wide `bd find-duplicates` scan
+already flagged this bead against another).
+
+```text
+Skill(bead-review-item, args="biff-kmv")
+Skill(bead-review-item, args="biff-kmv -C ../vox duplicate-of: biff-9zq")
+```
+
+Parse `args` into `ID`, an optional `-C "$REPO"` to append to every `bd`
+call below, and an optional known-duplicate ID. **Never `cd`** — always
+qualify `bd` with `-C` when one was given.
 
 ## Step 1: Read
 
 ```bash
-bd show <id> --json
+bd $([ -n "$REPO" ] && echo -C "$REPO") show "$ID" --json
 ```
 
 Capture: title, description, priority, status, labels, `created_at`,
@@ -30,15 +41,14 @@ priority signal in its own right — a bead open for months at P2 either
 deserves a bump (something's been quietly starving it) or is a sign it
 should have been closed long ago. Don't skip reading it.
 
-Also check for duplicates before spending time on a full review:
-
-```bash
-bd find-duplicates --id <id>
-```
-
-If a genuine duplicate exists, treat this as an invalidity case (Step 3) —
-close the newer/less-complete one with a reason pointing at the surviving
-bead, don't rewrite both.
+If the caller passed a `duplicate-of:` ID, read that bead too
+(`bd show <other-id> --json`) and compare. `bd find-duplicates` has no
+per-bead mode — it only scans the whole backlog at once — so this
+comparison is the only duplicate check that happens here; the scan itself
+already ran once, in the outer loop, before this skill was invoked. If
+they're a genuine duplicate, treat this as an invalidity case (Step 3) —
+close whichever is newer/less-complete with a reason pointing at the
+surviving bead, don't rewrite both.
 
 ## Step 2: Assess clarity
 
@@ -65,10 +75,13 @@ fix at all.
 ## Step 3: Assess validity — verify, don't guess
 
 If the bead makes a factual claim about the code (a bug exists, a feature
-is missing, a file behaves a certain way), **check it directly**:
+is missing, a file behaves a certain way), **check it directly** — use the
+Grep tool, or `git grep` (works from anywhere inside the repo, unlike a
+raw `grep` restricted to guessed paths like `src/`/`tests/`, which won't
+exist or won't be the right layout in every repo):
 
 ```bash
-grep -rn "<the specific thing described>" src/ tests/
+git -C "${REPO:-.}" grep -n "<the specific thing described>"
 ```
 
 Read the actual file(s) involved. Run the actual command described, if it's
@@ -92,10 +105,20 @@ recent PRs, other closed beads referencing the same area).
   wrong) → go to Step 5a (close).
 - **Valid** → continue to Step 4.
 - **Genuinely uncertain after a real check** → leave open, do not rewrite
-  title/priority, just add a `needs-human-review` label and one note line
-  explaining what you checked and why it's still ambiguous. This is the
-  only case where the loop should flag something back to a human — and it
-  should be rare, not the default outcome.
+  title/priority. Add the `needs-human-review` label *and* still add a
+  `theme:<area>` label (Step 6) — an uncertain bead is still real work
+  that belongs in the batching plan, it just needs a human's eyes before
+  anyone acts on it. Record what you checked directly on the bead, not
+  only in the outer loop's transient report output, so the reasoning
+  survives independently of that one run:
+
+  ```bash
+  bd $([ -n "$REPO" ] && echo -C "$REPO") comment "$ID" \
+    "bead-review: uncertain after checking <what you checked> — <why it's still ambiguous>"
+  ```
+
+  This is the only case where the loop should flag something back to a
+  human — and it should be rare, not the default outcome.
 
 ## Step 4: Assess priority
 
@@ -120,7 +143,7 @@ but turned out to be cosmetic, etc.).
 ### 5a. Invalid — close
 
 ```bash
-bd close <id> --reason "<what you checked, file:line if applicable, and why it's resolved/superseded/obsolete>"
+bd $([ -n "$REPO" ] && echo -C "$REPO") close "$ID" --reason "<what you checked, file:line if applicable, and why it's resolved/superseded/obsolete>"
 ```
 
 The reason must cite evidence (a file, a PR, a CHANGELOG entry, another
@@ -135,7 +158,7 @@ paths, or command output when they make the bead self-contained instead
 of requiring the reader to go dig.
 
 ```bash
-bd update <id> \
+bd $([ -n "$REPO" ] && echo -C "$REPO") update "$ID" \
   --title "<clear, specific, action-oriented title>" \
   --priority <P0-P4> \
   --description "$(cat <<'EOF'
@@ -164,10 +187,11 @@ should reflect that (a confirmed-good bead is a result, not a non-event).
 
 Add (don't remove existing unrelated labels) a `theme:<area>` label based
 on what part of the codebase/system this touches, so the outer loop can
-group the final set for batch work:
+group the final set for batch work. Applies to every disposition except
+5a (closed beads don't need a theme — they're leaving the backlog):
 
 ```bash
-bd label add <id> "theme:<area>"
+bd $([ -n "$REPO" ] && echo -C "$REPO") label add "$ID" "theme:<area>"
 ```
 
 Pick from existing `theme:*` labels already in use where one fits
