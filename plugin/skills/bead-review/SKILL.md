@@ -81,8 +81,9 @@ bd -C "$REPO" find-duplicates --status open,in_progress,blocked,deferred --json
 
 For each reported pair, decide **now, once, in the outer loop** which
 member is the one to close — never let both members of a pair each decide
-independently, or parallel review can close both (each thinking it's the
-duplicate) or neither. Use status and `created_at` from Step 2's
+independently, or two independent reviews can close both (each thinking
+it's the duplicate) or neither, regardless of review order. Use status
+and `created_at` from Step 2's
 enumeration (already in hand, no extra `bd` calls needed), status first:
 
 - If exactly one member is `in_progress`, it is **always** the survivor
@@ -126,25 +127,48 @@ blocking question.
 
 **Large backlogs run sequentially, not fanned out to fork agents.**
 `bead-review-item` has `disable-model-invocation: true`, and that blocks
-the Skill tool for *any* forked/sub-agent caller — only the top-level
-session that received this skill's own instructions can invoke it.
-Delegating batches to fork agents was tried and fails outright: every
-fork gets a hard tool-layer refusal ("cannot be used with Skill tool due
-to disable-model-invocation... do not replicate this skill's workflow by
-other means"), not a permission prompt, so there is nothing to grant your
-way past. Do not attempt to route around this by having a fork replicate
-`bead-review-item`'s steps by hand instead of calling it — that produces
-an unreviewed, drifting copy of the rubric instead of the real one, and
-the tool's own refusal message explicitly says not to.
+the Skill tool for forked/sub-agent callers — only the top-level session
+that received this skill's own instructions can reliably invoke it.
+Delegating batches to fork agents was tried against a real 46-bead
+backlog and mostly failed: 7 of 8 forks got a hard tool-layer refusal
+("cannot be used with Skill tool due to disable-model-invocation... do
+not replicate this skill's workflow by other means"), not a permission
+prompt, so there is nothing to grant your way past. The 8th fork did not
+hit the same refusal — instead of calling the tool, it disobeyed the
+refusal text and hand-replicated `bead-review-item`'s steps itself,
+producing an unreviewed, drifting copy of the rubric rather than a real
+run of it. Do not rely on forking working, and do not accept a fork's
+result that arrived by working around the block instead of through it —
+see "Discard second-hand results" below.
 
 Review every bead in this same top-level session, one at a time, in
 order, for however many beads that takes. This is slower than the
 concurrent fan-out this section originally described, but it is the only
-path that actually executes `bead-review-item` as designed. If a backlog
-is large enough that this becomes impractical in one sitting, split by
-theme or by a `bd list` filter across multiple sessions rather than
-fanning out within one — never trade correctness (the full rubric
-running) for speed.
+reliable path that actually executes `bead-review-item` as designed.
+
+If a backlog is large enough that this becomes impractical in one
+sitting, split across multiple sessions run one after another, never
+concurrently, and never by `theme:*` — themes are *produced by* this
+review (Step 6 of `bead-review-item` adds them), so an unaudited backlog
+has none to split on yet. Split on a stable, pre-existing axis instead
+(e.g. a `bd list` id-range or priority filter). Only the first session in
+the sequence runs Step 3's duplicate scan — it queries the whole backlog
+in one call by design, not a filtered subset, so running it again in a
+later session against a different slice would miss cross-slice pairs and
+reopen the exact race Step 3 exists to prevent. Later sessions skip
+Step 3 and treat any bead already carrying a `duplicate-of:` outcome from
+an earlier session as settled. Each session still produces its own Step 6
+report for its slice; assemble the final combined report (including one
+combined Step 5 batching plan over the full backlog) after the last
+session finishes, not per-slice.
+
+**Discard second-hand results.** Every real disposition line came from an
+actual `Skill(punt:bead-review-item, ...)` (or `punt-dev:`) call and has
+the exact shape Step 7 of that skill specifies. If a result shows up in
+your collected set without that shape, discard it and redo that bead
+yourself, in this session, via the real call. A plausible-looking report
+built partly from unreviewed replicas is worse than a slower one built
+entirely from real invocations.
 
 ## Step 5: Group by theme
 
@@ -163,6 +187,13 @@ it's a batching plan: which groups of beads touch the same code and could
 reasonably be worked together in one pass.
 
 ## Step 6: Final report
+
+**Reconcile before printing.** Count the disposition lines collected in
+Step 4 and compare that count to the total recorded in Step 2. If they
+don't match, stop and report the discrepancy instead of printing a report
+that looks complete but silently under-covers the backlog — this is the
+check that would have caught the incident that prompted the "discard
+second-hand results" rule above, had it slipped past that rule too.
 
 Print one report, not N questions. Every bead reviewed in Step 4 appears
 in exactly one of the first four tables — including beads that were

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **`bead-review` skill (+ `bead-review-item` inner loop) for full-backlog bead audits.** Enumerates every open bead in a repo, and for each one: verifies validity against the actual code (never closes on a guess), reassesses clarity/title/priority, rewrites or closes as warranted, and tags a `theme:<area>` label. Produces one end-of-run report with a per-theme batching plan — no per-bead confirmation questions. Invoke via `/punt:bead-review` (or `bead-review-dev` on the dev plugin). Reviews run sequentially in the invoking session, not fanned out to fork agents — `bead-review-item` has `disable-model-invocation: true`, which blocks the Skill tool for any forked/sub-agent caller outright (confirmed via a live 46-bead audit: every fork got a hard tool-layer refusal, not a permission prompt). Only the top-level session that received this skill's own instructions can invoke the inner loop.
+- **`bead-review` skill (+ `bead-review-item` inner loop) for full-backlog bead audits.** Enumerates every open bead in a repo, and for each one: verifies validity against the actual code (never closes on a guess), reassesses clarity/title/priority, rewrites or closes as warranted, and tags a `theme:<area>` label. Produces one end-of-run report with a per-theme batching plan — no per-bead confirmation questions. Invoke via `/punt:bead-review` (or `bead-review-dev` on the dev plugin). Reviews run sequentially in the invoking session — fanning out to fork agents is unreliable and not recommended; see `plugin/skills/bead-review/SKILL.md` for why.
 
 ## [0.15.0] - 2026-08-20
 
