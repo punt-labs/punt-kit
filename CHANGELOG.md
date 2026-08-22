@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`bead-review` skill (+ `bead-review-item` inner loop) for full-backlog bead audits.** Enumerates every open bead in a repo, and for each one: verifies validity against the actual code (never closes on a guess), reassesses clarity/title/priority, rewrites or closes as warranted, and tags a `theme:<area>` label. Produces one end-of-run report with a per-theme batching plan — no per-bead confirmation questions. Invoke via `/punt:bead-review` (or `bead-review-dev` on the dev plugin).
+
 ## [0.15.0] - 2026-08-20
 
 ### Changed
