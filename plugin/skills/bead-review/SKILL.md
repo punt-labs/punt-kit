@@ -70,16 +70,28 @@ sample.
 
 `bd find-duplicates` operates on the whole backlog in one call — it has no
 per-bead `--id` mode, so this only runs once here, not inside the per-bead
-loop:
+loop. Use the same status set as Step 2 ("open" means
+`open,in_progress,blocked,deferred` throughout this skill — a narrower
+filter here would silently miss duplicate pairs where one member is
+`in_progress`, `blocked`, or `deferred`):
 
 ```bash
-bd -C "$REPO" find-duplicates --status open --json
+bd -C "$REPO" find-duplicates --status open,in_progress,blocked,deferred --json
 ```
 
-Keep the resulting pairs in context. When Step 4 reaches a bead that's a
-member of a reported pair, pass that fact along to `bead-review-item` so
-it can fold the duplicate check into its own validity assessment instead
-of re-running a scan per bead.
+For each reported pair, decide **now, once, in the outer loop** which
+member is the one to close — never let both members of a pair each decide
+independently, or parallel review can close both (each thinking it's the
+duplicate) or neither. Use `created_at` from Step 2's enumeration (already
+in hand, no extra `bd` calls needed): the older bead is the survivor, the
+newer one is the duplicate to close. If ages are equal or the choice is
+ambiguous, prefer keeping the one with the more complete/specific title or
+body as the survivor.
+
+Keep the resulting pairs in context, but only pass `duplicate-of:` to the
+bead you've designated as the one to close in Step 4 — the survivor is
+reviewed normally, with no duplicate flag at all, since it isn't a
+duplicate-disposition case.
 
 ## Step 4: Review each bead
 
@@ -90,8 +102,10 @@ Skill(bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
 ```
 
 Pass `-C "$REPO"` in the args so the inner skill's `bd` calls target the
-right database without needing its own `cd`. If Step 3 found this bead in
-a duplicate pair, say so in the args too.
+right database without needing its own `cd`. If Step 3 designated this
+bead as the one to close in a duplicate pair, say so in the args
+(`duplicate-of: <survivor-id>`) — only the designated bead gets this flag;
+its surviving pair-mate is invoked with no duplicate mention at all.
 
 Collect that skill's one-line report output. Do not stop between beads to
 ask whether to proceed, whether a disposition was correct, or whether to

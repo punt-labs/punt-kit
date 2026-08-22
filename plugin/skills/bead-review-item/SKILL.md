@@ -18,7 +18,10 @@ once per bead, but works standalone.
 `bd` call in this repo instead of the caller's cwd — needed when a caller
 isn't already scoped there) and/or `duplicate-of: <other-id>` (set by the
 outer loop when its one-time backlog-wide `bd find-duplicates` scan
-already flagged this bead against another).
+already flagged this bead — specifically *this* bead, not its pair-mate —
+as the one to close in favor of `<other-id>`). The outer loop only ever
+attaches `duplicate-of:` to one member of a pair; its survivor is invoked
+with no duplicate mention at all.
 
 ```text
 Skill(bead-review-item, args="biff-kmv")
@@ -41,14 +44,19 @@ priority signal in its own right — a bead open for months at P2 either
 deserves a bump (something's been quietly starving it) or is a sign it
 should have been closed long ago. Don't skip reading it.
 
-If the caller passed a `duplicate-of:` ID, read that bead too
-(`bd show <other-id> --json`) and compare. `bd find-duplicates` has no
-per-bead mode — it only scans the whole backlog at once — so this
-comparison is the only duplicate check that happens here; the scan itself
-already ran once, in the outer loop, before this skill was invoked. If
-they're a genuine duplicate, treat this as an invalidity case (Step 3) —
-close whichever is newer/less-complete with a reason pointing at the
-surviving bead, don't rewrite both.
+If the caller passed a `duplicate-of:` ID, the outer loop has already
+compared this bead against its pair-mate (using `created_at` and
+completeness) and determined **this** bead — not the other one — is the
+one to close. Read the other bead too, to confirm the pairing still holds
+(`bd $([ -n "$REPO" ] && echo -C "$REPO") show "<other-id>" --json`):
+if it does, treat this as an invalidity case (Step 3) and close this bead
+with a reason pointing at the surviving bead. Do not re-decide which
+member of the pair should close — that decision was made once, upstream,
+specifically so that two independent reviews of the same pair (which can
+run concurrently under fork fan-out) never both decide to close, or both
+decide to survive. If the pairing looks wrong on a closer read (not
+actually a duplicate), fall through to a normal Step 2/3 review instead of
+closing.
 
 ## Step 2: Assess clarity
 
@@ -195,7 +203,8 @@ bd $([ -n "$REPO" ] && echo -C "$REPO") label add "$ID" "theme:<area>"
 ```
 
 Pick from existing `theme:*` labels already in use where one fits
-(`bd label list-all | grep theme:`) before inventing a new one — the
+(`bd $([ -n "$REPO" ] && echo -C "$REPO") label list-all | grep theme:`)
+before inventing a new one — the
 point is batching, which only works if the same theme is spelled the
 same way across beads.
 
