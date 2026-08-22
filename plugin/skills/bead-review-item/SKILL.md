@@ -53,7 +53,8 @@ deserves a bump (something's been quietly starving it) or is a sign it
 should have been closed long ago. Don't skip reading it.
 
 If the caller passed a `duplicate-of:` ID, the outer loop has already
-compared this bead against its pair-mate (using `created_at` and
+compared this bead against its pair-mate (using status — an `in_progress`
+bead always survives regardless of age — then `created_at`, then
 completeness) and determined **this** bead — not the other one — is the
 one to close. Read the other bead too, to confirm the pairing still holds
 (`bd -C "${REPO:-.}" show "<other-id>" --json`):
@@ -213,9 +214,10 @@ bd -C "${REPO:-.}" label add "$ID" "theme:<area>"
 Pick from existing `theme:*` labels already in use where one fits before
 inventing a new one — the point is batching, which only works if the
 same theme is spelled the same way across beads. Listing labels needs no
-`grep` (this skill isn't allow-listed for it): run
-`bd -C "${REPO:-.}" label list-all` and read the `theme:*` entries
-directly from its output.
+shell `grep` pipe: run `bd -C "${REPO:-.}" label list-all` and read the
+`theme:*` entries directly from its output (the Grep *tool* is fine to
+use elsewhere in this skill — it's shell `| grep` piping specifically
+that isn't available here).
 
 ## Step 7: Report back
 

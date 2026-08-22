@@ -82,11 +82,17 @@ bd -C "$REPO" find-duplicates --status open,in_progress,blocked,deferred --json
 For each reported pair, decide **now, once, in the outer loop** which
 member is the one to close — never let both members of a pair each decide
 independently, or parallel review can close both (each thinking it's the
-duplicate) or neither. Use `created_at` from Step 2's enumeration (already
-in hand, no extra `bd` calls needed): the older bead is the survivor, the
-newer one is the duplicate to close. If ages are equal or the choice is
-ambiguous, prefer keeping the one with the more complete/specific title or
-body as the survivor.
+duplicate) or neither. Use status and `created_at` from Step 2's
+enumeration (already in hand, no extra `bd` calls needed), status first:
+
+- If exactly one member is `in_progress`, it is **always** the survivor
+  regardless of age — someone is actively working it, and closing active
+  work out from under an assignee is worse than leaving a duplicate open
+  for a human to reconcile.
+- Otherwise (both/neither `in_progress`), the older bead is the survivor,
+  the newer one is the duplicate to close.
+- If ages are equal or the choice is still ambiguous, prefer keeping the
+  one with the more complete/specific title or body as the survivor.
 
 Keep the resulting pairs in context, but only pass `duplicate-of:` to the
 bead you've designated as the one to close in Step 4 — the survivor is
