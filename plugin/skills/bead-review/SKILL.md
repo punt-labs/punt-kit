@@ -83,8 +83,8 @@ For each reported pair, decide **now, once, in the outer loop** which
 member is the one to close — never let both members of a pair each decide
 independently, or two independent reviews can close both (each thinking
 it's the duplicate) or neither, regardless of review order. Use status
-and `created_at` from Step 2's
-enumeration (already in hand, no extra `bd` calls needed), status first:
+and `created_at` from Step 2's enumeration (already in hand, no extra
+`bd` calls needed), status first:
 
 - If exactly one member is `in_progress`, it is **always** the survivor
   regardless of age — someone is actively working it, and closing active
@@ -158,15 +158,32 @@ unverified splitting procedure.
 
 **Discard second-hand results.** A disposition line is only good if this
 session itself made the `Skill(punt:bead-review-item, ...)` (or
-`punt-dev:`) call that produced it — matching Step 7's shape is not
-sufficient evidence, since a hand-replicated fabrication (as the 8th fork
-produced) reproduces that shape too. Before accepting a line into the
-final report, confirm the bead's actual state in `bd` matches the claimed
-disposition — a `closed` line has a real `bd close --reason` on the bead,
-a `confirmed-good`/`rewritten` line has the `theme:*` label Step 6 of
-`bead-review-item` adds. If a line's claimed disposition doesn't match
-what `bd show` actually returns for that bead, discard it and redo the
-bead yourself, in this session, via the real call.
+`punt-dev:`) call that produced it. Matching Step 7's shape is not
+sufficient evidence — a hand-replicated fabrication (as the 8th fork
+produced) reproduces that shape too, *and* can write real `bd` mutations
+in the course of faking the steps, so a bare "does some matching mutation
+exist" check is not sufficient either: it can't distinguish a bead closed
+after Step 3's `git grep` actually ran and found evidence from one closed
+on a hand-waved guess that happened to also call `bd close`. There is no
+fully reliable way to verify this from outside the session that did the
+work — this is prose guiding an LLM, not an enforced technical control.
+The best available check, before accepting a line into the final report,
+is to read the *content* the mutation cites, not just confirm it exists:
+
+- `closed` — read the `--reason` text on the bead. It must cite specific
+  evidence (a file:line, a command's actual output, a PR/CHANGELOG/bead
+  reference) per Step 5a of `bead-review-item`, not a vague "no longer
+  needed."
+- `confirmed-good` / `rewritten` — confirm the `theme:*` label Step 6 of
+  `bead-review-item` adds is present, and for `rewritten`, that the title
+  and description actually changed from what Step 2 recorded.
+- `needs-human-review` — confirm both the `needs-human-review` label and
+  the `bd comment` Step 3 of `bead-review-item` requires are present, and
+  that the comment states what was checked and why it stayed uncertain.
+
+If a line's cited evidence is missing, vague, or doesn't match what `bd
+show` actually returns for that bead, discard it and redo the bead
+yourself, in this session, via the real call.
 
 ## Step 5: Group by theme
 
