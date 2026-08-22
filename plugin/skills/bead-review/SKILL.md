@@ -81,9 +81,10 @@ bd -C "$REPO" find-duplicates --status open,in_progress,blocked,deferred --json
 
 For each reported pair, decide **now, once, in the outer loop** which
 member is the one to close — never let both members of a pair each decide
-independently, or parallel review can close both (each thinking it's the
-duplicate) or neither. Use status and `created_at` from Step 2's
-enumeration (already in hand, no extra `bd` calls needed), status first:
+independently, or two independent reviews can close both (each thinking
+it's the duplicate) or neither, regardless of review order. Use status
+and `created_at` from Step 2's enumeration (already in hand, no extra
+`bd` calls needed), status first:
 
 - If exactly one member is `in_progress`, it is **always** the survivor
   regardless of age — someone is actively working it, and closing active
@@ -124,13 +125,72 @@ The only case `bead-review-item` surfaces mid-run is `needs-human-review`,
 and that's a label + a bead comment + a line in the final report, not a
 blocking question.
 
-**Batch size for large backlogs:** if the repo has more than ~30 open
-beads, reviewing one at a time in the main loop can be slow. In that case,
-fan out `bead-review-item` across fork agents in batches (e.g. 5-10
-concurrent), collecting each fork's one-line report the same way. Do not
-parallelize by skipping the per-bead rubric — every bead still gets the
-full read/assess/verify/act sequence, just concurrently rather than
-strictly sequentially.
+**Large backlogs run sequentially, not fanned out to fork agents.**
+`bead-review-item` has `disable-model-invocation: true`, and that blocks
+the Skill tool for forked/sub-agent callers — only the top-level session
+that received this skill's own instructions can reliably invoke it.
+Delegating batches to fork agents was tried against a real 46-bead
+backlog and mostly failed: 7 of 8 forks got a hard tool-layer refusal
+("cannot be used with Skill tool due to disable-model-invocation... do
+not replicate this skill's workflow by other means"), not a permission
+prompt, so there is nothing to grant your way past. The 8th fork never
+issued the Skill call at all: instead of calling the tool and hitting
+that refusal, it hand-replicated `bead-review-item`'s steps directly from
+this document's text, producing an unreviewed, drifting copy of the
+rubric rather than a real run of it — a self-directed workaround, not a
+response to the refusal. Do not rely on forking working, and do not
+accept a result that arrived this way instead of through a real call —
+see "Discard second-hand results" below.
+
+Review every bead in this same top-level session, one at a time, in
+order, for however many beads that takes, regardless of backlog size.
+This is slower than the concurrent fan-out this section originally
+described, but it is the only reliable path that actually executes
+`bead-review-item` as designed. **There is no supported way to split a
+single audit run across multiple sessions or agents** — every attempt at
+that (fork fan-out; a since-removed multi-session split) turned out to
+lose or duplicate state across the split boundary (a discovered duplicate
+pair, a partial count, a bead silently dropped from one slice's
+enumeration) with no reliable way to detect the loss after the fact. If a
+backlog is too large for one sitting, that is a decision for the human
+running this skill, not something this skill should paper over with an
+unverified splitting procedure.
+
+**Discard second-hand results.** A disposition line is only good if this
+session itself made the `Skill(punt:bead-review-item, ...)` (or
+`punt-dev:`) call that produced it. Matching the report-line shape
+`bead-review-item`'s Step 7 specifies is not sufficient evidence — a
+hand-replicated fabrication (as the 8th fork produced) reproduces that
+shape too, *and* can write real `bd` mutations in the course of faking
+the steps, so a bare "does some matching mutation exist" check is not
+sufficient either: it can't distinguish a bead closed after
+`bead-review-item` Step 3's verification actually ran and found evidence
+from one closed on a hand-waved guess that happened to also call
+`bd close`. There is no fully reliable way to verify this from outside
+the session that did the work — this is prose guiding an LLM, not an
+enforced technical control. The best available check, before accepting a
+line into the final report, is to read the *content* the mutation cites,
+not just confirm it exists:
+
+- `closed` — read the `--reason` text on the bead. It must cite specific
+  evidence (a file:line, a command's actual output, a PR/CHANGELOG/bead
+  reference) per Step 5a of `bead-review-item`, not a vague "no longer
+  needed."
+- `confirmed-good` — confirm the `theme:*` label `bead-review-item`
+  Step 6 adds is present.
+- `rewritten` — confirm the `theme:*` label is present, and that *at
+  least one* of title, description, or priority actually changed from
+  what Step 2 recorded — Step 5b of `bead-review-item` allows rewriting
+  any subset of those fields, not all three, so a priority-only or
+  single-field rewrite is still a real rewrite and must not be discarded
+  for failing to touch fields it was never meant to touch.
+- `needs-human-review` — confirm both the `needs-human-review` label and
+  the `bd comment` Step 3 of `bead-review-item` requires are present, and
+  that the comment states what was checked and why it stayed uncertain.
+
+If a line's cited evidence is missing, vague, or doesn't match what `bd
+show` actually returns for that bead, discard it and redo the bead
+yourself, in this session, via the real call.
 
 ## Step 5: Group by theme
 
@@ -149,6 +209,13 @@ it's a batching plan: which groups of beads touch the same code and could
 reasonably be worked together in one pass.
 
 ## Step 6: Final report
+
+**Reconcile before printing.** Count the disposition lines collected in
+Step 4 and compare that count to the total recorded in Step 2. If they
+don't match, stop and report the discrepancy instead of printing a report
+that looks complete but silently under-covers the backlog — this is the
+check that would have caught the incident that prompted the "discard
+second-hand results" rule above, had it slipped past that rule too.
 
 Print one report, not N questions. Every bead reviewed in Step 4 appears
 in exactly one of the first four tables — including beads that were
