@@ -95,10 +95,14 @@ duplicate-disposition case.
 
 ## Step 4: Review each bead
 
-For each bead ID from Step 2, in order:
+For each bead ID from Step 2, in order, using the same plugin namespace
+that invoked this skill (`punt` from `/bead-review`, `punt-dev` from
+`/bead-review-dev` — the command `allowed-tools` only permit the matching
+namespaced form, so a bare `bead-review-item` may be blocked):
 
 ```text
-Skill(bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
+Skill(punt:bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
+Skill(punt-dev:bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
 ```
 
 Pass `-C "$REPO"` in the args so the inner skill's `bd` calls target the

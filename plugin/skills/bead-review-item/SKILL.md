@@ -23,19 +23,27 @@ as the one to close in favor of `<other-id>`). The outer loop only ever
 attaches `duplicate-of:` to one member of a pair; its survivor is invoked
 with no duplicate mention at all.
 
+Use the plugin-namespaced skill ID that matches how you're running — the
+`allowed-tools` permission list only covers the namespaced form, so a bare
+`bead-review-item` may be blocked or fail to resolve:
+
 ```text
-Skill(bead-review-item, args="biff-kmv")
-Skill(bead-review-item, args="biff-kmv -C ../vox duplicate-of: biff-9zq")
+Skill(punt:bead-review-item, args="biff-kmv")
+Skill(punt:bead-review-item, args="biff-kmv -C ../vox duplicate-of: biff-9zq")
+Skill(punt-dev:bead-review-item, args="biff-kmv")   # from the [DEV] command
 ```
 
-Parse `args` into `ID`, an optional `-C "$REPO"` to append to every `bd`
-call below, and an optional known-duplicate ID. **Never `cd`** — always
-qualify `bd` with `-C` when one was given.
+Parse `args` into `ID`, `REPO` (the `-C` value if one was given, else
+`.`), and an optional known-duplicate ID. **Never `cd`** — every `bd` call
+below is qualified with `-C "${REPO:-.}"` unconditionally, so a repo path
+containing spaces still quotes correctly (a conditional
+`$([ -n "$REPO" ] && echo -C "$REPO")` word-splits on expansion and loses
+the quoting, so don't build the flag that way).
 
 ## Step 1: Read
 
 ```bash
-bd $([ -n "$REPO" ] && echo -C "$REPO") show "$ID" --json
+bd -C "${REPO:-.}" show "$ID" --json
 ```
 
 Capture: title, description, priority, status, labels, `created_at`,
@@ -48,7 +56,7 @@ If the caller passed a `duplicate-of:` ID, the outer loop has already
 compared this bead against its pair-mate (using `created_at` and
 completeness) and determined **this** bead — not the other one — is the
 one to close. Read the other bead too, to confirm the pairing still holds
-(`bd $([ -n "$REPO" ] && echo -C "$REPO") show "<other-id>" --json`):
+(`bd -C "${REPO:-.}" show "<other-id>" --json`):
 if it does, treat this as an invalidity case (Step 3) and close this bead
 with a reason pointing at the surviving bead. Do not re-decide which
 member of the pair should close — that decision was made once, upstream,
@@ -121,7 +129,7 @@ recent PRs, other closed beads referencing the same area).
   survives independently of that one run:
 
   ```bash
-  bd $([ -n "$REPO" ] && echo -C "$REPO") comment "$ID" \
+  bd -C "${REPO:-.}" comment "$ID" \
     "bead-review: uncertain after checking <what you checked> — <why it's still ambiguous>"
   ```
 
@@ -151,7 +159,7 @@ but turned out to be cosmetic, etc.).
 ### 5a. Invalid — close
 
 ```bash
-bd $([ -n "$REPO" ] && echo -C "$REPO") close "$ID" --reason "<what you checked, file:line if applicable, and why it's resolved/superseded/obsolete>"
+bd -C "${REPO:-.}" close "$ID" --reason "<what you checked, file:line if applicable, and why it's resolved/superseded/obsolete>"
 ```
 
 The reason must cite evidence (a file, a PR, a CHANGELOG entry, another
@@ -166,7 +174,7 @@ paths, or command output when they make the bead self-contained instead
 of requiring the reader to go dig.
 
 ```bash
-bd $([ -n "$REPO" ] && echo -C "$REPO") update "$ID" \
+bd -C "${REPO:-.}" update "$ID" \
   --title "<clear, specific, action-oriented title>" \
   --priority <P0-P4> \
   --description "$(cat <<'EOF'
@@ -199,14 +207,15 @@ group the final set for batch work. Applies to every disposition except
 5a (closed beads don't need a theme — they're leaving the backlog):
 
 ```bash
-bd $([ -n "$REPO" ] && echo -C "$REPO") label add "$ID" "theme:<area>"
+bd -C "${REPO:-.}" label add "$ID" "theme:<area>"
 ```
 
-Pick from existing `theme:*` labels already in use where one fits
-(`bd $([ -n "$REPO" ] && echo -C "$REPO") label list-all | grep theme:`)
-before inventing a new one — the
-point is batching, which only works if the same theme is spelled the
-same way across beads.
+Pick from existing `theme:*` labels already in use where one fits before
+inventing a new one — the point is batching, which only works if the
+same theme is spelled the same way across beads. Listing labels needs no
+`grep` (this skill isn't allow-listed for it): run
+`bd -C "${REPO:-.}" label list-all` and read the `theme:*` entries
+directly from its output.
 
 ## Step 7: Report back
 
