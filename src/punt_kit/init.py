@@ -99,7 +99,6 @@ STANDARD_SKILL_PERMISSIONS: tuple[str, ...] = (
     "Skill(punt:audit)",
     "Skill(punt:auto)",
     "Skill(punt:bead-review)",
-    "Skill(punt:bead-review-item)",
     "Skill(punt:init)",
     "Skill(punt:pii)",
     "Skill(punt:reconcile)",

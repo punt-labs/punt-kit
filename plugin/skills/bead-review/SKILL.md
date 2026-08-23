@@ -1,21 +1,21 @@
 ---
 name: bead-review
 description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work
-disable-model-invocation: true
 ---
 
-# bead-review — Full Backlog Audit (Outer Loop)
+# bead-review — Full Backlog Audit
 
-Review 100% of a repo's open beads, one at a time, using the
-`bead-review-item` skill as the per-bead rubric. This is a backlog
-*cleanup* pass, not implementation work — nothing gets fixed in code here,
-only the beads describing the work get made accurate, clear, and
-correctly prioritized (or closed if the work they describe is no longer
-real).
+Review 100% of a repo's open beads, one at a time, in this same session,
+against the per-bead rubric in `references/per-bead-rubric.md`. This is a
+backlog *cleanup* pass, not implementation work — nothing gets fixed in
+code here, only the beads describing the work get made accurate, clear,
+and correctly prioritized (or closed if the work they describe is no
+longer real).
 
-**No per-bead confirmation.** `bead-review-item` makes the call on each
-bead autonomously. This skill's job is to enumerate, delegate, and produce
-one final report — not to relay 40 individual questions to the user.
+**No per-bead confirmation.** The rubric makes the call on each bead
+autonomously. This skill's job is to enumerate, apply the rubric,
+reconcile, and produce one final report — not to relay N individual
+questions to the user.
 
 ## Usage
 
@@ -57,10 +57,10 @@ wants; the explicit `--status` list is the complete filter on its own:
 bd -C "$REPO" list --status open,in_progress,blocked,deferred -n 0 --no-pager --sort created --json
 ```
 
-Sort by `created` (oldest first) — age is a priority signal per
-`bead-review-item`, and reviewing oldest-first surfaces the beads most
-likely to be stale or under/over-prioritized early, rather than at the
-end when review fatigue is highest.
+Sort by `created` (oldest first) — age is a priority signal per the
+rubric, and reviewing oldest-first surfaces the beads most likely to be
+stale or under/over-prioritized early, rather than at the end when
+review fatigue is highest.
 
 Record the total count. This is the number you're accountable for at the
 end — every single one gets a disposition line in the final report, not a
@@ -79,12 +79,12 @@ filter here would silently miss duplicate pairs where one member is
 bd -C "$REPO" find-duplicates --status open,in_progress,blocked,deferred --json
 ```
 
-For each reported pair, decide **now, once, in the outer loop** which
-member is the one to close — never let both members of a pair each decide
-independently, or two independent reviews can close both (each thinking
-it's the duplicate) or neither, regardless of review order. Use status
-and `created_at` from Step 2's enumeration (already in hand, no extra
-`bd` calls needed), status first:
+For each reported pair, decide **now, once, in this outer step** which
+member is the one to close — never let each pair-mate's rubric pass
+decide independently, or two independent reviews can close both (each
+thinking it's the duplicate) or neither, regardless of review order. Use
+status and `created_at` from Step 2's enumeration (already in hand, no
+extra `bd` calls needed), status first:
 
 - If exactly one member is `in_progress`, it is **always** the survivor
   regardless of age — someone is actively working it, and closing active
@@ -95,109 +95,55 @@ and `created_at` from Step 2's enumeration (already in hand, no extra
 - If ages are equal or the choice is still ambiguous, prefer keeping the
   one with the more complete/specific title or body as the survivor.
 
-Keep the resulting pairs in context, but only pass `duplicate-of:` to the
-bead you've designated as the one to close in Step 4 — the survivor is
-reviewed normally, with no duplicate flag at all, since it isn't a
-duplicate-disposition case.
+Keep the pair map in context, then pass it into Step 4 so the designated
+close-side of each pair is reviewed with `duplicate-of: <survivor-id>`
+context — the survivor is reviewed normally, with no duplicate flag at
+all.
 
-## Step 4: Review each bead
+## Step 4: Review each bead — apply the rubric
 
-For each bead ID from Step 2, in order, using the same plugin namespace
-that invoked this skill (`punt` from `/bead-review`, `punt-dev` from
-`/bead-review-dev` — the command `allowed-tools` only permit the matching
-namespaced form, so a bare `bead-review-item` may be blocked):
+Read the rubric once. It lives at
+`${CLAUDE_PLUGIN_ROOT}/skills/bead-review/references/per-bead-rubric.md`
+— an ABSOLUTE plugin path, not relative to `$REPO`. Never `Read
+references/per-bead-rubric.md` as a bare relative path: the Read tool
+resolves that against the audited repo's cwd (a marketplace install has
+the plugin under `~/.claude/plugins/cache/...`, nowhere near the
+audited repo), so a bare relative read misses the rubric and Step 4
+silently continues without it. The absolute plugin path resolves the
+same way on every install (dev, marketplace, or the
+`--plugin-dir` variant) because `${CLAUDE_PLUGIN_ROOT}` is set by the
+command runner before this skill loads.
 
-```text
-Skill(punt:bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
-Skill(punt-dev:bead-review-item, args="<id> [-C <REPO>] [duplicate-of: <other-id>]")
-```
+The rubric defines the six-step per-bead review (Read, Assess clarity,
+Assess validity, Assess priority, Act, Theme label). For each bead ID
+from Step 2, in order:
 
-Pass `-C "$REPO"` in the args so the inner skill's `bd` calls target the
-right database without needing its own `cd`. If Step 3 designated this
-bead as the one to close in a duplicate pair, say so in the args
-(`duplicate-of: <survivor-id>`) — only the designated bead gets this flag;
-its surviving pair-mate is invoked with no duplicate mention at all.
+1. Apply the rubric end-to-end in this same session.
+2. If Step 3 designated this bead as the close-side of a duplicate pair,
+   the rubric's Step 1 handles the duplicate-close path using the
+   survivor's ID.
+3. Collect a one-line disposition (per the rubric's Step 7 report line
+   shape) into an in-context list you'll use for Step 6.
 
-Collect that skill's one-line report output. Do not stop between beads to
-ask whether to proceed, whether a disposition was correct, or whether to
-continue — that defeats the purpose of an autonomous full-backlog pass.
-The only case `bead-review-item` surfaces mid-run is `needs-human-review`,
-and that's a label + a bead comment + a line in the final report, not a
-blocking question.
+Do not stop between beads to ask whether to proceed, whether a
+disposition was correct, or whether to continue — that defeats the
+purpose of an autonomous full-backlog pass. The only case the rubric
+surfaces mid-run is `needs-human-review`, and that's a label + a bead
+comment + a line in the final report, not a blocking question.
 
-**Large backlogs run sequentially, not fanned out to fork agents.**
-`bead-review-item` has `disable-model-invocation: true`, and that blocks
-the Skill tool for forked/sub-agent callers — only the top-level session
-that received this skill's own instructions can reliably invoke it.
-Delegating batches to fork agents was tried against a real 46-bead
-backlog and mostly failed: 7 of 8 forks got a hard tool-layer refusal
-("cannot be used with Skill tool due to disable-model-invocation... do
-not replicate this skill's workflow by other means"), not a permission
-prompt, so there is nothing to grant your way past. The 8th fork never
-issued the Skill call at all: instead of calling the tool and hitting
-that refusal, it hand-replicated `bead-review-item`'s steps directly from
-this document's text, producing an unreviewed, drifting copy of the
-rubric rather than a real run of it — a self-directed workaround, not a
-response to the refusal. Do not rely on forking working, and do not
-accept a result that arrived this way instead of through a real call —
-see "Discard second-hand results" below.
-
-Review every bead in this same top-level session, one at a time, in
-order, for however many beads that takes, regardless of backlog size.
-This is slower than the concurrent fan-out this section originally
-described, but it is the only reliable path that actually executes
-`bead-review-item` as designed. **There is no supported way to split a
-single audit run across multiple sessions or agents** — every attempt at
-that (fork fan-out; a since-removed multi-session split) turned out to
-lose or duplicate state across the split boundary (a discovered duplicate
-pair, a partial count, a bead silently dropped from one slice's
-enumeration) with no reliable way to detect the loss after the fact. If a
-backlog is too large for one sitting, that is a decision for the human
-running this skill, not something this skill should paper over with an
-unverified splitting procedure.
-
-**Discard second-hand results.** A disposition line is only good if this
-session itself made the `Skill(punt:bead-review-item, ...)` (or
-`punt-dev:`) call that produced it. Matching the report-line shape
-`bead-review-item`'s Step 7 specifies is not sufficient evidence — a
-hand-replicated fabrication (as the 8th fork produced) reproduces that
-shape too, *and* can write real `bd` mutations in the course of faking
-the steps, so a bare "does some matching mutation exist" check is not
-sufficient either: it can't distinguish a bead closed after
-`bead-review-item` Step 3's verification actually ran and found evidence
-from one closed on a hand-waved guess that happened to also call
-`bd close`. There is no fully reliable way to verify this from outside
-the session that did the work — this is prose guiding an LLM, not an
-enforced technical control. The best available check, before accepting a
-line into the final report, is to read the *content* the mutation cites,
-not just confirm it exists:
-
-- `closed` — read the `--reason` text on the bead. It must cite specific
-  evidence (a file:line, a command's actual output, a PR/CHANGELOG/bead
-  reference) per Step 5a of `bead-review-item`, not a vague "no longer
-  needed."
-- `confirmed-good` — confirm the `theme:*` label `bead-review-item`
-  Step 6 adds is present.
-- `rewritten` — confirm the `theme:*` label is present, and that *at
-  least one* of title, description, or priority actually changed from
-  what Step 2 recorded — Step 5b of `bead-review-item` allows rewriting
-  any subset of those fields, not all three, so a priority-only or
-  single-field rewrite is still a real rewrite and must not be discarded
-  for failing to touch fields it was never meant to touch.
-- `needs-human-review` — confirm both the `needs-human-review` label and
-  the `bd comment` Step 3 of `bead-review-item` requires are present, and
-  that the comment states what was checked and why it stayed uncertain.
-
-If a line's cited evidence is missing, vague, or doesn't match what `bd
-show` actually returns for that bead, discard it and redo the bead
-yourself, in this session, via the real call.
+**Sequential, one bead at a time, in this same session.** No fanning to
+fork agents, no splitting across sessions. Fork fan-out is unreliable
+(subagents lack access to some tools; results drift; state loss across
+the split boundary has been observed with duplicate pairs and partial
+counts). If a backlog is too large for one sitting, that is a decision
+for the human running this skill, not something to paper over.
 
 ## Step 5: Group by theme
 
-Once every surviving bead has a `theme:*` label (from `bead-review-item`
-Step 6), pull the grouping. Use the same non-closed status filter as
-Step 2 — closed beads (including the ones this run just closed) must not
-appear in a *future work* batching plan:
+Once every surviving bead has a `theme:*` label (from the rubric's Step
+6), pull the grouping. Use the same non-closed status filter as Step 2 —
+closed beads (including the ones this run just closed) must not appear in
+a *future work* batching plan:
 
 ```bash
 bd -C "$REPO" list --status open,in_progress,blocked,deferred --label-pattern "theme:*" -n 0 --no-pager --sort priority --json
@@ -213,9 +159,7 @@ reasonably be worked together in one pass.
 **Reconcile before printing.** Count the disposition lines collected in
 Step 4 and compare that count to the total recorded in Step 2. If they
 don't match, stop and report the discrepancy instead of printing a report
-that looks complete but silently under-covers the backlog — this is the
-check that would have caught the incident that prompted the "discard
-second-hand results" rule above, had it slipped past that rule too.
+that looks complete but silently under-covers the backlog.
 
 Print one report, not N questions. Every bead reviewed in Step 4 appears
 in exactly one of the first four tables — including beads that were

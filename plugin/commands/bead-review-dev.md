@@ -7,7 +7,6 @@ allowed-tools:
   - "Bash(bd:*)"
   - "Bash(git:*)"
   - "Bash(cat:*)"
-  - "Skill(punt-dev:bead-review-item)"
 ---
 
 Load and execute the `bead-review` skill
