@@ -2,11 +2,13 @@
 
 ## Problem
 
-Punt Labs tools that publish to PyPI as pure-Python CLIs (biff, quarry — and
-any future one) also want to ship via `punt-labs/homebrew-tap`, so users who
-prefer `brew install` over `uv tool install`/`pip install` have a first-class
-path. Homebrew's own packaging policy forbids a formula that just shells out
-to `pip install <package>` at install time — every dependency has to be
+Punt Labs tools that publish to PyPI as pure-Python CLIs (biff, and any
+future one whose dependency tree is fully sdist-buildable — see the
+wheel-only failure mode below for when this doesn't hold) also want to ship
+via `punt-labs/homebrew-tap`, so users who prefer `brew install` over
+`uv tool install`/`pip install` have a first-class path. Homebrew's own
+packaging policy forbids a formula that just shells out to
+`pip install <package>` at install time — every dependency has to be
 declared and built from source inside the formula's own sandboxed virtualenv,
 with no ambient network dependency resolution.
 
@@ -117,7 +119,7 @@ failed step 5.
 4. `brew install --build-from-source <name>`. If it fails on a Rust-based
    wheel build (`maturin`, `setuptools-rust`), the missing declaration is
    `depends_on "rust" => :build` — Homebrew's resource-install model always
-   builds from sdist, never installs prebuilt wheels, so any dependency with
+   builds from sdist by default rather than installing a prebuilt wheel, so any dependency with
    a compiled extension needs its build toolchain declared explicitly. This
    failure mode has no formula-linter signal; you only find it by attempting
    the build.
@@ -187,8 +189,10 @@ decision, not something an agent should pick unilaterally:
 4. Don't ship a Homebrew formula for this tool — ML/Rust-heavy dependency
    trees may not fit this distribution channel the way pure-Python CLIs do.
 
-`quarry.rb` remains an unfinished scaffold pending that decision — see
-`quarry-dbsn` for the specific finding and escalation.
+`quarry.rb` remains an unfinished scaffold pending that decision — tracked as
+bead `quarry-dbsn` in the `quarry` repo's own issue tracker (`bd show
+quarry-dbsn` from within that repo), which has the specific finding and the
+operator escalation.
 
 ## Consequences
 
@@ -229,4 +233,4 @@ decision, not something an agent should pick unilaterally:
 - **quarry** — second real-world test; hit the wheel-only failure mode
   above. `Formula/quarry.rb` remains an unfinished scaffold (`sha256
   "PLACEHOLDER"`, no resource blocks) pending an operator decision — see
-  `quarry-dbsn`.
+  bead `quarry-dbsn` in the `quarry` repo.
