@@ -1,7 +1,6 @@
 ---
 name: bead-review
 description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work
-disable-model-invocation: true
 ---
 
 # bead-review — Full Backlog Audit
@@ -103,10 +102,21 @@ all.
 
 ## Step 4: Review each bead — apply the rubric
 
-Read `references/per-bead-rubric.md` once. It defines the six-step
-rubric (Read, Assess clarity, Assess validity, Assess priority, Act,
-Theme label) applied to every bead. For each bead ID from Step 2, in
-order:
+Read the rubric once. It lives at
+`${CLAUDE_PLUGIN_ROOT}/skills/bead-review/references/per-bead-rubric.md`
+— an ABSOLUTE plugin path, not relative to `$REPO`. Never `Read
+references/per-bead-rubric.md` as a bare relative path: the Read tool
+resolves that against the audited repo's cwd (a marketplace install has
+the plugin under `~/.claude/plugins/cache/...`, nowhere near the
+audited repo), so a bare relative read misses the rubric and Step 4
+silently continues without it. The absolute plugin path resolves the
+same way on every install (dev, marketplace, or the
+`--plugin-dir` variant) because `${CLAUDE_PLUGIN_ROOT}` is set by the
+command runner before this skill loads.
+
+The rubric defines the six-step per-bead review (Read, Assess clarity,
+Assess validity, Assess priority, Act, Theme label). For each bead ID
+from Step 2, in order:
 
 1. Apply the rubric end-to-end in this same session.
 2. If Step 3 designated this bead as the close-side of a duplicate pair,
