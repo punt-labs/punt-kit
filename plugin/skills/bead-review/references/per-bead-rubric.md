@@ -1,44 +1,23 @@
----
-name: bead-review-item
-description: Review, rewrite, or close a single bead against clarity/validity/priority criteria — the inner loop of bead-review
-disable-model-invocation: true
----
+# Per-Bead Rubric
 
-# bead-review-item — Single-Bead Audit
+The six-step rubric applied to each bead in `bead-review`'s Step 4.
+Referenced once per audit run; apply the whole rubric per bead, in
+order, in the same session running the outer skill.
 
-Given one bead ID, decide whether it is well-written, still valid, and
-correctly prioritized — then act on that decision immediately. This skill
-never asks the user for confirmation per bead; it makes the call, documents
-why, and moves on. It is normally invoked by `bead-review` (the outer loop),
-once per bead, but works standalone.
+Inputs the outer loop passes for each bead:
 
-## Usage
+- `ID` — the bead ID under review.
+- `REPO` — the `-C` value from the outer skill (defaults to `.`).
+- `known-duplicate` (optional) — a survivor bead ID, set by the outer
+  loop's Step 3 for beads it designated as the close-side of a
+  duplicate pair. The survivor is NOT passed this — its rubric run is
+  ordinary.
 
-`args` is a bead ID, optionally followed by `-C <repo-dir>` (pass every
-`bd` call in this repo instead of the caller's cwd — needed when a caller
-isn't already scoped there) and/or `duplicate-of: <other-id>` (set by the
-outer loop when its one-time backlog-wide `bd find-duplicates` scan
-already flagged this bead — specifically *this* bead, not its pair-mate —
-as the one to close in favor of `<other-id>`). The outer loop only ever
-attaches `duplicate-of:` to one member of a pair; its survivor is invoked
-with no duplicate mention at all.
-
-Use the plugin-namespaced skill ID that matches how you're running — the
-`allowed-tools` permission list only covers the namespaced form, so a bare
-`bead-review-item` may be blocked or fail to resolve:
-
-```text
-Skill(punt:bead-review-item, args="biff-kmv")
-Skill(punt:bead-review-item, args="biff-kmv -C ../vox duplicate-of: biff-9zq")
-Skill(punt-dev:bead-review-item, args="biff-kmv")   # from the [DEV] command
-```
-
-Parse `args` into `ID`, `REPO` (the `-C` value if one was given, else
-`.`), and an optional known-duplicate ID. **Never `cd`** — every `bd` call
-below is qualified with `-C "${REPO:-.}"` unconditionally, so a repo path
-containing spaces still quotes correctly (a conditional
-`$([ -n "$REPO" ] && echo -C "$REPO")` word-splits on expansion and loses
-the quoting, so don't build the flag that way).
+**Never `cd`.** Every `bd` call below is qualified with `-C
+"${REPO:-.}"` unconditionally, so a repo path containing spaces still
+quotes correctly (a conditional `$([ -n "$REPO" ] && echo -C "$REPO")`
+word-splits on expansion and loses the quoting, so don't build the
+flag that way).
 
 ## Step 1: Read
 
@@ -52,19 +31,20 @@ priority signal in its own right — a bead open for months at P2 either
 deserves a bump (something's been quietly starving it) or is a sign it
 should have been closed long ago. Don't skip reading it.
 
-If the caller passed a `duplicate-of:` ID, the outer loop has already
-compared this bead against its pair-mate (using status — an `in_progress`
-bead always survives regardless of age — then `created_at`, then
-completeness) and determined **this** bead — not the other one — is the
-one to close. Read the other bead too, to confirm the pairing still holds
-(`bd -C "${REPO:-.}" show "<other-id>" --json`):
-if it does, treat this as an invalidity case (Step 3) and close this bead
-with a reason pointing at the surviving bead. Do not re-decide which
-member of the pair should close — that decision was made once, upstream,
-so that two reviews of the same pair never both decide to close, or both
-decide to survive, regardless of review order. If the pairing looks wrong
-on a closer read (not actually a duplicate), fall through to a normal
-Step 2/3 review instead of closing.
+If the outer loop marked this bead as a known-duplicate close-side, the
+survivor has already been chosen (using status — an `in_progress` bead
+always survives regardless of age — then `created_at`, then
+completeness). Read the survivor too, to confirm the pairing still holds:
+
+```bash
+bd -C "${REPO:-.}" show "<survivor-id>" --json
+```
+
+If it does, treat this as an invalidity case (Step 3) and close this
+bead with a reason pointing at the surviving bead. Do not re-decide
+which member of the pair should close — that decision was made once,
+upstream. If the pairing looks wrong on a closer read (not actually a
+duplicate), fall through to a normal Step 2/3 review instead of closing.
 
 ## Step 2: Assess clarity
 
@@ -193,6 +173,10 @@ EOF
 )"
 ```
 
+Any subset of `--title`, `--priority`, `--description` is a real rewrite
+— a priority-only change still counts, no need to touch fields that
+were already good.
+
 ### 5c. Valid, already good
 
 No title/body/priority change. Still add the theme label (Step 6) — this
@@ -215,14 +199,17 @@ inventing a new one — the point is batching, which only works if the
 same theme is spelled the same way across beads. Listing labels needs no
 shell `grep` pipe: run `bd -C "${REPO:-.}" label list-all` and read the
 `theme:*` entries directly from its output (the Grep *tool* is fine to
-use elsewhere in this skill — it's shell `| grep` piping specifically
+use elsewhere in this rubric — it's shell `| grep` piping specifically
 that isn't available here).
 
-## Step 7: Report back
+## Step 7: Record the disposition line
 
-Return one line, in this exact shape, to whatever invoked you (the outer
-loop collects these verbatim into its final report):
+Add one line, in this exact shape, to the in-context list the outer loop
+uses for its Step 6 reconciliation and tables:
 
 ```text
 <id> | <disposition: closed|rewritten|confirmed-good|needs-human-review> | theme:<area> | <one-line reason>
 ```
+
+Then continue to the next bead — do not stop, do not ask, do not emit
+anything else to the user between beads.
