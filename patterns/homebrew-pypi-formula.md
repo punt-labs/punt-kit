@@ -1,10 +1,40 @@
-# Homebrew formula for a PyPI-published Python CLI
+# Homebrew Formula for a PyPI-Published Python CLI
+
+## Problem
 
 Punt Labs tools that publish to PyPI as pure-Python CLIs (biff, quarry — and
-any future one) can also ship via `punt-labs/homebrew-tap` using Homebrew's
-standard `Language::Python::Virtualenv` mixin: the formula's `resource` blocks
-capture the tool's full dependency tree so `brew install` never shells out to
-`pip` at install time.
+any future one) also want to ship via `punt-labs/homebrew-tap`, so users who
+prefer `brew install` over `uv tool install`/`pip install` have a first-class
+path. Homebrew's own packaging policy forbids a formula that just shells out
+to `pip install <package>` at install time — every dependency has to be
+declared and built from source inside the formula's own sandboxed virtualenv,
+with no ambient network dependency resolution.
+
+## Forces
+
+- Homebrew formulas must be reproducible: no ambient `pip` dependency
+  resolution against the live PyPI index at install time.
+- `Language::Python::Virtualenv` is Homebrew's standard mixin for this case —
+  it still uses `pip` internally, but only to *install* dependencies that are
+  already pinned as `resource` blocks (fixed url + sha256), never to resolve
+  or fetch new ones from the network.
+- Discovering a formula's system-level build dependencies (a C library, a
+  Rust toolchain) has no static signal — it only surfaces as a build failure
+  during `brew install --build-from-source`, and `brew style`/`brew audit`
+  catch only some of it.
+- The tool's own PyPI dependency *tree* can itself be incompatible with this
+  model, independent of any missing `depends_on` line (see Consequences).
+- Once a formula exists and builds, bumping it for a new release is a
+  narrower, far more mechanical problem than creating it the first time.
+
+## Solution
+
+Use Homebrew's `Language::Python::Virtualenv` mixin: the formula's `resource`
+blocks pin the tool's full dependency tree to fixed PyPI sdist URLs + sha256
+hashes, generated via `brew update-python-resources`. `virtualenv_install_with_resources`
+still uses `pip` to install those pinned resources into the formula's own
+venv — the discipline is that `pip` never resolves or fetches from the live
+index, only installs exactly what the `resource` blocks already pinned.
 
 This does **not** apply to tools that ship as compiled binaries (e.g. `ethos`,
 a Go binary distributed via per-platform GitHub release tarballs). Those use a
@@ -13,7 +43,7 @@ different formula shape entirely — `on_macos`/`on_linux` blocks with
 `punt-labs/homebrew-tap/Formula/ethos.rb` for that pattern; it is unrelated to
 this one.
 
-## The two problems this pattern solves, and why they need different treatment
+### Two problems, two different levels of automatability
 
 **Steady-state: bumping an already-working formula for a new release.**
 Mechanical and safely automatable. The tool's own dependency *set* rarely
@@ -33,7 +63,7 @@ human or an agent reading build output and iterating, not a script.
 
 **Automate the first, treat the second as a one-time task per tool.**
 
-## Steady-state recipe (the automatable part)
+### Steady-state recipe (the automatable part)
 
 Given an existing `Formula/<name>.rb` with `include
 Language::Python::Virtualenv`, a `url`/`sha256` pinned to a PyPI sdist, and
@@ -72,7 +102,7 @@ which pushes this specific release back into the "needs a human/agent" bucket
 even for a tool that was previously steady-state. Don't auto-merge past a
 failed step 5.
 
-## First-time onboarding recipe (what actually happened for biff)
+### First-time onboarding recipe (what actually happened for biff)
 
 1. Scaffold `Formula/<name>.rb`: `desc`, `homepage`, `url`/`sha256` from
    PyPI's sdist entry, `license`, `include Language::Python::Virtualenv`, a
@@ -99,17 +129,7 @@ failed step 5.
 7. Commit, PR, done — from here the tool is in the steady-state bucket for
    every future release.
 
-## Reference
-
-Proven end-to-end for `punt-biff` 1.16.0: `punt-labs/homebrew-tap` PR #33.
-61 resource stanzas, three of them requiring a from-source Rust compile
-(`pydantic-core`, `cryptography`, `rpds-py`), full build succeeded in ~17
-minutes. `quarry.rb` in the same tap is a still-unfinished scaffold (`sha256
-"PLACEHOLDER"`, no resource blocks) — a candidate to prove this recipe a
-second time, and a good next target before wiring this into `punt release`
-generally.
-
-## Known failure mode: wheel-only dependencies break the recipe entirely (quarry, 2026-08-23)
+### Known failure mode: wheel-only dependencies break the recipe entirely (quarry, 2026-08-23)
 
 The second real-world test of this recipe, on `quarry`, did not reach the
 build/test gate at all — `brew update-python-resources` refused outright:
@@ -170,14 +190,43 @@ decision, not something an agent should pick unilaterally:
 `quarry.rb` remains an unfinished scaffold pending that decision — see
 `quarry-dbsn` for the specific finding and escalation.
 
-## Where this plugs into `punt release`
+## Consequences
 
-Phase 10 (Propagate) already opens PRs against sibling repos (`.github`,
-`claude-plugins`, `public-website`) in the same shape this needs: local edit
-→ push branch → open PR → wait for CI → squash-merge. Adding
-`punt-labs/homebrew-tap` as a propagation target, gated on "does this repo
-have a `Formula/<name>.rb` already," fits that existing model directly — but
-only run the *steady-state* recipe automatically. If step 5 (the build/test
-gate) fails, stop and surface it rather than trying to auto-fix `depends_on`
-lines; that's exactly the situation this doc calls out as needing a human or
-an agent, not a retry loop.
+- Every steady-state release bump is a fully non-interactive, CI-verifiable
+  operation — `brew update-python-resources`, `brew install
+  --build-from-source`, and `brew test` either all pass or the bump doesn't
+  ship.
+- First-time onboarding cannot be fully scripted: system `depends_on`
+  discovery requires reading a real build failure. Budget for a human or
+  agent iteration loop, not a one-shot script, when adding a new tool.
+- Not every PyPI-published Python CLI is a candidate. A dependency tree with
+  wheel-only, platform-incomplete packages (common in ML/Rust-heavy stacks)
+  defeats the sdist-only resource model entirely and needs an explicit
+  operator decision, not an automated workaround.
+- Where this plugs into `punt release`: Phase 10 (Propagate) already opens
+  PRs against sibling repos (`.github`, `claude-plugins`, `public-website`)
+  in the same shape this needs — local edit → push branch → open PR → wait
+  for CI → squash-merge. Adding `punt-labs/homebrew-tap` as a propagation
+  target, gated on "does this repo have a `Formula/<name>.rb` already," fits
+  that existing model directly — but only run the *steady-state* recipe
+  automatically. If the build/test gate fails, stop and surface it rather
+  than trying to auto-fix `depends_on` lines or auto-select one of the
+  wheel-only escape hatches above.
+
+## Related Patterns
+
+- [Two-Phase Install](two-phase-install.md) — the install-time counterpart:
+  once a Homebrew formula exists, it becomes a third install path alongside
+  `uv tool install` and the bootstrap script, all converging on the same
+  `<tool> doctor` verification.
+
+## Known Uses
+
+- **biff** (`punt-biff` 1.16.0) — first tool proven end-to-end:
+  `punt-labs/homebrew-tap` PR #33. 61 resource stanzas, three requiring a
+  from-source Rust compile (`pydantic-core`, `cryptography`, `rpds-py`), full
+  build succeeded in ~17 minutes.
+- **quarry** — second real-world test; hit the wheel-only failure mode
+  above. `Formula/quarry.rb` remains an unfinished scaffold (`sha256
+  "PLACEHOLDER"`, no resource blocks) pending an operator decision — see
+  `quarry-dbsn`.
