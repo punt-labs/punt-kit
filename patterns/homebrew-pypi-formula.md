@@ -109,6 +109,67 @@ minutes. `quarry.rb` in the same tap is a still-unfinished scaffold (`sha256
 second time, and a good next target before wiring this into `punt release`
 generally.
 
+## Known failure mode: wheel-only dependencies break the recipe entirely (quarry, 2026-08-23)
+
+The second real-world test of this recipe, on `quarry`, did not reach the
+build/test gate at all — `brew update-python-resources` refused outright:
+
+```text
+Error: lancedb exists on PyPI but lacks a suitable source distribution
+Error: Unable to resolve some dependencies. Please update the resources for "quarry" manually.
+```
+
+This is a different and more fundamental problem than anything the recipe
+above anticipates. `Language::Python::Virtualenv` resource blocks build every
+dependency from its **sdist** inside the formula's venv — the whole model
+assumes a source distribution exists to build from. Some PyPI packages,
+typically Rust-core packages published via `maturin`, ship **wheel-only**
+with no sdist at all: `pip install` works fine against a prebuilt wheel, but
+there is nothing for Homebrew's resource-block model to build from source.
+`brew update-python-resources` hard-refuses the moment it hits one; there is
+no `depends_on` line that fixes this, because the gap isn't a missing system
+library — it's the dependency having no buildable form.
+
+Verified directly against PyPI JSON metadata for quarry's tree:
+
+- `lancedb` (0.37.1): wheel-only, zero sdist entries.
+- `pylance` (10.0.0, lancedb's own sub-dependency): same shape.
+- `onnxruntime` (1.29.0): also wheel-only.
+
+A second, independent gap compounds this: even where a wheel exists, PyPI's
+wheel matrix for these packages has **no macOS x86_64 (Intel) build** at the
+versions quarry pins — only macOS arm64, manylinux aarch64/x86_64, and
+Windows. Hand-authoring a `resource` block that points directly at a wheel
+URL (technically possible — pip can install a `.whl` resource) still cannot
+close this gap, because the artifact simply doesn't exist for that platform.
+This is upstream's platform matrix, not a formula-authoring problem.
+
+**Do not treat this as a step-5-build-failure needing one more `depends_on`.**
+It is a pattern-level incompatibility: `Language::Python::Virtualenv` fits
+pure-Python dependency trees (`biff`'s were all sdist-buildable, including
+the three Rust-based ones that only needed `depends_on "rust" => :build`).
+It does not fit a tree containing wheel-only, platform-incomplete ML/Rust
+packages. Recognizing which case you're in only happens by running
+`brew update-python-resources` and reading whether the failure names a
+missing library (fixable, stays in the normal recipe) or refuses to resolve
+a package's source distribution at all (stop — this is the case below).
+
+When this happens, the options are a genuine fork requiring an operator
+decision, not something an agent should pick unilaterally:
+
+1. Restrict the formula to the platforms that have full wheel coverage
+   (e.g. `depends_on arch: :arm64` on macOS, refuse Intel) — ships a
+   formula that works, but not everywhere.
+2. Pin to older releases of the wheel-only dependency that still shipped an
+   sdist or broader wheel coverage — likely stale/unsupported upstream.
+3. Hand-roll wheel installation outside `virtualenv_install_with_resources`
+   — non-standard for this tap, higher maintenance burden per release.
+4. Don't ship a Homebrew formula for this tool — ML/Rust-heavy dependency
+   trees may not fit this distribution channel the way pure-Python CLIs do.
+
+`quarry.rb` remains an unfinished scaffold pending that decision — see
+`quarry-dbsn` for the specific finding and escalation.
+
 ## Where this plugs into `punt release`
 
 Phase 10 (Propagate) already opens PRs against sibling repos (`.github`,
