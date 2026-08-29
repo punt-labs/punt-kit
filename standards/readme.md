@@ -1,6 +1,6 @@
 # README Standard
 
-**Updated:** 2026-08-14
+**Updated:** 2026-08-29
 
 How every Punt Labs project README should be structured and written.
 
@@ -17,13 +17,14 @@ tool and uses it — not the person who develops or extends it. Every section
 answers a user's question: what is this, how do I install it, what can it do,
 how do I drive it.
 
-Developer content is limited to **one short Development section** (the quality
-gate commands — see Required Sections below). Everything else a contributor or
+Developer content does not live in the README at all — not even a short
+Development section. Quality-gate commands (lint, type-check, test) live in
+`CONTRIBUTING.md` at the repo root; everything else a contributor or
 integrator needs — library API guides, client code walkthroughs, internal
 architecture detail, probe scripts, protocol internals — lives under `docs/`
 and is linked from the Documentation section. A README with an 80-line client
-code walkthrough is mis-addressed: move it to `docs/` and leave a short
-paragraph with a link.
+code walkthrough, or a Development section listing lint/type/test commands, is
+mis-addressed: move it out.
 
 Two corollaries:
 
@@ -146,6 +147,26 @@ should be able to check whether it is true by using the software.
 | "Turns product thinking into a terminal command" | "Runs Amazon's Working Backwards process as a terminal command" |
 | "AI changes the equation" | "The methods are the same; the time cost is not" |
 
+## Code Blocks
+
+Every fenced code block in a project's README or `CONTRIBUTING.md` that
+shows a command to run, terminal output, or file content a reader would
+copy, contains exactly one line between its fences. A sequence of
+commands is a sequence of one-line blocks, not one multi-line block —
+each command must be independently copy-pasteable without picking up a
+neighboring comment or a different command. This has no exception for
+content that would read more naturally as a multi-line listing (a spec
+excerpt, a config file example, sample terminal output): split it into
+consecutive one-line blocks rather than one multi-line block.
+
+This governs a project's actual README and `CONTRIBUTING.md` content —
+Quick Start commands, Commands/API examples, What It Looks Like listings
+(including terminal output), CONTRIBUTING.md's quality-gate commands. It
+does not govern this standard document's own markdown-syntax-illustration
+fences (a table shape, a bullet-list shape) — meta-examples that show
+markdown structure itself, not content a reader of a real README would
+run or copy.
+
 ## Required Sections
 
 Every README must have these sections in this order. Sections marked
@@ -233,39 +254,24 @@ accounts, or environment variables.
 
 Sections unique to the project (e.g., "Status Bar", "Agents Welcome" in
 biff; "Standards", "Plugin Development Patterns" in punt-kit). Place these
-between Setup and Development.
+between Setup and Documentation.
 
 ### 11. Documentation *(optional)*
 
-Links to additional docs when they exist in a `docs/` directory.
+Links to additional docs when they exist in a `docs/` directory. Always
+link `CONTRIBUTING.md` here when the project has quality gates (virtually
+every project does) — the README's only mention of it is this link.
 
 ```markdown
 ## Documentation
 
 [Installing](docs/INSTALLING.md) |
 [FAQ](docs/FAQ.md) |
+[Contributing](CONTRIBUTING.md) |
 [Changelog](CHANGELOG.md)
 ```
 
-### 12. Development
-
-Quality gate commands for contributors. Match the project's CLAUDE.md
-quality gates exactly.
-
-```markdown
-## Development
-
-\`\`\`bash
-uv sync                        # Install dependencies
-uv run ruff check .            # Lint
-uv run ruff format --check .   # Check formatting
-uv run mypy src/ tests/        # Type check (mypy)
-uv run pyright src/ tests/     # Type check (pyright)
-uv run pytest                  # Test
-\`\`\`
-```
-
-### 13. License
+### 12. License
 
 ```markdown
 ## License
@@ -275,16 +281,55 @@ MIT
 
 Every repo must have a `LICENSE` file in the root.
 
+## CONTRIBUTING.md
+
+Quality-gate commands (lint, type-check, test) go in a `CONTRIBUTING.md` file
+at the repo root — never in the README, not even a short section. Match the
+project's CLAUDE.md quality gates exactly:
+
+```markdown
+# Contributing
+
+\`\`\`bash
+uv sync
+\`\`\`
+
+\`\`\`bash
+uv run ruff check .
+\`\`\`
+
+\`\`\`bash
+uv run ruff format --check .
+\`\`\`
+
+\`\`\`bash
+uv run mypy src/ tests/
+\`\`\`
+
+\`\`\`bash
+uv run pyright src/ tests/
+\`\`\`
+
+\`\`\`bash
+uv run pytest
+\`\`\`
+```
+
+`CONTRIBUTING.md` is not bound by the README's tone rules ([Tone](#tone)) or
+required-section order — it is a plain command list for contributors, not a
+user-facing description of the project.
+
 ## Anti-Patterns
 
 ### Structure
 
 - **No badge soup** — four standard badges maximum for published projects (Python or Go), two for plugin-only projects, plus optional Working Backwards badge
 - **No "Table of Contents"** — the README should be short enough to not need one
-- **No "Contributing" section in README** — link to `CONTRIBUTING.md` if it exists
+- **No "Contributing" or "Development" section in README** — quality-gate commands always go in `CONTRIBUTING.md`, linked from Documentation
 - **No installation instructions for dependencies** — the installer handles it
 - **No version numbers in prose** — they go stale; badges stay current
 - **No portfolio content** — each project describes itself, not its siblings
+- **No multi-line code blocks** — every fenced block is one line; see [Code Blocks](#code-blocks)
 
 ### Tone
 
