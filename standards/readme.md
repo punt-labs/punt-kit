@@ -149,23 +149,21 @@ should be able to check whether it is true by using the software.
 
 ## Code Blocks
 
-Every fenced code block in a project's README or `CONTRIBUTING.md` that
-shows a command to run, terminal output, or file content a reader would
-copy, contains exactly one line between its fences. A sequence of
-commands is a sequence of one-line blocks, not one multi-line block —
-each command must be independently copy-pasteable without picking up a
-neighboring comment or a different command. This has no exception for
-content that would read more naturally as a multi-line listing (a spec
-excerpt, a config file example, sample terminal output): split it into
-consecutive one-line blocks rather than one multi-line block.
+A fenced code block that shows a command the reader is meant to copy and
+run — a Quick Start installer, a CLI invocation, a slash command, a
+`CONTRIBUTING.md` quality-gate command — contains exactly one line
+between its fences. A sequence of such commands is a sequence of one-line
+blocks, not one multi-line block: each command must be independently
+copy-pasteable without picking up a neighboring comment or a different
+command.
 
-This governs a project's actual README and `CONTRIBUTING.md` content —
-Quick Start commands, Commands/API examples, What It Looks Like listings
-(including terminal output), CONTRIBUTING.md's quality-gate commands. It
-does not govern this standard document's own markdown-syntax-illustration
-fences (a table shape, a bullet-list shape) — meta-examples that show
-markdown structure itself, not content a reader of a real README would
-run or copy.
+This rule is about copy-paste safety, not about code blocks in general.
+It does not apply to a block that shows file or spec content meant to be
+read as one coherent unit — a spec excerpt, a config file example, a
+sample terminal output listing in What It Looks Like. Those stay as one
+multi-line block; splitting them line-by-line destroys the thing they
+exist to show. Nor does it govern this standard document's own
+markdown-syntax-illustration fences (a table shape, a bullet-list shape).
 
 ## Required Sections
 
@@ -329,7 +327,7 @@ user-facing description of the project.
 - **No installation instructions for dependencies** — the installer handles it
 - **No version numbers in prose** — they go stale; badges stay current
 - **No portfolio content** — each project describes itself, not its siblings
-- **No multi-line code blocks** — every fenced block is one line; see [Code Blocks](#code-blocks)
+- **No multi-line copy-paste command blocks** — a command to run is one line per block; see [Code Blocks](#code-blocks)
 
 ### Tone
 
