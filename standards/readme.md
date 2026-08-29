@@ -160,7 +160,7 @@ command.
 This rule is about copy-paste safety, not about code blocks in general.
 It does not apply to a block that shows file or spec content meant to be
 read as one coherent unit — a spec excerpt, a config file example, a
-sample terminal-output listing in What It Looks Like. Those stay as one
+sample terminal output listing in What It Looks Like. Those stay as one
 multi-line block; splitting them line-by-line destroys the thing they
 exist to show. Nor does it govern this standard document's own
 markdown-syntax-illustration fences (a table shape, a bullet-list shape).
