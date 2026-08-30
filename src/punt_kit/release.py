@@ -160,6 +160,57 @@ def _warn(msg: str) -> None:
 
 
 @final
+class _ReleaseOpsAdapter:
+    """Implements ``ReleaseOps`` by forwarding into this module's own globals.
+
+    Every ``phases/*`` class receives this adapter at construction and calls
+    ``self._ops.run(...)`` instead of a bare ``_run``. Because these methods
+    are *defined in* ``release.py``, the bare names ``_run``, ``_ok``, etc.
+    inside them resolve against ``release.py``'s ``__dict__`` at call time —
+    exactly like every other function already in this file. That is what
+    lets ``monkeypatch.setattr(release_mod, "_run", fake_run)`` reach a
+    ``RequiredChecksWaiter`` or a ``Phase6CiWait`` that was constructed with
+    this adapter, with zero changes to ``tests/test_release.py``.
+
+    Legitimate PY-OO-7 exception: a stateless Adapter whose entire purpose is
+    to forward to module globals for this testability reason, not a data
+    holder that should have methods added to it.
+    """
+
+    __slots__ = ()
+
+    def run(
+        self,
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    def ok(self, msg: str) -> None:
+        _ok(msg)
+
+    def info(self, msg: str) -> None:
+        _info(msg)
+
+    def dry(self, msg: str) -> None:
+        _dry(msg)
+
+    def warn(self, msg: str) -> None:
+        _warn(msg)
+
+    def fail(self, msg: str) -> NoReturn:
+        _fail(msg)
+
+
+# Shared instance handed to every phase and shared-collaborator constructor.
+_ops = _ReleaseOpsAdapter()
+
+
+@final
 class _SkipRecorder:
     """Thread-safe log of propagation/verification steps skipped mid-release.
 
