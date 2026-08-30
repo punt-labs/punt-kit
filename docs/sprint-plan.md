@@ -125,4 +125,4 @@ Ride along with other sprints:
 
 ## Buglist ledger
 
-Zeroing target: 28 open beads → 0. Excluding P3/P4 opportunistic and the meta-epics, the concrete work is 21 beads across Sprints A–E. `pkit-ptvc` will add N sub-beads discovered during Sprint D.
+Zeroing target: 29 open beads → 0 (28 pre-existing plus `pkit-ptvc` filed today). Excluding P3/P4 opportunistic and the three in-progress meta-epics, the concrete work is 21 beads across Sprints A–E. `pkit-ptvc` will add N sub-beads discovered during Sprint D.
