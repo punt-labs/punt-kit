@@ -54,13 +54,19 @@ class MarketplacePinCheck:
         self,
         cp_sibling: Path | None,
         claude_plugins_sha: str,
-        project_name: str,
+        candidates: frozenset[str],
         version: str,
         tag: str,
         *,
         ops: ReleaseOps,
     ) -> tuple[bool, str]:
         """Check a pinned claude-plugins commit's marketplace.json for this project.
+
+        ``candidates`` is the set of names to accept for the entry — the caller
+        supplies both the PyPI distribution name and the marketplace short
+        name (see ``ReleaseProject.marketplace_name``), since marketplace
+        entries key on the plugin's short name (``punt``) while the CLI knows
+        the project by the pyproject distribution name (``punt-kit``).
 
         Returns ``(passed, detail)``.
         """
@@ -77,15 +83,15 @@ class MarketplacePinCheck:
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
         for p in plugins:
             src = cast("dict[str, str]", p.get("source", {}))
-            # Match by either the source.repo suffix (canonical) or the
-            # plugin name field. Check 5 (marketplace) accepts both, and the
-            # historical pin check must not be stricter — otherwise a
-            # genuinely-current release fails the pin chain for entries
-            # whose top-level "name" matches but whose "source.repo" points
-            # at a fork or a rename.
+            # marketplace.json uses "url" for keyless HTTPS installs
+            # (git-subdir and the earlier plain-url source). "repo" was the
+            # pre-migration key that cloned the whole repo to disk and no live
+            # entry uses it anymore. See pkit-p328 and claude-plugins commit
+            # b77f1ed.
+            source_url = str(src.get("url", "")).removesuffix(".git")
             if (
-                str(src.get("repo", "")).endswith("/" + project_name)
-                or str(p.get("name", "")) == project_name
+                any(source_url.endswith("/" + n) for n in candidates)
+                or str(p.get("name", "")) in candidates
             ):
                 ok = (
                     str(p.get("version", "")) == version
@@ -96,9 +102,10 @@ class MarketplacePinCheck:
                     f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, "
                     f"ref={src.get('ref')}",
                 )
+        names = ",".join(sorted(candidates)) or "?"
         return (
             False,
-            f"claude-plugins@{claude_plugins_sha} has no entry for {project_name}",
+            f"claude-plugins@{claude_plugins_sha} has no entry for {names}",
         )
 
 
@@ -291,6 +298,8 @@ class Phase11Verify:
             repo = GithubRepo(info.root, ops=ops).resolve()
             if repo:
                 project_name = repo.split("/")[-1]
+                marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
+                candidates = frozenset(n for n in (marketplace_name, project_name) if n)
                 claude_plugins_sibling = SiblingRepo.resolve(
                     info.root, "claude-plugins", ops=ops
                 )
@@ -323,9 +332,12 @@ class Phase11Verify:
                         mp_found = False
                         for p in plugins:
                             src = cast("dict[str, str]", p.get("source", {}))
+                            # marketplace.json uses source.url (keyless HTTPS,
+                            # git-subdir). See pkit-p328.
+                            source_url = str(src.get("url", "")).removesuffix(".git")
                             if (
-                                str(src.get("repo", "")).endswith("/" + project_name)
-                                or p.get("name") == project_name
+                                any(source_url.endswith("/" + n) for n in candidates)
+                                or p.get("name") in candidates
                             ):
                                 mp_ver = str(p.get("version", ""))
                                 mp_ref = str(src.get("ref", ""))
@@ -340,11 +352,12 @@ class Phase11Verify:
                                 mp_found = True
                                 break
                         if not mp_found:
+                            names = ",".join(sorted(candidates))
                             checks.append(
                                 VerificationCheck(
                                     "marketplace",
                                     False,
-                                    f"no entry for {project_name}",
+                                    f"no entry for {names}",
                                 )
                             )
 
@@ -456,10 +469,16 @@ class Phase11Verify:
                                     if cp_sibling_repo is not None
                                     else None
                                 )
+                                marketplace_name = ReleaseProject(
+                                    info, ops=ops
+                                ).marketplace_name()
+                                candidates = frozenset(
+                                    n for n in (marketplace_name, project_name) if n
+                                )
                                 ok, detail = MarketplacePinCheck().run(
                                     cp_sibling,
                                     mp_pin.group(1),
-                                    project_name,
+                                    candidates,
                                     version,
                                     tag,
                                     ops=ops,
