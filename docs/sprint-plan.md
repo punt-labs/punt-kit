@@ -4,7 +4,7 @@ Filed 2026-08-30 from operator direction: fix release engine bugs (weekly pain),
 
 ## Scope
 
-29 open beads at start of sprint. 3 in-progress meta-epics (`pkit-k29q` product rethink, `pkit-a8w9` CLAUDE.md redesign, `pkit-r94d` playbook DSL) run underneath the sprints below. `pkit-ptvc` (standards rot review) was filed today.
+29 open beads at start of sprint — 28 pre-existing plus `pkit-ptvc` (standards rot review) filed today. 3 in-progress meta-epics (`pkit-k29q` product rethink, `pkit-a8w9` CLAUDE.md redesign, `pkit-r94d` playbook DSL) run underneath the sprints below.
 
 ## Sequence
 
