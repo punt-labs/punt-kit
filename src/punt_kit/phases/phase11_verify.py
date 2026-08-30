@@ -147,7 +147,7 @@ class Phase11Verify:
 
         # 1. Git tag exists
         result = ops.run(["git", "tag", "--list", tag], cwd=str(info.root), check=False)
-        tag_exists = tag in result.stdout.strip()
+        tag_exists = tag in result.stdout.split()
         checks.append(
             VerificationCheck("Git tag", tag_exists, tag if tag_exists else "not found")
         )

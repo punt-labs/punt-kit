@@ -41,10 +41,16 @@ class GitWorkspace:
         ).stdout.strip()
 
     def ensure_on_main(self) -> None:
-        """Check out main and fast-forward pull, unless already on main.
+        """Check out main (if needed) and fast-forward pull.
 
         Resume may leave the working tree on a release/propagation branch
-        from an interrupted prior run.
+        from an interrupted prior run — checkout handles that case. The
+        pull always runs, even when already on main: a ``--resume-from``
+        that skips phase 1 can leave main checked out but stale, and
+        basing a new branch off it would silently root the release on an
+        outdated commit. Pulling from an explicit ``origin main`` refspec
+        (rather than bare ``git pull``) works even when the local branch
+        has no configured upstream tracking.
         """
         if self.current_branch() != "main":
             self._ops.run(
@@ -52,11 +58,11 @@ class GitWorkspace:
                 cwd=str(self._root),
                 timeout=timeouts.GIT_HOOK,
             )
-            self._ops.run(
-                ["git", "pull", "--ff-only"],
-                cwd=str(self._root),
-                timeout=timeouts.GIT_HOOK,
-            )
+        self._ops.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=str(self._root),
+            timeout=timeouts.GIT_HOOK,
+        )
 
     def checkout_or_create(self, branch: str) -> bool:
         """Check out ``branch``, creating it if absent.

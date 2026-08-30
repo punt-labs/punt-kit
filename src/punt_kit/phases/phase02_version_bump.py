@@ -53,13 +53,18 @@ class Phase2VersionBump:
         project = ReleaseProject(info, ops=ops)
         workspace = GitWorkspace(root, ops=ops)
 
-        # Create release branch
+        # Create release branch. Ensure main is checked out and current
+        # first — a `--resume-from bump` that skips phase 1 can otherwise
+        # leave the release branch rooted on whatever stale commit happened
+        # to be checked out.
         if dry_run:
             ops.dry(f"git checkout -b {branch}")
-        elif workspace.checkout_or_create(branch):
-            ops.info(f"Checked out existing branch {branch}")
         else:
-            ops.ok(f"Created branch {branch}")
+            workspace.ensure_on_main()
+            if workspace.checkout_or_create(branch):
+                ops.info(f"Checked out existing branch {branch}")
+            else:
+                ops.ok(f"Created branch {branch}")
 
         # 2b. Bump version in pyproject.toml
         pyproject_path = root / "pyproject.toml"
