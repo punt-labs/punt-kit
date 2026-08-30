@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime
 import json
 import re
-import shutil
 import signal
 import subprocess
 import sys
@@ -24,6 +23,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase03_build import Phase3Build
 from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
 from punt_kit.phases.phase05_tag import Phase5Tag
 from punt_kit.phases.phase06_ci_wait import Phase6CiWait
@@ -638,36 +638,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
 
 def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     """Phase 3: Build validation."""
-    if info.language != "python":
-        return
-
-    console.print("\n[bold]Phase 3: Build validation[/bold]")
-
-    if dry_run:
-        _dry("rm -rf dist/ && uv build && uvx twine check dist/*")
-        return
-
-    dist = info.root / "dist"
-    if dist.exists():
-        shutil.rmtree(dist)
-
-    _run(["uv", "build"], cwd=str(info.root), capture=False, timeout=_UV_TIMEOUT)
-
-    # twine check on built artifacts only (.whl and .tar.gz)
-    dist_dir = info.root / "dist"
-    artifacts = sorted(p for p in dist_dir.iterdir() if p.suffix in {".whl", ".gz"})
-    if not artifacts:
-        _fail("No build artifacts found in dist/ for twine check")
-
-    result = _run(
-        ["uvx", "twine", "check", *[str(p) for p in artifacts]],
-        cwd=str(info.root),
-        timeout=60,
-        check=False,
-    )
-    if result.returncode != 0:
-        _fail(f"twine check failed:\n{result.stdout}\n{result.stderr}")
-    _ok("Build artifacts pass twine check")
+    Phase3Build(info, dry_run=dry_run, ops=_ops).run()
 
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
