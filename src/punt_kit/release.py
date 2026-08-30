@@ -30,6 +30,7 @@ from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.plugin_swap import PluginSwap
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
 
@@ -724,120 +725,24 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     _ok(f"Pushed tag {tag}")
 
 
-def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Update SHA-pinned install.sh URLs in README to the install.sh commit."""
-    root = info.root
-    readme_path = root / "README.md"
-    install_sh = root / "install.sh"
-    if not readme_path.exists() or not install_sh.exists():
-        return
+def _bump_readme_install_sha(  # pyright: ignore[reportUnusedFunction]
+    info: ProjectInfo, version: str, *, dry_run: bool
+) -> None:
+    """Update SHA-pinned install.sh URLs in README to the install.sh commit.
 
-    tag = f"v{version}"
-    github_repo = _get_github_repo(root)
-    if github_repo:
-        owner, repo_name = github_repo.split("/", 1)
-    else:
-        owner, repo_name = "punt-labs", root.name
-
-    # Get the short SHA of the commit that last modified install.sh
-    short_sha = "<SHA>" if dry_run else _get_install_sh_sha(root)
-
-    content = readme_path.read_text(encoding="utf-8")
-    esc_owner = re.escape(owner)
-    esc_repo = re.escape(repo_name)
-
-    # Replace SHA-pinned install URLs: <owner>/<repo>/<hex-sha>/install.sh
-    new_content = re.sub(
-        rf"(raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/)[0-9a-fA-F]{{7,40}}(/install\.sh)",
-        rf"\g<1>{short_sha}\2",
-        content,
+    No caller remains in this module — ReadmeShaPin.land calls self.bump
+    directly. Kept importable for public API preservation.
+    """
+    ReadmeShaPin(info, ops=_ops).bump(
+        version, dry_run=dry_run, resolve_repo=_get_github_repo
     )
-
-    # Also replace version-tag install URLs: <owner>/<repo>/v1.2.3/install.sh
-    new_content = re.sub(
-        rf"(raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/)v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
-        rf"\g<1>{short_sha}\2",
-        new_content,
-    )
-
-    if new_content == content:
-        return
-
-    if dry_run:
-        _dry(f"README.md: install URLs → {short_sha} ({tag})")
-        return
-
-    readme_path.write_text(new_content, encoding="utf-8")
-    _ok(f"README.md: install URLs → {short_sha} ({tag})")
 
 
 def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Pin README's install-URL SHA via its own PR, right after the squash-merge.
-
-    Must run after ``_phase4_release_pr``'s squash-merge lands on main, not
-    during ``_phase2_version_bump`` on the release branch. ``gh pr merge
-    --squash --delete-branch`` makes one new commit on main and deletes the
-    release branch — any SHA pinned from a commit that only ever existed on
-    that branch becomes unreachable the moment it is deleted, and a
-    subsequent CI checkout of the release tag will not contain it. Reading
-    ``install.sh``'s SHA here, with the working tree on the just-merged main,
-    pins a commit that is main's own permanent history.
-    """
-    root = info.root
-    branch = f"release-readme-pin/v{version}"
-
-    # No README or no install.sh means there is nothing to pin — the sub-
-    # sequent _bump_readme_install_sha would be a no-op. Skip the whole
-    # branch/checkout/PR dance rather than churn git and print a
-    # misleading "README already pins..." line for a repo where pinning
-    # is not even possible.
-    if not (root / "README.md").exists() or not (root / "install.sh").exists():
-        _ok("No README.md or install.sh — nothing to pin")
-        return
-
-    if dry_run:
-        _dry("_bump_readme_install_sha(...)")
-        _dry(f'git commit -m "chore: update README install SHA to v{version}"')
-        _dry(
-            f"_pr_merge(branch={branch}, "
-            f'title="chore: update README install SHA v{version}")'
-        )
-        return
-
-    workspace = GitWorkspace(root, ops=_ops)
-    workspace.ensure_on_main()
-
-    if workspace.checkout_or_create(branch):
-        _info(f"Checked out existing branch {branch}")
-
-    _bump_readme_install_sha(info, version, dry_run=False)
-    status = _run(
-        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
-    ).stdout.strip()
-    if not status:
-        # Resume case: a prior run already committed the pin on this branch,
-        # or the README already carried the correct SHA — either way there
-        # is nothing new to land.
-        ahead = _run(
-            ["git", "log", "main..HEAD", "--oneline"], cwd=str(root)
-        ).stdout.strip()
-        if not ahead:
-            _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-            _run(["git", "branch", "-D", branch], cwd=str(root))
-            _ok("README already pins the current install SHA")
-            return
-    else:
-        workspace.commit_if_staged(
-            ["README.md"], f"chore: update README install SHA to v{version}"
-        )
-
-    _pr_merge(
-        cwd=root,
-        branch=branch,
-        title=f"chore: update README install SHA v{version}",
-        dry_run=False,
+    """Pin README's install-URL SHA via its own PR, right after the squash-merge."""
+    ReadmeShaPin(info, ops=_ops).land(
+        version, dry_run=dry_run, merge=_pr_merge, resolve_repo=_get_github_repo
     )
-    _ok("README SHA pin PR merged")
 
 
 # Static alias — re-export of the relocated class. No test's monkeypatch
