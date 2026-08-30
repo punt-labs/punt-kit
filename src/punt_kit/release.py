@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
 from punt_kit.phases.phase10_propagate import (
@@ -239,8 +240,15 @@ def _read_changelog(root: Path) -> str:
     return Changelog(root, ops=_ops).text()
 
 
-def _extract_version_notes(changelog: str, version: str) -> str:
-    """Extract release notes for a specific version from changelog."""
+def _extract_version_notes(  # pyright: ignore[reportUnusedFunction]
+    changelog: str, version: str
+) -> str:
+    """Extract release notes for a specific version from changelog.
+
+    No caller remains in this module — Phase7GithubRelease calls
+    changelog_mod.extract_version_notes directly. Kept importable for
+    public API preservation (this name is also directly tested).
+    """
     return changelog_mod.extract_version_notes(changelog, version)
 
 
@@ -927,40 +935,7 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
 def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 7: Create GitHub release."""
-    console.print(f"\n[bold]Phase 7: GitHub release v{version}[/bold]")
-
-    tag = f"v{version}"
-
-    if dry_run:
-        _dry(f'gh release create {tag} --title "{tag}" --notes "..."')
-        return
-
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found")
-
-    # Check if CI already created the release (e.g., Go projects use
-    # softprops/action-gh-release in their release workflow).
-    existing = _run(
-        [gh, "release", "view", tag],
-        cwd=str(info.root),
-        check=False,
-    )
-    if existing.returncode == 0:
-        _ok(f"GitHub release {tag} already exists (created by CI)")
-        return
-
-    changelog = _read_changelog(info.root)
-    notes = _extract_version_notes(changelog, version)
-
-    result = _run(
-        [gh, "release", "create", tag, "--title", tag, "--notes", notes],
-        cwd=str(info.root),
-        check=False,
-    )
-    if result.returncode != 0:
-        _fail(f"Failed to create release: {result.stderr}")
-    _ok(f"GitHub release {tag} created")
+    Phase7GithubRelease(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
