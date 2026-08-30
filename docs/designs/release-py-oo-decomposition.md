@@ -36,8 +36,8 @@ hypothetical — it is the exact mechanism the suite already depends on 90
 times, and it is why `tests/test_release.py` is explicitly out of scope for
 this mission: the design must not require touching it.
 
-The fix already exists in the codebase and is the pattern rmh flagged in PR
-#287: `_TagRunSelector` (release.py:1696-1819) never calls `_run` itself.
+The fix already exists in the codebase and is the pattern rmh flagged in
+PR #287: `_TagRunSelector` (release.py:1696-1819) never calls `_run` itself.
 Its `poll()` method takes a `list_runs: Callable[[], Sequence[...]]`
 collaborator; the *caller* (`_phase6_ci_wait`, defined in release.py) builds
 the closure that calls `_run`. The pure logic (which run matches, what to do
@@ -266,7 +266,7 @@ the only fields; there are no multi-step setup methods.
 
 ## 4. Package layout
 
-```
+```text
 src/punt_kit/release.py                        (~250-300 lines — see §6)
 src/punt_kit/phases/__init__.py
 src/punt_kit/phases/shared/__init__.py
@@ -307,15 +307,18 @@ guidance's 3-per-module ceiling, and `PrMerger` composing the other three is
 a cleaner "who imports whom" story as its own file.
 
 ### `phases/shared/errors.py`
+
 - `class ReleaseError(Exception)` — unchanged from today.
 
 ### `phases/shared/ops.py`
+
 - `class ReleaseOps(Protocol)` — `run`, `ok`, `info`, `dry`, `warn`, `fail`.
   Method names are the pre-underscore originals (`run` not `_run`) since this
   is a new public interface; the underscore-prefixed compatibility names live
   only in `release.py`'s adapter and wrapper functions.
 
 ### `phases/shared/reporter.py`
+
 - `class Reporter` (`@final`, Singleton per PY-DP-7 — exactly one process-wide
   console) — `__slots__ = ("_console",)`. Methods: `ok(msg)`, `info(msg)`,
   `dry(msg)`, `warn(msg)`, `fail(msg) -> NoReturn` (prints then raises
@@ -323,12 +326,14 @@ a cleaner "who imports whom" story as its own file.
 - Module-level `reporter = Reporter()` singleton instance.
 
 ### `phases/shared/timeouts.py`
+
 - Module-level constants only (legitimate PY-OO-7 primitives module — no
   class in this file, nothing to be "missing methods on"): `DEFAULT_RUN`,
   `UV`, `GIT_NETWORK`, `GIT_HOOK`, `QUALITY_GATE`, `CI_RUN_POLL_INTERVAL`,
   `CI_RUN_POLL_ATTEMPTS`, `CI_WATCH`, `CI_RUN_LIST`, `CI_ADVERSE_CONCLUSIONS`.
 
 ### `phases/shared/changelog.py`
+
 - `class Changelog` — `__slots__ = ("_root",)`, constructed from `root: Path`.
   Methods: `text() -> str` (raises via `ops.fail` if missing — so `Changelog`
   also takes `ops: ReleaseOps`), `has_unreleased_entries() -> bool`,
@@ -339,6 +344,7 @@ a cleaner "who imports whom" story as its own file.
   even though it wasn't a standalone function before).
 
 ### `phases/shared/project_info.py`
+
 - `normalize_package_name(name: str) -> str` — module function (see §2).
 - `class ReleaseProject` — `__slots__ = ("_info", "_ops")`, wraps
   `ProjectInfo` + `ReleaseOps`. Methods: `version() -> str`,
@@ -349,6 +355,7 @@ a cleaner "who imports whom" story as its own file.
   projects).
 
 ### `phases/shared/siblings.py`
+
 - `PROPAGATION_SIBLINGS: tuple[str, ...]`, `_GITHUB_ABSENT_SKIP` (template
   string), `_PROPAGATION_OWNED_PATHS` — module constants.
 - `class SkipRecorder` (`@final`) — unchanged internals from `_SkipRecorder`
@@ -365,6 +372,7 @@ a cleaner "who imports whom" story as its own file.
   name).
 
 ### `phases/shared/git.py`
+
 - `class GitWorkspace` — `__slots__ = ("_root", "_ops")`. The "ensure on
   main / checkout-or-create branch / commit if staged / push" sequence is
   duplicated near-verbatim today at release.py:1210-1231 (phase 2),
@@ -380,6 +388,7 @@ a cleaner "who imports whom" story as its own file.
   bool`, `push(branch_or_tag: str) -> None`.
 
 ### `phases/shared/gh.py`
+
 - `class GithubRepo` (`@final`) — `__slots__ = ("_root", "_ops")`.
   `resolve() -> str | None` (was `_get_github_repo`),
   `has_branch_protection(gh: str, owner: str, repo: str) -> bool` (was
@@ -394,6 +403,7 @@ a cleaner "who imports whom" story as its own file.
   `_resolve_pr_threads`).
 
 ### `phases/shared/pr_merge.py`
+
 - `class PrMerger` — `__slots__ = ("_ops", "_repo", "_waiter", "_threads")`,
   composes `GithubRepo`/`RequiredChecksWaiter`/`PrThreadResolver`.
   `merge(*, cwd: Path, branch: str, title: str, body: str = "", dry_run:
@@ -404,6 +414,7 @@ a cleaner "who imports whom" story as its own file.
   `_is_merged` mirror `_select_existing_pr`/`_pr_is_merged` unchanged.
 
 ### `phases/shared/ci_run.py`
+
 - `class TagRunSelector` (`@final`) — unchanged from `_TagRunSelector`
   (already exemplary — no changes to its internals, just relocation and the
   drop of the leading underscore since it becomes a real public collaborator
@@ -413,6 +424,7 @@ a cleaner "who imports whom" story as its own file.
   `_watch_failure_message`).
 
 ### `phases/shared/plugin_swap.py`
+
 - `class PluginSwap` — `__slots__ = ("_info",)`, wraps `ProjectInfo`.
   `manifest_path_rel() -> str` (was `_plugin_json_rel`),
   `swap_paths() -> tuple[str, ...]` (was `_plugin_swap_paths`),
@@ -421,12 +433,14 @@ a cleaner "who imports whom" story as its own file.
   `reset_to_head() -> None` (was `_reset_plugin_swap_paths`).
 
 ### `phases/shared/readme_sha.py`
+
 - `class ReadmeShaPin` — `__slots__ = ("_project", "_ops")`, composes
   `ReleaseProject` + `GitWorkspace` + `PrMerger`. `bump(version: str, *,
   dry_run: bool) -> None` (was `_bump_readme_install_sha`), `land(version:
   str, *, dry_run: bool) -> None` (was `_land_readme_sha_pin`).
 
 ### `phases/shared/pipeline.py`
+
 - `class Phase(Protocol)` — `run() -> None` (§3).
 - `class PhaseStep` (`@dataclass(frozen=True, slots=True)`, PY-CC-6) —
   `number: int`, `name: str`, `run: Callable[[], None]`. A pure value
@@ -606,9 +620,9 @@ starts. No test file changes at any step (per §5).
     `ReleasePipeline`, `ThreadedStep`) — defined but not yet wired into
     `run_release` (that's step 18).
 
-Steps 15-17 migrate phases **11 → 1** (per PY-RF-1 / mission guidance: later
-phases have fewer internal callers and depend on more of the
-already-extracted shared classes, so they churn less):
+    Steps 15-17 migrate phases **11 → 1** (per PY-RF-1 / mission guidance:
+    later phases have fewer internal callers and depend on more of the
+    already-extracted shared classes, so they churn less).
 
 15. `phase11_verify.py`, `phase10_propagate.py` (each is its own commit —
     two commits, not one, since phase 10 also needs the three propagator
@@ -618,10 +632,10 @@ already-extracted shared classes, so they churn less):
 17. `phase05_tag.py`, `phase04_release_pr.py`, `phase03_build.py`,
     `phase02_version_bump.py`, `phase01_preflight.py` (five commits).
 
-Each of the 11 phase commits: add the class, delete the old
-`_phaseN_*` function body, add the thin wrapper in `release.py` that
-constructs-and-runs the class, update `run_release`'s closure list (no other
-change to `run_release` needed until step 18).
+    Each of the 11 phase commits: add the class, delete the old
+    `_phaseN_*` function body, add the thin wrapper in `release.py` that
+    constructs-and-runs the class, update `run_release`'s closure list (no
+    other change to `run_release` needed until step 18).
 
 18. **Wire `ReleasePipeline` into `run_release`** — replace the `if start <=
     N:` ladder with `ReleasePipeline([...]).run(start=start)`, using the
