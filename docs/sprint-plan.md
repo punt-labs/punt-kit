@@ -8,7 +8,15 @@ Filed 2026-08-30 from operator direction: fix release engine bugs (weekly pain),
 
 ## Sequence
 
-Sprint order: A → B → C → D → E. Operator ratified the release-first order. Sprint D (standards rot) runs in parallel with Sprint A because it does not touch `release.py`.
+Operator ratified release-first: **A is the entry point**. From there, the dependency graph — not a strict linear order — determines what runs when:
+
+- **A** ships independently.
+- **D** (standards rot) runs concurrently with **A** because it touches only `standards/` and `lang-rules/`, not `release.py`.
+- **B** (kit-manager) starts once **A** frees attention; it does not depend on **A**.
+- **C** (standards enforcement) is deferred until **D** finishes so the LLM examiner enforces a fresh corpus, not a rotted one; **C** also depends on **B**'s `.punt-labs/<tool>/` declaration.
+- **E** (playbook DSL) can start any time after **A** since it is orthogonal to standards work.
+
+Read as a graph: **A ‖ D**, then **B**, then **C** (needs both B and D), with **E** floating after A.
 
 ### Sprint A — Release-engine reliability
 
