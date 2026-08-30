@@ -295,15 +295,15 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
             "ones"
         )
 
-    _info(f"Waiting for {'required' if branch_protected else 'all'} CI checks "
-          f"on PR #{pr_number}...")
+    _info(
+        f"Waiting for {'required' if branch_protected else 'all'} CI checks "
+        f"on PR #{pr_number}..."
+    )
     ...
     while time.time() < deadline:
         ...
         relevant = (
-            [c for c in checks if c.get("isRequired")]
-            if branch_protected
-            else checks
+            [c for c in checks if c.get("isRequired")] if branch_protected else checks
         )
         if not relevant:
             no_checks_attempts += 1
@@ -482,7 +482,10 @@ def _verify_marketplace_pin_chain(
         src = cast("dict[str, str]", p.get("source", {}))
         if str(src.get("repo", "")).endswith("/" + project_name):
             ok = str(p.get("version", "")) == version and str(src.get("ref", "")) == tag
-            return ok, f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, ref={src.get('ref')}"
+            return (
+                ok,
+                f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, ref={src.get('ref')}",
+            )
     return False, f"claude-plugins@{claude_plugins_sha} has no entry for {project_name}"
 ```
 
@@ -582,7 +585,9 @@ after, in the same phase:
 ```python
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     ...
-    merge_sha = _pr_merge(cwd=root, branch=branch, title=f"chore: release v{version}", dry_run=dry_run)
+    merge_sha = _pr_merge(
+        cwd=root, branch=branch, title=f"chore: release v{version}", dry_run=dry_run
+    )
     if not dry_run:
         _land_readme_sha_pin(info, version, dry_run=dry_run)
     return merge_sha
