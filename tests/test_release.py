@@ -4506,8 +4506,6 @@ def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
     ran. Guard against reintroduction by scanning the phase 9 module.
     See pkit-x5j8.
     """
-    from pathlib import Path as _Path
-
     phase9 = (
         _Path(__file__).parent.parent
         / "src"
