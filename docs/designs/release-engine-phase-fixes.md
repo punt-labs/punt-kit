@@ -1,5 +1,10 @@
 # Release Engine Phase Fixes — Design
 
+**Status**: implemented (PR #322)
+**Author**: adb (design mission m-2026-08-30-002); leader-reviewed by claude
+**Ticket**: pkit-f85t (+ pkit-fwql)
+**Date**: 2026-08-30
+
 Epic: pkit-f85t (+ pkit-fwql). Fixes five bugs in `src/punt_kit/release.py` that
 all fired live during prfaq's v1.8.0 release. Fix order: f85t.1 → f85t.2 →
 f85t.4 → f85t.3 → fwql — each section below is self-contained but numbered in
@@ -541,9 +546,11 @@ of the current checkout." Today this only runs in `_phase9_post_release`
 (`:1982`), **after** phase 4's squash-merge and phase 5's tag. At the moment
 the tag is created (phase 5), README.md still carries the *previous*
 release's SHA pin, while `install.sh` on the just-merged main already has
-the new `VERSION=`. `scripts/check-readme-install-sha.sh`
-(confirmed at `quarry/scripts/check-readme-install-sha.sh:90`, same script
-this org uses across repos) diffs `git show <readme_pin>:install.sh` against
+the new `VERSION=`. The `check-readme-install-sha.sh` guard (shipped in
+each releasing sibling repo — `punt-labs/quarry` at
+`scripts/check-readme-install-sha.sh:90` is the reference copy; the same
+script is present in every hybrid repo's `scripts/` directory) diffs
+`git show <readme_pin>:install.sh` against
 the **working-tree** `install.sh` byte-for-byte — that diff is real and the
 guard's failure is correct given the state it observes; the state itself is
 wrong for the ~1-3 minutes between tag and phase 9's fix.
@@ -565,7 +572,8 @@ moment the branch is deleted. A subsequent CI checkout of the tag
 arbitrary dangling objects) will not contain that orphaned commit. The
 guard's own precondition check —
 `git rev-parse --verify --quiet "${readme_sha}^{commit}"`
-(`quarry/scripts/check-readme-install-sha.sh:77`) — would then fail with "SHA
+(`punt-labs/quarry:scripts/check-readme-install-sha.sh:77`, reference copy of the
+sibling-repo guard) — would then fail with "SHA
 not present in local git object DB," which is fwql's failure mode with a
 different symptom, not a fix. **This is a substantive design issue for the
 leader to rule on before implementation** (per this repo's org CLAUDE.md
@@ -713,7 +721,7 @@ possible — reachability is a property of the actual object graph).
 
 Manual verification against live artifacts before A2 dispatch, so the implementation mission does not discover the design's assumptions are wrong.
 
-**§2.4 marketplace-pin chain — verified.** `/home/jfreeman/Coding/punt-labs/.github/install-all.sh:45` contains `curl -fsSL "$GH/claude-plugins/aa5a34d/install.sh" | sh` — the claude-plugins pin the design's `_verify_marketplace_pin_chain` helper reads. `git show aa5a34d:.claude-plugin/marketplace.json` in `/home/jfreeman/Coding/punt-labs/claude-plugins` resolves cleanly and returns JSON with `plugins[*].version` and `plugins[*].source.ref` fields — exactly the shape the helper parses. The proposed regex (`r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh"`) matches the actual line.
+**§2.4 marketplace-pin chain — verified.** `punt-labs/.github:install-all.sh:45` contains `curl -fsSL "$GH/claude-plugins/aa5a34d/install.sh" | sh` — the claude-plugins pin the design's `_verify_marketplace_pin_chain` helper reads. `git show aa5a34d:.claude-plugin/marketplace.json` in `punt-labs/claude-plugins` resolves cleanly and returns JSON with `plugins[*].version` and `plugins[*].source.ref` fields — exactly the shape the helper parses. The proposed regex (`r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh"`) matches the actual line.
 
 **§2.5 fwql reachability argument — verified.** `src/punt_kit/release.py:995-996` calls `gh pr merge --squash --delete-branch` in phase 4. Squash-merge creates one commit on `main`; the release branch's commits become unreachable from any ref once the branch is deleted. Option A's proposed pin site (`_phase2_version_bump`) writes on the release branch that phase 4 deletes. Option B's proposed pin site (`_phase4_release_pr` after `_pr_merge`) writes against the squashed SHA on main. Design's reachability analysis holds.
 
