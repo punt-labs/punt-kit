@@ -584,6 +584,30 @@ def test_template_pin_multiple_files_rewritten(tmp_path: Path) -> None:
     assert f"uvx --from {_OWN_PKG}==0.2.0" in second.read_text()
 
 
+def test_template_pin_normalizes_separator_and_case(tmp_path: Path) -> None:
+    """A pin spelled with underscores/case still matches the hyphenated name.
+
+    PyPI treats ``-``, ``_``, and ``.`` as equivalent separators and names as
+    case-insensitive (PEP 503) — a template pin written as ``punt_test_pkg``
+    must still be recognized as the same package as ``punt-test-pkg``.
+    """
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    underscored = _OWN_PKG.replace("-", "_")
+    template = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {underscored}==0.1.0 test-cli --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    assert f"uvx --from {_OWN_PKG}==0.2.0" in template.read_text()
+
+
 def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
     """No src/**/data or plugin/**/*.yml files present is not an error."""
     root = _make_release_project(tmp_path)

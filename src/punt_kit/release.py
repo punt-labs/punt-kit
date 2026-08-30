@@ -1138,6 +1138,18 @@ _TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
 )
 
 
+def _normalize_package_name(name: str) -> str:
+    """PEP 503 normalization key: case- and separator-insensitive.
+
+    PyPI treats ``-``, ``_``, and ``.`` as equivalent separators and names as
+    case-insensitive, so ``punt_biff`` and ``Punt-Biff`` both name the same
+    package as ``punt-biff``. Comparing raw strings would leave a pin stale
+    whenever a template spells the name with a different separator or case
+    than ``pyproject.toml``.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
 def _rewrite_template_pins(
     info: ProjectInfo, version: str, *, dry_run: bool
 ) -> list[Path]:
@@ -1151,12 +1163,14 @@ def _rewrite_template_pins(
     own_pkg = _self_package_name(info)
     if own_pkg is None:
         return []
+    own_key = _normalize_package_name(own_pkg)
     pin_re = re.compile(
-        r"uvx --from (?P<pkg>punt-[a-z0-9-]+)==(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"
+        r"uvx --from (?P<pkg>[Pp]unt[-_.][A-Za-z0-9._-]+)"
+        r"==(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"
     )
 
     def _replace(match: re.Match[str]) -> str:
-        if match.group("pkg") != own_pkg:
+        if _normalize_package_name(match.group("pkg")) != own_key:
             return match.group(0)
         return f"uvx --from {own_pkg}=={version}"
 
