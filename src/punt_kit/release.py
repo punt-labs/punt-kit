@@ -27,6 +27,7 @@ from punt_kit.phases.shared.ci_run import CiRunWatch, TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
@@ -396,41 +397,32 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     )
 
 
-def _select_existing_pr(
+def _select_existing_pr(  # pyright: ignore[reportUnusedFunction]
     prs: list[dict[str, object]], local_head: str
 ) -> tuple[int | None, bool]:
     """Pick which same-named PR, if any, represents the current release.
 
-    Returns ``(pr_number, already_merged)``. An OPEN PR is always the
-    current release. A MERGED PR counts only when its head commit matches
-    the local branch head — a merged PR at a different head is a stale
-    earlier attempt, and treating it as current would skip the version
-    bump and tag an unbumped commit. CLOSED PRs are never current: their
-    CI is dead and waiting on it never completes.
+    No caller remains in this module — PrMerger.merge calls
+    PrMerger._select_existing directly. Kept importable for public API
+    preservation.
     """
-    for pr in prs:
-        if pr.get("state") == "OPEN":
-            return cast("int", pr["number"]), False
-    for pr in prs:
-        if pr.get("state") == "MERGED" and pr.get("headRefOid") == local_head:
-            return cast("int", pr["number"]), True
-    return None, False
-
-
-def _pr_is_merged(gh: str, cwd: str, pr_number: int) -> bool:
-    """Check whether a PR has reached the MERGED state."""
-    state = _run(
-        [gh, "pr", "view", str(pr_number), "--json", "state"],
-        cwd=cwd,
-        check=False,
+    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        prs, local_head
     )
-    if state.returncode != 0:
-        return False
-    try:
-        data = cast("dict[str, object]", json.loads(state.stdout))
-    except json.JSONDecodeError:
-        return False
-    return data.get("state") == "MERGED"
+
+
+def _pr_is_merged(  # pyright: ignore[reportUnusedFunction]
+    gh: str, cwd: str, pr_number: int
+) -> bool:
+    """Check whether a PR has reached the MERGED state.
+
+    No caller remains in this module — PrMerger.merge calls
+    PrMerger._is_merged directly. Kept importable for public API
+    preservation.
+    """
+    return PrMerger(ops=_ops)._is_merged(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        gh, cwd, pr_number
+    )
 
 
 def _pr_merge(
@@ -442,194 +434,15 @@ def _pr_merge(
     dry_run: bool = False,
 ) -> str:
     """Push branch, create PR, wait for CI, squash-merge. Return merge SHA."""
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found — install from https://cli.github.com")
-
-    root = str(cwd)
-
-    if dry_run:
-        _dry(f"git push -u origin {branch}")
-        _dry(f'gh pr create --base main --head {branch} --title "{title}"')
-        _dry("gh pr view <number> --json statusCheckRollup  # poll required checks")
-        _dry("gh pr merge <number> --squash --delete-branch")
-        return "<SHA>"
-
-    # 1. Push branch (idempotent). pre-push fires bd hooks — needs the
-    # hook budget, which subsumes _GIT_NETWORK_TIMEOUT.
-    result = _run(
-        ["git", "push", "-u", "origin", branch],
-        cwd=root,
-        check=False,
-        capture=False,
-        timeout=_GIT_HOOK_TIMEOUT,
+    return PrMerger(ops=_ops).merge(
+        cwd=cwd,
+        branch=branch,
+        title=title,
+        body=body,
+        dry_run=dry_run,
+        wait_for_checks=_wait_for_required_checks,
+        resolve_threads=_resolve_pr_threads,
     )
-    if result.returncode != 0:
-        _fail(f"Failed to push branch {branch} — fix and retry")
-    _ok(f"Pushed branch {branch}")
-
-    # 2. Check for existing PRs (include merged/closed for resume). Only an
-    # OPEN PR or a MERGED PR at this exact head represents the current
-    # release — see _select_existing_pr for why CLOSED and stale MERGED
-    # PRs must be ignored.
-    local_head = _run(["git", "rev-parse", branch], cwd=root).stdout.strip()
-    existing = _run(
-        [
-            gh,
-            "pr",
-            "list",
-            "--head",
-            branch,
-            "--state",
-            "all",
-            "--json",
-            "number,state,headRefOid",
-            "--limit",
-            "20",
-        ],
-        cwd=root,
-        check=False,
-    )
-    pr_number: int | None = None
-    if existing.returncode == 0:
-        try:
-            prs = cast("list[dict[str, object]]", json.loads(existing.stdout))
-        except json.JSONDecodeError:
-            _fail(f"Failed to parse gh pr list output: {existing.stdout[:200]}")
-        pr_number, already_merged = _select_existing_pr(prs, local_head)
-        if pr_number is not None:
-            if already_merged:
-                _ok(f"PR #{pr_number} already merged")
-                _run(
-                    ["git", "checkout", "main"],
-                    cwd=root,
-                    timeout=_GIT_HOOK_TIMEOUT,
-                )
-                _run(
-                    ["git", "pull", "--ff-only"],
-                    cwd=root,
-                    timeout=_GIT_HOOK_TIMEOUT,
-                )
-                sha = _run(
-                    ["git", "rev-parse", "--short", "HEAD"], cwd=root
-                ).stdout.strip()
-                return sha
-            _info(f"Found existing open PR #{pr_number}")
-
-    # 3. Create PR if none exists
-    if pr_number is None:
-        create_cmd = [
-            gh,
-            "pr",
-            "create",
-            "--base",
-            "main",
-            "--head",
-            branch,
-            "--title",
-            title,
-        ]
-        if body:
-            create_cmd.extend(["--body", body])
-        else:
-            create_cmd.extend(["--body", ""])
-        result = _run(create_cmd, cwd=root, check=False)
-        if result.returncode != 0:
-            _fail(f"Failed to create PR: {result.stderr.strip()}")
-        # Extract PR number from output URL
-        pr_url = result.stdout.strip()
-        try:
-            pr_number = int(pr_url.rstrip("/").split("/")[-1])
-        except ValueError:
-            _fail(f"Failed to extract PR number from gh output: {pr_url}")
-        _ok(f"Created PR #{pr_number}")
-
-    # 4. Wait for CI (required checks only — ignores non-required like "Claude Code Review")  # noqa: E501
-    _wait_for_required_checks(gh, root, pr_number)
-
-    # 5. Check if already merged (handles resume)
-    state = _run(
-        [gh, "pr", "view", str(pr_number), "--json", "state"],
-        cwd=root,
-        check=False,
-    )
-    if state.returncode != 0:
-        _fail(f"Failed to check PR #{pr_number} state: {state.stderr.strip()}")
-    try:
-        pr_state = json.loads(state.stdout).get("state")
-    except json.JSONDecodeError:
-        _fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
-    if pr_state == "MERGED":
-        _ok(f"PR #{pr_number} already merged")
-        _run(["git", "checkout", "main"], cwd=root, timeout=_GIT_HOOK_TIMEOUT)
-        _run(
-            ["git", "pull", "--ff-only"],
-            cwd=root,
-            timeout=_GIT_HOOK_TIMEOUT,
-        )
-        sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
-        return sha
-
-    # 6. Resolve review threads (Copilot/Bugbot auto-post on PRs)
-    _resolve_pr_threads(gh, root, pr_number)
-
-    # 7. Squash-merge (retry on branch protection / pending checks)
-    # Some repos have long-running checks (CodeQL) that gh pr checks --watch
-    # doesn't wait for if they aren't required. Branch protection may also
-    # require conversation resolution that takes a moment to propagate. (n5i)
-    merge_cmd = [
-        gh,
-        "pr",
-        "merge",
-        str(pr_number),
-        "--squash",
-        "--delete-branch",
-    ]
-    for merge_attempt in range(6):
-        result = _run(merge_cmd, cwd=root, check=False)
-        if result.returncode == 0:
-            break
-        # gh exits non-zero when the post-merge branch deletion fails even
-        # though the merge itself succeeded: repos with "automatically
-        # delete head branches" remove the branch during the merge, so
-        # gh's own DELETE gets a 404 (or a transient 503). The
-        # postcondition that matters is the PR state — check it before
-        # classifying the exit code as a failure.
-        if _pr_is_merged(gh, root, pr_number):
-            _info(f"PR #{pr_number} merged; remote branch already deleted — continuing")
-            break
-        combined = (result.stderr.strip() + "\n" + result.stdout.strip()).strip()
-        combined_lower = combined.lower()
-        is_transient = (
-            "policy prohibits" in combined_lower
-            or "required status check" in combined_lower
-            or "review is required" in combined_lower
-            or "conversation must be resolved" in combined_lower
-        )
-        if is_transient and merge_attempt < 5:
-            wait = 10 * (merge_attempt + 1)
-            _info(
-                f"Merge blocked (attempt {merge_attempt + 1}/6), retrying in {wait}s..."
-            )
-            time.sleep(wait)
-            # Re-resolve threads in case new ones appeared (best-effort)
-            try:
-                _resolve_pr_threads(gh, root, pr_number)
-            except (ReleaseError, SystemExit, subprocess.CalledProcessError):
-                _info("Could not re-resolve threads, proceeding with retry")
-            continue
-        _fail(f"Failed to merge PR #{pr_number}: {combined}")
-    _ok(f"PR #{pr_number} merged")
-
-    # 7. Update local main
-    _run(["git", "checkout", "main"], cwd=root, timeout=_GIT_HOOK_TIMEOUT)
-    _run(
-        ["git", "pull", "--ff-only"],
-        cwd=root,
-        timeout=_GIT_HOOK_TIMEOUT,
-    )
-    sha = _run(["git", "rev-parse", "--short", "HEAD"], cwd=root).stdout.strip()
-    return sha
 
 
 # Static alias — pure string transform, no test monkeypatches this name.
@@ -1536,56 +1349,9 @@ def _sibling_pr_merge(
 
     Returns True if a PR was created and merged, False if no changes.
     """
-    cwd = str(path)
-    status = _run(
-        ["git", "status", "--porcelain", "--", *files], cwd=cwd
-    ).stdout.strip()
-    if not status:
-        return False
-
-    if dry_run:
-        _dry(f"{name}: {message}")
-        return True
-
-    # Create branch (handle resume: branch may already exist)
-    # Use try/finally to ensure sibling returns to main on any failure —
-    # ReleaseError from _fail(), CalledProcessError from _run(), etc.
-    # (5b4/zay: stale propagation branches break subsequent releases).
-    try:
-        workspace = GitWorkspace(path, ops=_ops)
-        workspace.checkout_or_create(branch)
-        # Skip commit if nothing staged (resume case: already committed).
-        workspace.commit_if_staged(files, message)
-
-        _pr_merge(
-            cwd=path,
-            branch=branch,
-            title=message,
-            dry_run=False,
-        )
-    finally:
-        # _pr_merge checks out main on success; this is a no-op in that case.
-        # On failure, this ensures we don't leave the sibling on a stale branch.
-        branch_result = _run(["git", "branch", "--show-current"], cwd=cwd, check=False)
-        current = (
-            branch_result.stdout.strip() if branch_result.returncode == 0 else None
-        )
-        if current is None:
-            _info(f"Could not read current branch for sibling {name} after operation")
-        elif current != "main":
-            checkout = _run(
-                ["git", "checkout", "main"],
-                cwd=cwd,
-                check=False,
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
-            if checkout.returncode != 0:
-                _info(
-                    f"Warning: could not return sibling {name} to main: "
-                    f"{checkout.stderr.strip()}"
-                )
-
-    return True
+    return PrMerger(ops=_ops).merge_in_sibling(
+        path, branch, files, message, name, dry_run=dry_run, merge=_pr_merge
+    )
 
 
 # ---------------------------------------------------------------------------
