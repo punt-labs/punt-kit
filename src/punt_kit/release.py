@@ -19,16 +19,12 @@ from urllib.parse import urlparse
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
 
 console = Console()
-
-
-class ReleaseError(Exception):
-    """Raised by release phases to indicate a failure with a message."""
-
 
 # Set by the signal handler so threads can drain before cleanup runs.
 _interrupted = threading.Event()
