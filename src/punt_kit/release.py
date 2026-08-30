@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 import signal
 import subprocess
 import sys
@@ -21,6 +20,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase01_preflight import Phase1Preflight
 from punt_kit.phases.phase02_version_bump import Phase2VersionBump
 from punt_kit.phases.phase03_build import Phase3Build
 from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
@@ -273,150 +273,7 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
 
 def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     """Phase 1: Pre-flight checks."""
-    console.print("\n[bold]Phase 1: Pre-flight[/bold]")
-
-    # 1a. Git state
-    branch = _run(
-        ["git", "branch", "--show-current"], cwd=str(info.root)
-    ).stdout.strip()
-    if branch != "main":
-        _fail(f"Must be on main branch (currently on '{branch}')")
-    _ok("On main branch")
-
-    status = _run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout.strip()
-    dirty_lines: list[str] = []
-    untracked_lines: list[str] = []
-    for ln in status.splitlines():
-        path = ln[3:] if len(ln) > 3 else ""
-        if path == ".beads" or path.startswith(".beads/"):
-            continue
-        if ln.startswith("?? "):
-            untracked_lines.append(ln)
-        else:
-            dirty_lines.append(ln)
-    if dirty_lines:
-        dirty = "\n".join(dirty_lines)
-        _fail(f"Working tree is not clean:\n{dirty}")
-    if untracked_lines:
-        # Untracked files at release time are almost always noise (temp
-        # files, forgotten artifacts) that must not ride along in release
-        # commits — force the operator to commit, gitignore, or remove them.
-        untracked = "\n".join(untracked_lines)
-        _fail(
-            "Untracked files present — commit, gitignore, or remove them "
-            f"before releasing:\n{untracked}"
-        )
-    _ok("Working tree clean")
-
-    fetch = _run(
-        ["git", "fetch", "origin"],
-        cwd=str(info.root),
-        check=False,
-        timeout=_GIT_NETWORK_TIMEOUT,
-    )
-    if fetch.returncode != 0:
-        _fail(f"git fetch origin failed:\n{fetch.stderr.strip()}")
-    diff = _run(
-        ["git", "diff", "HEAD", "origin/main", "--stat"],
-        cwd=str(info.root),
-        check=False,
-    )
-    if diff.returncode != 0:
-        _fail(f"git diff failed:\n{diff.stderr.strip()}")
-    if diff.stdout.strip():
-        _fail(f"Not up to date with origin/main:\n{diff.stdout.strip()}")
-    _ok("Up to date with origin/main")
-
-    # 1b. Project type (already detected)
-    if info.is_hybrid:
-        ptype = "hybrid"
-    elif info.is_plugin:
-        ptype = "plugin"
-    else:
-        ptype = "CLI-only"
-    _ok(f"Project type: {ptype}")
-
-    if info.is_hybrid or info.is_plugin:
-        release_script = info.root / "scripts" / "release-plugin.sh"
-        restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
-        if not release_script.exists() or not restore_script.exists():
-            _fail("Missing release-plugin.sh or restore-dev-plugin.sh")
-        _ok("Release/restore scripts present")
-
-    # 1c. Changelog check
-    changelog = _read_changelog(info.root)
-    if "## [Unreleased]" not in changelog:
-        _fail("No [Unreleased] section in CHANGELOG.md")
-
-    unreleased_match = re.search(
-        r"## \[Unreleased\]\s*\n(.*?)(?=\n## \[|\Z)", changelog, re.DOTALL
-    )
-    if not unreleased_match or not unreleased_match.group(1).strip():
-        _fail("[Unreleased] section is empty — nothing to release")
-    _ok("Changelog has unreleased entries")
-
-    # 1d. Sibling repos (propagation targets) must be clean and on main
-    # Check early so we fail before quality gates, not mid-propagation (91t).
-    # Also catches stale propagation branches from prior releases (5b4/zay).
-    siblings_checked = 0
-    for sib_name in PROPAGATION_SIBLINGS:
-        sib_path = _resolve_sibling(info.root, sib_name)
-        if sib_path is not None:
-            _validate_sibling(sib_path, sib_name)
-            siblings_checked += 1
-    if siblings_checked > 0:
-        _ok(f"Sibling repos ready ({siblings_checked} checked)")
-    else:
-        _info("No sibling repos found (propagation will be skipped)")
-
-    # 1e. Quality gates
-    if not dry_run and info.language == "python":
-        _info("Running quality gates...")
-        gates = [
-            ["uv", "run", "ruff", "check", "src/", "tests/"],
-            ["uv", "run", "ruff", "format", "--check", "src/", "tests/"],
-            ["uv", "run", "mypy", "src/", "tests/"],
-            ["uv", "run", "pyright", "src/", "tests/"],
-            ["uv", "run", "pytest", "tests/", "-v"],
-        ]
-        for gate in gates:
-            result = _run(
-                gate,
-                cwd=str(info.root),
-                check=False,
-                capture=False,
-                timeout=_QUALITY_GATE_TIMEOUT,
-            )
-            if result.returncode != 0:
-                _fail(f"Quality gate failed: {' '.join(gate)}")
-        _ok("All quality gates passed")
-    elif not dry_run and info.language == "go":
-        _info("Running quality gates...")
-        makefile = info.root / "Makefile"
-        if makefile.exists():
-            result = _run(
-                ["make", "check"],
-                cwd=str(info.root),
-                check=False,
-                capture=False,
-                timeout=_QUALITY_GATE_TIMEOUT,
-            )
-            if result.returncode != 0:
-                _fail("Quality gate failed: make check")
-        else:
-            for gate in [["go", "vet", "./..."], ["go", "test", "-race", "./..."]]:
-                result = _run(
-                    gate,
-                    cwd=str(info.root),
-                    check=False,
-                    capture=False,
-                    timeout=_QUALITY_GATE_TIMEOUT,
-                )
-                if result.returncode != 0:
-                    _fail(f"Quality gate failed: {' '.join(gate)}")
-        _ok("All quality gates passed")
-    elif dry_run:
-        _dry("Would run quality gates")
+    Phase1Preflight(info, dry_run=dry_run, ops=_ops).run()
 
 
 def _suggest_version(changelog: str, current: str) -> str:
@@ -595,8 +452,15 @@ def _resolve_sibling(root: Path, name: str) -> Path | None:
     return repo.path if repo is not None else None
 
 
-def _validate_sibling(path: Path, name: str) -> None:
-    """Validate a sibling repo is ready for propagation."""
+def _validate_sibling(  # pyright: ignore[reportUnusedFunction]
+    path: Path, name: str
+) -> None:
+    """Validate a sibling repo is ready for propagation.
+
+    No caller remains in this module — every former call site now
+    constructs SiblingRepo directly. Kept importable for public API
+    preservation (this name is also directly tested).
+    """
     SiblingRepo(path, name, ops=_ops).validate()
 
 
