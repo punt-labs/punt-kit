@@ -2166,6 +2166,34 @@ def test_branch_protection_exists_true_on_timeout(
     )
 
 
+def test_branch_protection_exists_true_on_permission_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 404 without the "branch not protected" marker is treated as protected.
+
+    GitHub's branch-protection REST endpoint 404s when the token lacks
+    ``admin:repo`` even for a repo that DOES have protection. Fail-safe
+    to protected=True in that case rather than silently widening the
+    check set to include informational-only checks the repo excluded.
+    """
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: Not Found (HTTP 404)"
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
 def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2978,6 +3006,17 @@ def test_readme_sha_pin_survives_tag(
 
     monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
 
+    # The reachability guard runs against the working tree's install.sh
+    # SHA and the README's install URL. Pin the URL owner/repo to what
+    # _make_release_project wrote ("test-pkg") — otherwise the real
+    # _get_github_repo (no remote configured in tmp) falls back to
+    # root.name ("proj"), the regex misses, and _bump_readme_install_sha
+    # returns silently. That would make this whole test a no-op.
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/test-pkg"
+
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+
     # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
     # first _pr_merge call, for the release branch itself).
     release_mod._pr_merge(  # pyright: ignore[reportPrivateUsage]
@@ -2990,14 +3029,21 @@ def test_readme_sha_pin_survives_tag(
         info, "0.2.0", dry_run=False
     )
 
-    pinned_sha = subprocess.run(
-        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
-        cwd=d,
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout.strip()
+    # Read the SHA out of README.md itself — not out of git log — so the
+    # test would fail if _land_readme_sha_pin were a no-op that left the
+    # stale pre-release SHA in place. The install URL uses a 7-40 hex
+    # placeholder segment between "punt-labs/proj/" and "/install.sh"
+    # (or the org name we happen to have here); grab whichever hex SHA
+    # appears after the last "/" before "install.sh".
+    readme = (root / "README.md").read_text()
+    match = re.search(r"/([0-9a-fA-F]{7,40})/install\.sh", readme)
+    assert match is not None, f"README.md has no SHA-pinned install URL: {readme!r}"
+    pinned_sha = match.group(1)
 
+    # (a) The SHA must resolve in the local object DB. Option A's failure
+    # mode is exactly this — a dangling object that survives briefly and
+    # then gets pruned; the resolve here is a proxy for "the release tag's
+    # CI checkout will actually see this commit."
     show = subprocess.run(
         ["git", "show", f"{pinned_sha}:install.sh"],
         cwd=d,
@@ -3007,10 +3053,15 @@ def test_readme_sha_pin_survives_tag(
     ).stdout
     assert show == (root / "install.sh").read_text()
 
+    # (b) The SHA must be reachable from main (not a dangling commit).
     ancestor = subprocess.run(
         ["git", "merge-base", "--is-ancestor", pinned_sha, "main"], cwd=d
     )
-    assert ancestor.returncode == 0
+    assert ancestor.returncode == 0, (
+        f"pinned SHA {pinned_sha} is not reachable from main — Option A's "
+        "reachability defect. It resolves via git show only because the "
+        "object hasn't been pruned yet."
+    )
 
 
 # --- _phase11_verify: profile SHA ---

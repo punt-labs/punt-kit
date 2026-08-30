@@ -587,14 +587,20 @@ def _suggest_version(changelog: str, current: str) -> str:
 
 
 def _branch_protection_exists(gh: str, cwd: str, owner: str, repo_name: str) -> bool:
-    """True if ``main`` has a branch protection rule; False on a confirmed 404.
+    """True if ``main`` has a branch protection rule; False only on a confirmed
+    "branch not protected" response.
 
-    ``gh api .../branches/main/protection`` 404s with "Branch not protected"
-    when none is configured. Any other failure (network, auth, rate limit, or
-    a timeout) is NOT treated as "unprotected" — it falls through as True so
-    the existing isRequired-only wait behavior is unchanged for errors
-    unrelated to branch protection, and a transient API hiccup here cannot
-    silently widen the check set for a repo that genuinely has protection.
+    ``gh api .../branches/main/protection`` returns HTTP 404 with the
+    message body ``"Branch not protected"`` when no protection rule is
+    configured. The SAME endpoint also 404s when the token lacks
+    ``admin:repo`` permissions on a repo that DOES have protection —
+    with a different error message (typically ``"Not Found"`` or an
+    HTTP-401 that gh surfaces as 404). Distinguishing the two requires
+    the explicit ``"branch not protected"`` marker: any 404 without
+    that marker is ambiguous and falls through as protected=True, along
+    with every other failure mode (network, rate limit, timeout, wrong
+    scope). Fail-safe direction: the isRequired-only wait behavior is
+    preserved for anything we cannot confirm is genuinely unprotected.
     """
     try:
         result = _run(
@@ -607,7 +613,7 @@ def _branch_protection_exists(gh: str, cwd: str, owner: str, repo_name: str) -> 
     if result.returncode == 0:
         return True
     combined = (result.stderr + result.stdout).lower()
-    return "404" not in combined and "branch not protected" not in combined
+    return "branch not protected" not in combined
 
 
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
@@ -2210,7 +2216,15 @@ def _verify_marketplace_pin_chain(
     plugins = cast("list[dict[str, object]]", data.get("plugins", []))
     for p in plugins:
         src = cast("dict[str, str]", p.get("source", {}))
-        if str(src.get("repo", "")).endswith("/" + project_name):
+        # Match by either the source.repo suffix (canonical) or the plugin
+        # name field. Check 5 (marketplace) accepts both, and the historical
+        # pin check must not be stricter — otherwise a genuinely-current
+        # release fails the pin chain for entries whose top-level "name"
+        # matches but whose "source.repo" points at a fork or a rename.
+        if (
+            str(src.get("repo", "")).endswith("/" + project_name)
+            or str(p.get("name", "")) == project_name
+        ):
             ok = str(p.get("version", "")) == version and str(src.get("ref", "")) == tag
             return (
                 ok,
@@ -3288,7 +3302,8 @@ def run_release(
                     and not info.is_plugin
                 ):
                     _fail(
-                        "Version required for plugin-only projects (no pyproject.toml)"
+                        "Version required — project has no pyproject.toml, "
+                        "is not a Go project, and is not a plugin"
                     )
                 current = _get_project_version(info)
                 changelog = _read_changelog(root)
