@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase05_tag import Phase5Tag
 from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
@@ -727,41 +728,7 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
 
 def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 5: Tag main HEAD and push tag."""
-    console.print(f"\n[bold]Phase 5: Tag v{version}[/bold]")
-
-    root = info.root
-    tag = f"v{version}"
-
-    if dry_run:
-        _dry(f"git tag {tag}")
-        _dry(f"git push origin {tag}")
-        return
-
-    workspace = GitWorkspace(root, ops=_ops)
-    workspace.ensure_on_main()
-
-    # Check if tag already exists
-    existing = _run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
-    if existing:
-        # Verify it points to HEAD
-        tag_sha = _run(["git", "rev-parse", tag], cwd=str(root)).stdout.strip()
-        head_sha = _run(["git", "rev-parse", "HEAD"], cwd=str(root)).stdout.strip()
-        if tag_sha == head_sha:
-            _ok(f"Tag {tag} already exists at HEAD")
-        else:
-            _fail(
-                f"Tag {tag} exists but points to {tag_sha[:8]}, "
-                f"not HEAD ({head_sha[:8]})"
-            )
-        return
-
-    _run(["git", "tag", tag], cwd=str(root))
-    _ok(f"Tagged {tag}")
-
-    # Push tag (not blocked by branch protection — targets refs/tags/*).
-    # pre-push still fires bd hooks, so use the hook budget.
-    workspace.push(tag)
-    _ok(f"Pushed tag {tag}")
+    Phase5Tag(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 def _bump_readme_install_sha(  # pyright: ignore[reportUnusedFunction]
