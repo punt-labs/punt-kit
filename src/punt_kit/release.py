@@ -2120,6 +2120,43 @@ def _validate_sibling(path: Path, name: str) -> None:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
 
 
+def _verify_marketplace_pin_chain(
+    cp_sibling: Path | None,
+    claude_plugins_sha: str,
+    project_name: str,
+    version: str,
+    tag: str,
+) -> tuple[bool, str]:
+    """Check a pinned claude-plugins commit's marketplace.json for this project.
+
+    Returns ``(passed, detail)``. Used only for marketplace-only plugins,
+    where the profile-SHA check has no direct install URL to verify against
+    — the pin chain (profile -> install-all.sh's claude-plugins SHA -> that
+    commit's marketplace.json) is the equivalent invariant.
+    """
+    if cp_sibling is None:
+        return False, "claude-plugins sibling not found"
+    show = _run(
+        ["git", "show", f"{claude_plugins_sha}:.claude-plugin/marketplace.json"],
+        cwd=str(cp_sibling),
+        check=False,
+    )
+    if show.returncode != 0:
+        return False, f"claude-plugins@{claude_plugins_sha} does not resolve"
+    data = cast("dict[str, object]", json.loads(show.stdout))
+    plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+    for p in plugins:
+        src = cast("dict[str, str]", p.get("source", {}))
+        if str(src.get("repo", "")).endswith("/" + project_name):
+            ok = str(p.get("version", "")) == version and str(src.get("ref", "")) == tag
+            return (
+                ok,
+                f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, "
+                f"ref={src.get('ref')}",
+            )
+    return False, f"claude-plugins@{claude_plugins_sha} has no entry for {project_name}"
+
+
 def _sibling_pr_merge(
     path: Path,
     branch: str,
@@ -2865,7 +2902,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     # 6. Profile SHA (install-all.sh URL resolves)
     repo = _get_github_repo(info.root)
-    if repo and install_sh.exists():
+    if repo and (install_sh.exists() or info.is_plugin):
         sibling = _resolve_sibling(info.root, ".github")
         if not sibling:
             # Absent sibling — same tolerated case as the install-all.sh check
@@ -2911,7 +2948,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                                 f"SHA={profile_sha} (does not resolve)",
                             )
                         )
-                    else:
+                    elif install_sh.exists():
                         project_name = repo.split("/")[-1]
                         install_sha = _get_install_sh_sha(info.root)
                         current_entry = re.search(
@@ -2933,6 +2970,39 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                                 ),
                             )
                         )
+                    else:
+                        # Marketplace-only plugin: no install.sh, so there is
+                        # no direct curl URL to verify. The equivalent
+                        # invariant is the marketplace-pin chain — the
+                        # profile-pinned install-all.sh names a claude-plugins
+                        # SHA, and that commit's marketplace.json must carry
+                        # this project's current version/ref.
+                        project_name = repo.split("/")[-1]
+                        mp_pin = re.search(
+                            r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh",
+                            show_result.stdout,
+                        )
+                        if mp_pin is None:
+                            checks.append(
+                                (
+                                    "profile SHA",
+                                    False,
+                                    f"SHA={profile_sha} "
+                                    "(no claude-plugins pin in install-all.sh)",
+                                )
+                            )
+                        else:
+                            cp_sibling = _resolve_sibling(info.root, "claude-plugins")
+                            ok, detail = _verify_marketplace_pin_chain(
+                                cp_sibling,
+                                mp_pin.group(1),
+                                project_name,
+                                version,
+                                tag,
+                            )
+                            checks.append(
+                                ("profile SHA", ok, f"SHA={profile_sha} ({detail})")
+                            )
 
     # 7. Website (optional — sibling may not exist)
     if repo:

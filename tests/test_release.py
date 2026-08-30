@@ -3042,6 +3042,215 @@ def test_phase11_verify_fails_when_install_all_missing(
         _phase11_verify(info, version, dry_run=False)
 
 
+# --- f85t.3: profile SHA marketplace-pin chain for marketplace-only plugins ---
+
+
+def _marketplace_json(project_version: str) -> str:
+    return json.dumps(
+        {
+            "plugins": [
+                {
+                    "name": "proj",
+                    "version": project_version,
+                    "source": {"repo": "punt-labs/proj", "ref": f"v{project_version}"},
+                }
+            ]
+        }
+    )
+
+
+def _setup_marketplace_only_verify_project(
+    tmp_path: Path, version: str, *, pinned_marketplace_version: str
+) -> tuple[Path, Path, Path]:
+    """Build a marketplace-only plugin project for f85t.3 profile-SHA tests.
+
+    Returns ``(root, github_sibling, claude_plugins_sibling)``. The
+    claude-plugins sibling's HEAD always carries ``version`` (so check 5,
+    Marketplace, always passes against the working tree); the ``.github``
+    commit the profile pins carries ``pinned_marketplace_version`` in its
+    own historical marketplace.json instead — set the two equal for a
+    passing chain, or different to model a stale pin.
+    """
+    root = _make_language_none_plugin_project(tmp_path)
+    d = str(root)
+    _git(["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"], cwd=d)
+
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+    _git(["add", "CHANGELOG.md"], cwd=d)
+    _git(["commit", "-m", "stamp changelog"], cwd=d)
+    _git(["tag", f"v{version}"], cwd=d)
+
+    cp_sibling = _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": _marketplace_json(
+                pinned_marketplace_version
+            )
+        },
+    )
+    pinned_cp_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%H"],
+        cwd=str(cp_sibling),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    if pinned_marketplace_version != version:
+        (cp_sibling / ".claude-plugin" / "marketplace.json").write_text(
+            _marketplace_json(version)
+        )
+        _git(["add", "."], cwd=str(cp_sibling))
+        _git(["commit", "-m", "bump to current version"], cwd=str(cp_sibling))
+
+    github_sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/claude-plugins/{pinned_cp_sha}/install.sh" | sh\n'
+                "for plugin in prfaq proj z-spec; do\n"
+                '  claude plugin install "$plugin@punt-labs"\n'
+                "done\n"
+            )
+        },
+    )
+    github_sha = _get_install_all_sha(github_sibling)
+    profile_dir = github_sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{github_sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(github_sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
+
+    return root, github_sibling, cp_sibling
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_passes(tmp_path: Path) -> None:
+    """A marketplace-only plugin's profile SHA verifies via the pin chain."""
+    version = "0.1.0"
+    root, _github, _cp = _setup_marketplace_only_verify_project(
+        tmp_path, version, pinned_marketplace_version=version
+    )
+    info = detect(root)
+
+    # Should NOT raise — the pinned claude-plugins commit's marketplace.json
+    # already carries the current version/ref.
+    _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_stale_version(
+    tmp_path: Path,
+) -> None:
+    """A stale claude-plugins pin behind the current version fails loud."""
+    version = "0.1.0"
+    root, _github, _cp = _setup_marketplace_only_verify_project(
+        tmp_path, version, pinned_marketplace_version="0.0.9"
+    )
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_no_claude_plugins_pin(
+    tmp_path: Path,
+) -> None:
+    """No claude-plugins pin in install-all.sh at all is a genuine failure."""
+    version = "0.1.0"
+    root = _make_language_none_plugin_project(tmp_path)
+    d = str(root)
+    _git(["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"], cwd=d)
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+    _git(["add", "CHANGELOG.md"], cwd=d)
+    _git(["commit", "-m", "stamp changelog"], cwd=d)
+    _git(["tag", f"v{version}"], cwd=d)
+
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {".claude-plugin/marketplace.json": _marketplace_json(version)},
+    )
+
+    github_sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                "for plugin in prfaq proj z-spec; do\n"
+                '  claude plugin install "$plugin@punt-labs"\n'
+                "done\n"
+            )
+        },
+    )
+    github_sha = _get_install_all_sha(github_sibling)
+    profile_dir = github_sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{github_sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(github_sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
+
+    info = detect(root)
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
+    tmp_path: Path,
+) -> None:
+    """A claude-plugins pin that cannot be checked (sibling absent) fails.
+
+    Unlike the tolerated ``.github``-absent case, a marketplace-only plugin
+    with no resolvable claude-plugins sibling genuinely cannot be verified —
+    this is a real defect, not a meta-repo shape to skip.
+    """
+    version = "0.1.0"
+    root, _github, cp_sibling = _setup_marketplace_only_verify_project(
+        tmp_path, version, pinned_marketplace_version=version
+    )
+    shutil.rmtree(cp_sibling)
+
+    info = detect(root)
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_direct_url_path_unaffected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: a CLI/hybrid project (has install.sh) is unaffected.
+
+    Proves ``install_sh.exists()`` — not merely ``info.is_plugin`` — is the
+    discriminator that routes into the marketplace-pin chain, so a hybrid
+    project (is_plugin=True, has install.sh) still takes the direct-URL path.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+    assert info.is_plugin is True
+    assert (root / "install.sh").exists()
+
+    # Should NOT raise — unchanged direct-URL behavior.
+    _phase11_verify(info, version, dry_run=False)
+
+
 def test_phase_summary_recaps_skipped_propagation(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
