@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -131,6 +131,14 @@ def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
         "git commit --allow-empty"
         ' -m "chore: restore dev plugin state"\n'
     )
+
+    # Placeholder so info.workflow_files includes "release.yml" — Phase 6
+    # (_phase6_ci_wait) fails fast when it's absent for a hybrid/non-plugin
+    # project (see f85t.2). Content is irrelevant; only the filename matters
+    # to detect().
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
 
     (root / "install.sh").write_text(
         '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
@@ -1475,12 +1483,73 @@ def _make_pure_plugin_project(tmp_path: Path) -> Path:
     return root
 
 
+def _make_language_none_plugin_project(tmp_path: Path) -> Path:
+    """Create a marketplace-only plugin with no pyproject.toml at all.
+
+    Unlike ``_make_pure_plugin_project`` (which still writes a
+    ``pyproject.toml`` without ``[project.scripts]``, so ``info.language ==
+    "python"`` and ``info.pyproject is not None``), this fixture leaves
+    ``language`` and ``pyproject`` both unset — the precondition f85t.1's
+    plugin-only branch of ``_get_project_version`` actually guards on.
+    """
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "release-plugin.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'git commit --allow-empty -m "chore: prepare plugin for release"\n'
+    )
+    (scripts_dir / "restore-dev-plugin.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'git commit --allow-empty -m "chore: restore dev plugin state"\n'
+    )
+
+    # No pyproject.toml, no package.json, no go.mod — detect() leaves
+    # language=None. No install.sh — marketplace-only, same as
+    # _make_pure_plugin_project.
+
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## [Unreleased]\n\n"
+        "### Added\n\n"
+        "- New feature\n\n"
+        "## [0.1.0] - 2026-01-01\n\n"
+        "### Added\n\n"
+        "- Initial release\n"
+    )
+
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    return root
+
+
 def test_pure_plugin_detected_correctly(tmp_path: Path) -> None:
     """Pure plugin has is_plugin=True but is_hybrid=False."""
     root = _make_pure_plugin_project(tmp_path)
     info = detect(root)
     assert info.is_plugin is True
     assert info.is_hybrid is False
+
+
+def test_language_none_plugin_project_detected_correctly(tmp_path: Path) -> None:
+    """Marketplace-only plugin has no pyproject.toml and no detected language."""
+    root = _make_language_none_plugin_project(tmp_path)
+    info = detect(root)
+    assert info.is_plugin is True
+    assert info.language is None
+    assert info.pyproject is None
 
 
 def test_preflight_checks_scripts_for_pure_plugin(tmp_path: Path) -> None:
@@ -1591,6 +1660,58 @@ def _graphql_checks_response(
             },
         },
     }
+
+
+def _graphql_no_required_checks_response() -> dict[str, object]:
+    """A GraphQL response whose contexts list is empty.
+
+    Distinct from ``_graphql_checks_response([])`` only in intent — used by
+    the "no branch protection" tests where the empty context list represents
+    the repo genuinely having no checks configured yet, not a malformed poll.
+    """
+    return _graphql_checks_response([])
+
+
+def _protection_response(*, protected: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../branches/main/protection`` call."""
+    result = MagicMock()
+    if protected:
+        result.returncode = 0
+        result.stdout = json.dumps({"required_status_checks": {"contexts": []}})
+        result.stderr = ""
+    else:
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: Branch not protected (HTTP 404)"
+    return result
+
+
+def test_graphql_no_required_checks_response_shape() -> None:
+    """The empty-contexts fixture nests under the same path as a real poll."""
+    response = _graphql_no_required_checks_response()
+    data = cast("dict[str, object]", response["data"])
+    repository = cast("dict[str, object]", data["repository"])
+    pull_request = cast("dict[str, object]", repository["pullRequest"])
+    commits = cast("dict[str, object]", pull_request["commits"])
+    nodes = cast("list[dict[str, object]]", commits["nodes"])
+    commit = cast("dict[str, object]", nodes[0]["commit"])
+    rollup = cast("dict[str, object]", commit["statusCheckRollup"])
+    contexts = cast("dict[str, object]", rollup["contexts"])
+    assert contexts["nodes"] == []
+
+
+def test_protection_response_protected_true() -> None:
+    """A protected-repo response reports success with no stderr."""
+    result = _protection_response(protected=True)
+    assert result.returncode == 0
+    assert result.stderr == ""
+
+
+def test_protection_response_protected_false() -> None:
+    """An unprotected-repo response reports the 404 gh emits."""
+    result = _protection_response(protected=False)
+    assert result.returncode == 1
+    assert "404" in result.stderr
 
 
 def test_wait_for_required_checks_passes_when_all_required_succeed(
