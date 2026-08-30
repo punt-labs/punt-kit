@@ -115,6 +115,27 @@ class ReleaseProject:
             self._ops.fail("No name in pyproject.toml [project]")
         return name
 
+    def marketplace_name(self) -> str | None:
+        """Return the plugin's marketplace-visible name for lookup.
+
+        Marketplace entries in ``claude-plugins/.claude-plugin/marketplace.json``
+        use the plugin's short name (``punt``, ``vox``, ``lux``), not the PyPI
+        distribution name (``punt-kit``). The name lives in the project's own
+        plugin.json; because phase 2 runs before the phase 4 plugin swap that
+        strips the ``-dev`` suffix, the on-disk manifest reads ``punt-dev`` /
+        ``vox-dev`` etc., and the ``-dev`` must be dropped before comparison.
+        ``None`` for non-plugin projects — they have no marketplace entry to
+        match against.
+        """
+        info = self._info
+        if not info.is_plugin:
+            return None
+        data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+        name = data.get("name")
+        if not isinstance(name, str):
+            return None
+        return name.removesuffix("-dev")
+
     def self_package_name(self) -> str | None:
         """Return the project's own PyPI package name for self-referential pins.
 

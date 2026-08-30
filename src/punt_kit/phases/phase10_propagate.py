@@ -271,13 +271,23 @@ class MarketplacePropagator:
         data = cast("dict[str, object]", raw)
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
 
+        # Marketplace entries key on the plugin's SHORT name (e.g. "punt"),
+        # not the PyPI distribution name (e.g. "punt-kit") — read it from the
+        # project's own plugin.json (post -dev-strip).
+        marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
+        candidates = {n for n in (marketplace_name, project_name) if n}
+
         found = False
         for plugin in plugins:
             src = cast("dict[str, str]", plugin.get("source", {}))
-            repo_url = str(src.get("repo", ""))
+            # marketplace.json uses "url" for keyless HTTPS installs (git-subdir
+            # and the earlier plain-url source) — "repo" was the pre-migration
+            # key that pulled the whole repo to disk, and no live entry uses it
+            # anymore. See pkit-p328 and claude-plugins commit b77f1ed.
+            source_url = str(src.get("url", "")).removesuffix(".git")
             if (
-                repo_url.endswith("/" + project_name)
-                or plugin.get("name") == project_name
+                any(source_url.endswith("/" + n) for n in candidates)
+                or plugin.get("name") in candidates
             ):
                 plugin["version"] = version
                 if "source" not in plugin:

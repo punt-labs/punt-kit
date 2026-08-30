@@ -1339,7 +1339,7 @@ def test_propagate_marketplace_updates_version(
                 "name": "proj",
                 "version": "0.1.0",
                 "source": {
-                    "repo": "https://github.com/punt-labs/proj",
+                    "url": "https://github.com/punt-labs/proj.git",
                     "ref": "v0.1.0",
                 },
             }
@@ -3343,7 +3343,7 @@ def _setup_verify_project(
                             "name": "proj",
                             "version": version,
                             "source": {
-                                "repo": "punt-labs/proj",
+                                "url": "https://github.com/punt-labs/proj.git",
                                 "ref": f"v{version}",
                             },
                         }
@@ -3586,7 +3586,10 @@ def _marketplace_json(project_version: str) -> str:
                 {
                     "name": "proj",
                     "version": project_version,
-                    "source": {"repo": "punt-labs/proj", "ref": f"v{project_version}"},
+                    "source": {
+                        "url": "https://github.com/punt-labs/proj.git",
+                        "ref": f"v{project_version}",
+                    },
                 }
             ]
         }
