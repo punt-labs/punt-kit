@@ -288,9 +288,14 @@ def _self_package_name(info: ProjectInfo) -> str | None:
 
     Prefers ``pyproject.toml [project] name``. Falls back to the ``name``
     field in the plugin manifest for plugin-only projects that have no
-    ``pyproject.toml`` at all. ``None`` for non-Python, non-plugin projects
-    (e.g. Go CLIs) — there is no self-referential package name to match
-    template pins against, and that absence is expected, not an error.
+    ``pyproject.toml`` at all — stripped of a trailing ``-dev``, since phase 2
+    runs before the phase 4 plugin swap and the manifest on disk still names
+    the dev shell (e.g. ``punt-dev``), not the production package a bundled
+    template pins against (see ``head_name.endswith("-dev")`` in
+    ``_phase4_release_pr`` for the same convention). ``None`` for non-Python,
+    non-plugin projects (e.g. Go CLIs) — there is no self-referential package
+    name to match template pins against, and that absence is expected, not an
+    error.
     """
     if info.pyproject is not None:
         return _get_package_name(info)
@@ -298,7 +303,7 @@ def _self_package_name(info: ProjectInfo) -> str | None:
         data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
         name = data.get("name")
         if isinstance(name, str):
-            return name
+            return name.removesuffix("-dev")
     return None
 
 

@@ -608,6 +608,34 @@ def test_template_pin_normalizes_separator_and_case(tmp_path: Path) -> None:
     assert f"uvx --from {_OWN_PKG}==0.2.0" in template.read_text()
 
 
+def test_template_pin_plugin_only_strips_dev_suffix(tmp_path: Path) -> None:
+    """The plugin-only fallback name still matches once the dev suffix is gone.
+
+    Phase 2 runs before phase 4's dev-to-prod plugin swap, so a plugin-only
+    project's manifest ``name`` on disk at phase 2 time is still the dev
+    shell (e.g. ``punt-widget-dev``), not the production name a bundled
+    template pins against (``punt-widget``). Without stripping the ``-dev``
+    suffix, the equality check would never match and the pin would stay
+    stale forever.
+    """
+    root = _make_language_none_plugin_project(tmp_path)
+    (root / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "punt-widget-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    template = _write_template_pin(
+        root,
+        "plugin/workflows/notify.yml",
+        "steps:\n  - run: uvx --from punt-widget==0.1.0 widget --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    assert "uvx --from punt-widget==0.2.0" in template.read_text()
+
+
 def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
     """No src/**/data or plugin/**/*.yml files present is not an error."""
     root = _make_release_project(tmp_path)
