@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-08-30
+
 ### Fixed
 
 - **Bundled template files with self-referential version pins now stay in sync with releases.** `_phase2_version_bump` (`release.py:1178`) scans `src/**/data/*.yml`, `src/**/data/*.yaml`, `plugin/**/*.yml`, and `plugin/**/*.yaml` for `uvx --from <pkg>==X.Y.Z` pins, in the same commit as the pyproject.toml/plugin.json bump. A pin is rewritten only when `<pkg>` matches the project's own PyPI package name (`pyproject.toml [project] name`, or the plugin manifest's `name` for plugin-only projects) — pins for any other `punt-*` package are a deliberate supply-chain guarantee and are never touched. Root cause: biff's `biff-notify.yml` template hardcodes `uvx --from punt-biff==X.Y.Z`; that pin sat outside `punt release`'s version-source-of-truth list, so a fix landing in PR #393 after v1.16.0 was already tagged (PR #386) stayed stale in every `biff enable` run until the next release manually re-pinned it (pkit-3zu8).
