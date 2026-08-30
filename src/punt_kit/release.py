@@ -21,11 +21,13 @@ from rich.console import Console
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.phases.shared import changelog as changelog_mod
 from punt_kit.phases.shared import project_info as project_info_mod
+from punt_kit.phases.shared import siblings as siblings_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.reporter import reporter
+from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -35,39 +37,10 @@ console = Console()
 # Set by the signal handler so threads can drain before cleanup runs.
 _interrupted = threading.Event()
 
-# Sibling repos checked during preflight and used during propagation (phase 10).
-# Must stay in sync with the _propagate_* functions.
-PROPAGATION_SIBLINGS = ["claude-plugins", ".github", "public-website"]
-
-# Recorded whenever the .github sibling does not resolve — by Phase 10a
-# (propagation) and by both Phase 11 checks (install-all.sh, profile SHA). One
-# shared template, worded to cover both the propagation-skip and the verify-skip,
-# so _skips deduplicates every phase's notice into a SINGLE recap line for the
-# common meta-repo case where .github is absent for the whole run. The repo and
-# version make the interpolated message identical across phases within one
-# release (one release, one project — so dedup still collapses them).
-_GITHUB_ABSENT_SKIP = (
-    "SKIPPED — manual action required: the .github sibling did not resolve, so "
-    "the org install-all.sh SHA and profile README were neither propagated nor "
-    "verified for {name} v{ver}. Update ../.github/install-all.sh and "
-    "../.github/profile/README.md manually."
-)
-
-# Files each sibling's propagation writes. _reset_propagation_siblings uses
-# this map to reconcile a sibling left dirty by an interrupted phase 10 —
-# the propagation writes the file, then calls into _sibling_pr_merge which
-# checks out a branch, and if the checkout times out (see the timeout
-# budgets defined below) the sibling stays on main with the write still
-# on disk. Restricted
-# to files the release owns so unrelated operator work in the same repo
-# survives the reset — the guard in _validate_sibling still trips on
-# anything outside this set. Must stay in sync with the _propagate_*
-# functions and _sync_profile_readme.
-_PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
-    ".github": ("install-all.sh", "profile/README.md"),
-    "claude-plugins": (".claude-plugin/marketplace.json",),
-    "public-website": ("src/data/projects.json",),
-}
+# Aliases — see phases/shared/siblings.py for the source of truth.
+PROPAGATION_SIBLINGS = siblings_mod.PROPAGATION_SIBLINGS
+_GITHUB_ABSENT_SKIP = siblings_mod.GITHUB_ABSENT_SKIP
+_PROPAGATION_OWNED_PATHS = siblings_mod.PROPAGATION_OWNED_PATHS
 
 # ---------------------------------------------------------------------------
 # Timeout budgets — see phases/shared/timeouts.py for the source of truth and
@@ -175,59 +148,10 @@ class _ReleaseOpsAdapter:
 _ops = _ReleaseOpsAdapter()
 
 
-@final
-class _SkipRecorder:
-    """Thread-safe log of propagation/verification steps skipped mid-release.
-
-    Phase 10 propagates to siblings concurrently, so a warning printed from a
-    worker thread can scroll past among interleaved output; and Phase 11 no
-    longer hard-fails when a sibling is absent, so nothing downstream re-raises
-    the condition. Each recorded skip is surfaced immediately as a loud warning
-    and retained so ``_phase_summary`` can recap every outstanding manual action
-    at the end of the run, whichever phase skipped.
-    """
-
-    __slots__ = ("_lock", "_notices")
-
-    _lock: threading.Lock
-    _notices: list[str]
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._lock = threading.Lock()
-        self._notices = []
-        return self
-
-    def record(self, message: str) -> None:
-        """Retain a skip notice and surface it immediately as a warning.
-
-        Deduplicates: a message already recorded is neither stored again nor
-        re-warned, so two phases reporting the same absent sibling collapse to
-        one recap line and one inline warning.
-        """
-        with self._lock:
-            if message in self._notices:
-                return
-            self._notices.append(message)
-        _warn(message)
-
-    def drain(self) -> tuple[str, ...]:
-        """Return every retained notice and clear the log."""
-        with self._lock:
-            notices = tuple(self._notices)
-            self._notices.clear()
-        return notices
-
-    def clear(self) -> None:
-        """Discard retained notices without surfacing them."""
-        with self._lock:
-            self._notices.clear()
-
-
 # Module-scoped so any phase can record a skip and the end-of-run summary can
 # recap them. Cleared at the start of every ``run_release`` so one release's
 # skips never leak into the next in a long-lived process.
-_skips = _SkipRecorder()
+_skips = SkipRecorder(ops=_ops)
 
 
 def _get_install_sh_sha(root: Path) -> str:
@@ -2101,46 +2025,14 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
 
 
 def _resolve_sibling(root: Path, name: str) -> Path | None:
-    """Resolve a sibling repo directory.
-
-    Checks root's parent for a directory named ``name`` with a ``.git``
-    directory.  Returns ``None`` if not found.
-    """
-    parent = root.parent
-    sibling = parent / name
-    if sibling.is_dir() and (sibling / ".git").exists():
-        return sibling
-    return None
+    """Resolve a sibling repo directory."""
+    repo = SiblingRepo.resolve(root, name, ops=_ops)
+    return repo.path if repo is not None else None
 
 
 def _validate_sibling(path: Path, name: str) -> None:
     """Validate a sibling repo is ready for propagation."""
-    branch = _run(["git", "branch", "--show-current"], cwd=str(path)).stdout.strip()
-    if branch != "main":
-        _fail(f"Sibling {name} is on branch '{branch}', expected main")
-
-    # Only block on modified/staged files — untracked files and .beads/ are harmless
-    status = _run(["git", "status", "--porcelain"], cwd=str(path)).stdout.strip()
-    dirty_lines: list[str] = []
-    for ln in status.splitlines():
-        if ln.startswith("?? "):
-            continue
-        file_path = ln[3:] if len(ln) > 3 else ""
-        if file_path == ".beads" or file_path.startswith(".beads/"):
-            continue
-        dirty_lines.append(ln)
-    dirty = "\n".join(dirty_lines)
-    if dirty:
-        _fail(f"Sibling {name} has uncommitted changes:\n{dirty}")
-
-    result = _run(
-        ["git", "pull", "--ff-only", "origin", "main"],
-        cwd=str(path),
-        check=False,
-        timeout=_GIT_HOOK_TIMEOUT,
-    )
-    if result.returncode != 0:
-        _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
+    SiblingRepo(path, name, ops=_ops).validate()
 
 
 def _verify_marketplace_pin_chain(
@@ -2536,77 +2428,18 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         _ok(f"website: {project_name} already current")
 
 
-def _reset_sibling_owned_dirt(
+def _reset_sibling_owned_dirt(  # pyright: ignore[reportUnusedFunction]
     sib_path: Path, sib_name: str, *, fail_on_error: bool
 ) -> None:
     """Restore propagation-owned files if a sibling on main is dirty in them.
 
-    The propagation writes a tracked file before calling into
-    ``_sibling_pr_merge``; any interruption between those two steps leaves
-    the sibling on main with the write on disk. ``_validate_sibling``
-    correctly refuses to proceed against a dirty sibling — this restores
-    the owned files so the retry can re-run the same idempotent write.
-
-    Only touches files in ``_PROPAGATION_OWNED_PATHS[sib_name]``. If any
-    other file in the sibling is modified, this function does nothing and
-    lets ``_validate_sibling`` fail — the whole point of the ownership
-    map is that a human's unrelated work in the sibling survives the
-    reset. On sibling names with no ownership entry (a future addition
-    to ``PROPAGATION_SIBLINGS`` without a paired entry here), also do
-    nothing rather than guess.
+    No caller remains in this module — SiblingRegistry.reset_all constructs
+    a SiblingRepo and calls its own reset_owned_dirt() directly. Kept
+    importable for public API preservation.
     """
-    owned = _PROPAGATION_OWNED_PATHS.get(sib_name)
-    if not owned:
-        return
-
-    status = _run(["git", "status", "--porcelain"], cwd=str(sib_path), check=False)
-    if status.returncode != 0:
-        _info(
-            f"Could not read status for sibling {sib_name} "
-            f"({status.stderr.strip()}) — skipping owned-file reset"
-        )
-        return
-
-    dirty_owned: list[str] = []
-    for ln in status.stdout.splitlines():
-        # Same filter _validate_sibling applies: untracked and .beads noise
-        # do not block propagation and are not ours to reset.
-        if ln.startswith("?? "):
-            continue
-        file_path = ln[3:] if len(ln) > 3 else ""
-        if file_path == ".beads" or file_path.startswith(".beads/"):
-            continue
-        if file_path in owned:
-            dirty_owned.append(file_path)
-            continue
-        # A modification outside the ownership map. Leave the whole sibling
-        # alone — _validate_sibling will surface it, and the operator
-        # decides how to handle their own work.
-        return
-
-    if not dirty_owned:
-        return
-
-    _info(
-        f"Restoring propagation-owned files in sibling {sib_name} "
-        f"(was dirty on main): {', '.join(dirty_owned)}"
+    SiblingRepo(sib_path, sib_name, ops=_ops).reset_owned_dirt(
+        fail_on_error=fail_on_error
     )
-    restore = _run(
-        ["git", "checkout", "HEAD", "--", *dirty_owned],
-        cwd=str(sib_path),
-        check=False,
-        timeout=_GIT_HOOK_TIMEOUT,
-    )
-    if restore.returncode != 0:
-        msg = (
-            f"Could not restore propagation-owned files in sibling "
-            f"{sib_name}: {restore.stderr.strip()}\n"
-            "Fix manually before retrying propagation."
-        )
-        if fail_on_error:
-            _fail(msg)
-        else:
-            _info(f"Warning: {msg}")
 
 
 def _reset_propagation_siblings(
@@ -2614,69 +2447,13 @@ def _reset_propagation_siblings(
 ) -> None:
     """Return all propagation sibling repos to the main branch.
 
-    No-op for siblings already on main and clean. Used by the interrupt
-    handler and at the start of Phase 10 to recover from prior interrupted
-    runs. Handles two residues a mid-phase-10 interruption can leave:
-
-    * a sibling on a ``propagate/v*`` branch — check it out back to main
-    * a sibling on main with a propagation-owned file dirty — the more
-      likely residue, since the propagation writes the file *before*
-      calling _sibling_pr_merge and any interruption between the two
-      leaves exactly that. Restored to HEAD so the idempotent retry
-      re-runs the same write. Restricted to files in
-      ``_PROPAGATION_OWNED_PATHS`` — unrelated operator work in the
-      same sibling is left for _validate_sibling to guard.
-
-    ``fail_on_error=False`` should be used from the signal handler so that a
-    checkout failure on one sibling does not abort cleanup of the remaining
-    siblings.  The Phase 10 call site uses the default ``fail_on_error=True``
-    so that release failures are loud.
+    Passes the bare ``_resolve_sibling`` name (not ``SiblingRepo.resolve``
+    directly) as the resolver — tests monkeypatch ``_resolve_sibling`` on
+    this module and expect ``_reset_propagation_siblings`` to observe it.
     """
-    for sib_name in PROPAGATION_SIBLINGS:
-        sib_path = _resolve_sibling(info.root, sib_name)
-        if sib_path is None:
-            continue
-        branch_result = _run(
-            ["git", "branch", "--show-current"],
-            cwd=str(sib_path),
-            check=False,
-        )
-        if branch_result.returncode != 0:
-            _info(
-                f"Could not read branch for sibling {sib_name} "
-                f"({branch_result.stderr.strip()}) — skipping reset"
-            )
-            continue
-        branch = branch_result.stdout.strip()
-        if branch and branch != "main":
-            if not branch.startswith("propagate/v"):
-                _info(
-                    f"Sibling {sib_name} is on '{branch}' (not a propagation branch) — "
-                    "skipping reset to avoid disrupting active work"
-                )
-                continue
-            _info(f"Returning sibling {sib_name} to main (was on '{branch}')...")
-            checkout = _run(
-                ["git", "checkout", "main"],
-                cwd=str(sib_path),
-                check=False,
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
-            if checkout.returncode != 0:
-                msg = (
-                    f"Could not return sibling {sib_name} to main: "
-                    f"{checkout.stderr.strip()}\n"
-                    "Fix manually before retrying propagation."
-                )
-                if fail_on_error:
-                    _fail(msg)
-                else:
-                    _info(f"Warning: {msg}")
-                continue
-        # Sibling is on main (either was already, or just returned to it).
-        # Reconcile a dirty propagation-owned file left by an interrupted
-        # write; leave unrelated modifications alone.
-        _reset_sibling_owned_dirt(sib_path, sib_name, fail_on_error=fail_on_error)
+    SiblingRegistry(ops=_ops).reset_all(
+        info.root, resolve=_resolve_sibling, fail_on_error=fail_on_error
+    )
 
 
 def _collect_thread_results(
