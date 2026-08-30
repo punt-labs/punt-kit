@@ -401,7 +401,7 @@ Repository = "https://github.com/punt-labs/<repo>"
 <name>-server = "<package>.server:run_server"  # MCP server entry point (if applicable)
 
 [build-system]
-requires = ["uv_build>=0.9.14,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
