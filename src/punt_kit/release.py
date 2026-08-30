@@ -25,6 +25,7 @@ from punt_kit.phases.shared import siblings as siblings_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
+from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
@@ -992,23 +993,9 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if dry_run:
         _dry(f"git checkout -b {branch}")
     else:
-        # Check if branch already exists (resume case)
-        existing = _run(
-            ["git", "branch", "--list", branch], cwd=str(root)
-        ).stdout.strip()
-        if existing:
-            _run(
-                ["git", "checkout", branch],
-                cwd=str(root),
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
+        if GitWorkspace(root, ops=_ops).checkout_or_create(branch):
             _info(f"Checked out existing branch {branch}")
         else:
-            _run(
-                ["git", "checkout", "-b", branch],
-                cwd=str(root),
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
             _ok(f"Created branch {branch}")
 
     # 2b. Bump version in pyproject.toml
@@ -1123,16 +1110,9 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             release_files.append(pkg_dir / "__init__.py")
         release_files.extend(template_pins)
         to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
-        _run(["git", "add", "--", *to_stage], cwd=str(root))
-        staged = _run(
-            ["git", "diff", "--cached", "--name-only"], cwd=str(root)
-        ).stdout.strip()
-        if staged:
-            _run(
-                ["git", "commit", "-m", f"chore: release v{version}"],
-                cwd=str(root),
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
+        if GitWorkspace(root, ops=_ops).commit_if_staged(
+            to_stage, f"chore: release v{version}"
+        ):
             _ok("Release commit created")
         else:
             _ok("Release commit already exists (resume)")
@@ -1298,15 +1278,8 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
         _dry(f"git push origin {tag}")
         return
 
-    # Ensure we're on main (resume may leave us on release branch)
-    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
-    if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-        _run(
-            ["git", "pull", "--ff-only"],
-            cwd=str(root),
-            timeout=_GIT_HOOK_TIMEOUT,
-        )
+    workspace = GitWorkspace(root, ops=_ops)
+    workspace.ensure_on_main()
 
     # Check if tag already exists
     existing = _run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
@@ -1328,12 +1301,7 @@ def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     # Push tag (not blocked by branch protection — targets refs/tags/*).
     # pre-push still fires bd hooks, so use the hook budget.
-    _run(
-        ["git", "push", "origin", tag],
-        cwd=str(root),
-        capture=False,
-        timeout=_GIT_HOOK_TIMEOUT,
-    )
+    workspace.push(tag)
     _ok(f"Pushed tag {tag}")
 
 
@@ -1417,25 +1385,11 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         )
         return
 
-    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
-    if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-        _run(
-            ["git", "pull", "--ff-only"],
-            cwd=str(root),
-            timeout=_GIT_HOOK_TIMEOUT,
-        )
+    workspace = GitWorkspace(root, ops=_ops)
+    workspace.ensure_on_main()
 
-    existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
-    if existing:
-        _run(["git", "checkout", branch], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+    if workspace.checkout_or_create(branch):
         _info(f"Checked out existing branch {branch}")
-    else:
-        _run(
-            ["git", "checkout", "-b", branch],
-            cwd=str(root),
-            timeout=_GIT_HOOK_TIMEOUT,
-        )
 
     _bump_readme_install_sha(info, version, dry_run=False)
     status = _run(
@@ -1454,9 +1408,9 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             _ok("README already pins the current install SHA")
             return
     else:
-        _run(["git", "add", "--", "README.md"], cwd=str(root))
-        msg = f"chore: update README install SHA to v{version}"
-        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+        workspace.commit_if_staged(
+            ["README.md"], f"chore: update README install SHA to v{version}"
+        )
 
     _pr_merge(
         cwd=root,
@@ -1901,27 +1855,13 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         _dry(f'_pr_merge(branch={branch}, title="chore: post-release v{version}")')
         return
 
-    # Create post-release branch
-    # Ensure we're on main first
-    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
-    if current != "main":
-        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-        _run(
-            ["git", "pull", "--ff-only"],
-            cwd=str(root),
-            timeout=_GIT_HOOK_TIMEOUT,
-        )
+    # Create post-release branch — ensure we're on main first
+    workspace = GitWorkspace(root, ops=_ops)
+    workspace.ensure_on_main()
 
-    existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
-    if existing:
-        _run(["git", "checkout", branch], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+    if workspace.checkout_or_create(branch):
         _info(f"Checked out existing branch {branch}")
     else:
-        _run(
-            ["git", "checkout", "-b", branch],
-            cwd=str(root),
-            timeout=_GIT_HOOK_TIMEOUT,
-        )
         _ok(f"Created branch {branch}")
 
     # Dev restore (hybrid/plugin — idempotent: skip only when the
@@ -2109,19 +2049,10 @@ def _sibling_pr_merge(
     # ReleaseError from _fail(), CalledProcessError from _run(), etc.
     # (5b4/zay: stale propagation branches break subsequent releases).
     try:
-        existing = _run(["git", "branch", "--list", branch], cwd=cwd).stdout.strip()
-        if existing:
-            _run(["git", "checkout", branch], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
-        else:
-            _run(["git", "checkout", "-b", branch], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
-        for f in files:
-            _run(["git", "add", f], cwd=cwd)
-        # Skip commit if nothing staged (resume case: already committed)
-        staged = _run(
-            ["git", "status", "--porcelain", "--", *files], cwd=cwd
-        ).stdout.strip()
-        if staged:
-            _run(["git", "commit", "-m", message], cwd=cwd, timeout=_GIT_HOOK_TIMEOUT)
+        workspace = GitWorkspace(path, ops=_ops)
+        workspace.checkout_or_create(branch)
+        # Skip commit if nothing staged (resume case: already committed).
+        workspace.commit_if_staged(files, message)
 
         _pr_merge(
             cwd=path,
