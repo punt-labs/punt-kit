@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
@@ -39,7 +40,7 @@ from punt_kit.phases.shared import project_info as project_info_mod
 from punt_kit.phases.shared import siblings as siblings_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
-from punt_kit.phases.shared.ci_run import CiRunWatch, TagRunSelector
+from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
@@ -52,7 +53,7 @@ from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 console = Console()
 
@@ -790,147 +791,9 @@ _TagRunSelector = TagRunSelector
 
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 6: Wait for CI."""
-    console.print("\n[bold]Phase 6: Wait for CI[/bold]")
-
-    if "release.yml" not in info.workflow_files:
-        if info.is_plugin and not info.is_hybrid:
-            _ok("No release.yml workflow — pure plugin, nothing to wait for")
-            return
-        _fail(
-            "Expected .github/workflows/release.yml for this project but none "
-            "was found — this is a misconfiguration, not a plugin-only skip "
-            f"(workflows present: {info.workflow_files or 'none'})"
-        )
-
-    tag = f"v{version}"
-
-    if dry_run:
-        _dry(" ".join(_TagRunSelector.list_command("gh", tag)))
-        _dry(f"gh run watch <run-id matching {tag}> --exit-status")
-        return
-
-    gh = shutil.which("gh")
-    if gh is None:
-        _fail("gh CLI not found — install from https://cli.github.com")
-
-    # Resolve the tag to a commit so the run's headSha can be checked against
-    # it. Annotated tags need the ^{commit} peel; lightweight tags ignore it.
-    peel = _run(
-        ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=str(info.root), check=False
+    Phase6CiWait(info, version, dry_run=dry_run, ops=_ops).run(
+        poll_attempts=_CI_RUN_POLL_ATTEMPTS, poll_interval=_CI_RUN_POLL_INTERVAL
     )
-    if peel.returncode != 0:
-        _fail(f"Cannot resolve {tag} to a commit — is the tag fetched locally?")
-    commit = peel.stdout.strip()
-
-    selector = _TagRunSelector(tag, commit)
-    _info(f"Looking for the release.yml run for {tag} ({commit[:8]})...")
-
-    list_cmd = _TagRunSelector.list_command(gh, tag)
-    # A gh failure must not masquerade as "no run yet", and a lookup that never
-    # happened must not be silently dropped from the account. Counting both
-    # outcomes keeps the two facts separable: a blip after clean polls is not
-    # "gh never worked", and 23 failures after one success is not "no run".
-    gh_ok = 0
-    gh_failed = 0
-    last_gh_error = ""
-    latest: Sequence[Mapping[str, object]] = ()
-
-    def list_runs() -> Sequence[Mapping[str, object]]:
-        nonlocal gh_ok, gh_failed, last_gh_error, latest
-        try:
-            result = _run(
-                list_cmd,
-                cwd=str(info.root),
-                check=False,
-                timeout=_CI_RUN_LIST_TIMEOUT,
-            )
-        except subprocess.TimeoutExpired:
-            # A listing that hangs is a lookup that did not happen, not a
-            # reason to end the release in a traceback. Polling already
-            # tolerates a failed lookup, so route it there.
-            gh_failed += 1
-            last_gh_error = f"gh run list timed out after {_CI_RUN_LIST_TIMEOUT}s"
-            return ()
-        if result.returncode != 0:
-            gh_failed += 1
-            last_gh_error = result.stderr.strip() or "gh run list failed"
-            return ()
-        try:
-            parsed = json.loads(result.stdout)
-        except json.JSONDecodeError as exc:
-            # A zero exit with unparseable stdout is still a failed lookup.
-            # Letting the decode error escape would bypass both _fail sites
-            # and end the release in a traceback instead of a diagnosis.
-            gh_failed += 1
-            last_gh_error = f"gh run list returned unparseable JSON: {exc}"
-            return ()
-        # Valid JSON of the wrong shape is the same problem one step later: gh
-        # reports errors as an object, and casting one to a run sequence would
-        # surface as a TypeError from inside poll rather than a diagnosis.
-        if not isinstance(parsed, list) or not all(
-            isinstance(run, dict) for run in cast("list[object]", parsed)
-        ):
-            gh_failed += 1
-            last_gh_error = (
-                f"gh run list returned an unexpected JSON shape: "
-                f"{result.stdout.strip()[:200]}"
-            )
-            return ()
-        gh_ok += 1
-        latest = cast("Sequence[Mapping[str, object]]", parsed)
-        return latest
-
-    try:
-        run_id = selector.poll(
-            list_runs,
-            attempts=_CI_RUN_POLL_ATTEMPTS,
-            interval=_CI_RUN_POLL_INTERVAL,
-        )
-    except ReleaseError as exc:
-        if gh_ok == 0:
-            _fail(f"gh run list never succeeded: {last_gh_error}")
-        reasons = [str(exc)]
-        # Failed lookups shrink the real search budget, so say how many there
-        # were. Silence here reads as "we looked 24 times and found nothing".
-        if gh_failed:
-            reasons.append(
-                f"{gh_failed} of {gh_ok + gh_failed} lookups failed ({last_gh_error})"
-            )
-        # Every run in the list is already this tag's, so a near-miss is the
-        # most useful thing phase 6 knows — and the thing that contradicts
-        # "the tag push may not have triggered CI".
-        if misses := selector.describe_misses(latest):
-            reasons.append(f"saw {misses}")
-        _fail("; ".join(reasons))
-
-    _info(f"Watching run {run_id}...")
-
-    try:
-        result = _run(
-            [gh, "run", "watch", str(run_id), "--exit-status"],
-            cwd=str(info.root),
-            check=False,
-            capture=False,
-            timeout=_CI_WATCH_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        # The pypi job gates on a manually-approved environment, so a release
-        # left overnight can outlast the watch while the run is perfectly
-        # healthy. Dying in a traceback here tells the operator nothing about
-        # which of those two happened.
-        _fail(
-            f"stopped watching run {run_id} after "
-            f"{_CI_WATCH_TIMEOUT // 3600}h — it may still be waiting for the "
-            f"release environment approval. Check the run, then "
-            f"--resume-from github-release once it is green"
-        )
-    if result.returncode != 0:
-        _fail(
-            CiRunWatch(ops=_ops).failure_message(
-                gh, info.root, run_id, result.returncode
-            )
-        )
-    _ok("CI passed")
 
 
 def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
