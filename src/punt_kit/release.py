@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase09_post_release import Phase9PostRelease
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
@@ -1021,122 +1022,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
 
 def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 9: Dev plugin restore via PR."""
-    console.print(f"\n[bold]Phase 9: Post-release v{version}[/bold]")
-
-    root = info.root
-    branch = f"post-release/v{version}"
-    has_changes = False
-
-    if dry_run:
-        if info.is_hybrid or info.is_plugin:
-            _dry("bash scripts/restore-dev-plugin.sh")
-        _dry('git commit -m "chore: restore dev plugin state [skip ci]"')
-        _dry(f'_pr_merge(branch={branch}, title="chore: post-release v{version}")')
-        return
-
-    # Create post-release branch — ensure we're on main first
-    workspace = GitWorkspace(root, ops=_ops)
-    workspace.ensure_on_main()
-
-    if workspace.checkout_or_create(branch):
-        _info(f"Checked out existing branch {branch}")
-    else:
-        _ok(f"Created branch {branch}")
-
-    # Dev restore (hybrid/plugin — idempotent: skip only when the
-    # restore commit is already at HEAD). Mirror of the phase 4 check.
-    #
-    # The restore script stages the reverted files but does not commit
-    # (see scripts/restore-dev-plugin.sh CONTRACT). That lets this phase
-    # re-stamp the version — the historical dev commit's plugin.json has
-    # the old version — and land the restore + re-stamp as one commit
-    # with hooks running. The previous shape committed inside the script
-    # and then --amend --no-verify'd here to fix up the version; the
-    # org bans --no-verify outright and the amend existed only because
-    # the script committed too early.
-    #
-    # Consulting the working tree here has the same failure mode phase
-    # 4 does: if the commit fails on a pre-commit hook, the restore is
-    # already staged and the tree already shows the dev name — a disk
-    # read would report "already in dev state (resume)" and fall
-    # through to the README-SHA commit, which would then sweep the
-    # staged plugin.json into itself under the wrong commit message.
-    # Consult HEAD, and require BOTH the dev name AND the released
-    # version at HEAD before treating the restore as done — a partial
-    # historical commit with a mismatched version must still re-run.
-    if info.is_hybrid or info.is_plugin:
-        plugin_swap = PluginSwap(info, ops=_ops)
-        head_data = plugin_swap.head_state()
-        head_name = str(head_data.get("name", ""))
-        head_version = str(head_data.get("version", ""))
-        restore_done = head_name.endswith("-dev") and head_version == version
-        if not restore_done:
-            plugin_swap.reset_to_head()
-            restore_script = root / "scripts" / "restore-dev-plugin.sh"
-            _run(
-                ["bash", str(restore_script)],
-                cwd=str(root),
-                capture=False,
-                # git checkout inside the script fires the post-checkout hook;
-                # same reasoning as the phase 4 swap above.
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
-            # The restore checks plugin.json out of the last dev commit,
-            # which reverts the version field along with the name. Put
-            # the just-released version back before committing so main
-            # advertises the current release, not the previous one.
-            plugin_json = info.plugin_manifest
-            pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
-            if pj_data.get("version") != version:
-                pj_data["version"] = version
-                plugin_json.write_text(
-                    json.dumps(pj_data, indent=2) + "\n",
-                    encoding="utf-8",
-                )
-                _run(["git", "add", str(plugin_json)], cwd=str(root))
-            # The CI-skip marker spares a push-CI run on main once the
-            # post-release PR squash-merges: this commit only restores dev
-            # plugin state and re-stamps a version. It does NOT affect
-            # release.yml, which triggers on tag push and whose tag was
-            # placed back in phase 5 — the marker matters on phase 4's
-            # release-plugin.sh commit, which the tag does land on, and
-            # that is where the historical regression happened.
-            _run(
-                [
-                    "git",
-                    "commit",
-                    "-m",
-                    "chore: restore dev plugin state [skip ci]",
-                ],
-                cwd=str(root),
-                timeout=_GIT_HOOK_TIMEOUT,
-            )
-            _ok("Dev plugin state restored")
-            has_changes = True
-        else:
-            _ok("Dev restore already at HEAD (resume)")
-
-    if not has_changes:
-        # Check if branch has commits ahead of main (resume case)
-        ahead = _run(
-            ["git", "log", "main..HEAD", "--oneline"],
-            cwd=str(root),
-        ).stdout.strip()
-        if ahead:
-            has_changes = True
-        else:
-            _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-            _run(["git", "branch", "-D", branch], cwd=str(root))
-            _ok("No post-release changes needed")
-            return
-
-    _pr_merge(
-        cwd=root,
-        branch=branch,
-        title=f"chore: post-release v{version}",
-        dry_run=False,
-    )
-    _ok("Post-release PR merged")
+    Phase9PostRelease(info, version, dry_run=dry_run, ops=_ops).run(merge=_pr_merge)
 
 
 # ---------------------------------------------------------------------------
