@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
-import json
 import re
 import signal
 import subprocess
@@ -23,6 +21,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase02_version_bump import Phase2VersionBump
 from punt_kit.phases.phase03_build import Phase3Build
 from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
 from punt_kit.phases.phase05_tag import Phase5Tag
@@ -45,7 +44,6 @@ from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
-from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.pipeline import ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -227,8 +225,15 @@ def _self_package_name(  # pyright: ignore[reportUnusedFunction]
     return ReleaseProject(info, ops=_ops).self_package_name()
 
 
-def _find_package_dir(info: ProjectInfo) -> Path | None:
-    """Find the Python package directory (src layout)."""
+def _find_package_dir(  # pyright: ignore[reportUnusedFunction]
+    info: ProjectInfo,
+) -> Path | None:
+    """Find the Python package directory (src layout).
+
+    No caller remains in this module — every former call site now
+    constructs ReleaseProject directly. Kept importable for public API
+    preservation.
+    """
     return ReleaseProject(info, ops=_ops).package_dir()
 
 
@@ -491,10 +496,15 @@ def _pr_merge(
 _normalize_package_name = project_info_mod.normalize_package_name
 
 
-def _rewrite_template_pins(
+def _rewrite_template_pins(  # pyright: ignore[reportUnusedFunction]
     info: ProjectInfo, version: str, *, dry_run: bool
 ) -> list[Path]:
-    """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins."""
+    """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins.
+
+    No caller remains in this module — Phase2VersionBump calls
+    ReleaseProject.rewrite_template_pins directly. Kept importable for
+    public API preservation (this name is also directly tested).
+    """
     return ReleaseProject(info, ops=_ops).rewrite_template_pins(
         version, dry_run=dry_run
     )
@@ -502,138 +512,7 @@ def _rewrite_template_pins(
 
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 2: Bump version on release branch."""
-    console.print(f"\n[bold]Phase 2: Version bump → {version}[/bold]")
-
-    root = info.root
-    branch = f"release/v{version}"
-
-    # Create release branch
-    if dry_run:
-        _dry(f"git checkout -b {branch}")
-    else:
-        if GitWorkspace(root, ops=_ops).checkout_or_create(branch):
-            _info(f"Checked out existing branch {branch}")
-        else:
-            _ok(f"Created branch {branch}")
-
-    # 2b. Bump version in pyproject.toml
-    pyproject_path = root / "pyproject.toml"
-    if pyproject_path.exists():
-        content = pyproject_path.read_text(encoding="utf-8")
-        new_content = re.sub(
-            r'^(version\s*=\s*")[^"]*(")',
-            rf"\g<1>{version}\2",
-            content,
-            count=1,
-            flags=re.MULTILINE,
-        )
-        if dry_run:
-            _dry(f'pyproject.toml: version = "{version}"')
-        else:
-            pyproject_path.write_text(new_content, encoding="utf-8")
-            _ok(f'pyproject.toml: version = "{version}"')
-
-    # Bump __init__.py __version__ (skip if version comes from importlib.metadata)
-    pkg_dir = _find_package_dir(info)
-    if pkg_dir is not None:
-        init_py = pkg_dir / "__init__.py"
-        if init_py.exists():
-            content = init_py.read_text(encoding="utf-8")
-            uses_metadata = (
-                "importlib.metadata" in content or "importlib_metadata" in content
-            )
-            if "__version__" in content and not uses_metadata:
-                new_content = re.sub(
-                    r'^(__version__\s*=\s*")[^"]*(")',
-                    rf"\g<1>{version}\2",
-                    content,
-                    count=1,
-                    flags=re.MULTILINE,
-                )
-                if dry_run:
-                    _dry(f'{init_py.name}: __version__ = "{version}"')
-                else:
-                    init_py.write_text(new_content, encoding="utf-8")
-                    _ok(f'{init_py.name}: __version__ = "{version}"')
-
-    # Bump plugin.json version. None for a non-plugin project — absence is the
-    # contract, and 2d below stages only the files that exist.
-    plugin_json = info.plugin_manifest if info.is_plugin else None
-    if plugin_json is not None:
-        data = json.loads(plugin_json.read_text(encoding="utf-8"))
-        data["version"] = version
-        if dry_run:
-            _dry(f'plugin.json: version = "{version}"')
-        else:
-            plugin_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-            _ok(f'plugin.json: version = "{version}"')
-
-    # Bump install.sh VERSION pin
-    install_sh = root / "install.sh"
-    if install_sh.exists():
-        content = install_sh.read_text(encoding="utf-8")
-        new_content = re.sub(
-            r'^(VERSION=")[^"]*(")',
-            rf"\g<1>{version}\2",
-            content,
-            count=1,
-            flags=re.MULTILINE,
-        )
-        if new_content != content:
-            if dry_run:
-                _dry(f'install.sh: VERSION="{version}"')
-            else:
-                install_sh.write_text(new_content, encoding="utf-8")
-                _ok(f'install.sh: VERSION="{version}"')
-
-    # 2c. Update CHANGELOG.md
-    changelog_path = root / "CHANGELOG.md"
-    if changelog_path.exists():
-        today = datetime.date.today().isoformat()
-        content = changelog_path.read_text(encoding="utf-8")
-        new_content = content.replace(
-            "## [Unreleased]",
-            f"## [Unreleased]\n\n## [{version}] - {today}",
-            1,
-        )
-        if dry_run:
-            _dry(f"CHANGELOG.md: [Unreleased] → [{version}] - {today}")
-        else:
-            changelog_path.write_text(new_content, encoding="utf-8")
-            _ok(f"CHANGELOG.md: [{version}] - {today}")
-
-    # 2d. Rewrite self-referential template pins
-    template_pins = _rewrite_template_pins(info, version, dry_run=dry_run)
-
-    # 2e. Refresh lock file and commit
-    if dry_run:
-        _dry("uv lock (refresh lock file)")
-        _dry(f'git commit -m "chore: release v{version}"')
-    else:
-        lock_file = root / "uv.lock"
-        if lock_file.exists():
-            _run(["uv", "lock"], cwd=str(root), timeout=_UV_TIMEOUT)
-            _ok("uv.lock refreshed")
-        # Stage only the files this phase edits — `git add -A` would sweep
-        # unrelated untracked files into the release commit.
-        release_files = [
-            pyproject_path,
-            changelog_path,
-            install_sh,
-            lock_file,
-        ]
-        if plugin_json is not None:
-            release_files.append(plugin_json)
-        if pkg_dir is not None:
-            release_files.append(pkg_dir / "__init__.py")
-        release_files.extend(template_pins)
-        to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
-        if GitWorkspace(root, ops=_ops).commit_if_staged(
-            to_stage, f"chore: release v{version}"
-        ):
-            _ok("Release commit created")
-        else:
-            _ok("Release commit already exists (resume)")
+    Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
