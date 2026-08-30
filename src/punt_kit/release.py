@@ -44,7 +44,7 @@ from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
-from punt_kit.phases.shared.pipeline import ReleasePipeline, ThreadedStep
+from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
@@ -592,8 +592,16 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Print release summary."""
+def _phase_summary(  # pyright: ignore[reportUnusedFunction]
+    info: ProjectInfo, version: str, *, dry_run: bool
+) -> None:
+    """Print release summary.
+
+    No caller remains in this module — run_release calls
+    ReleasePipeline.summarize directly on the pipeline it already built.
+    Kept importable for public API preservation (this name is also
+    directly tested).
+    """
     ReleasePipeline((), ops=_ops).summarize(
         info,
         version,
@@ -735,43 +743,88 @@ def run_release(
                 _info(f"Detected version {version} from {source}")
 
         try:
-            if start <= 2:
+
+            def _step2() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 2
                 _phase2_version_bump(info, version, dry_run=dry_run)
-            if start <= 3:
+
+            def _step3() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 3
                 _phase3_build(info, dry_run=dry_run)
-            if start <= 4:
+
+            def _step4() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 4
                 _phase4_release_pr(info, version, dry_run=dry_run)
-            if start <= 5:
+
+            def _step5() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 5
                 _phase5_tag(info, version, dry_run=dry_run)
-            if start <= 6:
+
+            def _step6() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 6
                 _phase6_ci_wait(info, version, dry_run=dry_run)
-            if start <= 7:
+
+            def _step7() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 7
                 _phase7_github_release(info, version, dry_run=dry_run)
-            if start <= 8:
+
+            def _step8() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 8
                 _phase8_verify_pypi(info, version, dry_run=dry_run)
-            # P9 and P10. When both are in scope they run concurrently and
-            # any in-thread TimeoutExpired crosses the boundary as a
-            # ReleaseError via _collect_thread_results, so crediting the
-            # pair's entry point (9) is honest for the concurrent path.
-            # When start == 10, P9 is already done and _run_phases_9_10
-            # runs P10 alone on the main thread — a TimeoutExpired there
-            # is a propagate hang, and telling the operator
-            # `--resume-from post-release` would re-run phase 9. Credit
-            # the phase that is actually executing.
-            current_phase_num = 9 if start <= 9 else 10
-            _run_phases_9_10(info, version, dry_run=dry_run, start=start)
-            if start <= 11:
+
+            def _step9_10() -> None:
+                # P9 and P10. When both are in scope they run concurrently
+                # and any in-thread TimeoutExpired crosses the boundary as
+                # a ReleaseError via _collect_thread_results, so crediting
+                # the pair's entry point (9) is honest for the concurrent
+                # path. When start == 10, P9 is already done and
+                # _run_phases_9_10 runs P10 alone on the main thread — a
+                # TimeoutExpired there is a propagate hang, and telling the
+                # operator `--resume-from post-release` would re-run phase
+                # 9. Credit the phase that is actually executing.
+                nonlocal current_phase_num
+                current_phase_num = 9 if start <= 9 else 10
+                _run_phases_9_10(info, version, dry_run=dry_run, start=start)
+
+            def _step11() -> None:
+                nonlocal current_phase_num
                 current_phase_num = 11
                 _phase11_verify(info, version, dry_run=dry_run)
 
-            _phase_summary(info, version, dry_run=dry_run)
+            # The combined P9+P10 step is numbered 10 (not 9) so the
+            # generic `step.number < start` skip only excludes it once
+            # resuming past phase 10 — it must still run (P10 alone) when
+            # start == 10.
+            pipeline = ReleasePipeline(
+                (
+                    PhaseStep(2, "bump", _step2),
+                    PhaseStep(3, "build", _step3),
+                    PhaseStep(4, "release-pr", _step4),
+                    PhaseStep(5, "tag", _step5),
+                    PhaseStep(6, "ci", _step6),
+                    PhaseStep(7, "github-release", _step7),
+                    PhaseStep(8, "pypi", _step8),
+                    PhaseStep(10, "post-release", _step9_10),
+                    PhaseStep(11, "verify", _step11),
+                ),
+                ops=_ops,
+            )
+            pipeline.run(start=start)
+
+            pipeline.summarize(
+                info,
+                version,
+                dry_run=dry_run,
+                project=ReleaseProject(info, ops=_ops),
+                skips=_skips,
+            )
         finally:
             if _interrupted.is_set():
                 _info("Cleaning up after interrupt...")
