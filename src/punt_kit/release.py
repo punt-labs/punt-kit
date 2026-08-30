@@ -11,7 +11,7 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast, final
 
@@ -27,6 +27,7 @@ from punt_kit.phases.shared.ci_run import CiRunWatch, TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.pipeline import ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.plugin_swap import PluginSwap
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -1508,36 +1509,8 @@ def _reset_propagation_siblings(
 def _collect_thread_results(
     futures: dict[Future[None], str],
 ) -> None:
-    """Wait for all futures, collect errors, and fail if any occurred.
-
-    If ``_interrupted`` is set after threads drain, raises
-    ``KeyboardInterrupt`` so the caller's ``finally`` block handles
-    cleanup (avoiding double-cleanup with ``run_release``).
-    """
-    errors: list[tuple[str, BaseException]] = []
-    for f in as_completed(futures):
-        name = futures[f]
-        try:
-            f.result()
-        except ReleaseError as e:
-            errors.append((name, RuntimeError(str(e))))
-        except SystemExit as e:
-            if isinstance(e.code, int):
-                msg = f"{name} failed (exit code {e.code})"
-            elif isinstance(e.code, str) and e.code.strip():
-                msg = e.code
-            else:
-                msg = f"{name} failed"
-            errors.append((name, RuntimeError(msg)))
-        except BaseException as e:  # noqa: BLE001
-            errors.append((name, e))
-    if _interrupted.is_set():
-        raise KeyboardInterrupt
-    if errors:
-        for name, err in errors:
-            console.print(f"  [red]✗[/red] {name}: {err}")
-        names = ", ".join(n for n, _ in errors)
-        _fail(f"{len(errors)} task(s) failed: {names}")
+    """Wait for all futures, collect errors, and fail if any occurred."""
+    ThreadedStep(ops=_ops).collect(futures, interrupted=_interrupted)
 
 
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -1938,35 +1911,13 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
 def _phase_summary(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Print release summary."""
-    tag = f"v{version}"
-    package = _get_package_name(info) if info.language == "python" else info.root.name
-    if info.is_hybrid:
-        ptype = "hybrid"
-    elif info.is_plugin:
-        ptype = "plugin"
-    else:
-        ptype = "CLI-only"
-
-    dr = "(dry run) " if dry_run else ""
-    console.print(f"\n[bold green]Release {tag} {dr}Complete[/bold green]\n")
-    console.print(f"  Package:        {package}")
-    console.print(f"  Version:        {version}")
-    console.print(f"  Type:           {ptype}")
-    console.print(f"  Tag:            {tag}")
-    console.print()
-    if not dry_run and (info.is_plugin or info.is_hybrid):
-        console.print("  Restart Claude Code to pick up marketplace changes.")
-    console.print()
-
-    # Recap every propagation/verification step skipped mid-run. Drained here so
-    # the operator sees the outstanding manual actions as the last thing printed,
-    # even if the inline warnings scrolled past during concurrent Phase 10 work.
-    skipped = _skips.drain()
-    if skipped:
-        console.print("[bold yellow]⚠ Manual action required[/bold yellow]")
-        for notice in skipped:
-            console.print(f"  [yellow]•[/yellow] {notice}")
-        console.print()
+    ReleasePipeline((), ops=_ops).summarize(
+        info,
+        version,
+        dry_run=dry_run,
+        project=ReleaseProject(info, ops=_ops),
+        skips=_skips,
+    )
 
 
 # ---------------------------------------------------------------------------
