@@ -26,6 +26,7 @@ from punt_kit.release import (
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
     _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
+    _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
@@ -685,6 +686,106 @@ def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
     _init_git_repo(root)
 
     assert _get_latest_tag_version(root) == "0.0.0"
+
+
+# --- _get_project_version ---
+
+
+def test_get_project_version_plugin_only_reads_plugin_json(tmp_path: Path) -> None:
+    """A marketplace-only plugin (no pyproject.toml) reads plugin.json's version."""
+    root = _make_language_none_plugin_project(tmp_path)
+    info = detect(root)
+    assert _get_project_version(info) == "0.1.0"
+
+
+def test_get_project_version_plugin_only_missing_version_fails(tmp_path: Path) -> None:
+    """A plugin.json with no version key still fails loudly, not silently."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(json.dumps({"name": "test-dev"}) + "\n")
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+
+    info = detect(root)
+    with pytest.raises(ReleaseError, match="No version in"):
+        _get_project_version(info)
+
+
+def test_get_project_version_python_unaffected(tmp_path: Path) -> None:
+    """The pyproject.toml path is unchanged by the new plugin-only branch."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    assert _get_project_version(info) == "0.1.0"
+
+
+def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
+    """The Go tag path is unchanged by the new plugin-only branch."""
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+    _git(["tag", "v1.2.3"], cwd=str(root))
+
+    info = ProjectInfo(root=root, language="go")
+    assert _get_project_version(info) == "1.2.3"
+
+
+def test_run_release_resume_plugin_only_no_version_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resuming a plugin-only release without --version must not hard-fail.
+
+    Regresses the bug this bead reports verbatim: "Error: No pyproject.toml
+    found" when resuming a marketplace-only plugin release past phase 1.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_language_none_plugin_project(tmp_path)
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase3_build", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root), resume_from="build")
+
+
+def test_run_release_fresh_plugin_only_no_version_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh (non-resume) plugin-only release without --version auto-detects.
+
+    Regresses the fresh-path asymmetry: before this fix, a plugin-only
+    project failed here even though the resume path (once fixed) could
+    already resolve the same version from plugin.json.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_language_none_plugin_project(tmp_path)
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase2_version_bump", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root))
 
 
 def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:

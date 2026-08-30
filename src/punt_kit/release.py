@@ -237,10 +237,16 @@ def _get_install_sh_sha(root: Path) -> str:
 
 
 def _get_project_version(info: ProjectInfo) -> str:
-    """Extract current version from pyproject.toml or git tags (Go)."""
+    """Extract current version from pyproject.toml, plugin.json, or git tags (Go)."""
     if info.language == "go":
         return _get_latest_tag_version(info.root)
     if info.pyproject is None:
+        if info.is_plugin:
+            data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+            version = data.get("version")
+            if not isinstance(version, str):
+                _fail(f"No version in {info.plugin_manifest}")
+            return version
         _fail("No pyproject.toml found")
     project = info.pyproject.get("project")
     if not isinstance(project, dict):
@@ -3089,7 +3095,11 @@ def run_release(
         if version is None:
             if start == 1:
                 # Fresh release — detect from changelog
-                if info.pyproject is None and info.language != "go":
+                if (
+                    info.pyproject is None
+                    and info.language != "go"
+                    and not info.is_plugin
+                ):
                     _fail(
                         "Version required for plugin-only projects (no pyproject.toml)"
                     )
