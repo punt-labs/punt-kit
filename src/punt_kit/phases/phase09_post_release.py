@@ -61,7 +61,7 @@ class Phase9PostRelease:
         if dry_run:
             if info.is_hybrid or info.is_plugin:
                 ops.dry("bash scripts/restore-dev-plugin.sh")
-            ops.dry('git commit -m "chore: restore dev plugin state [skip ci]"')
+            ops.dry('git commit -m "chore: restore dev plugin state"')
             ops.dry(f'merge(branch={branch}, title="chore: post-release v{version}")')
             return
 
@@ -125,20 +125,20 @@ class Phase9PostRelease:
                         encoding="utf-8",
                     )
                     ops.run(["git", "add", str(plugin_json)], cwd=str(root))
-                # The CI-skip marker spares a push-CI run on main once the
-                # post-release PR squash-merges: this commit only restores
-                # dev plugin state and re-stamps a version. It does NOT
-                # affect release.yml, which triggers on tag push and whose
-                # tag was placed back in phase 5 — the marker matters on
-                # phase 4's release-plugin.sh commit, which the tag does
-                # land on, and that is where the historical regression
-                # happened.
+                # No [skip ci] marker on this commit: the PR's required
+                # status checks (lint/test/docs) run per branch protection,
+                # and GitHub Actions honors [skip ci] on pull_request
+                # triggers too — so the marker used to make the PR
+                # unmergeable. The squash-merge onto main uses the PR
+                # title (which never carried the marker), so removing it
+                # here also does not add a redundant CI run on main.
+                # See pkit-x5j8.
                 ops.run(
                     [
                         "git",
                         "commit",
                         "-m",
-                        "chore: restore dev plugin state [skip ci]",
+                        "chore: restore dev plugin state",
                     ],
                     cwd=str(root),
                     timeout=GIT_HOOK,
