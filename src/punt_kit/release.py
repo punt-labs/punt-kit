@@ -19,7 +19,9 @@ from urllib.parse import urlparse
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.shared import changelog as changelog_mod
 from punt_kit.phases.shared import timeouts
+from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.reporter import reporter
 
@@ -349,26 +351,12 @@ def _get_github_repo(root: Path) -> str | None:
 
 def _read_changelog(root: Path) -> str:
     """Read CHANGELOG.md content."""
-    changelog = root / "CHANGELOG.md"
-    if not changelog.exists():
-        _fail("CHANGELOG.md not found")
-    return changelog.read_text(encoding="utf-8")
+    return Changelog(root, ops=_ops).text()
 
 
 def _extract_version_notes(changelog: str, version: str) -> str:
     """Extract release notes for a specific version from changelog."""
-    # Match ## [X.Y.Z] - YYYY-MM-DD or ## [X.Y.Z]
-    pattern = rf"## \[{re.escape(version)}\][^\n]*\n"
-    match = re.search(pattern, changelog)
-    if not match:
-        return f"Release v{version}"
-
-    start = match.end()
-    # Find next ## heading
-    next_heading = re.search(r"\n## \[", changelog[start:])
-    end = start + next_heading.start() if next_heading else len(changelog)
-
-    return changelog[start:end].strip()
+    return changelog_mod.extract_version_notes(changelog, version)
 
 
 def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
@@ -593,29 +581,7 @@ def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
 
 def _suggest_version(changelog: str, current: str) -> str:
     """Suggest a version bump based on changelog content."""
-    unreleased = re.search(
-        r"## \[Unreleased\]\s*\n(.*?)(?=\n## \[|\Z)", changelog, re.DOTALL
-    )
-    if not unreleased:
-        return current
-
-    content = unreleased.group(1)
-    parts = current.split(".")
-    if len(parts) != 3:
-        return current
-
-    major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
-
-    # Check for breaking changes only within the ### Changed subsection
-    changed_match = re.search(r"### Changed\n(.*?)(?=\n### |\Z)", content, re.DOTALL)
-    has_breaking = (
-        changed_match is not None and "breaking" in changed_match.group(1).lower()
-    )
-    if has_breaking:
-        return f"{major + 1}.0.0"
-    if "### Added" in content:
-        return f"{major}.{minor + 1}.0"
-    return f"{major}.{minor}.{patch + 1}"
+    return changelog_mod.suggest_next_version(changelog, current)
 
 
 def _branch_protection_exists(gh: str, cwd: str, owner: str, repo_name: str) -> bool:
