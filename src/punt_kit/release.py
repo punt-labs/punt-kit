@@ -10,7 +10,13 @@ import signal
 import subprocess
 import sys
 import threading
-import time
+
+# Unused directly in this module since the polling loops moved to
+# phases/shared/gh.py and ci_run.py, but several tests monkeypatch
+# "punt_kit.release.time.sleep" — that dotted path resolves through this
+# module's own `time` attribute, so removing the import breaks the patch
+# with an ImportError before the test body even runs.
+import time  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast, final
@@ -18,6 +24,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
@@ -192,8 +199,15 @@ def _get_latest_tag_version(root: Path) -> str:
     return ReleaseProject(ProjectInfo(root), ops=_ops).latest_tag_version()
 
 
-def _get_package_name(info: ProjectInfo) -> str:
-    """Extract package name from pyproject.toml."""
+def _get_package_name(  # pyright: ignore[reportUnusedFunction]
+    info: ProjectInfo,
+) -> str:
+    """Extract package name from pyproject.toml.
+
+    No caller remains in this module — every former call site now
+    constructs ReleaseProject directly. Kept importable for public API
+    preservation.
+    """
     return ReleaseProject(info, ops=_ops).package_name()
 
 
@@ -951,68 +965,7 @@ def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 8: Verify PyPI install."""
-    if info.language != "python":
-        return
-
-    console.print("\n[bold]Phase 8: Verify PyPI install[/bold]")
-
-    package_name = _get_package_name(info)
-
-    if dry_run:
-        _dry(f"uv tool install --force --refresh {package_name}=={version}")
-        if info.cli_commands:
-            _dry(f"{info.cli_commands[0]} doctor (if available)")
-        _dry("uv tool install --force --editable .")
-        return
-
-    _info(f"Installing {package_name}=={version} from PyPI...")
-
-    # Retry loop — PyPI propagation can take a minute
-    for attempt in range(10):
-        result = _run(
-            [
-                "uv",
-                "tool",
-                "install",
-                "--force",
-                "--refresh",
-                f"{package_name}=={version}",
-            ],
-            cwd=str(info.root),
-            check=False,
-            capture=False,
-            timeout=_UV_TIMEOUT,
-        )
-        if result.returncode == 0:
-            break
-        if attempt < 9:
-            _info(f"Attempt {attempt + 1}/10 — waiting 30s for PyPI propagation...")
-            time.sleep(30)
-    else:
-        _fail(
-            f"Failed to install {package_name}=={version} from PyPI after 10 attempts"
-        )
-
-    _ok(f"Installed {package_name}=={version} from PyPI")
-
-    # Run doctor if available
-    if info.cli_commands:
-        cli_name = info.cli_commands[0]
-        cli_path = shutil.which(cli_name)
-        if cli_path:
-            doctor_result = _run([cli_path, "doctor"], check=False, capture=False)
-            if doctor_result.returncode == 0:
-                _ok(f"{cli_name} doctor passed")
-
-    # Restore editable install
-    _info("Restoring editable install...")
-    _run(
-        ["uv", "tool", "install", "--force", "--editable", "."],
-        cwd=str(info.root),
-        capture=False,
-        timeout=_UV_TIMEOUT,
-    )
-    _ok("Editable install restored")
+    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 # ---------------------------------------------------------------------------
