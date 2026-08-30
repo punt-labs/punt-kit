@@ -1387,6 +1387,11 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         dry_run=dry_run,
     )
 
+    # 4c. Pin README's install-URL SHA now that the squash-merge has landed
+    # on main — see _land_readme_sha_pin for why this must happen here and
+    # not during phase 2's version bump on the (about to be deleted) branch.
+    _land_readme_sha_pin(info, version, dry_run=dry_run)
+
 
 def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 5: Tag main HEAD and push tag."""
@@ -1484,6 +1489,77 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
 
     readme_path.write_text(new_content, encoding="utf-8")
     _ok(f"README.md: install URLs → {short_sha} ({tag})")
+
+
+def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Pin README's install-URL SHA via its own PR, right after the squash-merge.
+
+    Must run after ``_phase4_release_pr``'s squash-merge lands on main, not
+    during ``_phase2_version_bump`` on the release branch. ``gh pr merge
+    --squash --delete-branch`` makes one new commit on main and deletes the
+    release branch — any SHA pinned from a commit that only ever existed on
+    that branch becomes unreachable the moment it is deleted, and a
+    subsequent CI checkout of the release tag will not contain it. Reading
+    ``install.sh``'s SHA here, with the working tree on the just-merged main,
+    pins a commit that is main's own permanent history.
+    """
+    root = info.root
+    branch = f"release-readme-pin/v{version}"
+
+    if dry_run:
+        _dry("_bump_readme_install_sha(...)")
+        _dry(f'git commit -m "chore: update README install SHA to v{version}"')
+        _dry(f"_pr_merge(branch={branch})")
+        return
+
+    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
+    if current != "main":
+        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(root),
+            timeout=_GIT_HOOK_TIMEOUT,
+        )
+
+    existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
+    if existing:
+        _run(["git", "checkout", branch], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+        _info(f"Checked out existing branch {branch}")
+    else:
+        _run(
+            ["git", "checkout", "-b", branch],
+            cwd=str(root),
+            timeout=_GIT_HOOK_TIMEOUT,
+        )
+
+    _bump_readme_install_sha(info, version, dry_run=False)
+    status = _run(
+        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
+    ).stdout.strip()
+    if not status:
+        # Resume case: a prior run already committed the pin on this branch,
+        # or the README already carried the correct SHA — either way there
+        # is nothing new to land.
+        ahead = _run(
+            ["git", "log", "main..HEAD", "--oneline"], cwd=str(root)
+        ).stdout.strip()
+        if not ahead:
+            _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+            _run(["git", "branch", "-D", branch], cwd=str(root))
+            _ok("README already pins the current install SHA")
+            return
+    else:
+        _run(["git", "add", "--", "README.md"], cwd=str(root))
+        msg = f"chore: update README install SHA to v{version}"
+        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+
+    _pr_merge(
+        cwd=root,
+        branch=branch,
+        title=f"chore: update README install SHA v{version}",
+        dry_run=False,
+    )
+    _ok("README SHA pin PR merged")
 
 
 # GitHub does not register a tag-triggered run instantly, so phase 6 polls
@@ -1927,7 +2003,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
 
 
 def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 9: Dev plugin restore and README SHA bump via PR."""
+    """Phase 9: Dev plugin restore via PR."""
     console.print(f"\n[bold]Phase 9: Post-release v{version}[/bold]")
 
     root = info.root
@@ -1937,7 +2013,6 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if dry_run:
         if info.is_hybrid or info.is_plugin:
             _dry("bash scripts/restore-dev-plugin.sh")
-        _dry("_bump_readme_install_sha(...)")
         _dry(f'git commit -m "chore: post-release v{version}"')
         _dry(f"_pr_merge(branch={branch})")
         return
@@ -2036,18 +2111,6 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             has_changes = True
         else:
             _ok("Dev restore already at HEAD (resume)")
-
-    # README SHA bump. Stage README.md explicitly — `git add -A` would
-    # sweep unrelated untracked files into the post-release commit.
-    _bump_readme_install_sha(info, version, dry_run=False)
-    status = _run(
-        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
-    ).stdout.strip()
-    if status:
-        _run(["git", "add", "--", "README.md"], cwd=str(root))
-        msg = f"chore: update README install SHA to v{version}"
-        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-        has_changes = True
 
     if not has_changes:
         # Check if branch has commits ahead of main (resume case)

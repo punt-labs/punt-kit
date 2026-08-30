@@ -30,6 +30,7 @@ from punt_kit.release import (
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
+    _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _phase11_verify,  # pyright: ignore[reportPrivateUsage]
     _phase_name,  # pyright: ignore[reportPrivateUsage]
@@ -444,14 +445,65 @@ def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
     assert status.startswith("??")
 
 
-def test_phase9_commit_excludes_untracked(
+def test_phase9_post_release_no_longer_bumps_readme(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The post-release README commit stages only README.md."""
+    """Phase 9 no longer touches README — that job moved to phase 4 (fwql).
+
+    Regression guard: phase 4 now guarantees the README is already current
+    by the time phase 9 runs, so phase 9's job shrinks to dev-restore only.
+    """
     from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # A stale SHA that _bump_readme_install_sha would have rewritten under
+    # the old phase-9 behavior this fix removes.
+    stale_readme = (
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/deadbeef/install.sh | sh\n"
+        "```\n"
     )
+    (root / "README.md").write_text(stale_readme)
+    # Plugin already at "just-released" HEAD state: dev name, released
+    # version. Phase 9's restore_done precondition requires both — see
+    # release.py:_phase9_post_release.
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-dev", "version": "0.2.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "stale readme, dev/released HEAD"], cwd=d)
+
+    def _unreachable(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("phase 9 must not call _bump_readme_install_sha")
+
+    monkeypatch.setattr(release_mod, "_bump_readme_install_sha", _unreachable)
+
+    def fake_pr_merge(**_kwargs: object) -> str:
+        raise AssertionError("phase 9 has nothing to land — _pr_merge must not run")
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    assert (root / "README.md").read_text() == stale_readme
+
+
+def test_land_readme_sha_pin_commit_excludes_untracked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The README-SHA-pin commit stages only README.md, not stray files.
+
+    Ports the untracked-file-exclusion invariant that used to guard phase 9's
+    README commit (removed by fwql) to its new home.
+    """
+    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -463,20 +515,12 @@ def test_phase9_commit_excludes_untracked(
         "punt-labs/proj/abc1234/install.sh | sh\n"
         "```\n"
     )
-    # Plugin already in dev state ("test-dev") so the dev restore is skipped
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "matching readme"], cwd=d)
 
     (root / "stray-transcript.jsonl").write_text("{}\n")
 
-    def fake_pr_merge(
-        *,
-        cwd: Path,
-        branch: str,
-        title: str,
-        body: str = "",
-        dry_run: bool = False,
-    ) -> str:
+    def fake_pr_merge(**_kwargs: object) -> str:
         return "abc1234"
 
     monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
@@ -484,7 +528,9 @@ def test_phase9_commit_excludes_untracked(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _phase9_post_release(info, "0.2.0", dry_run=False)
+    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
 
     committed = _commit_files(root)
     assert committed == ["README.md"]
@@ -2734,6 +2780,239 @@ def test_pr_merge_real_merge_failure_still_fails(
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
+# --- fwql: README SHA pin lands after the release PR's squash-merge ---
+
+
+def test_phase4_release_pr_pins_readme_after_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 4 lands a second, README-only PR right after the release PR merges."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "install.sh").write_text(
+        "#!/bin/sh\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "deadbee/install.sh | sh\n"
+    )
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "deadbee/install.sh | sh\n"
+        "```\n"
+    )
+
+    info = ProjectInfo(root=root, language="python")
+
+    issued: list[list[str]] = []
+    pr_number = {"n": 100}
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        issued.append(list(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
+            r.stdout = "newsha1\n"
+        elif cmd[:2] == ["git", "log"]:
+            r.stdout = ""
+        elif cmd[:2] == ["git", "rev-parse"] and "--short" in cmd:
+            r.stdout = "abc1234\n"
+        elif cmd[:2] == ["git", "rev-parse"]:
+            r.stdout = "deadbeefcafe\n"
+        elif cmd[:2] == ["git", "status"]:
+            r.stdout = " M README.md\n" if cmd[-1] == "README.md" else ""
+        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
+            r.stdout = "main\n"
+        elif cmd[:2] == ["git", "branch"] and "--list" in cmd:
+            r.stdout = ""
+        elif cmd[:3] == ["gh", "pr", "list"]:
+            r.stdout = "[]"
+        elif cmd[:3] == ["gh", "pr", "create"]:
+            pr_number["n"] += 1
+            r.stdout = f"https://github.com/punt-labs/proj/pull/{pr_number['n']}\n"
+        elif cmd[:3] == ["gh", "pr", "view"]:
+            r.stdout = json.dumps({"state": "OPEN"})
+        elif cmd[:3] == ["gh", "pr", "merge"]:
+            r.returncode = 0
+        return r
+
+    def _which_gh(_n: str) -> str:
+        return "gh"
+
+    def _no_wait(*_a: object, **_k: object) -> None:
+        return None
+
+    def _no_threads(*_a: object, **_k: object) -> None:
+        return None
+
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/proj"
+
+    monkeypatch.setattr(shutil, "which", _which_gh)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_wait_for_required_checks", _no_wait)
+    monkeypatch.setattr(release_mod, "_resolve_pr_threads", _no_threads)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+
+    release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
+
+    pushed_branches = [c[4] for c in issued if c[:3] == ["git", "push", "-u"]]
+    assert "release/v0.2.0" in pushed_branches
+    assert "release-readme-pin/v0.2.0" in pushed_branches
+
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert len(created) == 2
+
+    merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
+    assert len(merges) == 2
+
+    assert "newsha1" in (root / "README.md").read_text()
+
+
+def test_land_readme_sha_pin_noop_when_readme_already_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No PR is created when the README already pins the current install SHA."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "currentsha/install.sh | sh\n"
+        "```\n"
+    )
+
+    info = ProjectInfo(root=root, language="python")
+    issued: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        issued.append(list(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
+            r.stdout = "currentsha\n"
+        elif cmd[:2] == ["git", "log"]:
+            r.stdout = ""
+        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
+            r.stdout = "main\n"
+        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
+            "git",
+            "status",
+        ]:
+            r.stdout = ""
+        return r
+
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/proj"
+
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
+
+    assert not any(c[:3] == ["gh", "pr", "create"] for c in issued)
+
+
+def test_readme_sha_pin_survives_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The README-pinned install.sh SHA is reachable from main after squash-merge.
+
+    Written to catch the reachability defect Option A (pinning inside
+    _phase2_version_bump, before the squash-merge) has: that pins a commit
+    that lives only on the release branch, which the merge deletes.
+    Byte-equality alone would not catch this — a dangling commit still
+    resolves via ``git show`` for a while after deletion. Reachability from
+    main is the property that matters once CI checks out the release tag.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.detect import detect
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    release_branch = "release/v0.2.0"
+    _git(["checkout", "-b", release_branch], cwd=d)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.2.0"\n'
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "chore: release v0.2.0"], cwd=d)
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        """Simulate `gh pr merge --squash --delete-branch`, entirely locally."""
+        r = str(cwd)
+        _git(["checkout", "main"], cwd=r)
+        _git(["merge", "--squash", branch], cwd=r)
+        _git(["commit", "-m", title], cwd=r)
+        _git(["branch", "-D", branch], cwd=r)
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=r,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
+    # first _pr_merge call, for the release branch itself).
+    release_mod._pr_merge(  # pyright: ignore[reportPrivateUsage]
+        cwd=root, branch=release_branch, title="chore: release v0.2.0"
+    )
+
+    # Step 2: land the README pin — the fix under test.
+    info = detect(root)
+    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
+
+    pinned_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%h", "--", "install.sh"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+
+    show = subprocess.run(
+        ["git", "show", f"{pinned_sha}:install.sh"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert show == (root / "install.sh").read_text()
+
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", pinned_sha, "main"], cwd=d
+    )
+    assert ancestor.returncode == 0
+
+
 # --- _phase11_verify: profile SHA ---
 
 
@@ -3946,15 +4225,14 @@ def test_phase9_dev_restore_single_commit_with_restamp(
         .splitlines()
     )
     assert log == [
-        "chore: update README install SHA to v0.2.0",
         "chore: restore dev plugin state [skip ci]",
     ], log
 
-    # The restore commit — HEAD~1 — must contain both the plugin.json
+    # The restore commit — HEAD — must contain both the plugin.json
     # revert and the version re-stamp. If the script had committed
     # first, the re-stamp would either be in HEAD (a second commit) or
     # would have required the --amend path this refactor deleted.
-    restore_files = _commit_files(root, ref="HEAD~1")
+    restore_files = _commit_files(root, ref="HEAD")
     assert plugin_json.relative_to(root).as_posix() in restore_files
 
     restored = json.loads(plugin_json.read_text())
@@ -4082,6 +4360,14 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
         return "abc1234"
 
     monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    # The fwql pin step runs against a real remote in production; this
+    # test has none. Stub it out — the assertions here are about the
+    # swap behavior, not the pin.
+    def _skip_pin(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_land_readme_sha_pin", _skip_pin)
 
     info = detect(root)
     _phase4_release_pr(info, "0.2.0", dry_run=False)
@@ -4215,22 +4501,17 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
         .stdout.strip()
         .splitlines()
     )
-    # Two commits, in the correct order, with the correct messages —
-    # not one fused commit under the README title.
+    # One commit — dev restore only. Phase 9 no longer bumps README;
+    # that moved to phase 4 (fwql). The restore commit must land
+    # cleanly regardless of the prior mid-hook stage.
     assert log == [
-        "chore: update README install SHA to v0.2.0",
         "chore: restore dev plugin state [skip ci]",
     ], log
 
-    # The README commit must NOT carry plugin.json. A skipped restore
-    # would leave the staged plugin.json to fall into this commit.
-    readme_files = _commit_files(root, ref="HEAD")
-    assert ".claude-plugin/plugin.json" not in readme_files, (
-        "README-SHA commit swept a stray staged plugin.json — the phase "
-        "took the resume shortcut and never made a restore commit"
-    )
-
-    restore_files = _commit_files(root, ref="HEAD~1")
+    # The restore commit — HEAD — must carry plugin.json. A skipped
+    # restore would leave a stray staged plugin.json rather than a
+    # proper commit.
+    restore_files = _commit_files(root, ref="HEAD")
     assert ".claude-plugin/plugin.json" in restore_files
 
     restored = json.loads(plugin_json.read_text())
