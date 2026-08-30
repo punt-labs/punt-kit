@@ -1511,7 +1511,7 @@ Punt Labs Python projects use `uv_build`:
 
 ```toml
 [build-system]
-requires = ["uv_build>=0.9.14,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
