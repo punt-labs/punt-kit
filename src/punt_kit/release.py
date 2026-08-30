@@ -586,20 +586,58 @@ def _suggest_version(changelog: str, current: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def _branch_protection_exists(gh: str, cwd: str, owner: str, repo_name: str) -> bool:
+    """True if ``main`` has a branch protection rule; False on a confirmed 404.
+
+    ``gh api .../branches/main/protection`` 404s with "Branch not protected"
+    when none is configured. Any other failure (network, auth, rate limit, or
+    a timeout) is NOT treated as "unprotected" — it falls through as True so
+    the existing isRequired-only wait behavior is unchanged for errors
+    unrelated to branch protection, and a transient API hiccup here cannot
+    silently widen the check set for a repo that genuinely has protection.
+    """
+    try:
+        result = _run(
+            [gh, "api", f"repos/{owner}/{repo_name}/branches/main/protection"],
+            cwd=cwd,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return True
+    if result.returncode == 0:
+        return True
+    combined = (result.stderr + result.stdout).lower()
+    return "404" not in combined and "branch not protected" not in combined
+
+
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     """Poll required CI checks until all pass or any fail.
 
     Uses a direct GraphQL query to get ``isRequired(pullRequestNumber: N)``
     which the ``gh pr view --json statusCheckRollup`` path cannot populate
     (the ``isRequired`` field is always null without the PR number argument).
-    Ignores non-required checks (e.g. Anthropic's 'Claude Code Review').
+    Ignores non-required checks (e.g. Anthropic's 'Claude Code Review') when
+    the repo has branch protection configured. A repo with none configured
+    has no ``isRequired`` checks at all, so this falls back to waiting for
+    every check instead of failing after the no-required-checks timeout.
     """
     repo_slug = _get_github_repo(Path(cwd))
     if not repo_slug or "/" not in repo_slug:
         _fail(f"Cannot determine GitHub owner/repo from git remote in {cwd}")
     owner, repo_name = repo_slug.split("/", 1)
 
-    _info(f"Waiting for required CI checks on PR #{pr_number}...")
+    branch_protected = _branch_protection_exists(gh, cwd, owner, repo_name)
+    if not branch_protected:
+        _warn(
+            f"No branch protection configured on {owner}/{repo_name}'s main "
+            "branch — waiting for ALL checks to pass instead of only required "
+            "ones"
+        )
+
+    _info(
+        f"Waiting for {'required' if branch_protected else 'all'} CI checks "
+        f"on PR #{pr_number}..."
+    )
     deadline = time.time() + 7200
     no_checks_attempts = 0
     consecutive_errors = 0
@@ -761,13 +799,19 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                     }
                 )
 
-        required = [c for c in checks if c.get("isRequired")]
+        relevant = (
+            [c for c in checks if c.get("isRequired")] if branch_protected else checks
+        )
+        # "Required" only means something when branch protection is what
+        # narrowed the check set — otherwise every check is being waited on.
+        prefix = "Required " if branch_protected else ""
 
-        if not required:
+        if not relevant:
             no_checks_attempts += 1
             if no_checks_attempts > 24:  # 2 minutes at 5s intervals
+                found_label = "required checks" if branch_protected else "CI checks"
                 _fail(
-                    f"No required checks found on PR #{pr_number} after 2 minutes — "
+                    f"No {found_label} found on PR #{pr_number} after 2 minutes — "
                     "check branch protection configuration"
                 )
             time.sleep(5)
@@ -788,21 +832,21 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
         )
         failed = [
             c
-            for c in required
+            for c in relevant
             if str(c.get("conclusion", "")).lower() in _failure_conclusions
         ]
         if failed:
             names = ", ".join(str(c.get("name", "?")) for c in failed)
-            _fail(f"Required CI checks failed on PR #{pr_number}: {names}")
+            _fail(f"{prefix}CI checks failed on PR #{pr_number}: {names}")
 
         # A check is pending if it has not reached COMPLETED status.
         pending = [
-            c for c in required if str(c.get("status", "")).upper() != "COMPLETED"
+            c for c in relevant if str(c.get("status", "")).upper() != "COMPLETED"
         ]
 
         if not pending:
-            names = ", ".join(str(c.get("name", "?")) for c in required)
-            _ok(f"Required CI checks passed: {names}")
+            names = ", ".join(str(c.get("name", "?")) for c in relevant)
+            _ok(f"{prefix}CI checks passed: {names}")
             return
 
         names = ", ".join(str(c.get("name", "?")) for c in pending)

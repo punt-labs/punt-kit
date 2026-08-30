@@ -1853,7 +1853,10 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
-    assert call_count == 1
+    # 2, not 1 — the pre-loop branch-protection check (f85t.4) is call 1;
+    # this fake returns returncode=0 for every cmd, so it reads as
+    # protected=True and the graphql poll below is call 2.
+    assert call_count == 2
 
 
 def test_wait_for_required_checks_fails_on_required_failure(
@@ -2040,6 +2043,173 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(ReleaseError, match="5 consecutive times"):
         _wait_for_required_checks("gh", "/tmp", 42)
+
+
+# --- f85t.4: branch-protection fallback ---
+
+
+def test_branch_protection_exists_true_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 200 from the protection endpoint means the branch is protected."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _protection_response(protected=True)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_branch_protection_exists_false_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A confirmed 404 means the branch has no protection configured."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _protection_response(protected=False)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is False
+    )
+
+
+def test_branch_protection_exists_true_on_unrelated_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unrelated failure (rate limit, auth) does not widen the check set."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: API rate limit exceeded"
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_branch_protection_exists_true_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung protection check fails open rather than aborting the release."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No branch protection means every check is waited on, not just isRequired."""
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": False,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    # Should not raise — the non-required "lint" check is treated as the
+    # pass condition because the repo has no branch protection configured.
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_still_requires_only_required_when_protected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: branch protection still narrows to isRequired checks."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=True)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_no_required_checks_response())
+        result.stderr = ""
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    with pytest.raises(ReleaseError, match="No required checks found"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_warns_once_on_fallback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The unprotected-branch warning prints once, not once per poll.
+
+    Branch protection is resolved once before the loop starts, so this is a
+    proof of function structure rather than a distinct behavior.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": False,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+    printed = capsys.readouterr().out
+    assert printed.count("No branch protection configured") == 1
 
 
 # --- _reset_propagation_siblings ---
@@ -5032,8 +5202,10 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
 
     calls = 0
 
-    def fake_run(_cmd: list[str], **_kwargs: object) -> MagicMock:
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=True)
         calls += 1
         result = MagicMock()
         result.returncode = 0
@@ -5083,8 +5255,10 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     calls = 0
 
-    def fake_run(_cmd: list[str], **_kwargs: object) -> MagicMock:
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=True)
         calls += 1
         result = MagicMock()
         result.returncode = 0
