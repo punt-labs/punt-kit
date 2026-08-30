@@ -1,5 +1,7 @@
 # CI Standards
 
+**Introduced:** 2026-08-30
+
 What continuous integration must prove before a merge, for every Punt Labs
 repository. The floor is set by operator ruling (2026-08-30); the rest is
 grounded in the published CI literature, cited inline. Where common practice
@@ -172,7 +174,7 @@ practice" label.
 
 1. Fowler, "Continuous Integration" —
    <https://martinfowler.com/articles/continuousIntegration.html>
-2. Fowler (Vocke), "The Practical Test Pyramid" —
+2. Vocke, "The Practical Test Pyramid" (on martinfowler.com) —
    <https://martinfowler.com/articles/practical-test-pyramid.html>
 3. Humble & Farley, *Continuous Delivery*, ch. 7 (commit stage);
    <https://continuousdelivery.com/implementing/patterns/>;
