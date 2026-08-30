@@ -11,7 +11,7 @@ Filed 2026-08-30 from operator direction: fix release engine bugs (weekly pain),
 Operator ratified release-first: **A is the entry point**. From there, the dependency graph — not a strict linear order — determines what runs when:
 
 - **A** ships independently.
-- **D** (standards rot) runs concurrently with **A** because it touches only `standards/` and `lang-rules/`, not `release.py`.
+- **D** (standards rot) runs concurrently with **A** because it does not touch `release.py`; its edits are confined to `standards/`, `lang-rules/`, and a survey report under `docs/`.
 - **B** (kit-manager) starts once **A** frees attention; it does not depend on **A**.
 - **C** (standards enforcement) is deferred until **D** finishes so the LLM examiner enforces a fresh corpus, not a rotted one; **C** also depends on **B**'s `.punt-labs/<tool>/` declaration.
 - **E** (playbook DSL) can start any time after **A** since it is orthogonal to standards work.
