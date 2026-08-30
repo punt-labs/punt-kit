@@ -799,6 +799,9 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- New feature\n"
     )
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
 
     d = str(root)
     _git(["add", "."], cwd=d)
@@ -4703,6 +4706,84 @@ def test_phase6_survives_a_hung_verdict_query(
 
     with pytest.raises(ReleaseError, match="could not confirm"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
+# --- f85t.2: phase 6 skip/fail on a missing release.yml workflow ---
+
+
+def test_phase6_skips_for_pure_plugin_without_release_yml(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pure (non-hybrid) plugin with no release.yml has nothing to wait for."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    def _unreachable(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("_run must not be called on the pure-plugin skip path")
+
+    monkeypatch.setattr(release_mod, "_run", _unreachable)
+
+    info = ProjectInfo(
+        root=_Path("/nonexistent"),
+        is_plugin=True,
+        workflow_files=["docs.yml", "biff-notify.yml"],
+    )
+    _phase6_ci_wait(info, "1.0.0", dry_run=False)
+
+
+def test_phase6_fails_actionably_when_python_project_missing_release_yml() -> None:
+    """A non-plugin project missing release.yml fails loud, not silent."""
+    from punt_kit.detect import ProjectInfo
+
+    info = ProjectInfo(
+        root=_Path("/nonexistent"),
+        language="python",
+        workflow_files=["docs.yml"],
+    )
+    with pytest.raises(ReleaseError, match="misconfiguration"):
+        _phase6_ci_wait(info, "1.0.0", dry_run=False)
+
+
+def test_phase6_hybrid_missing_release_yml_still_fails() -> None:
+    """A hybrid project (CLI + plugin) must have release.yml — no silent skip."""
+    from punt_kit.detect import ProjectInfo
+
+    info = ProjectInfo(
+        root=_Path("/nonexistent"),
+        is_plugin=True,
+        cli_commands=["test-cli"],
+        workflow_files=["docs.yml"],
+    )
+    assert info.is_hybrid is True
+    with pytest.raises(ReleaseError, match="misconfiguration"):
+        _phase6_ci_wait(info, "1.0.0", dry_run=False)
+
+
+def test_phase6_proceeds_normally_when_release_yml_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: the existing pass-through behavior is untouched.
+
+    ``_make_release_project`` now includes a ``release.yml`` placeholder
+    (added for this guard), so this exercises the unchanged code path after
+    the new guard using the pre-existing ``_run_stub`` dict-dispatch mocks.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    listed = json.dumps([MATCHING_RUN])
+    fake_run = _run_stub(
+        {
+            "list": subprocess.CompletedProcess([], 0, stdout=listed, stderr=""),
+            "watch": subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        }
+    )
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
 
 
 def test_run_default_timeout_is_short() -> None:

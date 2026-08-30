@@ -1636,6 +1636,16 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 6: Wait for CI."""
     console.print("\n[bold]Phase 6: Wait for CI[/bold]")
 
+    if "release.yml" not in info.workflow_files:
+        if info.is_plugin and not info.is_hybrid:
+            _ok("No release.yml workflow — pure plugin, nothing to wait for")
+            return
+        _fail(
+            "Expected .github/workflows/release.yml for this project but none "
+            "was found — this is a misconfiguration, not a plugin-only skip "
+            f"(workflows present: {info.workflow_files or 'none'})"
+        )
+
     tag = f"v{version}"
 
     if dry_run:
