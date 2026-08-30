@@ -18,6 +18,12 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase10_propagate import (
+    InstallAllPropagator,
+    MarketplacePropagator,
+    Phase10Propagate,
+    WebsitePropagator,
+)
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import changelog as changelog_mod
 from punt_kit.phases.shared import project_info as project_info_mod
@@ -161,8 +167,15 @@ _ops = _ReleaseOpsAdapter()
 _skips = SkipRecorder(ops=_ops)
 
 
-def _get_install_sh_sha(root: Path) -> str:
-    """Get the short SHA of the commit that last modified install.sh."""
+def _get_install_sh_sha(  # pyright: ignore[reportUnusedFunction]
+    root: Path,
+) -> str:
+    """Get the short SHA of the commit that last modified install.sh.
+
+    No caller remains in this module — every former call site now
+    constructs ReleaseProject directly. Kept importable for public API
+    preservation.
+    """
     return ReleaseProject(ProjectInfo(root), ops=_ops).install_sh_sha()
 
 
@@ -1166,272 +1179,24 @@ def _sibling_pr_merge(
 
 
 def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10a. Update project's install.sh SHA in .github/install-all.sh.
-
-    Also updates the org profile README with the install-all.sh commit SHA
-    so that both changes land in a single .github PR.
-
-    When the ``.github`` sibling is absent (does not resolve as a git repo
-    root), propagation is skipped with a loud warning and a clean return
-    rather than a failure: this phase runs after the release has already
-    published, and the workspace meta-repo layout legitimately has no
-    resolvable ``.github`` sibling. A ``.github`` sibling that *is* present
-    but is missing ``install-all.sh`` remains a hard failure — that is a
-    genuine misconfiguration, not the expected meta-repo case.
-    """
-    if not (info.root / "install.sh").exists():
-        return
-
-    repo = _get_github_repo(info.root)
-    if repo is None:
-        return
-    project_name = repo.split("/")[-1]
-
-    sibling = _resolve_sibling(info.root, ".github")
-    if sibling is None:
-        # Phase 10a runs *after* the tag, PyPI publish, and GitHub release
-        # (phases 5-7) have irreversibly landed, so aborting here would report
-        # failure on an already-published release. The absent-sibling case is
-        # also legitimate: in the workspace meta-repo layout the ``.github``
-        # path is occupied by the meta-repo's own (non-git-root) folder and can
-        # never resolve as a propagation sibling — Phase 1d already tolerates
-        # this by skipping siblings that resolve to None. Mirror that here:
-        # skip loudly and tell the operator exactly what to do by hand. Recorded
-        # through the shared template so the end-of-run summary recaps it even if
-        # this line scrolls past among the concurrent Phase 10 output — and so it
-        # deduplicates against the identical Phase 11 verify-skip into one line.
-        _skips.record(_GITHUB_ABSENT_SKIP.format(name=project_name, ver=version))
-        return
-
-    install_all = sibling / "install-all.sh"
-    if not install_all.exists():
-        _fail("install-all.sh not found in .github — required for propagation")
-        return  # unreachable
-
-    tag = f"v{version}"
-    install_sha = _get_install_sh_sha(info.root)
-
-    content = install_all.read_text(encoding="utf-8")
-    esc = re.escape(project_name)
-    pattern = rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)"
-    new_content, count = re.subn(pattern, rf"\g<1>{install_sha}\2", content)
-
-    if count == 0:
-        _info(f"install-all.sh: no entry for {project_name} — skipping")
-        return
-
-    if dry_run:
-        if new_content != content:
-            _dry(
-                f"../.github/install-all.sh: {project_name} SHA → {install_sha} ({tag})"
-            )
-        _dry("../.github/profile/README.md: pin post-merge install-all.sh SHA")
-        return
-
-    _validate_sibling(sibling, ".github")
-
-    if new_content == content:
-        _ok(f"install-all.sh: {project_name} SHA already current")
-    else:
-        install_all.write_text(new_content, encoding="utf-8")
-        branch = f"propagate/v{version}-{project_name}-github"
-        if _sibling_pr_merge(
-            sibling,
-            branch,
-            ["install-all.sh"],
-            f"chore: update {project_name} install SHA to {tag}",
-            ".github",
-            dry_run=False,
-        ):
-            _ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
-
-    # The sibling is back on main with the merge pulled, so the profile can
-    # now pin the commit that actually contains the propagated content.
-    # Pinning before the merge would point one commit behind and serve the
-    # previous installer on every release.
-    _sync_profile_readme(sibling, version, project_name)
-
-
-def _sync_profile_readme(sibling: Path, version: str, project_name: str) -> None:
-    """Pin the org profile README to the install-all.sh commit on main.
-
-    Must run after the install-all.sh PR merges: the profile references
-    install-all.sh by commit SHA, and only the merged commit contains the
-    just-propagated content. Also repairs a stale pin left by an earlier
-    interrupted release even when install-all.sh itself needs no update.
-    """
-    readme = sibling / "profile" / "README.md"
-    if not readme.exists():
-        return
-
-    github_sha = _run(
-        ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
-        cwd=str(sibling),
-    ).stdout.strip()
-    if not github_sha:
-        _info(
-            "profile/README.md: no commits touch install-all.sh yet — "
-            "skipping SHA update"
-        )
-        return
-
-    readme_content = readme.read_text(encoding="utf-8")
-    new_readme, readme_count = re.subn(
-        r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
-        rf"\g<1>{github_sha}\2",
-        readme_content,
+    """10a. Update project's install.sh SHA in .github/install-all.sh."""
+    InstallAllPropagator(info, ops=_ops, skips=_skips).run(
+        version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
-    if readme_count == 0:
-        _info(
-            "profile/README.md: no install-all.sh SHA reference found — skipping update"
-        )
-        return
-    if new_readme == readme_content:
-        _ok(f"profile/README.md: install-all.sh SHA already current ({github_sha})")
-        return
-
-    readme.write_text(new_readme, encoding="utf-8")
-    branch = f"propagate/v{version}-{project_name}-github-profile"
-    if _sibling_pr_merge(
-        sibling,
-        branch,
-        ["profile/README.md"],
-        f"chore: pin profile install-all.sh SHA to {github_sha}",
-        ".github",
-        dry_run=False,
-    ):
-        _ok(f"profile/README.md: install-all.sh SHA → {github_sha}")
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """10b. Update version and ref in claude-plugins marketplace.json."""
-    if not info.is_plugin and not info.is_hybrid:
-        return
-
-    repo = _get_github_repo(info.root)
-    if repo is None:
-        return
-    project_name = repo.split("/")[-1]
-    tag = f"v{version}"
-
-    sibling = _resolve_sibling(info.root, "claude-plugins")
-    if sibling is None:
-        _fail("Sibling claude-plugins not found — required for marketplace propagation")
-        return
-
-    marketplace_path = sibling / ".claude-plugin" / "marketplace.json"
-    if not marketplace_path.exists():
-        _fail("marketplace.json not found in claude-plugins")
-        return
-
-    if dry_run:
-        _dry(
-            f"../claude-plugins/marketplace.json: "
-            f"{project_name} version={version}, ref={tag}"
-        )
-        return
-
-    _validate_sibling(sibling, "claude-plugins")
-
-    raw = json.loads(marketplace_path.read_text(encoding="utf-8"))
-    data = cast("dict[str, object]", raw)
-    plugins = cast("list[dict[str, object]]", data.get("plugins", []))
-
-    found = False
-    for plugin in plugins:
-        src = cast("dict[str, str]", plugin.get("source", {}))
-        repo_url = str(src.get("repo", ""))
-        if repo_url.endswith("/" + project_name) or plugin.get("name") == project_name:
-            plugin["version"] = version
-            if "source" not in plugin:
-                plugin["source"] = src
-            src["ref"] = tag
-            found = True
-            break
-
-    if not found:
-        _fail(
-            f"No marketplace entry for {project_name} in marketplace.json "
-            "— required for plugin/hybrid releases"
-        )
-
-    marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-    branch = f"propagate/v{version}-{project_name}-claude-plugins"
-    if _sibling_pr_merge(
-        sibling,
-        branch,
-        [".claude-plugin/marketplace.json"],
-        f"chore: bump {project_name} to {tag} in marketplace",
-        "claude-plugins",
-        dry_run=dry_run,
-    ):
-        _ok(f"marketplace: {project_name} version={version}, ref={tag}")
-    else:
-        _ok(f"marketplace: {project_name} already current")
+    MarketplacePropagator(info, ops=_ops).run(
+        version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
+    )
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """10d. Update version in public-website projects.json."""
-    repo = _get_github_repo(info.root)
-    if repo is None:
-        return
-    project_name = repo.split("/")[-1]
-
-    sibling = _resolve_sibling(info.root, "public-website")
-    if sibling is None:
-        _info("Sibling public-website not found — skipping website update")
-        return
-
-    projects_json = sibling / "src" / "data" / "projects.json"
-    if not projects_json.exists():
-        _info("projects.json not found in public-website — skipping")
-        return
-
-    if dry_run:
-        _dry(f"../public-website/projects.json: {project_name} version={version}")
-        return
-
-    _validate_sibling(sibling, "public-website")
-
-    data = json.loads(projects_json.read_text(encoding="utf-8"))
-
-    found = False
-    for project in data:
-        github_url = project.get("githubUrl") or ""
-        if project.get("id") == project_name or github_url.endswith("/" + project_name):
-            project["version"] = version
-            # Update installCommand SHA if present
-            install_cmd = project.get("installCommand") or ""
-            if install_cmd and f"/{project_name}/" in install_cmd:
-                install_sha = _get_install_sh_sha(info.root)
-                project["installCommand"] = re.sub(
-                    rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
-                    r"(/install\.sh)",
-                    rf"\g<1>{install_sha}\2",
-                    install_cmd,
-                )
-            found = True
-            break
-
-    if not found:
-        _info(f"No website entry for {project_name} — skipping")
-        return
-
-    projects_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-    branch = f"propagate/v{version}-{project_name}-public-website"
-    if _sibling_pr_merge(
-        sibling,
-        branch,
-        ["src/data/projects.json"],
-        f"chore: bump {project_name} to v{version}",
-        "public-website",
-        dry_run=dry_run,
-    ):
-        _ok(f"website: {project_name} version={version}")
-    else:
-        _ok(f"website: {project_name} already current")
+    WebsitePropagator(info, ops=_ops).run(
+        version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
+    )
 
 
 def _reset_sibling_owned_dirt(  # pyright: ignore[reportUnusedFunction]
@@ -1471,26 +1236,13 @@ def _collect_thread_results(
 
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 10: Local cross-repo propagation via PRs."""
-    console.print("\n[bold]Phase 10: Propagate[/bold]")
-
-    # Auto-recover siblings left on propagation branches from a prior interrupted run.
-    # No-op when all siblings are already on main.
-    if not dry_run:
-        _reset_propagation_siblings(info)
-
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = {
-            pool.submit(
-                _propagate_install_all, info, version, dry_run=dry_run
-            ): ".github",
-            pool.submit(
-                _propagate_marketplace, info, version, dry_run=dry_run
-            ): "claude-plugins",
-            pool.submit(
-                _propagate_website, info, version, dry_run=dry_run
-            ): "public-website",
-        }
-        _collect_thread_results(futures)
+    Phase10Propagate(info, version, dry_run=dry_run, ops=_ops).run(
+        reset_propagation_siblings=_reset_propagation_siblings,
+        propagate_install_all=_propagate_install_all,
+        propagate_marketplace=_propagate_marketplace,
+        propagate_website=_propagate_website,
+        interrupted=_interrupted,
+    )
 
 
 # ---------------------------------------------------------------------------
