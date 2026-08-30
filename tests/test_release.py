@@ -41,6 +41,7 @@ from punt_kit.release import (
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
+    _rewrite_template_pins,  # pyright: ignore[reportPrivateUsage]
     _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
@@ -443,6 +444,209 @@ def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
         check=True,
     ).stdout
     assert status.startswith("??")
+
+
+# --- phase 2 template pin rewrite (pkit-3zu8) ---
+
+# The pin regex only captures ``punt-*`` names (PL-PL-2: every PyPI package in
+# the fleet is punt-prefixed) — the shared fixture's "test-pkg" name predates
+# that convention, so these tests rename it before writing any pins.
+_OWN_PKG = "punt-test-pkg"
+
+
+def _use_punt_prefixed_name(root: Path) -> None:
+    """Rename the fixture project's pyproject.toml package to ``_OWN_PKG``."""
+    pyproject_path = root / "pyproject.toml"
+    content = pyproject_path.read_text()
+    new_content = content.replace('name = "test-pkg"', f'name = "{_OWN_PKG}"', 1)
+    pyproject_path.write_text(new_content)
+
+
+def _write_template_pin(root: Path, rel_path: str, lines: str) -> Path:
+    """Write a bundled-template YAML fixture at ``rel_path`` under ``root``."""
+    path = root / rel_path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(lines)
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", f"add {rel_path}"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+    return path
+
+
+def test_template_pin_rewritten(tmp_path: Path) -> None:
+    """A self-referential 'uvx --from <own-pkg>==X.Y.Z' pin is bumped."""
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    template = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    assert f"uvx --from {_OWN_PKG}==0.2.0" in template.read_text()
+
+    # Same commit as the rest of the version bump.
+    committed = _commit_files(root)
+    assert "src/test_pkg/data/notify.yml" in committed
+    assert "pyproject.toml" in committed
+
+
+def test_template_pin_idempotent(tmp_path: Path) -> None:
+    """Re-running the bump with the same version is a no-op."""
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    template = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+    after_first = template.read_text()
+
+    changed = _rewrite_template_pins(info, "0.2.0", dry_run=False)
+
+    assert changed == []
+    assert template.read_text() == after_first
+
+
+def test_template_pin_dry_run_no_changes(tmp_path: Path) -> None:
+    """Dry run reports the rewrite but does not modify the file."""
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    template = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    changed = _rewrite_template_pins(info, "0.2.0", dry_run=True)
+
+    assert changed == [template]
+    assert f"uvx --from {_OWN_PKG}==0.1.0" in template.read_text()
+
+
+def test_template_pin_unrelated_package_untouched(tmp_path: Path) -> None:
+    """Pins for other punt-* packages are never rewritten — supply-chain guarantee."""
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    template = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n"
+        f"  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n"
+        "  - run: uvx --from punt-other==9.9.9 other --do-thing\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    content = template.read_text()
+    assert f"uvx --from {_OWN_PKG}==0.2.0" in content
+    assert "uvx --from punt-other==9.9.9" in content
+
+
+def test_template_pin_multiple_files_rewritten(tmp_path: Path) -> None:
+    """Every matching template file is rewritten in one pass."""
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    first = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
+    )
+    second = _write_template_pin(
+        root,
+        "plugin/workflows/deploy.yaml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --deploy\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    assert f"uvx --from {_OWN_PKG}==0.2.0" in first.read_text()
+    assert f"uvx --from {_OWN_PKG}==0.2.0" in second.read_text()
+
+
+def test_template_pin_normalizes_separator_and_case(tmp_path: Path) -> None:
+    """A pin spelled with underscores/case still matches the hyphenated name.
+
+    PyPI treats ``-``, ``_``, and ``.`` as equivalent separators and names as
+    case-insensitive (PEP 503) — a template pin written as ``punt_test_pkg``
+    must still be recognized as the same package as ``punt-test-pkg``.
+    """
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    underscored = _OWN_PKG.replace("-", "_")
+    template = _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {underscored}==0.1.0 test-cli --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    assert f"uvx --from {_OWN_PKG}==0.2.0" in template.read_text()
+
+
+def test_template_pin_plugin_only_strips_dev_suffix(tmp_path: Path) -> None:
+    """The plugin-only fallback name still matches once the dev suffix is gone.
+
+    Phase 2 runs before phase 4's dev-to-prod plugin swap, so a plugin-only
+    project's manifest ``name`` on disk at phase 2 time is still the dev
+    shell (e.g. ``punt-widget-dev``), not the production name a bundled
+    template pins against (``punt-widget``). Without stripping the ``-dev``
+    suffix, the equality check would never match and the pin would stay
+    stale forever.
+    """
+    root = _make_language_none_plugin_project(tmp_path)
+    (root / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "punt-widget-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    template = _write_template_pin(
+        root,
+        "plugin/workflows/notify.yml",
+        "steps:\n  - run: uvx --from punt-widget==0.1.0 widget --user wall\n",
+    )
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    assert "uvx --from punt-widget==0.2.0" in template.read_text()
+
+
+def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
+    """No src/**/data or plugin/**/*.yml files present is not an error."""
+    root = _make_release_project(tmp_path)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    changed = _rewrite_template_pins(info, "0.2.0", dry_run=False)
+
+    assert changed == []
 
 
 def test_phase9_post_release_no_longer_bumps_readme(

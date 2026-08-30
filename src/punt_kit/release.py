@@ -283,6 +283,30 @@ def _get_package_name(info: ProjectInfo) -> str:
     return name
 
 
+def _self_package_name(info: ProjectInfo) -> str | None:
+    """Return the project's own PyPI package name for self-referential pins.
+
+    Prefers ``pyproject.toml [project] name``. Falls back to the ``name``
+    field in the plugin manifest for plugin-only projects that have no
+    ``pyproject.toml`` at all — stripped of a trailing ``-dev``, since phase 2
+    runs before the phase 4 plugin swap and the manifest on disk still names
+    the dev shell (e.g. ``punt-dev``), not the production package a bundled
+    template pins against (see ``head_name.endswith("-dev")`` in
+    ``_phase4_release_pr`` for the same convention). ``None`` for non-Python,
+    non-plugin projects (e.g. Go CLIs) — there is no self-referential package
+    name to match template pins against, and that absence is expected, not an
+    error.
+    """
+    if info.pyproject is not None:
+        return _get_package_name(info)
+    if info.is_plugin:
+        data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+        name = data.get("name")
+        if isinstance(name, str):
+            return name.removesuffix("-dev")
+    return None
+
+
 def _find_package_dir(info: ProjectInfo) -> Path | None:
     """Find the Python package directory (src layout)."""
     src_dir = info.root / "src"
@@ -1104,6 +1128,78 @@ def _pr_merge(
     return sha
 
 
+# Bundled template files (CI workflow YAMLs deployed by a project's own
+# `enable`/`init` commands) sometimes hardcode a pinned `uvx --from` invocation
+# of the project's own CLI for supply-chain reasons — running unpinned/latest
+# in a customer's CI is rejected. That pin lives outside pyproject.toml and
+# plugin.json, so without this scan a fix landing in a template after a
+# version already tagged stays stale in every future deployment of that
+# template until the NEXT release re-pins it.
+_TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
+    "src/**/data/*.yml",
+    "src/**/data/*.yaml",
+    "plugin/**/*.yml",
+    "plugin/**/*.yaml",
+)
+
+
+def _normalize_package_name(name: str) -> str:
+    """PEP 503 normalization key: case- and separator-insensitive.
+
+    PyPI treats ``-``, ``_``, and ``.`` as equivalent separators and names as
+    case-insensitive, so ``punt_biff`` and ``Punt-Biff`` both name the same
+    package as ``punt-biff``. Comparing raw strings would leave a pin stale
+    whenever a template spells the name with a different separator or case
+    than ``pyproject.toml``.
+    """
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _rewrite_template_pins(
+    info: ProjectInfo, version: str, *, dry_run: bool
+) -> list[Path]:
+    """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins.
+
+    Scans ``_TEMPLATE_PIN_GLOBS`` under ``info.root``. Only pins matching the
+    project's own package name are rewritten — pins for other ``punt-*``
+    packages are a deliberate supply-chain guarantee, not a stylistic
+    preference, and are left untouched.
+    """
+    own_pkg = _self_package_name(info)
+    if own_pkg is None:
+        return []
+    own_key = _normalize_package_name(own_pkg)
+    pin_re = re.compile(
+        r"uvx --from (?P<pkg>[Pp]unt[-_.][A-Za-z0-9._-]+)"
+        r"==(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"
+    )
+
+    def _replace(match: re.Match[str]) -> str:
+        if _normalize_package_name(match.group("pkg")) != own_key:
+            return match.group(0)
+        return f"uvx --from {own_pkg}=={version}"
+
+    changed: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in _TEMPLATE_PIN_GLOBS:
+        for path in sorted(info.root.glob(pattern)):
+            if path in seen or not path.is_file():
+                continue
+            seen.add(path)
+            content = path.read_text(encoding="utf-8")
+            new_content = pin_re.sub(_replace, content)
+            if new_content == content:
+                continue
+            rel = path.relative_to(info.root)
+            if dry_run:
+                _dry(f"{rel}: uvx --from {own_pkg}=={version}")
+            else:
+                path.write_text(new_content, encoding="utf-8")
+                _ok(f"{rel}: uvx --from {own_pkg}=={version}")
+            changed.append(path)
+    return changed
+
+
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 2: Bump version on release branch."""
     console.print(f"\n[bold]Phase 2: Version bump → {version}[/bold]")
@@ -1220,7 +1316,10 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             changelog_path.write_text(new_content, encoding="utf-8")
             _ok(f"CHANGELOG.md: [{version}] - {today}")
 
-    # 2d. Refresh lock file and commit
+    # 2d. Rewrite self-referential template pins
+    template_pins = _rewrite_template_pins(info, version, dry_run=dry_run)
+
+    # 2e. Refresh lock file and commit
     if dry_run:
         _dry("uv lock (refresh lock file)")
         _dry(f'git commit -m "chore: release v{version}"')
@@ -1241,6 +1340,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
             release_files.append(plugin_json)
         if pkg_dir is not None:
             release_files.append(pkg_dir / "__init__.py")
+        release_files.extend(template_pins)
         to_stage = [str(p.relative_to(root)) for p in release_files if p.exists()]
         _run(["git", "add", "--", *to_stage], cwd=str(root))
         staged = _run(
@@ -1317,8 +1417,8 @@ def _head_plugin_state(info: ProjectInfo) -> dict[str, object]:
     plugin.json and then hit a failing pre-commit hook leaves the tree
     already showing the target name with nothing committed; trusting
     disk would report the phase complete and skip past the missing
-    commit (Bugbot on pkit-sliw follow-up). ``git show HEAD:<path>``
-    always describes HEAD alone, regardless of the index state.
+    commit. ``git show HEAD:<path>`` always describes HEAD alone,
+    regardless of the index state.
     """
     result = _run(
         ["git", "show", f"HEAD:{_plugin_json_rel(info)}"],
@@ -1360,13 +1460,13 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already
     # committed at HEAD). The old shape read plugin.json from the
     # working tree, which is only correct while --no-verify guarantees
-    # the commit cannot fail. With hooks live (pkit-sliw), a failed
-    # commit leaves plugin.json prod-shaped on disk without a
-    # corresponding commit; a working-tree read then reports the swap
-    # done and _pr_merge pushes a release branch whose HEAD still
-    # carries the -dev name — the release tag lands on it, silently.
-    # Consult HEAD, and reset the swap paths so the script's fresh-run
-    # precondition (dev name on disk) holds even on retry.
+    # the commit cannot fail. With hooks live, a failed commit leaves
+    # plugin.json prod-shaped on disk without a corresponding commit;
+    # a working-tree read then reports the swap done and _pr_merge
+    # pushes a release branch whose HEAD still carries the -dev name —
+    # the release tag lands on it, silently. Consult HEAD, and reset
+    # the swap paths so the script's fresh-run precondition (dev name
+    # on disk) holds even on retry.
     if info.is_hybrid or info.is_plugin:
         release_script = root / "scripts" / "release-plugin.sh"
         if dry_run:
