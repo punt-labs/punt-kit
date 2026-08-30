@@ -19,6 +19,7 @@ from urllib.parse import urlparse
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.reporter import reporter
 
@@ -65,42 +66,20 @@ _PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
 }
 
 # ---------------------------------------------------------------------------
-# Timeout budgets
-# ---------------------------------------------------------------------------
-# The _run default is short by design. Metadata calls — git rev-parse, gh api
-# graphql, gh pr view, git status — return promptly or not at all, so a call
-# that outlives this budget has hung, and the release surfaces that as a
-# diagnosis instead of a two-hour stall. Long-running call sites opt in
-# explicitly to one of the named budgets below.
-_DEFAULT_RUN_TIMEOUT = 60
-
-# uv resolves dependencies, downloads wheels, and may build native bindings.
-# A first-run resolve on a cold cache takes minutes; anything past ten is a
-# wedge, not a slow install.
-_UV_TIMEOUT = 600
-
-# git fetch/push/pull over the network. Usually finishes in a second; the
-# budget is wide enough to swallow a transient hiccup but narrower than a
-# wedge on a broken socket.
-_GIT_NETWORK_TIMEOUT = 300
-
-# git commands that fire a repo hook — checkout, commit, merge, push, pull.
-# Every punt-labs repo installs beads client hooks (post-checkout,
-# pre-commit, post-commit, post-merge, pre-push) that run
-# `bd hooks run <event>` against a networked Dolt server with its own
-# BEADS_HOOK_TIMEOUT default of 300s. Under phase 9 + phase 10 concurrency,
-# several hooks hit Dolt at once and the tail latency runs up against that
-# ceiling. The budget here must live above the hook's own tolerance — not
-# equal to it — because git does its own I/O around the hook (write index,
-# resolve refs, network for push/pull). Raising the shared metadata
-# default is the wrong lever: 60s is what turns a two-hour hang into a
-# one-minute diagnosis for genuine metadata calls, and must stay that way.
-_GIT_HOOK_TIMEOUT = 600
-
-# Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The
-# full test suite on a cold cache can take a few minutes; a release aborts if
-# it cannot complete inside the budget.
-_QUALITY_GATE_TIMEOUT = 1800
+# Timeout budgets — see phases/shared/timeouts.py for the source of truth and
+# the rationale behind each budget. Aliased here (not just imported) because
+# _CI_RUN_POLL_ATTEMPTS/_CI_RUN_POLL_INTERVAL are monkeypatched directly on
+# this module by tests/test_release.py; every other name is a plain re-export.
+_DEFAULT_RUN_TIMEOUT = timeouts.DEFAULT_RUN
+_UV_TIMEOUT = timeouts.UV
+_GIT_NETWORK_TIMEOUT = timeouts.GIT_NETWORK
+_GIT_HOOK_TIMEOUT = timeouts.GIT_HOOK
+_QUALITY_GATE_TIMEOUT = timeouts.QUALITY_GATE
+_CI_RUN_POLL_INTERVAL = timeouts.CI_RUN_POLL_INTERVAL
+_CI_RUN_POLL_ATTEMPTS = timeouts.CI_RUN_POLL_ATTEMPTS
+_CI_ADVERSE_CONCLUSIONS = timeouts.CI_ADVERSE_CONCLUSIONS
+_CI_WATCH_TIMEOUT = timeouts.CI_WATCH
+_CI_RUN_LIST_TIMEOUT = timeouts.CI_RUN_LIST
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1715,13 +1694,6 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     _ok("README SHA pin PR merged")
 
 
-# GitHub does not register a tag-triggered run instantly, so phase 6 polls
-# rather than sleeping a fixed interval: a slow registration extends the wait
-# instead of selecting whatever run happens to be newest at the moment we look.
-_CI_RUN_POLL_INTERVAL = 5.0
-_CI_RUN_POLL_ATTEMPTS = 24
-
-
 @final
 class _TagRunSelector:
     """Picks the workflow run that one specific tag push triggered.
@@ -1845,20 +1817,6 @@ class _TagRunSelector:
             f"after {waited:g}s — the tag push may not have triggered CI"
         )
         raise ReleaseError(msg)
-
-
-# Conclusions that are a genuine verdict from CI, as opposed to gh being
-# unable to tell us one. Anything outside this set means the watch exited
-# non-zero for a reason of its own — a deleted run, an expired token, a
-# dropped connection — and phase 6 has no verdict to report.
-_CI_ADVERSE_CONCLUSIONS = frozenset(
-    {"failure", "cancelled", "timed_out", "startup_failure", "action_required"}
-)
-_CI_WATCH_TIMEOUT = 7200
-# Listing runs is a fast metadata call, so it does not inherit the watch's
-# two-hour budget — a listing that blocks that long has failed, and waiting
-# on it burns the poll window that exists to find the run.
-_CI_RUN_LIST_TIMEOUT = 60
 
 
 def _watch_failure_message(gh: str, root: Path, run_id: int, returncode: int) -> str:
