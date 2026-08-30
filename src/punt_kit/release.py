@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, NoReturn, cast, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
 from punt_kit.phases.phase05_tag import Phase5Tag
 from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
@@ -46,7 +47,6 @@ from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.pipeline import ReleasePipeline, ThreadedStep
-from punt_kit.phases.shared.plugin_swap import PluginSwap
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
@@ -672,58 +672,9 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 4: Plugin swap, push branch, create PR, merge."""
-    console.print(f"\n[bold]Phase 4: Release PR v{version}[/bold]")
-
-    root = info.root
-    branch = f"release/v{version}"
-
-    # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already
-    # committed at HEAD). The old shape read plugin.json from the
-    # working tree, which is only correct while --no-verify guarantees
-    # the commit cannot fail. With hooks live, a failed commit leaves
-    # plugin.json prod-shaped on disk without a corresponding commit;
-    # a working-tree read then reports the swap done and _pr_merge
-    # pushes a release branch whose HEAD still carries the -dev name —
-    # the release tag lands on it, silently. Consult HEAD, and reset
-    # the swap paths so the script's fresh-run precondition (dev name
-    # on disk) holds even on retry.
-    if info.is_hybrid or info.is_plugin:
-        release_script = root / "scripts" / "release-plugin.sh"
-        if dry_run:
-            _dry("bash scripts/release-plugin.sh")
-        else:
-            plugin_swap = PluginSwap(info, ops=_ops)
-            head_data = plugin_swap.head_state()
-            head_name = str(head_data.get("name", ""))
-            if head_name.endswith("-dev"):
-                plugin_swap.reset_to_head()
-                _run(
-                    ["bash", str(release_script)],
-                    cwd=str(root),
-                    capture=False,
-                    # The script commits, and that commit now runs the repo
-                    # hooks — the bd pre-commit hook alone allows itself 300s
-                    # against a networked Dolt server. Budgeting the script at
-                    # the 60s metadata default would abort a release for hook
-                    # latency that is not a fault.
-                    timeout=_GIT_HOOK_TIMEOUT,
-                )
-                _ok("Plugin swapped to prod")
-            else:
-                _ok("Plugin already swapped at HEAD (resume)")
-
-    # 4b. Push branch, create PR, wait for CI, squash-merge
-    _pr_merge(
-        cwd=root,
-        branch=branch,
-        title=f"chore: release v{version}",
-        dry_run=dry_run,
+    Phase4ReleasePr(info, version, dry_run=dry_run, ops=_ops).run(
+        merge=_pr_merge, land_readme_sha_pin=_land_readme_sha_pin
     )
-
-    # 4c. Pin README's install-URL SHA now that the squash-merge has landed
-    # on main — see _land_readme_sha_pin for why this must happen here and
-    # not during phase 2's version bump on the (about to be deleted) branch.
-    _land_readme_sha_pin(info, version, dry_run=dry_run)
 
 
 def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
