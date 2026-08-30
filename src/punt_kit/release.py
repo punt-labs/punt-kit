@@ -1530,7 +1530,10 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if dry_run:
         _dry("_bump_readme_install_sha(...)")
         _dry(f'git commit -m "chore: update README install SHA to v{version}"')
-        _dry(f"_pr_merge(branch={branch})")
+        _dry(
+            f"_pr_merge(branch={branch}, "
+            f'title="chore: update README install SHA v{version}")'
+        )
         return
 
     current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
