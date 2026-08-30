@@ -816,9 +816,14 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
             no_checks_attempts += 1
             if no_checks_attempts > 24:  # 2 minutes at 5s intervals
                 found_label = "required checks" if branch_protected else "CI checks"
+                hint = (
+                    "check branch protection configuration"
+                    if branch_protected
+                    else "check that CI is configured and running for this PR"
+                )
                 _fail(
                     f"No {found_label} found on PR #{pr_number} after 2 minutes — "
-                    "check branch protection configuration"
+                    f"{hint}"
                 )
             time.sleep(5)
             continue
@@ -859,7 +864,8 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
         _info(f"Waiting for: {names}")
         time.sleep(15)
 
-    _fail(f"Timed out waiting for required CI checks on PR #{pr_number}")
+    label = "required" if branch_protected else "all"
+    _fail(f"Timed out waiting for {label} CI checks on PR #{pr_number}")
 
 
 def _select_existing_pr(
@@ -1512,6 +1518,15 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     root = info.root
     branch = f"release-readme-pin/v{version}"
 
+    # No README or no install.sh means there is nothing to pin — the sub-
+    # sequent _bump_readme_install_sha would be a no-op. Skip the whole
+    # branch/checkout/PR dance rather than churn git and print a
+    # misleading "README already pins..." line for a repo where pinning
+    # is not even possible.
+    if not (root / "README.md").exists() or not (root / "install.sh").exists():
+        _ok("No README.md or install.sh — nothing to pin")
+        return
+
     if dry_run:
         _dry("_bump_readme_install_sha(...)")
         _dry(f'git commit -m "chore: update README install SHA to v{version}"')
@@ -2019,8 +2034,8 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if dry_run:
         if info.is_hybrid or info.is_plugin:
             _dry("bash scripts/restore-dev-plugin.sh")
-        _dry(f'git commit -m "chore: post-release v{version}"')
-        _dry(f"_pr_merge(branch={branch})")
+        _dry('git commit -m "chore: restore dev plugin state [skip ci]"')
+        _dry(f'_pr_merge(branch={branch}, title="chore: post-release v{version}")')
         return
 
     # Create post-release branch
