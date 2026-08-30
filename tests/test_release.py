@@ -4374,8 +4374,7 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     stage but not commit; this phase re-stamps and commits once with
     hooks running. The observable evidence of the new shape is: HEAD is
     a single new commit (not an amend of one, not a commit-plus-amend
-    pair), it carries both the name flip and the correct version, and
-    its message keeps the [skip ci] marker.
+    pair), and it carries both the name flip and the correct version.
     """
     from punt_kit import release as release_mod
     from punt_kit.release import (
@@ -4483,7 +4482,7 @@ def test_phase9_dev_restore_single_commit_with_restamp(
         .splitlines()
     )
     assert log == [
-        "chore: restore dev plugin state [skip ci]",
+        "chore: restore dev plugin state",
     ], log
 
     # The restore commit — HEAD — must contain both the plugin.json
@@ -4496,6 +4495,35 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     restored = json.loads(plugin_json.read_text())
     assert restored["name"] == "test-dev"
     assert restored["version"] == "0.2.0"
+
+
+def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
+    """The dev-restore commit message must not carry [skip ci].
+
+    GitHub Actions honors [skip ci] on ``pull_request`` triggers, so a
+    marked commit skips the branch-protected lint/test/docs workflows —
+    and the PR becomes unmergeable because the required checks never
+    ran. Guard against reintroduction by scanning the phase 9 module.
+    See pkit-x5j8.
+    """
+    phase9 = (
+        _Path(__file__).parent.parent
+        / "src"
+        / "punt_kit"
+        / "phases"
+        / "phase09_post_release.py"
+    )
+    text = phase9.read_text(encoding="utf-8")
+    # Strip full-line comments so the explanatory comment about the
+    # marker does not trigger the scan.
+    code_lines = [
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    ]
+    code = "\n".join(code_lines)
+    assert "[skip ci]" not in code, (
+        "phase 9 post-release commit message must not carry [skip ci] — "
+        "branch protection requires lint/test/docs to run on the PR."
+    )
 
 
 @pytest.mark.parametrize("subdir", [False, True])
@@ -4763,7 +4791,7 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     # that moved to phase 4 (fwql). The restore commit must land
     # cleanly regardless of the prior mid-hook stage.
     assert log == [
-        "chore: restore dev plugin state [skip ci]",
+        "chore: restore dev plugin state",
     ], log
 
     # The restore commit — HEAD — must carry plugin.json. A skipped
