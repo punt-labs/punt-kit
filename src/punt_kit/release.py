@@ -20,6 +20,7 @@ from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
+from punt_kit.phases.shared.reporter import reporter
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -130,33 +131,14 @@ def _run(
     )
 
 
-def _fail(msg: str) -> NoReturn:
-    """Print error and exit."""
-    console.print(f"[red]Error:[/red] {msg}")
-    raise ReleaseError(msg)
-
-
-def _ok(msg: str) -> None:
-    console.print(f"  [green]✓[/green] {msg}")
-
-
-def _info(msg: str) -> None:
-    console.print(f"  [dim]▶[/dim] {msg}")
-
-
-def _dry(msg: str) -> None:
-    console.print(f"  [yellow]DRY[/yellow] {msg}")
-
-
-def _warn(msg: str) -> None:
-    """Emit a loud, unmistakable warning without aborting the release.
-
-    For conditions the operator must see and act on but that are not
-    failures — e.g. a post-publish propagation step skipped because a
-    sibling is absent. Louder than ``_info`` (which is dimmed and easily
-    swallowed) so the skip does not read as routine progress.
-    """
-    console.print(f"  [yellow]⚠ WARNING:[/yellow] {msg}")
+# Static aliases — release.py's own module-level names for Reporter's bound
+# methods. No test monkeypatches these names, so a plain assignment is safe:
+# nothing downstream expects to observe a later reassignment of the target.
+_fail = reporter.fail
+_ok = reporter.ok
+_info = reporter.info
+_dry = reporter.dry
+_warn = reporter.warn
 
 
 @final
