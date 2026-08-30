@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import threading
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,9 +26,11 @@ from punt_kit.release import (
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
     _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
+    _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
+    _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _phase11_verify,  # pyright: ignore[reportPrivateUsage]
     _phase_name,  # pyright: ignore[reportPrivateUsage]
@@ -131,6 +133,14 @@ def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
         "git commit --allow-empty"
         ' -m "chore: restore dev plugin state"\n'
     )
+
+    # Placeholder so info.workflow_files includes "release.yml" — Phase 6
+    # (_phase6_ci_wait) fails fast when it's absent for a hybrid/non-plugin
+    # project (see f85t.2). Content is irrelevant; only the filename matters
+    # to detect().
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
 
     (root / "install.sh").write_text(
         '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
@@ -435,14 +445,65 @@ def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
     assert status.startswith("??")
 
 
-def test_phase9_commit_excludes_untracked(
+def test_phase9_post_release_no_longer_bumps_readme(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The post-release README commit stages only README.md."""
+    """Phase 9 no longer touches README — that job moved to phase 4 (fwql).
+
+    Regression guard: phase 4 now guarantees the README is already current
+    by the time phase 9 runs, so phase 9's job shrinks to dev-restore only.
+    """
     from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # A stale SHA that _bump_readme_install_sha would have rewritten under
+    # the old phase-9 behavior this fix removes.
+    stale_readme = (
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/deadbeef/install.sh | sh\n"
+        "```\n"
     )
+    (root / "README.md").write_text(stale_readme)
+    # Plugin already at "just-released" HEAD state: dev name, released
+    # version. Phase 9's restore_done precondition requires both — see
+    # release.py:_phase9_post_release.
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-dev", "version": "0.2.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "stale readme, dev/released HEAD"], cwd=d)
+
+    def _unreachable(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("phase 9 must not call _bump_readme_install_sha")
+
+    monkeypatch.setattr(release_mod, "_bump_readme_install_sha", _unreachable)
+
+    def fake_pr_merge(**_kwargs: object) -> str:
+        raise AssertionError("phase 9 has nothing to land — _pr_merge must not run")
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    assert (root / "README.md").read_text() == stale_readme
+
+
+def test_land_readme_sha_pin_commit_excludes_untracked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The README-SHA-pin commit stages only README.md, not stray files.
+
+    Ports the untracked-file-exclusion invariant that used to guard phase 9's
+    README commit (removed by fwql) to its new home.
+    """
+    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -454,20 +515,12 @@ def test_phase9_commit_excludes_untracked(
         "punt-labs/proj/abc1234/install.sh | sh\n"
         "```\n"
     )
-    # Plugin already in dev state ("test-dev") so the dev restore is skipped
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "matching readme"], cwd=d)
 
     (root / "stray-transcript.jsonl").write_text("{}\n")
 
-    def fake_pr_merge(
-        *,
-        cwd: Path,
-        branch: str,
-        title: str,
-        body: str = "",
-        dry_run: bool = False,
-    ) -> str:
+    def fake_pr_merge(**_kwargs: object) -> str:
         return "abc1234"
 
     monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
@@ -475,7 +528,9 @@ def test_phase9_commit_excludes_untracked(
     from punt_kit.detect import detect
 
     info = detect(root)
-    _phase9_post_release(info, "0.2.0", dry_run=False)
+    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
 
     committed = _commit_files(root)
     assert committed == ["README.md"]
@@ -679,6 +734,106 @@ def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
     assert _get_latest_tag_version(root) == "0.0.0"
 
 
+# --- _get_project_version ---
+
+
+def test_get_project_version_plugin_only_reads_plugin_json(tmp_path: Path) -> None:
+    """A marketplace-only plugin (no pyproject.toml) reads plugin.json's version."""
+    root = _make_language_none_plugin_project(tmp_path)
+    info = detect(root)
+    assert _get_project_version(info) == "0.1.0"
+
+
+def test_get_project_version_plugin_only_missing_version_fails(tmp_path: Path) -> None:
+    """A plugin.json with no version key still fails loudly, not silently."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(json.dumps({"name": "test-dev"}) + "\n")
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+
+    info = detect(root)
+    with pytest.raises(ReleaseError, match="No version in"):
+        _get_project_version(info)
+
+
+def test_get_project_version_python_unaffected(tmp_path: Path) -> None:
+    """The pyproject.toml path is unchanged by the new plugin-only branch."""
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    assert _get_project_version(info) == "0.1.0"
+
+
+def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
+    """The Go tag path is unchanged by the new plugin-only branch."""
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+    _git(["tag", "v1.2.3"], cwd=str(root))
+
+    info = ProjectInfo(root=root, language="go")
+    assert _get_project_version(info) == "1.2.3"
+
+
+def test_run_release_resume_plugin_only_no_version_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resuming a plugin-only release without --version must not hard-fail.
+
+    Regresses the bug this bead reports verbatim: "Error: No pyproject.toml
+    found" when resuming a marketplace-only plugin release past phase 1.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_language_none_plugin_project(tmp_path)
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase3_build", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root), resume_from="build")
+
+
+def test_run_release_fresh_plugin_only_no_version_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh (non-resume) plugin-only release without --version auto-detects.
+
+    Regresses the fresh-path asymmetry: before this fix, a plugin-only
+    project failed here even though the resume path (once fixed) could
+    already resolve the same version from plugin.json.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_language_none_plugin_project(tmp_path)
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase2_version_bump", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root))
+
+
 def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     """Dry run for a Go project completes without errors."""
     root = tmp_path / "go-proj"
@@ -690,6 +845,9 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     (root / "CHANGELOG.md").write_text(
         "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- New feature\n"
     )
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
 
     d = str(root)
     _git(["add", "."], cwd=d)
@@ -1475,12 +1633,73 @@ def _make_pure_plugin_project(tmp_path: Path) -> Path:
     return root
 
 
+def _make_language_none_plugin_project(tmp_path: Path) -> Path:
+    """Create a marketplace-only plugin with no pyproject.toml at all.
+
+    Unlike ``_make_pure_plugin_project`` (which still writes a
+    ``pyproject.toml`` without ``[project.scripts]``, so ``info.language ==
+    "python"`` and ``info.pyproject is not None``), this fixture leaves
+    ``language`` and ``pyproject`` both unset — the precondition f85t.1's
+    plugin-only branch of ``_get_project_version`` actually guards on.
+    """
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    plugin_dir = root / ".claude-plugin"
+    plugin_dir.mkdir()
+    (plugin_dir / "plugin.json").write_text(
+        json.dumps({"name": "test-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+
+    scripts_dir = root / "scripts"
+    scripts_dir.mkdir()
+    (scripts_dir / "release-plugin.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'git commit --allow-empty -m "chore: prepare plugin for release"\n'
+    )
+    (scripts_dir / "restore-dev-plugin.sh").write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        'git commit --allow-empty -m "chore: restore dev plugin state"\n'
+    )
+
+    # No pyproject.toml, no package.json, no go.mod — detect() leaves
+    # language=None. No install.sh — marketplace-only, same as
+    # _make_pure_plugin_project.
+
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n"
+        "## [Unreleased]\n\n"
+        "### Added\n\n"
+        "- New feature\n\n"
+        "## [0.1.0] - 2026-01-01\n\n"
+        "### Added\n\n"
+        "- Initial release\n"
+    )
+
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    return root
+
+
 def test_pure_plugin_detected_correctly(tmp_path: Path) -> None:
     """Pure plugin has is_plugin=True but is_hybrid=False."""
     root = _make_pure_plugin_project(tmp_path)
     info = detect(root)
     assert info.is_plugin is True
     assert info.is_hybrid is False
+
+
+def test_language_none_plugin_project_detected_correctly(tmp_path: Path) -> None:
+    """Marketplace-only plugin has no pyproject.toml and no detected language."""
+    root = _make_language_none_plugin_project(tmp_path)
+    info = detect(root)
+    assert info.is_plugin is True
+    assert info.language is None
+    assert info.pyproject is None
 
 
 def test_preflight_checks_scripts_for_pure_plugin(tmp_path: Path) -> None:
@@ -1593,6 +1812,58 @@ def _graphql_checks_response(
     }
 
 
+def _graphql_no_required_checks_response() -> dict[str, object]:
+    """A GraphQL response whose contexts list is empty.
+
+    Distinct from ``_graphql_checks_response([])`` only in intent — used by
+    the "no branch protection" tests where the empty context list represents
+    the repo genuinely having no checks configured yet, not a malformed poll.
+    """
+    return _graphql_checks_response([])
+
+
+def _protection_response(*, protected: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../branches/main/protection`` call."""
+    result = MagicMock()
+    if protected:
+        result.returncode = 0
+        result.stdout = json.dumps({"required_status_checks": {"contexts": []}})
+        result.stderr = ""
+    else:
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: Branch not protected (HTTP 404)"
+    return result
+
+
+def test_graphql_no_required_checks_response_shape() -> None:
+    """The empty-contexts fixture nests under the same path as a real poll."""
+    response = _graphql_no_required_checks_response()
+    data = cast("dict[str, object]", response["data"])
+    repository = cast("dict[str, object]", data["repository"])
+    pull_request = cast("dict[str, object]", repository["pullRequest"])
+    commits = cast("dict[str, object]", pull_request["commits"])
+    nodes = cast("list[dict[str, object]]", commits["nodes"])
+    commit = cast("dict[str, object]", nodes[0]["commit"])
+    rollup = cast("dict[str, object]", commit["statusCheckRollup"])
+    contexts = cast("dict[str, object]", rollup["contexts"])
+    assert contexts["nodes"] == []
+
+
+def test_protection_response_protected_true() -> None:
+    """A protected-repo response reports success with no stderr."""
+    result = _protection_response(protected=True)
+    assert result.returncode == 0
+    assert result.stderr == ""
+
+
+def test_protection_response_protected_false() -> None:
+    """An unprotected-repo response reports the 404 gh emits."""
+    result = _protection_response(protected=False)
+    assert result.returncode == 1
+    assert "404" in result.stderr
+
+
 def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -1628,7 +1899,10 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
-    assert call_count == 1
+    # 2, not 1 — the pre-loop branch-protection check (f85t.4) is call 1;
+    # this fake returns returncode=0 for every cmd, so it reads as
+    # protected=True and the graphql poll below is call 2.
+    assert call_count == 2
 
 
 def test_wait_for_required_checks_fails_on_required_failure(
@@ -1815,6 +2089,201 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(ReleaseError, match="5 consecutive times"):
         _wait_for_required_checks("gh", "/tmp", 42)
+
+
+# --- f85t.4: branch-protection fallback ---
+
+
+def test_branch_protection_exists_true_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 200 from the protection endpoint means the branch is protected."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _protection_response(protected=True)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_branch_protection_exists_false_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A confirmed 404 means the branch has no protection configured."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _protection_response(protected=False)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is False
+    )
+
+
+def test_branch_protection_exists_true_on_unrelated_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unrelated failure (rate limit, auth) does not widen the check set."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: API rate limit exceeded"
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_branch_protection_exists_true_on_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A hung protection check fails open rather than aborting the release."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        raise subprocess.TimeoutExpired(cmd, 60)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_branch_protection_exists_true_on_permission_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A 404 without the "branch not protected" marker is treated as protected.
+
+    GitHub's branch-protection REST endpoint 404s when the token lacks
+    ``admin:repo`` even for a repo that DOES have protection. Fail-safe
+    to protected=True in that case rather than silently widening the
+    check set to include informational-only checks the repo excluded.
+    """
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: Not Found (HTTP 404)"
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is True
+    )
+
+
+def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No branch protection means every check is waited on, not just isRequired."""
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": False,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    # Should not raise — the non-required "lint" check is treated as the
+    # pass condition because the repo has no branch protection configured.
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_still_requires_only_required_when_protected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: branch protection still narrows to isRequired checks."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=True)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_no_required_checks_response())
+        result.stderr = ""
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    with pytest.raises(ReleaseError, match="No required checks found"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
+def test_wait_for_required_checks_warns_once_on_fallback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The unprotected-branch warning prints once, not once per poll.
+
+    Branch protection is resolved once before the loop starts, so this is a
+    proof of function structure rather than a distinct behavior.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": False,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+    printed = capsys.readouterr().out
+    assert printed.count("No branch protection configured") == 1
 
 
 # --- _reset_propagation_siblings ---
@@ -2339,6 +2808,262 @@ def test_pr_merge_real_merge_failure_still_fails(
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
+# --- fwql: README SHA pin lands after the release PR's squash-merge ---
+
+
+def test_phase4_release_pr_pins_readme_after_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 4 lands a second, README-only PR right after the release PR merges."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "install.sh").write_text(
+        "#!/bin/sh\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "deadbee/install.sh | sh\n"
+    )
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "deadbee/install.sh | sh\n"
+        "```\n"
+    )
+
+    info = ProjectInfo(root=root, language="python")
+
+    issued: list[list[str]] = []
+    pr_number = {"n": 100}
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        issued.append(list(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
+            r.stdout = "newsha1\n"
+        elif cmd[:2] == ["git", "log"]:
+            r.stdout = ""
+        elif cmd[:2] == ["git", "rev-parse"] and "--short" in cmd:
+            r.stdout = "abc1234\n"
+        elif cmd[:2] == ["git", "rev-parse"]:
+            r.stdout = "deadbeefcafe\n"
+        elif cmd[:2] == ["git", "status"]:
+            r.stdout = " M README.md\n" if cmd[-1] == "README.md" else ""
+        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
+            r.stdout = "main\n"
+        elif cmd[:2] == ["git", "branch"] and "--list" in cmd:
+            r.stdout = ""
+        elif cmd[:3] == ["gh", "pr", "list"]:
+            r.stdout = "[]"
+        elif cmd[:3] == ["gh", "pr", "create"]:
+            pr_number["n"] += 1
+            r.stdout = f"https://github.com/punt-labs/proj/pull/{pr_number['n']}\n"
+        elif cmd[:3] == ["gh", "pr", "view"]:
+            r.stdout = json.dumps({"state": "OPEN"})
+        elif cmd[:3] == ["gh", "pr", "merge"]:
+            r.returncode = 0
+        return r
+
+    def _which_gh(_n: str) -> str:
+        return "gh"
+
+    def _no_wait(*_a: object, **_k: object) -> None:
+        return None
+
+    def _no_threads(*_a: object, **_k: object) -> None:
+        return None
+
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/proj"
+
+    monkeypatch.setattr(shutil, "which", _which_gh)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_wait_for_required_checks", _no_wait)
+    monkeypatch.setattr(release_mod, "_resolve_pr_threads", _no_threads)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+
+    release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
+
+    pushed_branches = [c[4] for c in issued if c[:3] == ["git", "push", "-u"]]
+    assert "release/v0.2.0" in pushed_branches
+    assert "release-readme-pin/v0.2.0" in pushed_branches
+
+    created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+    assert len(created) == 2
+
+    merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
+    assert len(merges) == 2
+
+    assert "newsha1" in (root / "README.md").read_text()
+
+
+def test_land_readme_sha_pin_noop_when_readme_already_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No PR is created when the README already pins the current install SHA."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "currentsha/install.sh | sh\n"
+        "```\n"
+    )
+
+    info = ProjectInfo(root=root, language="python")
+    issued: list[list[str]] = []
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        issued.append(list(cmd))
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
+            r.stdout = "currentsha\n"
+        elif cmd[:2] == ["git", "log"]:
+            r.stdout = ""
+        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
+            r.stdout = "main\n"
+        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
+            "git",
+            "status",
+        ]:
+            r.stdout = ""
+        return r
+
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/proj"
+
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
+
+    assert not any(c[:3] == ["gh", "pr", "create"] for c in issued)
+
+
+def test_readme_sha_pin_survives_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The README-pinned install.sh SHA is reachable from main after squash-merge.
+
+    Written to catch the reachability defect Option A (pinning inside
+    _phase2_version_bump, before the squash-merge) has: that pins a commit
+    that lives only on the release branch, which the merge deletes.
+    Byte-equality alone would not catch this — a dangling commit still
+    resolves via ``git show`` for a while after deletion. Reachability from
+    main is the property that matters once CI checks out the release tag.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.detect import detect
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    release_branch = "release/v0.2.0"
+    _git(["checkout", "-b", release_branch], cwd=d)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.2.0"\n'
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "chore: release v0.2.0"], cwd=d)
+
+    def fake_pr_merge(
+        *,
+        cwd: Path,
+        branch: str,
+        title: str,
+        body: str = "",
+        dry_run: bool = False,
+    ) -> str:
+        """Simulate `gh pr merge --squash --delete-branch`, entirely locally."""
+        r = str(cwd)
+        _git(["checkout", "main"], cwd=r)
+        _git(["merge", "--squash", branch], cwd=r)
+        _git(["commit", "-m", title], cwd=r)
+        _git(["branch", "-D", branch], cwd=r)
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=r,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+
+    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    # The reachability guard runs against the working tree's install.sh
+    # SHA and the README's install URL. Pin the URL owner/repo to what
+    # _make_release_project wrote ("test-pkg") — otherwise the real
+    # _get_github_repo (no remote configured in tmp) falls back to
+    # root.name ("proj"), the regex misses, and _bump_readme_install_sha
+    # returns silently. That would make this whole test a no-op.
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/test-pkg"
+
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+
+    # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
+    # first _pr_merge call, for the release branch itself).
+    release_mod._pr_merge(  # pyright: ignore[reportPrivateUsage]
+        cwd=root, branch=release_branch, title="chore: release v0.2.0"
+    )
+
+    # Step 2: land the README pin — the fix under test.
+    info = detect(root)
+    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        info, "0.2.0", dry_run=False
+    )
+
+    # Read the SHA out of README.md itself — not out of git log — so the
+    # test would fail if _land_readme_sha_pin were a no-op that left the
+    # stale pre-release SHA in place. The install URL uses a 7-40 hex
+    # placeholder segment between "punt-labs/proj/" and "/install.sh"
+    # (or the org name we happen to have here); grab whichever hex SHA
+    # appears after the last "/" before "install.sh".
+    readme = (root / "README.md").read_text()
+    match = re.search(r"/([0-9a-fA-F]{7,40})/install\.sh", readme)
+    assert match is not None, f"README.md has no SHA-pinned install URL: {readme!r}"
+    pinned_sha = match.group(1)
+
+    # (a) The SHA must resolve in the local object DB. Option A's failure
+    # mode is exactly this — a dangling object that survives briefly and
+    # then gets pruned; the resolve here is a proxy for "the release tag's
+    # CI checkout will actually see this commit."
+    show = subprocess.run(
+        ["git", "show", f"{pinned_sha}:install.sh"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert show == (root / "install.sh").read_text()
+
+    # (b) The SHA must be reachable from main (not a dangling commit).
+    ancestor = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", pinned_sha, "main"], cwd=d
+    )
+    assert ancestor.returncode == 0, (
+        f"pinned SHA {pinned_sha} is not reachable from main — Option A's "
+        "reachability defect. It resolves via git show only because the "
+        "object hasn't been pruned yet."
+    )
+
+
 # --- _phase11_verify: profile SHA ---
 
 
@@ -2645,6 +3370,215 @@ def test_phase11_verify_fails_when_install_all_missing(
 
     with pytest.raises(ReleaseError):
         _phase11_verify(info, version, dry_run=False)
+
+
+# --- f85t.3: profile SHA marketplace-pin chain for marketplace-only plugins ---
+
+
+def _marketplace_json(project_version: str) -> str:
+    return json.dumps(
+        {
+            "plugins": [
+                {
+                    "name": "proj",
+                    "version": project_version,
+                    "source": {"repo": "punt-labs/proj", "ref": f"v{project_version}"},
+                }
+            ]
+        }
+    )
+
+
+def _setup_marketplace_only_verify_project(
+    tmp_path: Path, version: str, *, pinned_marketplace_version: str
+) -> tuple[Path, Path, Path]:
+    """Build a marketplace-only plugin project for f85t.3 profile-SHA tests.
+
+    Returns ``(root, github_sibling, claude_plugins_sibling)``. The
+    claude-plugins sibling's HEAD always carries ``version`` (so check 5,
+    Marketplace, always passes against the working tree); the ``.github``
+    commit the profile pins carries ``pinned_marketplace_version`` in its
+    own historical marketplace.json instead — set the two equal for a
+    passing chain, or different to model a stale pin.
+    """
+    root = _make_language_none_plugin_project(tmp_path)
+    d = str(root)
+    _git(["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"], cwd=d)
+
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+    _git(["add", "CHANGELOG.md"], cwd=d)
+    _git(["commit", "-m", "stamp changelog"], cwd=d)
+    _git(["tag", f"v{version}"], cwd=d)
+
+    cp_sibling = _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": _marketplace_json(
+                pinned_marketplace_version
+            )
+        },
+    )
+    pinned_cp_sha = subprocess.run(
+        ["git", "log", "-1", "--format=%H"],
+        cwd=str(cp_sibling),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+    if pinned_marketplace_version != version:
+        (cp_sibling / ".claude-plugin" / "marketplace.json").write_text(
+            _marketplace_json(version)
+        )
+        _git(["add", "."], cwd=str(cp_sibling))
+        _git(["commit", "-m", "bump to current version"], cwd=str(cp_sibling))
+
+    github_sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/claude-plugins/{pinned_cp_sha}/install.sh" | sh\n'
+                "for plugin in prfaq proj z-spec; do\n"
+                '  claude plugin install "$plugin@punt-labs"\n'
+                "done\n"
+            )
+        },
+    )
+    github_sha = _get_install_all_sha(github_sibling)
+    profile_dir = github_sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{github_sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(github_sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
+
+    return root, github_sibling, cp_sibling
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_passes(tmp_path: Path) -> None:
+    """A marketplace-only plugin's profile SHA verifies via the pin chain."""
+    version = "0.1.0"
+    root, _github, _cp = _setup_marketplace_only_verify_project(
+        tmp_path, version, pinned_marketplace_version=version
+    )
+    info = detect(root)
+
+    # Should NOT raise — the pinned claude-plugins commit's marketplace.json
+    # already carries the current version/ref.
+    _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_stale_version(
+    tmp_path: Path,
+) -> None:
+    """A stale claude-plugins pin behind the current version fails loud."""
+    version = "0.1.0"
+    root, _github, _cp = _setup_marketplace_only_verify_project(
+        tmp_path, version, pinned_marketplace_version="0.0.9"
+    )
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_no_claude_plugins_pin(
+    tmp_path: Path,
+) -> None:
+    """No claude-plugins pin in install-all.sh at all is a genuine failure."""
+    version = "0.1.0"
+    root = _make_language_none_plugin_project(tmp_path)
+    d = str(root)
+    _git(["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"], cwd=d)
+    changelog = root / "CHANGELOG.md"
+    changelog.write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+    _git(["add", "CHANGELOG.md"], cwd=d)
+    _git(["commit", "-m", "stamp changelog"], cwd=d)
+    _git(["tag", f"v{version}"], cwd=d)
+
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {".claude-plugin/marketplace.json": _marketplace_json(version)},
+    )
+
+    github_sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                "for plugin in prfaq proj z-spec; do\n"
+                '  claude plugin install "$plugin@punt-labs"\n'
+                "done\n"
+            )
+        },
+    )
+    github_sha = _get_install_all_sha(github_sibling)
+    profile_dir = github_sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{github_sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(github_sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
+
+    info = detect(root)
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
+    tmp_path: Path,
+) -> None:
+    """A claude-plugins pin that cannot be checked (sibling absent) fails.
+
+    Unlike the tolerated ``.github``-absent case, a marketplace-only plugin
+    with no resolvable claude-plugins sibling genuinely cannot be verified —
+    this is a real defect, not a meta-repo shape to skip.
+    """
+    version = "0.1.0"
+    root, _github, cp_sibling = _setup_marketplace_only_verify_project(
+        tmp_path, version, pinned_marketplace_version=version
+    )
+    shutil.rmtree(cp_sibling)
+
+    info = detect(root)
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+
+def test_phase11_verify_profile_sha_direct_url_path_unaffected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: a CLI/hybrid project (has install.sh) is unaffected.
+
+    Proves ``install_sh.exists()`` — not merely ``info.is_plugin`` — is the
+    discriminator that routes into the marketplace-pin chain, so a hybrid
+    project (is_plugin=True, has install.sh) still takes the direct-URL path.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+    assert info.is_plugin is True
+    assert (root / "install.sh").exists()
+
+    # Should NOT raise — unchanged direct-URL behavior.
+    _phase11_verify(info, version, dry_run=False)
 
 
 def test_phase_summary_recaps_skipped_propagation(
@@ -3342,15 +4276,14 @@ def test_phase9_dev_restore_single_commit_with_restamp(
         .splitlines()
     )
     assert log == [
-        "chore: update README install SHA to v0.2.0",
         "chore: restore dev plugin state [skip ci]",
     ], log
 
-    # The restore commit — HEAD~1 — must contain both the plugin.json
+    # The restore commit — HEAD — must contain both the plugin.json
     # revert and the version re-stamp. If the script had committed
     # first, the re-stamp would either be in HEAD (a second commit) or
     # would have required the --amend path this refactor deleted.
-    restore_files = _commit_files(root, ref="HEAD~1")
+    restore_files = _commit_files(root, ref="HEAD")
     assert plugin_json.relative_to(root).as_posix() in restore_files
 
     restored = json.loads(plugin_json.read_text())
@@ -3478,6 +4411,14 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
         return "abc1234"
 
     monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+
+    # The fwql pin step runs against a real remote in production; this
+    # test has none. Stub it out — the assertions here are about the
+    # swap behavior, not the pin.
+    def _skip_pin(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_land_readme_sha_pin", _skip_pin)
 
     info = detect(root)
     _phase4_release_pr(info, "0.2.0", dry_run=False)
@@ -3611,22 +4552,17 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
         .stdout.strip()
         .splitlines()
     )
-    # Two commits, in the correct order, with the correct messages —
-    # not one fused commit under the README title.
+    # One commit — dev restore only. Phase 9 no longer bumps README;
+    # that moved to phase 4 (fwql). The restore commit must land
+    # cleanly regardless of the prior mid-hook stage.
     assert log == [
-        "chore: update README install SHA to v0.2.0",
         "chore: restore dev plugin state [skip ci]",
     ], log
 
-    # The README commit must NOT carry plugin.json. A skipped restore
-    # would leave the staged plugin.json to fall into this commit.
-    readme_files = _commit_files(root, ref="HEAD")
-    assert ".claude-plugin/plugin.json" not in readme_files, (
-        "README-SHA commit swept a stray staged plugin.json — the phase "
-        "took the resume shortcut and never made a restore commit"
-    )
-
-    restore_files = _commit_files(root, ref="HEAD~1")
+    # The restore commit — HEAD — must carry plugin.json. A skipped
+    # restore would leave a stray staged plugin.json rather than a
+    # proper commit.
+    restore_files = _commit_files(root, ref="HEAD")
     assert ".claude-plugin/plugin.json" in restore_files
 
     restored = json.loads(plugin_json.read_text())
@@ -4483,6 +5419,84 @@ def test_phase6_survives_a_hung_verdict_query(
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
 
 
+# --- f85t.2: phase 6 skip/fail on a missing release.yml workflow ---
+
+
+def test_phase6_skips_for_pure_plugin_without_release_yml(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pure (non-hybrid) plugin with no release.yml has nothing to wait for."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    def _unreachable(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("_run must not be called on the pure-plugin skip path")
+
+    monkeypatch.setattr(release_mod, "_run", _unreachable)
+
+    info = ProjectInfo(
+        root=_Path("/nonexistent"),
+        is_plugin=True,
+        workflow_files=["docs.yml", "biff-notify.yml"],
+    )
+    _phase6_ci_wait(info, "1.0.0", dry_run=False)
+
+
+def test_phase6_fails_actionably_when_python_project_missing_release_yml() -> None:
+    """A non-plugin project missing release.yml fails loud, not silent."""
+    from punt_kit.detect import ProjectInfo
+
+    info = ProjectInfo(
+        root=_Path("/nonexistent"),
+        language="python",
+        workflow_files=["docs.yml"],
+    )
+    with pytest.raises(ReleaseError, match="misconfiguration"):
+        _phase6_ci_wait(info, "1.0.0", dry_run=False)
+
+
+def test_phase6_hybrid_missing_release_yml_still_fails() -> None:
+    """A hybrid project (CLI + plugin) must have release.yml — no silent skip."""
+    from punt_kit.detect import ProjectInfo
+
+    info = ProjectInfo(
+        root=_Path("/nonexistent"),
+        is_plugin=True,
+        cli_commands=["test-cli"],
+        workflow_files=["docs.yml"],
+    )
+    assert info.is_hybrid is True
+    with pytest.raises(ReleaseError, match="misconfiguration"):
+        _phase6_ci_wait(info, "1.0.0", dry_run=False)
+
+
+def test_phase6_proceeds_normally_when_release_yml_present(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression guard: the existing pass-through behavior is untouched.
+
+    ``_make_release_project`` now includes a ``release.yml`` placeholder
+    (added for this guard), so this exercises the unchanged code path after
+    the new guard using the pre-existing ``_run_stub`` dict-dispatch mocks.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    listed = json.dumps([MATCHING_RUN])
+    fake_run = _run_stub(
+        {
+            "list": subprocess.CompletedProcess([], 0, stdout=listed, stderr=""),
+            "watch": subprocess.CompletedProcess([], 0, stdout="", stderr=""),
+        }
+    )
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
+
+
 def test_run_default_timeout_is_short() -> None:
     """A hung subprocess must fail loud in seconds, not silently in hours.
 
@@ -4729,8 +5743,10 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
 
     calls = 0
 
-    def fake_run(_cmd: list[str], **_kwargs: object) -> MagicMock:
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=True)
         calls += 1
         result = MagicMock()
         result.returncode = 0
@@ -4780,8 +5796,10 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     calls = 0
 
-    def fake_run(_cmd: list[str], **_kwargs: object) -> MagicMock:
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
+        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+            return _protection_response(protected=True)
         calls += 1
         result = MagicMock()
         result.returncode = 0

@@ -237,10 +237,16 @@ def _get_install_sh_sha(root: Path) -> str:
 
 
 def _get_project_version(info: ProjectInfo) -> str:
-    """Extract current version from pyproject.toml or git tags (Go)."""
+    """Extract current version from pyproject.toml, plugin.json, or git tags (Go)."""
     if info.language == "go":
         return _get_latest_tag_version(info.root)
     if info.pyproject is None:
+        if info.is_plugin:
+            data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+            version = data.get("version")
+            if not isinstance(version, str):
+                _fail(f"No version in {info.plugin_manifest}")
+            return version
         _fail("No pyproject.toml found")
     project = info.pyproject.get("project")
     if not isinstance(project, dict):
@@ -580,20 +586,64 @@ def _suggest_version(changelog: str, current: str) -> str:
     return f"{major}.{minor}.{patch + 1}"
 
 
+def _branch_protection_exists(gh: str, cwd: str, owner: str, repo_name: str) -> bool:
+    """True if ``main`` has a branch protection rule; False only on a confirmed
+    "branch not protected" response.
+
+    ``gh api .../branches/main/protection`` returns HTTP 404 with the
+    message body ``"Branch not protected"`` when no protection rule is
+    configured. The SAME endpoint also 404s when the token lacks
+    ``admin:repo`` permissions on a repo that DOES have protection —
+    with a different error message (typically ``"Not Found"`` or an
+    HTTP-401 that gh surfaces as 404). Distinguishing the two requires
+    the explicit ``"branch not protected"`` marker: any 404 without
+    that marker is ambiguous and falls through as protected=True, along
+    with every other failure mode (network, rate limit, timeout, wrong
+    scope). Fail-safe direction: the isRequired-only wait behavior is
+    preserved for anything we cannot confirm is genuinely unprotected.
+    """
+    try:
+        result = _run(
+            [gh, "api", f"repos/{owner}/{repo_name}/branches/main/protection"],
+            cwd=cwd,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return True
+    if result.returncode == 0:
+        return True
+    combined = (result.stderr + result.stdout).lower()
+    return "branch not protected" not in combined
+
+
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     """Poll required CI checks until all pass or any fail.
 
     Uses a direct GraphQL query to get ``isRequired(pullRequestNumber: N)``
     which the ``gh pr view --json statusCheckRollup`` path cannot populate
     (the ``isRequired`` field is always null without the PR number argument).
-    Ignores non-required checks (e.g. Anthropic's 'Claude Code Review').
+    Ignores non-required checks (e.g. Anthropic's 'Claude Code Review') when
+    the repo has branch protection configured. A repo with none configured
+    has no ``isRequired`` checks at all, so this falls back to waiting for
+    every check instead of failing after the no-required-checks timeout.
     """
     repo_slug = _get_github_repo(Path(cwd))
     if not repo_slug or "/" not in repo_slug:
         _fail(f"Cannot determine GitHub owner/repo from git remote in {cwd}")
     owner, repo_name = repo_slug.split("/", 1)
 
-    _info(f"Waiting for required CI checks on PR #{pr_number}...")
+    branch_protected = _branch_protection_exists(gh, cwd, owner, repo_name)
+    if not branch_protected:
+        _warn(
+            f"No branch protection configured on {owner}/{repo_name}'s main "
+            "branch — waiting for ALL checks to pass instead of only required "
+            "ones"
+        )
+
+    _info(
+        f"Waiting for {'required' if branch_protected else 'all'} CI checks "
+        f"on PR #{pr_number}..."
+    )
     deadline = time.time() + 7200
     no_checks_attempts = 0
     consecutive_errors = 0
@@ -755,14 +805,25 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
                     }
                 )
 
-        required = [c for c in checks if c.get("isRequired")]
+        relevant = (
+            [c for c in checks if c.get("isRequired")] if branch_protected else checks
+        )
+        # "Required" only means something when branch protection is what
+        # narrowed the check set — otherwise every check is being waited on.
+        prefix = "Required " if branch_protected else ""
 
-        if not required:
+        if not relevant:
             no_checks_attempts += 1
             if no_checks_attempts > 24:  # 2 minutes at 5s intervals
-                _fail(
-                    f"No required checks found on PR #{pr_number} after 2 minutes — "
+                found_label = "required checks" if branch_protected else "CI checks"
+                hint = (
                     "check branch protection configuration"
+                    if branch_protected
+                    else "check that CI is configured and running for this PR"
+                )
+                _fail(
+                    f"No {found_label} found on PR #{pr_number} after 2 minutes — "
+                    f"{hint}"
                 )
             time.sleep(5)
             continue
@@ -782,28 +843,29 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
         )
         failed = [
             c
-            for c in required
+            for c in relevant
             if str(c.get("conclusion", "")).lower() in _failure_conclusions
         ]
         if failed:
             names = ", ".join(str(c.get("name", "?")) for c in failed)
-            _fail(f"Required CI checks failed on PR #{pr_number}: {names}")
+            _fail(f"{prefix}CI checks failed on PR #{pr_number}: {names}")
 
         # A check is pending if it has not reached COMPLETED status.
         pending = [
-            c for c in required if str(c.get("status", "")).upper() != "COMPLETED"
+            c for c in relevant if str(c.get("status", "")).upper() != "COMPLETED"
         ]
 
         if not pending:
-            names = ", ".join(str(c.get("name", "?")) for c in required)
-            _ok(f"Required CI checks passed: {names}")
+            names = ", ".join(str(c.get("name", "?")) for c in relevant)
+            _ok(f"{prefix}CI checks passed: {names}")
             return
 
         names = ", ".join(str(c.get("name", "?")) for c in pending)
         _info(f"Waiting for: {names}")
         time.sleep(15)
 
-    _fail(f"Timed out waiting for required CI checks on PR #{pr_number}")
+    label = "required" if branch_protected else "all"
+    _fail(f"Timed out waiting for {label} CI checks on PR #{pr_number}")
 
 
 def _select_existing_pr(
@@ -1337,6 +1399,11 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         dry_run=dry_run,
     )
 
+    # 4c. Pin README's install-URL SHA now that the squash-merge has landed
+    # on main — see _land_readme_sha_pin for why this must happen here and
+    # not during phase 2's version bump on the (about to be deleted) branch.
+    _land_readme_sha_pin(info, version, dry_run=dry_run)
+
 
 def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 5: Tag main HEAD and push tag."""
@@ -1434,6 +1501,89 @@ def _bump_readme_install_sha(info: ProjectInfo, version: str, *, dry_run: bool) 
 
     readme_path.write_text(new_content, encoding="utf-8")
     _ok(f"README.md: install URLs → {short_sha} ({tag})")
+
+
+def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Pin README's install-URL SHA via its own PR, right after the squash-merge.
+
+    Must run after ``_phase4_release_pr``'s squash-merge lands on main, not
+    during ``_phase2_version_bump`` on the release branch. ``gh pr merge
+    --squash --delete-branch`` makes one new commit on main and deletes the
+    release branch — any SHA pinned from a commit that only ever existed on
+    that branch becomes unreachable the moment it is deleted, and a
+    subsequent CI checkout of the release tag will not contain it. Reading
+    ``install.sh``'s SHA here, with the working tree on the just-merged main,
+    pins a commit that is main's own permanent history.
+    """
+    root = info.root
+    branch = f"release-readme-pin/v{version}"
+
+    # No README or no install.sh means there is nothing to pin — the sub-
+    # sequent _bump_readme_install_sha would be a no-op. Skip the whole
+    # branch/checkout/PR dance rather than churn git and print a
+    # misleading "README already pins..." line for a repo where pinning
+    # is not even possible.
+    if not (root / "README.md").exists() or not (root / "install.sh").exists():
+        _ok("No README.md or install.sh — nothing to pin")
+        return
+
+    if dry_run:
+        _dry("_bump_readme_install_sha(...)")
+        _dry(f'git commit -m "chore: update README install SHA to v{version}"')
+        _dry(
+            f"_pr_merge(branch={branch}, "
+            f'title="chore: update README install SHA v{version}")'
+        )
+        return
+
+    current = _run(["git", "branch", "--show-current"], cwd=str(root)).stdout.strip()
+    if current != "main":
+        _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+        _run(
+            ["git", "pull", "--ff-only"],
+            cwd=str(root),
+            timeout=_GIT_HOOK_TIMEOUT,
+        )
+
+    existing = _run(["git", "branch", "--list", branch], cwd=str(root)).stdout.strip()
+    if existing:
+        _run(["git", "checkout", branch], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+        _info(f"Checked out existing branch {branch}")
+    else:
+        _run(
+            ["git", "checkout", "-b", branch],
+            cwd=str(root),
+            timeout=_GIT_HOOK_TIMEOUT,
+        )
+
+    _bump_readme_install_sha(info, version, dry_run=False)
+    status = _run(
+        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
+    ).stdout.strip()
+    if not status:
+        # Resume case: a prior run already committed the pin on this branch,
+        # or the README already carried the correct SHA — either way there
+        # is nothing new to land.
+        ahead = _run(
+            ["git", "log", "main..HEAD", "--oneline"], cwd=str(root)
+        ).stdout.strip()
+        if not ahead:
+            _run(["git", "checkout", "main"], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+            _run(["git", "branch", "-D", branch], cwd=str(root))
+            _ok("README already pins the current install SHA")
+            return
+    else:
+        _run(["git", "add", "--", "README.md"], cwd=str(root))
+        msg = f"chore: update README install SHA to v{version}"
+        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
+
+    _pr_merge(
+        cwd=root,
+        branch=branch,
+        title=f"chore: update README install SHA v{version}",
+        dry_run=False,
+    )
+    _ok("README SHA pin PR merged")
 
 
 # GitHub does not register a tag-triggered run instantly, so phase 6 polls
@@ -1629,6 +1779,16 @@ def _watch_failure_message(gh: str, root: Path, run_id: int, returncode: int) ->
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 6: Wait for CI."""
     console.print("\n[bold]Phase 6: Wait for CI[/bold]")
+
+    if "release.yml" not in info.workflow_files:
+        if info.is_plugin and not info.is_hybrid:
+            _ok("No release.yml workflow — pure plugin, nothing to wait for")
+            return
+        _fail(
+            "Expected .github/workflows/release.yml for this project but none "
+            "was found — this is a misconfiguration, not a plugin-only skip "
+            f"(workflows present: {info.workflow_files or 'none'})"
+        )
 
     tag = f"v{version}"
 
@@ -1867,7 +2027,7 @@ def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> No
 
 
 def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 9: Dev plugin restore and README SHA bump via PR."""
+    """Phase 9: Dev plugin restore via PR."""
     console.print(f"\n[bold]Phase 9: Post-release v{version}[/bold]")
 
     root = info.root
@@ -1877,9 +2037,8 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     if dry_run:
         if info.is_hybrid or info.is_plugin:
             _dry("bash scripts/restore-dev-plugin.sh")
-        _dry("_bump_readme_install_sha(...)")
-        _dry(f'git commit -m "chore: post-release v{version}"')
-        _dry(f"_pr_merge(branch={branch})")
+        _dry('git commit -m "chore: restore dev plugin state [skip ci]"')
+        _dry(f'_pr_merge(branch={branch}, title="chore: post-release v{version}")')
         return
 
     # Create post-release branch
@@ -1977,18 +2136,6 @@ def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> N
         else:
             _ok("Dev restore already at HEAD (resume)")
 
-    # README SHA bump. Stage README.md explicitly — `git add -A` would
-    # sweep unrelated untracked files into the post-release commit.
-    _bump_readme_install_sha(info, version, dry_run=False)
-    status = _run(
-        ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
-    ).stdout.strip()
-    if status:
-        _run(["git", "add", "--", "README.md"], cwd=str(root))
-        msg = f"chore: update README install SHA to v{version}"
-        _run(["git", "commit", "-m", msg], cwd=str(root), timeout=_GIT_HOOK_TIMEOUT)
-        has_changes = True
-
     if not has_changes:
         # Check if branch has commits ahead of main (resume case)
         ahead = _run(
@@ -2058,6 +2205,51 @@ def _validate_sibling(path: Path, name: str) -> None:
     )
     if result.returncode != 0:
         _fail(f"Sibling {name}: git pull --ff-only failed:\n{result.stderr.strip()}")
+
+
+def _verify_marketplace_pin_chain(
+    cp_sibling: Path | None,
+    claude_plugins_sha: str,
+    project_name: str,
+    version: str,
+    tag: str,
+) -> tuple[bool, str]:
+    """Check a pinned claude-plugins commit's marketplace.json for this project.
+
+    Returns ``(passed, detail)``. Used only for marketplace-only plugins,
+    where the profile-SHA check has no direct install URL to verify against
+    — the pin chain (profile -> install-all.sh's claude-plugins SHA -> that
+    commit's marketplace.json) is the equivalent invariant.
+    """
+    if cp_sibling is None:
+        return False, "claude-plugins sibling not found"
+    show = _run(
+        ["git", "show", f"{claude_plugins_sha}:.claude-plugin/marketplace.json"],
+        cwd=str(cp_sibling),
+        check=False,
+    )
+    if show.returncode != 0:
+        return False, f"claude-plugins@{claude_plugins_sha} does not resolve"
+    data = cast("dict[str, object]", json.loads(show.stdout))
+    plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+    for p in plugins:
+        src = cast("dict[str, str]", p.get("source", {}))
+        # Match by either the source.repo suffix (canonical) or the plugin
+        # name field. Check 5 (marketplace) accepts both, and the historical
+        # pin check must not be stricter — otherwise a genuinely-current
+        # release fails the pin chain for entries whose top-level "name"
+        # matches but whose "source.repo" points at a fork or a rename.
+        if (
+            str(src.get("repo", "")).endswith("/" + project_name)
+            or str(p.get("name", "")) == project_name
+        ):
+            ok = str(p.get("version", "")) == version and str(src.get("ref", "")) == tag
+            return (
+                ok,
+                f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, "
+                f"ref={src.get('ref')}",
+            )
+    return False, f"claude-plugins@{claude_plugins_sha} has no entry for {project_name}"
 
 
 def _sibling_pr_merge(
@@ -2805,7 +2997,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
 
     # 6. Profile SHA (install-all.sh URL resolves)
     repo = _get_github_repo(info.root)
-    if repo and install_sh.exists():
+    if repo and (install_sh.exists() or info.is_plugin):
         sibling = _resolve_sibling(info.root, ".github")
         if not sibling:
             # Absent sibling — same tolerated case as the install-all.sh check
@@ -2851,7 +3043,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                                 f"SHA={profile_sha} (does not resolve)",
                             )
                         )
-                    else:
+                    elif install_sh.exists():
                         project_name = repo.split("/")[-1]
                         install_sha = _get_install_sh_sha(info.root)
                         current_entry = re.search(
@@ -2873,6 +3065,39 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
                                 ),
                             )
                         )
+                    else:
+                        # Marketplace-only plugin: no install.sh, so there is
+                        # no direct curl URL to verify. The equivalent
+                        # invariant is the marketplace-pin chain — the
+                        # profile-pinned install-all.sh names a claude-plugins
+                        # SHA, and that commit's marketplace.json must carry
+                        # this project's current version/ref.
+                        project_name = repo.split("/")[-1]
+                        mp_pin = re.search(
+                            r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh",
+                            show_result.stdout,
+                        )
+                        if mp_pin is None:
+                            checks.append(
+                                (
+                                    "profile SHA",
+                                    False,
+                                    f"SHA={profile_sha} "
+                                    "(no claude-plugins pin in install-all.sh)",
+                                )
+                            )
+                        else:
+                            cp_sibling = _resolve_sibling(info.root, "claude-plugins")
+                            ok, detail = _verify_marketplace_pin_chain(
+                                cp_sibling,
+                                mp_pin.group(1),
+                                project_name,
+                                version,
+                                tag,
+                            )
+                            checks.append(
+                                ("profile SHA", ok, f"SHA={profile_sha} ({detail})")
+                            )
 
     # 7. Website (optional — sibling may not exist)
     if repo:
@@ -3089,9 +3314,14 @@ def run_release(
         if version is None:
             if start == 1:
                 # Fresh release — detect from changelog
-                if info.pyproject is None and info.language != "go":
+                if (
+                    info.pyproject is None
+                    and info.language != "go"
+                    and not info.is_plugin
+                ):
                     _fail(
-                        "Version required for plugin-only projects (no pyproject.toml)"
+                        "Version required — project has no pyproject.toml, "
+                        "is not a Go project, and is not a plugin"
                     )
                 current = _get_project_version(info)
                 changelog = _read_changelog(root)
