@@ -80,17 +80,17 @@ def test_allows_configured_emails(tmp_path: Path) -> None:
 
 def test_detects_home_paths(tmp_path: Path) -> None:
     """Local home directory paths are detected."""
-    (tmp_path / "script.sh").write_text("cd /Users/jfreeman/projects\n")
+    (tmp_path / "script.sh").write_text("cd /Users/jdoe/projects\n")
     config = PiiConfig()
     findings = scan_file("script.sh", tmp_path, config)
     assert len(findings) == 1
     assert findings[0].category == "path"
-    assert "/Users/jfreeman/" in findings[0].match
+    assert "/Users/jdoe/" in findings[0].match
 
 
 def test_detects_linux_home_paths(tmp_path: Path) -> None:
     """Linux home directory paths are detected."""
-    (tmp_path / "script.sh").write_text("cd /home/jfreeman/projects\n")
+    (tmp_path / "script.sh").write_text("cd /home/jdoe/projects\n")
     config = PiiConfig()
     findings = scan_file("script.sh", tmp_path, config)
     assert len(findings) == 1
