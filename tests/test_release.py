@@ -1402,6 +1402,181 @@ def test_propagate_marketplace_updates_version(
     assert len(calls) == 1
 
 
+def _always_merges_sibling(
+    path: Path,
+    branch: str,
+    files: list[str],
+    message: str,
+    name: str,
+    *,
+    dry_run: bool,
+) -> bool:
+    """A ``_sibling_pr_merge`` stand-in that reports every sibling PR merged.
+
+    Used by tests that only care whether ``MarketplacePropagator`` found and
+    rewrote the right entry, not whether the (separately tested) sibling-PR
+    machinery ran.
+    """
+    return True
+
+
+def test_propagate_marketplace_matches_by_marketplace_short_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Matches by the plugin's marketplace short name even when the entry's
+    ``source.url`` points somewhere that does not end in the project's repo
+    name — e.g. a renamed or forked upstream URL that predates a rename.
+
+    Regression coverage for pkit-p328/pkit-d8ij: marketplace entries key on
+    the plugin's short name (``punt``), not the PyPI distribution name
+    (``punt-kit``) or a URL that happens to match the repo. ``proj``'s
+    manifest name (``test-dev`` in the base fixture) is overridden here so
+    the marketplace short name ("punt") diverges from both the git remote's
+    repo name ("punt-kit") and the entry's (deliberately non-matching) URL.
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "punt-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "rename plugin manifest"], cwd=d)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/punt-kit.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "punt",
+                "version": "0.1.0",
+                "source": {
+                    # Deliberately does not end in "/punt-kit" — the name
+                    # candidate must carry the match on its own.
+                    "url": "https://github.com/some-other-org/renamed-repo.git",
+                    "ref": "v0.1.0",
+                },
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+
+    info = detect(root)
+    _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    data = json.loads(mp.read_text())
+    assert data["plugins"][0]["name"] == "punt"
+    assert data["plugins"][0]["version"] == "0.2.0"
+    assert data["plugins"][0]["source"]["ref"] == "v0.2.0"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/punt-labs/proj.git",
+        "https://github.com/punt-labs/proj",
+    ],
+)
+def test_propagate_marketplace_matches_url_with_and_without_git_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    """The trailing ``.git`` on the source URL is optional."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "something-else",
+                "version": "0.1.0",
+                "source": {"url": url, "ref": "v0.1.0"},
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+
+    info = detect(root)
+    _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    data = json.loads(mp.read_text())
+    assert data["plugins"][0]["version"] == "0.2.0"
+
+
+def test_propagate_marketplace_fails_when_no_entry_matches_any_candidate(
+    tmp_path: Path,
+) -> None:
+    """No matching name or url in marketplace.json — a hard failure.
+
+    Plugin/hybrid releases require a marketplace entry; a silent no-op here
+    is exactly the pkit-d8ij failure mode (propagation runs, nothing lands).
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "unrelated",
+                "version": "0.1.0",
+                "source": {
+                    "url": "https://github.com/punt-labs/unrelated.git",
+                    "ref": "v0.1.0",
+                },
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    info = detect(root)
+    with pytest.raises(ReleaseError, match="No marketplace entry for proj"):
+        _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+
 def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     """No-op for non-plugin projects."""
     root = tmp_path / "cli-proj"
