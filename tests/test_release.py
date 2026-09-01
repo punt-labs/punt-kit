@@ -69,6 +69,22 @@ def isolate_skip_recorder() -> Iterator[None]:
     release._skips.clear()  # pyright: ignore[reportPrivateUsage]
 
 
+@pytest.fixture(autouse=True)
+def isolate_interrupted_event() -> Iterator[None]:
+    """Clear the module-scoped interrupt event around every test.
+
+    ``release._interrupted`` persists for the process; a test that sets it
+    to exercise the interrupt path (directly, or via a mocked phase raising
+    ``KeyboardInterrupt``) would otherwise leak it into every later test —
+    including unrelated ``_wait_for_required_checks`` tests, which now check
+    this same event on every poll iteration (pkit-d7mz/pkit-plxh) and would
+    fail immediately with "Interrupted" on a leaked, already-set event.
+    """
+    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+
+
 def _git(args: list[str], cwd: str) -> None:
     """Run a git command with standard options."""
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
@@ -5262,6 +5278,50 @@ def test_phase10_propagate_collects_errors(
     assert sorted(calls) == ["install_all", "marketplace", "website"]
 
 
+def test_phase10_propagate_records_leg_failure_in_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leg failure lands in the shared SkipRecorder, not only the raised error.
+
+    pkit-d7mz: the end-of-run recap drains ``_skips`` even when the pipeline
+    stops before a successful ``pipeline.summarize()`` — so a Phase 10 leg
+    failure must be recorded there, not only surfaced as the exception that
+    ``ThreadedStep.collect`` raises and the caller sees.
+    """
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    def mock_install_all(*args: object, **kwargs: object) -> None:
+        raise ReleaseError("install-all.sh: boom")
+
+    def mock_marketplace(*args: object, **kwargs: object) -> None:
+        return None
+
+    def mock_website(*args: object, **kwargs: object) -> None:
+        return None
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+
+    def _noop_reset(*args: object, **kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+
+    with pytest.raises(ReleaseError):
+        _phase10_propagate(info, "0.2.0", dry_run=False)
+
+    notices = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    assert len(notices) == 1
+    assert "FAILED" in notices[0]
+    assert "Phase 10 propagation" in notices[0]
+    # Names the failing leg (.github), not just "something failed".
+    assert ".github" in notices[0]
+
+
 # --- Phases 9+10 concurrent ---
 
 
@@ -6295,6 +6355,99 @@ def test_run_release_credits_propagate_when_resuming_from_it(
     assert "--resume-from propagate" in normalized
     assert "propagate" in PHASE_NAMES
     assert _phase_name(10) == "propagate"
+
+
+def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """pkit-d7mz: Phase 11 still runs and reports after a Phase 9/10 failure,
+    and the release exits non-zero naming the phase to resume from.
+
+    Reproduces the vox v5.0.4 shape at the orchestration level: P10 fails
+    while running concurrently with P9. The pipeline must not silently stop
+    there — Phase 11 verify has to run against the actual state, and the
+    release has to fail loudly with --resume-from post-release (which
+    re-enters both P9 and P10 concurrently, matching how they failed), not
+    --resume-from verify, which would never retry the propagation that
+    verify's own checks are reporting on.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def fake_phase9(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def fake_phase10(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("marketplace: no entry for proj")
+
+    verify_calls: list[str] = []
+
+    def fake_phase11_verify(_info: object, version: str, *, dry_run: bool) -> None:
+        verify_calls.append(version)
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", fake_phase9)
+    monkeypatch.setattr(release_mod, "_phase10_propagate", fake_phase10)
+    monkeypatch.setattr(release_mod, "_phase11_verify", fake_phase11_verify)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    assert exc_info.value.code == 1
+    # Phase 11 ran despite the P9/P10 failure — this is the whole point.
+    assert verify_calls == ["0.2.0"]
+
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "did not fully land" in normalized
+    assert "Phase 9 reported" in normalized
+    assert "marketplace: no entry for proj" in normalized
+    assert "Not confirmed landed: post-release, propagate, verify" in normalized
+    assert "--resume-from post-release" in normalized
+
+
+def test_run_release_reports_incomplete_release_on_interrupt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """pkit-d7mz: an interrupted release exits non-zero naming exactly what
+    was not confirmed landed and the --resume-from command to finish.
+
+    Before this fix, the interrupt path in run_release's ``finally`` printed
+    only "Cleaning up after interrupt..." — no phase, no unlanded list, no
+    --resume-from hint. That silence is what let an operator's Ctrl-C during
+    a Phase 4/10 check-wait hang go unresolved without anyone noticing the
+    release was left mid-flight.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
+        release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        raise KeyboardInterrupt()
+
+    def _noop_reset(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_phase6_ci_wait", fake_ci_wait)
+    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False, resume_from="ci")
+
+    assert exc_info.value.code == 1
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "Release incomplete" in normalized
+    assert "phase 6 (ci)" in normalized
+    assert "Not confirmed landed:" in normalized
+    assert "--resume-from ci" in normalized
 
 
 def test_phase_name_round_trips_through_phase_names() -> None:

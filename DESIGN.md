@@ -1845,3 +1845,80 @@ plugin.
   `"source": "git-subdir"` + `"path": "plugin"` with a post-restructure
   `ref`. Until it does, installs keep working from the old `ref`; after it
   does, an install stops carrying `src/`, `tests/`, and `standards/`.
+
+## DES-029: Interrupt-Aware Polling, Not Interrupt-Aware Joining
+
+**Date:** 2026-08-31
+**Status:** SETTLED
+**Topic:** Why a SIGINT during Phase 10 needs the poll loop itself to check
+for the interrupt, not just the main thread's signal handler
+
+### Context: the vox v5.0.4 incident
+
+The vox v5.0.4 release's post-release PR (Phase 9: dev-restore + README SHA)
+landed on GitHub, but all three Phase 10 propagators (`.github`,
+`claude-plugins`, `public-website`) produced nothing, and Phase 11 never ran
+to flag the gap. Reconstructing from the code (no run log survived): the
+leading hypothesis is an operator interrupt during a Phase 10 sibling-PR
+check-wait hang — the same zero-checks hang pkit-plxh fixes — after which
+the release was never resumed and nobody noticed, because nothing printed a
+diagnosis.
+
+### The gap DES-018 didn't cover
+
+DES-018 documents the concurrency model: `_cleanup_handler` sets
+`_interrupted` and raises `KeyboardInterrupt` in the main thread; "after
+`ThreadPoolExecutor.__exit__` joins worker threads, the main release flow
+observes the interrupt." That description is accurate about the mechanism
+and silent about its timing. `ThreadPoolExecutor.__exit__` calls
+`shutdown(wait=True)` unconditionally — it blocks until every submitted task
+returns, regardless of the pending `KeyboardInterrupt` propagating past the
+`with` block. A worker thread polling `RequiredChecksWaiter.wait()` only
+checked a wall-clock deadline (7200s) before pkit-plxh/pkit-d7mz — it had no
+way to learn a SIGINT had fired, because **only the main thread receives a
+signal**; a worker thread's `time.sleep(15)` between polls just keeps
+sleeping. The net effect: pressing Ctrl-C during a Phase 10 hang did not
+abort the release. It queued an abort behind a join that could not complete
+for up to two hours. An operator who does not wait two hours for a
+terminal that looks frozen kills the process outright (SIGKILL, closing the
+pane) — bypassing `run_release`'s `finally` entirely, which is the only
+place that resets propagation siblings and now prints a diagnosis. Nothing
+is ever recorded as failed; the release just stops mid-flight.
+
+### Decision
+
+Every long-running poll loop that can run inside a `ThreadPoolExecutor`
+worker takes the shared `threading.Event` and checks `interrupted.is_set()`
+at the top of each iteration, alongside its own deadline check. Bounding the
+*wait*, not just handling the *signal*, is what lets `shutdown(wait=True)`
+return promptly — `RequiredChecksWaiter.wait()` is the first and, at time of
+writing, only such loop. The event is release.py's own module-level
+`_interrupted`; `RequiredChecksWaiter` and its collaborators only ever see it
+via an injected parameter (§1a's rule: nothing outside release.py touches
+the bare `_interrupted` name).
+
+Paired with this: `RequiredChecksWaiter.wait()`'s no-checks grace window
+(`NO_CHECKS_GRACE`, pkit-plxh) independently bounds the worst case even
+without an interrupt — a commit that will never register a check now fails
+in 5 minutes, not 2 hours, so the window during which an operator might
+reach for Ctrl-C in the first place is much shorter.
+
+On the orchestration side (`run_release`): an interrupt or a Phase 9/10
+failure now always prints, before the process exits, which phase it stopped
+in, every phase from there to the end that is not confirmed to have landed,
+the exact `--resume-from` command, and any outstanding manual actions
+(`ReleasePipeline.print_manual_actions`, extracted from the success-path
+summary so both paths share it). Phase 11 verify still runs after a caught
+Phase 9/10 failure — it is the actual check of what landed — and the
+release still exits non-zero afterward, crediting the resume hint to the
+phase that must be re-entered (post-release/propagate), not to verify,
+which would never retry the propagation it is reporting on.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Cancel the running futures on interrupt (`future.cancel()`) | `concurrent.futures` cannot cancel a future whose task has already started running — `cancel()` only works on tasks still queued. The propagator threads are already inside `RequiredChecksWaiter.wait()` by the time SIGINT fires; cancellation would silently no-op. |
+| Use `multiprocessing` with `terminate()` instead of threads | DES-018 already rejected this for the unrelated reason (no CPU-bound work, shared memory needed for error collection). Terminating a process mid-`git`/`gh` call risks a half-written propagation branch with no cleanup hook to run — worse than the current interrupted-but-diagnosed state. |
+| Shrink `CI_WATCH` (the overall 2-hour deadline) instead of adding an interrupt check | Fixes the worst case but not the actual complaint — an operator who wants to stop *now* still waits out whatever the shorter deadline is. The interrupt check is what makes Ctrl-C mean "now" instead of "eventually." |
+| Detect the stuck join with a watchdog thread and force-exit | Adds a second interrupt mechanism with its own race conditions (how long is "stuck"?) on top of the one Python already provides. Checking the existing `_interrupted` event from inside the loop that can actually observe it is simpler and has no new failure mode. |
