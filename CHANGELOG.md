@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Preflight now detects a prior release tag cut outside the release flow.** For plugin/hybrid projects, Phase 1 inspects the highest existing `v*` tag's `plugin.json` (via `git show <tag>:<manifest>`) and warns loudly — without failing — when the name is still `-dev`-suffixed or the version does not equal the tag itself. Neither condition blocks the release under way (that release is exactly what corrects it; `ethos v4.16.0` is the precedent), but an operator who did not expect the prior tag to be out of shape needs to know before the new tag lands on top of it. Silent when there are no tags, or when the manifest did not exist at that path at the tag (pkit-dlv6).
+
 ## [0.17.1] - 2026-08-30
 
 ## [0.17.0] - 2026-08-30

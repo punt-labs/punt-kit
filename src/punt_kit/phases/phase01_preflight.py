@@ -3,8 +3,9 @@ siblings, and (unless dry-run) quality gates."""
 
 from __future__ import annotations
 
+import json
 import re
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
@@ -113,6 +114,13 @@ class Phase1Preflight:
                 ops.fail("Missing release-plugin.sh or restore-dev-plugin.sh")
             ops.ok("Release/restore scripts present")
 
+            # A prior release cut outside this flow (a corrective/manual tag)
+            # leaves the highest tag's plugin manifest in a shape this
+            # release did not produce — warn loudly rather than fail, since
+            # the release under way is exactly how the situation gets fixed
+            # (ethos v4.16.0 is the precedent).
+            self._warn_stale_prior_tag(info)
+
         # 1c. Changelog check
         changelog = Changelog(info.root, ops=ops).text()
         if "## [Unreleased]" not in changelog:
@@ -187,3 +195,60 @@ class Phase1Preflight:
             ops.ok("All quality gates passed")
         elif dry_run:
             ops.dry("Would run quality gates")
+
+    def _warn_stale_prior_tag(self, info: ProjectInfo) -> None:
+        """Warn when the highest existing tag's plugin manifest is stale.
+
+        A tag cut outside ``punt release`` (a hand-run corrective release, an
+        aborted run that still pushed a tag, etc.) can leave the manifest at
+        that tag in the dev shell's name or at a version that does not match
+        the tag itself. Neither condition blocks the release under way —
+        that release is exactly what corrects it — but an operator who did
+        not expect the prior tag to be out of shape needs to know.
+
+        Silent when there are no tags at all, or when the manifest did not
+        exist at the highest tag's path (a pre-DES-025 layout move since that
+        tag, or a genuinely fresh project) — there is nothing to compare.
+        """
+        ops = self._ops
+        tag_result = ops.run(
+            ["git", "tag", "--list", "v*", "--sort=-v:refname"],
+            cwd=str(info.root),
+            check=False,
+        )
+        if tag_result.returncode != 0:
+            return
+        tags = tag_result.stdout.strip().splitlines()
+        if not tags:
+            return
+        tag = tags[0]
+
+        manifest_rel = info.plugin_manifest.relative_to(info.root).as_posix()
+        show = ops.run(
+            ["git", "show", f"{tag}:{manifest_rel}"],
+            cwd=str(info.root),
+            check=False,
+        )
+        if show.returncode != 0:
+            return
+        try:
+            data = cast("dict[str, object]", json.loads(show.stdout))
+        except json.JSONDecodeError:
+            return
+
+        name = str(data.get("name", ""))
+        version = str(data.get("version", ""))
+        expected_version = tag.removeprefix("v")
+        problems: list[str] = []
+        if name.endswith("-dev"):
+            problems.append(f"name is still '{name}' (not swapped to prod)")
+        if version != expected_version:
+            problems.append(f"version is '{version}', expected '{expected_version}'")
+
+        if problems:
+            ops.warn(
+                f"Prior tag {tag}'s {manifest_rel} looks like it was cut "
+                f"outside the release flow: {'; '.join(problems)}. This "
+                "release will correct it (see ethos v4.16.0 for precedent) "
+                "— verify that is what you expect."
+            )

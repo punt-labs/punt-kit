@@ -1932,6 +1932,89 @@ def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None
         _phase1_preflight(info, dry_run=False)
 
 
+# --- pkit-dlv6: preflight out-of-band tag detection ---
+
+
+def test_preflight_silent_with_no_prior_tags(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No tags at all — nothing to compare, nothing to warn about."""
+    root = _make_pure_plugin_project(tmp_path)
+    info = detect(root)
+
+    _phase1_preflight(info, dry_run=True)
+
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_preflight_silent_when_prior_tag_is_clean(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prior tag whose manifest is already prod-shaped is silent."""
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-pkg", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "swap to prod"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    _phase1_preflight(info, dry_run=True)
+
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_preflight_warns_when_prior_tag_still_carries_dev_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prior tag whose manifest never got swapped to prod warns loudly.
+
+    ``_make_pure_plugin_project`` scaffolds ``plugin.json`` with the ``-dev``
+    name and never swaps it, so tagging straight off that scaffold models a
+    release cut outside the normal Phase 4 plugin-swap flow.
+    """
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    _phase1_preflight(info, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "v0.1.0" in out
+    assert "test-dev" in out
+
+
+def test_preflight_warns_when_prior_tag_version_mismatches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prior tag whose manifest version does not match the tag warns."""
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-pkg", "version": "0.0.9"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "swap to prod at wrong version"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    _phase1_preflight(info, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "v0.1.0" in out
+    assert "0.0.9" in out
+
+
 # --- pvb: verify finds pure-plugin entries in install-all.sh ---
 
 
