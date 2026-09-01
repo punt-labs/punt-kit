@@ -2123,6 +2123,48 @@ def _protection_response(*, protected: bool) -> MagicMock:
     return result
 
 
+def _ruleset_response(*, governed: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../rules/branches/main`` call.
+
+    The endpoint returns a JSON array of active rules — non-empty when a
+    ruleset governs the branch, empty (never a non-zero exit) when none do.
+    """
+    result = MagicMock()
+    result.returncode = 0
+    result.stderr = ""
+    result.stdout = json.dumps([{"type": "required_status_checks"}] if governed else [])
+    return result
+
+
+def _is_protection_call(cmd: list[str]) -> bool:
+    """True if ``cmd`` is the legacy branch-protection ``gh api`` call."""
+    return cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection")
+
+
+def _is_ruleset_call(cmd: list[str]) -> bool:
+    """True if ``cmd`` is the ruleset ``gh api`` call."""
+    return cmd[:2] == ["gh", "api"] and cmd[2].endswith("/rules/branches/main")
+
+
+def _make_fake_clock(*, step: float = 60.0) -> Callable[[], float]:
+    """A monotonically increasing fake clock for grace-window tests.
+
+    Each call advances by ``step`` seconds, so a bounded wall-clock window
+    (e.g. ``NO_CHECKS_GRACE``) can be crossed in a handful of calls instead
+    of the test actually sleeping in real time. Paired with a no-op
+    ``time.sleep`` patch, since ``_wait_for_required_checks`` sleeps between
+    polls but the fake clock — not real elapsed time — is what the deadline
+    checks read.
+    """
+    state = {"now": 1_000_000.0}
+
+    def _clock() -> float:
+        state["now"] += step
+        return state["now"]
+
+    return _clock
+
+
 def test_graphql_no_required_checks_response_shape() -> None:
     """The empty-contexts fixture nests under the same path as a real poll."""
     response = _graphql_no_required_checks_response()
@@ -2176,6 +2218,10 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
 
     def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
         nonlocal call_count
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         call_count += 1
         result = MagicMock()
         result.returncode = 0
@@ -2186,10 +2232,9 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
-    # 2, not 1 — the pre-loop branch-protection check (f85t.4) is call 1;
-    # this fake returns returncode=0 for every cmd, so it reads as
-    # protected=True and the graphql poll below is call 2.
-    assert call_count == 2
+    # One graphql poll — the pre-loop branch-protection and ruleset checks
+    # are intercepted separately and are not counted here.
+    assert call_count == 1
 
 
 def test_wait_for_required_checks_fails_on_required_failure(
@@ -2338,6 +2383,10 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal call_count
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         call_count += 1
         if call_count == 1:
             raise subprocess.TimeoutExpired(cmd, 60)
@@ -2515,12 +2564,20 @@ def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
 def test_wait_for_required_checks_still_requires_only_required_when_protected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regression guard: branch protection still narrows to isRequired checks."""
+    """Regression guard: branch protection still narrows to isRequired checks.
+
+    The commit never registers a required check (every poll returns the
+    empty-contexts fixture), so the no-checks grace window trips — the fake
+    clock crosses it in a handful of iterations instead of the test
+    sleeping for ``NO_CHECKS_GRACE`` real seconds.
+    """
     from punt_kit import release as release_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         result = MagicMock()
         result.returncode = 0
         result.stdout = json.dumps(_graphql_no_required_checks_response())
@@ -2533,7 +2590,8 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    with pytest.raises(ReleaseError, match="No required checks found"):
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    with pytest.raises(ReleaseError, match="No CI checks registered"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -2557,8 +2615,10 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     ]
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=False)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         result = MagicMock()
         result.returncode = 0
         result.stdout = json.dumps(_graphql_checks_response(check_nodes))
@@ -2570,7 +2630,243 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     _wait_for_required_checks("gh", "/tmp", 42)
 
     printed = capsys.readouterr().out
-    assert printed.count("No branch protection configured") == 1
+    assert printed.count("No branch protection or ruleset configured") == 1
+
+
+# --- pkit-plxh: ruleset awareness + no-checks grace window ---
+
+
+def test_has_ruleset_true_when_rules_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-empty rules array means the branch is ruleset-governed."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _ruleset_response(governed=True)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "ethos"
+        )
+        is True
+    )
+
+
+def test_has_ruleset_false_when_rules_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty rules array means no ruleset governs the branch."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _ruleset_response(governed=False)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is False
+    )
+
+
+def test_has_ruleset_false_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-zero exit fails safe to "no ruleset", same direction as a timeout."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: API rate limit exceeded"
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is False
+    )
+
+
+def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ruleset-governed repo with no legacy branch protection is not warned
+    about, and required checks are still honored (the ethos main shape).
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+        {
+            "name": "Claude Code Review",
+            "isRequired": False,
+            "conclusion": None,
+            "status": "IN_PROGRESS",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=False)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=True)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    # Should not raise — the ruleset governs, so isRequired narrows to
+    # "lint" alone, and the in-progress non-required review is ignored.
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+    out = capsys.readouterr().out
+    assert "No branch protection or ruleset configured" not in out
+    assert "Required CI checks passed: lint" in out
+
+
+def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A commit that never registers a check fails loudly, not after 2 hours.
+
+    Models the ethos #496 shape: a post-release commit carrying [skip ci],
+    so ``statusCheckRollup`` stays null on every poll. The fake clock
+    crosses ``NO_CHECKS_GRACE`` in a few iterations; the failure names the
+    likely causes an operator needs to check.
+    """
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_null_rollup_response())
+        result.stderr = ""
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+
+    with pytest.raises(ReleaseError, match="No CI checks registered") as exc_info:
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+    message = str(exc_info.value)
+    assert "skip ci" in message
+    assert "paths" in message
+
+
+def test_wait_for_required_checks_late_arriving_checks_still_proceed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Checks that register partway through the grace window still pass.
+
+    Several no-checks polls elapse (well inside ``NO_CHECKS_GRACE``) before
+    the check appears — the grace window must not trip on a commit whose
+    checks are merely slow to attach, only on one that never gets any.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    calls = 0
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        nonlocal calls
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        calls += 1
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if calls < 3:
+            result.stdout = json.dumps(_graphql_null_rollup_response())
+        else:
+            result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    # A small step keeps every poll well inside NO_CHECKS_GRACE (300s) even
+    # across several no-checks iterations, unlike the expiry test's clock.
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock(step=5.0))
+
+    # Should not raise — checks arrive on the third poll, inside the window.
+    _wait_for_required_checks("gh", "/tmp", 42)
+    assert calls == 3
+
+
+def test_wait_for_required_checks_stops_promptly_when_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An interrupt raised while a worker thread is blocked in the poll loop
+    is observed within one iteration, not only after the two-hour deadline.
+
+    This is the direct regression guard for pkit-d7mz: without checking
+    ``interrupted`` inside the loop, a worker thread polling here has no way
+    to learn that the main thread's signal handler fired — only the main
+    thread receives SIGINT — so it would keep polling for up to two hours,
+    blocking ``ThreadPoolExecutor.__exit__``'s join for the same span.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+    try:
+        with pytest.raises(ReleaseError, match="Interrupted while waiting"):
+            _wait_for_required_checks("gh", "/tmp", 42)
+    finally:
+        release_mod._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 # --- _reset_propagation_siblings ---
@@ -6063,8 +6359,10 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         calls += 1
         result = MagicMock()
         result.returncode = 0
@@ -6116,8 +6414,10 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         calls += 1
         result = MagicMock()
         result.returncode = 0

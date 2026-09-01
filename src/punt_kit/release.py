@@ -294,10 +294,31 @@ def _branch_protection_exists(  # pyright: ignore[reportUnusedFunction]
     return GithubRepo(Path(cwd), ops=_ops).has_branch_protection(gh, owner, repo_name)
 
 
+def _has_ruleset(  # pyright: ignore[reportUnusedFunction]
+    gh: str, cwd: str, owner: str, repo_name: str
+) -> bool:
+    """True if a GitHub ruleset (not the legacy branch-protection API)
+    governs ``main``.
+
+    No caller remains in this module — RequiredChecksWaiter.wait calls
+    self._repo.has_ruleset directly. Kept importable for public API
+    preservation.
+    """
+    return GithubRepo(Path(cwd), ops=_ops).has_ruleset(gh, owner, repo_name)
+
+
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
-    """Poll required CI checks until all pass or any fail."""
+    """Poll required CI checks until all pass or any fail.
+
+    Passes this module's own ``_interrupted`` event through — a worker
+    thread blocked here (Phase 4's PR, or a Phase 10 sibling PR merged
+    concurrently) never receives the SIGINT that sets it directly, only the
+    main thread does, so the waiter must poll the shared event itself to
+    learn about an interrupt promptly instead of only after the two-hour
+    deadline.
+    """
     RequiredChecksWaiter(GithubRepo(Path(cwd), ops=_ops), ops=_ops).wait(
-        gh, cwd, pr_number, resolve_repo=_get_github_repo
+        gh, cwd, pr_number, resolve_repo=_get_github_repo, interrupted=_interrupted
     )
 
 

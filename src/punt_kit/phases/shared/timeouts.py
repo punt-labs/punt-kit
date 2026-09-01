@@ -65,3 +65,18 @@ CI_WATCH = 7200
 # two-hour budget — a listing that blocks that long has failed, and waiting
 # on it burns the poll window that exists to find the run.
 CI_RUN_LIST = 60
+
+# ---------------------------------------------------------------------------
+# RequiredChecksWaiter's no-checks grace window.
+# ---------------------------------------------------------------------------
+# A commit that will never register a single check — [skip ci] on the head
+# commit, or every workflow's `paths:` filter excluding every changed file —
+# looks identical, from the poll loop's point of view, to a commit whose
+# checks just haven't started yet. Left unbounded, the loop waits out the
+# full CI_WATCH deadline (two hours) before failing, which is what let the
+# ethos #496 post-release PR (carrying [skip ci]) hang the release instead of
+# failing fast. Five minutes is long enough for GitHub to attach the first
+# CheckRun to a commit that has any workflows to run at all, and short
+# enough that a genuine zero-checks misconfiguration surfaces as a fast,
+# actionable failure instead of a silent multi-hour stall.
+NO_CHECKS_GRACE = 300
