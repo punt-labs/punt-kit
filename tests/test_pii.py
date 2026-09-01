@@ -112,7 +112,7 @@ def test_allows_runner_paths(tmp_path: Path) -> None:
 
 def test_detects_hostname(tmp_path: Path) -> None:
     """user@host.local patterns are detected."""
-    (tmp_path / "recording.txt").write_text("prompt: jfreeman@m2-mb-air.local\n")
+    (tmp_path / "recording.txt").write_text("prompt: jdoe@example-machine.local\n")
     config = PiiConfig()
     findings = scan_file("recording.txt", tmp_path, config)
     assert len(findings) == 1
