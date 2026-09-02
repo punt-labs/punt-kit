@@ -449,7 +449,10 @@ class RequiredChecksWaiter:
         """
         if time.time() <= no_checks_deadline:
             return
-        grace_minutes = NO_CHECKS_GRACE // 60
+        # Ceiling division: a non-minute-multiple grace window (e.g.
+        # 90s) must round up to "2 minutes", not floor to "1 minute"
+        # and under-report how long the wait actually was.
+        grace_minutes = -(-NO_CHECKS_GRACE // 60)
         if checks_present:
             self._ops.fail(
                 f"CI checks are registered on PR #{pr_number}, but none are "

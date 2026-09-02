@@ -712,7 +712,7 @@ def _print_incomplete_release(current_phase_num: int) -> None:
             "above before choosing --resume-from."
         )
     else:
-        console.print(f"  Resume with: --resume-from {phase_label}")
+        console.print(f"  Resume with: punt release --resume-from {phase_label}")
     ReleasePipeline.print_manual_actions(_skips)
 
 
@@ -972,7 +972,7 @@ def run_release(
         else:
             resume_hint = (
                 f"Investigate the command, then resume with "
-                f"--resume-from {phase_label}."
+                f"punt release --resume-from {phase_label}."
             )
             location = f"in phase {current_phase_num} ({phase_label})"
         console.print(

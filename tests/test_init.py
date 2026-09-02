@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tomllib
 from pathlib import Path
@@ -14,15 +15,26 @@ from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 _EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
 
 
-def _no_bd(_name: str) -> str | None:
-    """A ``shutil.which`` stand-in reporting ``bd`` is not installed.
+_real_which = shutil.which
+
+
+def _no_bd(
+    cmd: str, mode: int = os.F_OK | os.X_OK, path: str | None = None
+) -> str | None:
+    """A ``shutil.which`` stand-in reporting only ``bd`` as not installed.
 
     Tests asserting exact post-``run_init`` file content must not depend on
     whatever gitignore patterns the locally installed ``bd`` binary's own
     ``init`` appends — that behavior belongs to bd, and drifts independently
-    of this repo's release.
+    of this repo's release. Every other lookup delegates to the real
+    ``shutil.which`` (signature mirrored exactly, not ``*args``/``**kwargs``,
+    so a call passing ``mode``/``path`` type-checks and behaves identically
+    to the unpatched function) — a blanket ``None`` for every command would
+    silently disable other ``which()`` lookups a future call site adds.
     """
-    return None
+    if cmd == "bd":
+        return None
+    return _real_which(cmd, mode, path)
 
 
 def test_init_creates_docs_workflow(tmp_path: Path) -> None:

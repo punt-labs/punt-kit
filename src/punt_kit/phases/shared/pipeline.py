@@ -106,8 +106,12 @@ class ThreadedStep:
         if errors:
             for name, err in errors:
                 _console.print(f"  [red]✗[/red] {name}: {err}")
-            names = ", ".join(n for n, _ in errors)
-            self._ops.fail(f"{len(errors)} task(s) failed: {names}")
+            # Carries each task's own error text, not just its name — this
+            # message is what callers like Phase10Propagate record into
+            # SkipRecorder for the end-of-run recap, and "install-all.sh:
+            # boom" tells the operator more than ".github" alone does.
+            details = "; ".join(f"{name}: {err}" for name, err in errors)
+            self._ops.fail(f"{len(errors)} task(s) failed: {details}")
 
 
 @final
