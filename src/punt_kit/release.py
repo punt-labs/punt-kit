@@ -294,10 +294,34 @@ def _branch_protection_exists(  # pyright: ignore[reportUnusedFunction]
     return GithubRepo(Path(cwd), ops=_ops).has_branch_protection(gh, owner, repo_name)
 
 
+def _has_ruleset(  # pyright: ignore[reportUnusedFunction]
+    gh: str, cwd: str, owner: str, repo_name: str
+) -> bool:
+    """True if a GitHub ruleset (not the legacy branch-protection API)
+    governs ``main``.
+
+    No production caller in this module — RequiredChecksWaiter.wait calls
+    self._repo.has_ruleset directly. Kept as a bare module-level name
+    (mirroring ``_branch_protection_exists``) purely as a test seam:
+    ``monkeypatch.setattr(release_mod, "_run", ...)`` reaches
+    ``GithubRepo.has_ruleset`` through this wrapper the same way it reaches
+    every other collaborator built on the shared ``_ops`` adapter.
+    """
+    return GithubRepo(Path(cwd), ops=_ops).has_ruleset(gh, owner, repo_name)
+
+
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
-    """Poll required CI checks until all pass or any fail."""
+    """Poll required CI checks until all pass or any fail.
+
+    Passes this module's own ``_interrupted`` event through — a worker
+    thread blocked here (Phase 4's PR, or a Phase 10 sibling PR merged
+    concurrently) never receives the SIGINT that sets it directly, only the
+    main thread does, so the waiter must poll the shared event itself to
+    learn about an interrupt promptly instead of only after the two-hour
+    deadline.
+    """
     RequiredChecksWaiter(GithubRepo(Path(cwd), ops=_ops), ops=_ops).wait(
-        gh, cwd, pr_number, resolve_repo=_get_github_repo
+        gh, cwd, pr_number, resolve_repo=_get_github_repo, interrupted=_interrupted
     )
 
 
@@ -545,7 +569,7 @@ def _collect_thread_results(
 
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 10: Local cross-repo propagation via PRs."""
-    Phase10Propagate(info, version, dry_run=dry_run, ops=_ops).run(
+    Phase10Propagate(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run(
         reset_propagation_siblings=_reset_propagation_siblings,
         propagate_install_all=_propagate_install_all,
         propagate_marketplace=_propagate_marketplace,
@@ -650,6 +674,48 @@ def _phase_name(number: int) -> str:
     return "unknown"
 
 
+def _unlanded_phases(current_phase_num: int) -> tuple[str, ...]:
+    """Phase names from ``current_phase_num`` through the end.
+
+    This is the portion of the pipeline that has not been confirmed to land
+    when a release stops early — the phase that was running when the stop
+    happened, plus everything after it that never got a chance to run.
+    """
+    if not 1 <= current_phase_num <= len(_PHASE_ORDER):
+        return _PHASE_ORDER
+    return _PHASE_ORDER[current_phase_num - 1 :]
+
+
+def _print_incomplete_release(current_phase_num: int) -> None:
+    """Report exactly what didn't land and how to finish, on any non-success exit.
+
+    Called from every stop-early path — an interrupt, a propagation
+    failure that Phase 11 still ran to confirm, or any other
+    ``ReleaseError`` — so an operator staring at a failed release always
+    gets the same three answers: where it stopped, what that leaves
+    unconfirmed, and the exact command to re-enter. Before this, only the
+    ``subprocess.TimeoutExpired`` path gave a resume hint; every other exit
+    (including the interrupt path, which is what let vox v5.0.4's Phase 10
+    hang go unresolved) printed nothing more actionable than the bare error.
+    """
+    phase_label = _phase_name(current_phase_num)
+    unlanded = _unlanded_phases(current_phase_num)
+    console.print(
+        f"[red]Release incomplete[/red] — stopped during phase "
+        f"{current_phase_num} ({phase_label})."
+    )
+    if unlanded:
+        console.print(f"  Not confirmed landed: {', '.join(unlanded)}")
+    if phase_label == "unknown":
+        console.print(
+            "  A phase could not be identified — investigate the error "
+            "above before choosing --resume-from."
+        )
+    else:
+        console.print(f"  Resume with: punt release --resume-from {phase_label}")
+    ReleasePipeline.print_manual_actions(_skips)
+
+
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
@@ -742,6 +808,13 @@ def run_release(
                 source = "git tags" if info.language == "go" else "pyproject.toml"
                 _info(f"Detected version {version} from {source}")
 
+        # Phase 9/10 failures are recorded here (phase number, message)
+        # rather than raised immediately — the release still runs Phase 11
+        # so the operator gets a real verify report of what actually landed
+        # before the run fails loudly. Empty on every path that never hits
+        # the propagation step, and reset per run since it is function-local.
+        propagation_failures: list[tuple[int, str]] = []
+
         try:
 
             def _step2() -> None:
@@ -789,9 +862,28 @@ def run_release(
                 # TimeoutExpired there is a propagate hang, and telling the
                 # operator `--resume-from post-release` would re-run phase
                 # 9. Credit the phase that is actually executing.
+                #
+                # A ReleaseError here is caught, not raised — Phase 11 still
+                # runs against the actual post-propagation state so its own
+                # checks report exactly what did and didn't land, instead of
+                # the pipeline stopping before verify ever sees the failure
+                # (pkit-d7mz). The failure is not swallowed: recorded here,
+                # it is re-raised as a hard failure once the pipeline
+                # finishes, so the release still exits non-zero.
                 nonlocal current_phase_num
-                current_phase_num = 9 if start <= 9 else 10
-                _run_phases_9_10(info, version, dry_run=dry_run, start=start)
+                phase_num = 9 if start <= 9 else 10
+                current_phase_num = phase_num
+                try:
+                    _run_phases_9_10(info, version, dry_run=dry_run, start=start)
+                except ReleaseError as exc:
+                    propagation_failures.append((phase_num, str(exc)))
+                    console.print(
+                        f"[yellow]Phase {phase_num} did not fully land: {exc}[/yellow]"
+                    )
+                    console.print(
+                        "[yellow]Continuing to Phase 11 verify to confirm "
+                        "the actual state before failing.[/yellow]"
+                    )
 
             def _step11() -> None:
                 nonlocal current_phase_num
@@ -816,7 +908,30 @@ def run_release(
                 ),
                 ops=_ops,
             )
-            pipeline.run(start=start)
+            try:
+                pipeline.run(start=start)
+            except ReleaseError:
+                # Phase 11 (or a later phase) raised on top of an already-
+                # recorded propagation failure — point --resume-from back at
+                # the phase that actually needs re-running (post-release,
+                # which re-enters both P9 and P10) rather than at whatever
+                # later phase's own current_phase_num happened to be set
+                # when it raised. Re-running verify alone would never retry
+                # the propagation that verify's own checks are reporting on.
+                if propagation_failures:
+                    current_phase_num = min(n for n, _ in propagation_failures)
+                raise
+
+            if propagation_failures:
+                # Phase 11 ran and did not itself raise — the propagation
+                # failure still must not read as a successful release.
+                details = "; ".join(msg for _, msg in propagation_failures)
+                worst_phase_num = min(n for n, _ in propagation_failures)
+                current_phase_num = worst_phase_num
+                _fail(
+                    f"Release did not fully land — Phase {worst_phase_num} "
+                    f"reported: {details}"
+                )
 
             pipeline.summarize(
                 info,
@@ -829,8 +944,10 @@ def run_release(
             if _interrupted.is_set():
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
+                _print_incomplete_release(current_phase_num)
                 sys.exit(1)
     except ReleaseError:
+        _print_incomplete_release(current_phase_num)
         raise SystemExit(1) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
@@ -855,7 +972,7 @@ def run_release(
         else:
             resume_hint = (
                 f"Investigate the command, then resume with "
-                f"--resume-from {phase_label}."
+                f"punt release --resume-from {phase_label}."
             )
             location = f"in phase {current_phase_num} ({phase_label})"
         console.print(
@@ -863,4 +980,5 @@ def run_release(
             f"`{cmd_str}` did not return within {exc.timeout}s. "
             f"{resume_hint}"
         )
+        ReleasePipeline.print_manual_actions(_skips)
         raise SystemExit(1) from None

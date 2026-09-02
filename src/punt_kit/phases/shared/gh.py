@@ -9,7 +9,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
 from urllib.parse import urlparse
 
+from punt_kit.phases.shared.timeouts import NO_CHECKS_GRACE
+
 if TYPE_CHECKING:
+    import threading
     from collections.abc import Callable
 
     from punt_kit.phases.shared.ops import ReleaseOps
@@ -92,6 +95,42 @@ class GithubRepo:
         combined = (result.stderr + result.stdout).lower()
         return "branch not protected" not in combined
 
+    def has_ruleset(self, gh: str, owner: str, repo_name: str) -> bool:
+        """True if a GitHub ruleset (not the legacy branch-protection API)
+        governs ``main``.
+
+        ``gh api repos/{owner}/{repo}/rules/branches/main`` returns the list
+        of *active* rules for the branch — a JSON array, empty when no
+        ruleset targets it. This is a distinct mechanism from classic branch
+        protection: a repo can be fully governed (required status checks,
+        required conversation resolution) by a ruleset while
+        ``has_branch_protection`` reports "branch not protected", because
+        the legacy endpoint only ever sees the legacy feature. ``ethos``
+        governs ``main`` this way — 2 required status checks plus
+        conversation resolution, entirely via rulesets.
+
+        Fail-safe direction matches ``has_branch_protection``: any failure
+        to positively confirm a ruleset (timeout, non-zero exit, unparsable
+        body) reports ``False`` rather than risk suppressing the "no branch
+        protection" warning on a repo that turns out to be genuinely
+        unprotected.
+        """
+        try:
+            result = self._ops.run(
+                [gh, "api", f"repos/{owner}/{repo_name}/rules/branches/main"],
+                cwd=str(self._root),
+                check=False,
+            )
+        except subprocess.TimeoutExpired:
+            return False
+        if result.returncode != 0:
+            return False
+        try:
+            rules = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(rules, list) and len(cast("list[object]", rules)) > 0
+
 
 @final
 class RequiredChecksWaiter:
@@ -115,6 +154,7 @@ class RequiredChecksWaiter:
         pr_number: int,
         *,
         resolve_repo: Callable[[Path], str | None],
+        interrupted: threading.Event,
     ) -> None:
         """Poll required CI checks until all pass or any fail.
 
@@ -122,16 +162,27 @@ class RequiredChecksWaiter:
         N)`` which the ``gh pr view --json statusCheckRollup`` path cannot
         populate (the ``isRequired`` field is always null without the PR
         number argument). Ignores non-required checks (e.g. Anthropic's
-        'Claude Code Review') when the repo has branch protection
-        configured. A repo with none configured has no ``isRequired``
-        checks at all, so this falls back to waiting for every check
-        instead of failing after the no-required-checks timeout.
+        'Claude Code Review') when the repo is governed — by legacy branch
+        protection or by a modern ruleset. A repo governed by neither has no
+        ``isRequired`` checks at all, so this falls back to waiting for
+        every check instead of failing after the no-checks grace window.
 
         ``resolve_repo`` is injected rather than calling
         ``self._repo.resolve()`` directly so callers that expose repo
         resolution as a monkeypatchable seam
         (``punt_kit.release._get_github_repo``) can pass that seam through
         unchanged.
+
+        ``interrupted`` is release.py's own ``threading.Event`` — checked at
+        the top of every loop iteration so an operator's Ctrl-C reaches a
+        worker thread blocked here (e.g. inside Phase 10's sibling PR merge)
+        within one poll interval instead of only after the full two-hour
+        deadline. Worker threads never receive the SIGINT that sets the
+        event directly — only the main thread does — so without this check a
+        hung wait blocks ``ThreadPoolExecutor.__exit__``'s join for the
+        remainder of the deadline, which is what let interrupting a vox
+        v5.0.4-style hang leave the release silently unfinished instead of
+        failing fast (pkit-d7mz).
         """
         repo_slug = resolve_repo(Path(cwd))
         if not repo_slug or "/" not in repo_slug:
@@ -141,19 +192,21 @@ class RequiredChecksWaiter:
         owner, repo_name = repo_slug.split("/", 1)
 
         branch_protected = self._repo.has_branch_protection(gh, owner, repo_name)
-        if not branch_protected:
+        ruleset_governed = self._repo.has_ruleset(gh, owner, repo_name)
+        governed = branch_protected or ruleset_governed
+        if not governed:
             self._ops.warn(
-                f"No branch protection configured on {owner}/{repo_name}'s main "
-                "branch — waiting for ALL checks to pass instead of only required "
-                "ones"
+                f"No branch protection or ruleset configured on {owner}/{repo_name}'s "
+                "main branch — waiting for ALL checks to pass instead of only "
+                "required ones"
             )
 
         self._ops.info(
-            f"Waiting for {'required' if branch_protected else 'all'} CI checks "
+            f"Waiting for {'required' if governed else 'all'} CI checks "
             f"on PR #{pr_number}..."
         )
         deadline = time.time() + 7200
-        no_checks_attempts = 0
+        no_checks_deadline = time.time() + NO_CHECKS_GRACE
         consecutive_errors = 0
 
         query = (
@@ -189,6 +242,11 @@ class RequiredChecksWaiter:
         )
 
         while time.time() < deadline:
+            if interrupted.is_set():
+                self._ops.fail(
+                    f"Interrupted while waiting for CI checks on PR #{pr_number} — "
+                    "resume once checks are healthy."
+                )
             try:
                 result = self._ops.run(
                     [gh, "api", "graphql", "-f", f"query={query}"],
@@ -274,6 +332,9 @@ class RequiredChecksWaiter:
                 # the operator to read warnings as noise. Say what is
                 # actually happening and keep waiting.
                 if rollup is None:
+                    self._no_checks_grace_check(
+                        no_checks_deadline, pr_number, checks_present=False
+                    )
                     self._ops.info(
                         "No checks registered on the commit yet — waiting..."
                     )
@@ -323,31 +384,23 @@ class RequiredChecksWaiter:
                     )
 
             relevant = (
-                [c for c in checks if c.get("isRequired")]
-                if branch_protected
-                else checks
+                [c for c in checks if c.get("isRequired")] if governed else checks
             )
-            # "Required" only means something when branch protection is what
-            # narrowed the check set — otherwise every check is being waited on.
-            prefix = "Required " if branch_protected else ""
+            # "Required" only means something when the repo is governed —
+            # otherwise every check is being waited on.
+            prefix = "Required " if governed else ""
 
             if not relevant:
-                no_checks_attempts += 1
-                if no_checks_attempts > 24:  # 2 minutes at 5s intervals
-                    found_label = "required checks" if branch_protected else "CI checks"
-                    hint = (
-                        "check branch protection configuration"
-                        if branch_protected
-                        else "check that CI is configured and running for this PR"
-                    )
-                    self._ops.fail(
-                        f"No {found_label} found on PR #{pr_number} after 2 "
-                        f"minutes — {hint}"
-                    )
+                # ``checks`` (pre-isRequired-filter) distinguishes two
+                # distinct zero-check states: nothing has attached to the
+                # commit yet (checks empty), vs. checks have attached but
+                # none are required (checks non-empty, relevant empty —
+                # only possible when governed).
+                self._no_checks_grace_check(
+                    no_checks_deadline, pr_number, checks_present=bool(checks)
+                )
                 time.sleep(5)
                 continue
-
-            no_checks_attempts = 0
 
             failed = [
                 c
@@ -372,8 +425,50 @@ class RequiredChecksWaiter:
             self._ops.info(f"Waiting for: {names}")
             time.sleep(15)
 
-        label = "required" if branch_protected else "all"
+        label = "required" if governed else "all"
         self._ops.fail(f"Timed out waiting for {label} CI checks on PR #{pr_number}")
+
+    def _no_checks_grace_check(
+        self, no_checks_deadline: float, pr_number: int, *, checks_present: bool
+    ) -> None:
+        """Fail loudly once the no-checks grace window expires.
+
+        Called from both zero-``relevant``-check states — a null
+        ``statusCheckRollup`` (no CheckRun has attached to the commit at
+        all) and a non-null rollup whose ``contexts`` list has nothing
+        relevant — because both mean "there is nothing to wait on yet" from
+        the caller's point of view and must share one bounded window rather
+        than each restarting it. ``checks_present`` distinguishes the two
+        for the failure message: ``False`` means nothing has registered on
+        the commit at all (a null rollup); ``True`` means checks exist but
+        none are required (a non-null rollup whose contexts were filtered
+        to empty by the ``isRequired`` narrowing — only possible when the
+        repo is governed). Never merges a PR on the strength of zero
+        checks: this always raises, so the caller can only proceed once a
+        required check registers.
+        """
+        if time.time() <= no_checks_deadline:
+            return
+        # Ceiling division: a non-minute-multiple grace window (e.g.
+        # 90s) must round up to "2 minutes", not floor to "1 minute"
+        # and under-report how long the wait actually was.
+        grace_minutes = -(-NO_CHECKS_GRACE // 60)
+        if checks_present:
+            self._ops.fail(
+                f"CI checks are registered on PR #{pr_number}, but none are "
+                f"required, and none became required within {grace_minutes} "
+                "minutes. Likely causes: branch protection/ruleset names a "
+                "required check that has not run on this PR, or the wrong "
+                "workflow is configured as required. Fix the required-checks "
+                "configuration, then resume."
+            )
+        self._ops.fail(
+            f"No CI checks registered at all on PR #{pr_number} within "
+            f"{grace_minutes} minutes. Likely causes: a `[skip ci]` marker "
+            "on the head commit, or every workflow's `paths:` filter "
+            "excluding the changed files. Fix the commit or workflow "
+            "configuration, then resume."
+        )
 
 
 @final

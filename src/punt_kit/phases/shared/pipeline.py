@@ -106,8 +106,12 @@ class ThreadedStep:
         if errors:
             for name, err in errors:
                 _console.print(f"  [red]✗[/red] {name}: {err}")
-            names = ", ".join(n for n, _ in errors)
-            self._ops.fail(f"{len(errors)} task(s) failed: {names}")
+            # Carries each task's own error text, not just its name — this
+            # message is what callers like Phase10Propagate record into
+            # SkipRecorder for the end-of-run recap, and "install-all.sh:
+            # boom" tells the operator more than ".github" alone does.
+            details = "; ".join(f"{name}: {err}" for name, err in errors)
+            self._ops.fail(f"{len(errors)} task(s) failed: {details}")
 
 
 @final
@@ -131,6 +135,24 @@ class ReleasePipeline:
             if step.number < start:
                 continue
             step.run()
+
+    @staticmethod
+    def print_manual_actions(skips: SkipRecorder) -> None:
+        """Drain and print every retained skip/failure notice, if any.
+
+        Shared between the success-path summary (``summarize``, below) and
+        ``run_release``'s incomplete-release reporting — an interrupted or
+        partially-failed run never reaches ``summarize``, but the operator
+        still needs the same recap of outstanding manual actions, including
+        any Phase 10 leg failure ``Phase10Propagate`` recorded here before
+        re-raising.
+        """
+        skipped = skips.drain()
+        if skipped:
+            _console.print("[bold yellow]⚠ Manual action required[/bold yellow]")
+            for notice in skipped:
+                _console.print(f"  [yellow]•[/yellow] {notice}")
+            _console.print()
 
     def summarize(
         self,
@@ -170,13 +192,8 @@ class ReleasePipeline:
             _console.print("  Restart Claude Code to pick up marketplace changes.")
         _console.print()
 
-        # Recap every propagation/verification step skipped mid-run. Drained
-        # here so the operator sees the outstanding manual actions as the
-        # last thing printed, even if the inline warnings scrolled past
-        # during concurrent Phase 10 work.
-        skipped = skips.drain()
-        if skipped:
-            _console.print("[bold yellow]⚠ Manual action required[/bold yellow]")
-            for notice in skipped:
-                _console.print(f"  [yellow]•[/yellow] {notice}")
-            _console.print()
+        # Recap every propagation/verification step skipped mid-run — the
+        # operator sees outstanding manual actions as the last thing
+        # printed, even if the inline warnings scrolled past during
+        # concurrent Phase 10 work.
+        self.print_manual_actions(skips)

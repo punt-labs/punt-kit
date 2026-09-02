@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -412,12 +413,13 @@ class WebsitePropagator:
 class Phase10Propagate:
     """Phase 10: local cross-repo propagation via PRs, run concurrently."""
 
-    __slots__ = ("_dry_run", "_info", "_ops", "_version")
+    __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
     _info: ProjectInfo
     _version: str
     _dry_run: bool
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
     def __new__(
         cls,
@@ -426,12 +428,14 @@ class Phase10Propagate:
         *,
         dry_run: bool,
         ops: ReleaseOps,
+        skips: SkipRecorder,
     ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._version = version
         self._dry_run = dry_run
         self._ops = ops
+        self._skips = skips
         return self
 
     def run(
@@ -477,4 +481,13 @@ class Phase10Propagate:
                     propagate_website, info, version, dry_run=dry_run
                 ): "public-website",
             }
-            ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)
+            try:
+                ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)
+            except ReleaseError as exc:
+                # Recorded before re-raising: the summary drains _skips even
+                # when the pipeline stops before reaching a successful
+                # pipeline.summarize() call, so a thread failure here still
+                # reaches the end-of-run recap — not only recorded skips
+                # (an absent sibling, etc.) as before.
+                self._skips.record(f"FAILED — Phase 10 propagation: {exc}")
+                raise

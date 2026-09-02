@@ -69,6 +69,22 @@ def isolate_skip_recorder() -> Iterator[None]:
     release._skips.clear()  # pyright: ignore[reportPrivateUsage]
 
 
+@pytest.fixture(autouse=True)
+def isolate_interrupted_event() -> Iterator[None]:
+    """Clear the module-scoped interrupt event around every test.
+
+    ``release._interrupted`` persists for the process; a test that sets it
+    to exercise the interrupt path (directly, or via a mocked phase raising
+    ``KeyboardInterrupt``) would otherwise leak it into every later test —
+    including unrelated ``_wait_for_required_checks`` tests, which now check
+    this same event on every poll iteration (pkit-d7mz/pkit-plxh) and would
+    fail immediately with "Interrupted" on a leaked, already-set event.
+    """
+    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+
+
 def _git(args: list[str], cwd: str) -> None:
     """Run a git command with standard options."""
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
@@ -1386,6 +1402,181 @@ def test_propagate_marketplace_updates_version(
     assert len(calls) == 1
 
 
+def _always_merges_sibling(
+    path: Path,
+    branch: str,
+    files: list[str],
+    message: str,
+    name: str,
+    *,
+    dry_run: bool,
+) -> bool:
+    """A ``_sibling_pr_merge`` stand-in that reports every sibling PR merged.
+
+    Used by tests that only care whether ``MarketplacePropagator`` found and
+    rewrote the right entry, not whether the (separately tested) sibling-PR
+    machinery ran.
+    """
+    return True
+
+
+def test_propagate_marketplace_matches_by_marketplace_short_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Matches by the plugin's marketplace short name even when the entry's
+    ``source.url`` points somewhere that does not end in the project's repo
+    name — e.g. a renamed or forked upstream URL that predates a rename.
+
+    Regression coverage for pkit-p328/pkit-d8ij: marketplace entries key on
+    the plugin's short name (``punt``), not the PyPI distribution name
+    (``punt-kit``) or a URL that happens to match the repo. ``proj``'s
+    manifest name (``test-dev`` in the base fixture) is overridden here so
+    the marketplace short name ("punt") diverges from both the git remote's
+    repo name ("punt-kit") and the entry's (deliberately non-matching) URL.
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "punt-dev", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "rename plugin manifest"], cwd=d)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/punt-kit.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "punt",
+                "version": "0.1.0",
+                "source": {
+                    # Deliberately does not end in "/punt-kit" — the name
+                    # candidate must carry the match on its own.
+                    "url": "https://github.com/some-other-org/renamed-repo.git",
+                    "ref": "v0.1.0",
+                },
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+
+    info = detect(root)
+    _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    data = json.loads(mp.read_text())
+    assert data["plugins"][0]["name"] == "punt"
+    assert data["plugins"][0]["version"] == "0.2.0"
+    assert data["plugins"][0]["source"]["ref"] == "v0.2.0"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://github.com/punt-labs/proj.git",
+        "https://github.com/punt-labs/proj",
+    ],
+)
+def test_propagate_marketplace_matches_url_with_and_without_git_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, url: str
+) -> None:
+    """The trailing ``.git`` on the source URL is optional."""
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "something-else",
+                "version": "0.1.0",
+                "source": {"url": url, "ref": "v0.1.0"},
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+
+    info = detect(root)
+    _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    data = json.loads(mp.read_text())
+    assert data["plugins"][0]["version"] == "0.2.0"
+
+
+def test_propagate_marketplace_fails_when_no_entry_matches_any_candidate(
+    tmp_path: Path,
+) -> None:
+    """No matching name or url in marketplace.json — a hard failure.
+
+    Plugin/hybrid releases require a marketplace entry; a silent no-op here
+    is exactly the pkit-d8ij failure mode (propagation runs, nothing lands).
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=d,
+    )
+
+    marketplace_data = {
+        "plugins": [
+            {
+                "name": "unrelated",
+                "version": "0.1.0",
+                "source": {
+                    "url": "https://github.com/punt-labs/unrelated.git",
+                    "ref": "v0.1.0",
+                },
+            }
+        ]
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(marketplace_data, indent=2)
+            + "\n"
+        },
+    )
+
+    info = detect(root)
+    with pytest.raises(ReleaseError, match="No marketplace entry for proj"):
+        _propagate_marketplace(info, "0.2.0", dry_run=False)
+
+
 def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     """No-op for non-plugin projects."""
     root = tmp_path / "cli-proj"
@@ -1932,6 +2123,89 @@ def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None
         _phase1_preflight(info, dry_run=False)
 
 
+# --- pkit-dlv6: preflight out-of-band tag detection ---
+
+
+def test_preflight_silent_with_no_prior_tags(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No tags at all — nothing to compare, nothing to warn about."""
+    root = _make_pure_plugin_project(tmp_path)
+    info = detect(root)
+
+    _phase1_preflight(info, dry_run=True)
+
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_preflight_silent_when_prior_tag_is_clean(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prior tag whose manifest is already prod-shaped is silent."""
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-pkg", "version": "0.1.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "swap to prod"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    _phase1_preflight(info, dry_run=True)
+
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_preflight_warns_when_prior_tag_still_carries_dev_name(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prior tag whose manifest never got swapped to prod warns loudly.
+
+    ``_make_pure_plugin_project`` scaffolds ``plugin.json`` with the ``-dev``
+    name and never swaps it, so tagging straight off that scaffold models a
+    release cut outside the normal Phase 4 plugin-swap flow.
+    """
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    _phase1_preflight(info, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "v0.1.0" in out
+    assert "test-dev" in out
+
+
+def test_preflight_warns_when_prior_tag_version_mismatches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A prior tag whose manifest version does not match the tag warns."""
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-pkg", "version": "0.0.9"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "swap to prod at wrong version"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    _phase1_preflight(info, dry_run=True)
+
+    out = capsys.readouterr().out
+    assert "WARNING" in out
+    assert "v0.1.0" in out
+    assert "0.0.9" in out
+
+
 # --- pvb: verify finds pure-plugin entries in install-all.sh ---
 
 
@@ -2040,6 +2314,48 @@ def _protection_response(*, protected: bool) -> MagicMock:
     return result
 
 
+def _ruleset_response(*, governed: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../rules/branches/main`` call.
+
+    The endpoint returns a JSON array of active rules — non-empty when a
+    ruleset governs the branch, empty (never a non-zero exit) when none do.
+    """
+    result = MagicMock()
+    result.returncode = 0
+    result.stderr = ""
+    result.stdout = json.dumps([{"type": "required_status_checks"}] if governed else [])
+    return result
+
+
+def _is_protection_call(cmd: list[str]) -> bool:
+    """True if ``cmd`` is the legacy branch-protection ``gh api`` call."""
+    return cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection")
+
+
+def _is_ruleset_call(cmd: list[str]) -> bool:
+    """True if ``cmd`` is the ruleset ``gh api`` call."""
+    return cmd[:2] == ["gh", "api"] and cmd[2].endswith("/rules/branches/main")
+
+
+def _make_fake_clock(*, step: float = 60.0) -> Callable[[], float]:
+    """A monotonically increasing fake clock for grace-window tests.
+
+    Each call advances by ``step`` seconds, so a bounded wall-clock window
+    (e.g. ``NO_CHECKS_GRACE``) can be crossed in a handful of calls instead
+    of the test actually sleeping in real time. Paired with a no-op
+    ``time.sleep`` patch, since ``_wait_for_required_checks`` sleeps between
+    polls but the fake clock — not real elapsed time — is what the deadline
+    checks read.
+    """
+    state = {"now": 1_000_000.0}
+
+    def _clock() -> float:
+        state["now"] += step
+        return state["now"]
+
+    return _clock
+
+
 def test_graphql_no_required_checks_response_shape() -> None:
     """The empty-contexts fixture nests under the same path as a real poll."""
     response = _graphql_no_required_checks_response()
@@ -2093,6 +2409,10 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
 
     def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
         nonlocal call_count
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         call_count += 1
         result = MagicMock()
         result.returncode = 0
@@ -2103,10 +2423,9 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
-    # 2, not 1 — the pre-loop branch-protection check (f85t.4) is call 1;
-    # this fake returns returncode=0 for every cmd, so it reads as
-    # protected=True and the graphql poll below is call 2.
-    assert call_count == 2
+    # One graphql poll — the pre-loop branch-protection and ruleset checks
+    # are intercepted separately and are not counted here.
+    assert call_count == 1
 
 
 def test_wait_for_required_checks_fails_on_required_failure(
@@ -2255,6 +2574,10 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal call_count
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         call_count += 1
         if call_count == 1:
             raise subprocess.TimeoutExpired(cmd, 60)
@@ -2432,12 +2755,20 @@ def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
 def test_wait_for_required_checks_still_requires_only_required_when_protected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Regression guard: branch protection still narrows to isRequired checks."""
+    """Regression guard: branch protection still narrows to isRequired checks.
+
+    The commit never registers a required check (every poll returns the
+    empty-contexts fixture), so the no-checks grace window trips — the fake
+    clock crosses it in a handful of iterations instead of the test
+    sleeping for ``NO_CHECKS_GRACE`` real seconds.
+    """
     from punt_kit import release as release_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         result = MagicMock()
         result.returncode = 0
         result.stdout = json.dumps(_graphql_no_required_checks_response())
@@ -2450,7 +2781,8 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
     monkeypatch.setattr(release_mod, "_run", fake_run)
     monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    with pytest.raises(ReleaseError, match="No required checks found"):
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    with pytest.raises(ReleaseError, match="No CI checks registered"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -2474,8 +2806,10 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     ]
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=False)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         result = MagicMock()
         result.returncode = 0
         result.stdout = json.dumps(_graphql_checks_response(check_nodes))
@@ -2487,7 +2821,293 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     _wait_for_required_checks("gh", "/tmp", 42)
 
     printed = capsys.readouterr().out
-    assert printed.count("No branch protection configured") == 1
+    assert printed.count("No branch protection or ruleset configured") == 1
+
+
+# --- pkit-plxh: ruleset awareness + no-checks grace window ---
+
+
+def test_has_ruleset_true_when_rules_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-empty rules array means the branch is ruleset-governed."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _ruleset_response(governed=True)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "ethos"
+        )
+        is True
+    )
+
+
+def test_has_ruleset_false_when_rules_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An empty rules array means no ruleset governs the branch."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        return _ruleset_response(governed=False)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is False
+    )
+
+
+def test_has_ruleset_false_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-zero exit fails safe to "no ruleset", same direction as a timeout."""
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        result = MagicMock()
+        result.returncode = 1
+        result.stdout = ""
+        result.stderr = "gh: API rate limit exceeded"
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    assert (
+        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
+            "gh", "/tmp", "punt-labs", "punt-kit"
+        )
+        is False
+    )
+
+
+def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A ruleset-governed repo with no legacy branch protection is not warned
+    about, and required checks are still honored (the ethos main shape).
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+        {
+            "name": "Claude Code Review",
+            "isRequired": False,
+            "conclusion": None,
+            "status": "IN_PROGRESS",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=False)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=True)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    # Should not raise — the ruleset governs, so isRequired narrows to
+    # "lint" alone, and the in-progress non-required review is ignored.
+    _wait_for_required_checks("gh", "/tmp", 42)
+
+    out = capsys.readouterr().out
+    assert "No branch protection or ruleset configured" not in out
+    assert "Required CI checks passed: lint" in out
+
+
+def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A commit that never registers a check fails loudly, not after 2 hours.
+
+    Models the ethos #496 shape: a post-release commit carrying [skip ci],
+    so ``statusCheckRollup`` stays null on every poll. The fake clock
+    crosses ``NO_CHECKS_GRACE`` in a few iterations; the failure names the
+    likely causes an operator needs to check.
+    """
+    from punt_kit import release as release_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_null_rollup_response())
+        result.stderr = ""
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+
+    with pytest.raises(ReleaseError, match="No CI checks registered") as exc_info:
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+    message = str(exc_info.value)
+    assert "skip ci" in message
+    assert "paths" in message
+
+
+def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Checks registered but none required must not read as "nothing at all".
+
+    Distinct from the null-rollup case: the commit has a real, non-empty
+    ``statusCheckRollup`` — a check genuinely ran — but the repo is governed
+    and none of the registered checks are marked ``isRequired``. The
+    grace-expiry failure must say so, not repeat the "no CI checks
+    registered at all" wording that fits the null-rollup case.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "Claude Code Review",
+            "isRequired": False,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+
+    with pytest.raises(ReleaseError) as exc_info:
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+    message = str(exc_info.value)
+    assert "registered" in message
+    assert "none are required" in message
+    assert "no CI checks registered at all" not in message.lower()
+
+
+def test_wait_for_required_checks_late_arriving_checks_still_proceed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Checks that register partway through the grace window still pass.
+
+    Several no-checks polls elapse (well inside ``NO_CHECKS_GRACE``) before
+    the check appears — the grace window must not trip on a commit whose
+    checks are merely slow to attach, only on one that never gets any.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    calls = 0
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        nonlocal calls
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        calls += 1
+        result = MagicMock()
+        result.returncode = 0
+        result.stderr = ""
+        if calls < 3:
+            result.stdout = json.dumps(_graphql_null_rollup_response())
+        else:
+            result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    # A small step keeps every poll well inside NO_CHECKS_GRACE (300s) even
+    # across several no-checks iterations, unlike the expiry test's clock.
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock(step=5.0))
+
+    # Should not raise — checks arrive on the third poll, inside the window.
+    _wait_for_required_checks("gh", "/tmp", 42)
+    assert calls == 3
+
+
+def test_wait_for_required_checks_stops_promptly_when_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An interrupt raised while a worker thread is blocked in the poll loop
+    is observed within one iteration, not only after the two-hour deadline.
+
+    This is the direct regression guard for pkit-d7mz: without checking
+    ``interrupted`` inside the loop, a worker thread polling here has no way
+    to learn that the main thread's signal handler fired — only the main
+    thread receives SIGINT — so it would keep polling for up to two hours,
+    blocking ``ThreadPoolExecutor.__exit__``'s join for the same span.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "lint",
+            "isRequired": True,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+    try:
+        with pytest.raises(ReleaseError, match="Interrupted while waiting"):
+            _wait_for_required_checks("gh", "/tmp", 42)
+    finally:
+        release_mod._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 # --- _reset_propagation_siblings ---
@@ -4883,6 +5503,50 @@ def test_phase10_propagate_collects_errors(
     assert sorted(calls) == ["install_all", "marketplace", "website"]
 
 
+def test_phase10_propagate_records_leg_failure_in_skips(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A leg failure lands in the shared SkipRecorder, not only the raised error.
+
+    pkit-d7mz: the end-of-run recap drains ``_skips`` even when the pipeline
+    stops before a successful ``pipeline.summarize()`` — so a Phase 10 leg
+    failure must be recorded there, not only surfaced as the exception that
+    ``ThreadedStep.collect`` raises and the caller sees.
+    """
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    def mock_install_all(*args: object, **kwargs: object) -> None:
+        raise ReleaseError("install-all.sh: boom")
+
+    def mock_marketplace(*args: object, **kwargs: object) -> None:
+        return None
+
+    def mock_website(*args: object, **kwargs: object) -> None:
+        return None
+
+    from punt_kit import release as release_mod
+
+    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+
+    def _noop_reset(*args: object, **kwargs: object) -> None:
+        pass
+
+    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+
+    with pytest.raises(ReleaseError):
+        _phase10_propagate(info, "0.2.0", dry_run=False)
+
+    notices = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    assert len(notices) == 1
+    assert "FAILED" in notices[0]
+    assert "Phase 10 propagation" in notices[0]
+    # Names the failing leg (.github), not just "something failed".
+    assert ".github" in notices[0]
+
+
 # --- Phases 9+10 concurrent ---
 
 
@@ -5918,6 +6582,99 @@ def test_run_release_credits_propagate_when_resuming_from_it(
     assert _phase_name(10) == "propagate"
 
 
+def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """pkit-d7mz: Phase 11 still runs and reports after a Phase 9/10 failure,
+    and the release exits non-zero naming the phase to resume from.
+
+    Reproduces the vox v5.0.4 shape at the orchestration level: P10 fails
+    while running concurrently with P9. The pipeline must not silently stop
+    there — Phase 11 verify has to run against the actual state, and the
+    release has to fail loudly with --resume-from post-release (which
+    re-enters both P9 and P10 concurrently, matching how they failed), not
+    --resume-from verify, which would never retry the propagation that
+    verify's own checks are reporting on.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def fake_phase9(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def fake_phase10(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("marketplace: no entry for proj")
+
+    verify_calls: list[str] = []
+
+    def fake_phase11_verify(_info: object, version: str, *, dry_run: bool) -> None:
+        verify_calls.append(version)
+
+    monkeypatch.setattr(release_mod, "_phase9_post_release", fake_phase9)
+    monkeypatch.setattr(release_mod, "_phase10_propagate", fake_phase10)
+    monkeypatch.setattr(release_mod, "_phase11_verify", fake_phase11_verify)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    assert exc_info.value.code == 1
+    # Phase 11 ran despite the P9/P10 failure — this is the whole point.
+    assert verify_calls == ["0.2.0"]
+
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "did not fully land" in normalized
+    assert "Phase 9 reported" in normalized
+    assert "marketplace: no entry for proj" in normalized
+    assert "Not confirmed landed: post-release, propagate, verify" in normalized
+    assert "--resume-from post-release" in normalized
+
+
+def test_run_release_reports_incomplete_release_on_interrupt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """pkit-d7mz: an interrupted release exits non-zero naming exactly what
+    was not confirmed landed and the --resume-from command to finish.
+
+    Before this fix, the interrupt path in run_release's ``finally`` printed
+    only "Cleaning up after interrupt..." — no phase, no unlanded list, no
+    --resume-from hint. That silence is what let an operator's Ctrl-C during
+    a Phase 4/10 check-wait hang go unresolved without anyone noticing the
+    release was left mid-flight.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
+        release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        raise KeyboardInterrupt()
+
+    def _noop_reset(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_phase6_ci_wait", fake_ci_wait)
+    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False, resume_from="ci")
+
+    assert exc_info.value.code == 1
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "Release incomplete" in normalized
+    assert "phase 6 (ci)" in normalized
+    assert "Not confirmed landed:" in normalized
+    assert "--resume-from ci" in normalized
+
+
 def test_phase_name_round_trips_through_phase_names() -> None:
     """Every phase number 1..N round-trips through PHASE_NAMES.
 
@@ -5980,8 +6737,10 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         calls += 1
         result = MagicMock()
         result.returncode = 0
@@ -6033,8 +6792,10 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         nonlocal calls
-        if cmd[:2] == ["gh", "api"] and cmd[2].endswith("/protection"):
+        if _is_protection_call(cmd):
             return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
         calls += 1
         result = MagicMock()
         result.returncode = 0

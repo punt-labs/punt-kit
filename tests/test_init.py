@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import tomllib
 from pathlib import Path
 
@@ -11,6 +13,28 @@ import pytest
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 
 _EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
+
+
+_real_which = shutil.which
+
+
+def _no_bd(
+    cmd: str, mode: int = os.F_OK | os.X_OK, path: str | None = None
+) -> str | None:
+    """A ``shutil.which`` stand-in reporting only ``bd`` as not installed.
+
+    Tests asserting exact post-``run_init`` file content must not depend on
+    whatever gitignore patterns the locally installed ``bd`` binary's own
+    ``init`` appends — that behavior belongs to bd, and drifts independently
+    of this repo's release. Every other lookup delegates to the real
+    ``shutil.which`` (signature mirrored exactly, not ``*args``/``**kwargs``,
+    so a call passing ``mode``/``path`` type-checks and behaves identically
+    to the unpatched function) — a blanket ``None`` for every command would
+    silently disable other ``which()`` lookups a future call site adds.
+    """
+    if cmd == "bd":
+        return None
+    return _real_which(cmd, mode, path)
 
 
 def test_init_creates_docs_workflow(tmp_path: Path) -> None:
@@ -763,13 +787,22 @@ def test_init_tolerates_malformed_settings_local(tmp_path: Path) -> None:
 # --- gitignore .claude stanza tests ---
 
 
-def test_init_leaves_a_foreign_claude_stanza_alone(tmp_path: Path) -> None:
+def test_init_leaves_a_foreign_claude_stanza_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A stanza punt did not write is never appended to.
 
     Under a `.claude/*` parent git descends into the directory, so the
     exception lines become live rules that re-include paths the repo has
     never tracked. Seeding must not change what a repo currently ignores.
+
+    ``bd`` is disabled: this test asserts the ``.gitignore`` is byte-for-byte
+    unchanged, which is a claim about punt's own ``.claude`` stanza handling,
+    not about whatever gitignore patterns the locally installed ``bd``
+    binary's own ``init`` happens to append — that behavior is bd's to test,
+    and drifts independently of this repo's release.
     """
+    monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
     gitignore = tmp_path / ".gitignore"
     original = "# deliberate stanza\n.claude/*\n!.claude/settings.json\n"
@@ -842,14 +875,17 @@ def test_init_never_activates_a_dormant_negation(tmp_path: Path) -> None:
     "stanza", ["/.claude/", ".claude/*", "/.claude/*", "**/.claude/*", ".claude"]
 )
 def test_init_respects_every_claude_stanza_spelling(
-    tmp_path: Path, stanza: str
+    tmp_path: Path, stanza: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Anchored and globbed forms are stanzas too.
 
     An anchored `/.claude/` reaching the "no reference" branch would get the
     unanchored block appended, broadening the ignore from root-only to any
     depth — the same invariant violation this guard exists to prevent.
+
+    ``bd`` is disabled — see ``_no_bd``.
     """
+    monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "t"\n')
     gitignore = tmp_path / ".gitignore"
     original = stanza + "\n"
