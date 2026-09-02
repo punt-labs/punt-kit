@@ -332,7 +332,9 @@ class RequiredChecksWaiter:
                 # the operator to read warnings as noise. Say what is
                 # actually happening and keep waiting.
                 if rollup is None:
-                    self._no_checks_grace_check(no_checks_deadline, pr_number)
+                    self._no_checks_grace_check(
+                        no_checks_deadline, pr_number, checks_present=False
+                    )
                     self._ops.info(
                         "No checks registered on the commit yet — waiting..."
                     )
@@ -389,7 +391,14 @@ class RequiredChecksWaiter:
             prefix = "Required " if governed else ""
 
             if not relevant:
-                self._no_checks_grace_check(no_checks_deadline, pr_number)
+                # ``checks`` (pre-isRequired-filter) distinguishes two
+                # distinct zero-check states: nothing has attached to the
+                # commit yet (checks empty), vs. checks have attached but
+                # none are required (checks non-empty, relevant empty —
+                # only possible when governed).
+                self._no_checks_grace_check(
+                    no_checks_deadline, pr_number, checks_present=bool(checks)
+                )
                 time.sleep(5)
                 continue
 
@@ -419,23 +428,39 @@ class RequiredChecksWaiter:
         label = "required" if governed else "all"
         self._ops.fail(f"Timed out waiting for {label} CI checks on PR #{pr_number}")
 
-    def _no_checks_grace_check(self, no_checks_deadline: float, pr_number: int) -> None:
+    def _no_checks_grace_check(
+        self, no_checks_deadline: float, pr_number: int, *, checks_present: bool
+    ) -> None:
         """Fail loudly once the no-checks grace window expires.
 
-        Called from both zero-check states — a null ``statusCheckRollup``
-        (no CheckRun has attached to the commit at all) and a non-null
-        rollup whose ``contexts`` list has nothing relevant — because both
-        mean "there is nothing to wait on yet" from the caller's point of
-        view and must share one bounded window rather than each restarting
-        it. Never merges a PR on the strength of zero checks: this always
-        raises, so the caller can only proceed once at least one check
-        registers.
+        Called from both zero-``relevant``-check states — a null
+        ``statusCheckRollup`` (no CheckRun has attached to the commit at
+        all) and a non-null rollup whose ``contexts`` list has nothing
+        relevant — because both mean "there is nothing to wait on yet" from
+        the caller's point of view and must share one bounded window rather
+        than each restarting it. ``checks_present`` distinguishes the two
+        for the failure message: ``False`` means nothing has registered on
+        the commit at all (a null rollup); ``True`` means checks exist but
+        none are required (a non-null rollup whose contexts were filtered
+        to empty by the ``isRequired`` narrowing — only possible when the
+        repo is governed). Never merges a PR on the strength of zero
+        checks: this always raises, so the caller can only proceed once a
+        required check registers.
         """
         if time.time() <= no_checks_deadline:
             return
         grace_minutes = NO_CHECKS_GRACE // 60
+        if checks_present:
+            self._ops.fail(
+                f"CI checks are registered on PR #{pr_number}, but none are "
+                f"required, and none became required within {grace_minutes} "
+                "minutes. Likely causes: branch protection/ruleset names a "
+                "required check that has not run on this PR, or the wrong "
+                "workflow is configured as required. Fix the required-checks "
+                "configuration, then resume."
+            )
         self._ops.fail(
-            f"No CI checks registered on PR #{pr_number} within "
+            f"No CI checks registered at all on PR #{pr_number} within "
             f"{grace_minutes} minutes. Likely causes: a `[skip ci]` marker "
             "on the head commit, or every workflow's `paths:` filter "
             "excluding the changed files. Fix the commit or workflow "

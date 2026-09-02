@@ -300,9 +300,12 @@ def _has_ruleset(  # pyright: ignore[reportUnusedFunction]
     """True if a GitHub ruleset (not the legacy branch-protection API)
     governs ``main``.
 
-    No caller remains in this module — RequiredChecksWaiter.wait calls
-    self._repo.has_ruleset directly. Kept importable for public API
-    preservation.
+    No production caller in this module — RequiredChecksWaiter.wait calls
+    self._repo.has_ruleset directly. Kept as a bare module-level name
+    (mirroring ``_branch_protection_exists``) purely as a test seam:
+    ``monkeypatch.setattr(release_mod, "_run", ...)`` reaches
+    ``GithubRepo.has_ruleset`` through this wrapper the same way it reaches
+    every other collaborator built on the shared ``_ops`` adapter.
     """
     return GithubRepo(Path(cwd), ops=_ops).has_ruleset(gh, owner, repo_name)
 

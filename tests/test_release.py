@@ -2963,6 +2963,56 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
     assert "paths" in message
 
 
+def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Checks registered but none required must not read as "nothing at all".
+
+    Distinct from the null-rollup case: the commit has a real, non-empty
+    ``statusCheckRollup`` — a check genuinely ran — but the repo is governed
+    and none of the registered checks are marked ``isRequired``. The
+    grace-expiry failure must say so, not repeat the "no CI checks
+    registered at all" wording that fits the null-rollup case.
+    """
+    from punt_kit import release as release_mod
+
+    check_nodes: list[dict[str, object]] = [
+        {
+            "name": "Claude Code Review",
+            "isRequired": False,
+            "conclusion": "SUCCESS",
+            "status": "COMPLETED",
+        },
+    ]
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=True)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        result = MagicMock()
+        result.returncode = 0
+        result.stdout = json.dumps(_graphql_checks_response(check_nodes))
+        result.stderr = ""
+        return result
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+
+    with pytest.raises(ReleaseError) as exc_info:
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+    message = str(exc_info.value)
+    assert "registered" in message
+    assert "none are required" in message
+    assert "no CI checks registered at all" not in message.lower()
+
+
 def test_wait_for_required_checks_late_arriving_checks_still_proceed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
