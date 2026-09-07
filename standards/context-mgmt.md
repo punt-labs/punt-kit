@@ -68,8 +68,9 @@ doc only when the task matches. This is **progressive disclosure**, the dominant
 pattern in modern agent tooling: content is pulled on demand, not pushed up front.
 
 Concretely: a repo's standards, workflow, testing, and architecture docs stay as
-their own files and are *referenced* ("Python standards: `punt-kit/standards/
-python.md`; formal-spec workflow: `docs/WORKFLOW.md`"), never inlined into the
+their own files and are *referenced* by a path that resolves in a standalone
+checkout ("formal-spec workflow: `docs/WORKFLOW.md`; testing: `TESTING.md`"),
+never inlined into the
 always-loaded file. Nothing is lost — it is reachable, just not preloaded. A
 descriptive index ("what it covers and when") outperforms a bare filename list.
 
@@ -101,11 +102,12 @@ users of our tools (see § 10).**
 
 Because each agent reads a different native file (Claude → `CLAUDE.md`; codex,
 opencode, pi → `AGENTS.md`), a repo maintains one source and *generates* each
-tool's file from it, rather than hand-maintaining parallel copies. The adopted
-generator is **rulesync** (`.rulesync/` source → `generate` → per-tool files),
-with `rulesync generate --check` wired into CI so a hand-edited generated file
-fails the build. A generated agent file is a **build artifact**: never hand-edit
-it; edit the `.rulesync/` source and regenerate.
+tool's file from it, rather than hand-maintaining parallel copies. The generator
+adopted for this is **rulesync** (`.rulesync/` source → `generate` → per-tool
+files); a repo that adopts it wires `rulesync generate --check` into CI so a
+hand-edited generated file fails the build. A generated agent file is a **build
+artifact**: never hand-edit it; edit the `.rulesync/` source and regenerate.
+Adoption is per-repo and rolling — z-spec is the reference implementation.
 
 The generated files obey this whole standard — the root `AGENTS.md` is the lean
 index of § 5, the big standards are referenced not inlined, and Claude-only tool
