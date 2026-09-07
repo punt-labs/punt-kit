@@ -131,6 +131,7 @@ Standards documents covering the full development lifecycle:
 | [Workflow](standards/workflow.md) | The three-loop development structure (backlog / PR / mission), doorway conditions, gates, invariants |
 | [PR and Review](standards/pr-review.md) | PR boundaries, the agent-owned review sequence, local review before remote, dismissal discipline |
 | [Agent Engineering](standards/agent-engineering.md) | Operating rules for AI coding agents: reversibility, test coverage, comment discipline |
+| [Context Management](standards/context-mgmt.md) | Lean, portable, drift-free agent config: don't duplicate what hooks inject or tools discover; index and disclose; one source generated per tool |
 | [Git](standards/git.md) | Git mechanics: branch check, no-rewrite of pushed branches, conflict resolution, post-merge cleanup, worktrees, submodules |
 | [Distribution](standards/distribution.md) | PyPI trusted publishing, `.mcpb` bundles, installers |
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
