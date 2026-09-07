@@ -34,7 +34,7 @@ current answer. A pasted copy is stale the moment the tool's output changes.
 ## 3. Cite the source for facts that live in code
 
 When a fact is derivable from the codebase — a dependency edge, a config value, a
-file path — cite where it lives (`vox/pyproject.toml:48`) rather than asserting
+file path — cite where it lives (e.g. `<file>:<line>`) rather than asserting
 it in prose. A cited fact is self-verifying: the reader confirms it in one
 command, and when the source moves, the citation is visibly wrong instead of
 silently stale. Prefer a generated list over a hand-maintained one for anything
