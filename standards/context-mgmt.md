@@ -44,8 +44,20 @@ drift-prone (see § 8).
 
 Every fact has exactly one authoritative location; every other place links to it.
 Three files each carrying "the project map" is three copies that drift apart. When
-you find the same fact in two files, delete one and link, or extract it to a third
-and link from both.
+you find the same fact in two files, keep one authoritative copy and replace the
+other with a link to it — or extract it to a third home and link from both.
+
+**DRY is deduplication, never deletion.** "One home" means the fact lives in
+exactly one place and is *reachable by reference* from everywhere it is relevant —
+it does NOT mean a second copy is removed with no pointer. Before removing any
+content, confirm its single home exists and that a reference to it remains from
+where a reader would look. Content unreachable from any index or link is lost, not
+deduplicated; if a fact has no home yet, give it one before removing it.
+
+**Repos work standalone.** Each repo must function checked out on its own. A
+reference must therefore resolve without assuming a sibling repo is present — do
+not point at a fact by a relative path into another repo that a solo clone would
+not have.
 
 ## 5. Index and disclose — do not inline
 
