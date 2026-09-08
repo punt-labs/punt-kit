@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-09-08
+
 ### Fixed
 
 - **An interrupted or partially-failed release now exits non-zero and says exactly what didn't land.** Reconstructed from the vox v5.0.4 release, where Phase 9's post-release PR landed while all three Phase 10 propagators produced nothing and Phase 11 never ran: an operator interrupt during a Phase 10 check-wait hang left `ThreadPoolExecutor.__exit__`'s `shutdown(wait=True)` blocked for up to the full two-hour deadline (see DES-029), which is long enough that the process gets killed outright instead of waited out — bypassing `run_release`'s cleanup entirely and leaving no record that anything failed. Three changes close this: (1) `run_release` now prints, on every non-success exit (interrupt or otherwise), the phase it stopped in, every phase from there to the end not confirmed landed, and the exact `--resume-from` command — previously only a `subprocess.TimeoutExpired` got a resume hint at all; (2) a Phase 9/10 failure is caught rather than raised immediately, so Phase 11 verify still runs against the actual post-propagation state and reports what's really out of sync, with the release still failing loudly afterward crediting `--resume-from post-release` (which re-enters both phases), not `--resume-from verify` (which would never retry propagation); (3) a Phase 10 leg failure is now recorded in the same `SkipRecorder` the end-of-run recap drains, so it appears in the "Manual action required" summary alongside recorded skips instead of only in the raised exception (pkit-d7mz).
