@@ -19,7 +19,7 @@ Individual projects reference these standards from their CLAUDE.md rather than d
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/ac95ab7/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/fa06959/install.sh | sh
 ```
 
 <details>
