@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CheckResult:
     """Result of a single health check."""
 
@@ -15,6 +15,18 @@ class CheckResult:
     passed: bool
     message: str
     required: bool = True
+
+    @property
+    def status_suffix(self) -> str:
+        """Return the trailing '(required)'/'(optional)' annotation to print.
+
+        A passing required check needs no annotation; everything else does,
+        since it explains why a failed check does or doesn't affect the
+        doctor's exit code.
+        """
+        if self.passed and self.required:
+            return ""
+        return " (optional)" if not self.required else " (required)"
 
 
 def _check_python() -> CheckResult:
@@ -31,8 +43,7 @@ def _check_binary(name: str, *, required: bool = True) -> CheckResult:
     path = shutil.which(name)
     if path:
         return CheckResult(name, True, path, required=required)
-    label = "required" if required else "optional"
-    return CheckResult(name, False, f"not found ({label})", required=required)
+    return CheckResult(name, False, "not found", required=required)
 
 
 def run_doctor(*, print_results: bool = True) -> tuple[int, list[CheckResult]]:
@@ -52,8 +63,7 @@ def run_doctor(*, print_results: bool = True) -> tuple[int, list[CheckResult]]:
     if print_results:
         for r in results:
             mark = "\u2713" if r.passed else "\u2717"
-            suffix = "" if r.required else " (optional)"
-            print(f"  {mark} {r.name}: {r.message}{suffix}")
+            print(f"  {mark} {r.name}: {r.message}{r.status_suffix}")
 
     failed_required = any(not r.passed and r.required for r in results)
     return (1 if failed_required else 0, results)
