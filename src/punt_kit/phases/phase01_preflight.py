@@ -150,23 +150,40 @@ class Phase1Preflight:
         # 1e. Quality gates
         if not dry_run and info.language == "python":
             ops.info("Running quality gates...")
-            gates = [
-                ["uv", "run", "ruff", "check", "src/", "tests/"],
-                ["uv", "run", "ruff", "format", "--check", "src/", "tests/"],
-                ["uv", "run", "mypy", "src/", "tests/"],
-                ["uv", "run", "pyright", "src/", "tests/"],
-                ["uv", "run", "pytest", "tests/", "-v"],
-            ]
-            for gate in gates:
+            makefile = info.root / "Makefile"
+            if makefile.exists():
+                # Prefer the project's own Makefile — a project with optional
+                # heavy extras (e.g. a `[display]` extra, pyright-via-npx, an
+                # OO ratchet) knows how to gate itself. Bare `uv run
+                # mypy/pyright` against the base wheel env reports false
+                # errors for code that only imports the extra.
                 result = ops.run(
-                    gate,
+                    ["make", "check"],
                     cwd=str(info.root),
                     check=False,
                     capture=False,
                     timeout=QUALITY_GATE,
                 )
                 if result.returncode != 0:
-                    ops.fail(f"Quality gate failed: {' '.join(gate)}")
+                    ops.fail("Quality gate failed: make check")
+            else:
+                gates = [
+                    ["uv", "run", "ruff", "check", "src/", "tests/"],
+                    ["uv", "run", "ruff", "format", "--check", "src/", "tests/"],
+                    ["uv", "run", "mypy", "src/", "tests/"],
+                    ["uv", "run", "pyright", "src/", "tests/"],
+                    ["uv", "run", "pytest", "tests/", "-v"],
+                ]
+                for gate in gates:
+                    result = ops.run(
+                        gate,
+                        cwd=str(info.root),
+                        check=False,
+                        capture=False,
+                        timeout=QUALITY_GATE,
+                    )
+                    if result.returncode != 0:
+                        ops.fail(f"Quality gate failed: {' '.join(gate)}")
             ops.ok("All quality gates passed")
         elif not dry_run and info.language == "go":
             ops.info("Running quality gates...")
