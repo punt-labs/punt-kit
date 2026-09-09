@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class CheckResult:
     """Result of a single health check."""
 
@@ -15,6 +15,18 @@ class CheckResult:
     passed: bool
     message: str
     required: bool = True
+
+    @property
+    def status_suffix(self) -> str:
+        """Return the trailing '(required)'/'(optional)' annotation to print.
+
+        A passing required check needs no annotation; everything else does,
+        since it explains why a failed check does or doesn't affect the
+        doctor's exit code.
+        """
+        if self.passed and self.required:
+            return ""
+        return " (optional)" if not self.required else " (required)"
 
 
 def _check_python() -> CheckResult:
@@ -34,19 +46,6 @@ def _check_binary(name: str, *, required: bool = True) -> CheckResult:
     return CheckResult(name, False, "not found", required=required)
 
 
-def _status_suffix(result: CheckResult) -> str:
-    """Return the trailing '(required)'/'(optional)' annotation for a result.
-
-    The print loop is the annotation's single owner — messages never bake it
-    in — so a not-found optional binary prints exactly one occurrence. A
-    passing required check needs no annotation; everything else does, since
-    it explains why a failed check does or doesn't affect the exit code.
-    """
-    if result.passed and result.required:
-        return ""
-    return " (optional)" if not result.required else " (required)"
-
-
 def run_doctor(*, print_results: bool = True) -> tuple[int, list[CheckResult]]:
     """Run all health checks.
 
@@ -64,7 +63,7 @@ def run_doctor(*, print_results: bool = True) -> tuple[int, list[CheckResult]]:
     if print_results:
         for r in results:
             mark = "\u2713" if r.passed else "\u2717"
-            print(f"  {mark} {r.name}: {r.message}{_status_suffix(r)}")
+            print(f"  {mark} {r.name}: {r.message}{r.status_suffix}")
 
     failed_required = any(not r.passed and r.required for r in results)
     return (1 if failed_required else 0, results)
