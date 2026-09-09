@@ -269,14 +269,34 @@ class Phase11Verify:
                         )
                         if vr.returncode != 0:
                             sha_ok = False
-                        elif f'VERSION="{version}"' in vr.stdout:
-                            # Python/hybrid: VERSION pin matches
-                            sha_ok = True
+                            detail = f"SHA={sha} (does not resolve)"
                         else:
-                            # Go/other: no VERSION pin — SHA resolves
-                            sha_ok = 'VERSION="' not in vr.stdout
+                            # A resolvable SHA whose content happens to match
+                            # is not enough — the pin has to actually be part
+                            # of this release. Without this, a SHA on an
+                            # unmerged or superseded branch (never reachable
+                            # from the tag) can carry the right VERSION string
+                            # by coincidence and pass a content-only check
+                            # while installing an untagged commit.
+                            ancestor = ops.run(
+                                ["git", "merge-base", "--is-ancestor", sha, tag],
+                                cwd=str(info.root),
+                                check=False,
+                            )
+                            if ancestor.returncode != 0:
+                                sha_ok = False
+                                detail = f"SHA={sha} (not an ancestor of {tag})"
+                            elif f'VERSION="{version}"' in vr.stdout:
+                                # Python/hybrid: VERSION pin matches
+                                sha_ok = True
+                                detail = f"SHA={sha}"
+                            else:
+                                # Go/other: no VERSION pin — SHA resolves and
+                                # is on the tag's history
+                                sha_ok = 'VERSION="' not in vr.stdout
+                                detail = f"SHA={sha}"
                         checks.append(
-                            VerificationCheck("install-all.sh", sha_ok, f"SHA={sha}")
+                            VerificationCheck("install-all.sh", sha_ok, detail)
                         )
                     elif re.search(
                         rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
@@ -413,6 +433,34 @@ class Phase11Verify:
                                     "profile SHA",
                                     False,
                                     f"SHA={profile_sha} (does not resolve)",
+                                )
+                            )
+                        elif (
+                            ops.run(
+                                [
+                                    "git",
+                                    "merge-base",
+                                    "--is-ancestor",
+                                    profile_sha,
+                                    "main",
+                                ],
+                                cwd=str(sibling),
+                                check=False,
+                            ).returncode
+                            != 0
+                        ):
+                            # git show resolves any object still in the local
+                            # DB, merged or not — a commit from an abandoned
+                            # or reverted PR branch resolves for a while after
+                            # it stops being reachable from main. Reachability
+                            # is the property CI's checkout of main actually
+                            # depends on.
+                            checks.append(
+                                VerificationCheck(
+                                    "profile SHA",
+                                    False,
+                                    f"SHA={profile_sha} "
+                                    "(not an ancestor of .github main)",
                                 )
                             )
                         elif install_sh.exists():
