@@ -376,7 +376,7 @@ label.
 The fix is to stop pinning the version alone and start pinning the artifact:
 local and CI must run the same prebuilt release binary for a given tag, never
 one side compiling its own copy from source while the other downloads the
-release. The `go install ...@<version>` snippet shown above is exactly the
+release. The `go install ...@v2.12.2` snippet shown above is exactly the
 compile-from-source pattern this principle warns against --- it is documented
 above as today's mechanism, not endorsed as the fix, and stays in place only
 until the installer security review below lands its replacement. ethos has
