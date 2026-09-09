@@ -415,6 +415,43 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
     ]
 
 
+def test_preflight_python_make_check_failure_aborts_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A non-zero `make check` aborts the phase instead of reporting success."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    (root / "Makefile").write_text("check:\n\techo ok\n")
+    d = str(root)
+    _git(["add", "Makefile"], cwd=d)
+    _git(["commit", "-m", "add makefile"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd and cmd[0] in ("make", "uv"):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="lint failed")
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="Quality gate failed: make check"):
+        _phase1_preflight(info, dry_run=False)
+
+    assert "All quality gates passed" not in capsys.readouterr().out
+
+
 # --- phase 2 version bump ---
 
 
