@@ -4315,6 +4315,164 @@ def test_phase11_verify_fails_when_install_all_missing(
         _phase11_verify(info, version, dry_run=False)
 
 
+# --- pkit-9n6q: install SHA pins must be ancestors of the release, not just
+# resolvable objects with matching content ---
+
+
+def test_phase11_verify_install_all_sha_passes_when_ancestor_of_tag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The install-all.sh SHA passes when it is on the tag's history."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "install-all.sh" in out
+    assert "✗ install-all.sh" not in out
+
+
+def test_phase11_verify_install_all_sha_fails_when_not_ancestor_of_tag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A resolvable install-all.sh SHA that isn't on the tag's history fails.
+
+    Regression for the silent-rot gap: before this check, a SHA on an
+    abandoned or superseded branch could carry a byte-identical VERSION
+    string and pass a content-only comparison while never having been part
+    of the tagged release — install-all.sh would "work" by pointing at the
+    wrong commit.
+    """
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+    d = str(root)
+
+    # A commit that resolves via `git show` and still matches VERSION, but
+    # lives on a branch that never merges into main — unreachable from the
+    # tag even though the object is present in the local database.
+    _git(["checkout", "-b", "stale-branch"], cwd=d)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
+        "# unrelated edit on an unmerged branch\n"
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "stale branch edit"], cwd=d)
+    stale_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=d,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    _git(["checkout", "main"], cwd=d)
+
+    # Pin install-all.sh to the stale, unreachable commit instead of the
+    # real one _setup_verify_project wrote.
+    content = (sibling / "install-all.sh").read_text()
+    new_content = re.sub(
+        r"/proj/[0-9a-fA-F]{7,40}/install\.sh",
+        f"/proj/{stale_sha}/install.sh",
+        content,
+    )
+    assert new_content != content, "fixture regex did not match the pinned SHA"
+    (sibling / "install-all.sh").write_text(new_content)
+    _git(["add", "install-all.sh"], cwd=str(sibling))
+    _git(["commit", "-m", "pin stale sha"], cwd=str(sibling))
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    # "ancestor" alone — Rich word-wraps the detail message at console width,
+    # so a multi-word phrase like "not an ancestor of ..." can be split across
+    # a line break by the renderer even though the underlying string is one
+    # contiguous sentence.
+    out = capsys.readouterr().out
+    assert "✗ install-all.sh" in out
+    assert "ancestor" in out
+
+
+def test_phase11_verify_profile_sha_passes_when_ancestor_of_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The profile pin passes when it is reachable from .github's main."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "✗ profile SHA" not in out
+
+
+def test_phase11_verify_profile_sha_fails_when_not_ancestor_of_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A resolvable profile pin that never merged into .github main fails.
+
+    An empty commit on an unmerged branch carries byte-identical
+    install-all.sh content to the real, merged commit — the pre-existing
+    content-based staleness check alone would have passed this. Only
+    reachability from main catches it: ``git show`` resolves any object
+    still in the local database, merged or not, for as long as it survives
+    garbage collection.
+    """
+    version = "0.1.0"
+    root, sibling = _setup_verify_project(tmp_path, version)
+    sd = str(sibling)
+
+    _git(["checkout", "-b", "dangling-branch"], cwd=sd)
+    _git(["commit", "--allow-empty", "-m", "dangling"], cwd=sd)
+    dangling_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=sd,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    _git(["checkout", "main"], cwd=sd)
+
+    profile_dir = sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{dangling_sha}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "add dangling profile pin"], cwd=sd)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    # See the analogous comment above — check for the single word rather
+    # than the full phrase, which Rich may word-wrap across a line break.
+    out = capsys.readouterr().out
+    assert "✗ profile SHA" in out
+    assert "ancestor" in out
+
+
 # --- f85t.3: profile SHA marketplace-pin chain for marketplace-only plugins ---
 
 
