@@ -355,6 +355,36 @@ compiled into one binary, so --- unlike a standalone `staticcheck` install --- i
 needs no `GOTOOLCHAIN` pin to avoid an auto-switch against the consumer module's
 toolchain directive (the failure mode recorded in bead `punt-t0j`).
 
+That version pin covers the analyzers; it does not cover the formatters.
+golangci-lint's `gofmt` and `gofumpt` formatters do not carry their own
+formatting logic --- they call into the Go standard library's formatting
+packages that were linked into the binary at build time. The binary named
+`golangci-lint@v2.12.2` is therefore not one fixed artifact: it is whichever
+`go/printer` happened to be on the builder's machine when that particular copy
+was compiled. A locally-compiled build of a pinned version and the project's
+own official prebuilt release of that same pinned version can both report
+identical version strings and still disagree on whether a given file is
+formatted, because the version number pins the analyzer set, not the compiler
+that produced the formatter. This is the observed failure mode, not a
+hypothetical one: a file passes `make check` on a developer's machine and CI
+fails the identical commit with `File is not properly formatted (gofmt)`,
+because the two sides ran two different binaries under one shared version
+label.
+
+The fix is to stop pinning the version alone and start pinning the artifact:
+local and CI must run the same prebuilt release binary for a given tag, never
+one side compiling its own copy from source while the other downloads the
+release. ethos has already adopted this --- its `tools` target now fetches the
+official prebuilt release binary for the pinned tag instead of compiling one
+with `go install`, matching what its CI already ran by default. The other Go
+projects in the fleet have not yet made the same change and remain exposed to
+this drift. This document does not prescribe the fetch mechanism itself ---
+install script, CI action mode, or a vendored checksum-verified download are
+all candidates, and a security review of the installer path is pending as of
+this writing. Adopt "same prebuilt artifact, not just same version number" as
+the binding rule now; the concrete install form will follow once that review
+lands.
+
 ## 8. Concurrency
 
 ### Rules
