@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Phase 1 preflight now honors a Python project's own Makefile for the quality gate.** The Python branch of `Phase1Preflight` (`src/punt_kit/phases/phase01_preflight.py`) ran a hardcoded `uv run ruff/mypy/pyright/pytest` sequence and ignored `info.root / "Makefile"`, unlike the Go branch, which already preferred `make check` when a Makefile exists. This broke Python projects with optional heavy extras (e.g. lux's `[display]` extra, pyright-via-npx, an OO ratchet) because the base wheel env lacks the extra and bare `uv run mypy`/`pyright` reported false errors, blocking lux v0.32.0. The Python branch now mirrors the Go branch: prefer `make check` when a Makefile exists, falling back to the hardcoded gate list only when no Makefile is present (pkit-mjcb).
+- **`punt doctor` no longer prints `(optional)` twice for a missing optional tool.** A not-found optional binary rendered as `✗ pyright: not found (optional) (optional)`: `_check_binary` baked the `(optional)`/`(required)` label into the message *and* the print loop appended another `(optional)` suffix. The `(required)`/`(optional)` annotation now has a single owner — a `CheckResult.status_suffix` property — so a missing optional tool reads `✗ pyright: not found (optional)` once, a missing required tool reads `not found (required)`, and a passing required check stays unannotated (pkit-8r6).
 
 ## [0.17.2] - 2026-09-08
 
