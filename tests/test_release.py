@@ -333,6 +333,125 @@ def test_preflight_passes_clean(tmp_path: Path) -> None:
     _phase1_preflight(info, dry_run=True)
 
 
+def test_preflight_python_prefers_make_check_when_makefile_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Python quality gate runs `make check` when the project has a Makefile.
+
+    Mirrors the Go branch's behavior (pkit-mjcb): a project with optional
+    heavy extras (e.g. a `[display]` extra) knows how to gate itself via its
+    own Makefile, so the bare `uv run mypy`/`pyright` sequence — which reports
+    false errors against the base wheel env — must not run.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    (root / "Makefile").write_text("check:\n\techo ok\n")
+    d = str(root)
+    _git(["add", "Makefile"], cwd=d)
+    _git(["commit", "-m", "add makefile"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+
+    gate_calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd and cmd[0] in ("make", "uv"):
+            gate_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    _phase1_preflight(info, dry_run=False)
+
+    assert gate_calls == [["make", "check"]]
+
+
+def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without a Makefile, the Python branch keeps running the hardcoded gates."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    assert not (root / "Makefile").exists()
+
+    info = detect(root)
+
+    gate_calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd and cmd[0] in ("make", "uv"):
+            gate_calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    _phase1_preflight(info, dry_run=False)
+
+    assert gate_calls == [
+        ["uv", "run", "ruff", "check", "src/", "tests/"],
+        ["uv", "run", "ruff", "format", "--check", "src/", "tests/"],
+        ["uv", "run", "mypy", "src/", "tests/"],
+        ["uv", "run", "pyright", "src/", "tests/"],
+        ["uv", "run", "pytest", "tests/", "-v"],
+    ]
+
+
+def test_preflight_python_make_check_failure_aborts_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A non-zero `make check` aborts the phase instead of reporting success."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    (root / "Makefile").write_text("check:\n\techo ok\n")
+    d = str(root)
+    _git(["add", "Makefile"], cwd=d)
+    _git(["commit", "-m", "add makefile"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd and cmd[0] in ("make", "uv"):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="lint failed")
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="Quality gate failed: make check"):
+        _phase1_preflight(info, dry_run=False)
+
+    assert "All quality gates passed" not in capsys.readouterr().out
+
+
 # --- phase 2 version bump ---
 
 
