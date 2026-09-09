@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- **Dropped the deprecated `Skill(biff:poll)` entry from `STANDARD_SKILL_PERMISSIONS`.** biff folded `/biff:poll` into `/biff:read` (biff #414) and removed the standalone command (biff #420 / biff-ue2); `Skill(biff:read)` already covers polling, so the permission list carried a rule for a skill the biff plugin no longer ships. With the updated biff plugin installed, the stale entry would have shown up as an unusable permission in `punt init`/`punt audit`/`make skills-check`. This change coordinates with the biff-side removal — it should land before or alongside biff's next plugin release so the released biff plugin and punt-kit's standard permission set stay in agreement.
+
 ### Fixed
 
 - **Phase 1 preflight now honors a Python project's own Makefile for the quality gate.** The Python branch of `Phase1Preflight` (`src/punt_kit/phases/phase01_preflight.py`) ran a hardcoded `uv run ruff/mypy/pyright/pytest` sequence and ignored `info.root / "Makefile"`, unlike the Go branch, which already preferred `make check` when a Makefile exists. This broke Python projects with optional heavy extras (e.g. lux's `[display]` extra, pyright-via-npx, an OO ratchet) because the base wheel env lacks the extra and bare `uv run mypy`/`pyright` reported false errors, blocking lux v0.32.0. The Python branch now mirrors the Go branch: prefer `make check` when a Makefile exists, falling back to the hardcoded gate list only when no Makefile is present (pkit-mjcb).
