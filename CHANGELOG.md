@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **`punt doctor` no longer prints `(optional)` twice for a missing optional tool.** A not-found optional binary rendered as `✗ pyright: not found (optional) (optional)`: `_check_binary` baked the `(optional)`/`(required)` label into the message *and* the print loop appended ` (optional)` again. The `(required)`/`(optional)` annotation now has a single owner — a `CheckResult.status_suffix` property — so a missing optional tool reads `✗ pyright: not found (optional)` once, a missing required tool reads `not found (required)`, and a passing required check stays unannotated (pkit-8r6).
+- **`punt doctor` no longer prints `(optional)` twice for a missing optional tool.** A not-found optional binary rendered as `✗ pyright: not found (optional) (optional)`: `_check_binary` baked the `(optional)`/`(required)` label into the message *and* the print loop appended another `(optional)` suffix. The `(required)`/`(optional)` annotation now has a single owner — a `CheckResult.status_suffix` property — so a missing optional tool reads `✗ pyright: not found (optional)` once, a missing required tool reads `not found (required)`, and a passing required check stays unannotated (pkit-8r6).
 
 ## [0.17.2] - 2026-09-08
 
