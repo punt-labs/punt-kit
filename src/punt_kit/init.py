@@ -55,7 +55,6 @@ STANDARD_SKILL_PERMISSIONS: tuple[str, ...] = (
     "Skill(biff:last)",
     "Skill(biff:mesg)",
     "Skill(biff:plan)",
-    "Skill(biff:poll)",
     "Skill(biff:read)",
     "Skill(biff:talk)",
     "Skill(biff:tty)",
