@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Phase 1 preflight now honors a Python project's own Makefile for the quality gate.** The Python branch of `Phase1Preflight` (`src/punt_kit/phases/phase01_preflight.py`) ran a hardcoded `uv run ruff/mypy/pyright/pytest` sequence and ignored `info.root / "Makefile"`, unlike the Go branch, which already preferred `make check` when a Makefile exists. This broke Python projects with optional heavy extras (e.g. lux's `[display]` extra, pyright-via-npx, an OO ratchet) because the base wheel env lacks the extra and bare `uv run mypy`/`pyright` reported false errors, blocking lux v0.32.0. The Python branch now mirrors the Go branch: prefer `make check` when a Makefile exists, falling back to the hardcoded gate list only when no Makefile is present (pkit-mjcb).
+
 ## [0.17.2] - 2026-09-08
 
 ### Fixed
