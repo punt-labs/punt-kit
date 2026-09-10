@@ -61,11 +61,18 @@ Per-project enablement uses the marker file `.punt-labs/<tool>/enabled` inside
 the tool's committed vendored subtree `<repo>/.punt-labs/<tool>/`, written by
 `<tool> enable` and deleted by `<tool> disable`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
-This supersedes the bare repo-root sentinel dotfile (`.biff`, `.quarry.toml`)
-as the enabled signal. These paths are **not** under `~/.punt-labs/` — they
+This supersedes every legacy repo-root sentinel as the enabled signal — a
+settings dotfile, a config-bearing root directory, or a bare presence marker;
+[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) enumerates the
+attested shapes and [§ 9](punt-labs-dir.md#9-migration) is the migration table.
+**No per-repo tool state lives at the repo root at all, in any form** — this
+Core Principle's "no top-level dot-directory" rule holds at the repo root
+exactly as it holds under `$HOME`; every per-repo path lives under
+`.punt-labs/<tool>/`. These paths are **not** under `~/.punt-labs/` — they
 live in the project directory and are committed to version control. Which
 files under a repo's `.punt-labs/<tool>/` are committed (e.g. `config.yaml`)
-versus gitignored (`config.local.yaml`, `local/`) is governed by
+versus gitignored (`config.local.yaml`, `local/`) or daemon-mutable
+(gitignored in place, e.g. `vox.md`) is governed by
 [punt-labs-dir.md](punt-labs-dir.md).
 
 ---
