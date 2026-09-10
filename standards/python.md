@@ -512,14 +512,20 @@ The pattern:
    the callback name:
 
    ```python
-   cli_verbs = {
-       c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
-   }
-   mcp_verbs = {tool.name for tool in asyncio.run(mcp.list_tools())}
+   async def test_verb_sets_match() -> None:
+       cli_verbs = {
+           c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
+       }
+       mcp_verbs = {tool.name for tool in await mcp.list_tools()}
+       assert cli_verbs == mcp_verbs
    ```
 
    `FastMCP.list_tools()` is the framework's public tool-listing API — do
-   not reach into private internals like `mcp._tool_manager`. When one MCP
+   not reach into private internals like `mcp._tool_manager`. It is a
+   coroutine: `await` it from an async test (pytest-asyncio/anyio); in a
+   sync test with no running event loop, `asyncio.run(mcp.list_tools())`
+   works instead — never inside an async test, where `asyncio.run()`
+   raises `RuntimeError`. When one MCP
    tool multiplexes subcommands (vox's `mic:music`), compare the CLI verb
    set against the tool's declared subcommand set (the `Literal`/enum type
    that defines it) instead of against tool names. Either way: a verb on one
