@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`standards/python.md` gains a Surface Parity Testing section.** Documents the test pattern that keeps multi-surface tools honest — one shared fixture driving both the MCP tool and the CLI, verb-set equality asserted first, parsed payloads compared field for field, renamed fields named in constants rather than silently tolerated, and on-disk state asserted alongside payloads. Reference implementation: vox's `tests/test_switches_surface_parity.py` and `tests/test_music_surface_parity.py`.
+- **Vox and beadle are enabled for this repo.** Commits the `.punt-labs/vox/` and `.punt-labs/beadle/` enablement markers and deposited agent guides, the corresponding `CLAUDE.md` `@`-imports (vox and beadle — no ethos import, since `.punt-labs/ethos/` is deliberately not committed here), and a `Bash(vox:*)` permission in `.claude/settings.json`. The daemon-mutable `.punt-labs/vox/vox.md` config is not tracked and is gitignored, so an enabled checkout stays clean through clean-tree gates.
+
 ### Removed
 
 - **Dropped the deprecated `Skill(biff:poll)` entry from `STANDARD_SKILL_PERMISSIONS`.** biff folded `/biff:poll` into `/biff:read` (biff #414) and removed the standalone command (biff #420 / biff-ue2); `Skill(biff:read)` already covers polling, so the permission list carried a rule for a skill the biff plugin no longer ships. With the updated biff plugin installed, the stale entry would have shown up as an unusable permission in `punt init`/`punt audit`/`make skills-check`. This change coordinates with the biff-side removal — it should land before or alongside biff's next plugin release so the released biff plugin and punt-kit's standard permission set stay in agreement.

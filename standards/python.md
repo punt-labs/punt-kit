@@ -482,6 +482,76 @@ This runs in milliseconds and covers the full command logic. Reserve subprocess 
 
 See [Humble Object Commands](../patterns/humble-object-commands.md) for the full pattern.
 
+### Surface Parity Testing
+
+[cli.md](cli.md#core-principle) states the principle — every MCP tool has a
+corresponding CLI command, and all client surfaces are thin adapters over the
+same engine — but the principle only holds if a test actually checks it. A
+parity test drives two (or more) surfaces against one shared fixture and
+asserts their answers agree field for field, not just that both happen to
+return `200`/exit `0`.
+
+**Reference implementation**: vox's
+[`tests/test_switches_surface_parity.py`](https://github.com/punt-labs/vox/blob/main/tests/test_switches_surface_parity.py)
+and
+[`tests/test_music_surface_parity.py`](https://github.com/punt-labs/vox/blob/main/tests/test_music_surface_parity.py).
+The pattern:
+
+1. **One shared fixture state, both surfaces.** Construct the fixture state
+   once — one catalog tuple, one `tmp_path` config dir — and drive both
+   surfaces against it: the MCP tool directly (call its `dispatch()` /
+   command method) and the CLI through its real entry point
+   (`CliRunner().invoke(app, [...])`). Per-surface fake *objects* are fine
+   (each surface may need its own gateway instance), but they must be built
+   from the same underlying state, never configured independently — two
+   separately-authored fakes can drift apart and hide exactly the
+   divergence this test exists to catch.
+2. **Assert the verb/tool-name sets match first.** A cheap, high-value
+   check, using only public APIs. Derive CLI verbs the way Typer does —
+   `c.name` is `None` for the plain `@app.command()` form, so fall back to
+   the callback name:
+
+   ```python
+   async def test_verb_sets_match() -> None:
+       cli_verbs = {
+           c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
+       }
+       mcp_verbs = {tool.name for tool in await mcp.list_tools()}
+       assert cli_verbs == mcp_verbs
+   ```
+
+   `FastMCP.list_tools()` is the framework's public tool-listing API — do
+   not reach into private internals like `mcp._tool_manager`. It is a
+   coroutine: `await` it from an async test (pytest-asyncio/anyio); in a
+   sync test with no running event loop, `asyncio.run(mcp.list_tools())`
+   works instead — never inside an async test, where `asyncio.run()`
+   raises `RuntimeError`. When one MCP
+   tool multiplexes subcommands (vox's `mic:music`), compare the CLI verb
+   set against the tool's declared subcommand set (the `Literal`/enum type
+   that defines it) instead of against tool names. Either way: a verb on one
+   surface and not the other is a hole in the contract — catch it before
+   comparing any payload.
+3. **Compare the parsed JSON payload, field for field**, not the surface's
+   prose. A CLI's plain output and an MCP tool's stylized response (vox's
+   `♪` DJ voice) are a deliberate difference in *voice*, not in *state* —
+   parse both to structured data and compare that.
+4. **Document renamed fields explicitly, don't silently tolerate them.**
+   When a surface uses a domain-appropriate key the other doesn't (vox's
+   CLI reports a list as `names`; the MCP tool reports the same list as
+   `available`), name the rename in a constant (`_CLI_LIST_KEY` /
+   `_MCP_LIST_KEY`) and remap before comparing — an undocumented, silently
+   tolerated rename is exactly the kind of drift this test exists to catch.
+5. **Assert on-disk state too, not just the returned payload**, when the
+   operation writes: both surfaces should leave the same field written to
+   the same config file.
+
+**Why this earns its keep**: vox's own parity suite exists because "the
+CLI's `list` once dropped the `format` field the tool reported, and nothing
+failed" — every other test passed because each surface was tested against
+its own mocks, never against the other surface's answer. A parity test is
+the one test class that fails specifically when two surfaces silently
+diverge.
+
 ## Distribution
 
 ### PyPI
