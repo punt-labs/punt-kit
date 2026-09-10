@@ -401,7 +401,7 @@ Repository = "https://github.com/punt-labs/<repo>"
 <name>-server = "<package>.server:run_server"  # MCP server entry point (if applicable)
 
 [build-system]
-requires = ["uv_build>=0.9.14,<0.13.0"]
+requires = ["uv_build>=0.9.14,<0.10.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
@@ -481,6 +481,50 @@ When a project uses the [commands layer](#rules), command functions are testable
 This runs in milliseconds and covers the full command logic. Reserve subprocess and E2E tests for wire protocol and process lifecycle concerns.
 
 See [Humble Object Commands](../patterns/humble-object-commands.md) for the full pattern.
+
+### Surface Parity Testing
+
+[cli.md](cli.md#core-principle) states the principle — every MCP tool has a
+corresponding CLI command, and all client surfaces are thin adapters over the
+same engine — but the principle only holds if a test actually checks it. A
+parity test drives two (or more) surfaces against one shared fixture and
+asserts their answers agree field for field, not just that both happen to
+return `200`/exit `0`.
+
+**Reference implementation**: vox's `tests/test_switches_surface_parity.py`
+and `tests/test_music_surface_parity.py`. The pattern:
+
+1. **One shared fixture, both surfaces.** Construct one in-memory session
+   (or fake gateway) and one `tmp_path` config dir. Drive the MCP tool
+   directly (call its `dispatch()` / command method) and drive the CLI
+   through its real entry point (`CliRunner().invoke(app, [...])`) against
+   that *same* fixture — never two separately-configured fakes that could
+   drift apart from each other.
+2. **Assert the verb/tool-name sets match first.** A cheap, high-value
+   check: `{c.name for c in app.registered_commands}` against
+   `{tool.name for tool in mcp._tool_manager.list_tools()}`. A verb on one
+   surface and not the other is a hole in the contract — catch it before
+   comparing any payload.
+3. **Compare the parsed JSON payload, field for field**, not the surface's
+   prose. A CLI's plain output and an MCP tool's stylized response (vox's
+   `♪` DJ voice) are a deliberate difference in *voice*, not in *state* —
+   parse both to structured data and compare that.
+4. **Document renamed fields explicitly, don't silently tolerate them.**
+   When a surface uses a domain-appropriate key the other doesn't (vox's
+   CLI reports a list as `names`; the MCP tool reports the same list as
+   `available`), name the rename in a constant (`_CLI_LIST_KEY` /
+   `_MCP_LIST_KEY`) and remap before comparing — an undocumented, silently
+   tolerated rename is exactly the kind of drift this test exists to catch.
+5. **Assert on-disk state too, not just the returned payload**, when the
+   operation writes: both surfaces should leave the same field written to
+   the same config file.
+
+**Why this earns its keep**: vox's own parity suite exists because "the
+CLI's `list` once dropped the `format` field the tool reported, and nothing
+failed" — every other test passed because each surface was tested against
+its own mocks, never against the other surface's answer. A parity test is
+the one test class that fails specifically when two surfaces silently
+diverge.
 
 ## Distribution
 

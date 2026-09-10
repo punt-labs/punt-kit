@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **`standards/python.md` gains a Surface Parity Testing section.** Documents the test pattern that keeps multi-surface tools honest — one shared fixture driving both the MCP tool and the CLI, verb-set equality asserted first, parsed payloads compared field for field, renamed fields named in constants rather than silently tolerated, and on-disk state asserted alongside payloads. Reference implementation: vox's `tests/test_switches_surface_parity.py` and `tests/test_music_surface_parity.py`.
+- **Vox and beadle are enabled for this repo.** Commits the `.punt-labs/vox/` and `.punt-labs/beadle/` enablement markers and deposited agent guides, the corresponding `CLAUDE.md` `@`-imports (vox, ethos, beadle), and a `Bash(vox:*)` permission in `.claude/settings.json`.
+
 ### Fixed
 
 - **Phase 1 preflight now honors a Python project's own Makefile for the quality gate.** The Python branch of `Phase1Preflight` (`src/punt_kit/phases/phase01_preflight.py`) ran a hardcoded `uv run ruff/mypy/pyright/pytest` sequence and ignored `info.root / "Makefile"`, unlike the Go branch, which already preferred `make check` when a Makefile exists. This broke Python projects with optional heavy extras (e.g. lux's `[display]` extra, pyright-via-npx, an OO ratchet) because the base wheel env lacks the extra and bare `uv run mypy`/`pyright` reported false errors, blocking lux v0.32.0. The Python branch now mirrors the Go branch: prefer `make check` when a Makefile exists, falling back to the hardcoded gate list only when no Makefile is present (pkit-mjcb).
