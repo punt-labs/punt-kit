@@ -401,7 +401,7 @@ Repository = "https://github.com/punt-labs/<repo>"
 <name>-server = "<package>.server:run_server"  # MCP server entry point (if applicable)
 
 [build-system]
-requires = ["uv_build>=0.9.14,<0.10.0"]
+requires = ["uv_build>=0.9.14,<0.13.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
@@ -494,15 +494,32 @@ return `200`/exit `0`.
 **Reference implementation**: vox's `tests/test_switches_surface_parity.py`
 and `tests/test_music_surface_parity.py`. The pattern:
 
-1. **One shared fixture, both surfaces.** Construct one in-memory session
-   (or fake gateway) and one `tmp_path` config dir. Drive the MCP tool
-   directly (call its `dispatch()` / command method) and drive the CLI
-   through its real entry point (`CliRunner().invoke(app, [...])`) against
-   that *same* fixture — never two separately-configured fakes that could
-   drift apart from each other.
+1. **One shared fixture state, both surfaces.** Construct the fixture state
+   once — one catalog tuple, one `tmp_path` config dir — and drive both
+   surfaces against it: the MCP tool directly (call its `dispatch()` /
+   command method) and the CLI through its real entry point
+   (`CliRunner().invoke(app, [...])`). Per-surface fake *objects* are fine
+   (each surface may need its own gateway instance), but they must be built
+   from the same underlying state, never configured independently — two
+   separately-authored fakes can drift apart and hide exactly the
+   divergence this test exists to catch.
 2. **Assert the verb/tool-name sets match first.** A cheap, high-value
-   check: `{c.name for c in app.registered_commands}` against
-   `{tool.name for tool in mcp._tool_manager.list_tools()}`. A verb on one
+   check, using only public APIs. Derive CLI verbs the way Typer does —
+   `c.name` is `None` for the plain `@app.command()` form, so fall back to
+   the callback name:
+
+   ```python
+   cli_verbs = {
+       c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
+   }
+   mcp_verbs = {tool.name for tool in asyncio.run(mcp.list_tools())}
+   ```
+
+   `FastMCP.list_tools()` is the framework's public tool-listing API — do
+   not reach into private internals like `mcp._tool_manager`. When one MCP
+   tool multiplexes subcommands (vox's `mic:music`), compare the CLI verb
+   set against the tool's declared subcommand set (the `Literal`/enum type
+   that defines it) instead of against tool names. Either way: a verb on one
    surface and not the other is a hole in the contract — catch it before
    comparing any payload.
 3. **Compare the parsed JSON payload, field for field**, not the surface's

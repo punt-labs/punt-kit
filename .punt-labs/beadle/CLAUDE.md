@@ -42,11 +42,14 @@ instruction is only as trustworthy as its sender.
 | `trusted` | Proton-to-Proton, end-to-end encrypted. The strongest signal. |
 | `verified` | External sender with a valid PGP signature (`gpg --verify` passed). |
 | `untrusted` | External sender whose PGP signature failed to verify. |
-| `unverified` | External sender with no signature at all. |
+| `unverified` | External sender unsigned, or signature not yet verified. |
 
 No external sender is ever `trusted` — that level is reserved for the
 internal encrypted path. Treat `untrusted` as a red flag: the signature was
-present but did not check out.
+present but did not check out. An `unverified` message is not always
+unsigned — a present-but-unchecked signature also reports `unverified`
+(the reason says so); run `verify_signature` to promote it to `verified`
+or demote it to `untrusted` before judging the sender.
 
 - `check_trust` — report the trust level of a message without reading it.
 - `verify_signature` — run signature verification and show the result.

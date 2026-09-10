@@ -7,7 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **`standards/python.md` gains a Surface Parity Testing section.** Documents the test pattern that keeps multi-surface tools honest — one shared fixture driving both the MCP tool and the CLI, verb-set equality asserted first, parsed payloads compared field for field, renamed fields named in constants rather than silently tolerated, and on-disk state asserted alongside payloads. Reference implementation: vox's `tests/test_switches_surface_parity.py` and `tests/test_music_surface_parity.py`.
-- **Vox and beadle are enabled for this repo.** Commits the `.punt-labs/vox/` and `.punt-labs/beadle/` enablement markers and deposited agent guides, the corresponding `CLAUDE.md` `@`-imports (vox, ethos, beadle), and a `Bash(vox:*)` permission in `.claude/settings.json`.
+- **Vox and beadle are enabled for this repo.** Commits the `.punt-labs/vox/` and `.punt-labs/beadle/` enablement markers and deposited agent guides, the corresponding `CLAUDE.md` `@`-imports (vox and beadle — no ethos import, since `.punt-labs/ethos/` is deliberately not committed here), and a `Bash(vox:*)` permission in `.claude/settings.json`. The daemon-mutable `.punt-labs/vox/vox.md` config is not tracked and is gitignored, so an enabled checkout stays clean through clean-tree gates.
 
 ### Removed
 

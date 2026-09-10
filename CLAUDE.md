@@ -289,5 +289,4 @@ Standards changes are normative for ~15 repos — treat every diff as a cross-re
 - [CLI](https://github.com/punt-labs/punt-kit/blob/main/standards/cli.md)
 - [Shell](https://github.com/punt-labs/punt-kit/blob/main/standards/shell.md)
 @.punt-labs/vox/CLAUDE.md
-@.punt-labs/ethos/CLAUDE.md
 @.punt-labs/beadle/CLAUDE.md
