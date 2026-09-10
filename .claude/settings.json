@@ -36,7 +36,8 @@
       "Bash(uvx twine:*)",
       "Read",
       "Edit",
-      "Write"
+      "Write",
+      "Bash(vox:*)"
     ],
     "deny": [
       "Bash(curl:*)",
