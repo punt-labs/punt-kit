@@ -491,8 +491,11 @@ parity test drives two (or more) surfaces against one shared fixture and
 asserts their answers agree field for field, not just that both happen to
 return `200`/exit `0`.
 
-**Reference implementation**: vox's `tests/test_switches_surface_parity.py`
-and `tests/test_music_surface_parity.py`. The pattern:
+**Reference implementation**: vox's
+[`tests/test_switches_surface_parity.py`](https://github.com/punt-labs/vox/blob/main/tests/test_switches_surface_parity.py)
+and
+[`tests/test_music_surface_parity.py`](https://github.com/punt-labs/vox/blob/main/tests/test_music_surface_parity.py).
+The pattern:
 
 1. **One shared fixture state, both surfaces.** Construct the fixture state
    once — one catalog tuple, one `tmp_path` config dir — and drive both
