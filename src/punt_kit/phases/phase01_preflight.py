@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
@@ -18,6 +19,20 @@ if TYPE_CHECKING:
     from punt_kit.phases.shared.ops import ReleaseOps
 
 _console = Console()
+
+# Repo-relative paths of tracked Config-zone files a *running daemon*
+# rewrites continuously (standards/punt-labs-dir.md § 7). A repo with an
+# active vox session routinely shows this file `modified` in the working
+# tree even though nothing about the release is at stake — the clean-tree
+# gate below still fails the release (no auto-stash — see the gate's
+# comment), but names the exact stash command instead of the generic
+# dirty-tree message when this is the *only* thing dirty. Deliberately a
+# small, explicit allowlist rather than a path-shape heuristic: lux's
+# `.punt-labs/lux/config.md` looks identical in shape but is NOT
+# daemon-rewritten (only `enable`/`disable` write it), so it must not be
+# on this list. Extend it only when a standard names another file as
+# continuously daemon-rewritten.
+_DAEMON_MUTABLE_PATHS = frozenset({".punt-labs/vox/vox.md"})
 
 
 @final
@@ -65,8 +80,7 @@ class Phase1Preflight:
             else:
                 dirty_lines.append(ln)
         if dirty_lines:
-            dirty = "\n".join(dirty_lines)
-            ops.fail(f"Working tree is not clean:\n{dirty}")
+            ops.fail(self._dirty_tree_message(dirty_lines))
         if untracked_lines:
             # Untracked files at release time are almost always noise (temp
             # files, forgotten artifacts) that must not ride along in
@@ -212,6 +226,51 @@ class Phase1Preflight:
             ops.ok("All quality gates passed")
         elif dry_run:
             ops.dry("Would run quality gates")
+
+    def _dirty_tree_message(self, dirty_lines: list[str]) -> str:
+        """Build the "working tree is not clean" failure message.
+
+        ``dirty_lines`` are raw ``git status --porcelain`` lines for
+        tracked, modified paths (untracked paths are reported separately).
+        When every dirty path is a known daemon-mutable settings file
+        (``_DAEMON_MUTABLE_PATHS``), the message names the exact stash
+        command instead of the generic dump — the common case for a repo
+        with an active vox session, where the operator's fix is always the
+        same two commands. Mixed dirt (a daemon file plus anything else)
+        keeps the generic message shape, since the operator still has real
+        cleanup to do, but still calls out which paths are daemon-mutable
+        so the stash step isn't rediscovered by hand. This does not
+        auto-stash — that touches the interrupt/resume paths and is a
+        separate change.
+        """
+        dirty = "\n".join(dirty_lines)
+        daemon_paths = sorted(
+            p
+            for ln in dirty_lines
+            if (p := ln[3:] if len(ln) > 3 else "") in _DAEMON_MUTABLE_PATHS
+        )
+        if not daemon_paths:
+            return f"Working tree is not clean:\n{dirty}"
+
+        stash_cmd = "git stash push -- " + " ".join(
+            shlex.quote(p) for p in daemon_paths
+        )
+        if len(daemon_paths) == len(dirty_lines):
+            return (
+                "Working tree has only daemon-mutable settings files dirty "
+                f"(standards/punt-labs-dir.md § 7):\n{dirty}\n\n"
+                "Stash them before releasing, then restore them after:\n"
+                f"  {stash_cmd}\n"
+                "  (after the release completes) git stash pop"
+            )
+        daemon_list = "\n".join(f"  {p}" for p in daemon_paths)
+        return (
+            f"Working tree is not clean:\n{dirty}\n\n"
+            "Note: the following are daemon-mutable settings files "
+            "(standards/punt-labs-dir.md § 7) — once the rest is cleaned "
+            f"up, stash and restore them with `{stash_cmd}` / "
+            f"`git stash pop`:\n{daemon_list}"
+        )
 
     def _warn_stale_prior_tag(self, info: ProjectInfo) -> None:
         """Warn when the highest existing tag's plugin manifest is stale.
