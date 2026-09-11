@@ -7,18 +7,22 @@
 was written and recovered afterward. All 7 original epic children are closed
 (fixed in earlier waves); the harness is the epic's remaining shared
 deliverable. The design's own defect findings (§4) are filed as
-pkit-f85t.5–.8. No child bead conflicts with this plan.
+pkit-f85t.5–.8. §4 was extended after that filing with **defect #8** (the
+Phase 5 tag-then-push resume bug, P0) during a subsequent review round —
+it is not yet covered by an existing `pkit-f85t` child; see §4 item 8 and
+Wave 4 for the filing note. No child bead conflicts with this plan.
 
 ## 0. The pattern to kill
 
 Every release-engine defect on record — `pkit-d7mz`, `pkit-plxh`, `pkit-dlv6`,
-`pkit-d8ij`, `pkit-mjcb`, `pkit-8r6`, `pkit-9n6q`, `pkit-fwql`, the five
+`pkit-d8ij`, `pkit-mjcb`, `pkit-8r6`, `pkit-9n6q`, `pkit-fwql`, the four
 `pkit-f85t.1`–`.4` bugs, and the DES-029 vox v5.0.4 incident — was discovered
 the same way: a live release broke with an operator watching, and the fix
 followed a post-mortem reconstruction of what must have happened (DES-029's
 own text: "no run log survived; the leading hypothesis is..."). Not one of
-these eleven defects has a regression test that existed *before* the incident
-that found it. `tests/test_release.py` is 7,169 lines and already covers an
+these thirteen defects (8 named beads + 4 `pkit-f85t` children + the DES-029
+incident) has a regression test that existed *before* the incident that found
+it. `tests/test_release.py` is 7,169 lines and already covers an
 enormous amount of phase logic — but every one of those tests was written
 *after* its failure mode was already live in production once.
 
@@ -111,8 +115,10 @@ This is a real inconsistency, not a hypothetical one: `ci_run.py`'s
 `TagRunSelector.poll` takes `sleep` as a constructor-injected callable, while
 `gh.py` and `pr_merge.py` hard-code the module global. A harness that wants
 to exercise `PrMerger.merge`'s 6-attempt transient-merge-block retry loop
-without six real `time.sleep(10..60)` calls (up to 210s of real wall-clock
-per test) either has to monkeypatch three distinct dotted paths
+without five real `time.sleep(10..50)` calls (up to 150s of real wall-clock
+per test — the loop sleeps only after attempts 1–5, `wait = 10 * (attempt +
+1)` for `attempt` in `0..4`; attempt 6 either succeeds or fails outright with
+no sixth sleep) either has to monkeypatch three distinct dotted paths
 (`punt_kit.release.time.sleep`, `punt_kit.phases.shared.gh.time.sleep`,
 `punt_kit.phases.shared.pr_merge.time.sleep`) or accept the real delay. No
 test today exercises the pr_merge retry loop's later attempts at all —
@@ -161,34 +167,79 @@ against the `tmp_path` repo per §1b) plus a **routing table** of fault rules:
 ```python
 @dataclass(slots=True)
 class FaultRule:
-    """One scripted response for commands matching a prefix."""
+    """One scripted response for commands matching an argv prefix.
 
-    match: Sequence[str]  # argv prefix, e.g. ["gh", "pr", "merge"]
-    times: int | None = 1  # None = every remaining match
+    ``match[0]`` compares against ``Path(argv[0]).name`` — production
+    ``gh`` call sites resolve the binary via ``shutil.which("gh")``
+    (pr_merge.py:96), so ``argv[0]`` is an absolute path like
+    ``/usr/bin/gh``, never the bare string ``"gh"``. ``match[1:]`` compares
+    exactly against ``argv[1:len(match)]``. This is the one normalization
+    rule the router applies; everything else is literal prefix matching.
+    """
+
+    match: Sequence[str]  # argv prefix, e.g. ["gh", "pr", "merge"] — element
+    # 0 matched by basename per the docstring above
+    skip: int = 0  # ignore this many otherwise-matching calls before engaging
+    times: int | None = 1  # None = every remaining match after `skip`
     response: CompletedProcessSpec | None = None
+    responses: Sequence[CompletedProcessSpec] | None = None  # one response
+    # per consumed match, in order — e.g. [open_pr, merged_pr] for an
+    # OPEN -> MERGED transition across two calls to the same command
     raises: type[BaseException] | BaseException | None = None
 
 
 class FaultInjectingOps:
-    """A ReleaseOps that delegates to a real _run, except for scripted faults."""
+    """A ReleaseOps that delegates to a real _run, except for scripted faults.
 
-    def __init__(self, *, real_run: RunFn, rules: Sequence[FaultRule]) -> None: ...
+    Unmatched *network-touching* commands are a hard failure, not a
+    silent passthrough — see the deny-by-default note below.
+    """
+
+    def __init__(
+        self,
+        *,
+        real_run: RunFn,
+        rules: Sequence[FaultRule],
+        passthrough: Sequence[str] = (),
+    ) -> None: ...
 
     def run(self, cmd, **kw) -> subprocess.CompletedProcess[str]:
         if rule := self._match(cmd):
             return rule.apply(cmd)
-        return self._real_run(cmd, **kw)
+        if cmd[0:1] == ["git"] or Path(cmd[0]).name in self._passthrough_names:
+            return self._real_run(cmd, **kw)
+        raise AssertionError(
+            f"unmatched network command in a fault-injection test: {cmd!r} — "
+            "add a FaultRule or an explicit passthrough entry"
+        )
 ```
 
 This is the vocabulary §1c is missing: "the third `gh pr merge` call returns
 exit 1 with `'required status check'` in stderr, then let the fourth through"
-becomes one `FaultRule`, not a bespoke closure. Every existing ad hoc
-`fake_run` in `tests/test_release.py` is expressible as one or two
-`FaultRule`s, and new tests get a compact scenario-description style instead
-of hand-rolled `CompletedProcess` construction. **This is additive** — it
-does not replace `monkeypatch.setattr(release_mod, "_run", ...)`, it *is* a
+becomes `FaultRule(match=["gh", "pr", "merge"], skip=2, times=1, raises=...)`
+(the "third call" is the third match after two skipped), and an OPEN→MERGED
+state transition across repeated `gh pr view` polls becomes one `FaultRule`
+with a two-element `responses` sequence — not a bespoke closure. Every
+existing ad hoc `fake_run` in `tests/test_release.py` is expressible as one or
+two `FaultRule`s, and new tests get a compact scenario-description style
+instead of hand-rolled `CompletedProcess` construction. **This is additive** —
+it does not replace `monkeypatch.setattr(release_mod, "_run", ...)`, it *is* a
 thing that gets installed at that exact patch point. Existing tests using the
 inline-closure style keep working unmodified.
+
+**Deny-by-default for network commands.** §1b keeps real git delegation
+(git plumbing is cheap ground truth and stays real for anything unmatched).
+`gh` is different: it is the one command class that reaches the live network
+and a real GitHub org. An unmatched `gh` call must not silently fall through
+to `real_run` — a test that intends to inject exactly one fault and forgot
+that a later phase also calls `gh` would otherwise execute that later call
+against production GitHub with no warning, exactly the failure mode this
+design exists to prevent. `FaultInjectingOps` therefore raises
+`AssertionError` on any unmatched command whose basename is not `git` and is
+not in the constructor's `passthrough` allowlist (for the rare case — e.g.
+`gh --version` — where hitting the real binary but not the network is
+genuinely safe and desired). This is a Wave 0 acceptance criterion: a unit
+test asserts that an unrouted `gh` call raises rather than delegates.
 
 ### 2b. Recorded-fixture library + contract test (drift avoidance)
 
@@ -207,12 +258,23 @@ fixtures" — this is the mechanism:
 2. **Contract test.** `tests/test_gh_fixture_contracts.py` asserts, for each
    fixture, that the **shape** the release engine's parsing code expects
    (top-level keys, value types, nested structure) matches the recorded
-   fixture — via the same `TypedDict`/`cast` narrowing the production code
-   already does in `phase06_ci_wait.py` and `gh.py`. If `gh`'s CLI changes a
-   field name or a JSON shape in a future version, this test fails on the
-   *fixture*, independent of any hand-rolled fake in a specific test —
-   catching drift at its source instead of at whichever test happens to
-   exercise that shape.
+   fixture. The production code (`phase06_ci_wait.py`, `gh.py`) does not
+   define `TypedDict`s — it narrows `object`/`dict[str, object]` with
+   `cast(...)`, which is a static-only annotation with zero runtime effect;
+   reusing those casts in a test would type-check but assert nothing. The
+   contract test instead needs its own runtime schema, owned by the harness:
+   a small `tests/harness/gh_shapes.py` module defining a `TypedDict` per
+   response shape (for readability and mypy coverage of the test file
+   itself) *plus* an explicit validator function per shape — `assert
+   set(payload) >= {"number", "state", "headRefOid"}`,
+   `isinstance(payload["number"], int)`, and so on down through nested
+   structure — that actually walks the fixture at test time and fails loudly
+   on a missing key, a renamed field, or a type that changed shape. The
+   `TypedDict` documents the contract; the validator function enforces it.
+   If `gh`'s CLI changes a field name or a JSON shape in a future version,
+   this test fails on the *fixture*, independent of any hand-rolled fake in
+   a specific test — catching drift at its source instead of at whichever
+   test happens to exercise that shape.
 3. **Fixture reuse.** `FaultRule.response` can load a recorded fixture by
    name (`FaultRule.from_fixture("gh_pr_list_open.json")`) instead of an
    inline dict literal — so a scenario test's "what does a normal `gh pr
@@ -236,17 +298,55 @@ only the (manual, out-of-band) recording step touches the network.
 Three failure classes fall outside "a subprocess returns a different exit
 code or stdout," and need dedicated harness support:
 
-**SIGINT / interrupt timing.** `_interrupted` is a module-level
-`threading.Event` on `release.py`; `RequiredChecksWaiter.wait` is the one
-poll loop that checks it (per DES-029). A harness helper,
-`interrupt_after(ops, on_call_number: int)`, wraps a `FaultInjectingOps` so
-that the Nth call to `.run()` sets `release._interrupted` before returning —
-simulating "the operator hit Ctrl-C while this subprocess was in flight"
-without needing a real OS signal or a real second thread racing the main one.
-This is strictly stronger than sending a real `SIGINT` to the test process
-(which nothing in the current suite does, and which would be flaky under
-pytest-xdist) because it pins the interrupt to an exact point in the call
-sequence instead of a wall-clock race.
+**SIGINT / interrupt timing — two distinct mechanisms for two distinct
+claims.** `_interrupted` is a module-level `threading.Event` on `release.py`;
+`RequiredChecksWaiter.wait` is the one poll loop that checks it (per
+DES-029). The harness needs two different primitives here, not one, because
+they reproduce different things:
+
+- `interrupt_after(ops, after_match: FaultRule)` sets `release._interrupted`
+  immediately *after* a specific rule-matched call to `.run()` returns —
+  anchored to a rule match (see the anchoring note below), not a raw call
+  count. This models "the interrupt arrived and was observed at the next
+  poll boundary *after* this subprocess call completed" — i.e. it tests
+  interrupt-*observation* ordering (does the next `.wait()` iteration see
+  the flag and exit promptly?), not interrupt-*during*-a-call timing. This
+  is the right and sufficient tool for most of §3's SIGINT rows, and it is
+  strictly more reproducible than a real OS `SIGINT` (which nothing in the
+  current suite sends, and which would be flaky under pytest-xdist) because
+  it pins the interrupt to an exact point in the call sequence instead of a
+  wall-clock race.
+- **What `interrupt_after` cannot do:** reproduce DES-029's actual failure
+  mechanism — a subprocess call that is *itself* still blocked when the
+  interrupt arrives, with `ThreadPoolExecutor.__exit__`'s `shutdown(wait=True)`
+  join stuck behind it. Setting the event after `.run()` returns can never
+  model "in flight during the call" because there is no in-flight moment to
+  model. Wave 3 (the wave that targets matrix row 36's actual mechanism, not
+  just its post-fix reporting path) needs a second primitive: a `FaultRule`
+  whose `apply()` blocks on a `threading.Event` the test controls directly —
+  the test thread starts the phase call on a worker thread, waits until the
+  blocking rule signals it has been entered, sets `release._interrupted`
+  while the call is still blocked, then releases the rule's `Event` and
+  asserts the join returns promptly instead of waiting out the blocked call.
+  This is a distinct harness helper (`BlockingFaultRule` or an `apply=`
+  callable hook on `FaultRule`), not a variant of `interrupt_after`.
+
+**Anchoring the interrupt point to a rule match, not a global call count.**
+An earlier version of this design keyed `interrupt_after` to `.run()`'s Nth
+call across the whole test. That does not work: each phase issues a variable
+number of calls depending on preflight state, PR existence, and retry counts,
+so there is no stable global call number that means "phase N just
+completed" — and Phase 9/10 run concurrently, so even a stable per-phase call
+count would interleave nondeterministically across the two worker threads,
+making "call 14" mean a different thing on every run. `interrupt_after`
+therefore anchors to a *rule match* instead: `after_match` names a
+`FaultRule` (typically one already in the test's rule list, e.g. "the final
+`git push origin <tag>` of Phase 5") and the event fires when that specific
+rule's Nth consumption completes, independent of how many other calls
+happened before or concurrently with it. This is the same seam
+`FaultRule.skip`/`times` already provide (§2a) — `interrupt_after` is a thin
+wrapper that fires the event as a rule's `apply()` side effect rather than
+introducing a second counting mechanism.
 
 **Concurrency interleaving (Phase 9/10).** The three Phase 10 propagators and
 the Phase 9/10 pair run in real `ThreadPoolExecutor`s. `FaultInjectingOps`
@@ -318,6 +418,7 @@ rationale).
 | 18 | 4 Release PR | Squash-merge blocked, all 6 attempts exhausted (real failure) | not exercised | 🔧 |
 | 19 | 4 Release PR | Thread-resolution fails mid-retry (best-effort re-resolve swallows error) | `except (ReleaseError, SystemExit, CalledProcessError)` at pr_merge.py:269 has no covering test | 🔧 |
 | 20 | 5 Tag | Tag push fails / tag already exists at different commit | no dedicated Phase 5 failure test found | 🔧 |
+| 20a | 5 Tag | Resume after a local-tag-created/push-failed partial state (defect #8) | `Phase5Tag.run` (phase05_tag.py:57-79) creates the local tag *before* pushing it; if `push()` then fails, the tag is left at HEAD locally. A later `--resume-from tag` re-enters `run()`, finds the tag already exists and already points at HEAD, logs "already exists", and returns — the push never retries. No test asserts this state today, and the code has no fix yet: this is not just a coverage gap, the resume path is genuinely wrong | 🔧 |
 | 21 | 6 CI wait | `release.yml` missing for hybrid/CLI project | `test_phase6_fails_actionably_when_python_project_missing_release_yml`, `_hybrid_missing_release_yml_still_fails` | ✅ |
 | 21a | 6 CI wait | CI wait skips for pure-plugin projects with no `release.yml` (pkit-f85t.2) | `test_phase6_skips_for_pure_plugin_without_release_yml` | ✅ |
 | 22 | 6 CI wait | No run found / stale run / late-arriving run / wrong branch-event-commit | `test_phase6_fails_on_stale_success_with_no_matching_run` + 7 sibling tests | ✅ |
@@ -358,12 +459,18 @@ rationale).
 | 57 | Cross-cutting | PyPI eventual-consistency window after a genuine publish | N/A | ⛔ — exogenous to this codebase; §2d |
 | 58 | Cross-cutting | Real `bd hooks run` / Dolt server latency variance | `test_git_hook_timeout_exceeds_beads_hook_ceiling` asserts the *budget*; the real latency is exogenous | ⛔ — §2d |
 
-**Coverage counts:** 60 rows total — 34 rows ✅ covered today, 23 rows 🔧 enabled-by-harness
-(the delivery plan in §5 sequences these), 3 rows ⛔ out of scope with stated
-rationale. (Row 30 and row 53 each split into one ✅ and one 🔧/partial
-sub-count; they are tallied once each above by their dominant status —
-30 counted under 🔧 since Phase 8 itself is the gap, 53 counted under 🔧
-since exhaustiveness is the gap.)
+**Coverage counts (recounted directly against the table above):** 61 rows
+total — 37 rows ✅ covered today, 21 rows 🔧 enabled-by-harness (the delivery
+plan in §5 sequences these), 3 rows ⛔ out of scope with stated rationale.
+Only **row 30** is an actual ✅/🔧 split (`✅ (11) / 🔧 (8)` — Phase 11's PyPI
+check is covered, Phase 8's own isolated check is not); it is tallied once,
+under 🔧, since Phase 8 itself is the gap. **Row 53** is not a split — its
+status is a single `🔧 (partial)` cell (some phases have a resume test,
+none is exhaustive across all 11), tallied under 🔧 directly. **Row 36** (the
+DES-029 mechanism) carries a `✅ (post-fix)` qualifier and is tallied under
+✅, since the reporting path it names is genuinely covered — Wave 3 targets
+reproducing the *original* mechanism, a distinct scenario from what row 36
+already covers, and does not change row 36's own status.
 
 ## 4. Known phase-logic defect inventory
 
@@ -396,10 +503,20 @@ existing bar), **P2** (inconsistency/hardening, no known live incident yet).
    "Manual action required" recap `ReleasePipeline.print_manual_actions`
    drains. An operator fixing the primary failure and re-running has no
    signal that the sibling needs closer inspection than usual. Recommend:
-   route this specific secondary-failure branch through `SkipRecorder` (it
-   is already injected into `Phase10Propagate` and reachable from
-   `PrMerger` via the same `ops` pattern used elsewhere) so it survives into
-   the recap.
+   route this specific secondary-failure branch through `SkipRecorder` — but
+   note the plumbing is not free. `SkipRecorder` (`_skips` in release.py) is
+   injected into `Phase10Propagate` and `InstallAllPropagator` directly;
+   `PrMerger` (`phases/shared/pr_merge.py`) takes only `ops` at construction
+   (`__new__(cls, *, ops: ReleaseOps)`), and `_sibling_pr_merge`
+   (release.py:491-505) constructs `PrMerger(ops=_ops)` with no recorder in
+   reach. The fix has to add an optional `skips: SkipRecorder | None = None`
+   parameter to `PrMerger.__new__` and pass `_skips` at the one call site
+   that needs it (`_sibling_pr_merge`); `_pr_merge` (release.py:356-366,
+   backing Phase 4's own release-PR merge, which has no sibling-recording
+   concept) keeps constructing `PrMerger(ops=_ops)` with the default `None`.
+   `merge_in_sibling`'s `finally` block then calls `self._skips.record(...)`
+   when a recorder is present and falls back to today's `self._ops.info(...)`
+   when it is not.
 
 3. **P1 — Inconsistent error-diagnosis quality across subprocess call
    sites.** Most `ops.run(...)` call sites either pass `check=False` and
@@ -454,14 +571,42 @@ existing bar), **P2** (inconsistency/hardening, no known live incident yet).
    could silently diverge from the other with nothing to notice.
 
 7. **P2 — No test exhaustively drives `--resume-from` for all 11 phase
-   names against a genuinely-incomplete state at that phase.** `bd list
-   PHASE_NAMES` round-trips are tested; a handful of individual phases have
-   their own resume test. Nothing parametrizes "start the pipeline fresh,
+   names against a genuinely-incomplete state at that phase.**
+   `test_phase_names_cover_all_phases` and
+   `test_phase_name_round_trips_through_phase_names` (`tests/test_release.py`)
+   already iterate the imported `PHASE_NAMES` mapping directly — not a `bd`
+   command; `PHASE_NAMES` is `release.py`'s own module-level dict — and a
+   handful of individual phases have their own resume test. Nothing
+   parametrizes "start the pipeline fresh,
    kill it after phase N completes, then run `--resume-from
    <phase-N+1's-name>` and assert the run picks up cleanly" across all 11
    phases in one sweep. This is precisely the shape of test the harness's
    `FaultInjectingOps` + `interrupt_after` helpers (§2c) make cheap to write
    as one parametrized test instead of eleven bespoke ones.
+
+8. **P0 — Phase 5's local-tag-before-push ordering makes `--resume-from tag`
+   silently skip the retry it exists to enable (matrix row 20a).**
+   `Phase5Tag.run` (phase05_tag.py:57-79) creates the git tag locally
+   (`git tag {tag}`) *before* pushing it (`workspace.push(tag)`). If the
+   push fails — network blip, transient auth failure, anything —
+   `git tag` already succeeded, so the tag sits at HEAD locally while the
+   remote has nothing. The exception from the failed push propagates and
+   the release run stops, per design; the problem is what happens next.
+   Re-running with `--resume-from tag` re-enters `Phase5Tag.run`, which
+   checks `git tag --list {tag}` first (line 57), finds it, confirms
+   `tag_sha == head_sha` (line 64), logs "Tag {tag} already exists at HEAD"
+   (line 65), and returns — `workspace.push(tag)` is never called. The
+   release proceeds to Phase 6 waiting on a CI run for a tag that was never
+   pushed, and CI wait times out or reports "no run found" with no signal
+   that the real cause is an unpushed local tag. This is a P0, not a P2 like
+   defect #5's general "Phase 5 is thin" observation, because it is a
+   correctness bug in the resume path specifically, not just a coverage
+   gap: the existing-tag branch needs to distinguish "exists locally and
+   was already pushed" from "exists locally and was never pushed" (e.g. by
+   also checking `git ls-remote origin {tag}` or by pushing unconditionally
+   when the tag was just created in this same run) before it is safe to
+   short-circuit. **Flagged here as a defect candidate for the epic; no bead
+   ID assigned by this document — filing is the leader's call.**
 
 ## 5. Incremental delivery plan
 
@@ -472,13 +617,28 @@ one worker/evaluator pair, landable independently, and each wave's tests pass
 ### Wave 0 — Harness primitives (foundation, no new test scenarios)
 
 Deliverable: `tests/harness/fault_ops.py` (`FaultRule`, `FaultInjectingOps`,
-`interrupt_after`), plus a thin `tests/harness/__init__.py`. Migrate **zero**
-existing tests in this wave — the goal is landing the primitive with its own
-unit tests (does `FaultInjectingOps` correctly delegate to real `_run` for
-unmatched commands, correctly consume `times`-bounded rules, correctly raise
-injected exceptions, correctly stay thread-safe under concurrent `.run()`
-calls from a `ThreadPoolExecutor`). Sized deliberately small so the primitive
-itself gets scrutinized before anything depends on it.
+`interrupt_after`, the blocking-rule mechanism for Wave 3), plus a thin
+`tests/harness/__init__.py`. Migrate **zero** existing tests in this wave —
+the goal is landing the primitive with its own unit tests, including as
+explicit acceptance criteria:
+
+- `argv[0]` matching compares `Path(argv[0]).name`, not exact string equality
+  — a rule with `match=["gh", ...]` matches a real `shutil.which("gh")`
+  absolute path.
+- an unmatched `git` command still delegates to real `_run` (§1b preserved);
+  an unmatched `gh` command (not in `passthrough`) raises `AssertionError`
+  rather than silently reaching the network (the deny-by-default posture).
+- `skip`/`times`-bounded rules correctly select the Nth match, not just the
+  first.
+- a `responses` sequence returns one value per consumed match, in order.
+- injected exceptions (`raises`) propagate correctly.
+- the routing table stays correct under concurrent `.run()` calls from a
+  `ThreadPoolExecutor` (an internal lock around match-and-consume).
+- `interrupt_after` fires exactly when its anchoring rule match completes,
+  not before and not on an unrelated call.
+
+Sized deliberately small so the primitive itself gets scrutinized before
+anything depends on it.
 
 ### Wave 1 — Recorded-fixture library + contract tests (§2b)
 
@@ -503,7 +663,11 @@ defect #2), plus injecting `pr_merge.py`'s `time.sleep` seam (per
 target) so the retry tests don't consume real wall-clock. This wave pairs
 naturally with fixing defect #2 (route the secondary failure through
 `SkipRecorder`) since the fix and its regression test are the same unit of
-work — one implementation mission, not two. The fixes this wave carries are
+work — one implementation mission, not two. Per defect #2's plumbing note
+above, this includes adding the optional `skips: SkipRecorder | None = None`
+parameter to `PrMerger.__new__` and threading `_skips` through
+`_sibling_pr_merge`'s `PrMerger(...)` construction — that plumbing is part of
+Wave 2's write-set, not a separate step. The fixes this wave carries are
 filed as explicit beads: **pkit-f85t.6** (SkipRecorder routing for
 `merge_in_sibling`'s secondary cleanup failure — defect #2) and
 **pkit-f85t.8** (`gh.py` imports `CI_WATCH` instead of hardcoding 7200, with
@@ -511,15 +675,19 @@ a constant-derivation test — defect #4).
 
 ### Wave 3 — SIGINT/concurrency scenarios (matrix rows 36, 48)
 
-Deliverable: `interrupt_after`-based tests reproducing the DES-029 mechanism
-directly (Phase 10 propagator blocked in a scripted long-running `gh`
-call, `_interrupted` set mid-call, assert `ThreadPoolExecutor.__exit__`
-returns promptly and `reset_propagation_siblings(fail_on_error=False)` runs
-against the exact residue state) rather than only the post-fix reporting
-path the current suite covers. This wave depends on Wave 0's
-`interrupt_after` primitive and should not start before it lands.
+Deliverable: tests reproducing the DES-029 mechanism directly, using both
+Wave 0 primitives per §2c's split — `interrupt_after` for the
+observation-ordering cases, and the blocking-`FaultRule` mechanism for the
+mechanism DES-029 actually hit: a Phase 10 propagator's `gh` call is a
+scripted blocking rule, the test thread sets `_interrupted` while that call
+is still blocked, and the assertion is that `ThreadPoolExecutor.__exit__`
+returns promptly rather than waiting out the join, with
+`reset_propagation_siblings(fail_on_error=False)` running against the exact
+residue state — rather than only the post-fix reporting path the current
+suite covers. This wave depends on both Wave 0 primitives and should not
+start before they land.
 
-### Wave 4 — Thin-phase coverage (matrix rows 3, 6, 12, 20, 29, 31, 55, defects #5–6)
+### Wave 4 — Thin-phase coverage (matrix rows 3, 6, 12, 20, 20a, 29, 31, 55, defects #5–6)
 
 Deliverable: the isolated failure-path tests for Phases 3, 5, 7, 8 that §4
 identifies as missing, plus the Go quality-gate failure test parallel to the
@@ -530,6 +698,15 @@ diagnosed `ops.fail` message). These are independent of each other and can
 be split across two workers if scheduling favors parallelism, but are
 grouped into one wave here because each is small (one or two tests per
 phase) and none has a design dependency on Waves 1–3.
+
+Matrix row 20a (defect #8, the Phase 5 resume-skips-the-retry bug) is **not**
+a same-shape item as the rest of this wave — it is a P0 correctness fix, not
+only a coverage gap, and its regression test and its fix are one unit of
+work (same pattern as Wave 2 pairing defect #2's fix with its test). It is
+listed in this wave's scope because it shares Phase 5 with row 20's other
+coverage work, not because it is equally low-risk; the worker for this wave
+should treat 20a as the first item, not an afterthought, once a bead exists
+for it.
 
 ### Wave 5 — Exhaustive resume-point sweep (matrix row 53, defect #7)
 
@@ -549,3 +726,6 @@ reconciled against the epic: all 7 original `pkit-f85t` children are closed
 (fixed in earlier waves), the harness is the epic's remaining shared
 deliverable, this design's own defect findings are filed as pkit-f85t.5–.8
 (carried by Waves 2 and 4 above), and no child conflicts with this plan.
+Defect #8 (Phase 5's resume bug, added in a later review round) still needs
+its own bead filed before Wave 4 can carry it as more than a coverage item —
+flagged for the epic owner, not assigned an ID by this document.
