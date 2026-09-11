@@ -98,34 +98,49 @@ injection* surface for three reasons:
    call, then let everything else through to the real fake" without writing
    a new bespoke closure.
 
-### 1d. Timeout/sleep patching — three separate seams, not one
+### 1d. Timeout/sleep patching — one shared seam, one real exception
 
-`punt_kit.release` imports `time` and keeps it importable (`# noqa: F401`)
-specifically so `monkeypatch.setattr(release_mod, "time.sleep", ...)`-style
-patches resolve. But **four other modules own their own `time` import and
-call `time.sleep` directly, independent of `release.py`'s**:
+Five modules do `import time` and call `time.sleep(...)`:
+`punt_kit.release` (kept importable via `# noqa: F401` specifically for
+this), `phases/shared/gh.py`, `phases/shared/pr_merge.py`,
+`phases/phase08_verify_pypi.py`, and `phases/shared/ci_run.py`. Because
+Python modules are singletons in `sys.modules`, every one of these `import
+time` statements binds to the *same* `time` module object — `gh.py`'s
+`time`, `pr_merge.py`'s `time`, and `release.py`'s `time` are all `is` the
+same object. A call like `time.sleep(15)` inside any of these modules does a
+fresh attribute lookup on that shared object *at call time*, so **one single
+monkeypatch already reaches all four direct-call modules simultaneously**:
+`monkeypatch.setattr("punt_kit.release.time.sleep", fake_sleep)` (the
+pattern already used at `tests/test_release.py:2690` and 10 other call
+sites) patches the shared `time` module's `sleep` attribute — it is not a
+`release.py`-scoped patch, and reaching `gh.py`/`pr_merge.py`/
+`phase08_verify_pypi.py` does not additionally require
+`punt_kit.phases.shared.gh.time.sleep` or any other dotted variant. An
+earlier draft of this design claimed the opposite (that three separate
+dotted-path patches were required) — verified wrong by checking that all
+five modules share one `import time` statement with no `from time import
+sleep` anywhere in the set.
 
 | Module | Sleep call | Patched today via |
 |---|---|---|
-| `phases/shared/gh.py` (`RequiredChecksWaiter.wait`) | `time.sleep(15)` (multiple call sites) | tests shrink `NO_CHECKS_GRACE`/deadlines and patch `gh.time.sleep` directly, or accept real (short) sleeps |
-| `phases/shared/pr_merge.py` (`PrMerger.merge`, retry loop) | `time.sleep(wait)`, `wait = 10 * (attempt+1)` | not patched anywhere in the current suite — retry-path tests either don't reach 6 attempts or eat real wall-clock time |
-| `phases/phase08_verify_pypi.py` (PyPI install retry loop) | `time.sleep(30)`, fixed interval, up to 9 sleeps across 10 attempts (270s worst case) | not patched anywhere in the current suite — same shape of gap as `pr_merge.py`'s loop |
-| `phases/shared/ci_run.py` (`TagRunSelector.poll`) | injectable `sleep: Callable[[float], None] = time.sleep` parameter | the one seam done right — tests pass a fast poller or shrink `attempts`/`interval` |
+| `phases/shared/gh.py` (`RequiredChecksWaiter.wait`) | `time.sleep(15)` (multiple call sites) | the shared `time.sleep` patch above; or tests shrink `NO_CHECKS_GRACE`/deadlines and accept real (short) sleeps |
+| `phases/shared/pr_merge.py` (`PrMerger.merge`, retry loop) | `time.sleep(wait)`, `wait = 10 * (attempt+1)` | reachable via the same shared patch — but nothing in the current suite exercises this loop past attempt 0 either way |
+| `phases/phase08_verify_pypi.py` (PyPI install retry loop) | `time.sleep(30)`, fixed interval, up to 9 sleeps across 10 attempts (270s worst case) | reachable via the same shared patch — same unexercised-loop gap as `pr_merge.py`'s |
+| `phases/shared/ci_run.py` (`TagRunSelector.poll`) | `sleep: Callable[[float], None] = time.sleep` **parameter default** | **not** reachable via the shared patch — a default argument value is evaluated once, at function-definition (import) time, capturing the `time.sleep` function object as it existed then; patching the module attribute afterward cannot retroactively change an already-bound default. This is the genuine exception, and the reason it needs an explicit `sleep=fake_sleep` argument at the call site instead of a monkeypatch — not a design flaw in `ci_run.py`, the *right* pattern for a case where the module-attribute trick doesn't apply. |
 
-This is a real inconsistency, not a hypothetical one: `ci_run.py`'s
-`TagRunSelector.poll` takes `sleep` as a constructor-injected callable, while
-`gh.py` and `pr_merge.py` hard-code the module global. A harness that wants
-to exercise `PrMerger.merge`'s 6-attempt transient-merge-block retry loop
-without five real `time.sleep(10..50)` calls (up to 150s of real wall-clock
-per test — the loop sleeps only after attempts 1–5, `wait = 10 * (attempt +
-1)` for `attempt` in `0..4`; attempt 6 either succeeds or fails outright with
-no sixth sleep) either has to monkeypatch three distinct dotted paths
-(`punt_kit.release.time.sleep`, `punt_kit.phases.shared.gh.time.sleep`,
-`punt_kit.phases.shared.pr_merge.time.sleep`) or accept the real delay. No
-test today exercises the pr_merge retry loop's later attempts at all —
-confirmed by grep: no test references `merge_attempt` or asserts on `attempt
-4`/`5`/`6` behavior. That gap is itself in the fault-injection matrix (§4,
-Phase 4/9/10 row).
+The real gap is not "three dotted paths to patch" — it is that **nothing in
+the current suite patches the shared `time.sleep` for `pr_merge.py`'s or
+`phase08_verify_pypi.py`'s retry loops at all**, so no test exercises either
+loop past its first attempt: confirmed by grep, zero hits for
+`merge_attempt` outside `pr_merge.py`'s own source, and the PyPI retry loop
+is symmetrically unexercised. `PrMerger.merge`'s 6-attempt transient-merge-
+block retry loop, if driven to attempt 6 without patching the shared
+`time.sleep`, costs up to 150s of real wall-clock (the loop sleeps only
+after attempts 1–5, `wait = 10 * (attempt + 1)` for `attempt` in `0..4`;
+attempt 6 either succeeds or fails outright with no sixth sleep) — the one
+monkeypatch above removes that cost entirely; it was never three patches'
+worth of work. That gap is itself in the fault-injection matrix (§4, Phase
+4/9/10 row).
 
 ### 1e. What is already covered well (do not re-litigate)
 
@@ -270,59 +285,101 @@ The mission's evaluation criteria require the fake `gh`/git surfaces to be
 "contract-tested against real tool output shapes or generated from recorded
 fixtures" — this is the mechanism:
 
-1. **Recording — read-only invariant.** A `tools/record_gh_fixtures.py`
-   script (run manually, never in CI, against a real punt-labs repo with a
-   real `gh` session) shells out **only to read-only `gh` commands** — `gh pr
-   list --json ...`, `gh run list --json ...`, `gh api graphql -f
-   query=...` (for both a governed and ungoverned repo), `gh pr view --json
-   state` — and writes each response to `tests/fixtures/gh/<name>.json`,
-   with secrets (tokens, usernames beyond the punt-labs org, private repo
-   names) scrubbed. **The recorder must never invoke `gh pr merge`, `gh pr
-   close`, `gh api` with a mutating verb, or any other command with a
-   side effect** — `gh pr merge` merges a real PR and deletes its head
-   branch on a real punt-labs repo, which is not a safe thing for a
-   fixture-capture tool to do against production infrastructure, scripted or
-   not. The two shapes that can only be observed as the *result* of a
-   mutation — a successful merge response and a transient-block failure
+1. **Recording — read-only invariant, complete shape inventory, explicit
+   envelope.** A `tools/record_gh_fixtures.py` script (run manually, never
+   in CI, against a real punt-labs repo with a real `gh` session) shells out
+   **only to read-only `gh` commands.** The full inventory, read directly
+   from every `gh`-invoking call site in the codebase (not a partial list):
+   `gh pr list --head <b> --state all --json number,state,headRefOid`,
+   `gh pr view <n> --json state` (pr_merge.py), `gh pr create ...`
+   (pr_merge.py — captured for its stdout URL shape only), `gh api
+   repos/{owner}/{repo}/branches/main/protection` and `gh api
+   repos/{owner}/{repo}/rules/branches/main` (gh.py, both a governed and an
+   ungoverned repo), `gh api graphql -f query=...` for both the
+   required-checks query (gh.py) and the PR-thread-listing query (gh.py:509),
+   `gh run list ...` and `gh run view <id> --json status,conclusion`
+   (ci_run.py), `gh run watch <id> --exit-status` (phase06_ci_wait.py), `gh
+   release view <tag>` and `gh release create <tag> --title ... --notes ...`
+   (phase07_github_release.py) — every one read-only or, for `pr create`/
+   `release create`, side-effecting only against a repo the operator already
+   controls (not a merge/delete). **The recorder must never invoke `gh pr
+   merge`, `gh pr close`, `gh api` with a mutating verb (including the
+   thread-resolution GraphQL *mutation* at gh.py:546 — captured differently,
+   below), or any other command with an unrecoverable side effect** — `gh pr
+   merge` merges a real PR and deletes its head branch on a real punt-labs
+   repo, which is not a safe thing for a fixture-capture tool to do against
+   production infrastructure, scripted or not. The two shapes that can only
+   be observed as the *result* of a mutation — a successful merge response,
+   a transient-block failure response, and the thread-resolution mutation's
    response — are sourced differently: either a sanitized capture pulled
-   from a historical, already-completed release run's actual `gh pr merge`
-   output (a real response that already happened, not one the recorder
-   triggers), or a hand-authored fixture whose shape is documented against
-   `gh`'s own API reference and still passes through the same contract test
-   (step 2) as every other fixture — it is not exempt from validation just
-   because it wasn't captured live. If a future recording pass needs a fresh
-   merge-outcome capture, that requires a disposable, explicitly-provisioned
-   throwaway repo/PR created for the purpose — an opt-in the operator makes
-   deliberately, never a default `record_gh_fixtures.py` behavior.
-2. **Contract test.** `tests/test_gh_fixture_contracts.py` asserts, for each
-   fixture, that the **shape** the release engine's parsing code expects
-   (top-level keys, value types, nested structure) matches the recorded
-   fixture. The production code (`phase06_ci_wait.py`, `gh.py`) does not
-   define `TypedDict`s — it narrows `object`/`dict[str, object]` with
-   `cast(...)`, which is a static-only annotation with zero runtime effect;
-   reusing those casts in a test would type-check but assert nothing. The
-   contract test instead needs its own runtime schema, owned by the harness:
-   a small `tests/harness/gh_shapes.py` module defining a `TypedDict` per
-   response shape (for readability and mypy coverage of the test file
-   itself) *plus* an explicit validator function per shape — `assert
-   set(payload) >= {"number", "state", "headRefOid"}`,
-   `isinstance(payload["number"], int)`, and so on down through nested
-   structure — that actually walks the fixture at test time and fails loudly
-   on a missing key, a renamed field, or a type that changed shape. The
-   `TypedDict` documents the contract; the validator function enforces it.
-   **What this test does and does not catch:** it runs offline against the
-   *committed, static* fixture files — it catches fixture/parser
-   *disagreement* (someone edits `phase06_ci_wait.py`'s parsing expectations,
-   or hand-edits a fixture, without updating the other side), deterministically
-   and in every CI run. It does **not**, by itself, catch a live `gh` CLI
-   upgrade that silently changes a field name or shape: the fixture is a
-   point-in-time recording, and CI has no live `gh` session to compare it
-   against, so nothing changes and nothing fails until someone reruns
+   from a historical, already-completed release run's actual output (a real
+   response that already happened, not one the recorder triggers), or a
+   hand-authored fixture whose shape is documented against `gh`'s own API
+   reference and still passes through the same contract test (step 2) as
+   every other fixture — it is not exempt from validation just because it
+   wasn't captured live. If a future recording pass needs a fresh
+   mutation-outcome capture, that requires a disposable,
+   explicitly-provisioned throwaway repo/PR created for the purpose — an
+   opt-in the operator makes deliberately, never a default
+   `record_gh_fixtures.py` behavior.
+
+   Each fixture is written as an explicit **envelope**, not a raw payload —
+   a raw JSON array (what `gh pr list --json ...` prints) cannot also carry
+   metadata or a non-zero-exit shape (what a merge failure looks like), so
+   one envelope has to cover both:
+
+   ```json
+   {
+     "cmd": ["gh", "pr", "list", "--head", "release/v1.2.3", "..."],
+     "returncode": 0,
+     "stdout": "[{\"number\": 42, \"state\": \"OPEN\", ...}]",
+     "stderr": "",
+     "_meta": {"gh_version": "gh version 2.63.0 (2025-01-15)", "recorded_at": "..."}
+   }
+   ```
+
+   `stdout`/`stderr`/`returncode` build the `CompletedProcessSpec` a
+   `FaultRule` returns verbatim; `stdout` is the raw string exactly as `gh`
+   printed it (a JSON-encoded string, not a decoded object, so the contract
+   test decodes it the same way the production parsing code does — via
+   `json.loads`). `_meta` is sidecar data the recorder and the drift-cadence
+   tooling (step 4) read; it is never part of what a `FaultRule` hands back
+   to the release engine.
+2. **Contract test — exercises the real parsing code, not a hand-maintained
+   mirror of it.** An earlier draft of this design proposed a separate
+   `tests/harness/gh_shapes.py` module of hand-written `TypedDict`s and
+   validator functions, run against each fixture. That has a real gap: if
+   someone edits `phase06_ci_wait.py`'s or `gh.py`'s actual `cast(...)`-based
+   parsing to expect a different shape but forgets to update
+   `gh_shapes.py` in lockstep, the old fixture and the old, now-stale
+   validator both keep passing — the contract test would never notice its
+   own schema had drifted from the code it was meant to protect. A
+   hand-maintained mirror cannot detect drift in the thing it mirrors.
+   `tests/test_gh_fixture_contracts.py` instead **drives the actual
+   production collaborator** against each fixture: construct a
+   `FaultInjectingOps` whose rules return the fixture's envelope verbatim
+   for the relevant `gh` call, invoke the real method that consumes it
+   (`RequiredChecksWaiter.wait`'s single poll-loop iteration, `GithubRepo`'s
+   branch-protection/ruleset checks, `TagRunSelector`'s run-list parsing,
+   `PrMerger._select_existing`, etc. — the collaborators §1a already
+   establishes take `ops` at construction, so this needs no source changes),
+   and assert on what that *real* code actually extracts (the required-check
+   names, the PR number, the run conclusion) rather than re-deriving the
+   same assertion from a parallel schema. `tests/harness/gh_shapes.py`
+   remains in the design, narrowed to what a hand-maintained schema is
+   legitimately good for: `TypedDict` definitions for fixture-authoring
+   readability and mypy coverage of the fixture files themselves — not as
+   the thing the contract test validates *against*. **What this test does
+   and does not catch:** it runs offline against the *committed, static*
+   fixture files, exercising real production parsing code on every CI run
+   — it catches genuine parser/fixture disagreement (a parsing change with
+   no matching fixture update, or vice versa) because the parser itself is
+   what runs, not a copy of it. It does **not**, by itself, catch a live
+   `gh` CLI upgrade that silently changes a field name or shape: the fixture
+   is a point-in-time recording, and CI has no live `gh` session to compare
+   it against, so nothing changes and nothing fails until someone reruns
    `record_gh_fixtures.py`. The actual drift-from-reality detector is the
-   refresh cadence in step 4 below, not this test — this test's job is
-   narrower and purely offline: keep the fixture and the parser honest with
-   each other between refreshes, independent of any hand-rolled fake in a
-   specific test.
+   refresh cadence in step 4 below, not this test.
 3. **Fixture reuse.** `FaultRule.response` can load a recorded fixture by
    name (`FaultRule.from_fixture("gh_pr_list_open.json")`) instead of an
    inline dict literal — so a scenario test's "what does a normal `gh pr
@@ -533,7 +590,7 @@ rationale).
 | 28 | 7 GitHub release | Release notes extraction for a missing version | `test_extract_version_notes_missing` | ✅ |
 | 29 | 7 GitHub release | `gh release create` itself fails (network/permission) | no dedicated test found | 🔧 |
 | 30 | 8 Verify PyPI | Published version present / absent on index | `test_phase11_verify_pypi_present_passes` / `_absent_fails` (Phase 11's equivalent check; Phase 8 itself has no isolated failure test) | ✅ (11) / 🔧 (8) |
-| 31 | 8 Verify PyPI | `uv pip install --dry-run` hangs (index unreachable) | no test forces a `TimeoutExpired` at this call site | 🔧 |
+| 31 | 8 Verify PyPI | `uv tool install --force --refresh` hangs (index unreachable) mid-retry-loop, at any of the 10 attempts | no test forces a `TimeoutExpired` at this call site — not `uv pip install --dry-run`, which is Phase 11's command (phase11_verify.py:608-617), not Phase 8's (phase08_verify_pypi.py:66-79) | 🔧 |
 | 32 | 9 Post-release | Restore script's committed-but-partial state (hook rejects commit) | code comment documents the exact failure (`phase09_post_release.py:88-97`); no test forces a failed restore commit and asserts the HEAD-consult retry | 🔧 |
 | 33 | 9 Post-release | No post-release changes needed (idempotent short-circuit) | `test_phase09_post_release_commit_never_marks_skip_ci`, resume tests | ✅ |
 | 34 | 9/10 concurrent | Both phases fail simultaneously, both errors surfaced | `test_phases_9_10_both_fail_reports_both` | ✅ |
@@ -589,16 +646,21 @@ already-fixed defect. Ranked by severity: **P0** (silent wrong-state / data
 loss risk), **P1** (loud failure but with a worse diagnosis than the
 existing bar), **P2** (inconsistency/hardening, no known live incident yet).
 
-1. **P1 — Three independent `time.sleep` seams, only one injectable (§1d).**
-   `phases/shared/pr_merge.py`'s 6-attempt squash-merge retry loop
-   (`merge_attempt` range, `wait = 10 * (attempt + 1)`) has **no test
-   covering attempts 2 through 6** — confirmed by grep, zero hits for
-   `merge_attempt` outside the source file. If the retry logic itself has a
-   bug at attempt 3+ (off-by-one in the wait formula, the re-resolve-threads
-   exception swallow at line 269 masking a real failure), nothing today would
-   catch it. This is exactly the shape of every prior incident: an
-   unexercised branch that only executes under a real, rare production
-   condition (a merge blocked long enough to need a 4th+ retry).
+1. **P1 — `pr_merge.py`'s and `phase08_verify_pypi.py`'s retry loops are
+   injectable (one shared `time.sleep` patch, per §1d) but unexercised
+   past their first attempt.** `phases/shared/pr_merge.py`'s 6-attempt
+   squash-merge retry loop (`merge_attempt` range, `wait = 10 * (attempt +
+   1)`) has **no test covering attempts 2 through 6** — confirmed by grep,
+   zero hits for `merge_attempt` outside the source file. The gap is not
+   that the seam is hard to patch (§1d corrects an earlier claim that it
+   required three separate dotted-path monkeypatches; one shared patch
+   already reaches it) — it is simply that no test today takes advantage of
+   that seam to drive the loop past attempt 0. If the retry logic itself has
+   a bug at attempt 3+ (off-by-one in the wait formula, the
+   re-resolve-threads exception swallow at line 269 masking a real failure),
+   nothing today would catch it. This is exactly the shape of every prior
+   incident: an unexercised branch that only executes under a real, rare
+   production condition (a merge blocked long enough to need a 4th+ retry).
 
 2. **P1 — `merge_in_sibling`'s cleanup `finally` block degrades to an info
    log on a secondary failure (pr_merge.py:329-350).** If `merge()` raises
@@ -776,14 +838,20 @@ anything depends on it.
 ### Wave 1 — Recorded-fixture library + contract tests (§2b)
 
 Deliverable: `tools/record_gh_fixtures.py` (manual recording script, not run
-in CI), an initial `tests/fixtures/gh/*.json` set covering the shapes rows
-21–27 and 39–40 of the matrix already exercise informally, and
-`tests/test_gh_fixture_contracts.py` asserting shape agreement between each
-fixture and the production parsing code's expectations. No release-engine
-source changes. This wave is independent of Wave 0 and could run in
-parallel, but is sequenced second because reviewing it benefits from Wave 0's
-`FaultRule.from_fixture` hook already existing to show the intended
-consumer.
+in CI), `tests/harness/gh_shapes.py` (fixture-authoring `TypedDict`s, per
+§2b step 2's narrowed role), an initial `tests/fixtures/gh/*.json` set
+covering the full shape inventory §2b step 1 lists — corresponding to
+matrix rows 14–19 (`gh pr` list/view/create/merge, Release PR), 21–27
+(`gh run`/GraphQL, CI wait), and 28–29 (`gh release`, GitHub release) — and
+`tests/test_gh_fixture_contracts.py` driving each fixture through the real
+production collaborator that consumes it, per §2b step 2. Rows 39–40
+(marketplace short-name/URL matching) are **not** part of this wave's
+fixture set — they exercise `MarketplacePropagator`'s local file-matching
+logic against sibling repo contents, not `gh` CLI output, and an earlier
+draft of this design miscited them. No release-engine source changes. This
+wave is independent of Wave 0 and could run in parallel, but is sequenced
+second because reviewing it benefits from Wave 0's `FaultRule.from_fixture`
+hook already existing to show the intended consumer.
 
 ### Wave 2 — Retry-loop and cleanup-path coverage (matrix rows 17–19, 46)
 
@@ -791,9 +859,9 @@ Deliverable: tests for `PrMerger.merge`'s full 6-attempt retry loop
 (transient-block-then-succeed at attempts 2–5, exhaustion at attempt 6, the
 thread-re-resolve exception swallow at line 269), plus the
 `merge_in_sibling` `finally`-block secondary-failure path (matrix row 46 /
-defect #2), plus injecting `pr_merge.py`'s `time.sleep` seam (per
-`ci_run.py`'s injectable-callable pattern, or a documented monkeypatch
-target) so the retry tests don't consume real wall-clock. This wave pairs
+defect #2), plus the shared `punt_kit.release.time.sleep` monkeypatch (§1d
+— already reaches `pr_merge.py` with no new seam or injectable-callable
+pattern needed) so the retry tests don't consume real wall-clock. This wave pairs
 naturally with fixing defect #2 (route the secondary failure through
 `SkipRecorder`) since the fix and its regression test are the same unit of
 work — one implementation mission, not two. Per defect #2's plumbing note
