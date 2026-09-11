@@ -3,13 +3,18 @@
 Never run in CI — it needs a live ``gh`` session against a real GitHub org.
 Every invocation this tool makes is read-only: ``ReadOnlyGhRunner`` checks
 each command against a fixed argv-prefix allowlist before shelling out, and
-additionally refuses any ``gh api`` call carrying a mutating ``--method``/
-``-X`` flag or a GraphQL ``mutation`` operation, so a command outside the
-read-only inventory below is a bug caught in this tool, not a live side
-effect on a real repo. Fixture envelopes for a *mutation's outcome* (PR
-create, release create, a squash-merge result) cannot be produced by this
-tool at all — the recording table has no entry that could build one — and
-are hand-authored instead, documented as such in the envelope's ``_meta``.
+additionally refuses any ``gh api`` call carrying a mutating ``--method``
+flag, an opaque ``--input``/``key=@file`` request body, or a GraphQL
+``mutation`` operation. Every short-flag argv token is checked
+structurally, not by spelling: ``gh``'s pflag parser bundles short flags
+POSIX-style, so a sensitive flag (``-X``/``-f``/``-F``) can be smuggled
+behind an unrelated boolean flag in the same token (``-ifx=1`` sends the
+same mutation as ``-i -f x=1``) — a command outside the read-only inventory
+below is a bug caught in this tool, not a live side effect on a real repo.
+Fixture envelopes for a *mutation's outcome* (PR create, release create, a
+squash-merge result) cannot be produced by this tool at all — the recording
+table has no entry that could build one — and are hand-authored instead,
+documented as such in the envelope's ``_meta``.
 
 Usage::
 
@@ -110,70 +115,84 @@ def _matches_prefix(cmd: Sequence[str], prefix: Sequence[str]) -> bool:
     return list(cmd[1 : len(prefix)]) == list(prefix[1:])
 
 
-def _flag_present(cmd: Sequence[str], name: str) -> bool:
-    """True if ``name`` (e.g. ``"-f"`` or ``"--field"``) appears anywhere in
-    ``cmd``, in any spelling ``gh``'s own pflag-based parser accepts
-    identically to the bare split form (``-f x=1``): the equals form
-    (``--field=x=1``, long flags only) and, for a single-dash single-letter
-    flag, the attached form (``-fx=1``). Checking only ``arg == name`` — as
-    an earlier version of this function did — misses both: `gh` parses
-    ``--method=PUT``, ``-XPUT``, ``--field=x=1``, and ``-Fx=1`` exactly like
-    their split-token equivalents, verified directly against a real ``gh``
-    binary, so enumerating spellings as separate literal tokens is the wrong
-    shape for this check — it will always be one spelling behind.
+# Every short flag `gh api` defines that can smuggle a mutation through
+# — `-X` (`--method`), `-f` (`--raw-field`), `-F` (`--field`) — confirmed
+# exhaustive against a real `gh api --help` (no other short flag controls
+# method or body; `--input` has no short form at all).
+_SENSITIVE_SHORT_FLAG_CHARS = frozenset({"X", "f", "F"})
+_SHORT_FLAG_RE = re.compile(r"^-[^-].*$")
+
+
+def _is_dangerous_short_flag_cluster(arg: str) -> bool:
+    """True if ``arg`` is a short-flag argv token that contains one of
+    gh's sensitive short flags (``X``/``f``/``F``) *anywhere* in the
+    cluster, not only as the token's first character after the dash.
+
+    ``gh``'s pflag-based parser bundles short flags POSIX-style: ``-ifx=1``
+    is ``-i`` (a boolean flag, e.g. ``--include``) followed by ``-f``
+    consuming the rest of the token (``x=1``) as its value, and executes it
+    exactly as ``-i -f x=1`` would — a real mutating POST, verified live
+    against a real GitHub endpoint. No ``startswith``-on-the-whole-token
+    check can ever see a sensitive flag bundled behind another one; three
+    rounds of enumerating individual spellings (split, equals-form,
+    attached-form, repeated/dual-spelled, ``key=@file``) each closed one
+    adversarial example and left this one open, because bundling is not a
+    *spelling* of a flag, it is a different flag *position* within the
+    token. This is the structural fix: a token matching this shape is
+    refused outright regardless of what non-sensitive flags share it.
+
+    False positives are deliberately accepted and cost nothing here: this
+    tool's own recording table uses only the long-form flags below
+    (``--method``/``--field``/``--raw-field``/``--input``), which cannot
+    bundle at all (pflag never bundles double-dash tokens), and no other
+    read-only ``gh`` subcommand this tool issues uses a short flag of any
+    kind. A legitimate boolean short flag this tool never needs (``-i``,
+    ``-p``, ``-q``, ...) is always spellable in long form instead.
     """
-    for arg in cmd:
-        if arg == name:
-            return True
-        if name.startswith("--") and arg.startswith(name + "="):
-            return True
-        if len(name) == 2 and name[0] == "-" and arg != name and arg.startswith(name):
-            return True
-    return False
+    return bool(_SHORT_FLAG_RE.match(arg)) and any(
+        char in arg for char in _SENSITIVE_SHORT_FLAG_CHARS
+    )
 
 
-def _flag_occurrences(cmd: Sequence[str], name: str) -> list[tuple[int, str]]:
-    """Every occurrence of ``name`` with a value, as ``(argv_index, value)``
-    pairs — every spelling ``_flag_present`` recognizes, but only those
-    that actually carry a value (a bare trailing flag with nothing after it
-    contributes no value to check, though ``_flag_present`` still treats it
-    as present for refusal purposes).
+def _long_flag_present(cmd: Sequence[str], name: str) -> bool:
+    """True if long flag ``name`` (e.g. ``"--input"``) appears, split
+    (``--input x``) or equals-form (``--input=x``). Long flags never
+    bundle — pflag only bundles single-dash clusters — so no positional
+    ambiguity is possible for these, unlike the short forms above.
+    """
+    return any(arg == name or arg.startswith(name + "=") for arg in cmd)
+
+
+def _long_flag_occurrences(cmd: Sequence[str], name: str) -> list[tuple[int, str]]:
+    """Every occurrence of long flag ``name`` with a value, as
+    ``(argv_index, value)`` pairs.
     """
     occurrences: list[tuple[int, str]] = []
     for i, arg in enumerate(cmd):
         if arg == name:
             if i + 1 < len(cmd):
                 occurrences.append((i, cmd[i + 1]))
-            continue
-        if name.startswith("--") and arg.startswith(name + "="):
+        elif arg.startswith(name + "="):
             occurrences.append((i, arg[len(name) + 1 :]))
-            continue
-        if len(name) == 2 and name[0] == "-" and arg != name and arg.startswith(name):
-            # A single-letter short flag's attached form is accepted both
-            # with and without a literal "=" before the value (-XPUT and
-            # -X=PUT parse identically) — strip it so the value compared
-            # against the mutating-method pattern doesn't carry a leading
-            # "=" that would never match.
-            occurrences.append((i, arg[len(name) :].removeprefix("=")))
     return occurrences
 
 
 def _file_backed_field(cmd: Sequence[str]) -> str | None:
-    """The first ``-f``/``-F``/``--field``/``--raw-field`` value using
-    ``gh``'s ``key=@filename`` convention to load the field's actual
-    content from disk, or ``None`` if none does.
+    """The first ``--field``/``--raw-field`` value using ``gh``'s
+    ``key=@filename`` convention to load the field's actual content from
+    disk, or ``None`` if none does.
 
     This is the same class of gap ``--input`` closes, reached through a
-    different flag: a GraphQL query loaded via ``-f query=@payload.graphql``
-    never appears as argv text at all, so scanning argv for the literal
-    ``"mutation"`` (the GraphQL-specific check below) cannot see a mutation
-    hidden inside that file — and ``-f``/``-F`` are otherwise legitimately
-    unrestricted on the GraphQL branch (`-f query=...` is how every
-    read-only query in this tool's own recording table is built), so the
-    blanket REST-endpoint refusal below does not reach this case either.
+    different flag: a GraphQL query loaded via ``--raw-field
+    query=@payload.graphql`` never appears as argv text at all, so scanning
+    argv for the literal ``"mutation"`` (the GraphQL-specific check below)
+    cannot see a mutation hidden inside that file — and ``--field``/
+    ``--raw-field`` are otherwise legitimately unrestricted on the GraphQL
+    branch (this tool's own recording table builds every query with
+    ``--raw-field query={inline}``).
     """
-    for name in ("-f", "-F", "--field", "--raw-field"):
-        for _, value in _flag_occurrences(cmd, name):
+    for name in ("--field", "--raw-field"):
+        for _, value in _long_flag_occurrences(cmd, name):
             _, _, field_value = value.partition("=")
             if field_value.startswith("@"):
                 return value
@@ -181,18 +200,17 @@ def _file_backed_field(cmd: Sequence[str]) -> str | None:
 
 
 def _effective_method(cmd: Sequence[str]) -> str | None:
-    """The HTTP method ``gh`` will actually use for this call.
+    """The HTTP method ``gh`` will actually use for this call, considering
+    only ``--method`` — every ``-X`` spelling is already refused
+    unconditionally by ``_is_dangerous_short_flag_cluster`` before this
+    runs, so ``-X``'s own value never needs inspecting here.
 
     ``gh``'s pflag-based parser applies "last occurrence wins" for a
-    repeated flag, and ``-X``/``--method`` are two spellings of the exact
-    same option, so both must be considered *together*, in argv order, not
-    each spelling's first occurrence checked independently. Checking only
-    the first ``-X`` and first ``--method`` — an earlier version of this
-    function did — misses ``-X GET --method POST`` entirely: it finds the
-    harmless ``GET`` from ``-X`` first and, via a short-circuiting ``or``,
-    never even looks at ``--method``'s ``POST``.
+    repeated flag, so a repeated ``--method`` must be considered in argv
+    order and the *last* occurrence used — checking only the first would
+    miss ``--method GET --method POST``.
     """
-    occurrences = _flag_occurrences(cmd, "-X") + _flag_occurrences(cmd, "--method")
+    occurrences = _long_flag_occurrences(cmd, "--method")
     if not occurrences:
         return None
     occurrences.sort(key=lambda pair: pair[0])
@@ -236,13 +254,25 @@ class ReadOnlyGhRunner:
 
     def _require_read_only_api_call(self, cmd: Sequence[str]) -> None:
         """``gh api``'s endpoint is one combined token, so this checks it
-        directly rather than via the prefix allowlist: the endpoint must be
-        the GraphQL escape hatch or a ``repos/...`` REST path, it must carry
-        no explicit mutating HTTP method (in any spelling — see
-        ``_flag_present``), no opaque ``--input`` request body or
-        ``key=@file``-loaded field value, and a GraphQL call must carry no
-        ``mutation`` operation in its query text.
+        directly rather than via the prefix allowlist: no argv element may
+        be a short-flag cluster bundling a sensitive flag at any position,
+        the endpoint must be the GraphQL escape hatch or a ``repos/...``
+        REST path, it must carry no explicit mutating ``--method`` or
+        opaque ``--input``/``key=@file``-loaded body, and a GraphQL call
+        must carry no ``mutation`` operation in its query text.
         """
+        # Structural, not spelling-based: refused before anything else runs,
+        # regardless of endpoint. See _is_dangerous_short_flag_cluster for
+        # why no startswith-based check on individual flags can substitute
+        # for this — POSIX short-flag bundling puts the sensitive flag at
+        # any position in the token, not only the first.
+        for arg in cmd:
+            if _is_dangerous_short_flag_cluster(arg):
+                raise ReadOnlyViolation(
+                    f"{list(cmd)!r} contains a short-flag cluster ({arg!r}) "
+                    "that may bundle a sensitive flag (-X/-f/-F) at any "
+                    "position — refused structurally, not by spelling"
+                )
         endpoint = cmd[2]
         # `--input` reads the request body from a file or stdin this tool
         # cannot safely inspect — a mutation's text could live entirely in
@@ -250,15 +280,16 @@ class ReadOnlyGhRunner:
         # argv for the literal "mutation" (below) would never see it.
         # Refused unconditionally, for both endpoint shapes: no read-only
         # call this tool ever issues needs a request body of any kind.
-        if _flag_present(cmd, "--input"):
+        if _long_flag_present(cmd, "--input"):
             raise ReadOnlyViolation(
                 f"{list(cmd)!r} passes --input, an unreadable request-body source"
             )
         # gh's `key=@filename` field-value convention is the same opaque-
-        # body problem reached through -f/-F/--field/--raw-field instead:
-        # a GraphQL query loaded this way is just as invisible to the
-        # mutation-text scan below as an --input file is, and -f/-F are
-        # otherwise legitimately unrestricted on the GraphQL branch.
+        # body problem reached through --field/--raw-field instead: a
+        # GraphQL query loaded this way is just as invisible to the
+        # mutation-text scan below as an --input file is, and --field/
+        # --raw-field are otherwise legitimately unrestricted on the
+        # GraphQL branch.
         if (file_field := _file_backed_field(cmd)) is not None:
             raise ReadOnlyViolation(
                 f"{list(cmd)!r} loads a field value from a file "
@@ -280,23 +311,23 @@ class ReadOnlyGhRunner:
                     f"{list(cmd)!r} carries a GraphQL mutation operation"
                 )
             return
-        # A REST `repos/...` call with no explicit `-X`/`--method` defaults
-        # to GET *only* as long as it carries no body — `gh api` silently
+        # A REST `repos/...` call with no explicit `--method` defaults to
+        # GET *only* as long as it carries no body — `gh api` silently
         # switches its own default to POST the moment a field parameter is
-        # present, with no explicit `-X` required to trigger it. Neither
-        # read-only `repos/...` endpoint this tool ever calls needs a body,
-        # so refusing any field flag outright (in any spelling) closes that
-        # default-flip rather than relying on every future addition to
-        # remember it. `-f`/`-F`/`--field`/`--raw-field` are legitimate for
-        # a GraphQL call (`-f query=...`), so they are only refused here, on
-        # the REST branch — the `return` above already sent GraphQL callers
+        # present, with no explicit `--method` required to trigger it.
+        # Neither read-only `repos/...` endpoint this tool ever calls needs
+        # a body, so refusing the flag outright closes that default-flip
+        # rather than relying on every future addition to remember it.
+        # `--field`/`--raw-field` are legitimate for a GraphQL call
+        # (`--raw-field query=...`), so they are only refused here, on the
+        # REST branch — the `return` above already sent GraphQL callers
         # past this point.
-        for name in ("-f", "-F", "--field", "--raw-field"):
-            if _flag_present(cmd, name):
+        for name in ("--field", "--raw-field"):
+            if _long_flag_present(cmd, name):
                 raise ReadOnlyViolation(
                     f"{list(cmd)!r} passes a body field ({name}) to a REST "
                     "endpoint — gh defaults to POST once a field is present, "
-                    "even with no explicit -X"
+                    "even with no explicit --method"
                 )
 
     def run(self, cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
@@ -758,7 +789,7 @@ class GhRecordingPlan:
                     "gh",
                     "api",
                     "graphql",
-                    "-f",
+                    "--raw-field",
                     f"query={self._required_checks_query(repo, t.merged_pr)}",
                 ),
                 "RequiredChecksWaiter.wait, every required check SUCCESS.",
@@ -769,7 +800,7 @@ class GhRecordingPlan:
                     "gh",
                     "api",
                     "graphql",
-                    "-f",
+                    "--raw-field",
                     f"query={self._required_checks_query(repo, t.open_pr)}",
                 ),
                 "Same query, a mix of SUCCESS/NEUTRAL conclusions.",
@@ -780,7 +811,7 @@ class GhRecordingPlan:
                     "gh",
                     "api",
                     "graphql",
-                    "-f",
+                    "--raw-field",
                     f"query={self._pr_threads_query(repo, t.merged_pr)}",
                 ),
                 "PrThreadResolver.resolve's listing query.",

@@ -4,13 +4,13 @@
       "gh",
       "api",
       "graphql",
-      "-f",
+      "--raw-field",
       "query={  repository(owner: \"punt-labs\", name: \"punt-kit\") {    pullRequest(number: 355) {      commits(last: 1) {        nodes {          commit {            statusCheckRollup {              contexts(first: 100) {                nodes {                  ... on CheckRun {                    name                    isRequired(pullRequestNumber: 355)                    conclusion                    status                  }                  ... on StatusContext {                    context                    isRequired(pullRequestNumber: 355)                    state                  }                }              }            }          }        }      }    }  }}"
     ],
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "RequiredChecksWaiter.wait, every required check SUCCESS.",
-    "recorded_at": "2026-09-11T05:22:40.122735+00:00"
+    "recorded_at": "2026-09-11T06:14:47.402019+00:00"
   },
   "returncode": 0,
   "stderr": "",

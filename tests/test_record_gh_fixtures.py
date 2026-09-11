@@ -80,15 +80,21 @@ _MERGE_ENDPOINT = "repos/acme/sample/pulls/1/merge"
         ["gh", "release", "view", "v1.0.0"],
         ["gh", "api", _PROTECTION_ENDPOINT],
         ["gh", "api", "repos/acme/sample/rules/branches/main"],
-        ["gh", "api", "graphql", "-f", "query={ viewer { login } }"],
+        ["gh", "api", "graphql", "--raw-field", "query={ viewer { login } }"],
         ["/usr/bin/gh", "pr", "list"],  # basename match, absolute path
-        # A non-mutating method, in every spelling, must still be accepted —
-        # the read-only check keys off the *verb*, not the flag's presence.
-        ["gh", "api", _PROTECTION_ENDPOINT, "-X", "GET"],
-        ["gh", "api", _PROTECTION_ENDPOINT, "-XGET"],
-        ["gh", "api", _PROTECTION_ENDPOINT, "-X=GET"],
+        # A non-mutating method must still be accepted — the read-only
+        # check keys off the *verb*, not the flag's presence. Only the
+        # long form is exercised here: every -X spelling, bundled or not,
+        # is refused unconditionally regardless of value (see the
+        # short-flag-cluster tests below) — gh's short form is not a
+        # spelling this tool's own commands, or an accepted caller, ever
+        # need.
         ["gh", "api", _PROTECTION_ENDPOINT, "--method", "GET"],
         ["gh", "api", _PROTECTION_ENDPOINT, "--method=GET"],
+        # A short flag with no sensitive character anywhere in it is not
+        # touched by the structural refusal — proving the rule targets
+        # X/f/F specifically, not every short flag.
+        ["gh", "api", _PROTECTION_ENDPOINT, "-i"],
     ],
 )
 def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None:
@@ -104,20 +110,12 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
         ["gh", "release", "create", "v1.0.0"],
         ["gh", "api", "orgs/acme/members"],  # not a repos/... or graphql endpoint
         ["not-gh", "pr", "list"],
-        # -X/--method, every spelling gh's own pflag parser accepts
-        # identically: split, equals-form, and (for -X) attached-form.
-        ["gh", "api", _MERGE_ENDPOINT, "-X", "PUT"],
-        ["gh", "api", _MERGE_ENDPOINT, "-XPUT"],
-        ["gh", "api", _MERGE_ENDPOINT, "-X=PUT"],
+        # --method, both spellings gh's pflag parser accepts identically.
         ["gh", "api", _MERGE_ENDPOINT, "--method", "DELETE"],
         ["gh", "api", _MERGE_ENDPOINT, "--method=DELETE"],
-        # -f/-F/--field/--raw-field on a REST endpoint, every spelling.
-        ["gh", "api", _PROTECTION_ENDPOINT, "-f", "x=1"],
-        ["gh", "api", _PROTECTION_ENDPOINT, "-fx=1"],
+        # --field/--raw-field on a REST endpoint, both spellings.
         ["gh", "api", _PROTECTION_ENDPOINT, "--field", "x=1"],
         ["gh", "api", _PROTECTION_ENDPOINT, "--field=x=1"],
-        ["gh", "api", _PROTECTION_ENDPOINT, "-F", "x=1"],
-        ["gh", "api", _PROTECTION_ENDPOINT, "-Fx=1"],
         ["gh", "api", _PROTECTION_ENDPOINT, "--raw-field", "x=1"],
         ["gh", "api", _PROTECTION_ENDPOINT, "--raw-field=x=1"],
         # --input supplies an opaque request body this tool cannot inspect —
@@ -127,21 +125,39 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
         ["gh", "api", "graphql", "--input", "payload.json"],
         ["gh", "api", "graphql", "--input=payload.json"],
         # gh's key=@filename field convention is the same opaque-body
-        # problem reached through -f/-F instead of --input — a query
-        # loaded this way never appears as argv text at all.
-        ["gh", "api", "graphql", "-f", "query=@payload.graphql"],
-        ["gh", "api", "graphql", "-F", "query=@payload.graphql"],
+        # problem reached through --field/--raw-field instead of --input —
+        # a query loaded this way never appears as argv text at all.
         ["gh", "api", "graphql", "--field", "query=@payload.graphql"],
-        ["gh", "api", "graphql", "-fquery=@payload.graphql"],
+        ["gh", "api", "graphql", "--raw-field", "query=@payload.graphql"],
         # A GraphQL mutation, split-token query text.
         [
             "gh",
             "api",
             "graphql",
-            "-f",
+            "--raw-field",
             'query=mutation { resolveReviewThread(input: {threadId: "x"}) '
             "{ thread { isResolved } } }",
         ],
+        # STRUCTURAL: any short-flag cluster containing X/f/F anywhere,
+        # bundled behind an unrelated boolean flag or bare — refused
+        # regardless of position, spelling enumeration, or value. Every
+        # one of these is live-proven against a real gh binary (see
+        # docs/design-release-failure-harness.md §2b and the round-3
+        # evaluation): -ifx=1 sent a real mutating POST, -iXPUT/-iX GET/
+        # -iXGET all bundle -i with -X identically to the unbundled form.
+        ["gh", "api", _PROTECTION_ENDPOINT, "-ifx=1"],  # -i bundled with -f
+        ["gh", "api", _MERGE_ENDPOINT, "-iXPUT"],  # -i + -X attached
+        ["gh", "api", _PROTECTION_ENDPOINT, "-iX", "GET"],  # -i + -X split
+        ["gh", "api", _PROTECTION_ENDPOINT, "-iXGET"],  # -i + -X attached, safe value
+        # Even unbundled, a bare short flag is refused — the structural
+        # rule does not special-case "flag is the whole token."
+        ["gh", "api", _MERGE_ENDPOINT, "-X", "PUT"],
+        ["gh", "api", _MERGE_ENDPOINT, "-XPUT"],
+        ["gh", "api", _MERGE_ENDPOINT, "-X=PUT"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-f", "x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-fx=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-F", "x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-Fx=1"],
     ],
 )
 def test_require_read_only_refuses_every_mutating_shape(cmd: list[str]) -> None:
@@ -150,13 +166,13 @@ def test_require_read_only_refuses_every_mutating_shape(cmd: list[str]) -> None:
 
 
 def test_require_read_only_uses_the_last_of_two_method_flags() -> None:
-    """``gh``'s pflag parser applies last-occurrence-wins for a repeated or
-    dual-spelled option — a harmless leading ``-X GET`` must not shadow a
-    later, real ``--method POST``.
+    """``gh``'s pflag parser applies last-occurrence-wins for a repeated
+    flag — a harmless leading ``--method GET`` must not shadow a later,
+    real ``--method POST``.
     """
     with pytest.raises(ReadOnlyViolation, match="POST"):
         ReadOnlyGhRunner().require_read_only(
-            ["gh", "api", _MERGE_ENDPOINT, "-X", "GET", "--method", "POST"]
+            ["gh", "api", _MERGE_ENDPOINT, "--method", "GET", "--method", "POST"]
         )
 
 

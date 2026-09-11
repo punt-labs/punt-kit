@@ -12,7 +12,7 @@
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "Phase6CiWait's post-selection watch call on an already-completed run \u2014 part of the design's full recording inventory (Phase 6, phase06_ci_wait.py), but no contract test consumes it: production code runs it with capture=False and only checks its returncode, never its stdout, and Phase6CiWait itself is a phase class, not a shared collaborator (out of Wave 1's collaborator-testing scope per the design's matrix rows 21-27 boundary).",
-    "recorded_at": "2026-09-11T05:22:37.260764+00:00"
+    "recorded_at": "2026-09-11T06:14:44.589768+00:00"
   },
   "returncode": 0,
   "stderr": "",
