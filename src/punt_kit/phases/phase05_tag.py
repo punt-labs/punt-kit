@@ -108,12 +108,20 @@ class Phase5Tag:
 
             # Unfiltered (no ref argument) — see _remote_tag_commit_sha's
             # docstring for why the filtered, explicit-ref form cannot be
-            # used here.
-            remote_listing = ops.run(
+            # used here. A network read, same risk class as `git fetch
+            # origin` (Phase 1) and this phase's own tag push, both already
+            # diagnosed (pkit-f85t.7).
+            ls_remote = ops.run(
                 ["git", "ls-remote", "--tags", "origin"],
                 cwd=str(root),
+                check=False,
                 timeout=GIT_NETWORK,
-            ).stdout
+            )
+            if ls_remote.returncode != 0:
+                ops.fail(
+                    f"git ls-remote --tags origin failed:\n{ls_remote.stderr.strip()}"
+                )
+            remote_listing = ls_remote.stdout
             remote_sha = self._remote_tag_commit_sha(remote_listing, tag)
             if remote_sha is not None:
                 # A remote tag's mere presence only proves *some* ref named

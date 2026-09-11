@@ -1818,6 +1818,40 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
     )
 
 
+def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
+    """A failing `git ls-remote --tags origin` (network) in the existing-tag
+    resume path must diagnose, not leak a raw CalledProcessError — same
+    network risk class as `git fetch origin` (Phase 1) and this phase's own
+    tag push, both already diagnosed. Missed in earlier sweep passes
+    (pkit-f85t.7 round 2)."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Tag already exists locally at HEAD (the resume case) — reaches the
+    # ls-remote call this test targets.
+    _git(["tag", "v1.0.0"], cwd=str(root))
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "ls-remote", "--tags", "origin"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: unable to access origin"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git ls-remote --tags origin failed"):
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run()
+
+
 def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit(
     tmp_path: Path,
 ) -> None:
@@ -4833,6 +4867,39 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
     assert second_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
 
+def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
+    tmp_path: Path,
+) -> None:
+    """A failing `uv tool install --force --editable .` (restoring the dev
+    install after the PyPI verify succeeds) must diagnose, not leak a raw
+    CalledProcessError — same external-tool risk class as the install
+    retry loop above, missed in earlier sweep passes (pkit-f85t.7 round 2).
+    """
+    from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install", "--force", "--refresh"],
+                response=CompletedProcessSpec(returncode=0),
+            ),
+            FaultRule(
+                match=["uv", "tool", "install", "--force", "--editable", "."],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: no pyproject.toml found"
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="uv tool install --editable . failed"):
+        Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+
 def _merge_env(
     root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
 ) -> tuple[FaultInjectingOps, str]:
@@ -5331,6 +5398,46 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
     assert "could not read current branch" in printed
 
 
+def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
+    """A failing `git status --porcelain` on the sibling checkout must
+    diagnose, not leak a raw CalledProcessError — a cross-repo read, same
+    risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
+    git log, both already diagnosed. Missed in earlier sweep passes
+    (pkit-f85t.7 round 2)."""
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "status", "--porcelain", "--", ".gitkeep"],
+                response=CompletedProcessSpec(
+                    returncode=128, stderr="fatal: index file corrupt"
+                ),
+            )
+        ],
+    )
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("merge must not run — status read fails first")
+
+    merger = PrMerger(ops=ops)
+    with pytest.raises(ReleaseError, match="git status on sibling"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=_unreachable_merge,
+        )
+
+
 # --- fwql: README SHA pin lands after the release PR's squash-merge ---
 
 
@@ -5476,6 +5583,114 @@ def test_land_readme_sha_pin_noop_when_readme_already_current(
     )
 
     assert not any(c[:3] == ["gh", "pr", "create"] for c in issued)
+
+
+def test_land_readme_sha_pin_cleanup_diagnoses_checkout_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing `git checkout main` in the no-changes-needed cleanup path
+    (README already pins the current SHA) must diagnose, not leak a raw
+    CalledProcessError — the same cleanup pattern Phase 9 already
+    diagnoses, missed here in earlier sweep passes (pkit-f85t.7 round 2)."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "currentsha/install.sh | sh\n"
+        "```\n"
+    )
+
+    info = ProjectInfo(root=root, language="python")
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd == ["git", "checkout", "main"]:
+            r.returncode = 1
+            r.stderr = "error: pre-checkout hook rejected"
+        elif cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
+            r.stdout = "currentsha\n"
+        elif cmd[:2] == ["git", "log"]:
+            r.stdout = ""
+        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
+            r.stdout = "main\n"
+        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
+            "git",
+            "status",
+        ]:
+            r.stdout = ""
+        return r
+
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/proj"
+
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="git checkout main failed"):
+        release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+            info, "0.2.0", dry_run=False
+        )
+
+
+def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing `git branch -D` in the no-changes-needed cleanup path must
+    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    from punt_kit import release as release_mod
+    from punt_kit.detect import ProjectInfo
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+        "currentsha/install.sh | sh\n"
+        "```\n"
+    )
+
+    info = ProjectInfo(root=root, language="python")
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        r = MagicMock()
+        r.returncode = 0
+        r.stdout = ""
+        r.stderr = ""
+        if cmd[:3] == ["git", "branch", "-D"]:
+            r.returncode = 1
+            r.stderr = "error: branch is checked out"
+        elif cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
+            r.stdout = "currentsha\n"
+        elif cmd[:2] == ["git", "log"]:
+            r.stdout = ""
+        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
+            r.stdout = "main\n"
+        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
+            "git",
+            "status",
+        ]:
+            r.stdout = ""
+        return r
+
+    def _repo_slug(_root: Path) -> str:
+        return "punt-labs/proj"
+
+    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="git branch -D .* failed"):
+        release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+            info, "0.2.0", dry_run=False
+        )
 
 
 def test_readme_sha_pin_survives_tag(

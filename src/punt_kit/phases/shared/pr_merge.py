@@ -323,9 +323,18 @@ class PrMerger:
         to be observed.
         """
         cwd = str(path)
-        status = self._ops.run(
-            ["git", "status", "--porcelain", "--", *files], cwd=cwd
-        ).stdout.strip()
+        # A sibling checkout is far less controlled than the project's own
+        # repo (pkit-f85t.7 sweep boundary) — same reasoning as
+        # SiblingRepo.validate's reads and _sync_profile_readme's git log,
+        # both already diagnosed.
+        status_result = self._ops.run(
+            ["git", "status", "--porcelain", "--", *files], cwd=cwd, check=False
+        )
+        if status_result.returncode != 0:
+            self._ops.fail(
+                f"git status on sibling {name} failed:\n{status_result.stderr.strip()}"
+            )
+        status = status_result.stdout.strip()
         if not status:
             return False
 

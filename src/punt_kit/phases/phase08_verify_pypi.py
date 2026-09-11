@@ -103,12 +103,18 @@ class Phase8VerifyPypi:
                 if doctor_result.returncode == 0:
                     ops.ok(f"{cli_name} doctor passed")
 
-        # Restore editable install
+        # Restore editable install. Same external-tool risk class as the
+        # PyPI install retry loop above and `uv build` (Phase 3), both
+        # already diagnosed — missed here in earlier sweep passes
+        # (pkit-f85t.7).
         ops.info("Restoring editable install...")
-        ops.run(
+        restore_result = ops.run(
             ["uv", "tool", "install", "--force", "--editable", "."],
             cwd=str(info.root),
             capture=False,
+            check=False,
             timeout=UV,
         )
+        if restore_result.returncode != 0:
+            ops.fail("uv tool install --editable . failed — see output above")
         ops.ok("Editable install restored")

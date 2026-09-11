@@ -166,10 +166,26 @@ class ReadmeShaPin:
                 ["git", "log", "main..HEAD", "--oneline"], cwd=str(root)
             ).stdout.strip()
             if not ahead:
-                self._ops.run(
-                    ["git", "checkout", "main"], cwd=str(root), timeout=GIT_HOOK
+                # Hook-firing checkout + local branch delete — same
+                # diagnosed convention as Phase 9's identical cleanup path
+                # (pkit-f85t.7 round 2).
+                checkout = self._ops.run(
+                    ["git", "checkout", "main"],
+                    cwd=str(root),
+                    check=False,
+                    timeout=GIT_HOOK,
                 )
-                self._ops.run(["git", "branch", "-D", branch], cwd=str(root))
+                if checkout.returncode != 0:
+                    self._ops.fail(
+                        f"git checkout main failed:\n{checkout.stderr.strip()}"
+                    )
+                delete = self._ops.run(
+                    ["git", "branch", "-D", branch], cwd=str(root), check=False
+                )
+                if delete.returncode != 0:
+                    self._ops.fail(
+                        f"git branch -D {branch} failed:\n{delete.stderr.strip()}"
+                    )
                 self._ops.ok("README already pins the current install SHA")
                 return
         else:
