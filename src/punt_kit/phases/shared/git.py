@@ -53,16 +53,27 @@ class GitWorkspace:
         has no configured upstream tracking.
         """
         if self.current_branch() != "main":
-            self._ops.run(
+            checkout = self._ops.run(
                 ["git", "checkout", "main"],
                 cwd=str(self._root),
+                check=False,
                 timeout=timeouts.GIT_HOOK,
             )
-        self._ops.run(
+            if checkout.returncode != 0:
+                self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
+        # A network call, structurally identical in risk to `git fetch
+        # origin` (Phase 1) and `git push origin` (this class's own push) —
+        # both already diagnosed (pkit-f85t.7).
+        pull = self._ops.run(
             ["git", "pull", "--ff-only", "origin", "main"],
             cwd=str(self._root),
+            check=False,
             timeout=timeouts.GIT_HOOK,
         )
+        if pull.returncode != 0:
+            self._ops.fail(
+                f"git pull --ff-only origin main failed:\n{pull.stderr.strip()}"
+            )
 
     def checkout_or_create(self, branch: str) -> bool:
         """Check out ``branch``, creating it if absent.
@@ -73,17 +84,25 @@ class GitWorkspace:
             ["git", "branch", "--list", branch], cwd=str(self._root)
         ).stdout.strip()
         if existing:
-            self._ops.run(
+            checkout = self._ops.run(
                 ["git", "checkout", branch],
                 cwd=str(self._root),
+                check=False,
                 timeout=timeouts.GIT_HOOK,
             )
+            if checkout.returncode != 0:
+                self._ops.fail(
+                    f"git checkout {branch} failed:\n{checkout.stderr.strip()}"
+                )
             return True
-        self._ops.run(
+        create = self._ops.run(
             ["git", "checkout", "-b", branch],
             cwd=str(self._root),
+            check=False,
             timeout=timeouts.GIT_HOOK,
         )
+        if create.returncode != 0:
+            self._ops.fail(f"git checkout -b {branch} failed:\n{create.stderr.strip()}")
         return False
 
     def commit_if_staged(self, paths: Sequence[str], message: str) -> bool:
@@ -97,11 +116,18 @@ class GitWorkspace:
             ["git", "diff", "--cached", "--name-only"], cwd=str(self._root)
         ).stdout.strip()
         if staged:
-            self._ops.run(
+            # Hook-firing mutation, same class as the Phase 4 swap commit
+            # and Phase 9 restore commit already diagnosed (pkit-f85t.7) —
+            # this one backs every phase's own release/propagation commit,
+            # including Phase 2's release-version-bump commit.
+            commit = self._ops.run(
                 ["git", "commit", "-m", message],
                 cwd=str(self._root),
+                check=False,
                 timeout=timeouts.GIT_HOOK,
             )
+            if commit.returncode != 0:
+                self._ops.fail(f"git commit failed:\n{commit.stderr.strip()}")
             return True
         return False
 

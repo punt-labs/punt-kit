@@ -754,6 +754,43 @@ def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
     assert status.startswith("??")
 
 
+def test_version_bump_uv_lock_failure_diagnoses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing `uv lock` (network resolver op) must diagnose, not leak a
+    raw CalledProcessError — the same risk class as `uv build` (Phase 3,
+    already diagnosed), missed by round 1's sweep (pkit-f85t.7 round 2)."""
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    (root / "uv.lock").write_text("# lock\n")
+    d = str(root)
+    _git(["add", "uv.lock"], cwd=d)
+    _git(["commit", "-m", "add lock file"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd == ["uv", "lock"]:
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout="", stderr="error: failed to resolve dependencies"
+            )
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="uv lock failed"):
+        _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+
 # --- phase 2 template pin rewrite (pkit-3zu8) ---
 
 # The pin regex only captures ``punt-*`` names (PL-PL-2: every PyPI package in
@@ -1374,6 +1411,157 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "CHANGELOG.md").read_text() == original_changelog
 
 
+# --- GitWorkspace (pkit-f85t.7 round 2: sites the round-1 sweep missed) ---
+
+
+def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
+    tmp_path: Path,
+) -> None:
+    """A failing `git checkout main` (when not already on main) must
+    diagnose, not leak a raw CalledProcessError.
+
+    `GitWorkspace.ensure_on_main` is called unconditionally from Phase 2,
+    5, and 9's `run()` — a hook-firing checkout that defaulted to
+    check=True was missed by round 1's sweep (pkit-f85t.7 round 2).
+    """
+    from punt_kit.phases.shared.git import GitWorkspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    _git(["checkout", "-b", "feature"], cwd=str(root))
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: pathspec 'main' did not match"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git checkout main failed"):
+        GitWorkspace(root, ops=ops).ensure_on_main()
+
+
+def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> None:
+    """A failing `git pull --ff-only origin main` must diagnose — a network
+    call, structurally identical in risk to `git fetch origin` (Phase 1,
+    already diagnosed) and `GitWorkspace.push` (Phase 5, already
+    diagnosed), but missed for `ensure_on_main` by round 1's sweep."""
+    from punt_kit.phases.shared.git import GitWorkspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "pull", "--ff-only", "origin", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: unable to access origin"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git pull --ff-only origin main failed"):
+        GitWorkspace(root, ops=ops).ensure_on_main()
+
+
+def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
+    tmp_path: Path,
+) -> None:
+    """A failing `git checkout <branch>` for an already-existing branch must
+    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    from punt_kit.phases.shared.git import GitWorkspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    _git(["branch", "release/v1.0.0"], cwd=str(root))
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "release/v1.0.0"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: pre-checkout hook rejected"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git checkout release/v1.0.0 failed"):
+        GitWorkspace(root, ops=ops).checkout_or_create("release/v1.0.0")
+
+
+def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
+    tmp_path: Path,
+) -> None:
+    """A failing `git checkout -b <branch>` for a genuinely new branch must
+    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    from punt_kit.phases.shared.git import GitWorkspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "-b", "release/v1.0.0"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: a branch named ... already exists"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git checkout -b release/v1.0.0 failed"):
+        GitWorkspace(root, ops=ops).checkout_or_create("release/v1.0.0")
+
+
+def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
+    tmp_path: Path,
+) -> None:
+    """A rejected `git commit` (pre-commit hook) must diagnose — the same
+    hook-firing-mutation class as the Phase 4 swap commit and Phase 9
+    restore commit, but this one backs *every* phase's own commit,
+    including Phase 2's release-version-bump commit, and was missed by
+    round 1's sweep (pkit-f85t.7 round 2)."""
+    from punt_kit.phases.shared.git import GitWorkspace
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "release-marker.txt").write_text("v1.0.0\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "commit", "-m", "chore: release v1.0.0"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="pre-commit hook rejected"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git commit failed"):
+        GitWorkspace(root, ops=ops).commit_if_staged(
+            ["release-marker.txt"], "chore: release v1.0.0"
+        )
+
+
 # --- Phase 3: build ---
 
 
@@ -1411,6 +1599,38 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
 
 
 # --- Phase 5: tag ---
+
+
+def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
+    """A failing `git tag {tag}` (disk full, permission, a lock held by a
+    concurrent git process) must diagnose, not leak a raw
+    CalledProcessError — kept in the same diagnosed convention as the push
+    two lines below in the source, rather than left as the odd one out
+    (pkit-f85t.7 round 2)."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "tag", "v1.0.0"],
+                response=CompletedProcessSpec(
+                    returncode=128, stderr="fatal: cannot lock ref"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git tag v1.0.0 failed"):
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run()
+
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
 def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
@@ -4397,6 +4617,64 @@ def test_pr_merge_matching_merged_pr_short_circuits(
     assert waited == []
 
 
+def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing `git checkout main` while fast-forwarding local main after
+    an already-merged PR must diagnose, not leak a raw CalledProcessError.
+
+    One of three near-identical inline blocks `PrMerger.merge` hand-rolled
+    with an unqualified check=True default, missed by round 1's sweep and
+    now centralized into `_sync_local_main` (pkit-f85t.7 round 2)."""
+    base_fake_run, _issued = _fake_gh_run(
+        [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
+    )
+    base_run = cast("Callable[..., object]", base_fake_run)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        if cmd == ["git", "checkout", "main"]:
+            r = MagicMock()
+            r.returncode = 1
+            r.stdout = ""
+            r.stderr = "error: pre-checkout hook rejected"
+            return r
+        return base_run(cmd, **kwargs)
+
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    with pytest.raises(ReleaseError, match="git checkout main failed"):
+        _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
+def test_pr_merge_sync_local_main_diagnoses_pull_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failing `git pull --ff-only` while fast-forwarding local main — a
+    network call, structurally identical in risk to `git fetch origin`
+    (Phase 1) and `GitWorkspace.push` (Phase 5), both already diagnosed —
+    must diagnose too (pkit-f85t.7 round 2)."""
+    base_fake_run, _issued = _fake_gh_run(
+        [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
+    )
+    base_run = cast("Callable[..., object]", base_fake_run)
+
+    def fake_run(cmd: list[str], **kwargs: object) -> object:
+        if cmd == ["git", "pull", "--ff-only"]:
+            r = MagicMock()
+            r.returncode = 1
+            r.stdout = ""
+            r.stderr = "fatal: unable to access origin"
+            return r
+        return base_run(cmd, **kwargs)
+
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    with pytest.raises(ReleaseError, match="git pull --ff-only failed"):
+        _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
 def test_pr_merge_branch_deletion_404_is_success(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -7095,6 +7373,125 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
 
     assert _git_out(["rev-parse", "HEAD"], cwd=d) != pre_head
     assert merged.get("branch") == "post-release/v0.2.0"
+
+
+def test_phase9_post_release_restore_script_itself_failing_diagnoses(
+    tmp_path: Path,
+) -> None:
+    """A failing `bash scripts/restore-dev-plugin.sh` itself — distinct
+    from the follow-up commit failing, already covered above — must
+    diagnose too. Flagged by Copilot's round-1 PR review as an uncovered
+    branch of the same converted call site."""
+    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    restore_script = root / "scripts" / "restore-dev-plugin.sh"
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["bash", str(restore_script)],
+                response=CompletedProcessSpec(
+                    returncode=1,
+                    stderr="ERROR: No commit found with dev plugin name",
+                ),
+            )
+        ],
+    )
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("merge must not run — restore script fails first")
+
+    with pytest.raises(ReleaseError, match=re.escape(str(restore_script))):
+        Phase9PostRelease(info, "0.2.0", dry_run=False, ops=ops).run(
+            merge=_unreachable_merge
+        )
+
+
+def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
+    tmp_path: Path,
+) -> None:
+    """A failing `git checkout main` in the no-changes-needed cleanup path
+    must diagnose, not leak a raw CalledProcessError — missed by round 1's
+    sweep (pkit-f85t.7 round 2)."""
+    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "test-pkg"\nversion = "0.1.0"\n'
+    )
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    assert not info.is_plugin
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: pre-checkout hook rejected"
+                ),
+            )
+        ],
+    )
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("merge must not run — cleanup checkout fails first")
+
+    with pytest.raises(ReleaseError, match="git checkout main failed"):
+        Phase9PostRelease(info, "0.2.0", dry_run=False, ops=ops).run(
+            merge=_unreachable_merge
+        )
+
+
+def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
+    tmp_path: Path,
+) -> None:
+    """A failing `git branch -D` in the no-changes-needed cleanup path must
+    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "test-pkg"\nversion = "0.1.0"\n'
+    )
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "branch", "-D", "post-release/v0.2.0"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: branch is checked out"
+                ),
+            )
+        ],
+    )
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("merge must not run — cleanup branch delete fails first")
+
+    with pytest.raises(ReleaseError, match="git branch -D post-release/v0.2.0 failed"):
+        Phase9PostRelease(info, "0.2.0", dry_run=False, ops=ops).run(
+            merge=_unreachable_merge
+        )
 
 
 def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(

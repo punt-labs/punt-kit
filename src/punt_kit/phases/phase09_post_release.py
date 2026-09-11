@@ -176,8 +176,22 @@ class Phase9PostRelease:
             if ahead:
                 has_changes = True
             else:
-                ops.run(["git", "checkout", "main"], cwd=str(root), timeout=GIT_HOOK)
-                ops.run(["git", "branch", "-D", branch], cwd=str(root))
+                # Hook-firing checkout + local branch delete — same
+                # diagnosed convention as this phase's restore commit above
+                # (pkit-f85t.7).
+                checkout = ops.run(
+                    ["git", "checkout", "main"],
+                    cwd=str(root),
+                    check=False,
+                    timeout=GIT_HOOK,
+                )
+                if checkout.returncode != 0:
+                    ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
+                delete = ops.run(
+                    ["git", "branch", "-D", branch], cwd=str(root), check=False
+                )
+                if delete.returncode != 0:
+                    ops.fail(f"git branch -D {branch} failed:\n{delete.stderr.strip()}")
                 ops.ok("No post-release changes needed")
                 return
 

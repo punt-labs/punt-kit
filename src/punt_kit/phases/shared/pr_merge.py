@@ -168,16 +168,7 @@ class PrMerger:
                     # merged by an earlier run may already have left the
                     # workspace on main, but the pull --ff-only must still
                     # run to pick up that merge commit.
-                    self._ops.run(
-                        ["git", "checkout", "main"], cwd=root, timeout=GIT_HOOK
-                    )
-                    self._ops.run(
-                        ["git", "pull", "--ff-only"], cwd=root, timeout=GIT_HOOK
-                    )
-                    sha = self._ops.run(
-                        ["git", "rev-parse", "--short", "HEAD"], cwd=root
-                    ).stdout.strip()
-                    return sha
+                    return self._sync_local_main(root)
                 self._ops.info(f"Found existing open PR #{pr_number}")
 
         # 3. Create PR if none exists
@@ -224,11 +215,7 @@ class PrMerger:
             self._ops.fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
         if pr_state == "MERGED":
             self._ops.ok(f"PR #{pr_number} already merged")
-            self._ops.run(["git", "checkout", "main"], cwd=root, timeout=GIT_HOOK)
-            self._ops.run(["git", "pull", "--ff-only"], cwd=root, timeout=GIT_HOOK)
-            return self._ops.run(
-                ["git", "rev-parse", "--short", "HEAD"], cwd=root
-            ).stdout.strip()
+            return self._sync_local_main(root)
 
         # 6. Resolve review threads (Copilot/Bugbot auto-post on PRs)
         resolve_threads(gh, root, pr_number)
@@ -282,8 +269,34 @@ class PrMerger:
         self._ops.ok(f"PR #{pr_number} merged")
 
         # 8. Update local main
-        self._ops.run(["git", "checkout", "main"], cwd=root, timeout=GIT_HOOK)
-        self._ops.run(["git", "pull", "--ff-only"], cwd=root, timeout=GIT_HOOK)
+        return self._sync_local_main(root)
+
+    def _sync_local_main(self, root: str) -> str:
+        """Fast-forward local main to the just-merged remote state and
+        return its short SHA.
+
+        Extracted from three near-identical inline blocks (existing-PR
+        resume, mid-wait resume, and the normal post-merge path) that each
+        hand-rolled the same checkout + pull + rev-parse sequence with an
+        unqualified ``check=True`` default (pkit-f85t.7).
+        """
+        checkout = self._ops.run(
+            ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
+        )
+        if checkout.returncode != 0:
+            self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
+        # A network call, same risk class as the branch push above.
+        pull = self._ops.run(
+            ["git", "pull", "--ff-only"], cwd=root, check=False, timeout=GIT_HOOK
+        )
+        if pull.returncode != 0:
+            self._ops.fail(f"git pull --ff-only failed:\n{pull.stderr.strip()}")
+        # Reads the checkout this method just fast-forwarded to a
+        # known-good state one line above — a failure here means the repo
+        # itself is corrupt beyond this call's control, not an independent
+        # operational failure mode. Kept check=True (pkit-f85t.7 sweep
+        # boundary: constructor-time-invariant-equivalent), now centralized
+        # to this one call site instead of three.
         return self._ops.run(
             ["git", "rev-parse", "--short", "HEAD"], cwd=root
         ).stdout.strip()

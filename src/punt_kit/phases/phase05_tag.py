@@ -141,7 +141,13 @@ class Phase5Tag:
             ops.ok(f"Pushed tag {tag}")
             return
 
-        ops.run(["git", "tag", tag], cwd=str(root))
+        # A local write (disk full, permission, or a lock held by a
+        # concurrent git process) — kept in the same diagnosed convention as
+        # the push two lines below rather than left as the odd one out
+        # (pkit-f85t.7).
+        tag_result = ops.run(["git", "tag", tag], cwd=str(root), check=False)
+        if tag_result.returncode != 0:
+            ops.fail(f"git tag {tag} failed:\n{tag_result.stderr.strip()}")
         ops.ok(f"Tagged {tag}")
 
         # Push tag (not blocked by branch protection — targets refs/tags/*).
