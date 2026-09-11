@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
@@ -18,6 +19,20 @@ if TYPE_CHECKING:
     from punt_kit.phases.shared.ops import ReleaseOps
 
 _console = Console()
+
+# Repo-relative paths of tracked Config-zone files a *running daemon*
+# rewrites continuously (standards/punt-labs-dir.md § 7). A repo with an
+# active vox session routinely shows this file `modified` in the working
+# tree even though nothing about the release is at stake — the clean-tree
+# gate below still fails the release (no auto-stash — see the gate's
+# comment), but names the exact stash command instead of the generic
+# dirty-tree message when this is the *only* thing dirty. Deliberately a
+# small, explicit allowlist rather than a path-shape heuristic: lux's
+# `.punt-labs/lux/config.md` looks identical in shape but is NOT
+# daemon-rewritten (only `enable`/`disable` write it), so it must not be
+# on this list. Extend it only when a standard names another file as
+# continuously daemon-rewritten.
+_DAEMON_MUTABLE_PATHS = frozenset({".punt-labs/vox/vox.md"})
 
 
 @final
@@ -51,9 +66,15 @@ class Phase1Preflight:
             ops.fail(f"Must be on main branch (currently on '{branch}')")
         ops.ok("On main branch")
 
-        status = ops.run(
-            ["git", "status", "--porcelain"], cwd=str(info.root)
-        ).stdout.strip()
+        # Not `.stdout.strip()` — porcelain's XY status code can start with
+        # a literal space (e.g. " M path" for an unstaged-only
+        # modification), and stripping the whole block eats that space
+        # whenever it lands as the very first character of the output
+        # (the alphabetically-first dirty path), corrupting `ln[3:]`
+        # below by one character. `splitlines()` on the raw stdout needs
+        # no such strip — a trailing newline produces no extra element,
+        # and an empty status yields an empty list either way.
+        status = ops.run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout
         dirty_lines: list[str] = []
         untracked_lines: list[str] = []
         for ln in status.splitlines():
@@ -65,8 +86,7 @@ class Phase1Preflight:
             else:
                 dirty_lines.append(ln)
         if dirty_lines:
-            dirty = "\n".join(dirty_lines)
-            ops.fail(f"Working tree is not clean:\n{dirty}")
+            ops.fail(self._dirty_tree_message(dirty_lines, untracked_lines))
         if untracked_lines:
             # Untracked files at release time are almost always noise (temp
             # files, forgotten artifacts) that must not ride along in
@@ -212,6 +232,87 @@ class Phase1Preflight:
             ops.ok("All quality gates passed")
         elif dry_run:
             ops.dry("Would run quality gates")
+
+    def _dirty_tree_message(
+        self, dirty_lines: list[str], untracked_lines: list[str]
+    ) -> str:
+        """Build the "working tree is not clean" failure message.
+
+        ``dirty_lines`` are raw ``git status --porcelain`` lines for
+        tracked, modified paths. When every dirty path is a known
+        daemon-mutable settings file (``_DAEMON_MUTABLE_PATHS``), the
+        message names the exact stash command instead of the generic
+        dump — the common case for a repo with an active vox session.
+        Mixed dirt (a daemon file plus anything else tracked) keeps the
+        generic message shape, since the operator still has real cleanup
+        to do, but still calls out which paths are daemon-mutable so the
+        stash step isn't rediscovered by hand.
+
+        ``untracked_lines`` is folded in whenever non-empty, even in the
+        daemon-only case: ``ops.fail`` raises immediately, so a
+        daemon-only-dirty message that omits an untracked file would send
+        the operator through a stash only to hit a second, previously
+        invisible failure on the very next run. One failure now reports
+        the whole picture.
+
+        This does not auto-stash — that touches the interrupt/resume
+        paths and is a separate change — and it recommends ``--index`` on
+        the pop, because a bare ``git stash pop`` restores file content
+        but not staged status, silently turning a staged settings change
+        into an unstaged one.
+        """
+        dirty = "\n".join(dirty_lines)
+        daemon_paths = sorted(
+            p
+            for ln in dirty_lines
+            if (p := ln[3:] if len(ln) > 3 else "") in _DAEMON_MUTABLE_PATHS
+        )
+        if not daemon_paths:
+            message = f"Working tree is not clean:\n{dirty}"
+        else:
+            stash_cmd = "git stash push -- " + " ".join(
+                shlex.quote(p) for p in daemon_paths
+            )
+            # vox.md is written on demand — an MCP switch tool call inside
+            # a running session — not on a fixed schedule, so it can be
+            # rewritten again between the stash and the release's next
+            # clean-tree check. The hint is a point-in-time fix, not a
+            # guarantee; say so rather than implying the daemon can't
+            # undo it.
+            race_caveat = (
+                "A running vox session can rewrite this file again before "
+                "the release re-checks — stop the session first, or "
+                "expect to redo this stash."
+            )
+            if len(daemon_paths) == len(dirty_lines):
+                message = (
+                    "Working tree has only daemon-mutable settings files "
+                    f"dirty (standards/punt-labs-dir.md § 7):\n{dirty}\n\n"
+                    "If this is a deliberate settings change you want in "
+                    "the release, commit it instead. Otherwise, stash it "
+                    "before releasing and restore it after:\n"
+                    f"  {stash_cmd}\n"
+                    "  (after the release completes) git stash pop --index\n\n"
+                    f"{race_caveat}"
+                )
+            else:
+                daemon_list = "\n".join(f"  {p}" for p in daemon_paths)
+                message = (
+                    f"Working tree is not clean:\n{dirty}\n\n"
+                    "Note: the following are daemon-mutable settings "
+                    f"files (standards/punt-labs-dir.md § 7):\n{daemon_list}"
+                    "\n\nIf the change is deliberate, commit it; "
+                    "otherwise, once the rest is cleaned up, stash and "
+                    f"restore it with `{stash_cmd}` / "
+                    f"`git stash pop --index`. {race_caveat}"
+                )
+        if untracked_lines:
+            untracked = "\n".join(untracked_lines)
+            message += (
+                "\n\nUntracked files are also present — commit, gitignore, "
+                f"or remove them before releasing:\n{untracked}"
+            )
+        return message
 
     def _warn_stale_prior_tag(self, info: ProjectInfo) -> None:
         """Warn when the highest existing tag's plugin manifest is stale.
