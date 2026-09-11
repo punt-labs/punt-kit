@@ -10,6 +10,8 @@ import re
 import shutil
 import subprocess
 import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
@@ -56,6 +58,8 @@ from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, Fau
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
+
+    from punt_kit.detect import ProjectInfo
 
 
 @pytest.fixture(autouse=True)
@@ -8038,3 +8042,280 @@ def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> Non
         f"commands ({', '.join(hook_firing_scripts)}) and must be given "
         f"timeout=_GIT_HOOK_TIMEOUT: {offenders}"
     )
+
+
+# --- SIGINT during Phase 10 with a worker live inside the check-wait poll ---
+#
+# The DES-029 incident mechanism: a Phase 10 propagator worker sits in
+# RequiredChecksWaiter.wait's poll loop when the operator interrupts. Only the
+# main thread ever receives the signal, so the worker learns about it solely
+# through the `interrupted.is_set()` check at the top of each poll iteration —
+# and until it does, ThreadPoolExecutor.__exit__'s shutdown(wait=True) cannot
+# return. These scenarios hold a worker genuinely mid-poll against a
+# pending-forever GraphQL fake (never released early) and prove the interrupt
+# check is what unblocks the join.
+
+
+_POLL_BRANCH = "propagate/v0.2.0-proj-public-website"
+
+
+def _interrupted_poll_scenario(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, FaultRule, FaultRule]:
+    """A project + website sibling whose one live Phase 10 leg blocks mid-poll.
+
+    The website propagator reaches ``RequiredChecksWaiter.wait`` against a
+    pending-forever required-checks fake: three unarmed pending polls first
+    (proving the loop is genuinely iterating, not started-and-idle), then a
+    ``times=None`` pending rule armed with ``interrupt_after`` on
+    ``release._interrupted`` — the rule-anchored stand-in for the signal
+    handler's ``_interrupted.set()``, firing while the worker is mid-loop. The
+    fake never leaves the pending state; the only exits from the loop are the
+    interrupt check, or (regression) the deadline — shrunk from two hours to
+    seconds here so a broken interrupt check fails the test instead of
+    hanging it. Returns ``(project_root, warmup_rule, pending_forever_rule)``.
+    """
+    root = _make_release_project(tmp_path)
+    # A python-only project: the marketplace leg no-ops, the .github leg
+    # skips (no sibling), leaving the website leg as the one live worker.
+    shutil.rmtree(root / ".claude-plugin")
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=str(root),
+    )
+    projects = [{"id": "proj", "version": "0.1.0", "githubUrl": ""}]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    monkeypatch.setattr(shutil, "which", _fake_which)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    # Near-zero poll interval (the shared `time` singleton reaches gh.py), and
+    # a seconds-scale deadline so a regressed interrupt check times the loop
+    # out instead of spinning for the full two-hour CI_WATCH.
+    real_sleep = time.sleep
+
+    def _near_zero_sleep(_seconds: float) -> None:
+        real_sleep(0.001)
+
+    monkeypatch.setattr("punt_kit.release.time.sleep", _near_zero_sleep)
+    monkeypatch.setattr("punt_kit.phases.shared.gh.CI_WATCH", 30)
+
+    warmup = FaultRule(
+        match=["gh", "api", "graphql"],
+        times=3,
+        response=FaultRule.from_fixture("gh_graphql_required_checks_pending.json"),
+    )
+    pending_forever = FaultRule(
+        match=["gh", "api", "graphql"],
+        times=None,
+        response=FaultRule.from_fixture("gh_graphql_required_checks_pending.json"),
+    )
+    pending_forever.interrupt_after(
+        release._interrupted  # pyright: ignore[reportPrivateUsage]
+    )
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            # The sibling's origin is itself (non-bare), which refuses a push
+            # of its own checked-out branch — scripted success keeps the merge
+            # flow moving toward the check wait.
+            FaultRule(
+                match=["git", "push", "-u", "origin", _POLL_BRANCH],
+                response=CompletedProcessSpec(),
+            ),
+            FaultRule(
+                match=["gh", "pr", "list"],
+                response=FaultRule.from_fixture("gh_pr_list_empty.json"),
+            ),
+            FaultRule(
+                match=["gh", "pr", "create"],
+                response=FaultRule.from_fixture("gh_pr_create_success.json"),
+            ),
+            FaultRule(
+                match=[
+                    "gh",
+                    "api",
+                    "repos/punt-labs/punt-kit/branches/main/protection",
+                ],
+                response=FaultRule.from_fixture(
+                    "gh_api_branch_protection_protected.json"
+                ),
+            ),
+            FaultRule(
+                match=["gh", "api", "repos/punt-labs/punt-kit/rules/branches/main"],
+                response=FaultRule.from_fixture(
+                    "gh_api_rules_branches_ungoverned.json"
+                ),
+            ),
+            warmup,
+            pending_forever,
+        ],
+    )
+    monkeypatch.setattr(release, "_run", ops.run)
+    return root, warmup, pending_forever
+
+
+def test_phase10_interrupt_with_worker_mid_poll_join_returns_promptly(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A worker held mid-poll observes the interrupt and unblocks the join.
+
+    Reproduces the DES-029 mechanism directly: the website propagator worker
+    inside Phase 10's own ThreadPoolExecutor is genuinely mid-iteration in
+    ``RequiredChecksWaiter.wait`` when the interrupt event is set. Phase 10's
+    executor ``__exit__`` can only return once that worker stops polling, and
+    ``_phase10_propagate`` can only finish after that join — so the bounded
+    ``future.result(timeout=...)`` below IS the join-promptness assertion: it
+    passes within seconds only because the worker's ``interrupted.is_set()``
+    check fired, while the fake it polls would have stayed pending for the
+    entire deadline.
+    """
+    root, warmup, pending_forever = _interrupted_poll_scenario(tmp_path, monkeypatch)
+    info = detect(root)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(_phase10_propagate, info, "0.2.0", dry_run=False)
+        # ThreadedStep.collect raises KeyboardInterrupt once the workers
+        # drain with the interrupt event set. Bounded: a regressed interrupt
+        # check fails here in 10s (and the scenario's shrunk deadline then
+        # releases the pool worker) instead of hanging the suite.
+        with pytest.raises(KeyboardInterrupt):
+            future.result(timeout=10.0)
+
+    out = " ".join(capsys.readouterr().out.split())
+    # The loop exited through its interrupt check, not the deadline.
+    assert "Interrupted while waiting for CI checks on PR #123" in out
+    assert "Timed out waiting" not in out
+    # The worker was genuinely mid-loop: three full pending iterations before
+    # the armed rule fired, exactly one consumption after — the next
+    # iteration's interrupt check stopped the loop before another poll, with
+    # the fake still pending (it has no other state to serve).
+    assert warmup._consumed == 3  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert pending_forever._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+
+def test_run_release_interrupt_mid_poll_reports_incomplete_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An interrupt observed mid-poll ends in the incomplete-release report.
+
+    The same live-worker scenario, driven through ``run_release`` exactly as
+    the DES-029 incident ran: ``--resume-from propagate`` puts Phase 10 on
+    the main thread with its propagators on pool workers. The
+    KeyboardInterrupt that ``ThreadedStep.collect`` raises once the
+    interrupted worker drains must reach ``run_release``'s cleanup, which
+    resets propagation siblings and prints where the release stopped, what is
+    not confirmed landed, and the exact resume command. The existing
+    reporting test fakes the interrupting phase outright; this one earns the
+    same report from a worker genuinely blocked in the poll loop.
+    """
+    root, warmup, pending_forever = _interrupted_poll_scenario(tmp_path, monkeypatch)
+
+    started = time.monotonic()
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
+    elapsed = time.monotonic() - started
+
+    assert exc_info.value.code == 1
+    # Prompt: the run ends within seconds of the interrupt, not after the
+    # (shrunk) poll deadline — the join was released by the interrupt check.
+    assert elapsed < 10.0
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Interrupted while waiting for CI checks on PR #123" in out
+    assert "Cleaning up after interrupt..." in out
+    assert "Release incomplete" in out
+    assert "phase 10 (propagate)" in out
+    assert "Not confirmed landed: propagate, verify" in out
+    assert "--resume-from propagate" in out
+    assert warmup._consumed == 3  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert pending_forever._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+
+def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The interrupt path itself restores a sibling's mid-write residue.
+
+    Phase 10 writes its owned file *before* branching; an interrupt between
+    the two leaves the sibling on main with the write on disk (the v0.14.0
+    residue). Distinct from the next-run auto-recovery at Phase 10 entry:
+    here the residue is created *after* that entry reset has already run, so
+    only ``run_release``'s interrupt cleanup —
+    ``_reset_propagation_siblings(..., fail_on_error=False)`` — can be what
+    restores it, and the spy proves that call happened with the residue
+    present and ``fail_on_error=False``.
+    """
+    root = _make_release_project(tmp_path)
+    shutil.rmtree(root / ".claude-plugin")
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=str(root),
+    )
+    projects = [{"id": "proj", "version": "0.1.0", "githubUrl": ""}]
+    sibling = _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+    projects_json = sibling / "src" / "data" / "projects.json"
+    original = projects_json.read_text()
+
+    real_reset = release._reset_propagation_siblings  # pyright: ignore[reportPrivateUsage]
+    reset_calls: list[tuple[bool, bool]] = []
+
+    def spying_reset(info: ProjectInfo, *, fail_on_error: bool = True) -> None:
+        residue_present = "0.2.0" in projects_json.read_text()
+        reset_calls.append((fail_on_error, residue_present))
+        real_reset(info, fail_on_error=fail_on_error)
+
+    monkeypatch.setattr(release, "_reset_propagation_siblings", spying_reset)
+
+    # The interrupt arrives after the owned-file write: the propagator's
+    # dirty-check returns (arming the interrupt event exactly as the signal
+    # handler would set it), then the branch creation dies the way the
+    # v0.14.0 incident's did — a checkout that never returns.
+    status_rule = FaultRule(
+        match=["git", "status", "--porcelain", "--", "src/data/projects.json"],
+        response=CompletedProcessSpec(stdout=" M src/data/projects.json\n"),
+    )
+    status_rule.interrupt_after(
+        release._interrupted  # pyright: ignore[reportPrivateUsage]
+    )
+    checkout_rule = FaultRule(
+        match=["git", "checkout", "-b"],
+        raises=subprocess.TimeoutExpired(cmd=["git", "checkout", "-b"], timeout=600),
+    )
+    ops = FaultInjectingOps(real_run=_run, rules=[status_rule, checkout_rule])
+    monkeypatch.setattr(release, "_run", ops.run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
+
+    assert exc_info.value.code == 1
+    # First call: Phase 10's entry auto-recovery, before any residue exists.
+    # Second: the interrupt path — fail_on_error=False, residue on disk.
+    assert reset_calls == [(True, False), (False, True)]
+    assert projects_json.read_text() == original
+    status = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=str(sibling),
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert status.stdout.strip() == "", "sibling should be clean after the reset"
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Cleaning up after interrupt..." in out
+    assert "Restoring propagation-owned files in sibling public-website" in out
+    assert "Release incomplete" in out
+    assert "phase 10 (propagate)" in out
+    assert "--resume-from propagate" in out
