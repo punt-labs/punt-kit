@@ -166,6 +166,15 @@ by wrapping a *real* `_run` (so real git calls still hit a real git binary
 against the `tmp_path` repo per §1b) plus a **routing table** of fault rules:
 
 ```python
+class _Unset:
+    """Sentinel type distinguishing 'caller passed nothing' from any real
+    value, including `None` — needed because `times=None` is itself a
+    meaningful, distinct setting ('every remaining match')."""
+
+
+_UNSET = _Unset()
+
+
 @dataclass(slots=True)
 class FaultRule:
     """One scripted response for commands matching an argv prefix.
@@ -181,12 +190,25 @@ class FaultRule:
     match: Sequence[str]  # argv prefix, e.g. ["gh", "pr", "merge"] — element
     # 0 matched by basename per the docstring above
     skip: int = 0  # ignore this many otherwise-matching calls before engaging
-    times: int | None = 1  # None = every remaining match after `skip`
+    times: int | None | _Unset = _UNSET  # explicit int = consume exactly
+    # that many matches; explicit None = every remaining match after `skip`;
+    # the sentinel default `_UNSET` means "derive it" — see __post_init__.
     response: CompletedProcessSpec | None = None
     responses: Sequence[CompletedProcessSpec] | None = None  # one response
     # per consumed match, in order — e.g. [open_pr, merged_pr] for an
     # OPEN -> MERGED transition across two calls to the same command
     raises: type[BaseException] | BaseException | None = None
+
+    def __post_init__(self) -> None:
+        # `times` left at `_UNSET` derives to `len(responses)` when a
+        # `responses` sequence is given (so the two-element OPEN->MERGED
+        # example below consumes exactly two matches without the caller
+        # separately writing `times=2`), or to `1` otherwise — the
+        # single-response/raises common case. Any explicit `times=` value
+        # the caller passes, including `times=None` for "every remaining
+        # match, cycling through `responses`," overrides the derivation.
+        if self.times is _UNSET:
+            self.times = len(self.responses) if self.responses is not None else 1
 
 
 class FaultInjectingOps:
@@ -248,14 +270,30 @@ The mission's evaluation criteria require the fake `gh`/git surfaces to be
 "contract-tested against real tool output shapes or generated from recorded
 fixtures" — this is the mechanism:
 
-1. **Recording.** A `tools/record_gh_fixtures.py` script (run manually,
-   never in CI, against a real punt-labs repo with a real `gh` session) shells
-   out to every `gh` invocation shape the release engine makes — `gh pr list
-   --json ...`, `gh run list --json ...`, `gh api graphql -f query=...` for
-   both a governed and ungoverned repo, `gh pr view --json state`, `gh pr
-   merge` success and a real transient-block failure if one can be captured —
-   and writes each response to `tests/fixtures/gh/<name>.json`, with secrets
-   (tokens, usernames beyond the punt-labs org, private repo names) scrubbed.
+1. **Recording — read-only invariant.** A `tools/record_gh_fixtures.py`
+   script (run manually, never in CI, against a real punt-labs repo with a
+   real `gh` session) shells out **only to read-only `gh` commands** — `gh pr
+   list --json ...`, `gh run list --json ...`, `gh api graphql -f
+   query=...` (for both a governed and ungoverned repo), `gh pr view --json
+   state` — and writes each response to `tests/fixtures/gh/<name>.json`,
+   with secrets (tokens, usernames beyond the punt-labs org, private repo
+   names) scrubbed. **The recorder must never invoke `gh pr merge`, `gh pr
+   close`, `gh api` with a mutating verb, or any other command with a
+   side effect** — `gh pr merge` merges a real PR and deletes its head
+   branch on a real punt-labs repo, which is not a safe thing for a
+   fixture-capture tool to do against production infrastructure, scripted or
+   not. The two shapes that can only be observed as the *result* of a
+   mutation — a successful merge response and a transient-block failure
+   response — are sourced differently: either a sanitized capture pulled
+   from a historical, already-completed release run's actual `gh pr merge`
+   output (a real response that already happened, not one the recorder
+   triggers), or a hand-authored fixture whose shape is documented against
+   `gh`'s own API reference and still passes through the same contract test
+   (step 2) as every other fixture — it is not exempt from validation just
+   because it wasn't captured live. If a future recording pass needs a fresh
+   merge-outcome capture, that requires a disposable, explicitly-provisioned
+   throwaway repo/PR created for the purpose — an opt-in the operator makes
+   deliberately, never a default `record_gh_fixtures.py` behavior.
 2. **Contract test.** `tests/test_gh_fixture_contracts.py` asserts, for each
    fixture, that the **shape** the release engine's parsing code expects
    (top-level keys, value types, nested structure) matches the recorded
@@ -317,55 +355,96 @@ places that touch the network, and both are manual/out-of-band by design.
 Three failure classes fall outside "a subprocess returns a different exit
 code or stdout," and need dedicated harness support:
 
-**SIGINT / interrupt timing — two distinct mechanisms for two distinct
-claims.** `_interrupted` is a module-level `threading.Event` on `release.py`;
-`RequiredChecksWaiter.wait` is the one poll loop that checks it (per
-DES-029). The harness needs two different primitives here, not one, because
-they reproduce different things:
+**SIGINT / interrupt timing — the engine has exactly two interrupt paths,
+and the harness needs one primitive per path, not a general-purpose
+"interrupt the pipeline" helper.** Verified directly against
+`run_release`'s signal handler (release.py:757-761) and every checked-in
+`_interrupted.is_set()` call site (`gh.py:245`, `release.py:567`,
+`release.py:944` — grep confirms these are the only three):
 
-- `interrupt_after(ops, after_match: FaultRule)` sets `release._interrupted`
-  immediately *after* a specific rule-matched call to `.run()` returns —
-  anchored to a rule match (see the anchoring note below), not a raw call
-  count. This models "the interrupt arrived and was observed at the next
-  poll boundary *after* this subprocess call completed" — i.e. it tests
-  interrupt-*observation* ordering (does the next `.wait()` iteration see
-  the flag and exit promptly?), not interrupt-*during*-a-call timing. This
-  is the right and sufficient tool for most of §3's SIGINT rows, and it is
-  strictly more reproducible than a real OS `SIGINT` (which nothing in the
-  current suite sends, and which would be flaky under pytest-xdist) because
-  it pins the interrupt to an exact point in the call sequence instead of a
-  wall-clock race.
-- **What `interrupt_after` cannot do:** reproduce DES-029's actual failure
-  mechanism — a subprocess call that is *itself* still blocked when the
-  interrupt arrives, with `ThreadPoolExecutor.__exit__`'s `shutdown(wait=True)`
-  join stuck behind it. Setting the event after `.run()` returns can never
-  model "in flight during the call" because there is no in-flight moment to
-  model. Wave 3 (the wave that targets matrix row 36's actual mechanism, not
-  just its post-fix reporting path) needs a second primitive: a `FaultRule`
-  whose `apply()` blocks on a `threading.Event` the test controls directly —
-  the test thread starts the phase call on a worker thread, waits until the
-  blocking rule signals it has been entered, sets `release._interrupted`
-  while the call is still blocked, then releases the rule's `Event` and
-  asserts the join returns promptly instead of waiting out the blocked call.
-  This is a distinct harness helper (`BlockingFaultRule` or an `apply=`
-  callable hook on `FaultRule`), not a variant of `interrupt_after`.
+1. **The real path: a raised exception, delivered to the main thread only.**
+   `run_release` installs a `SIGINT`/`SIGTERM` handler that does two things
+   atomically — sets `release._interrupted` *and* immediately raises
+   `KeyboardInterrupt()`. Python delivers OS signals to the main thread
+   only, so for every phase that runs synchronously on the main thread
+   (1–5, 7, 8, and the main-thread portion of 9/11), a real Ctrl-C stops
+   whatever `ops.run(...)` call is in flight by raising straight through
+   it — no polling, no event, no cooperation required from the phase code
+   at all. This is exactly what `FaultRule(raises=KeyboardInterrupt(...))`
+   already models (§2a): script the call the sweep wants to "interrupt" to
+   raise `KeyboardInterrupt` instead of returning, and the phase stops at
+   exactly that point, the same way a real signal would stop it. No new
+   primitive needed — this is the harness's *general* interrupt mechanism,
+   and it is what Wave 5's cross-phase sweep is built on (see below).
+2. **The worker-thread path: a polled `threading.Event`, for the one place
+   a raised exception cannot reach.** Phase 9 and Phase 10 run inside a
+   `ThreadPoolExecutor`; Python's signal delivery never reaches a worker
+   thread, only the main thread — so a real Ctrl-C during a Phase 10
+   sibling's PR-merge wait would otherwise never stop that worker at all,
+   which is the actual DES-029 mechanism. The one call site with a
+   cooperative check is `RequiredChecksWaiter.wait`'s poll loop
+   (`gh.py:245`, `if interrupted.is_set(): self._ops.fail(...)`), reached
+   from both Phase 4's own PR merge and any Phase 10 sibling PR merge via
+   the same `wait_for_checks` callback. `interrupt_after(ops, after_match:
+   FaultRule)` exists *specifically* for this one poll loop: it sets
+   `release._interrupted` after a rule-matched call returns, anchored to a
+   rule match (see the anchoring note below) rather than a raw count, and
+   is the tool for asserting the loop's own `interrupted.is_set()` check
+   fires on its next iteration. **`interrupt_after` is not a phase-boundary
+   tool** — `run_release` does not poll `_interrupted` anywhere between
+   phases (the only other check, `release.py:944`, runs once in a `finally`
+   block *after* the whole pipeline has already finished or raised, purely
+   to decide whether to print the "cleaning up after interrupt" message —
+   it cannot stop anything, only report). Calling `interrupt_after` during
+   a phase that never checks the event (1–3, 5, 7–9's non-polling parts,
+   11) would set a flag nothing reads and the pipeline would run to
+   completion unaffected — a real bug in the earlier draft of this design,
+   which implied `interrupt_after` was a general per-phase kill switch.
 
 **Anchoring the interrupt point to a rule match, not a global call count.**
-An earlier version of this design keyed `interrupt_after` to `.run()`'s Nth
+An earlier version of this design keyed both mechanisms to `.run()`'s Nth
 call across the whole test. That does not work: each phase issues a variable
 number of calls depending on preflight state, PR existence, and retry counts,
 so there is no stable global call number that means "phase N just
 completed" — and Phase 9/10 run concurrently, so even a stable per-phase call
 count would interleave nondeterministically across the two worker threads,
-making "call 14" mean a different thing on every run. `interrupt_after`
-therefore anchors to a *rule match* instead: `after_match` names a
-`FaultRule` (typically one already in the test's rule list, e.g. "the final
-`git push origin <tag>` of Phase 5") and the event fires when that specific
-rule's Nth consumption completes, independent of how many other calls
-happened before or concurrently with it. This is the same seam
-`FaultRule.skip`/`times` already provide (§2a) — `interrupt_after` is a thin
-wrapper that fires the event as a rule's `apply()` side effect rather than
-introducing a second counting mechanism.
+making "call 14" mean a different thing on every run. Both `interrupt_after`
+and a sweep's `raises=KeyboardInterrupt` rule instead anchor to a *rule
+match*: `after_match` (or, for the raise-based mechanism, the rule's own
+`match`/`skip`/`times`) names a `FaultRule` (typically one already in the
+test's rule list, e.g. "the final `git push origin <tag>` of Phase 5") and
+the event fires, or the exception raises, when that specific rule's Nth
+consumption completes — independent of how many other calls happened before
+or concurrently with it. This is the same seam `FaultRule.skip`/`times`
+already provide (§2a); `interrupt_after` is a thin wrapper that fires the
+event as a rule's `apply()` side effect rather than introducing a second
+counting mechanism.
+
+**Wave 3's actual DES-029 reproduction does not need a genuinely-blocking
+primitive.** `RequiredChecksWaiter.wait` is not a single subprocess call
+that can hang for two hours — it is a `while time.time() < deadline:` loop
+issuing many short `ops.run(gh api graphql ...)` calls with `time.sleep(15)`
+between them (`gh.py:150-260`). Faked, each call returns instantly, so a
+`FaultRule(match=[gh api graphql prefix], times=None, response=<still
+pending>)` makes the loop spin through iterations as fast as `gh.time.sleep`
+is patched to allow (§1d already documents this seam). The reproduction is
+therefore: run a Phase 10 sibling merge (or a direct `RequiredChecksWaiter`
+call) on a background thread against that pending-forever rule with
+`gh.time.sleep` patched near-zero; from the test thread, poll the rule's own
+match count with a short, bounded wait until it has fired at least once
+(confirming the loop is genuinely running — not "blocked" on anything, just
+mid-iteration), set `release._interrupted`, and then assert — bounded by an
+explicit `future.result(timeout=...)`/`thread.join(timeout=...)`, never an
+unbounded wait — that the call raises within roughly one fake poll interval
+and that `ThreadPoolExecutor.__exit__` returns promptly rather than running
+out the full 7200s deadline. The worker is never artificially blocked and
+then released before the assertion; it stays genuinely mid-loop the entire
+time the interrupt is being exercised, and the assertion is bounded so a
+regression fails the test instead of hanging it. No new "blocking `FaultRule`"
+primitive is needed — an earlier draft of this design proposed one, but nothing
+in the release engine's actual structure has a single call that blocks for
+an unbounded duration; the poll-loop-plus-fast-fake shape above is both more
+accurate and simpler.
 
 **Concurrency interleaving (Phase 9/10).** The three Phase 10 propagators and
 the Phase 9/10 pair run in real `ThreadPoolExecutor`s. `FaultInjectingOps`
@@ -459,7 +538,8 @@ rationale).
 | 33 | 9 Post-release | No post-release changes needed (idempotent short-circuit) | `test_phase09_post_release_commit_never_marks_skip_ci`, resume tests | ✅ |
 | 34 | 9/10 concurrent | Both phases fail simultaneously, both errors surfaced | `test_phases_9_10_both_fail_reports_both` | ✅ |
 | 35 | 9/10 concurrent | One phase raises `SystemExit`, must still cross the thread boundary as a diagnosed failure | `test_phases_9_10_p9_systemexit_propagates` | ✅ |
-| 36 | 9/10 concurrent | SIGINT during the `ThreadPoolExecutor.__exit__` join (the DES-029 incident itself) | `test_run_release_reports_incomplete_release_on_interrupt` — covers the *reporting* path; does not reproduce the original two-hour-join mechanism because `RequiredChecksWaiter` already checks `interrupted` | ✅ (post-fix) |
+| 36 | 9/10 concurrent | Post-interrupt reporting: incomplete-release diagnosis and `--resume-from` hint when `_interrupted` is set at run end | `test_run_release_reports_incomplete_release_on_interrupt` | ✅ |
+| 36a | 9/10 concurrent | SIGINT during the `ThreadPoolExecutor.__exit__` join with a worker genuinely mid-poll inside `RequiredChecksWaiter.wait` (the DES-029 incident's actual join-hang mechanism, now fixed by the `interrupted.is_set()` check at gh.py:245 — but nothing exercises a live blocked worker to prove the fix engages) | no test drives this live; row 36's test only asserts the reporting path, not the mechanism | 🔧 |
 | 37 | 10 Propagate | `.github` sibling absent (workspace meta-repo case) | `test_propagate_install_all_skips_when_github_absent` | ✅ |
 | 38 | 10 Propagate | `install-all.sh` present in sibling but missing the project's entry | `test_propagate_install_all_fails_when_install_all_missing` | ✅ |
 | 39 | 10 Propagate | Marketplace matching by short name vs. URL, with/without `.git` | `test_propagate_marketplace_matches_by_marketplace_short_name`, `_matches_url_with_and_without_git_suffix` | ✅ |
@@ -483,18 +563,23 @@ rationale).
 | 57 | Cross-cutting | PyPI eventual-consistency window after a genuine publish | N/A | ⛔ — exogenous to this codebase; §2d |
 | 58 | Cross-cutting | Real `bd hooks run` / Dolt server latency variance | `test_git_hook_timeout_exceeds_beads_hook_ceiling` asserts the *budget*; the real latency is exogenous | ⛔ — §2d |
 
-**Coverage counts (recounted directly against the table above):** 61 rows
-total — 37 rows ✅ covered today, 21 rows 🔧 enabled-by-harness (the delivery
+**Coverage counts (recounted directly against the table above):** 62 rows
+total — 37 rows ✅ covered today, 22 rows 🔧 enabled-by-harness (the delivery
 plan in §5 sequences these), 3 rows ⛔ out of scope with stated rationale.
 Only **row 30** is an actual ✅/🔧 split (`✅ (11) / 🔧 (8)` — Phase 11's PyPI
 check is covered, Phase 8's own isolated check is not); it is tallied once,
 under 🔧, since Phase 8 itself is the gap. **Row 53** is not a split — its
 status is a single `🔧 (partial)` cell (some phases have a resume test,
-none is exhaustive across all 11), tallied under 🔧 directly. **Row 36** (the
-DES-029 mechanism) carries a `✅ (post-fix)` qualifier and is tallied under
-✅, since the reporting path it names is genuinely covered — Wave 3 targets
-reproducing the *original* mechanism, a distinct scenario from what row 36
-already covers, and does not change row 36's own status.
+none is exhaustive across all 11), tallied under 🔧 directly. **Row 36**
+(the DES-029 incident) is now split into two rows to satisfy the legend's
+own definition of ✅ ("a passing test... exercises this exact failure
+mode"): row 36 covers the post-interrupt *reporting* path, which is
+genuinely, exactly covered (✅, no qualifier); row 36a covers the actual
+join-hang *mechanism* — a worker thread genuinely blocked mid-poll when the
+interrupt arrives — which nothing exercises live today (🔧, Wave 3's
+target). The earlier single-row `✅ (post-fix)` status conflated these two
+distinct claims; splitting them removes the conflation instead of annotating
+around it.
 
 ## 4. Known phase-logic defect inventory
 
@@ -652,11 +737,10 @@ one worker/evaluator pair, landable independently, and each wave's tests pass
 ### Wave 0 — Harness primitives (foundation, no new test scenarios)
 
 Deliverable: `tests/harness/fault_ops.py` (`FaultRule`, `FaultInjectingOps`,
-`interrupt_after`, the blocking-rule mechanism for Wave 3, and the
-`FaultRule.from_fixture(name)` classmethod §2b step 3 relies on), plus a thin
-`tests/harness/__init__.py`. Migrate **zero** existing tests in this wave —
-the goal is landing the primitive with its own unit tests, including as
-explicit acceptance criteria:
+`interrupt_after`, and the `FaultRule.from_fixture(name)` classmethod §2b
+step 3 relies on), plus a thin `tests/harness/__init__.py`. Migrate **zero**
+existing tests in this wave — the goal is landing the primitive with its own
+unit tests, including as explicit acceptance criteria:
 
 - `argv[0]` matching compares `Path(argv[0]).name`, not exact string equality
   — a rule with `match=["gh", ...]` matches a real `shutil.which("gh")`
@@ -666,12 +750,20 @@ explicit acceptance criteria:
   rather than silently reaching the network (the deny-by-default posture).
 - `skip`/`times`-bounded rules correctly select the Nth match, not just the
   first.
-- a `responses` sequence returns one value per consumed match, in order.
-- injected exceptions (`raises`) propagate correctly.
+- a `responses` sequence returns one value per consumed match, in order, and
+  `times` derives to `len(responses)` when left unset (the `_UNSET`
+  sentinel), while an explicit `times=` still overrides that derivation.
+- injected exceptions (`raises`) propagate correctly — including
+  `raises=KeyboardInterrupt(...)`, the general interrupt-simulation
+  mechanism §2c relies on for every synchronous, non-polling phase.
 - the routing table stays correct under concurrent `.run()` calls from a
   `ThreadPoolExecutor` (an internal lock around match-and-consume).
 - `interrupt_after` fires exactly when its anchoring rule match completes,
-  not before and not on an unrelated call.
+  not before and not on an unrelated call, and a unit test proves it is a
+  no-op (the pipeline runs to completion unaffected) when set during a
+  phase whose call sites never check `_interrupted` — this is the explicit
+  regression test for the "interrupt_after is not a phase-boundary tool"
+  correction in §2c.
 - `FaultRule.from_fixture(name)` reads a `tests/fixtures/gh/<name>.json` file
   and builds the matching `CompletedProcessSpec` — tested here against a
   fixture file created inline in the test, since Wave 0 does not depend on
@@ -714,19 +806,21 @@ filed as explicit beads: **pkit-f85t.6** (SkipRecorder routing for
 **pkit-f85t.8** (`gh.py` imports `CI_WATCH` instead of hardcoding 7200, with
 a constant-derivation test — defect #4).
 
-### Wave 3 — SIGINT/concurrency scenarios (matrix rows 36, 48)
+### Wave 3 — SIGINT/concurrency scenarios (matrix rows 36a, 48)
 
-Deliverable: tests reproducing the DES-029 mechanism directly, using both
-Wave 0 primitives per §2c's split — `interrupt_after` for the
-observation-ordering cases, and the blocking-`FaultRule` mechanism for the
-mechanism DES-029 actually hit: a Phase 10 propagator's `gh` call is a
-scripted blocking rule, the test thread sets `_interrupted` while that call
-is still blocked, and the assertion is that `ThreadPoolExecutor.__exit__`
-returns promptly rather than waiting out the join, with
+Deliverable: a test reproducing the DES-029 mechanism directly, per §2c's
+pending-poll-loop recipe — a Phase 10 sibling PR merge (or a direct
+`RequiredChecksWaiter.wait` call) on a background thread against a
+`FaultRule(times=None, response=<still pending>)` for the required-checks
+GraphQL query, `gh.time.sleep` patched near-zero, the test thread setting
+`release._interrupted` once the rule has matched at least once (confirming
+the loop is genuinely mid-iteration, not started-and-idle), and a
+bounded-timeout assertion that the call raises within roughly one fake poll
+interval and `ThreadPoolExecutor.__exit__` returns promptly — plus
 `reset_propagation_siblings(fail_on_error=False)` running against the exact
 residue state — rather than only the post-fix reporting path the current
-suite covers. This wave depends on both Wave 0 primitives and should not
-start before they land.
+suite covers (matrix row 36, unchanged, already ✅). This wave depends on
+Wave 0's `interrupt_after` and should not start before it lands.
 
 ### Wave 4 — Thin-phase coverage (matrix rows 3, 6, 12, 20, 20a, 29, 31, 55, defects #5–6)
 
@@ -752,13 +846,20 @@ for it.
 ### Wave 5 — Exhaustive resume-point sweep (matrix row 53, defect #7)
 
 Deliverable: one parametrized test driving `run_release` fresh, interrupting
-after each of the 11 phases in turn (via Wave 0's `interrupt_after`), and
-asserting `--resume-from <name>` completes cleanly from that exact state, for
-all 11 names. Sequenced last because it is the highest-value integration
-test but also the one most likely to surface interactions the earlier,
-narrower waves would have caught first at lower cost — landing it last means
-any failure it finds is more likely to point at a genuine gap rather than a
-harness bug.
+after each of the 11 phases in turn and asserting `--resume-from <name>`
+completes cleanly from that exact state, for all 11 names. Per §2c, this
+sweep is built on `FaultRule(raises=KeyboardInterrupt(...))` anchored to
+each phase's last (or a chosen) `ops.run(...)` call — not on
+`interrupt_after` — because it needs to actually stop the pipeline
+mid-phase for every phase, including the 9 of 11 that never poll
+`_interrupted` at all; a raised `KeyboardInterrupt` is what a real signal
+produces at any call site, synchronous or not, so it is the one mechanism
+that works uniformly across all 11 phases without needing to know which
+ones happen to have a poll loop. Sequenced last because it is the
+highest-value integration test but also the one most likely to surface
+interactions the earlier, narrower waves would have caught first at lower
+cost — landing it last means any failure it finds is more likely to point
+at a genuine gap rather than a harness bug.
 
 ### Epic reconciliation
 
