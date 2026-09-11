@@ -149,7 +149,12 @@ def _flag_occurrences(cmd: Sequence[str], name: str) -> list[tuple[int, str]]:
             occurrences.append((i, arg[len(name) + 1 :]))
             continue
         if len(name) == 2 and name[0] == "-" and arg != name and arg.startswith(name):
-            occurrences.append((i, arg[len(name) :]))
+            # A single-letter short flag's attached form is accepted both
+            # with and without a literal "=" before the value (-XPUT and
+            # -X=PUT parse identically) — strip it so the value compared
+            # against the mutating-method pattern doesn't carry a leading
+            # "=" that would never match.
+            occurrences.append((i, arg[len(name) :].removeprefix("=")))
     return occurrences
 
 

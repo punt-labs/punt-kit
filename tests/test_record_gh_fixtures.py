@@ -86,6 +86,7 @@ _MERGE_ENDPOINT = "repos/acme/sample/pulls/1/merge"
         # the read-only check keys off the *verb*, not the flag's presence.
         ["gh", "api", _PROTECTION_ENDPOINT, "-X", "GET"],
         ["gh", "api", _PROTECTION_ENDPOINT, "-XGET"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-X=GET"],
         ["gh", "api", _PROTECTION_ENDPOINT, "--method", "GET"],
         ["gh", "api", _PROTECTION_ENDPOINT, "--method=GET"],
     ],
@@ -107,6 +108,7 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
         # identically: split, equals-form, and (for -X) attached-form.
         ["gh", "api", _MERGE_ENDPOINT, "-X", "PUT"],
         ["gh", "api", _MERGE_ENDPOINT, "-XPUT"],
+        ["gh", "api", _MERGE_ENDPOINT, "-X=PUT"],
         ["gh", "api", _MERGE_ENDPOINT, "--method", "DELETE"],
         ["gh", "api", _MERGE_ENDPOINT, "--method=DELETE"],
         # -f/-F/--field/--raw-field on a REST endpoint, every spelling.
