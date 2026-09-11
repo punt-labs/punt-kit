@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "run",
+      "list",
+      "--repo",
+      "punt-labs/punt-kit",
+      "--workflow",
+      "release.yml",
+      "--branch",
+      "v0.17.2",
+      "--limit",
+      "20",
+      "--json",
+      "databaseId,headBranch,event,headSha,conclusion"
+    ],
+    "gh_version": "gh version 2.100.0 (2026-09-03)",
+    "hand_authored": false,
+    "note": "TagRunSelector.list_command's own shape, a tag with a run.",
+    "recorded_at": "2026-09-11T03:47:35.581439+00:00"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "[{\"conclusion\": \"success\", \"databaseId\": 34254424833, \"event\": \"push\", \"headBranch\": \"v0.17.2\", \"headSha\": \"e0d224b6b493e52dc7d44b8dd04896ce4a760755\"}]"
+}

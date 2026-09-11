@@ -1,0 +1,16 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "repos/acme-org/sample-repo/branches/main/protection"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "GithubRepo.has_branch_protection on a repo governed by classic branch protection rather than a ruleset. No punt-labs repo uses classic protection today (all use rulesets) \u2014 this fixture's shape follows GitHub's REST API reference for GET .../branches/{branch}/protection.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"url\": \"https://api.github.com/repos/acme-org/sample-repo/branches/main/protection\", \"required_status_checks\": {\"strict\": true, \"contexts\": [\"lint\", \"test\"]}, \"enforce_admins\": {\"enabled\": true}, \"required_pull_request_reviews\": {\"required_approving_review_count\": 1}, \"restrictions\": null}"
+}

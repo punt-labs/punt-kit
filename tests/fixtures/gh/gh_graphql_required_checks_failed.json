@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      "query={ repository(owner: \"acme-org\", name: \"sample-repo\") { pullRequest(number: 42) { commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name isRequired(pullRequestNumber: 42) conclusion status } ... on StatusContext { context isRequired(pullRequestNumber: 42) state } } } } } } } } } }"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "RequiredChecksWaiter.wait's poll loop, a required check that failed. Cannot be recorded live \u2014 recording deliberately never triggers a real CI failure.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"data\": {\"repository\": {\"pullRequest\": {\"commits\": {\"nodes\": [{\"commit\": {\"statusCheckRollup\": {\"contexts\": {\"nodes\": [{\"name\": \"test\", \"isRequired\": true, \"conclusion\": \"FAILURE\", \"status\": \"COMPLETED\"}, {\"name\": \"lint\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}]}}}}]}}}}}"
+}

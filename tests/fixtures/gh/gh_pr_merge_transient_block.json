@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "pr",
+      "merge",
+      "123",
+      "--repo",
+      "acme-org/sample-repo",
+      "--squash",
+      "--delete-branch"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "PrMerger.merge's squash-merge retry loop, the transient-block outcome its is_transient text-matching detects ('required status check' substring). 'gh pr merge' mutates a real PR and cannot be recorded live by a read-only tool.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 1,
+  "stderr": "GraphQL: Required status check \"test\" is expected. (mergePullRequest)\n",
+  "stdout": ""
+}

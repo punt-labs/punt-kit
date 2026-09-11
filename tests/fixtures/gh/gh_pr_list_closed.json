@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      "punt-labs/punt-kit",
+      "--head",
+      "dependabot/uv/ruff-0.16.5",
+      "--state",
+      "all",
+      "--json",
+      "number,state,headRefOid",
+      "--limit",
+      "20"
+    ],
+    "gh_version": "gh version 2.100.0 (2026-09-03)",
+    "hand_authored": false,
+    "note": "Same lookup, a CLOSED (never merged) PR.",
+    "recorded_at": "2026-09-11T03:47:33.385809+00:00"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "[{\"headRefOid\": \"d3a8577b0b9c1e65b764d3b634270f12efdf6399\", \"number\": 339, \"state\": \"CLOSED\"}]"
+}

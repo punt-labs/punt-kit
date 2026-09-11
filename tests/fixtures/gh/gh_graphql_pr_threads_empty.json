@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      "query={ repository(owner: \"acme-org\", name: \"sample-repo\") { pullRequest(number: 42) { reviewThreads(first: 50) { nodes { id isResolved } } } } } }"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "PrThreadResolver.resolve's listing query, a PR with no review threads at all (no Copilot/Bugbot review posted yet).",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"data\": {\"repository\": {\"pullRequest\": {\"reviewThreads\": {\"nodes\": []}}}}}"
+}

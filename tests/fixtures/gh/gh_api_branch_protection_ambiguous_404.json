@@ -1,0 +1,16 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "repos/acme-org/sample-repo/branches/main/protection"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "GithubRepo.has_branch_protection's ambiguous-404 fail-safe path: a 404 whose body lacks the literal 'branch not protected' marker (e.g. an insufficiently-scoped token on a repo that IS protected), which the parser must treat as protected=True rather than assume unprotected.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 1,
+  "stderr": "gh: Not Found (HTTP 404)\n",
+  "stdout": "{\"message\": \"Not Found\", \"documentation_url\": \"https://docs.github.com/rest\", \"status\": \"404\"}"
+}

@@ -1,0 +1,16 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "repos/acme-org/sample-repo/rules/branches/main"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "GithubRepo.has_ruleset on a repo with no ruleset targeting main. Every punt-labs repo probed during recording has an org-wide ruleset applied (or the branch doesn't exist yet, a different case) \u2014 this fixture's shape (an empty JSON array, exactly as GitHub's REST reference documents for a branch matching no ruleset) covers the genuinely-ungoverned case the live survey couldn't find.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "[]"
+}

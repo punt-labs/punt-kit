@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "pr",
+      "view",
+      "355",
+      "--repo",
+      "punt-labs/punt-kit",
+      "--json",
+      "state"
+    ],
+    "gh_version": "gh version 2.100.0 (2026-09-03)",
+    "hand_authored": false,
+    "note": "Same check, MERGED.",
+    "recorded_at": "2026-09-11T03:47:34.820651+00:00"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"state\": \"MERGED\"}"
+}
