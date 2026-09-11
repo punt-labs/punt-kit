@@ -257,15 +257,49 @@ def test_wait_survives_a_pending_check_then_resolves(
 
 
 def test_wait_treats_ungoverned_repo_as_waiting_on_every_check(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """No branch protection and no ruleset — every check is waited on, not
     just the ones GraphQL happens to mark ``isRequired``.
+
+    ``gh_graphql_required_checks_mixed_conclusions.json`` is recorded live
+    against a real, still-open PR, so whether it happens to have every
+    check COMPLETED at recording time is not something this test can
+    control — one re-recording pass caught it mid-run, with a check still
+    IN_PROGRESS. The mixed fixture still serves as the *first* poll
+    response (proving the waiter parses a genuine SUCCESS/NEUTRAL mix
+    without raising, its actual documented purpose); a settled, permanently
+    resolved fixture (a merged PR's checks never change again) backs every
+    subsequent poll so the loop is guaranteed to terminate regardless of
+    what state the live PR happened to be in.
     """
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    resolved_entry = load_gh_fixture("gh_graphql_required_checks_passed.json")
+    resolved_names = [
+        c["name"]
+        for c in json.loads(resolved_entry["stdout"])["data"]["repository"][
+            "pullRequest"
+        ]["commits"]["nodes"][0]["commit"]["statusCheckRollup"]["contexts"]["nodes"]
+        if not c["isRequired"]
+    ]
+    assert resolved_names, (
+        "the resolved fixture carries no non-required check to assert"
+    )
     ops = _ops_with(
         _rule(["gh", "api"], "gh_api_branch_protection_not_protected.json"),
         _rule(["gh", "api"], "gh_api_rules_branches_ungoverned.json"),
-        _rule(["gh", "api"], "gh_graphql_required_checks_mixed_conclusions.json"),
+        FaultRule(
+            match=["gh", "api"],
+            times=1,
+            response=FaultRule.from_fixture(
+                "gh_graphql_required_checks_mixed_conclusions.json"
+            ),
+        ),
+        FaultRule(
+            match=["gh", "api"],
+            times=None,
+            response=FaultRule.from_fixture("gh_graphql_required_checks_passed.json"),
+        ),
     )
     waiter = RequiredChecksWaiter(GithubRepo(tmp_path, ops=ops), ops=ops)
 
@@ -280,7 +314,10 @@ def test_wait_treats_ungoverned_repo_as_waiting_on_every_check(
     out = capsys.readouterr().out
     assert "CI checks passed" in out
     assert "Required" not in out.split("CI checks passed")[0].splitlines()[-1]
-    assert "CodeQL" in out  # non-required check still named — every check waited on
+    # A non-required check is still named in the final report — every check
+    # is waited on and reported when the repo is ungoverned, not just the
+    # ones GraphQL happens to mark isRequired.
+    assert any(name in out for name in resolved_names)
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "TagRunSelector.list_command's own shape, a tag with a run.",
-    "recorded_at": "2026-09-11T04:41:11.398982+00:00"
+    "recorded_at": "2026-09-11T05:05:27.452421+00:00"
   },
   "returncode": 0,
   "stderr": "",

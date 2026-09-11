@@ -18,9 +18,9 @@
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "PrMerger's existing-PR lookup, an OPEN PR.",
-    "recorded_at": "2026-09-11T04:41:06.209830+00:00"
+    "recorded_at": "2026-09-11T05:05:23.980422+00:00"
   },
   "returncode": 0,
   "stderr": "",
-  "stdout": "[{\"headRefOid\": \"3e45a89d58142fb54e1da4bf5d3bbd45b9c00a23\", \"number\": 356, \"state\": \"OPEN\"}]"
+  "stdout": "[{\"headRefOid\": \"0171678bf6d2f6996fa93efdeea2c5d6263ba8ca\", \"number\": 356, \"state\": \"OPEN\"}]"
 }

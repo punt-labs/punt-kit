@@ -8,7 +8,7 @@
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "GithubRepo.has_branch_protection on a ruleset-only repo.",
-    "recorded_at": "2026-09-11T04:41:15.187723+00:00"
+    "recorded_at": "2026-09-11T05:05:30.347751+00:00"
   },
   "returncode": 1,
   "stderr": "gh: Branch not protected (HTTP 404)\n",
