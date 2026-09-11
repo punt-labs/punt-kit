@@ -3978,14 +3978,26 @@ def test_pr_merge_real_merge_failure_still_fails(
 # reads, with no real wall-clock spent on any of these tests.
 
 
-def _merge_env(root: Path, *, pr_number: int = 42) -> tuple[FaultInjectingOps, str]:
+def _fake_which_gh(_name: str) -> str:
+    """Patched in for ``shutil.which`` so ``PrMerger.merge``'s own
+    ``shutil.which("gh")`` lookup resolves without a real ``gh`` binary on
+    ``PATH`` — matches ``tests/test_gh_fixture_contracts.py``'s convention.
+    """
+    return "gh"
+
+
+def _merge_env(
+    root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
+) -> tuple[FaultInjectingOps, str]:
     """A real git repo on a release branch plus a scripted gh double.
 
     Wires the ``gh pr list``/``gh pr create``/``gh pr view`` calls every
     ``PrMerger.merge`` invocation needs before it ever reaches the
     squash-merge loop, leaving the caller to add only the merge-loop
-    ``FaultRule`` its scenario needs.
+    ``FaultRule`` its scenario needs. Also patches ``shutil.which`` so
+    these scenarios run on a machine with no real ``gh`` binary installed.
     """
+    monkeypatch.setattr("shutil.which", _fake_which_gh)
     branch = "release/v1.0.0"
     _init_git_repo(root)
     # PrMerger.merge's post-merge step runs a bare `git pull --ff-only`
@@ -4036,7 +4048,7 @@ def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
 
     root = tmp_path / "proj"
     root.mkdir()
-    ops, branch = _merge_env(root)
+    ops, branch = _merge_env(root, monkeypatch)
     transient = CompletedProcessSpec(
         returncode=1, stderr="required status check has not passed"
     )
@@ -4088,7 +4100,7 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
 
     root = tmp_path / "proj"
     root.mkdir()
-    ops, branch = _merge_env(root)
+    ops, branch = _merge_env(root, monkeypatch)
     ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
@@ -4131,7 +4143,7 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
 
     root = tmp_path / "proj"
     root.mkdir()
-    ops, branch = _merge_env(root)
+    ops, branch = _merge_env(root, monkeypatch)
     ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
