@@ -90,6 +90,36 @@ def _git(args: list[str], cwd: str) -> None:
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
+def _git_out(args: list[str], cwd: str) -> str:
+    """Run a git command and return its stripped stdout."""
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _init_git_repo_with_bare_remote(path: Path, remote: Path) -> None:
+    """Initialize a git repo whose ``origin`` is a separate bare remote.
+
+    ``_init_git_repo`` points ``origin`` at the same directory as the
+    working copy — a local ref is then visible via ``git ls-remote``
+    without any push actually happening, which makes it unsuitable for
+    testing push-failure/resume behavior. A genuinely separate remote is
+    required so ``ls-remote`` reflects only what was actually pushed.
+    """
+    d = str(path)
+    subprocess.run(
+        ["git", "init", "--bare", str(remote)], check=True, capture_output=True
+    )
+    _git(["init", "-b", "main"], cwd=d)
+    _git(["config", "user.email", "test@test.com"], cwd=d)
+    _git(["config", "user.name", "Test"], cwd=d)
+    (path / ".gitkeep").write_text("")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "init"], cwd=d)
+    _git(["remote", "add", "origin", str(remote)], cwd=d)
+    _git(["push", "-u", "origin", "main"], cwd=d)
+
+
 def _init_git_repo(path: Path) -> None:
     """Initialize a git repo with an initial commit and fake remote."""
     d = str(path)
@@ -1199,6 +1229,93 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     run_release(str(root), version="0.2.0", dry_run=True)
 
     assert (root / "CHANGELOG.md").read_text() == original_changelog
+
+
+# --- Phase 5: tag ---
+
+
+def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
+    tmp_path: Path,
+) -> None:
+    """A push failure after the local tag is created must retry on resume.
+
+    ``Phase5Tag.run`` creates the tag locally before pushing it. If the push
+    fails, the tag is left at HEAD locally with nothing on the remote. A
+    naive resume that only checks "does the tag exist locally, at HEAD"
+    would treat that as success and never re-push — this is the exact
+    defect the fix closes.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+    from tests.harness.fault_ops import FaultInjectingOps, FaultRule
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    failing_ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "push", "origin", "v1.0.0"],
+                raises=subprocess.CalledProcessError(1, ["git", "push"]),
+            )
+        ],
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+
+    # Local tag exists at HEAD; the remote never received it.
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
+    assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
+
+    # Resume with a clean ops double — the push must be retried, not skipped.
+    resumed_ops = FaultInjectingOps(real_run=_run, rules=[])
+    Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run()
+
+    assert "v1.0.0" in _git_out(
+        ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
+    )
+
+
+def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
+    tmp_path: Path,
+) -> None:
+    """Resuming after a fully successful tag+push must not push again."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+    from tests.harness.fault_ops import FaultInjectingOps
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    Phase5Tag(
+        info, "1.0.0", dry_run=False, ops=FaultInjectingOps(real_run=_run, rules=[])
+    ).run()
+    assert "v1.0.0" in _git_out(
+        ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
+    )
+
+    push_calls: list[list[str]] = []
+
+    def spying_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "push"]:
+            push_calls.append(cmd)
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+    ).run()
+
+    assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
 
 
 # --- sibling helpers ---

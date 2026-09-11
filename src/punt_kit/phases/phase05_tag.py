@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Self, final
 from rich.console import Console
 
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.timeouts import GIT_NETWORK
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -53,7 +54,14 @@ class Phase5Tag:
         workspace = GitWorkspace(root, ops=ops)
         workspace.ensure_on_main()
 
-        # Check if tag already exists
+        # Check if tag already exists locally. A local tag alone is not
+        # proof the push succeeded: Phase 5 creates the tag *before*
+        # pushing it (below), so a push that failed on a prior run — a
+        # network blip, a transient auth failure — leaves the tag sitting
+        # at HEAD locally while the remote has nothing. Re-entering via
+        # --resume-from tag must tell "exists locally and was already
+        # pushed" apart from "exists locally and was never pushed", or the
+        # resume silently skips the retry it exists to enable.
         existing = ops.run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
         if existing:
             # Verify it points to HEAD
@@ -61,13 +69,25 @@ class Phase5Tag:
             head_sha = ops.run(
                 ["git", "rev-parse", "HEAD"], cwd=str(root)
             ).stdout.strip()
-            if tag_sha == head_sha:
-                ops.ok(f"Tag {tag} already exists at HEAD")
-            else:
+            if tag_sha != head_sha:
                 ops.fail(
                     f"Tag {tag} exists but points to {tag_sha[:8]}, "
                     f"not HEAD ({head_sha[:8]})"
                 )
+                return
+
+            on_remote = ops.run(
+                ["git", "ls-remote", "--tags", "origin", tag],
+                cwd=str(root),
+                timeout=GIT_NETWORK,
+            ).stdout.strip()
+            if on_remote:
+                ops.ok(f"Tag {tag} already exists at HEAD")
+                return
+
+            ops.info(f"Tag {tag} exists locally but was never pushed — pushing now")
+            workspace.push(tag)
+            ops.ok(f"Pushed tag {tag}")
             return
 
         ops.run(["git", "tag", tag], cwd=str(root))
