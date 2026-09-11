@@ -70,10 +70,10 @@ Core Principle's "no top-level dot-directory" rule holds at the repo root
 exactly as it holds under `$HOME`; every per-repo path lives under
 `.punt-labs/<tool>/`. These paths are **not** under `~/.punt-labs/` — they
 live in the project directory and are committed to version control. Which
-files under a repo's `.punt-labs/<tool>/` are committed (e.g. `config.yaml`)
-versus gitignored (`config.local.yaml`, `local/`) or daemon-mutable
-(gitignored in place, e.g. `vox.md`) is governed by
-[punt-labs-dir.md](punt-labs-dir.md).
+files under a repo's `.punt-labs/<tool>/` are committed (e.g. `config.yaml`,
+and any file a daemon rewrites, e.g. `vox.md` — naming-determined, never
+write-cadence-determined) versus gitignored (`config.local.yaml`, `local/`) is
+governed by [punt-labs-dir.md](punt-labs-dir.md).
 
 ---
 
