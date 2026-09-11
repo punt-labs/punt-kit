@@ -337,43 +337,77 @@ class PrMerger:
             primary_exc = exc
             raise
         finally:
-            # merge() checks out main on success; this is a no-op in that
-            # case. On failure, this ensures we don't leave the sibling on a
-            # stale branch.
+            self._return_sibling_to_main(cwd, name, primary_exc)
+
+        return True
+
+    def _return_sibling_to_main(
+        self, cwd: str, name: str, primary_exc: BaseException | None
+    ) -> None:
+        """Best-effort cleanup after ``merge_in_sibling``: leave the sibling
+        checked out on ``main``.
+
+        ``merge()`` already checks out main on success, so this is a no-op
+        in that case; on failure it prevents a stale branch from breaking a
+        subsequent release. Runs from a ``finally`` block, so a
+        ``TimeoutExpired`` here (a hung git hook) must not silently replace
+        whatever exception is already propagating when ``primary_exc`` is
+        set — it is folded into the same secondary-failure reporting as a
+        non-zero checkout exit instead. When there is no primary exception
+        in flight, a cleanup timeout is itself the only failure and
+        propagates exactly as it did before this method existed.
+        """
+        try:
             branch_result = self._ops.run(
                 ["git", "branch", "--show-current"], cwd=cwd, check=False
             )
-            current = (
-                branch_result.stdout.strip() if branch_result.returncode == 0 else None
+        except subprocess.TimeoutExpired:
+            if primary_exc is None:
+                raise
+            self._report_cleanup_failure(name, primary_exc, "branch lookup timed out")
+            return
+        current = (
+            branch_result.stdout.strip() if branch_result.returncode == 0 else None
+        )
+        if current is None:
+            self._ops.info(
+                f"Could not read current branch for sibling {name} after operation"
             )
-            if current is None:
-                self._ops.info(
-                    f"Could not read current branch for sibling {name} after operation"
-                )
-            elif current != "main":
-                checkout = self._ops.run(
-                    ["git", "checkout", "main"],
-                    cwd=cwd,
-                    check=False,
-                    timeout=GIT_HOOK,
-                )
-                if checkout.returncode != 0:
-                    # A secondary failure on top of a primary one leaves the
-                    # sibling in a worse state than the primary alone would
-                    # suggest — route it through SkipRecorder (when the
-                    # caller threaded one through) so it reaches the
-                    # end-of-run recap instead of only this info line, which
-                    # can scroll past among Phase 10's concurrent output.
-                    if self._skips is not None and primary_exc is not None:
-                        self._skips.record(
-                            f"Sibling {name} failed ({primary_exc}) AND could "
-                            f"not be returned to main: {checkout.stderr.strip()} "
-                            "— inspect and clean up manually"
-                        )
-                    else:
-                        self._ops.info(
-                            f"Warning: could not return sibling {name} to main: "
-                            f"{checkout.stderr.strip()}"
-                        )
+            return
+        if current == "main":
+            return
+        try:
+            checkout = self._ops.run(
+                ["git", "checkout", "main"], cwd=cwd, check=False, timeout=GIT_HOOK
+            )
+        except subprocess.TimeoutExpired:
+            if primary_exc is None:
+                raise
+            self._report_cleanup_failure(name, primary_exc, "checkout timed out")
+            return
+        if checkout.returncode != 0:
+            self._report_cleanup_failure(name, primary_exc, checkout.stderr.strip())
 
-        return True
+    def _report_cleanup_failure(
+        self, name: str, primary_exc: BaseException | None, detail: str
+    ) -> None:
+        """Report a sibling-cleanup secondary failure.
+
+        A secondary failure on top of a primary one leaves the sibling in a
+        worse state than the primary alone would suggest — route it through
+        ``SkipRecorder`` (when the caller threaded one through) so it
+        reaches the end-of-run recap instead of only an info line, which
+        can scroll past among Phase 10's concurrent output. Falls back to
+        the original info-only warning when no recorder is present, or when
+        this cleanup failure isn't secondary to anything (no primary
+        exception in flight).
+        """
+        if self._skips is not None and primary_exc is not None:
+            self._skips.record(
+                f"Sibling {name} failed ({primary_exc}) AND could not be "
+                f"returned to main: {detail} — inspect and clean up manually"
+            )
+        else:
+            self._ops.info(
+                f"Warning: could not return sibling {name} to main: {detail}"
+            )

@@ -4262,6 +4262,105 @@ def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
     assert "Warning: could not return sibling install-all-github to main" in printed
 
 
+def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
+    tmp_path: Path,
+) -> None:
+    """A hung cleanup checkout must not replace the primary merge failure.
+
+    Regression test for a review finding on pkit-f85t.6: the cleanup
+    checkout's ``ops.run(..., check=False)`` can still raise
+    ``TimeoutExpired`` (a hung git hook) even though ``check=False``
+    suppresses non-zero-exit errors. An uncaught ``TimeoutExpired`` inside
+    the ``finally`` block would replace the propagating primary exception
+    instead of merely accompanying it in the recap.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                raises=subprocess.TimeoutExpired(
+                    cmd=["git", "checkout", "main"], timeout=600
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops, skips=skips)
+    # The ORIGINAL exception must propagate, not the cleanup TimeoutExpired.
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    (notice,) = skips.drain()
+    assert "required checks never passed" in notice
+    assert "checkout" in notice
+
+
+def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
+    tmp_path: Path,
+) -> None:
+    """A cleanup timeout with no primary failure behaves as it always did.
+
+    When the merge itself succeeds and only the "return to main" cleanup
+    hangs, that timeout is the only failure — it must still surface (not
+    be swallowed into a quiet info line), matching pre-fix behavior where
+    nothing caught this exception at all.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                raises=subprocess.TimeoutExpired(
+                    cmd=["git", "checkout", "main"], timeout=600
+                ),
+            ),
+        ],
+    )
+
+    def successful_merge(**_kwargs: object) -> str:
+        return "abc1234"
+
+    merger = PrMerger(ops=ops)
+    with pytest.raises(subprocess.TimeoutExpired):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=successful_merge,
+        )
+
+
 # --- fwql: README SHA pin lands after the release PR's squash-merge ---
 
 
