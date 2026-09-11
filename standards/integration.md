@@ -52,10 +52,16 @@ Detect whether a peer tool is enabled in the current project by checking for
 its **enabled marker** at the git root: `.punt-labs/<tool>/enabled`, written
 by `<tool> enable` and deleted by `<tool> disable`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
-The marker supersedes the legacy repo-root sentinel dotfiles (`.biff`,
-`.vox/config.md`, `.lux/config.md`, `.quarry.toml`) as the presence signal.
-`.beads/` — already a directory-form marker with no separate enable step —
-stays as-is.
+The marker supersedes every legacy repo-root sentinel as the presence
+signal — a settings dotfile (`.biff`, `.quarry.toml`), a config-bearing root
+directory (`.vox/config.md`, `.lux/config.md`), or a root-level runtime-state
+directory (the bare `.ethos/`, holding `missions.jsonl`); see
+[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) for the full
+attested-shapes list, which this list defers to rather than restates.
+`.beads/` — an org-external tool's own root convention, out of scope for the
+`.punt-labs/<tool>/` family entirely
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the
+canonical exemption) — has no separate enable step and stays as-is.
 
 | Tool | Presence check |
 |------|----------------|
@@ -78,11 +84,14 @@ def has_biff() -> bool:
     return Path(".punt-labs/biff/enabled").exists()
 ```
 
-Several legacy sentinels (`.quarry.toml`, `.vox/config.md`) also carry live
-config. This contract changes only what peers *read for presence* — the config
-files themselves are preserved by the sentinel migration
-([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)) and
-remain readable as L3 state.
+Several legacy sentinels (`.quarry.toml`, `.vox/config.md`, `.lux/config.md`)
+also carry live config. This contract changes what peers *read for presence*
+**and** where that config ends up: the sentinel migration
+([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration),
+[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)) is a mandatory *move* —
+the settings are preserved by relocating into the config zone
+(`.punt-labs/<tool>/config.*`), the empty legacy root path is deleted, and the
+config is readable as L3 state **at the new path**, never at the old one.
 
 **Ordering dependency**: this L0 contract must ship in the same release train
 as the tool releases that migrate legacy sentinels on first run. A peer that
@@ -137,8 +146,8 @@ Read peer state through **shared file schemas** with well-known formats.
 
 | Format | Use case | Example |
 |--------|----------|---------|
-| TOML | Configuration | `.quarry.toml` |
-| YAML frontmatter | Document metadata | `.vox/config.md` |
+| TOML | Configuration | `.punt-labs/quarry/config.toml` |
+| YAML frontmatter | Document metadata | `.punt-labs/vox/vox.md` |
 | JSONL | Append-only logs | `.beads/issues.jsonl` |
 | Wheel/sdist | Build artifacts | `dist/punt_biff-1.4.2-py3-none-any.whl` |
 

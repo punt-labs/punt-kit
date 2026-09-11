@@ -76,13 +76,10 @@ exception, the local zone (`.punt-labs/local/<tool>/`), which
 [punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)
 sanctions for per-checkout, machine-local live state (e.g. the `.ethos/`
 root-runtime-dir migration in [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)
-lands there, not in `.punt-labs/<tool>/`). **`.beads/` is out of scope for this
-rule, not an exception to it** — `bd` predates and is independent of the
-`.punt-labs/<tool>/` convention, the same reason
-[integration.md § L0 Presence](integration.md#l0-presence) already treats
-`.beads/` as unaffected by the presence-marker migration; this rule governs
-tools built to the convention it defines, not every root-level directory any
-tool ever creates. Both `.punt-labs/<tool>/` and `.punt-labs/local/<tool>/`
+lands there, not in `.punt-labs/<tool>/`; `.beads/` is out of scope for this
+rule entirely, not an exception to it —
+[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the
+canonical exemption). Both `.punt-labs/<tool>/` and `.punt-labs/local/<tool>/`
 are **not** under `~/.punt-labs/` — they live in the project directory, but
 they are **not** both committed: the tool root is committed (except its own
 local-convention paths) while the local zone is **always gitignored**

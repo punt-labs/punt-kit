@@ -447,12 +447,10 @@ the class rule each follows on migration:
 This reconciles with § 2.13 and
 [distribution.md § Installation Scope](distribution.md#installation-scope), which
 keep the tool's repo **config** as `init`'s artifact — now in the config zone
-(`.punt-labs/<tool>/config.*`), not at the legacy root path. `.beads/` is
-**out of scope for this whole migration, not exempted from a rule it
-otherwise breaks** — `bd` is a third-party tool with its own root-level
-convention independent of `.punt-labs/<tool>/`
-([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)), so there is
-nothing for it to migrate. Sentinel
+(`.punt-labs/<tool>/config.*`), not at the legacy root path — `.beads/` is out
+of scope for this whole migration entirely
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the
+canonical exemption), so there is nothing for it to migrate. Sentinel
 migration and config-zone migration are the same move, not two separate steps:
 enablement does not merely stop *reading* the legacy file as the presence
 marker while leaving it at the root — it relocates the settings and removes
@@ -468,14 +466,25 @@ still holds settings.
   move a runtime-state directory into the local zone). No separate migration
   command; the legacy sentinel stops being a *presence marker* on the tool's
   first post-adoption run.
+- **Ordering within that one operation: detect-and-move the legacy source
+  before any enable-time write to its destination, never after.** A tool
+  whose own `enable` writes a Config-zone field it owns (lux's `display`,
+  [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones))
+  must check for and move a legacy source (`.lux/config.md`) **first** — if
+  `enable`'s ordinary deposit step writes the destination
+  (`.punt-labs/lux/config.md`) before the legacy source is moved, that write
+  itself creates the destination, and [§ 9](punt-labs-dir.md#9-migration)'s
+  destination-collision rule then makes the required move fail permanently
+  on every subsequent run. There is no case where writing the destination
+  first is correct: detect, move, delete the empty legacy source, *then* let
+  the tool's own logic read or write the now-migrated file.
 - **Ordering dependency.** The integration.md L0 rewrite (peers now check the
   `enabled` marker) must land in the **same release train** as the tool releases
   that perform the migration, so no peer starts checking the new marker before
   the tools that write it have shipped.
 - **`.beads/` needs no migration because it is out of scope for this section
-  entirely** — not a directory-shaped exception to the rule this section
-  states, but a third-party tool's (`bd`) own root convention, independent of
-  `.punt-labs/<tool>/` altogether ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
+  entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
+  states the canonical exemption.
 
 ## 2.13 `enable` versus `init`
 
@@ -492,7 +501,7 @@ duplicates:
 | Verb | Job | Writes |
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
-| `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.toml`). `.beads/` is not this row's business — `bd` is a third-party tool with no `.punt-labs/<tool>/` convention to write into ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) |
+| `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.toml`). `.beads/` is not this row's business — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the canonical exemption |
 | *(legacy, retired)* | — | `.biff`, `.quarry.toml` at the repo root — the shape [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table migrates into the row above |
 
 The repo config file is **no longer the enabled signal** — the `enabled`

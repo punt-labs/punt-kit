@@ -460,15 +460,10 @@ The migration from legacy dotfile to config zone is
 [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table; it
 never deletes a file that still holds settings.
 
-**Beads (`.beads/`) is not a row in this table because it is out of scope for
-the migration entirely, not exempted from a rule it otherwise breaks.** `bd`
-is a third-party tool with its own established root-level convention
-(`.beads/`), independent of the `.punt-labs/<tool>/` convention this rule
-governs — the same reason
-[integration.md § L0 Presence](integration.md#l0-presence) already treats
-`.beads/` as unaffected by the presence-marker migration
-([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)).
-There is no legacy shape of `.beads/` to migrate.
+**`.beads/` is not a row in this table because it is out of scope for the
+migration entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
+states the canonical exemption. There is no legacy shape of `.beads/` to
+migrate.
 
 The config file should be committed to git (minus secrets). Secrets belong in
 environment variables or a `.local` file that is gitignored.

@@ -22,13 +22,12 @@ how a tool's CLAUDE.md guidance is turned on and off, and on
 [filesystem.md](filesystem.md), which governs the global `~/.punt-labs/<tool>/`
 tree. It settles the committed-vs-ignored and repo-vs-global questions those two
 leave open, and — per the operator's 2026-09-10 root-sentinel ruling
-([§ 1](#1-core-principle)) — that a Punt Labs tool built to this convention
-keeps no per-repo state outside `.punt-labs/` at all, in any shape: committed
-tool-root content in `.punt-labs/<tool>/`, machine-local live state in the
-local zone `.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)),
-and nothing outside `.punt-labs/` whatsoever. (`.beads/` is a third-party
-tool's own independent root convention, out of scope for this ruling
-entirely — [§ 1](#1-core-principle) states this explicitly.)
+([§ 1](#1-core-principle), which also states the `.beads/` exception) — that a
+Punt Labs tool built to this convention keeps no per-repo state outside
+`.punt-labs/` at all, in any shape: committed tool-root content in
+`.punt-labs/<tool>/`, machine-local live state in the local zone
+`.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)),
+and nothing outside `.punt-labs/` whatsoever.
 
 Section numbering is this document's own (1…); cross-references to
 tool-enable-disable.md keep that document's `§ 2.x` numbers.
@@ -53,6 +52,22 @@ mission logs — instead goes to the **local zone**
 `<repo>/.punt-labs/local/<tool>/`, gitignored by that same `local` convention and
 never committed. Secrets are not kept in either at all.
 
+**This standard — and every no-repo-root-sentinel rule it and its siblings
+state — governs Punt Labs tools built to the `.punt-labs/<tool>/` convention.
+`.beads/` is the one named, permanent exception, stated canonically here and
+cross-referenced everywhere else this document, or any other standard, would
+otherwise repeat it.** Beads is an org-external tool (`gastownhall/beads`, run
+at Punt Labs from a fork) with its own root-level convention — a per-repo
+`.beads/` directory (`metadata.json`, `config.yaml`) pointing at cross-editor,
+hosted-DoltDB-backed issue state — that predates and is independent of
+`.punt-labs/<tool>/` entirely. It is not a Punt Labs CLAUDE.md-guidance tool
+with a vendored/config/local/marker subtree that merely failed to adopt this
+convention; it is out of scope for the convention altogether, the same way
+`.git/` is. No other root-level directory gets this exemption without the
+same independent-of-the-convention justification
+([integration.md § L0 Presence](integration.md#l0-presence) states the
+identical fact for the presence-check migration specifically).
+
 Two questions this standard answers, that
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) and
 [filesystem.md](filesystem.md) leave open:
@@ -72,7 +87,7 @@ Two questions this standard answers, that
 
 A **Punt Labs tool built to this convention** may write repo-local state in
 exactly **two** places, and no others (`.beads/` is out of scope for this rule
-entirely — see the exemption below):
+entirely — [§ 1](#1-core-principle) states the exemption):
 
 - **The tool root — `<repo>/.punt-labs/<tool>/`.** Committed shared history
   (except local-convention paths within it,
@@ -107,17 +122,11 @@ committed tool-root content in `.punt-labs/<tool>/` ([§ 1 above](#1-core-princi
 machine-local live state in the local zone `.punt-labs/local/<tool>/`
 ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — and there
 is no repo-root sentinel outside `.punt-labs/` altogether, whatever shape it
-takes. **`.beads/` is explicitly outside this ruling's scope, not a violation
-of it**, for the same reason [integration.md](integration.md#l0-presence)
-already carves it out of the presence-check migration: `bd` is a third-party
-tool with its own established root-level convention that predates and is
-independent of the `.punt-labs/<tool>/` convention this standard governs — it
-is not "a Punt Labs tool that failed to adopt `.punt-labs/`," it is out of
-scope the same way `.git/` is. No other root-level directory gets this
-exemption without the same independent-of-the-convention justification. Three
-shapes of the in-scope legacy — a Punt Labs tool's own root sentinel — are
-attested in the fleet and all three are **deprecated legacy**, retired on the
-tool's next release ([§ 9](#9-migration)):
+takes (`.beads/` is out of scope for this ruling entirely, not a violation of
+it — [§ 1](#1-core-principle) states the exemption canonically). Three shapes
+of the in-scope legacy — a Punt Labs tool's own root sentinel — are attested
+in the fleet and all three are **deprecated legacy**, retired on the tool's
+next release ([§ 9](#9-migration)):
 
 - a **settings-bearing dotfile** — `.biff` (real TOML: `[team]`, `[relay]`,
   `[peers]`), `.quarry.toml`;
@@ -251,12 +260,30 @@ audit tooth ([§ 8](#8-what-punt-audit-checks)).
 
 ## 5. Live State is Never a Tracked File
 
-**A file a live process appends to continuously must never be git-tracked.** A
-tracked file changes only on a deliberate operator or lifecycle action — an
+**A file a live process *appends to* continuously must never be git-tracked.**
+A tracked file changes only on a deliberate operator or lifecycle action — an
 edit, an `enable`, a `mission close`. A file re-dirtied within seconds of every
 cleanup fails that test: any repo with the tool running then has a permanently
 dirty work tree, which breaks every clean-tree gate (the `punt release`
 preflight over cross-repo siblings is the reported case).
+
+**This rule is about unbounded append, not about a file being rewritten.**
+`vox.md` ([§ 7](#7-the-punt-labstool-subtree-has-zones)) is a running daemon's
+**tracked** exception to the pattern this rule names, not a violation of it —
+and the two are compatible because they test different things. This rule
+governs a file that *grows* — an audit log, a session transcript — where
+"deliberate lifecycle action" cannot describe the write cadence (a live
+process appends every few seconds, unbounded, for as long as it runs); such a
+file is never tracked, full stop, and lands in the local zone or behind the
+seal pattern below. `vox.md` never grows — it is a small, fixed-shape settings
+file (`vibe`, `notify`, `speak`, `voice`) whose *whole value* is rewritten in
+place each time an MCP switch tool runs. A `write_field` call is exactly as
+much a "deliberate action" as a human edit or an `enable` run — it is just
+triggered by a tool call instead of a keystroke — so it does not fail this
+rule's test at all; §4's naming-determined git status (not this section) is
+what decides `vox.md` stays tracked. The distinction is **append vs.
+rewrite-in-place**, not "important vs. throwaway" (as the closing line of this
+section already says) and not "human-triggered vs. tool-triggered."
 
 Live state has two correct homes:
 
