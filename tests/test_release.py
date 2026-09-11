@@ -8233,6 +8233,51 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     assert _phase_name(1) == suggested
 
 
+def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A call site that forgot to opt into a named budget (falling through to
+    DEFAULT_RUN) must still diagnose cleanly when it genuinely hangs.
+
+    Unlike the fabricated-timeout test above (which forces a 300s
+    GIT_NETWORK-budgeted timeout via a patched phase), this forces a
+    TimeoutExpired at an actual call site that passes no ``timeout=`` at
+    all — Phase 1's very first command, `git branch --show-current` — so
+    the diagnosis is pinned to the genuine DEFAULT_RUN fallback value, not
+    a named budget (matrix row 54).
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    hung_cmd = ["git", "branch", "--show-current"]
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd == hung_cmd and timeout == _DEFAULT_RUN_TIMEOUT:
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False)
+
+    assert exc_info.value.code == 1
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "git branch --show-current" in normalized
+    assert f"{_DEFAULT_RUN_TIMEOUT}s" in normalized
+    assert "phase 1 (preflight)" in normalized
+    assert "--resume-from preflight" in normalized
+
+
 def test_run_release_credits_propagate_when_resuming_from_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
