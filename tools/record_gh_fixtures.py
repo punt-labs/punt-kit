@@ -158,6 +158,28 @@ def _flag_occurrences(cmd: Sequence[str], name: str) -> list[tuple[int, str]]:
     return occurrences
 
 
+def _file_backed_field(cmd: Sequence[str]) -> str | None:
+    """The first ``-f``/``-F``/``--field``/``--raw-field`` value using
+    ``gh``'s ``key=@filename`` convention to load the field's actual
+    content from disk, or ``None`` if none does.
+
+    This is the same class of gap ``--input`` closes, reached through a
+    different flag: a GraphQL query loaded via ``-f query=@payload.graphql``
+    never appears as argv text at all, so scanning argv for the literal
+    ``"mutation"`` (the GraphQL-specific check below) cannot see a mutation
+    hidden inside that file — and ``-f``/``-F`` are otherwise legitimately
+    unrestricted on the GraphQL branch (`-f query=...` is how every
+    read-only query in this tool's own recording table is built), so the
+    blanket REST-endpoint refusal below does not reach this case either.
+    """
+    for name in ("-f", "-F", "--field", "--raw-field"):
+        for _, value in _flag_occurrences(cmd, name):
+            _, _, field_value = value.partition("=")
+            if field_value.startswith("@"):
+                return value
+    return None
+
+
 def _effective_method(cmd: Sequence[str]) -> str | None:
     """The HTTP method ``gh`` will actually use for this call.
 
@@ -217,8 +239,9 @@ class ReadOnlyGhRunner:
         directly rather than via the prefix allowlist: the endpoint must be
         the GraphQL escape hatch or a ``repos/...`` REST path, it must carry
         no explicit mutating HTTP method (in any spelling — see
-        ``_flag_present``), no opaque ``--input`` request body, and a
-        GraphQL call must carry no ``mutation`` operation in its query text.
+        ``_flag_present``), no opaque ``--input`` request body or
+        ``key=@file``-loaded field value, and a GraphQL call must carry no
+        ``mutation`` operation in its query text.
         """
         endpoint = cmd[2]
         # `--input` reads the request body from a file or stdin this tool
@@ -230,6 +253,16 @@ class ReadOnlyGhRunner:
         if _flag_present(cmd, "--input"):
             raise ReadOnlyViolation(
                 f"{list(cmd)!r} passes --input, an unreadable request-body source"
+            )
+        # gh's `key=@filename` field-value convention is the same opaque-
+        # body problem reached through -f/-F/--field/--raw-field instead:
+        # a GraphQL query loaded this way is just as invisible to the
+        # mutation-text scan below as an --input file is, and -f/-F are
+        # otherwise legitimately unrestricted on the GraphQL branch.
+        if (file_field := _file_backed_field(cmd)) is not None:
+            raise ReadOnlyViolation(
+                f"{list(cmd)!r} loads a field value from a file "
+                f"({file_field!r}) — content is unreadable to this guard"
             )
         if endpoint != "graphql" and not endpoint.startswith("repos/"):
             raise ReadOnlyViolation(
@@ -918,11 +951,32 @@ class GhFixtureDriftChecker:
                 "'no drift' for an empty or missing directory"
             ]
         mismatches: list[str] = []
+        live_checked = 0
         for path in paths:
-            mismatches.extend(self._check_one(path))
+            result = self._check_one(path)
+            if result is None:
+                continue  # hand-authored — nothing to replay live
+            live_checked += 1
+            mismatches.extend(result)
+        if live_checked == 0:
+            # Every file present is hand-authored (or otherwise never
+            # actually replayed live) — the loop above ran, but zero real
+            # gh calls happened, which is the same vacuous-pass shape as an
+            # empty directory: "no drift" with nothing having been checked.
+            return [
+                f"{self._dest}: {len(paths)} fixture file(s) found, but none "
+                "were live-replayable (all hand-authored) — refusing to "
+                "report 'no drift' when zero live commands ran"
+            ]
         return mismatches
 
-    def _check_one(self, path: Path) -> list[str]:
+    def _check_one(self, path: Path) -> list[str] | None:
+        """The mismatches for one fixture, or ``None`` if it is
+        hand-authored and therefore was never replayed live at all — a
+        distinct outcome from "replayed live and found clean" (``[]``),
+        which ``check`` needs told apart to detect the all-hand-authored
+        vacuous-pass case.
+        """
         # Wire boundary — a fixture file's decoded JSON is `object` until
         # narrowed to the envelope shape every fixture this tool writes
         # actually has (PY-TS-14).
@@ -932,7 +986,7 @@ class GhFixtureDriftChecker:
             return [f"{path.name}: missing _meta — not a valid envelope"]
         meta = cast("dict[str, object]", raw_meta)
         if meta.get("hand_authored"):
-            return []
+            return None
         command = meta.get("command")
         if not isinstance(command, list) or not command:
             return [f"{path.name}: _meta.command missing — cannot re-check live"]

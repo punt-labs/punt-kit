@@ -126,6 +126,13 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
         ["gh", "api", _PROTECTION_ENDPOINT, "--input=payload.json"],
         ["gh", "api", "graphql", "--input", "payload.json"],
         ["gh", "api", "graphql", "--input=payload.json"],
+        # gh's key=@filename field convention is the same opaque-body
+        # problem reached through -f/-F instead of --input — a query
+        # loaded this way never appears as argv text at all.
+        ["gh", "api", "graphql", "-f", "query=@payload.graphql"],
+        ["gh", "api", "graphql", "-F", "query=@payload.graphql"],
+        ["gh", "api", "graphql", "--field", "query=@payload.graphql"],
+        ["gh", "api", "graphql", "-fquery=@payload.graphql"],
         # A GraphQL mutation, split-token query text.
         [
             "gh",
@@ -684,9 +691,51 @@ def _write_envelope(
     path.write_text(json.dumps(envelope))
 
 
-def test_drift_checker_skips_hand_authored_fixtures(
+def test_drift_checker_skips_hand_authored_fixtures_alongside_a_real_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A hand-authored fixture contributes no mismatches and triggers no
+    live call — proven here alongside a recorded fixture that genuinely is
+    replayed live, so the hand-authored one is demonstrably skipped rather
+    than the whole check trivially passing because nothing ran at all.
+    """
+    _write_envelope(
+        tmp_path / "hand.json", hand_authored=True, command=None, stdout="{}"
+    )
+    _write_envelope(
+        tmp_path / "rec.json",
+        hand_authored=False,
+        command=["gh", "pr", "list"],
+        stdout=json.dumps([{"number": 1, "state": "OPEN"}]),
+    )
+    calls: list[list[str]] = []
+
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(
+            args=list(cmd),
+            returncode=0,
+            stdout=json.dumps([{"number": 1, "state": "OPEN"}]),
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    mismatches = GhFixtureDriftChecker(runner=ReadOnlyGhRunner(), dest=tmp_path).check()
+
+    assert mismatches == []
+    assert calls == [["gh", "pr", "list"]]  # only the recorded fixture was replayed
+
+
+def test_drift_checker_fails_loud_when_every_fixture_is_hand_authored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A destination holding only hand-authored envelopes must not report
+    'no drift' — every file is skipped, zero live commands ever run, and
+    that is the same vacuous-pass shape as an empty directory.
+    """
     _never_dispatch(monkeypatch)
     _write_envelope(
         tmp_path / "hand.json", hand_authored=True, command=None, stdout="{}"
@@ -694,7 +743,8 @@ def test_drift_checker_skips_hand_authored_fixtures(
 
     mismatches = GhFixtureDriftChecker(runner=ReadOnlyGhRunner(), dest=tmp_path).check()
 
-    assert mismatches == []
+    assert len(mismatches) == 1
+    assert "none were live-replayable" in mismatches[0]
 
 
 def test_drift_checker_reports_no_mismatch_when_shape_matches(
