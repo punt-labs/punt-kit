@@ -1374,6 +1374,42 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "CHANGELOG.md").read_text() == original_changelog
 
 
+# --- Phase 3: build ---
+
+
+def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
+    tmp_path: Path,
+) -> None:
+    """A non-zero `uv build` must diagnose as a ReleaseError, not leak a raw
+    CalledProcessError.
+
+    Phase 3 had no isolated failure-path test at all before this (matrix row
+    12, design doc defect #5) — `uv build` also defaulted to check=True
+    (pkit-f85t.7), so a failure here previously escaped run_release's own
+    exception handling and surfaced as a bare traceback, not just a
+    lower-quality diagnosis.
+    """
+    from punt_kit.phases.phase03_build import Phase3Build
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["uv", "build"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: build backend failed"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="uv build failed"):
+        Phase3Build(info, dry_run=False, ops=ops).run()
+
+
 # --- Phase 5: tag ---
 
 
