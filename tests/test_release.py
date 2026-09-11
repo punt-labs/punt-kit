@@ -1378,6 +1378,92 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
     )
 
 
+def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit(
+    tmp_path: Path,
+) -> None:
+    """An annotated remote tag at the right commit must not read as a mismatch.
+
+    Phase5Tag only ever creates lightweight tags itself, but the remote's
+    copy of a tag can be annotated (other tooling, a manual `git tag -a`).
+    `git ls-remote --tags origin <exact-tag>` (an explicit ref argument)
+    never emits the peeled `^{}` line at all, and for an annotated tag its
+    one line reports the tag OBJECT's own SHA — not the commit it points
+    at — so comparing that directly against a local lightweight tag's
+    commit SHA would treat every annotated remote tag as a mismatch, even
+    one at the exact right commit.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Remote gets an ANNOTATED v1.0.0 at the current commit.
+    _git(["tag", "-a", "v1.0.0", "-m", "annotated by other tooling"], cwd=str(root))
+    _git(["push", "origin", "v1.0.0"], cwd=str(root))
+    # Phase5Tag's own local tag is always lightweight, at the same commit —
+    # simulate its creation directly (Phase5Tag.run only pushes here since
+    # `existing` will be truthy).
+    _git(["tag", "-d", "v1.0.0"], cwd=str(root))
+    _git(["tag", "v1.0.0"], cwd=str(root))
+
+    push_calls: list[list[str]] = []
+
+    def spying_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "push"]:
+            push_calls.append(cmd)
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+    ).run()
+
+    assert push_calls == [], "an annotated tag at the right commit must be a no-op"
+
+
+def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_commit(
+    tmp_path: Path,
+) -> None:
+    """An annotated remote tag at the WRONG commit must still fail loud.
+
+    Companion to the same-commit no-op test above — proves the peeled-SHA
+    resolution is being compared, not merely tolerated as "present."
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Remote gets an ANNOTATED v1.0.0 at the original commit.
+    _git(["tag", "-a", "v1.0.0", "-m", "annotated by other tooling"], cwd=str(root))
+    _git(["push", "origin", "v1.0.0"], cwd=str(root))
+
+    # Operator recovery, as in the lightweight-mismatch test above.
+    _git(["tag", "-d", "v1.0.0"], cwd=str(root))
+    (root / "corrected.txt").write_text("corrected\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "corrected release commit"], cwd=str(root))
+    _git(["tag", "v1.0.0"], cwd=str(root))
+
+    with pytest.raises(ReleaseError, match="exists on the remote but points to"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ).run()
+
+
 # --- sibling helpers ---
 
 
@@ -4433,6 +4519,107 @@ def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
             dry_run=False,
             merge=successful_merge,
         )
+
+
+def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
+    tmp_path: Path,
+) -> None:
+    """A failed ``git branch --show-current`` is a secondary failure too.
+
+    Regression test for a review finding: when the primary merge fails
+    AND the cleanup's own branch lookup returns non-zero, ``current``
+    becomes ``None`` — that path used to fall straight to an info-only
+    message, unlike the checkout-failure path below it, leaving it out
+    of the ``SkipRecorder`` recap.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "branch", "--show-current"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: not a git repository"
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops, skips=skips)
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    (notice,) = skips.drain()
+    assert "required checks never passed" in notice
+    assert "could not read current branch" in notice
+
+
+def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No primary exception: a failed branch lookup stays info-only.
+
+    Mirrors ``test_merge_in_sibling_solo_cleanup_failure_still_only_infos``
+    for the branch-lookup path specifically — the routing only escalates
+    when there is a primary failure for the secondary one to accompany.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "branch", "--show-current"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: not a git repository"
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def successful_merge(**_kwargs: object) -> str:
+        return "abc1234"
+
+    merger = PrMerger(ops=ops, skips=skips)
+    merger.merge_in_sibling(
+        sibling,
+        "propagate/v1.0.0",
+        [".gitkeep"],
+        "chore: propagate v1.0.0",
+        "install-all-github",
+        dry_run=False,
+        merge=successful_merge,
+    )
+
+    assert skips.drain() == ()
+    printed = capsys.readouterr().out.replace("\n", " ")
+    assert "could not read current branch" in printed
 
 
 # --- fwql: README SHA pin lands after the release PR's squash-merge ---

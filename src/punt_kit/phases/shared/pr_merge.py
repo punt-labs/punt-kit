@@ -370,8 +370,12 @@ class PrMerger:
             branch_result.stdout.strip() if branch_result.returncode == 0 else None
         )
         if current is None:
-            self._ops.info(
-                f"Could not read current branch for sibling {name} after operation"
+            # A failed branch lookup is exactly as much a secondary
+            # cleanup failure as a failed checkout below — route it the
+            # same way when a primary exception is in flight, instead of
+            # only info-logging it and leaving it out of the recap.
+            self._report_cleanup_failure(
+                name, primary_exc, "could not read current branch"
             )
             return
         if current == "main":
