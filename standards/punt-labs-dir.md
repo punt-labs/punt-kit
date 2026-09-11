@@ -22,8 +22,13 @@ how a tool's CLAUDE.md guidance is turned on and off, and on
 [filesystem.md](filesystem.md), which governs the global `~/.punt-labs/<tool>/`
 tree. It settles the committed-vs-ignored and repo-vs-global questions those two
 leave open, and — per the operator's 2026-09-10 root-sentinel ruling
-([§ 1](#1-core-principle)) — that no per-repo tool state lives outside
-`.punt-labs/<tool>/` at all, in any shape.
+([§ 1](#1-core-principle)) — that a Punt Labs tool built to this convention
+keeps no per-repo state outside `.punt-labs/` at all, in any shape: committed
+tool-root content in `.punt-labs/<tool>/`, machine-local live state in the
+local zone `.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)),
+and nothing outside `.punt-labs/` whatsoever. (`.beads/` is a third-party
+tool's own independent root convention, out of scope for this ruling
+entirely — [§ 1](#1-core-principle) states this explicitly.)
 
 Section numbering is this document's own (1…); cross-references to
 tool-enable-disable.md keep that document's `§ 2.x` numbers.

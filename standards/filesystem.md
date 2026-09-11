@@ -82,12 +82,16 @@ rule, not an exception to it** — `bd` predates and is independent of the
 [integration.md § L0 Presence](integration.md#l0-presence) already treats
 `.beads/` as unaffected by the presence-marker migration; this rule governs
 tools built to the convention it defines, not every root-level directory any
-tool ever creates. These paths are **not** under `~/.punt-labs/` — they
-live in the project directory and are committed to version control. Which
-files under a repo's `.punt-labs/<tool>/` are committed (e.g. `config.yaml`,
-and any file a daemon rewrites, e.g. `vox.md` — naming-determined, never
-write-cadence-determined) versus gitignored (`config.local.yaml`, `local/`) is
-governed by [punt-labs-dir.md](punt-labs-dir.md).
+tool ever creates. Both `.punt-labs/<tool>/` and `.punt-labs/local/<tool>/`
+are **not** under `~/.punt-labs/` — they live in the project directory, but
+they are **not** both committed: the tool root is committed (except its own
+local-convention paths) while the local zone is **always gitignored**
+([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)) —
+that is the whole reason the zone exists. Which files under a repo's
+`.punt-labs/<tool>/` are committed (e.g. `config.yaml`, and any file a daemon
+rewrites, e.g. `vox.md` — naming-determined, never write-cadence-determined)
+versus gitignored (`config.local.yaml`, `local/`) is governed by
+[punt-labs-dir.md](punt-labs-dir.md).
 
 ---
 
