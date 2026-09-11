@@ -1,5 +1,7 @@
 # Filesystem Standards
 
+**Updated:** 2026-09-10
+
 Standards for home directory layout across all Punt Labs projects. Role models: **biff** (reference implementation) and **vox** (early adopter of namespaced paths).
 
 ---
@@ -61,10 +63,33 @@ Per-project enablement uses the marker file `.punt-labs/<tool>/enabled` inside
 the tool's committed vendored subtree `<repo>/.punt-labs/<tool>/`, written by
 `<tool> enable` and deleted by `<tool> disable`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
-This supersedes the bare repo-root sentinel dotfile (`.biff`, `.quarry.toml`)
-as the enabled signal. These paths are **not** under `~/.punt-labs/` — they
-live in the project directory and are committed to version control. Which
-files under a repo's `.punt-labs/<tool>/` are committed (e.g. `config.yaml`)
+This supersedes every legacy repo-root sentinel as the enabled signal — a
+settings dotfile, a config-bearing root directory, or a bare presence marker;
+[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) enumerates the
+attested shapes and [§ 9](punt-labs-dir.md#9-migration) is the migration table.
+**No per-repo state for a Punt Labs tool built to this convention lives
+outside `.punt-labs/` at all, in any form** — this Core Principle's "no
+top-level dot-directory" rule holds at the repo root exactly as it holds under
+`$HOME`; every such per-repo path lives under `.punt-labs/`, either in the
+tool's own root (`.punt-labs/<tool>/`) or in the one reserved non-tool
+exception, the local zone (`.punt-labs/local/<tool>/`), which
+[punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)
+sanctions for per-checkout, machine-local live state (e.g. the `.ethos/`
+root-runtime-dir migration in [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)
+lands there, not in `.punt-labs/<tool>/`). **`.beads/` is out of scope for this
+rule, not an exception to it** — `bd` predates and is independent of the
+`.punt-labs/<tool>/` convention, the same reason
+[integration.md § L0 Presence](integration.md#l0-presence) already treats
+`.beads/` as unaffected by the presence-marker migration; this rule governs
+tools built to the convention it defines, not every root-level directory any
+tool ever creates. Both `.punt-labs/<tool>/` and `.punt-labs/local/<tool>/`
+are **not** under `~/.punt-labs/` — they live in the project directory, but
+they are **not** both committed: the tool root is committed (except its own
+local-convention paths) while the local zone is **always gitignored**
+([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)) —
+that is the whole reason the zone exists. Which files under a repo's
+`.punt-labs/<tool>/` are committed (e.g. `config.yaml`, and any file a daemon
+rewrites, e.g. `vox.md` — naming-determined, never write-cadence-determined)
 versus gitignored (`config.local.yaml`, `local/`) is governed by
 [punt-labs-dir.md](punt-labs-dir.md).
 

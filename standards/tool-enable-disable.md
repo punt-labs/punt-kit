@@ -37,7 +37,7 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 | Path | Owner | Lifecycle |
 |------|-------|-----------|
 | `<repo>/CLAUDE.md`, `~/.claude/CLAUDE.md` | The user | Tool adds or removes one import line; every other byte is untouched |
-| `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)): tool (vendored + `enabled` marker), repo (config), user (local-convention) | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched), left dormant on `disable` |
+| `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)): tool (vendored + `enabled` marker), repo (config, including any file a daemon rewrites), user (local-convention) | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched), left dormant on `disable` |
 | `~/.punt-labs/<tool>/` | Zoned: tool (vendored), user (local-convention) | Deposited on `install` (global tools), vendored zone overwritten wholesale on upgrade |
 
 Each tool owns the **vendored zone** (and the `enabled` marker) of its
@@ -46,12 +46,17 @@ repo-owned and the local-convention zone is user-owned
 ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)).
 The tool rewrites the vendored zone on enable/upgrade and never
 reads-modifies-merges it: same tool version, identical output. Repo config is
-**not** an input to that write and is never rewritten by it — enable/upgrade steps
-around the config and local-convention zones (below).
+**not** an input to that write and is never rewritten by it — enable/upgrade
+steps around the config and local-convention zones (below), and that includes
+a config file a running daemon rewrites (`vox.md`): git status is
+naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)),
+never write-cadence-determined, so a daemon-mutated file stays a tracked
+Config-zone file like any other.
 
 This wholesale-overwrite/determinism contract is scoped to the subtree's
-**vendored zone**; repo config, local-convention files (`local/`, `*.local`, `*.local.*`),
-and the `enabled` marker are carved out from it — see
+**vendored zone**; repo config, local-convention files
+(`local/`, `*.local`, `*.local.*`), and the `enabled` marker are carved out from
+it — see
 [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).
 
 ## 2.3 The `enable` / `disable` Convention
@@ -298,9 +303,11 @@ on the distinction:
 | Dormant (disabled) | present | absent | absent |
 | Absent | absent | absent | absent |
 
-This marker replaces the legacy repo-root sentinel dotfile (`.biff`,
-`.quarry.toml`): one file, inside the tool's directory, that both hook gates and
-`punt audit` read.
+This marker replaces every legacy repo-root sentinel, whatever shape it took —
+a settings dotfile, a config-bearing root directory, or a bare presence marker
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) enumerates the three
+attested shapes; § 9 there is the migration table): one file, inside the
+tool's directory, that both hook gates and `punt audit` read.
 
 ## 2.8 Hooks and config
 
@@ -339,10 +346,11 @@ Rationale:
   reason either to keep or to delete it. What dormancy actually preserves is the
   committed vendored content — the deposited guide and any config — which is
   git-tracked and git-recoverable. (That wholesale overwrite is the **vendored
-  zone** only; repo config and local-convention files are carved out — see
-  [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).)
+  zone** only; repo config and local-convention files are carved out —
+  see [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).)
 - **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the
-  subtree's vendored zone (repo config and local-convention files are carved out — see
+  subtree's vendored zone (repo config and local-convention files are carved
+  out — see
   [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
   the symmetric inverse of *turning off* is removing the enabled signal and the
   import line, not erasing files. A toggle that deletes committed content is a
@@ -411,67 +419,87 @@ Forward integration, no compatibility shim
   `punt:end` CLAUDE.md marker sections from a repo `CLAUDE.md`, leaving the user's
   prose plus bare import lines. It does not touch Makefile marker sections.
 
-### Sentinel migration (legacy `.biff`, `.quarry.toml` → `enabled` marker)
+### Sentinel migration (legacy root sentinel → `enabled` marker)
 
-The legacy repo-root sentinel dotfile is retired **as a presence marker** in
-favor of the in-directory `enabled` marker (2.7), which changes the L0 presence
-contract in [integration.md](integration.md). A repo that still carries `.biff`
-or `.quarry.toml` must not silently fail every peer presence check in the window
-between the integration.md rewrite and each tool's re-enable. Forward-integration
-closes the gap without a compat shim — but the migration must **never delete live
-config**.
+The legacy repo-root sentinel is retired **as a presence marker** in favor of
+the in-directory `enabled` marker (2.7), which changes the L0 presence contract
+in [integration.md](integration.md). A repo that still carries a legacy
+sentinel — dotfile or directory; the operator's 2026-09-10 ruling covers every
+shape ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) — must not
+silently fail every peer presence check in the window between the
+integration.md rewrite and each tool's re-enable. Forward-integration closes
+the gap without a compat shim — but the migration must **never delete live
+config or live settings**.
 
-**Two classes of legacy sentinel, handled differently:**
+**Legacy sentinels fall into classes by what they hold, not by their shape.**
+[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) and
+[§ 9](punt-labs-dir.md#9-migration) are the authority on which concrete paths
+are attested (`.biff`, `.quarry.toml`, `.vox/config.md`, `.lux/config.md`,
+`.ethos/missions.jsonl`) and where each one lands; this standard states only
+the class rule each follows on migration:
 
-| Class | Example | On migration |
-|-------|---------|--------------|
-| Pure presence sentinel — an empty or content-free marker whose only job was "this tool is here" | `.biff` when it carries no settings | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
-| Sentinel-cum-config — a marker file that also holds live settings (roster, credentials, db name) | `.quarry.toml` | **Migrated, never deleted with content inside**: the tool either moves the settings into its owned location (e.g. `.punt-labs/<tool>/config.*`) and then removes the now-empty marker, or leaves the file in place and simply stops treating it as the presence signal. The tool owning the file decides which; neither path destroys live config. |
+| Class | On migration |
+|-------|---------------|
+| Pure presence sentinel — an empty or content-free marker whose only job was "this tool is here" | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
+| Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: vibe, notify, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty root file or directory. Ruling 1 ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) forecloses the alternative an earlier draft of this row offered — leaving the file in place and merely stopping treatment of it as the presence signal — because that would leave live settings at the repo root permanently, which is exactly what ruling 1 retires; the move is mandatory, not optional, for a config-bearing sentinel. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Never destroys live config. |
+| Root runtime-state directory — holds no settings, only a continuously-appended live log | Migrated into the local zone ([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)), never deleted with unread lines inside |
 
 This reconciles with § 2.13 and
 [distribution.md § Installation Scope](distribution.md#installation-scope), which
-keep the tool's repo **config** file (`.beads/`, `.quarry.toml`, `.biff` when it
-carries settings) as `init`'s artifact. Enablement stops *reading that file as
-the presence marker*; it does not claim ownership of the config, and it never
-deletes a file that still holds settings.
+keep the tool's repo **config** as `init`'s artifact — now in the config zone
+(`.punt-labs/<tool>/config.*`), not at the legacy root path. `.beads/` is
+**out of scope for this whole migration, not exempted from a rule it
+otherwise breaks** — `bd` is a third-party tool with its own root-level
+convention independent of `.punt-labs/<tool>/`
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)), so there is
+nothing for it to migrate. Sentinel
+migration and config-zone migration are the same move, not two separate steps:
+enablement does not merely stop *reading* the legacy file as the presence
+marker while leaving it at the root — it relocates the settings and removes
+the now-empty legacy file, per the table above. It never deletes a file that
+still holds settings.
 
 **Migration steps (per tool, on first run):**
 
 - `enable` — or the tool's SessionStart hook — detects the legacy sentinel and,
   in one operation, deposits `.punt-labs/<tool>/` + the `enabled` marker, then
-  applies the class rule above (delete a pure sentinel; migrate-then-clear or
-  demote a config-bearing one). No separate migration command; the legacy sentinel
-  stops being a *presence marker* on the tool's first post-adoption run.
+  applies the matching class rule above (delete a pure sentinel; migrate-then-clear
+  a config-bearing one, human-set or daemon-rewritten, into the config zone;
+  move a runtime-state directory into the local zone). No separate migration
+  command; the legacy sentinel stops being a *presence marker* on the tool's
+  first post-adoption run.
 - **Ordering dependency.** The integration.md L0 rewrite (peers now check the
   `enabled` marker) must land in the **same release train** as the tool releases
   that perform the migration, so no peer starts checking the new marker before
   the tools that write it have shipped.
-- **`.beads/` needs no migration** — it is already a directory-form marker, not a
-  dotfile, and is unaffected.
+- **`.beads/` needs no migration because it is out of scope for this section
+  entirely** — not a directory-shaped exception to the rule this section
+  states, but a third-party tool's (`bd`) own root convention, independent of
+  `.punt-labs/<tool>/` altogether ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
 
 ## 2.13 `enable` versus `init`
 
 [distribution.md § Installation Scope](distribution.md#installation-scope)
-defines `init` as the per-repo verb that writes a tool's repo config file
-(`.biff`, `.quarry.toml`) and prompts for project-specific settings (team roster,
+defines `init` as the per-repo verb that writes a tool's repo config file — in
+the **config zone**, `.punt-labs/<tool>/config.*`
+([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
+`.biff` and `.quarry.toml` at the repo root are the retired **legacy** shape
+this table's third row exists to migrate away from, not a destination `init`
+still writes to — and prompts for project-specific settings (team roster,
 relay URL, database name). `enable` and `init` are **distinct roles**, not
 duplicates:
 
 | Verb | Job | Writes |
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
-| `init` | Create and populate the tool's repo config/state | The tool's repo config file (`.biff`, `.quarry.toml`, `.beads/`) |
+| `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.toml`). `.beads/` is not this row's business — `bd` is a third-party tool with no `.punt-labs/<tool>/` convention to write into ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) |
+| *(legacy, retired)* | — | `.biff`, `.quarry.toml` at the repo root — the shape [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table migrates into the row above |
 
 The repo config file is **no longer the enabled signal** — the `enabled`
 marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
 turn on; `enable` may call `init` when enabling requires config, but the two
 concerns stay separate. Tools that used `init` *only* to drop an enabled
 sentinel fold that into `enable` and retire the bare repo-root sentinel.
-
-Those repo-root config files (`.biff`, `.quarry.toml`) move into the tool's
-subtree config zone — see
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration) for the
-config-into-subtree migration.
 
 ## 2.14 Dual surface, and the separate per-user layer
 
