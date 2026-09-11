@@ -6472,6 +6472,73 @@ def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
     )
 
 
+def test_phase4_release_pr_swap_script_failure_retries_cleanly(
+    tmp_path: Path,
+) -> None:
+    """A failed plugin-swap script must diagnose, and a clean retry from the
+    same starting state must still land the swap commit and reach merge.
+
+    The module docstring above (phase04_release_pr.py) documents the
+    HEAD-vs-working-tree failure mode; nothing forced the script call to
+    fail via fault injection and asserted the retry before this test
+    (matrix row 13). `bash scripts/release-plugin.sh` also defaulted to
+    check=True (pkit-f85t.7), so this failure previously leaked a raw
+    CalledProcessError instead of a diagnosed message.
+    """
+    from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    release_script = root / "scripts" / "release-plugin.sh"
+    pre_head = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    failing_ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["bash", str(release_script)],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="pre-commit hook rejected"
+                ),
+            )
+        ],
+    )
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("merge must not run when the swap script fails")
+
+    def _unreachable_pin(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("readme pin must not run when the swap script fails")
+
+    with pytest.raises(ReleaseError, match=re.escape(str(release_script))):
+        Phase4ReleasePr(info, "0.2.0", dry_run=False, ops=failing_ops).run(
+            merge=_unreachable_merge, land_readme_sha_pin=_unreachable_pin
+        )
+
+    # The script never actually ran (the fault intercepted the whole call),
+    # so nothing mutated the tree — HEAD is exactly where it started.
+    assert _git_out(["rev-parse", "HEAD"], cwd=str(root)) == pre_head
+
+    merged: dict[str, object] = {}
+
+    def _capture_merge(**kwargs: object) -> str:
+        merged.update(kwargs)
+        return "abc1234"
+
+    def _capture_pin(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    resumed_ops = FaultInjectingOps(
+        real_run=_run, rules=[], passthrough=[["bash", str(release_script)]]
+    )
+    Phase4ReleasePr(info, "0.2.0", dry_run=False, ops=resumed_ops).run(
+        merge=_capture_merge, land_readme_sha_pin=_capture_pin
+    )
+
+    assert _git_out(["rev-parse", "HEAD"], cwd=str(root)) != pre_head
+    assert merged.get("branch") == "release/v0.2.0"
+
+
 @pytest.mark.parametrize("subdir", [False, True])
 def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool
