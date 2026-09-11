@@ -163,8 +163,8 @@ against the `tmp_path` repo per §1b) plus a **routing table** of fault rules:
 class FaultRule:
     """One scripted response for commands matching a prefix."""
 
-    match: Sequence[str]                      # argv prefix, e.g. ["gh", "pr", "merge"]
-    times: int | None = 1                      # None = every remaining match
+    match: Sequence[str]  # argv prefix, e.g. ["gh", "pr", "merge"]
+    times: int | None = 1  # None = every remaining match
     response: CompletedProcessSpec | None = None
     raises: type[BaseException] | BaseException | None = None
 
