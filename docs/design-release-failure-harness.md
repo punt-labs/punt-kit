@@ -1,13 +1,13 @@
 # Design: Release Engine Failure-Path Test Harness
 
-**Status:** DRAFT
+**Status:** ACCEPTED
 **Epic:** pkit-f85t — release engine: phase logic fixes and a failure-path test harness
 **Author:** adb (design mission m-2026-09-10-007)
-**Beads note:** the hosted DoltDB was unreachable for this mission's entire
-duration. `bd show pkit-f85t` and `bd list --parent pkit-f85t` were retried
-repeatedly and never returned; the epic's children are not folded into this
-document. Section 8 states explicitly what a re-run must do once the DB
-returns.
+**Beads reconciliation:** the hosted DoltDB was unreachable while this design
+was written and recovered afterward. All 7 original epic children are closed
+(fixed in earlier waves); the harness is the epic's remaining shared
+deliverable. The design's own defect findings (§4) are filed as
+pkit-f85t.5–.8. No child bead conflicts with this plan.
 
 ## 0. The pattern to kill
 
@@ -308,6 +308,7 @@ rationale).
 | 9 | 2 Version bump | Bundled template pin points at a different package | `test_template_pin_unrelated_package_untouched` | ✅ |
 | 10 | 2 Version bump | Commit accidentally sweeps untracked files | `test_version_bump_commit_excludes_untracked` | ✅ |
 | 11 | 2 Version bump | Go project: version resolved from tags, not pyproject | `test_get_project_version_go_unaffected`, `test_get_latest_tag_version` | ✅ |
+| 11a | 2 Version bump | `_get_project_version` falls back to `plugin.json` for plugin-only projects (pkit-f85t.1) | `test_get_project_version_plugin_only_reads_plugin_json` | ✅ |
 | 12 | 3 Build | `uv build`/`twine check` failure | no dedicated test found for phase 3 build failure path | 🔧 |
 | 13 | 4 Release PR | Commit fails mid-plugin-swap (hook rejects), retry must consult HEAD not working tree | code comment documents the failure mode explicitly (phase04_release_pr.py:65-74); no test forces a failed commit and asserts the HEAD-consult retry | 🔧 |
 | 14 | 4 Release PR | Existing PR: OPEN / stale MERGED / CLOSED selection | `test_select_existing_pr_*` (5 tests), `test_pr_merge_ignores_closed_pr_creates_fresh`, `_stale_merged_pr_not_treated_as_current`, `_matching_merged_pr_short_circuits` | ✅ |
@@ -318,6 +319,7 @@ rationale).
 | 19 | 4 Release PR | Thread-resolution fails mid-retry (best-effort re-resolve swallows error) | `except (ReleaseError, SystemExit, CalledProcessError)` at pr_merge.py:269 has no covering test | 🔧 |
 | 20 | 5 Tag | Tag push fails / tag already exists at different commit | no dedicated Phase 5 failure test found | 🔧 |
 | 21 | 6 CI wait | `release.yml` missing for hybrid/CLI project | `test_phase6_fails_actionably_when_python_project_missing_release_yml`, `_hybrid_missing_release_yml_still_fails` | ✅ |
+| 21a | 6 CI wait | CI wait skips for pure-plugin projects with no `release.yml` (pkit-f85t.2) | `test_phase6_skips_for_pure_plugin_without_release_yml` | ✅ |
 | 22 | 6 CI wait | No run found / stale run / late-arriving run / wrong branch-event-commit | `test_phase6_fails_on_stale_success_with_no_matching_run` + 7 sibling tests | ✅ |
 | 23 | 6 CI wait | `gh run list` hung, malformed, wrong-shaped JSON | `test_phase6_survives_unparseable_gh_output`, `_survives_wrong_shaped_gh_json`, `_treats_a_hung_run_list_as_a_failed_lookup` | ✅ |
 | 24 | 6 CI wait | `gh run watch` exits non-zero but the run is actually healthy/unreachable | `test_phase6_does_not_call_an_unreachable_run_a_ci_failure`, `_still_reports_a_genuine_ci_failure_as_one` | ✅ |
@@ -356,7 +358,7 @@ rationale).
 | 57 | Cross-cutting | PyPI eventual-consistency window after a genuine publish | N/A | ⛔ — exogenous to this codebase; §2d |
 | 58 | Cross-cutting | Real `bd hooks run` / Dolt server latency variance | `test_git_hook_timeout_exceeds_beads_hook_ceiling` asserts the *budget*; the real latency is exogenous | ⛔ — §2d |
 
-**Coverage counts:** 32 rows ✅ covered today, 23 rows 🔧 enabled-by-harness
+**Coverage counts:** 60 rows total — 34 rows ✅ covered today, 23 rows 🔧 enabled-by-harness
 (the delivery plan in §5 sequences these), 3 rows ⛔ out of scope with stated
 rationale. (Row 30 and row 53 each split into one ✅ and one 🔧/partial
 sub-count; they are tallied once each above by their dominant status —
@@ -496,9 +498,16 @@ Deliverable: tests for `PrMerger.merge`'s full 6-attempt retry loop
 (transient-block-then-succeed at attempts 2–5, exhaustion at attempt 6, the
 thread-re-resolve exception swallow at line 269), plus the
 `merge_in_sibling` `finally`-block secondary-failure path (matrix row 46 /
-defect #2). This wave pairs naturally with fixing defect #2 (route the
-secondary failure through `SkipRecorder`) since the fix and its regression
-test are the same unit of work — one implementation mission, not two.
+defect #2), plus injecting `pr_merge.py`'s `time.sleep` seam (per
+`ci_run.py`'s injectable-callable pattern, or a documented monkeypatch
+target) so the retry tests don't consume real wall-clock. This wave pairs
+naturally with fixing defect #2 (route the secondary failure through
+`SkipRecorder`) since the fix and its regression test are the same unit of
+work — one implementation mission, not two. The fixes this wave carries are
+filed as explicit beads: **pkit-f85t.6** (SkipRecorder routing for
+`merge_in_sibling`'s secondary cleanup failure — defect #2) and
+**pkit-f85t.8** (`gh.py` imports `CI_WATCH` instead of hardcoding 7200, with
+a constant-derivation test — defect #4).
 
 ### Wave 3 — SIGINT/concurrency scenarios (matrix rows 36, 48)
 
@@ -515,7 +524,9 @@ path the current suite covers. This wave depends on Wave 0's
 Deliverable: the isolated failure-path tests for Phases 3, 5, 7, 8 that §4
 identifies as missing, plus the Go quality-gate failure test parallel to the
 existing Python one, plus a forced-timeout test for the `DEFAULT_RUN`
-fallback case (matrix row 54). These are independent of each other and can
+fallback case (matrix row 54), plus the **pkit-f85t.7** sweep (defect #3:
+convert call sites leaking raw `CalledProcessError` to `check=False` with a
+diagnosed `ops.fail` message). These are independent of each other and can
 be split across two workers if scheduling favors parallelism, but are
 grouped into one wave here because each is small (one or two tests per
 phase) and none has a design dependency on Waves 1–3.
@@ -531,14 +542,10 @@ narrower waves would have caught first at lower cost — landing it last means
 any failure it finds is more likely to point at a genuine gap rather than a
 harness bug.
 
-### Explicitly deferred, pending the epic's children
+### Epic reconciliation
 
-Section 0's caveat applies here directly: `pkit-f85t`'s child beads may
-already scope some of this work, assign it a different priority order, or
-identify additional failure modes this document's code-reading pass missed.
-**Before Wave 1 dispatches, re-run `bd show pkit-f85t` and `bd list --parent
-pkit-f85t`.** If the DB has recovered, reconcile this plan against the
-children before proceeding — in particular check whether any child bead
-already names one of defects #1–7 or matrix rows marked 🔧, since a match
-means the wave folds into that bead's acceptance criteria rather than
-opening a new one.
+The DoltDB recovered after this design was drafted, and the plan has been
+reconciled against the epic: all 7 original `pkit-f85t` children are closed
+(fixed in earlier waves), the harness is the epic's remaining shared
+deliverable, this design's own defect findings are filed as pkit-f85t.5–.8
+(carried by Waves 2 and 4 above), and no child conflicts with this plan.
