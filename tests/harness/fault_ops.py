@@ -145,6 +145,10 @@ class FaultRule:
     )
 
     def __post_init__(self, times: int | None | _Unset) -> None:
+        if not self.match:
+            raise ValueError("match must be a non-empty argv prefix")
+        if not self.match[0]:
+            raise ValueError("match[0] must be a non-empty executable name")
         if self.skip < 0:
             raise ValueError(f"skip must be >= 0, got {self.skip}")
         if self.responses is not None and len(self.responses) == 0:
@@ -210,14 +214,18 @@ class FaultRule:
         if self._times is not None and self._consumed >= self._times:
             return None
         self._consumed += 1
-        if self._interrupt_event is not None:
-            self._interrupt_event.set()
         if self.raises is not None:
+            # A raising match never "returns" — §2c fires the interrupt as a
+            # side effect of the matched call *returning*, so an anchored
+            # rule that raises must not signal completion at all.
             raise self.raises
         spec = self._resolved_responses[
             (self._consumed - 1) % len(self._resolved_responses)
         ]
-        return spec.to_completed_process(cmd)
+        result = spec.to_completed_process(cmd)
+        if self._interrupt_event is not None:
+            self._interrupt_event.set()
+        return result
 
     @classmethod
     def from_fixture(
@@ -272,6 +280,17 @@ class FaultInjectingOps:
         self._real_run = real_run
         self._rules = list(rules)
         self._passthrough = [list(prefix) for prefix in passthrough]
+        for prefix in self._passthrough:
+            # Same class of bug as an empty FaultRule.match (§2a): a
+            # dead-on-arrival prefix that can never admit anything would
+            # silently make a test's "this call is allowed through" claim
+            # false, surfacing only as an unrelated deny-by-default failure.
+            if not prefix:
+                raise ValueError("passthrough prefix must be non-empty")
+            if not prefix[0]:
+                raise ValueError(
+                    "passthrough prefix[0] must be a non-empty executable name"
+                )
         self._lock = threading.Lock()
         return self
 

@@ -243,6 +243,31 @@ def test_faultrule_responses_must_be_non_empty() -> None:
         FaultRule(match=["gh"], responses=())
 
 
+def test_faultrule_match_must_be_non_empty() -> None:
+    """An empty ``match`` can never match any argv — ``_matches_argv_prefix``
+    rejects everything against it — so it silently builds a rule that can
+    never inject its scripted outcome. Reject it at construction instead of
+    letting it fail later with an unrelated deny-by-default assertion.
+    """
+    with pytest.raises(ValueError, match="match"):
+        FaultRule(match=[], response=CompletedProcessSpec())
+
+
+def test_faultrule_match_executable_name_must_be_non_empty() -> None:
+    with pytest.raises(ValueError, match="match"):
+        FaultRule(match=[""], response=CompletedProcessSpec())
+
+
+def test_passthrough_prefix_must_be_non_empty() -> None:
+    with pytest.raises(ValueError, match="passthrough"):
+        FaultInjectingOps(real_run=_real_run_stub("real"), rules=[], passthrough=[[]])
+
+
+def test_passthrough_executable_name_must_be_non_empty() -> None:
+    with pytest.raises(ValueError, match="passthrough"):
+        FaultInjectingOps(real_run=_real_run_stub("real"), rules=[], passthrough=[[""]])
+
+
 # ---------------------------------------------------------------------------
 # interrupt_after — rule-anchored, not a phase-boundary tool
 # ---------------------------------------------------------------------------
@@ -264,6 +289,22 @@ def test_interrupt_after_fires_exactly_on_the_anchor_matches_completion() -> Non
 
     ops.run(["/usr/bin/gh", "pr", "merge"])
     assert event.is_set()
+
+
+def test_interrupt_after_does_not_fire_when_the_anchor_raises() -> None:
+    """A raising match never "returns" — §2c fires the interrupt as a side
+    effect of the matched call *returning*, so an anchored rule that raises
+    must leave the event unset rather than signaling completion first.
+    """
+    event = threading.Event()
+    anchor = FaultRule(match=["gh", "pr", "merge"], raises=RuntimeError("blocked"))
+    anchor.interrupt_after(event)
+    ops = FaultInjectingOps(real_run=_real_run_stub("real"), rules=[anchor])
+
+    with pytest.raises(RuntimeError, match="blocked"):
+        ops.run(["/usr/bin/gh", "pr", "merge"])
+
+    assert not event.is_set()
 
 
 def test_interrupt_after_is_not_a_phase_boundary_tool() -> None:
@@ -352,7 +393,50 @@ def test_report_methods_do_not_raise_and_fail_raises_release_error() -> None:
 # ---------------------------------------------------------------------------
 
 
+def test_run_blocks_on_the_routing_table_lock_until_released() -> None:
+    """Deterministic proof that ``run()`` actually acquires the router's
+    lock.
+
+    A ``ThreadPoolExecutor`` stress test alone cannot distinguish "the lock
+    exists and works" from "the critical section is too short for the GIL
+    to ever preempt inside it in practice" — round 1's evaluation measured
+    zero failures across 1000 trials with the lock removed entirely. This
+    test instead holds the lock from the test thread and asserts a
+    concurrent ``run()`` call is genuinely blocked until it is released,
+    which fails immediately if a future refactor narrows or removes the
+    lock.
+    """
+    rule = FaultRule(
+        match=["git", "fetch"], response=CompletedProcessSpec(stdout="scripted")
+    )
+    ops = FaultInjectingOps(real_run=_real_run_stub("real"), rules=[rule])
+
+    ops._lock.acquire()  # pyright: ignore[reportPrivateUsage]
+    try:
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(ops.run, ["git", "fetch"])
+
+            with pytest.raises(TimeoutError):
+                future.result(timeout=0.2)
+            assert not future.done(), (
+                "run() must block while the routing-table lock is held"
+            )
+
+            ops._lock.release()  # pyright: ignore[reportPrivateUsage]
+            result = future.result(timeout=5)
+    finally:
+        if ops._lock.locked():  # pyright: ignore[reportPrivateUsage]
+            ops._lock.release()  # pyright: ignore[reportPrivateUsage]
+
+    assert result.stdout == "scripted"
+
+
 def test_times_bounded_rule_is_consumed_exactly_once_under_concurrency() -> None:
+    """Secondary sanity check alongside the deterministic lock test above —
+    a real ``ThreadPoolExecutor`` stress run should also observe exactly one
+    winner, even though (per round 1's evaluation) this alone doesn't prove
+    the lock is what enforces it.
+    """
     n_workers = 16
     barrier = threading.Barrier(n_workers)
     rule = FaultRule(
