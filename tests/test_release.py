@@ -4381,6 +4381,42 @@ def test_phase7_github_release_create_failure_diagnoses(
         Phase7GithubRelease(info, "0.2.0", dry_run=False, ops=ops).run()
 
 
+# --- Phase 8: verify PyPI ---
+
+
+def test_phase8_verify_pypi_install_timeout_mid_retry_loop(tmp_path: Path) -> None:
+    """A hang (not just a failure) at any retry attempt must not be swallowed.
+
+    Phase 8's 10-attempt retry loop (`uv tool install --force --refresh`)
+    only special-cases a non-zero exit; nothing forced a genuine
+    `TimeoutExpired` at this call site before this test (matrix row 31,
+    design doc defect #6) — distinct from Phase 11's own, differently-
+    shaped PyPI resolve check. Fails the first attempt rather than a later
+    one: the loop's own `time.sleep(30)` between attempts is real wall-clock
+    the harness has no seam for, so this stays within the single-digit
+    added-time budget by never reaching a second attempt.
+    """
+    from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install", "--force", "--refresh"],
+                raises=subprocess.TimeoutExpired(
+                    ["uv", "tool", "install", "--force", "--refresh"], 600
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+
 def _merge_env(
     root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
 ) -> tuple[FaultInjectingOps, str]:
