@@ -51,6 +51,7 @@ from punt_kit.release import (
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
+from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -1247,7 +1248,6 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     """
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.phase05_tag import Phase5Tag
-    from tests.harness.fault_ops import FaultInjectingOps, FaultRule
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1285,7 +1285,6 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     """Resuming after a fully successful tag+push must not push again."""
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.phase05_tag import Phase5Tag
-    from tests.harness.fault_ops import FaultInjectingOps
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -3866,6 +3865,202 @@ def test_pr_merge_real_merge_failure_still_fails(
 
     with pytest.raises(ReleaseError):
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
+# --- PrMerger.merge: squash-merge retry loop past attempt 1 ---
+#
+# The loop's ``time.sleep(wait)`` call lives in pr_merge.py, which shares
+# the process's one ``time`` module object with release.py (only one
+# ``import time`` per module, no ``from time import sleep`` anywhere in
+# either) — so patching ``punt_kit.phases.shared.pr_merge.time.sleep``
+# reaches the same attribute every other module's ``time.sleep(...)`` call
+# reads, with no real wall-clock spent on any of these tests.
+
+
+def _merge_env(root: Path, *, pr_number: int = 42) -> tuple[FaultInjectingOps, str]:
+    """A real git repo on a release branch plus a scripted gh double.
+
+    Wires the ``gh pr list``/``gh pr create``/``gh pr view`` calls every
+    ``PrMerger.merge`` invocation needs before it ever reaches the
+    squash-merge loop, leaving the caller to add only the merge-loop
+    ``FaultRule`` its scenario needs.
+    """
+    branch = "release/v1.0.0"
+    _init_git_repo(root)
+    # PrMerger.merge's post-merge step runs a bare `git pull --ff-only`
+    # (no explicit remote/branch), which needs main's upstream configured —
+    # unlike Phase5Tag's `ensure_on_main`, which always names `origin main`
+    # explicitly and needs no tracking branch at all.
+    _git(["push", "-u", "origin", "main"], cwd=str(root))
+    _git(["checkout", "-b", branch], cwd=str(root))
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["gh", "pr", "list"], response=CompletedProcessSpec(stdout="[]")
+            ),
+            FaultRule(
+                match=["gh", "pr", "create"],
+                response=CompletedProcessSpec(
+                    stdout=f"https://github.com/punt-labs/proj/pull/{pr_number}\n"
+                ),
+            ),
+            FaultRule(
+                match=["gh", "pr", "view", str(pr_number), "--json", "state"],
+                times=None,
+                response=CompletedProcessSpec(stdout=json.dumps({"state": "OPEN"})),
+            ),
+        ],
+    )
+    return ops, branch
+
+
+def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The squash-merge retry loop must actually retry, not stop at attempt 1.
+
+    Attempts 1 and 2 are blocked by a transient policy check; attempt 3
+    succeeds. Before this test, nothing drove ``merge_attempt`` past 0.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.shared.pr_merge.time.sleep", _noop_sleep)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root)
+    transient = CompletedProcessSpec(
+        returncode=1, stderr="required status check has not passed"
+    )
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            responses=[transient, transient, CompletedProcessSpec()],
+        )
+    )
+    resolve_calls: list[int] = []
+
+    def _record_resolve_threads(_gh: str, _cwd: str, pr: int) -> None:
+        resolve_calls.append(pr)
+
+    sha = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop_wait_for_checks,
+        resolve_threads=_record_resolve_threads,
+    )
+
+    assert sha
+    # Once before the merge loop, then once per retry (attempts 1 and 2).
+    assert resolve_calls == [42, 42, 42]
+
+
+def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merge that stays transiently blocked for all 6 attempts really fails.
+
+    Regression guard for the exhaustion path: nothing before this test
+    proved the loop gives up after attempt 6 instead of retrying forever
+    or silently succeeding.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.shared.pr_merge.time.sleep", _noop_sleep)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="required status check has not passed"
+            ),
+            times=6,
+        )
+    )
+
+    with pytest.raises(ReleaseError, match="Failed to merge PR #42"):
+        PrMerger(ops=ops).merge(
+            cwd=root,
+            branch=branch,
+            title="chore: release v1.0.0",
+            wait_for_checks=_noop_wait_for_checks,
+            resolve_threads=_noop_resolve_threads,
+        )
+
+
+def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A best-effort re-resolve failure mid-retry does not abort the retry.
+
+    Exercises the ``except (ReleaseError, SystemExit,
+    subprocess.CalledProcessError)`` swallow: attempt 1 is transiently
+    blocked, the subsequent re-resolve raises, and the loop must still
+    proceed to attempt 2 instead of propagating that exception.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.shared.pr_merge.time.sleep", _noop_sleep)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            responses=[
+                CompletedProcessSpec(
+                    returncode=1, stderr="required status check has not passed"
+                ),
+                CompletedProcessSpec(),
+            ],
+        )
+    )
+    resolve_calls = 0
+
+    def flaky_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        nonlocal resolve_calls
+        resolve_calls += 1
+        if resolve_calls == 2:  # the retry's re-resolve, not the first call
+            raise ReleaseError("threads API is down")
+
+    sha = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop_wait_for_checks,
+        resolve_threads=flaky_resolve_threads,
+    )
+
+    assert sha
+    printed = capsys.readouterr().out
+    assert "Could not re-resolve threads, proceeding with retry" in printed
 
 
 # --- fwql: README SHA pin lands after the release PR's squash-merge ---
