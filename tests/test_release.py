@@ -322,7 +322,84 @@ def test_preflight_daemon_mutable_only_dirt_names_stash_command(
 
     msg = str(exc_info.value)
     assert "git stash push -- .punt-labs/vox/vox.md" in msg
-    assert "git stash pop" in msg
+    assert "git stash pop --index" in msg
+    assert "commit it instead" in msg
+    assert "running vox session can rewrite this file again" in msg
+
+
+def test_preflight_daemon_only_dirt_with_untracked_reports_both(
+    tmp_path: Path,
+) -> None:
+    """Daemon-only dirt plus an untracked file reports both in one failure.
+
+    ``ops.fail`` raises immediately — a daemon-only-dirty message that
+    omitted the untracked file would send the operator through a stash
+    only to hit a second, previously invisible failure on the very next
+    run. Both problems must be visible from the first failure.
+    """
+    root = _make_release_project(tmp_path)
+    vox_dir = root / ".punt-labs" / "vox"
+    vox_dir.mkdir(parents=True)
+    (vox_dir / "vox.md").write_text("voice: alloy\n")
+    d = str(root)
+    _git(["add", ".punt-labs"], cwd=d)
+    _git(["commit", "-m", "add vox settings"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    (vox_dir / "vox.md").write_text("voice: nova\n")
+    (root / "stray.txt").write_text("stray")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    with pytest.raises(ReleaseError) as exc_info:
+        _phase1_preflight(info, dry_run=False)
+
+    msg = str(exc_info.value)
+    assert "git stash push -- .punt-labs/vox/vox.md" in msg
+    assert "Untracked files are also present" in msg
+    assert "stray.txt" in msg
+
+
+def test_preflight_daemon_stash_pop_index_preserves_staged_state(
+    tmp_path: Path,
+) -> None:
+    """The advised stash/pop commands round-trip a *staged* settings change.
+
+    A bare ``git stash pop`` restores file content but not staged status —
+    silently turning a staged settings change into an unstaged one. This
+    drives the exact commands the message recommends and asserts the file
+    comes back staged, proving ``--index`` does what it's there for.
+    """
+    root = _make_release_project(tmp_path)
+    vox_dir = root / ".punt-labs" / "vox"
+    vox_dir.mkdir(parents=True)
+    (vox_dir / "vox.md").write_text("voice: alloy\n")
+    d = str(root)
+    _git(["add", ".punt-labs"], cwd=d)
+    _git(["commit", "-m", "add vox settings"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    (vox_dir / "vox.md").write_text("voice: nova\n")
+    _git(["add", ".punt-labs/vox/vox.md"], cwd=d)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    with pytest.raises(ReleaseError) as exc_info:
+        _phase1_preflight(info, dry_run=False)
+
+    msg = str(exc_info.value)
+    assert "git stash pop --index" in msg
+
+    _git(["stash", "push", "--", ".punt-labs/vox/vox.md"], cwd=d)
+    assert _git_out(["status", "--porcelain"], cwd=d) == ""
+
+    _git(["stash", "pop", "--index"], cwd=d)
+    status = _git_out(["status", "--porcelain", "--", ".punt-labs/vox/vox.md"], cwd=d)
+    assert status == "M  .punt-labs/vox/vox.md"
 
 
 def test_preflight_mixed_daemon_and_other_dirt_keeps_generic_shape(
@@ -359,6 +436,9 @@ def test_preflight_mixed_daemon_and_other_dirt_keeps_generic_shape(
     assert "README.md" in msg
     assert ".punt-labs/vox/vox.md" in msg
     assert "git stash push -- .punt-labs/vox/vox.md" in msg
+    assert "git stash pop --index" in msg
+    assert "commit it" in msg
+    assert "running vox session can rewrite this file again" in msg
 
 
 def test_preflight_clean_tree_with_daemon_file_unmodified_passes(
