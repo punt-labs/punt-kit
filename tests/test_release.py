@@ -1744,6 +1744,62 @@ def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
         _validate_sibling(sibling, "sib")
 
 
+def test_validate_sibling_diagnoses_branch_read_command_failure(
+    tmp_path: Path,
+) -> None:
+    """A `git branch --show-current` command failure on a sibling checkout
+    must diagnose, not leak a raw CalledProcessError.
+
+    Sibling checkouts are far less controlled than the project's own repo
+    (pkit-f85t.7) — this call defaulted to check=True, inconsistent with
+    the `git pull --ff-only` a few lines later in the same method, which
+    already diagnosed its own failures.
+    """
+    from punt_kit.phases.shared.siblings import SiblingRepo
+
+    sibling = _make_sibling(tmp_path, "sib", {})
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "branch", "--show-current"],
+                response=CompletedProcessSpec(
+                    returncode=128, stderr="fatal: not a git repository"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git branch --show-current failed"):
+        SiblingRepo(sibling, "sib", ops=ops).validate()
+
+
+def test_validate_sibling_diagnoses_status_read_command_failure(
+    tmp_path: Path,
+) -> None:
+    """A `git status --porcelain` command failure on a sibling checkout must
+    diagnose, not leak a raw CalledProcessError (pkit-f85t.7)."""
+    from punt_kit.phases.shared.siblings import SiblingRepo
+
+    sibling = _make_sibling(tmp_path, "sib", {})
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "status", "--porcelain"],
+                response=CompletedProcessSpec(
+                    returncode=128, stderr="fatal: index file corrupt"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git status --porcelain failed"):
+        SiblingRepo(sibling, "sib", ops=ops).validate()
+
+
 # --- Phase 10a: install-all.sh ---
 
 
