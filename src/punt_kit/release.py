@@ -775,39 +775,6 @@ def run_release(
         resume = f" (resuming from phase {start})" if start > 1 else ""
         console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
 
-        # Run preflight before version detection (need clean tree for accurate reads)
-        if start <= 1:
-            current_phase_num = 1
-            _phase1_preflight(info, dry_run=dry_run)
-
-        # Determine version
-        if version is None:
-            if start == 1:
-                # Fresh release — detect from changelog
-                if (
-                    info.pyproject is None
-                    and info.language != "go"
-                    and not info.is_plugin
-                ):
-                    _fail(
-                        "Version required — project has no pyproject.toml, "
-                        "is not a Go project, and is not a plugin"
-                    )
-                current = _get_project_version(info)
-                changelog = _read_changelog(root)
-                version = _suggest_version(changelog, current)
-                console.print(
-                    f"\n  [bold]Suggested version:[/bold]"
-                    f" {version} (current: {current})"
-                )
-                if not dry_run:
-                    _info(f"Using suggested version {version}")
-            else:
-                # Resuming — read current version
-                version = _get_project_version(info)
-                source = "git tags" if info.language == "go" else "pyproject.toml"
-                _info(f"Detected version {version} from {source}")
-
         # Phase 9/10 failures are recorded here (phase number, message)
         # rather than raised immediately — the release still runs Phase 11
         # so the operator gets a real verify report of what actually landed
@@ -815,7 +782,55 @@ def run_release(
         # the propagation step, and reset per run since it is function-local.
         propagation_failures: list[tuple[int, str]] = []
 
+        # Phase 1 and version detection run INSIDE this try: its finally is
+        # the interrupt path (cleanup, the incomplete-release report, the
+        # exit-1 conversion), and _print_incomplete_release's contract is
+        # "called from every stop-early path". With these blocks outside
+        # the try, a Ctrl-C during preflight escaped as a raw
+        # KeyboardInterrupt with no report and no --resume-from hint
+        # (pkit-f85t.11).
         try:
+            # Run preflight before version detection (need clean tree for
+            # accurate reads)
+            if start <= 1:
+                current_phase_num = 1
+                _phase1_preflight(info, dry_run=dry_run)
+            else:
+                # A resumed run still does pre-pipeline work below (version
+                # detection) before any phase step updates the tracker.
+                # Credit that window to the phase the operator asked to
+                # resume from, so an interrupt there reports the exact
+                # --resume-from command they already ran instead of phase 0
+                # ("unknown") with no recovery advice.
+                current_phase_num = start
+
+            # Determine version
+            if version is None:
+                if start == 1:
+                    # Fresh release — detect from changelog
+                    if (
+                        info.pyproject is None
+                        and info.language != "go"
+                        and not info.is_plugin
+                    ):
+                        _fail(
+                            "Version required — project has no pyproject.toml, "
+                            "is not a Go project, and is not a plugin"
+                        )
+                    current = _get_project_version(info)
+                    changelog = _read_changelog(root)
+                    version = _suggest_version(changelog, current)
+                    console.print(
+                        f"\n  [bold]Suggested version:[/bold]"
+                        f" {version} (current: {current})"
+                    )
+                    if not dry_run:
+                        _info(f"Using suggested version {version}")
+                else:
+                    # Resuming — read current version
+                    version = _get_project_version(info)
+                    source = "git tags" if info.language == "go" else "pyproject.toml"
+                    _info(f"Detected version {version} from {source}")
 
             def _step2() -> None:
                 nonlocal current_phase_num
