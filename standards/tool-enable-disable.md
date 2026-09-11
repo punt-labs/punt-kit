@@ -441,7 +441,7 @@ the class rule each follows on migration:
 | Class | On migration |
 |-------|---------------|
 | Pure presence sentinel — an empty or content-free marker whose only job was "this tool is here" | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
-| Sentinel-cum-config — also holds live settings, whether a human/`init` set them (roster, credentials, db name) or a running daemon rewrites them (vibe, notify, display) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty marker, or leaves the file in place and simply stops treating it as the presence signal. Stays **tracked** at the new location either way — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being daemon-rewritten is not grounds for a different destination or a gitignore rule. Neither path destroys live config. |
+| Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: vibe, notify, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty marker, or leaves the file in place and simply stops treating it as the presence signal. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Neither path destroys live config. |
 | Root runtime-state directory — holds no settings, only a continuously-appended live log | Migrated into the local zone ([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)), never deleted with unread lines inside |
 
 This reconciles with § 2.13 and
@@ -470,26 +470,26 @@ deletes a file that still holds settings.
 ## 2.13 `enable` versus `init`
 
 [distribution.md § Installation Scope](distribution.md#installation-scope)
-defines `init` as the per-repo verb that writes a tool's repo config file
-(`.biff`, `.quarry.toml`) and prompts for project-specific settings (team roster,
+defines `init` as the per-repo verb that writes a tool's repo config file — in
+the **config zone**, `.punt-labs/<tool>/config.*`
+([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
+`.biff` and `.quarry.toml` at the repo root are the retired **legacy** shape
+this table's third row exists to migrate away from, not a destination `init`
+still writes to — and prompts for project-specific settings (team roster,
 relay URL, database name). `enable` and `init` are **distinct roles**, not
 duplicates:
 
 | Verb | Job | Writes |
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
-| `init` | Create and populate the tool's repo config/state | The tool's repo config file (`.biff`, `.quarry.toml`, `.beads/`) |
+| `init` | Create and populate the tool's repo config/state | The tool's repo config file, in the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.toml`, `.beads/` — `.beads/` is unaffected, already a directory-form marker, not a root dotfile) |
+| *(legacy, retired)* | — | `.biff`, `.quarry.toml` at the repo root — the shape [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table migrates into the row above |
 
 The repo config file is **no longer the enabled signal** — the `enabled`
 marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
 turn on; `enable` may call `init` when enabling requires config, but the two
 concerns stay separate. Tools that used `init` *only* to drop an enabled
 sentinel fold that into `enable` and retire the bare repo-root sentinel.
-
-Those repo-root config files (`.biff`, `.quarry.toml`) move into the tool's
-subtree config zone — see
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration) for the
-config-into-subtree migration.
 
 ## 2.14 Dual surface, and the separate per-user layer
 
