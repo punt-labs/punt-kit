@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from punt_kit.phases.shared.ops import ReleaseOps
+    from punt_kit.phases.shared.siblings import SkipRecorder
 
 
 @final
@@ -36,13 +37,19 @@ class PrMerger:
     ``SiblingRegistry.reset_all``'s injected ``resolve`` collaborator.
     """
 
-    __slots__ = ("_ops",)
+    __slots__ = ("_ops", "_skips")
 
     _ops: ReleaseOps
+    # Absent by default — only the Phase 10 sibling-merge path
+    # (_sibling_pr_merge) has a sibling to record a skip against; Phase 4's
+    # own release-PR merge (_pr_merge) has no such concept and leaves this
+    # None.
+    _skips: SkipRecorder | None
 
-    def __new__(cls, *, ops: ReleaseOps) -> Self:
+    def __new__(cls, *, ops: ReleaseOps, skips: SkipRecorder | None = None) -> Self:
         self = super().__new__(cls)
         self._ops = ops
+        self._skips = skips
         return self
 
     @staticmethod
@@ -313,15 +320,22 @@ class PrMerger:
             self._ops.dry(f"{name}: {message}")
             return True
 
-        # Use try/finally to ensure sibling returns to main on any failure —
-        # ReleaseError from ops.fail(), CalledProcessError from ops.run(),
-        # etc. (stale propagation branches break subsequent releases).
+        # Use try/except/finally to ensure sibling returns to main on any
+        # failure — ReleaseError from ops.fail(), CalledProcessError from
+        # ops.run(), etc. (stale propagation branches break subsequent
+        # releases). The except clause exists only to capture the primary
+        # exception for the finally block's secondary-failure message
+        # below; it always re-raises, never swallows.
+        primary_exc: BaseException | None = None
         try:
             workspace = GitWorkspace(path, ops=self._ops)
             workspace.checkout_or_create(branch)
             workspace.commit_if_staged(files, message)
 
             merge(cwd=path, branch=branch, title=message, dry_run=False)
+        except BaseException as exc:
+            primary_exc = exc
+            raise
         finally:
             # merge() checks out main on success; this is a no-op in that
             # case. On failure, this ensures we don't leave the sibling on a
@@ -344,9 +358,22 @@ class PrMerger:
                     timeout=GIT_HOOK,
                 )
                 if checkout.returncode != 0:
-                    self._ops.info(
-                        f"Warning: could not return sibling {name} to main: "
-                        f"{checkout.stderr.strip()}"
-                    )
+                    # A secondary failure on top of a primary one leaves the
+                    # sibling in a worse state than the primary alone would
+                    # suggest — route it through SkipRecorder (when the
+                    # caller threaded one through) so it reaches the
+                    # end-of-run recap instead of only this info line, which
+                    # can scroll past among Phase 10's concurrent output.
+                    if self._skips is not None and primary_exc is not None:
+                        self._skips.record(
+                            f"Sibling {name} failed ({primary_exc}) AND could "
+                            f"not be returned to main: {checkout.stderr.strip()} "
+                            "— inspect and clean up manually"
+                        )
+                    else:
+                        self._ops.info(
+                            f"Warning: could not return sibling {name} to main: "
+                            f"{checkout.stderr.strip()}"
+                        )
 
         return True

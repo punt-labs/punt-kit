@@ -501,7 +501,7 @@ def _sibling_pr_merge(
 
     Returns True if a PR was created and merged, False if no changes.
     """
-    return PrMerger(ops=_ops).merge_in_sibling(
+    return PrMerger(ops=_ops, skips=_skips).merge_in_sibling(
         path, branch, files, message, name, dry_run=dry_run, merge=_pr_merge
     )
 

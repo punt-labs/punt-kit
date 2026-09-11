@@ -4063,6 +4063,104 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     assert "Could not re-resolve threads, proceeding with retry" in printed
 
 
+# --- PrMerger.merge_in_sibling: secondary cleanup failure -> SkipRecorder ---
+
+
+def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
+    tmp_path: Path,
+) -> None:
+    """A primary merge failure whose own cleanup also fails must recap both.
+
+    Before this fix, a failed "return sibling to main" checkout inside the
+    ``finally`` block only reached ``ops.info`` — invisible in the
+    end-of-run "Manual action required" recap that ``SkipRecorder`` drives.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="local changes would be overwritten"
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops, skips=skips)
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    (notice,) = skips.drain()
+    assert "required checks never passed" in notice
+    assert "local changes would be overwritten" in notice
+
+
+def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No SkipRecorder threaded through (Phase 4's own merge) keeps the
+    original info-only behavior — the routing is additive, not a
+    replacement for every caller.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="local changes would be overwritten"
+                ),
+            ),
+        ],
+    )
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops)  # no skips= — the _pr_merge/Phase 4 shape
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    printed = capsys.readouterr().out
+    assert "Warning: could not return sibling install-all-github to main" in printed
+
+
 # --- fwql: README SHA pin lands after the release PR's squash-merge ---
 
 
