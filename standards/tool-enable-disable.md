@@ -441,15 +441,19 @@ the class rule each follows on migration:
 | Class | On migration |
 |-------|---------------|
 | Pure presence sentinel — an empty or content-free marker whose only job was "this tool is here" | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
-| Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: vibe, notify, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty marker, or leaves the file in place and simply stops treating it as the presence signal. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Neither path destroys live config. |
+| Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: vibe, notify, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty root file or directory. Ruling 1 ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) forecloses the alternative an earlier draft of this row offered — leaving the file in place and merely stopping treatment of it as the presence signal — because that would leave live settings at the repo root permanently, which is exactly what ruling 1 retires; the move is mandatory, not optional, for a config-bearing sentinel. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Never destroys live config. |
 | Root runtime-state directory — holds no settings, only a continuously-appended live log | Migrated into the local zone ([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)), never deleted with unread lines inside |
 
 This reconciles with § 2.13 and
 [distribution.md § Installation Scope](distribution.md#installation-scope), which
-keep the tool's repo **config** file (`.beads/`, `.quarry.toml`, `.biff` when it
-carries settings) as `init`'s artifact. Enablement stops *reading that file as
-the presence marker*; it does not claim ownership of the config, and it never
-deletes a file that still holds settings.
+keep the tool's repo **config** as `init`'s artifact — now in the config zone
+(`.punt-labs/<tool>/config.*`), not at the legacy root path
+(`.beads/` is unaffected either way, already a directory-form marker). Sentinel
+migration and config-zone migration are the same move, not two separate steps:
+enablement does not merely stop *reading* the legacy file as the presence
+marker while leaving it at the root — it relocates the settings and removes
+the now-empty legacy file, per the table above. It never deletes a file that
+still holds settings.
 
 **Migration steps (per tool, on first run):**
 

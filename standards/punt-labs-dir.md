@@ -94,8 +94,11 @@ machine-local **live state**. Both are ignored by the same local convention; the
 differ in location and in what they hold.
 
 **Outside these two, a tool creates no top-level dotfile or dot-directory of its
-own — in any form.** Operator ruling, 2026-09-10: everything per-repo a tool
-owns lives under `.punt-labs/<tool>/`; there is no repo-root sentinel, whatever
+own — in any form.** Operator ruling, 2026-09-10: every per-repo path a tool
+owns lives under `.punt-labs/` — committed tool-root content in
+`.punt-labs/<tool>/` ([§ 1 above](#1-core-principle)), machine-local live state
+in the local zone `.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) —
+and there is no repo-root sentinel outside `.punt-labs/` altogether, whatever
 shape it takes. Three shapes are attested in the fleet and all three are
 **deprecated legacy**, retired on the tool's next release
 ([§ 9](#9-migration)):
@@ -105,7 +108,7 @@ shape it takes. Three shapes are attested in the fleet and all three are
 - a **config-bearing directory** — `.vox/config.md`, `.lux/config.md`. Earlier
   drafts of this standard called these "pure presence" markers; the fleet
   survey ([§ 10](#10-adoption-status)) found otherwise — both carry live
-  live settings — daemon-mutable for vox (vibe/notify/speak/voice, rewritten
+  settings — daemon-mutable for vox (vibe/notify/speak/voice, rewritten
   at runtime by the MCP switch tools) and enable/disable-managed for lux (the
   `display` toggle, written only by the install/enablement flow, per lux's own
   `operations/config.py` docstring — not a daemon, not a runtime client
@@ -603,18 +606,26 @@ These extend the audit list in
   block is wrong or the file was force-added. (Boundary-aware, not a `*local*` or
   `*.local*` substring scan: `locales/en.yaml` and `config.locales.yaml` are
   shared content and are expected to be tracked.)
-- **No gitignored non-local-convention path.** The inverse of the check above,
-  and just as unconditional: no path present in the worktree under
-  `.punt-labs/<tool>/` is ignored (`git check-ignore` says yes) unless the local
-  convention marks it ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
-  Git status is naming-determined only — a path that is neither
-  local-convention-named nor tracked is a **fail**, whatever wrote the
-  gitignore rule that caught it: a stray tool-specific ignore line, a stale
-  interim exclude, or a hand-edited `.gitignore`. This is the check that would
-  have caught `.punt-labs/vox/vox.md` untracked in punt-kit pre-#350-revert —
-  a daemon-rewritten file is ordinary Config-zone content
-  ([§ 7](#7-the-punt-labstool-subtree-has-zones)) and gets no naming exemption
-  for being daemon-rewritten.
+- **No gitignored non-local-convention path.** The inverse of the check above:
+  no path present in the worktree under `.punt-labs/<tool>/` is ignored
+  (`git check-ignore` says yes) unless the local convention marks it
+  ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)),
+  **with exactly one exemption, not zero**: a path matching a
+  [§ 6](#6-the-canonical-gitignore-block) interim exclude while its owning
+  [§ 10](#10-adoption-status) row is still open (`.punt-labs/quarry/captures/`,
+  `.punt-labs/vox/ephemeral/` today) is sanctioned, table-driven, and expected
+  to be ignored — it is not this check's business, and this check must not
+  re-fail what § 8's own live-state-migration grade already governs on its own
+  expiring schedule. Every other gitignored, non-local-convention path is a
+  **fail**, whatever wrote the rule that caught it: a stray tool-specific
+  ignore line, a stale interim exclude for a row that has since completed
+  (which is a *different*, already-covered fail —
+  ["No interim exclude survives a completed migration"](#8-what-punt-audit-checks) —
+  not this bullet's job either), or a hand-edited `.gitignore`. This is the
+  check that would have caught `.punt-labs/vox/vox.md` untracked in punt-kit
+  pre-#350-revert — a file rewritten after deposit is ordinary Config-zone
+  content ([§ 7](#7-the-punt-labstool-subtree-has-zones)) and gets no naming
+  exemption for that.
 - **No unsanctioned live state.** This check ranges over
   seal-manifest entries only — not over every tracked file. For
   each file a tool's seal manifest declares seal-managed, apply the § 5
@@ -780,7 +791,7 @@ attested legacy forms ([§ 1](#1-core-principle)), not the dotfile case alone:
 | `.vox/config.md` (daemon-mutable settings: vibe/notify/speak/voice) | `.punt-labs/vox/vox.md` | Move the file, then delete the empty root directory; the destination stays **tracked**, exactly like any other Config-zone file ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — being daemon-rewritten does not exempt it from git status; never deleted with settings inside |
 | `.lux/config.md` (enable/disable-managed setting: `display`, not daemon-rewritten) | `.punt-labs/lux/config.md` | Same |
 | `.biff` / `.vox` / `.lux` (pure presence — no settings inside) | — | Deleted once `.punt-labs/<tool>/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
-| bare `.ethos/missions.jsonl` (root runtime-state dir, **not** `.punt-labs/ethos/missions.jsonl` — no settings, no relation to the sealed-chunk subtree file) | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | Move the live log, then delete the empty root directory; never delete with unread lines inside |
+| `.ethos/missions.jsonl` — the file, inside the bare root **directory** `.ethos/` (**not** `.punt-labs/ethos/missions.jsonl` — no settings, no relation to the sealed-chunk subtree file) | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | Move the **file**, then delete the now-empty **directory** `.ethos/`; never delete with unread lines inside |
 
 The moved config file lands in the **config zone** (`init`-owned or
 daemon-rewritten, committed, never overwritten by `enable`) — daemon-mutable is
