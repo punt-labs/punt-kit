@@ -5327,6 +5327,87 @@ def _setup_fully_passing_verify(tmp_path: Path, version: str) -> Path:
     return root
 
 
+def test_phase11_verify_cli_only_project_runs_all_applicable_checks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 11 must run cleanly against a CLI-only project — install.sh
+    present, no plugin.json at all — exercising every applicable check
+    without assuming the plugin/marketplace shape every other Phase 11
+    fixture carries (matrix row 52).
+    """
+    version = "0.1.0"
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo(root)
+
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "test-pkg"\nversion = "{version}"\n\n'
+        "[project.scripts]\ntest-cli = 'test_pkg:main'\n"
+    )
+    src = root / "src" / "test_pkg"
+    src.mkdir(parents=True)
+    (src / "__init__.py").write_text(f'__version__ = "{version}"\n')
+    (src / "py.typed").write_text("")
+
+    (root / "install.sh").write_text(
+        f'#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="{version}"\n'
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    (root / "README.md").write_text(
+        "# test-pkg\n\n```bash\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/v{version}/install.sh"
+        " | sh\n```\n"
+    )
+    (root / "CHANGELOG.md").write_text(
+        f"# Changelog\n\n## [{version}] - 2026-03-28\n\n### Added\n\n- Init\n"
+    )
+
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
+
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+    _git(["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"], cwd=d)
+    _git(["tag", f"v{version}"], cwd=d)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+
+    github_sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+        },
+    )
+    sha = _get_install_all_sha(github_sibling)
+    profile_dir = github_sibling / "profile"
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    (profile_dir / "README.md").write_text(
+        "# Punt Labs\n\n"
+        f"curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/{sha}"
+        "/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=str(github_sibling))
+    _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
+
+    _patch_pypi_probe(monkeypatch)
+
+    info = detect(root)
+    assert info.is_plugin is False
+    assert info.is_hybrid is False
+
+    # Should not raise — every applicable check (tag, pyproject, __init__.py,
+    # changelog, install-all.sh, profile SHA, PyPI) passes; the plugin.json
+    # and marketplace checks correctly do not run at all for this shape.
+    _phase11_verify(info, version, dry_run=False)
+
+
 def test_phase11_verify_profile_sha_passes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
