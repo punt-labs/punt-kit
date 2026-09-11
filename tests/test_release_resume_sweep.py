@@ -486,6 +486,46 @@ _CASES: tuple[_ResumeCase, ...] = (
 )
 
 
+def test_interrupt_during_resumed_version_detection_reports_resume_phase(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A Ctrl-C in a resumed run's pre-pipeline window credits the phase
+    the operator asked to resume from — not phase 0 ("unknown").
+
+    A resume without ``--version`` runs ``_get_project_version`` before
+    any pipeline step updates the phase tracker. Containing that window's
+    interrupt in the incomplete-release path is only half the promise: a
+    report that says "a phase could not be identified" with no
+    ``--resume-from`` hint is not actionable. The pre-pipeline window is
+    credited to the requested resume point, so the report hands back the
+    exact command the operator already ran.
+    """
+    root = _sweep_project(tmp_path, monkeypatch)
+    _install_release_ops(monkeypatch, _scripted_release_rules())
+
+    def interrupted_version_lookup(_info: object) -> str:
+        # The lookup itself is a pure file read for a python project (no
+        # ops.run to anchor a FaultRule on), so the interrupt is injected
+        # at the seam directly — same signal-handler shape as the sweep's
+        # anchored stops.
+        raise _SignalInterrupt
+
+    monkeypatch.setattr(release, "_get_project_version", interrupted_version_lookup)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), dry_run=False, resume_from="ci")
+
+    assert exc_info.value.code == 1
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Release incomplete" in out
+    assert "stopped during phase 6 (ci)" in out
+    assert "--resume-from ci" in out
+    assert "could not be identified" not in out
+    assert "unknown" not in out
+
+
 def test_sweep_covers_every_resume_point_exactly_once() -> None:
     """Adding a 12th phase must force a 12th sweep case, and vice versa.
 

@@ -795,6 +795,14 @@ def run_release(
             if start <= 1:
                 current_phase_num = 1
                 _phase1_preflight(info, dry_run=dry_run)
+            else:
+                # A resumed run still does pre-pipeline work below (version
+                # detection) before any phase step updates the tracker.
+                # Credit that window to the phase the operator asked to
+                # resume from, so an interrupt there reports the exact
+                # --resume-from command they already ran instead of phase 0
+                # ("unknown") with no recovery advice.
+                current_phase_num = start
 
             # Determine version
             if version is None:
