@@ -1413,6 +1413,48 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
 # --- Phase 5: tag ---
 
 
+def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
+    tmp_path: Path,
+) -> None:
+    """The very first `git push origin <tag>` failing must diagnose loudly.
+
+    Isolated from the resume scenario below (which forces the same failure
+    mode but goes on to test retry-on-resume): this test covers the failure
+    moment itself (matrix row 20) — the tag lands locally at HEAD, the
+    remote gets nothing, and the phase raises a diagnosed ReleaseError
+    rather than a raw CalledProcessError. `GitWorkspace.push` defaulted to
+    check=True (pkit-f85t.7); a non-threaded phase like this one had no
+    handler that would catch a raw CalledProcessError, so it would have
+    escaped run_release's diagnosis path entirely and surfaced as a bare
+    traceback.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    failing_ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "push", "origin", "v1.0.0"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: unable to access remote"
+                ),
+            )
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="git push origin v1.0.0 failed"):
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
+    assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
+
+
 def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     tmp_path: Path,
 ) -> None:

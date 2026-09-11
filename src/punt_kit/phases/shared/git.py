@@ -106,9 +106,20 @@ class GitWorkspace:
         return False
 
     def push(self, branch_or_tag: str) -> None:
-        self._ops.run(
+        # A network push is the most externally-fragile call this workspace
+        # makes — a transient auth failure or connectivity blip must raise a
+        # diagnosed ReleaseError, not a raw CalledProcessError. Phase 5 (the
+        # only caller) is a synchronous, non-threaded phase, so an
+        # undiagnosed CalledProcessError here would previously escape
+        # run_release's `except ReleaseError`/`except TimeoutExpired`
+        # handlers entirely and surface as a bare traceback instead of the
+        # usual "Release incomplete — resume with ..." diagnosis.
+        result = self._ops.run(
             ["git", "push", "origin", branch_or_tag],
             cwd=str(self._root),
             capture=False,
+            check=False,
             timeout=timeouts.GIT_HOOK,
         )
+        if result.returncode != 0:
+            self._ops.fail(f"git push origin {branch_or_tag} failed — see output above")
