@@ -4780,37 +4780,57 @@ def test_phase7_github_release_create_failure_diagnoses(
 # --- Phase 8: verify PyPI ---
 
 
-def test_phase8_verify_pypi_install_timeout_mid_retry_loop(tmp_path: Path) -> None:
-    """A hang (not just a failure) at any retry attempt must not be swallowed.
+def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A hang (not just a failure) at any retry attempt must not be
+    swallowed — including an attempt *after* the loop has already retried
+    once, not only the very first call.
 
     Phase 8's 10-attempt retry loop (`uv tool install --force --refresh`)
     only special-cases a non-zero exit; nothing forced a genuine
     `TimeoutExpired` at this call site before this test (matrix row 31,
     design doc defect #6) — distinct from Phase 11's own, differently-
-    shaped PyPI resolve check. Fails the first attempt rather than a later
-    one: the loop's own `time.sleep(30)` between attempts is real wall-clock
-    the harness has no seam for, so this stays within the single-digit
-    added-time budget by never reaching a second attempt.
+    shaped PyPI resolve check. The loop's own `time.sleep(30)` between
+    attempts is real wall-clock the harness has no seam for at the
+    `ops.run` level, so `phase08_verify_pypi`'s own `time.sleep` is
+    patched to a no-op here — the retry bookkeeping and the second
+    attempt still run for real, just without the real 30s wait between
+    them (qodo round-1 review: the single-attempt version of this test
+    could not distinguish "nothing catches TimeoutExpired" from "nothing
+    catches TimeoutExpired on the first attempt specifically").
     """
     from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.phase08_verify_pypi.time.sleep", _noop_sleep)
 
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
-        rules=[
-            FaultRule(
-                match=["uv", "tool", "install", "--force", "--refresh"],
-                raises=subprocess.TimeoutExpired(
-                    ["uv", "tool", "install", "--force", "--refresh"], 600
-                ),
-            )
-        ],
+    install_cmd = ["uv", "tool", "install", "--force", "--refresh"]
+    first_attempt = FaultRule(
+        match=install_cmd,
+        response=CompletedProcessSpec(returncode=1, stderr="index unreachable"),
     )
+    second_attempt = FaultRule(
+        match=install_cmd,
+        raises=subprocess.TimeoutExpired(install_cmd, 600),
+    )
+    ops = FaultInjectingOps(real_run=_run, rules=[first_attempt, second_attempt])
 
     with pytest.raises(subprocess.TimeoutExpired):
         Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+    # Both rules were actually consumed — the failure happened on attempt
+    # 2, not attempt 1 (a regression that made the loop stop retrying
+    # after a non-zero exit would leave second_attempt unconsumed and the
+    # TimeoutExpired assertion above would still pass for the wrong
+    # reason).
+    assert first_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert second_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
 
 def _merge_env(
@@ -7067,33 +7087,56 @@ def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
 def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     tmp_path: Path,
 ) -> None:
-    """A failed plugin-swap script must diagnose, and a clean retry from the
-    same starting state must still land the swap commit and reach merge.
+    """A rejected plugin-swap commit (a real pre-commit hook, exactly the
+    failure mode the module docstring documents) must diagnose, and a
+    clean retry from the same starting state must still land a
+    production-shaped commit and reach merge.
 
-    The module docstring above (phase04_release_pr.py) documents the
-    HEAD-vs-working-tree failure mode; nothing forced the script call to
-    fail via fault injection and asserted the retry before this test
-    (matrix row 13). `bash scripts/release-plugin.sh` also defaulted to
-    check=True (pkit-f85t.7), so this failure previously leaked a raw
-    CalledProcessError instead of a diagnosed message.
+    Uses the *real* release-plugin.sh with a real rejecting pre-commit
+    hook — not fault injection at the `ops.run` boundary — so the first
+    attempt genuinely leaves the tree mutated and staged but uncommitted
+    (the partial state this phase's HEAD-consult retry exists to recover
+    from), and the second attempt proves the retry produces the actual
+    production-shaped result: name swapped, dev command removed, merge
+    reached (qodo round-1 review: the fault-injection version of this
+    test intercepted the whole script call and so never reached that
+    partial state at all — this replaces it). `bash
+    scripts/release-plugin.sh` also defaulted to check=True
+    (pkit-f85t.7), so a rejected commit here previously leaked a raw
+    CalledProcessError instead of a diagnosed message (matrix row 13).
     """
     from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
 
     root = _make_release_project(tmp_path)
-    info = detect(root)
-    release_script = root / "scripts" / "release-plugin.sh"
-    pre_head = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+    d = str(root)
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
-        rules=[
-            FaultRule(
-                match=["bash", str(release_script)],
-                response=CompletedProcessSpec(
-                    returncode=1, stderr="pre-commit hook rejected"
-                ),
-            )
-        ],
+    # Install the real release-plugin.sh — the _make_release_project fake
+    # is `git commit --allow-empty` and would not exercise the
+    # tree-mutation-and-stage path a real hook rejection leaves behind.
+    real_script = _Path(__file__).parent.parent / "scripts" / "release-plugin.sh"
+    release_script = root / "scripts" / "release-plugin.sh"
+    release_script.write_text(real_script.read_text())
+    release_script.chmod(0o755)
+
+    # release-plugin.sh removes commands/*-dev.md as part of the swap; the
+    # fixture ships no commands/ directory, so add one -dev command so the
+    # script has something to `git rm`.
+    commands_dir = root / "commands"
+    commands_dir.mkdir(parents=True, exist_ok=True)
+    (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "install real release script"], cwd=d)
+
+    info = detect(root)
+    pre_head = _git_out(["rev-parse", "HEAD"], cwd=d)
+
+    hooks_dir = root / ".git" / "hooks"
+    pre_commit_hook = hooks_dir / "pre-commit"
+    pre_commit_hook.write_text("#!/bin/sh\nexit 1\n")
+    pre_commit_hook.chmod(0o755)
+
+    ops = FaultInjectingOps(
+        real_run=_run, rules=[], passthrough=[["bash", str(release_script)]]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -7103,13 +7146,23 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
         raise AssertionError("readme pin must not run when the swap script fails")
 
     with pytest.raises(ReleaseError, match=re.escape(str(release_script))):
-        Phase4ReleasePr(info, "0.2.0", dry_run=False, ops=failing_ops).run(
+        Phase4ReleasePr(info, "0.2.0", dry_run=False, ops=ops).run(
             merge=_unreachable_merge, land_readme_sha_pin=_unreachable_pin
         )
 
-    # The script never actually ran (the fault intercepted the whole call),
-    # so nothing mutated the tree — HEAD is exactly where it started.
-    assert _git_out(["rev-parse", "HEAD"], cwd=str(root)) == pre_head
+    # HEAD is untouched (the script's own commit was rejected by the
+    # hook), but the swap itself genuinely happened — plugin.json and the
+    # -dev command removal are staged, uncommitted. This IS the partial
+    # state the module docstring describes and the pre-existing
+    # hand-simulated test (test_phase4_resumes_when_prior_swap_staged_
+    # but_uncommitted) also covers; here it is produced by a real hook
+    # rejection instead of hand-written.
+    assert _git_out(["rev-parse", "HEAD"], cwd=d) == pre_head
+    staged_pj = json.loads(_git_out(["show", ":.claude-plugin/plugin.json"], cwd=d))
+    assert staged_pj["name"] == "test"
+    assert "hello-dev.md" in _git_out(["status", "--porcelain"], cwd=d)
+
+    pre_commit_hook.unlink()
 
     merged: dict[str, object] = {}
 
@@ -7127,7 +7180,10 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
         merge=_capture_merge, land_readme_sha_pin=_capture_pin
     )
 
-    assert _git_out(["rev-parse", "HEAD"], cwd=str(root)) != pre_head
+    assert _git_out(["rev-parse", "HEAD"], cwd=d) != pre_head
+    head_pj = json.loads(_git_out(["show", "HEAD:.claude-plugin/plugin.json"], cwd=d))
+    assert head_pj["name"] == "test"
+    assert not (commands_dir / "hello-dev.md").exists()
     assert merged.get("branch") == "release/v0.2.0"
 
 
