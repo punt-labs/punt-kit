@@ -6793,6 +6793,111 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     assert captured["head_name_at_push"] == "test"
 
 
+def test_phase9_post_release_restore_commit_failure_retries_cleanly(
+    tmp_path: Path,
+) -> None:
+    """A rejected restore commit must diagnose, and a clean retry from the
+    same starting state must still land the restore and reach merge.
+
+    The restore script only stages (never commits — see restore-dev-
+    plugin.sh's CONTRACT); Phase 9's own explicit `git commit` is where a
+    hook rejection actually lands. That call defaulted to check=True
+    (pkit-f85t.7), so the failure previously leaked a raw
+    CalledProcessError instead of the diagnosed message this phase's
+    HEAD-consult idempotency check exists to recover from (matrix row 32).
+    """
+    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    # Same dev-history scaffold the resume test below builds: a prior dev
+    # commit for restore-dev-plugin.sh to walk back to, then the
+    # release-branch merge landing prod on main.
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    commands_dir = root / "commands"
+    commands_dir.mkdir(exist_ok=True)
+    (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
+    plugin_json.write_text(
+        json.dumps(
+            {"name": "test-dev", "version": "0.1.0", "description": "d"},
+            indent=2,
+        )
+        + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add dev command"], cwd=d)
+
+    plugin_json.write_text(
+        json.dumps({"name": "test", "version": "0.2.0"}, indent=2) + "\n"
+    )
+    (commands_dir / "hello-dev.md").unlink()
+    _git(["add", "-A"], cwd=d)
+    _git(["commit", "-m", "chore: release v0.2.0 (post-merge)"], cwd=d)
+
+    real_script = _Path(__file__).parent.parent / "scripts" / "restore-dev-plugin.sh"
+    (root / "scripts" / "restore-dev-plugin.sh").write_text(real_script.read_text())
+    (root / "scripts" / "restore-dev-plugin.sh").chmod(0o755)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "install real restore script"], cwd=d)
+
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "add readme"], cwd=d)
+
+    info = detect(root)
+    pre_head = _git_out(["rev-parse", "HEAD"], cwd=d)
+    restore_script = root / "scripts" / "restore-dev-plugin.sh"
+
+    failing_ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "commit", "-m", "chore: restore dev plugin state"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="pre-commit hook rejected"
+                ),
+            )
+        ],
+        passthrough=[["bash", str(restore_script)]],
+    )
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("merge must not run when the restore commit fails")
+
+    with pytest.raises(ReleaseError, match="restore dev plugin state"):
+        Phase9PostRelease(info, "0.2.0", dry_run=False, ops=failing_ops).run(
+            merge=_unreachable_merge
+        )
+
+    # The restore script legitimately staged its revert (that IS its
+    # contract) — only the follow-up commit failed. HEAD must be
+    # unchanged; the staged, uncommitted dev-shaped plugin.json is exactly
+    # the partial state the HEAD-consult check exists to recover from.
+    assert _git_out(["rev-parse", "HEAD"], cwd=d) == pre_head
+
+    merged: dict[str, object] = {}
+
+    def _capture_merge(**kwargs: object) -> str:
+        merged.update(kwargs)
+        return "abc1234"
+
+    resumed_ops = FaultInjectingOps(
+        real_run=_run, rules=[], passthrough=[["bash", str(restore_script)]]
+    )
+    Phase9PostRelease(info, "0.2.0", dry_run=False, ops=resumed_ops).run(
+        merge=_capture_merge
+    )
+
+    assert _git_out(["rev-parse", "HEAD"], cwd=d) != pre_head
+    assert merged.get("branch") == "post-release/v0.2.0"
+
+
 def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

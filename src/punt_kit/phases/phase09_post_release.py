@@ -104,14 +104,22 @@ class Phase9PostRelease:
             if not restore_done:
                 plugin_swap.reset_to_head()
                 restore_script = root / "scripts" / "restore-dev-plugin.sh"
-                ops.run(
+                restore_result = ops.run(
                     ["bash", str(restore_script)],
                     cwd=str(root),
                     capture=False,
+                    check=False,
                     # git checkout inside the script fires the post-checkout
                     # hook; same reasoning as the phase 4 swap above.
                     timeout=GIT_HOOK,
                 )
+                if restore_result.returncode != 0:
+                    # HEAD is untouched (the script only mutates the working
+                    # tree and its own internal checkout), so the next
+                    # --resume-from post-release re-enters this branch,
+                    # resets to HEAD, and retries — same shape as phase 4's
+                    # swap-script diagnosis above.
+                    ops.fail(f"{restore_script} failed — see output above")
                 # The restore checks plugin.json out of the last dev commit,
                 # which reverts the version field along with the name. Put
                 # the just-released version back before committing so main
@@ -133,7 +141,7 @@ class Phase9PostRelease:
                 # title (which never carried the marker), so removing it
                 # here also does not add a redundant CI run on main.
                 # See pkit-x5j8.
-                ops.run(
+                commit_result = ops.run(
                     [
                         "git",
                         "commit",
@@ -141,8 +149,19 @@ class Phase9PostRelease:
                         "chore: restore dev plugin state",
                     ],
                     cwd=str(root),
+                    check=False,
                     timeout=GIT_HOOK,
                 )
+                if commit_result.returncode != 0:
+                    # A pre-commit hook rejection here leaves the restore
+                    # staged but not committed at HEAD — exactly the state
+                    # this phase's HEAD-consult idempotency check (above)
+                    # exists to detect and re-run from on the next
+                    # --resume-from post-release.
+                    ops.fail(
+                        "git commit (restore dev plugin state) failed — "
+                        f"{commit_result.stderr.strip()}"
+                    )
                 ops.ok("Dev plugin state restored")
                 has_changes = True
             else:
