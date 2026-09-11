@@ -791,6 +791,57 @@ def test_version_bump_uv_lock_failure_diagnoses(
         _phase2_version_bump(info, "0.2.0", dry_run=False)
 
 
+def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """The resolver's own error output must actually reach the terminal,
+    not just get diagnosed — `capture=False` streams the child process's
+    stdout/stderr directly, which the fake-`_run` version of this test
+    above cannot prove (it never invokes a real subprocess at all).
+
+    Cursor and Copilot both flagged the same gap on PR #359: the `uv lock`
+    call defaulted to `capture=True` while its fail message said "see
+    output above," pointing at output that was silently captured and
+    never shown anywhere — fixed by adding `capture=False`, matching
+    `uv build` (Phase 3) and the Phase 1 quality gates. This test drives
+    a real subprocess (a fake `uv` script on `PATH` that fails `uv lock`
+    specifically) so `capfd` — which captures at the OS file-descriptor
+    level, unlike `capsys` — can observe what the terminal actually
+    would.
+    """
+    from punt_kit.phases.phase02_version_bump import Phase2VersionBump
+
+    root = _make_release_project(tmp_path)
+    (root / "uv.lock").write_text("# lock\n")
+    d = str(root)
+    _git(["add", "uv.lock"], cwd=d)
+    _git(["commit", "-m", "add lock file"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    fake_bin = tmp_path / "fakebin"
+    fake_bin.mkdir()
+    fake_uv = fake_bin / "uv"
+    fake_uv.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "lock" ]; then\n'
+        '  echo "error: failed to resolve dependencies for punt-kit" >&2\n'
+        "  exit 1\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    fake_uv.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
+
+    info = detect(root)
+    ops = FaultInjectingOps(real_run=_run, rules=[], passthrough=[["uv", "lock"]])
+
+    with pytest.raises(ReleaseError, match="uv lock failed"):
+        Phase2VersionBump(info, "0.2.0", dry_run=False, ops=ops).run()
+
+    captured = capfd.readouterr()
+    assert "failed to resolve dependencies for punt-kit" in captured.err
+
+
 # --- phase 2 template pin rewrite (pkit-3zu8) ---
 
 # The pin regex only captures ``punt-*`` names (PL-PL-2: every PyPI package in
