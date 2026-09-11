@@ -2257,6 +2257,58 @@ def test_sibling_pr_merge_returns_to_main_on_failure(
     assert branch == "main"
 
 
+def test_sibling_pr_merge_wrapper_wires_skips_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real ``_sibling_pr_merge`` wrapper threads ``_skips`` through.
+
+    Every other SkipRecorder test constructs ``PrMerger(ops=ops,
+    skips=skips)`` directly — none drives a secondary cleanup failure
+    through the actual production wiring
+    (``PrMerger(ops=_ops, skips=_skips)`` at ``_sibling_pr_merge``'s one
+    call site). A future change that dropped or misdirected that one
+    argument would not be caught by anything else in the suite.
+    """
+    from punt_kit import release as release_mod
+
+    sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
+    (sibling / "file.txt").write_text("v2")
+
+    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+        raise ReleaseError("required checks never passed")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        # Only the merge_in_sibling finally block's cleanup checkout uses
+        # this exact argv — checkout_or_create checks out the feature
+        # branch, not "main" — so this can't accidentally intercept an
+        # earlier, unrelated checkout in the same flow.
+        if cmd == ["git", "checkout", "main"]:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout="",
+                stderr="local changes would be overwritten",
+            )
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+            sibling,
+            "test-branch",
+            ["file.txt"],
+            "test commit",
+            "sib",
+            dry_run=False,
+        )
+
+    (notice,) = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    assert "required checks never passed" in notice
+    assert "local changes would be overwritten" in notice
+
+
 def test_phase_names_cover_all_phases() -> None:
     """All 11 phases are mapped (plus aliases)."""
     phase_numbers = set(PHASE_NAMES.values())
@@ -4101,15 +4153,14 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        FaultRule(
-            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
-            response=CompletedProcessSpec(
-                returncode=1, stderr="required status check has not passed"
-            ),
-            times=6,
-        )
+    merge_rule = FaultRule(
+        match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+        response=CompletedProcessSpec(
+            returncode=1, stderr="required status check has not passed"
+        ),
+        times=6,
     )
+    ops._rules.append(merge_rule)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
 
     with pytest.raises(ReleaseError, match="Failed to merge PR #42"):
         PrMerger(ops=ops).merge(
@@ -4119,6 +4170,17 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
             wait_for_checks=_noop_wait_for_checks,
             resolve_threads=_noop_resolve_threads,
         )
+
+    # Pin the count directly — with only `times=6` + the fixed-transient
+    # response, a future off-by-one in the `merge_attempt < 5` guard that
+    # gave up after 5 or tried a 7th time would raise the same
+    # ReleaseError/message either way (5 attempts: exhausted at the
+    # `is_transient` check without a 6th `time.sleep`; 7 attempts: the
+    # rule's own exhaustion makes call 7 an unmatched `gh` command, a
+    # deny-by-default `AssertionError` instead of `ReleaseError` — so an
+    # *unbounded* runaway is already caught, but an off-by-one that stops
+    # one attempt early would not be, without this explicit count).
+    assert merge_rule._consumed == 6  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
 
 
 def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
