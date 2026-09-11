@@ -4344,6 +4344,43 @@ def _fake_which_gh(_name: str) -> str:
     return "gh"
 
 
+# --- Phase 7: github release ---
+
+
+def test_phase7_github_release_create_failure_diagnoses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A `gh release create` failure (network/permission) must diagnose loudly.
+
+    Phase 7 had no isolated failure-path test at all before this (matrix
+    row 29).
+    """
+    from punt_kit.phases.phase07_github_release import Phase7GithubRelease
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+    monkeypatch.setattr(shutil, "which", _fake_which_gh)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["gh", "release", "view", "v0.2.0"],
+                response=CompletedProcessSpec(returncode=1),
+            ),
+            FaultRule(
+                match=["gh", "release", "create", "v0.2.0"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="HTTP 403: Forbidden"
+                ),
+            ),
+        ],
+    )
+
+    with pytest.raises(ReleaseError, match="Failed to create release"):
+        Phase7GithubRelease(info, "0.2.0", dry_run=False, ops=ops).run()
+
+
 def _merge_env(
     root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
 ) -> tuple[FaultInjectingOps, str]:
