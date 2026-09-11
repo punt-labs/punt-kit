@@ -3059,6 +3059,46 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     assert printed.count("No branch protection or ruleset configured") == 1
 
 
+def test_gh_module_has_no_hardcoded_7200_literal() -> None:
+    """gh.py's CI-check deadline must derive from timeouts.CI_WATCH.
+
+    A hardcoded 7200 that happens to equal CI_WATCH today would silently
+    drift the moment CI_WATCH changes — this asserts the import, not just
+    the current numeric coincidence.
+    """
+    from punt_kit.phases.shared import gh as gh_mod
+
+    source = inspect.getsource(gh_mod)
+    assert "7200" not in source
+    assert "CI_WATCH" in source
+
+
+def test_wait_for_required_checks_deadline_tracks_ci_watch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shrinking ``gh``'s own ``CI_WATCH`` binding actually shortens the wait.
+
+    Proves the deadline is read from the module attribute at call time
+    (patchable), not baked in as a literal at import time.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.phases.shared import gh as gh_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=False)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        raise AssertionError("should time out before ever polling checks")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(gh_mod, "CI_WATCH", -1)
+
+    with pytest.raises(ReleaseError, match="Timed out waiting for"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
 # --- pkit-plxh: ruleset awareness + no-checks grace window ---
 
 
