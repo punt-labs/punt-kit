@@ -66,9 +66,15 @@ class Phase1Preflight:
             ops.fail(f"Must be on main branch (currently on '{branch}')")
         ops.ok("On main branch")
 
-        status = ops.run(
-            ["git", "status", "--porcelain"], cwd=str(info.root)
-        ).stdout.strip()
+        # Not `.stdout.strip()` — porcelain's XY status code can start with
+        # a literal space (e.g. " M path" for an unstaged-only
+        # modification), and stripping the whole block eats that space
+        # whenever it lands as the very first character of the output
+        # (the alphabetically-first dirty path), corrupting `ln[3:]`
+        # below by one character. `splitlines()` on the raw stdout needs
+        # no such strip — a trailing newline produces no extra element,
+        # and an empty status yields an empty list either way.
+        status = ops.run(["git", "status", "--porcelain"], cwd=str(info.root)).stdout
         dirty_lines: list[str] = []
         untracked_lines: list[str] = []
         for ln in status.splitlines():

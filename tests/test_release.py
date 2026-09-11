@@ -292,6 +292,101 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
         _phase1_preflight(info, dry_run=False)
 
 
+def test_preflight_daemon_mutable_only_dirt_names_stash_command(
+    tmp_path: Path,
+) -> None:
+    """Only a daemon-rewritten settings file dirty → actionable stash hint.
+
+    ``.punt-labs/vox/vox.md`` is the one file standards/punt-labs-dir.md § 7
+    names as continuously rewritten by a running daemon. When it is the
+    *only* dirty path, the failure names the exact stash-push command and
+    the post-release pop step instead of the generic dirty-tree dump.
+    """
+    root = _make_release_project(tmp_path)
+    vox_dir = root / ".punt-labs" / "vox"
+    vox_dir.mkdir(parents=True)
+    (vox_dir / "vox.md").write_text("voice: alloy\n")
+    d = str(root)
+    _git(["add", ".punt-labs"], cwd=d)
+    _git(["commit", "-m", "add vox settings"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    (vox_dir / "vox.md").write_text("voice: nova\n")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    with pytest.raises(ReleaseError) as exc_info:
+        _phase1_preflight(info, dry_run=False)
+
+    msg = str(exc_info.value)
+    assert "git stash push -- .punt-labs/vox/vox.md" in msg
+    assert "git stash pop" in msg
+
+
+def test_preflight_mixed_daemon_and_other_dirt_keeps_generic_shape(
+    tmp_path: Path,
+) -> None:
+    """Daemon-mutable dirt mixed with unrelated dirt keeps the generic message.
+
+    The operator still has real cleanup to do beyond stashing vox.md, so the
+    failure keeps the original "Working tree is not clean" shape — but it
+    still names which paths are daemon-mutable so the stash step isn't
+    rediscovered by hand once the rest is cleaned up.
+    """
+    root = _make_release_project(tmp_path)
+    vox_dir = root / ".punt-labs" / "vox"
+    vox_dir.mkdir(parents=True)
+    (vox_dir / "vox.md").write_text("voice: alloy\n")
+    d = str(root)
+    _git(["add", ".punt-labs"], cwd=d)
+    _git(["commit", "-m", "add vox settings"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    (vox_dir / "vox.md").write_text("voice: nova\n")
+    (root / "README.md").write_text("# test-pkg\n\nunrelated edit\n")
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    with pytest.raises(ReleaseError) as exc_info:
+        _phase1_preflight(info, dry_run=False)
+
+    msg = str(exc_info.value)
+    assert "Working tree is not clean:" in msg
+    assert "README.md" in msg
+    assert ".punt-labs/vox/vox.md" in msg
+    assert "git stash push -- .punt-labs/vox/vox.md" in msg
+
+
+def test_preflight_clean_tree_with_daemon_file_unmodified_passes(
+    tmp_path: Path,
+) -> None:
+    """A committed, unmodified vox.md does not trip the dirty-tree gate.
+
+    The daemon-mutable allowance only changes the *message* on failure — a
+    clean tree (vox.md present but not currently dirty) must still pass
+    exactly as before.
+    """
+    root = _make_release_project(tmp_path)
+    vox_dir = root / ".punt-labs" / "vox"
+    vox_dir.mkdir(parents=True)
+    (vox_dir / "vox.md").write_text("voice: alloy\n")
+    d = str(root)
+    _git(["add", ".punt-labs"], cwd=d)
+    _git(["commit", "-m", "add vox settings"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    from punt_kit.detect import detect
+
+    info = detect(root)
+
+    # Should not raise — dry_run skips quality gates.
+    _phase1_preflight(info, dry_run=True)
+
+
 def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
     """Pre-flight fails when there is an untracked file.
 
