@@ -1,22 +1,33 @@
 # Repo-Local State Directory Standard
 
-**Introduced:** 2026-07-20 · **Updated:** 2026-07-27
+**Introduced:** 2026-07-20 · **Updated:** 2026-09-10
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
 the two are told apart. A tool's committed repo state lives under one directory —
 `<repo>/.punt-labs/<tool>/`; its per-checkout, machine-local live state lives in
 the **local zone**, `<repo>/.punt-labs/local/<tool>/`
 ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — the one
-non-tool entry directly under `.punt-labs/`, always gitignored. One convention —
-the boundary-aware **local convention**
-([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
-marks the files that do not travel with the repo, and the local zone is that same
-convention (a `local` path segment) reserved at the top of `.punt-labs/`. This
+non-tool entry directly under `.punt-labs/`, always gitignored. **Git status is
+naming-determined, and naming alone** — the boundary-aware **local convention**
+([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention))
+is the *only* signal that a path does not travel with the repo, and the local
+zone is that same convention (a `local` path segment) reserved at the top of
+`.punt-labs/`. Operator ruling, 2026-09-10: "*local* is the flag that something
+should not be in git. If it is not in *local*, that means I designed it to be
+in git." A file a daemon rewrites is not exempt from that rule merely because
+it is daemon-rewritten — see [§ 7](#7-the-punt-labstool-subtree-has-zones) for
+what that means for a file like `vox.md`. This
 standard builds on [tool-enable-disable.md](tool-enable-disable.md), which governs
 how a tool's CLAUDE.md guidance is turned on and off, and on
 [filesystem.md](filesystem.md), which governs the global `~/.punt-labs/<tool>/`
 tree. It settles the committed-vs-ignored and repo-vs-global questions those two
-leave open.
+leave open, and — per the operator's 2026-09-10 root-sentinel ruling
+([§ 1](#1-core-principle), which also states the `.beads/` exception) — that a
+Punt Labs tool built to this convention keeps no per-repo state outside
+`.punt-labs/` at all, in any shape: committed tool-root content in
+`.punt-labs/<tool>/`, machine-local live state in the local zone
+`.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)),
+and nothing outside `.punt-labs/` whatsoever.
 
 Section numbering is this document's own (1…); cross-references to
 tool-enable-disable.md keep that document's `§ 2.x` numbers.
@@ -41,6 +52,22 @@ mission logs — instead goes to the **local zone**
 `<repo>/.punt-labs/local/<tool>/`, gitignored by that same `local` convention and
 never committed. Secrets are not kept in either at all.
 
+**This standard — and every no-repo-root-sentinel rule it and its siblings
+state — governs Punt Labs tools built to the `.punt-labs/<tool>/` convention.
+`.beads/` is the one named, permanent exception, stated canonically here and
+cross-referenced everywhere else this document, or any other standard, would
+otherwise repeat it.** Beads is an org-external tool (`gastownhall/beads`, run
+at Punt Labs from a fork) with its own root-level convention — a per-repo
+`.beads/` directory (`metadata.json`, `config.yaml`) pointing at cross-editor,
+hosted-DoltDB-backed issue state — that predates and is independent of
+`.punt-labs/<tool>/` entirely. It is not a Punt Labs CLAUDE.md-guidance tool
+with a vendored/config/local/marker subtree that merely failed to adopt this
+convention; it is out of scope for the convention altogether, the same way
+`.git/` is. No other root-level directory gets this exemption without the
+same independent-of-the-convention justification
+([integration.md § L0 Presence](integration.md#l0-presence) states the
+identical fact for the presence-check migration specifically).
+
 Two questions this standard answers, that
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) and
 [filesystem.md](filesystem.md) leave open:
@@ -58,7 +85,9 @@ Two questions this standard answers, that
 
 ## 2. Repo-Local Locations: the Tool Root and the Local Zone
 
-A tool may write repo-local state in exactly **two** places, and no others:
+A **Punt Labs tool built to this convention** may write repo-local state in
+exactly **two** places, and no others (`.beads/` is out of scope for this rule
+entirely — [§ 1](#1-core-principle) states the exemption):
 
 - **The tool root — `<repo>/.punt-labs/<tool>/`.** Committed shared history
   (except local-convention paths within it,
@@ -86,12 +115,60 @@ overrides**; the top-level local zone is `.punt-labs/local/<tool>/` holding
 machine-local **live state**. Both are ignored by the same local convention; they
 differ in location and in what they hold.
 
-Outside these two, a tool creates no top-level dotfile or dot-directory of its own
-— `.biff`, `.vox`, `.lux`, `.quarry.toml` at the repo root are **deprecated
-legacy** and are retired on the tool's next release ([§ 9](#9-migration)). This
-mirrors the global rule in
+**Outside these two, a tool creates no top-level dotfile or dot-directory of its
+own — in any form.** Operator ruling, 2026-09-10: every per-repo path a
+**Punt Labs tool built to this convention** owns lives under `.punt-labs/` —
+committed tool-root content in `.punt-labs/<tool>/` ([§ 1 above](#1-core-principle)),
+machine-local live state in the local zone `.punt-labs/local/<tool>/`
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — and there
+is no repo-root sentinel outside `.punt-labs/` altogether, whatever shape it
+takes (`.beads/` is out of scope for this ruling entirely, not a violation of
+it — [§ 1](#1-core-principle) states the exemption canonically). Three shapes
+of the in-scope legacy — a Punt Labs tool's own root sentinel — are attested
+in the fleet and all three are **deprecated legacy**, retired on the tool's
+next release ([§ 9](#9-migration)):
+
+- a **settings-bearing dotfile** — `.biff` (real TOML: `[team]`, `[relay]`,
+  `[peers]`). `.quarry.toml` was this standard's earlier, proposed shape for
+  quarry — verified against quarry's own source (`_stdlib.py`) and the fleet
+  (zero repos surveyed carry it): quarry never shipped it, going straight to
+  `.punt-labs/quarry/config.md` (YAML frontmatter, not TOML). Kept here as a
+  corrected historical note, not a live migration target — see the quarry
+  (config) row in [§ 10](#10-adoption-status);
+- a **config-bearing directory** — `.vox/config.md`, `.lux/config.md`. Earlier
+  drafts of this standard called these "pure presence" markers; the fleet
+  survey ([§ 10](#10-adoption-status)) found otherwise — both carry live
+  settings — daemon-mutable for vox (`model`/`notify`/`provider`/`speak`/`voice`,
+  vox's own durable-field set — `vibe` and its cluster are session-local and
+  live in `vox.local.md`, not this file — rewritten at runtime by the MCP
+  switch tools) and enable/disable-managed for lux (the
+  `display` toggle, written only by the install/enablement flow, per lux's own
+  `operations/config.py` docstring — not a daemon, not a runtime client
+  setter) — the exact root-level predecessor of `.punt-labs/vox/vox.md` and
+  `.punt-labs/lux/config.md` below. Both writer patterns land the same way:
+  ordinary tracked content at the new location, same as at the old one
+  ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — git status does not
+  distinguish who writes the file.
+  The "pure presence" case (no settings, e.g. a bare `.vox` with nothing
+  inside) is retired the same way, just with nothing to move first;
+- a **root-level runtime-state directory** — the bare `.ethos/` directory (note
+  the missing `.punt-labs/` prefix — this is a different path from the
+  `.punt-labs/ethos/` subtree discussed everywhere else in this document),
+  holding `.ethos/missions.jsonl`, a continuously-appended mission audit log
+  with no settings at all, tracked at repo root in every ethos-adopting repo
+  surveyed. This is the root-level predecessor of the local zone
+  ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)): the state
+  was always machine/checkout-scoped live state, it just had nowhere
+  sanctioned to go before this standard. It does **not** touch the separate,
+  pre-existing question of `.punt-labs/ethos/missions.jsonl` (inside the
+  vendored subtree) — that file's own live/sealed split is ethos(logs)'s
+  DES-058 seal pattern ([§ 10](#10-adoption-status)), unchanged by this row.
+
+This mirrors the global rule in
 [filesystem.md § Core Principle](filesystem.md#core-principle) ("no tool creates
-its own top-level dot-directory") and extends it to the repo.
+its own top-level dot-directory") and extends it to the repo, closing it over
+every shape a root sentinel has taken in practice, not just the dotfile case
+the name "sentinel dotfile" suggested.
 
 The subtree name `<tool>` is the CLI binary name, identical to the global tree
 ([filesystem.md § Directory Root](filesystem.md#directory-root)); the local zone
@@ -146,9 +223,19 @@ shared content and must stay committed. The boundary forms match `.local` only a
 a **whole dotted component** — a trailing `.local` or an interior `.local.` — so
 `config.locales.yaml`, `mylocal.txt`, and `locales/` all stay tracked.
 
-The local convention is the **only** ignore convention under `.punt-labs/`. A
-tool does not invent a second one. Two existing directories break this rule and
-must change:
+The local convention is the **only permanent** ignore convention under
+`.punt-labs/`. A tool does not invent one of its own — not a manifest, not a
+per-file exception, not a directory glob. **A tracked file's git status is
+naming-determined, full stop:** a path either carries a local-convention name
+and is ignored, or it doesn't and is tracked, forever, including for a file a
+running daemon rewrites ([§ 7](#7-the-punt-labstool-subtree-has-zones)). The
+[§ 6](#6-the-canonical-gitignore-block) **interim excludes** are not a
+second permanent convention and do not weaken this rule: they are a
+single, canonical, table-driven exception the tooling maintains — never a
+tool's own invention — scoped to the two directories below while their
+[§ 10](#10-adoption-status) migration stays open, and they disappear the
+moment that migration completes. Two existing directories are the reason
+that exception exists, and must eventually change so it can retire:
 
 - `quarry`'s `captures/` — relocate to the global tree
   (`~/.punt-labs/quarry/captures/`) if machine-scoped, or rename to a
@@ -180,12 +267,34 @@ audit tooth ([§ 8](#8-what-punt-audit-checks)).
 
 ## 5. Live State is Never a Tracked File
 
-**A file a live process appends to continuously must never be git-tracked.** A
-tracked file changes only on a deliberate operator or lifecycle action — an
+**A file a live process *appends to* continuously must never be git-tracked.**
+A tracked file changes only on a deliberate operator or lifecycle action — an
 edit, an `enable`, a `mission close`. A file re-dirtied within seconds of every
 cleanup fails that test: any repo with the tool running then has a permanently
 dirty work tree, which breaks every clean-tree gate (the `punt release`
 preflight over cross-repo siblings is the reported case).
+
+**This rule is about unbounded append, not about a file being rewritten.**
+`vox.md` ([§ 7](#7-the-punt-labstool-subtree-has-zones)) is a running daemon's
+**tracked** exception to the pattern this rule names, not a violation of it —
+and the two are compatible because they test different things. This rule
+governs a file that *grows* — an audit log, a session transcript — where
+"deliberate lifecycle action" cannot describe the write cadence (a live
+process appends every few seconds, unbounded, for as long as it runs); such a
+file is never tracked, full stop, and lands in the local zone or behind the
+seal pattern below. `vox.md` never grows — it is a small, bounded set of
+durable fields (`model`, `notify`, `provider`, `speak`, `voice` — vox's own
+tracked-config set; the ephemeral `vibe` cluster is session-local and lives in
+`vox.local.md` instead, never in this file) rewritten in place by a
+`write_field` call only when an MCP switch tool actually changes a value — a
+list, no-op, refused, or failed switch call never touches the file at all. A
+successful `write_field` call is exactly as much a "deliberate action" as a
+human edit or an `enable` run — it is just triggered by a tool call instead of
+a keystroke — so it does not fail this rule's test at all; §4's
+naming-determined git status (not this section) is
+what decides `vox.md` stays tracked. The distinction is **append vs.
+rewrite-in-place**, not "important vs. throwaway" (as the closing line of this
+section already says) and not "human-triggered vs. tool-triggered."
 
 Live state has two correct homes:
 
@@ -336,23 +445,14 @@ not yet local-convention-named — because its owning tool has not migrated — 
 committed-by-default in **both** repo types, so the exposure is not deny-all-only:
 a normal-gitignore repo ignores nothing under `.punt-labs/`, and the deny-all
 form's `!.punt-labs/**` re-includes everything. Either way `git add -A` would
-stage a live transcript, ephemeral stream, or daemon-rewritten file. So the block
-carries one temporary exclude for **every** live path an open
-[§ 10](#10-adoption-status) live-state row names — **file or directory**, not
-directories only — today:
+stage a live transcript or ephemeral stream. So the block carries one temporary
+exclude for **every** live path an open [§ 10](#10-adoption-status) live-state
+row names — **file or directory**, not directories only — today:
 
 ```gitignore
 .punt-labs/quarry/captures/
 .punt-labs/vox/ephemeral/
-.punt-labs/vox/vox.md
 ```
-
-`.punt-labs/vox/vox.md` is a file, not a directory: the vox daemon rewrites it
-and it is untracked in some repos, so the deny-all re-include would let `git
-add -A` stage it. An interim-exclude list built from directories alone would miss
-it — the list is derived from the concrete live paths the open rows name
-([§ 10](#10-adoption-status) gives each open live-state row explicit paths so the
-derivation is machine-resolvable), whatever their file type.
 
 Each interim line is **tied to a [§ 10](#10-adoption-status) row, not to prose**:
 the rollout generates this list from the § 10 table's open live-state rows and
@@ -389,8 +489,8 @@ tool owns `.punt-labs/<tool>/` and overwrites it **wholesale** on every
 `enable` / upgrade — "same tool version, same repo config, identical output."
 That contract collides with the placement rule
 ([§ 3](#3-repo-versus-home-the-placement-rule)), which puts **repo config** —
-the artifacts `init` writes (a roster, a database name; today `.biff`,
-`.quarry.toml` per
+the artifacts `init` writes (a roster, a database name; in the config zone —
+`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.md` — per
 [tool-enable-disable.md § 2.13](tool-enable-disable.md#213-enable-versus-init)) —
 inside the same subtree. A wholesale overwrite would clobber that config on
 every upgrade.
@@ -401,9 +501,43 @@ applies to exactly one of them.**
 | Zone | Path shape | Owner | Committed? | On `enable` / upgrade |
 |------|-----------|-------|-----------|----------------------|
 | Vendored | tool-deposited files (e.g. the `CLAUDE.md` guide) | The tool | Yes | Overwritten wholesale — the § 2.2 determinism contract lives here and **only** here |
-| Config | `.punt-labs/<tool>/config.*` and other `init`-written files | The repo (via `init`) | Yes | **Never touched** — `enable` / upgrade must not read, merge, or overwrite it |
+| Config | `.punt-labs/<tool>/config.*` and other `init`-written files | The repo (via `init`) — or the tool's own `enable`/`disable`/daemon, for the specific fields they own (below) | Yes | **Never touched by the vendored-zone wholesale overwrite** — that is what "never touched" scopes ([§ 2.2](tool-enable-disable.md#22-ownership)'s determinism contract lives in the Vendored zone only, never here). It does **not** mean no write ever reaches this file: a tool's own `enable`/`disable`/daemon may write the specific fields it owns (below) |
 | Local | `.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | The user | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Never touched |
 | Marker | `.punt-labs/<tool>/enabled` | The tool | Yes | Written by `enable`, deleted by `disable` ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
+
+**A file some other actor mutates after deposit is still Config-zone content,
+not a fifth zone — whichever actor that is.** `vox.md`
+(`.punt-labs/vox/vox.md`) holds live settings (`vibe`, `notify`, `speak`,
+`voice`) a running daemon rewrites at runtime, via the MCP switch tools
+(`mic:model`/`mic:provider`/`mic:voice`, vox's `config_writer.py`). `lux`'s
+`.punt-labs/lux/config.md` holds `display`, written differently — not by a
+daemon or a runtime client setter, but by the install/enablement flow itself
+(`enable` writes it, matching lux's own `operations/config.py` docstring: "not
+a client setter routed through the Hub"). Operator ruling, 2026-09-10: git
+status is decided by **naming alone** ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention))
+— "*local* is the flag that something should not be in git. If it is not in
+*local*, that means I designed it to be in git." Neither `vox.md` nor
+`config.md` carries a local-convention name, so both are **tracked**, exactly
+like every other Config-zone file, regardless of which actor —
+`init`, a human, `enable`/`disable`, or a daemon — rewrites them after
+deposit. An earlier draft of this standard, and punt-kit#350 following it,
+gitignored `vox.md`; both were wrong, and #350's untrack is being reverted
+separately (not by this document).
+
+**A tracked file a running daemon rewrites continuously — `vox.md`'s case, not
+`lux`'s — legitimately shows `modified` in an active checkout.** That is
+accepted by design, not a bug to route around with a gitignore rule: the file
+is doing exactly what a tracked config file does when something changes its
+value. `lux`'s `config.md` does not have this property — it changes only on
+the deliberate lifecycle events `enable` and `disable` write it at, the same
+write cadence as the `enabled` marker, so it dirties the tree no more often
+than any other config edit does. `vox.md`'s continuous runtime rewrites are the
+one place this needs an explicit accommodation: the `punt release` preflight's
+clean-tree gate. The release engine stashes a continuously-rewritten file's
+local modifications before its clean-tree check and restores them after,
+rather than treating the daemon's ordinary write as an uncommitted change
+blocking a release. That accommodation is tracked separately as bead
+`pkit-f85t.9`, not specified here.
 
 The determinism guarantee of
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) — "writes the
@@ -467,6 +601,15 @@ or not — the grandfather covers only the tool's own prior vendored deposit, ne
 
 ## 8. What `punt audit` Checks
 
+**This section specifies the contract; implementation is tracked separately.**
+As with every other bullet already in this section before this PR, a check
+appearing here is the normative spec `punt audit` must eventually meet, not a
+claim that `src/punt_kit/audit.py` implements it today. The two bullets this
+PR adds or amends — "No gitignored non-local-convention path" and the
+legacy-root-sentinel `.ethos` addition — are tracked for implementation as
+bead `pkit-6h9l`; do not read either bullet's presence here as a promise the
+current binary enforces it yet.
+
 These extend the audit list in
 [tool-enable-disable.md § 2.11](tool-enable-disable.md#211-what-punt-audit-checks):
 
@@ -517,6 +660,26 @@ These extend the audit list in
   block is wrong or the file was force-added. (Boundary-aware, not a `*local*` or
   `*.local*` substring scan: `locales/en.yaml` and `config.locales.yaml` are
   shared content and are expected to be tracked.)
+- **No gitignored non-local-convention path.** The inverse of the check above:
+  no path present in the worktree under `.punt-labs/<tool>/` is ignored
+  (`git check-ignore` says yes) unless the local convention marks it
+  ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)),
+  **with exactly one exemption, not zero**: a path matching a
+  [§ 6](#6-the-canonical-gitignore-block) interim exclude while its owning
+  [§ 10](#10-adoption-status) row is still open (`.punt-labs/quarry/captures/`,
+  `.punt-labs/vox/ephemeral/` today) is sanctioned, table-driven, and expected
+  to be ignored — it is not this check's business, and this check must not
+  re-fail what § 8's own live-state-migration grade already governs on its own
+  expiring schedule. Every other gitignored, non-local-convention path is a
+  **fail**, whatever wrote the rule that caught it: a stray tool-specific
+  ignore line, a stale interim exclude for a row that has since completed
+  (which is a *different*, already-covered fail —
+  ["No interim exclude survives a completed migration"](#8-what-punt-audit-checks) —
+  not this bullet's job either), or a hand-edited `.gitignore`. This is the
+  check that would have caught `.punt-labs/vox/vox.md` untracked in punt-kit
+  pre-#350-revert — a file rewritten after deposit is ordinary Config-zone
+  content ([§ 7](#7-the-punt-labstool-subtree-has-zones)) and gets no naming
+  exemption for that.
 - **No unsanctioned live state.** This check ranges over
   seal-manifest entries only — not over every tracked file. For
   each file a tool's seal manifest declares seal-managed, apply the § 5
@@ -632,8 +795,10 @@ These extend the audit list in
   Best-effort exactly like the secret scan above: writer-side redaction is the
   primary control, the scan is the tripwire.
 - **No legacy root sentinel** *(graded, expiring)*. No `.biff`, `.vox`, `.lux`,
-  or `.quarry.toml` at the repo root ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)).
-  Graded exactly like the bare-file check, not an unconditional fail: a sentinel
+  `.ethos`, or `.quarry.toml` at the repo root
+  ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — dotfile or
+  directory, config-bearing or not; the check is on the path's presence, not its
+  shape or contents ([§ 1](#1-core-principle)). Graded exactly like the bare-file check, not an unconditional fail: a sentinel
   named in the [§ 9](#9-migration) root-sentinel table grades by **the
   [§ 10](#10-adoption-status) row that names that sentinel** (by row, not by tool)
   — a **warning** ("migration pending") while that row is open, a **fail** once the
@@ -670,16 +835,24 @@ the tables that follow.
 [§ 2.12 sentinel table](tool-enable-disable.md#212-migration). That table already
 moves a config-bearing sentinel's settings into the tool's owned location; this
 standard names the destination (the config zone,
-[§ 7](#7-the-punt-labstool-subtree-has-zones)) and the shape:
+[§ 7](#7-the-punt-labstool-subtree-has-zones)) and the shape — for all three
+attested legacy forms ([§ 1](#1-core-principle)), not the dotfile case alone:
 
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.biff` (settings) | `.punt-labs/biff/config.yaml` (config zone) | Move settings, then delete the empty root file; never delete with settings inside |
-| `.quarry.toml` (root) | `.punt-labs/quarry/config.toml` (config zone) | Same |
-| `.biff` / `.vox` / `.lux` (pure presence) | — | Deleted once `.punt-labs/<tool>/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
+| `.quarry.toml` (proposed, never shipped) | `.punt-labs/quarry/config.md` (config zone, YAML frontmatter) | Not a live migration — quarry deposits directly at the config-zone path; row kept for historical accuracy only |
+| `.vox/config.md` (daemon-mutable settings: model/notify/provider/speak/voice) | `.punt-labs/vox/vox.md` | Move the file, then delete the empty root directory; the destination stays **tracked**, exactly like any other Config-zone file ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — being daemon-rewritten does not exempt it from git status; never deleted with settings inside |
+| `.lux/config.md` (enable/disable-managed setting: `display`, not daemon-rewritten) | `.punt-labs/lux/config.md` | Same |
+| `.biff` / `.vox` / `.lux` (pure presence — no settings inside) | — | Deleted once `.punt-labs/<tool>/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
+| `.ethos/missions.jsonl` — the file, inside the bare root **directory** `.ethos/` (**not** `.punt-labs/ethos/missions.jsonl` — no settings, no relation to the sealed-chunk subtree file) | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | Move the **file**, then delete the now-empty **directory** `.ethos/`; never delete with unread lines inside |
 
-The moved file lands in the **config zone**: `init`-owned, committed, never
-overwritten by `enable`.
+The moved config file lands in the **config zone** (`init`-owned or
+daemon-rewritten, committed, never overwritten by `enable`) — daemon-mutable is
+not a separate zone with its own gitignore rule
+([§ 7](#7-the-punt-labstool-subtree-has-zones)). The moved runtime-state
+directory lands in the **local zone**, which is what that directory always
+was, one level too high.
 
 **Bare file → subtree.** A tool that keeps state as a single file directly under
 `.punt-labs/` — not inside its `<tool>/` subtree — breaks clause 1
@@ -717,13 +890,13 @@ local-convention naming on their next release.
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
-| quarry (config) | `.quarry.toml` root sentinel | — | `.punt-labs/quarry/config.toml` config zone | Planned |
+| quarry (config) | `.quarry.toml` (proposed, never shipped — verified against quarry's own source and a zero-repo fleet survey) | — | `.punt-labs/quarry/config.md` config zone, YAML frontmatter — already the deployed state everywhere, nothing to migrate | Done |
 | quarry (captures) | `captures/` live capture dir in-repo | `.punt-labs/quarry/captures/` | global tree or local-convention | Planned |
-| vox (vox.md) | `vox.md` daemon-rewritten, tracked in some repos | `.punt-labs/vox/vox.md` | live state → global or local-convention | Planned |
 | vox (ephemeral) | `ephemeral/` live stream dir in-repo | `.punt-labs/vox/ephemeral/` | relocated → global or local-convention | Planned |
-| vox (sentinel) | `.vox` pure-presence root sentinel | — | deleted once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
+| vox (root config dir) | `.vox/config.md` root directory, git-tracked in some repos (e.g. punt-kit): carries live daemon-mutable settings (`model`, `notify`, `provider`, `speak`, `voice`), not pure presence — an earlier draft of this row described it as a pure-presence sentinel; the fleet survey found otherwise | — | move the file to `.punt-labs/vox/vox.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.vox/` directory; a genuinely empty `.vox/` (no `config.md`) is deleted outright once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
 | lux (bare file) | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
-| lux (sentinel) | `.lux` pure-presence root sentinel | — | deleted once `.punt-labs/lux/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
+| lux (root config dir) | `.lux/config.md` root directory, git-tracked in some repos: carries a live setting (`display`) written by `enable`/`disable` themselves (lux's `operations/config.py`: "not a client setter routed through the Hub"), not pure presence and not daemon-rewritten — same not-pure-presence correction as vox (root config dir) above, different writer | — | move the file to `.punt-labs/lux/config.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.lux/` directory; a genuinely empty `.lux/` is deleted outright once `.punt-labs/lux/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
+| ethos (root runtime dir) | the bare `.ethos/` root directory (no `.punt-labs/` prefix), holding `.ethos/missions.jsonl`, git-tracked in every surveyed ethos-adopting repo: a continuously-appended mission audit log with no settings, the root-level predecessor of the local zone. **Distinct from** `.punt-labs/ethos/missions.jsonl` inside the vendored subtree, which this row does not touch — that file's disposition is the pre-existing ethos(logs) row below | — | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), then delete the empty `.ethos/` directory. Graded by [§ 8](#8-what-punt-audit-checks)'s legacy-root-sentinel check, not the live-state check — the row carries no interim-exclude live path because the artifact being removed is the root directory itself, not a path under `.punt-labs/` | Planned |
 | punt | writes the canonical gitignore block | — | `init` writes, `audit` verifies, rollout propagates | Building |
 
 The **Live path(s)** column is machine-resolvable: it lists the concrete paths
@@ -771,11 +944,13 @@ artifacts; the row that names the specific artifact is always the authority.
 **One row per artifact — no multi-target rows.** A tool with more than one
 migrating artifact takes **one row each**, so no artifact shares a status with
 another. quarry splits into quarry(config) (`.quarry.toml` → config zone) and
-quarry(captures) (the live `captures/` dir); vox into vox(vox.md), vox(ephemeral),
-and vox(sentinel). If the config and live halves shared a row, completing the
-config half would flip the whole row to complete and drop the live path's interim
-exclude ([§ 6](#6-the-canonical-gitignore-block)) while `captures/` / `ephemeral/`
-/ `vox.md` are still live — re-opening `git add -A` staging of live state. Per-row
+quarry(captures) (the live `captures/` dir); vox into vox(ephemeral) (still
+genuinely live state, needing relocation) and vox(root config dir) (`.vox/`,
+moving location but not gitignore status — see [§ 7](#7-the-punt-labstool-subtree-has-zones)
+on why a daemon-rewritten file is not a live-state row). If the two shared a
+row, completing one half would flip the whole row to complete and drop
+`ephemeral/`'s interim exclude ([§ 6](#6-the-canonical-gitignore-block)) while
+it is still live — re-opening `git add -A` staging of live state. Per-row
 artifacts bind each interim exclude's lifecycle to exactly the row that names it,
 which is what makes the by-row join unambiguous by construction.
 

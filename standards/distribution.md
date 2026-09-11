@@ -1,5 +1,7 @@
 # Distribution Standards
 
+**Updated:** 2026-09-10
+
 How each of a tool's surfaces is shipped and installed. For what the surfaces
 are — the engine-and-clients model — see
 [architecture.md](architecture.md#the-projection-model-canonical).
@@ -439,18 +441,34 @@ scope leaks credentials, creates confusion, or fails silently.
 | Subcommand | Scope | What it does |
 |-----------|-------|-------------|
 | `install` | Global (one-time) | Register marketplace, install plugin, verify dependencies |
-| `init` | Per-repo | Create the repo-level config file (e.g., `.biff`, `.quarry.toml`), prompt for project-specific settings |
+| `init` | Per-repo | Create the repo-level config file in the tool's config zone (`.punt-labs/<tool>/config.*`), prompt for project-specific settings |
 | `enable` / `disable` | Per-repo | Deposit/withdraw `.punt-labs/<tool>/` (guide + `enabled` marker), the `@`-import line, and additive `.claude/settings.json` entries ([tool-enable-disable.md § 2.3](tool-enable-disable.md#23-the-enable--disable-convention)) |
 
 ### Per-repo config files
 
-Projects with per-repo state should use a dotfile at the git root:
+**Projects with per-repo state use the config zone, `.punt-labs/<tool>/config.*`
+— never a dotfile at the git root.** Operator ruling, 2026-09-10
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)): no per-repo tool
+artifact lives at the repo root, in any form. `.biff` and `.quarry.toml` at
+the repo root are the **legacy** shape this rule retires — table below is
+historical, not a live prescription:
 
-| Project | Config File | Contents |
-|---------|------------|----------|
-| Biff | `.biff` | Team roster, relay URL, auth credentials |
-| Quarry | `.quarry.toml` (proposed) | Database name, registered directories, collection defaults |
-| Beads | `.beads/` | Issue database, config |
+| Project | Legacy config file | Config-zone destination | Contents |
+|---------|--------------------|--------------------------|----------|
+| Biff | `.biff` | `.punt-labs/biff/config.yaml` | Team roster, relay URL, auth credentials |
+
+The migration from legacy dotfile to config zone is
+[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table; it
+never deletes a file that still holds settings. Quarry has no row here:
+`.quarry.toml` was this table's earlier, proposed shape, but quarry never
+shipped it — it deposits directly at `.punt-labs/quarry/config.md` (YAML
+frontmatter, not TOML), verified against quarry's own source and a zero-repo
+fleet survey ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
+
+**`.beads/` is not a row in this table because it is out of scope for the
+migration entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
+states the canonical exemption. There is no legacy shape of `.beads/` to
+migrate.
 
 The config file should be committed to git (minus secrets). Secrets belong in
 environment variables or a `.local` file that is gitignored.
