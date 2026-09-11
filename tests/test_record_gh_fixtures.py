@@ -410,6 +410,107 @@ def test_discovery_raises_when_only_dispatch_runs_exist(
         discovery.discover()
 
 
+def test_discovery_skips_a_failed_or_in_progress_push_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The newest push run can itself have failed, or still be running.
+    Recording from either would write failure/incomplete data into
+    fixtures named and documented as the healthy-run case
+    (``gh_run_view_success.json``, ``gh_run_watch_healthy.json``), and
+    ``gh run watch`` against a still-running run blocks until it finishes
+    rather than a recording pass ever wanting to wait that out.
+    """
+
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd:
+            payload = [
+                {"number": 1, "state": "OPEN", "headRefName": "feature/open"},
+                {"number": 2, "state": "MERGED", "headRefName": "feature/merged"},
+                {"number": 3, "state": "CLOSED", "headRefName": "feature/closed"},
+            ]
+        else:
+            payload = [
+                {
+                    "databaseId": 222,
+                    "headBranch": "v1.2.4",
+                    "event": "push",
+                    "headSha": "c" * 40,
+                    "conclusion": None,  # still running
+                },
+                {
+                    "databaseId": 111,
+                    "headBranch": "v1.2.3-rc",
+                    "event": "push",
+                    "headSha": "b" * 40,
+                    "conclusion": "failure",
+                },
+                {
+                    "databaseId": 999,
+                    "headBranch": "v1.2.3",
+                    "event": "push",
+                    "headSha": "a" * 40,
+                    "conclusion": "success",
+                },
+            ]
+        return subprocess.CompletedProcess(
+            args=list(cmd), returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    discovery = GhTargetDiscovery(
+        runner=ReadOnlyGhRunner(), repo=RepoContext.parse("acme/sample")
+    )
+
+    targets = discovery.discover()
+
+    assert targets.run_id == 999
+    assert targets.tag == "v1.2.3"
+
+
+def test_discovery_raises_when_no_push_run_ever_succeeded(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd:
+            payload = [
+                {"number": 1, "state": "OPEN", "headRefName": "feature/open"},
+                {"number": 2, "state": "MERGED", "headRefName": "feature/merged"},
+                {"number": 3, "state": "CLOSED", "headRefName": "feature/closed"},
+            ]
+        else:
+            payload = [
+                {
+                    "databaseId": 222,
+                    "headBranch": "v1.2.4",
+                    "event": "push",
+                    "headSha": "c" * 40,
+                    "conclusion": None,
+                },
+                {
+                    "databaseId": 111,
+                    "headBranch": "v1.2.3-rc",
+                    "event": "push",
+                    "headSha": "b" * 40,
+                    "conclusion": "failure",
+                },
+            ]
+        return subprocess.CompletedProcess(
+            args=list(cmd), returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    discovery = GhTargetDiscovery(
+        runner=ReadOnlyGhRunner(), repo=RepoContext.parse("acme/sample")
+    )
+
+    with pytest.raises(LookupError, match="successfully-completed"):
+        discovery.discover()
+
+
 # ---------------------------------------------------------------------------
 # GhSanitizer
 # ---------------------------------------------------------------------------

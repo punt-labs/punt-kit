@@ -459,19 +459,27 @@ class GhTargetDiscovery:
         )
 
     def _latest_release_run(self) -> _RunListingEntry:
-        """The most recent tag-*push* run of ``release.yml``.
+        """The most recent tag-*push*, *successfully completed* run of
+        ``release.yml``.
 
-        ``release.yml`` commonly also permits ``workflow_dispatch`` (a
-        manual re-run), and ``gh run list`` returns runs newest-first
-        regardless of trigger — so the newest entry can be a manual
-        dispatch rather than the tag push this fixture is documented to
-        represent. ``TagRunSelector.matches`` (the production collaborator
-        this fixture exists to feed) rejects any run whose ``event`` is not
-        ``"push"`` outright, so recording from a dispatch run would produce
-        a `gh_run_list_matching_tag.json` fixture that fails to `match()`
-        the very selector it is named for. Filtering here to the same
-        `event == "push"` predicate keeps the fixture honest with its own
-        name.
+        Two independent conditions, both required. ``release.yml`` commonly
+        also permits ``workflow_dispatch`` (a manual re-run), and ``gh run
+        list`` returns runs newest-first regardless of trigger — so the
+        newest entry can be a manual dispatch rather than the tag push this
+        fixture is documented to represent. ``TagRunSelector.matches`` (the
+        production collaborator this fixture exists to feed) rejects any
+        run whose ``event`` is not ``"push"`` outright, so recording from a
+        dispatch run would produce a ``gh_run_list_matching_tag.json``
+        fixture that fails to ``match()`` the very selector it is named
+        for. Separately, the newest push run can itself be still running or
+        have failed — recording from one would write failure data into
+        fixtures named and documented as the *healthy*-run case
+        (``gh_run_view_success.json``, ``gh_run_watch_healthy.json``), and
+        ``gh run watch`` against a run that is still in progress blocks
+        until it finishes rather than returning immediately, which is not
+        something a recording pass should ever wait out. Filtering to
+        ``event == "push" and conclusion == "success"`` keeps every fixture
+        this run feeds honest with its own name and returns promptly.
         """
         result = self._runner.run(
             [
@@ -495,12 +503,13 @@ class GhTargetDiscovery:
             raise LookupError(f"no release.yml runs found for {self._repo.slug}")
         runs = cast("list[_RunListingEntry]", parsed)
         for run in runs:
-            if run["event"] == "push":
+            if run["event"] == "push" and run["conclusion"] == "success":
                 return run
         raise LookupError(
-            f"no push-triggered release.yml run found in the last {len(runs)} "
-            f"runs of {self._repo.slug} — only workflow_dispatch runs, or none "
-            "at all"
+            f"no successfully-completed push-triggered release.yml run "
+            f"found in the last {len(runs)} runs of {self._repo.slug} — "
+            "only workflow_dispatch runs, still-running runs, failed runs, "
+            "or none at all"
         )
 
 
