@@ -348,7 +348,9 @@ def test_is_merged_reads_open_state_as_false(tmp_path: Path) -> None:
     merger = PrMerger(ops=ops)
 
     assert (
-        merger._is_merged("gh", str(tmp_path), 349)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        merger._is_merged(  # pyright: ignore[reportPrivateUsage]
+            "gh", str(tmp_path), 349
+        )
         is False
     )
 
@@ -358,7 +360,9 @@ def test_is_merged_reads_merged_state_as_true(tmp_path: Path) -> None:
     merger = PrMerger(ops=ops)
 
     assert (
-        merger._is_merged("gh", str(tmp_path), 355)  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+        merger._is_merged(  # pyright: ignore[reportPrivateUsage]
+            "gh", str(tmp_path), 355
+        )
         is True
     )
 
@@ -414,14 +418,14 @@ def test_pr_thread_resolver_resolves_the_recorded_unresolved_thread(
 
 
 # ---------------------------------------------------------------------------
-# FaultRule.from_fixture against the real Wave 1 library
+# FaultRule.from_fixture against the real, committed fixture library
 # ---------------------------------------------------------------------------
 
 
 def test_from_fixture_reads_the_real_fixture_library_by_default() -> None:
-    """Wave 0's ``from_fixture`` loader, exercised against the actual
-    committed library rather than a fixture a test creates inline — the
-    wiring this wave completes.
+    """``from_fixture``'s default ``fixtures_dir`` resolves to the actual
+    committed library, not only a fixture a test creates inline — the
+    end-to-end wiring the loader exists to provide.
     """
     spec = FaultRule.from_fixture("gh_pr_list_open.json")
 

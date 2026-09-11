@@ -100,6 +100,9 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
             "{ thread { isResolved } } }",
         ],
         ["gh", "api", "orgs/acme/members"],  # not a repos/... or graphql endpoint
+        # gh api defaults to POST once a field is present, with no -X
+        # required to trigger it — refused outright on a REST endpoint.
+        ["gh", "api", "repos/acme/sample/branches/main/protection", "-f", "x=1"],
         ["not-gh", "pr", "list"],
     ],
 )

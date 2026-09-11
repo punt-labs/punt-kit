@@ -153,16 +153,32 @@ class ReadOnlyGhRunner:
                     raise ReadOnlyViolation(
                         f"{list(cmd)!r} passes a mutating HTTP method {method!r}"
                     )
-        if endpoint == "graphql" and any("mutation" in arg.lower() for arg in cmd):
+        if endpoint == "graphql":
+            if any("mutation" in arg.lower() for arg in cmd):
+                raise ReadOnlyViolation(
+                    f"{list(cmd)!r} carries a GraphQL mutation operation"
+                )
+            return
+        # A REST `repos/...` call with no explicit `-X`/`--method` defaults
+        # to GET *only* as long as it carries no body — `gh api` silently
+        # switches its own default to POST the moment a field parameter is
+        # present, with no explicit `-X` required to trigger it. Neither
+        # read-only `repos/...` endpoint this tool ever calls needs a body,
+        # so refusing any field flag outright closes that default-flip
+        # rather than relying on every future addition to remember it.
+        if any(arg in ("-f", "-F", "--field", "--raw-field", "--input") for arg in cmd):
             raise ReadOnlyViolation(
-                f"{list(cmd)!r} carries a GraphQL mutation operation"
+                f"{list(cmd)!r} passes a body field to a REST endpoint — "
+                "gh defaults to POST once a field is present, even with no "
+                "explicit -X"
             )
 
     def run(self, cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
         """Run ``cmd``, refusing first if it is not provably read-only."""
         self.require_read_only(cmd)
-        return subprocess.run(  # noqa: S603 — argv is fixed by this module's
-            # own recording table, never assembled from unsanitized input.
+        # argv is built entirely by this module's own recording table, never
+        # from unsanitized external input.
+        return subprocess.run(
             list(cmd),
             capture_output=True,
             text=True,
