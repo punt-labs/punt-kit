@@ -51,6 +51,7 @@ from punt_kit.release import (
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
+from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -88,6 +89,36 @@ def isolate_interrupted_event() -> Iterator[None]:
 def _git(args: list[str], cwd: str) -> None:
     """Run a git command with standard options."""
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+def _git_out(args: list[str], cwd: str) -> str:
+    """Run a git command and return its stripped stdout."""
+    return subprocess.run(
+        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
+def _init_git_repo_with_bare_remote(path: Path, remote: Path) -> None:
+    """Initialize a git repo whose ``origin`` is a separate bare remote.
+
+    ``_init_git_repo`` points ``origin`` at the same directory as the
+    working copy — a local ref is then visible via ``git ls-remote``
+    without any push actually happening, which makes it unsuitable for
+    testing push-failure/resume behavior. A genuinely separate remote is
+    required so ``ls-remote`` reflects only what was actually pushed.
+    """
+    d = str(path)
+    subprocess.run(
+        ["git", "init", "--bare", str(remote)], check=True, capture_output=True
+    )
+    _git(["init", "-b", "main"], cwd=d)
+    _git(["config", "user.email", "test@test.com"], cwd=d)
+    _git(["config", "user.name", "Test"], cwd=d)
+    (path / ".gitkeep").write_text("")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "init"], cwd=d)
+    _git(["remote", "add", "origin", str(remote)], cwd=d)
+    _git(["push", "-u", "origin", "main"], cwd=d)
 
 
 def _init_git_repo(path: Path) -> None:
@@ -1201,6 +1232,238 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "CHANGELOG.md").read_text() == original_changelog
 
 
+# --- Phase 5: tag ---
+
+
+def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
+    tmp_path: Path,
+) -> None:
+    """A push failure after the local tag is created must retry on resume.
+
+    ``Phase5Tag.run`` creates the tag locally before pushing it. If the push
+    fails, the tag is left at HEAD locally with nothing on the remote. A
+    naive resume that only checks "does the tag exist locally, at HEAD"
+    would treat that as success and never re-push — this is the exact
+    defect the fix closes.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    failing_ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "push", "origin", "v1.0.0"],
+                raises=subprocess.CalledProcessError(1, ["git", "push"]),
+            )
+        ],
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+
+    # Local tag exists at HEAD; the remote never received it.
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
+    assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
+
+    # Resume with a clean ops double — the push must be retried, not skipped.
+    resumed_ops = FaultInjectingOps(real_run=_run, rules=[])
+    Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run()
+
+    assert "v1.0.0" in _git_out(
+        ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
+    )
+
+
+def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
+    tmp_path: Path,
+) -> None:
+    """Resuming after a fully successful tag+push must not push again."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    Phase5Tag(
+        info, "1.0.0", dry_run=False, ops=FaultInjectingOps(real_run=_run, rules=[])
+    ).run()
+    assert "v1.0.0" in _git_out(
+        ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
+    )
+
+    push_calls: list[list[str]] = []
+
+    def spying_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "push"]:
+            push_calls.append(cmd)
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+    ).run()
+
+    assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
+
+
+def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
+    tmp_path: Path,
+) -> None:
+    """A remote tag's mere presence is not proof it is the right commit.
+
+    Regression test for the SHA-mismatch gap flagged in round-2 review: an
+    operator recovering from a botched release by recreating the local tag
+    at a corrected commit, while an older, wrong-commit tag of the same
+    name still sits on the remote, must get a loud diagnosed failure — not
+    a silent "already exists" that leaves the wrong commit tagged upstream.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Remote gets v1.0.0 at the original commit — the "stale earlier
+    # attempt" this scenario recovers from.
+    _git(["tag", "v1.0.0"], cwd=str(root))
+    _git(["push", "origin", "v1.0.0"], cwd=str(root))
+    stale_sha = _git_out(["rev-parse", "v1.0.0"], cwd=str(root))
+
+    # Operator recovery: delete the local tag, advance HEAD, recreate the
+    # local tag at the corrected commit — without re-pushing it yet.
+    _git(["tag", "-d", "v1.0.0"], cwd=str(root))
+    (root / "corrected.txt").write_text("corrected\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "corrected release commit"], cwd=str(root))
+    _git(["tag", "v1.0.0"], cwd=str(root))
+    corrected_sha = _git_out(["rev-parse", "v1.0.0"], cwd=str(root))
+    assert corrected_sha != stale_sha
+
+    push_calls: list[list[str]] = []
+
+    def spying_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "push"]:
+            push_calls.append(cmd)
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    with pytest.raises(ReleaseError, match="exists on the remote but points to"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+        ).run()
+
+    assert push_calls == [], "must fail loud, not silently push over the mismatch"
+    # The remote still has the stale tag — the failure did not corrupt
+    # anything, it only refused to proceed silently.
+    assert (
+        _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)).split()[0]
+        == stale_sha
+    )
+
+
+def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit(
+    tmp_path: Path,
+) -> None:
+    """An annotated remote tag at the right commit must not read as a mismatch.
+
+    Phase5Tag only ever creates lightweight tags itself, but the remote's
+    copy of a tag can be annotated (other tooling, a manual `git tag -a`).
+    `git ls-remote --tags origin <exact-tag>` (an explicit ref argument)
+    never emits the peeled `^{}` line at all, and for an annotated tag its
+    one line reports the tag OBJECT's own SHA — not the commit it points
+    at — so comparing that directly against a local lightweight tag's
+    commit SHA would treat every annotated remote tag as a mismatch, even
+    one at the exact right commit.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Remote gets an ANNOTATED v1.0.0 at the current commit.
+    _git(["tag", "-a", "v1.0.0", "-m", "annotated by other tooling"], cwd=str(root))
+    _git(["push", "origin", "v1.0.0"], cwd=str(root))
+    # Phase5Tag's own local tag is always lightweight, at the same commit —
+    # simulate its creation directly (Phase5Tag.run only pushes here since
+    # `existing` will be truthy).
+    _git(["tag", "-d", "v1.0.0"], cwd=str(root))
+    _git(["tag", "v1.0.0"], cwd=str(root))
+
+    push_calls: list[list[str]] = []
+
+    def spying_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "push"]:
+            push_calls.append(cmd)
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+    ).run()
+
+    assert push_calls == [], "an annotated tag at the right commit must be a no-op"
+
+
+def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_commit(
+    tmp_path: Path,
+) -> None:
+    """An annotated remote tag at the WRONG commit must still fail loud.
+
+    Companion to the same-commit no-op test above — proves the peeled-SHA
+    resolution is being compared, not merely tolerated as "present."
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Remote gets an ANNOTATED v1.0.0 at the original commit.
+    _git(["tag", "-a", "v1.0.0", "-m", "annotated by other tooling"], cwd=str(root))
+    _git(["push", "origin", "v1.0.0"], cwd=str(root))
+
+    # Operator recovery, as in the lightweight-mismatch test above.
+    _git(["tag", "-d", "v1.0.0"], cwd=str(root))
+    (root / "corrected.txt").write_text("corrected\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "corrected release commit"], cwd=str(root))
+    _git(["tag", "v1.0.0"], cwd=str(root))
+
+    with pytest.raises(ReleaseError, match="exists on the remote but points to"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ).run()
+
+
 # --- sibling helpers ---
 
 
@@ -2080,6 +2343,58 @@ def test_sibling_pr_merge_returns_to_main_on_failure(
     assert branch == "main"
 
 
+def test_sibling_pr_merge_wrapper_wires_skips_through(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real ``_sibling_pr_merge`` wrapper threads ``_skips`` through.
+
+    Every other SkipRecorder test constructs ``PrMerger(ops=ops,
+    skips=skips)`` directly — none drives a secondary cleanup failure
+    through the actual production wiring
+    (``PrMerger(ops=_ops, skips=_skips)`` at ``_sibling_pr_merge``'s one
+    call site). A future change that dropped or misdirected that one
+    argument would not be caught by anything else in the suite.
+    """
+    from punt_kit import release as release_mod
+
+    sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
+    (sibling / "file.txt").write_text("v2")
+
+    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+        raise ReleaseError("required checks never passed")
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        # Only the merge_in_sibling finally block's cleanup checkout uses
+        # this exact argv — checkout_or_create checks out the feature
+        # branch, not "main" — so this can't accidentally intercept an
+        # earlier, unrelated checkout in the same flow.
+        if cmd == ["git", "checkout", "main"]:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout="",
+                stderr="local changes would be overwritten",
+            )
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+            sibling,
+            "test-branch",
+            ["file.txt"],
+            "test commit",
+            "sib",
+            dry_run=False,
+        )
+
+    (notice,) = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    assert "required checks never passed" in notice
+    assert "local changes would be overwritten" in notice
+
+
 def test_phase_names_cover_all_phases() -> None:
     """All 11 phases are mapped (plus aliases)."""
     phase_numbers = set(PHASE_NAMES.values())
@@ -2943,6 +3258,46 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     assert printed.count("No branch protection or ruleset configured") == 1
 
 
+def test_gh_module_has_no_hardcoded_7200_literal() -> None:
+    """gh.py's CI-check deadline must derive from timeouts.CI_WATCH.
+
+    A hardcoded 7200 that happens to equal CI_WATCH today would silently
+    drift the moment CI_WATCH changes — this asserts the import, not just
+    the current numeric coincidence.
+    """
+    from punt_kit.phases.shared import gh as gh_mod
+
+    source = inspect.getsource(gh_mod)
+    assert "7200" not in source
+    assert "CI_WATCH" in source
+
+
+def test_wait_for_required_checks_deadline_tracks_ci_watch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shrinking ``gh``'s own ``CI_WATCH`` binding actually shortens the wait.
+
+    Proves the deadline is read from the module attribute at call time
+    (patchable), not baked in as a literal at import time.
+    """
+    from punt_kit import release as release_mod
+    from punt_kit.phases.shared import gh as gh_mod
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
+        if _is_protection_call(cmd):
+            return _protection_response(protected=False)
+        if _is_ruleset_call(cmd):
+            return _ruleset_response(governed=False)
+        raise AssertionError("should time out before ever polling checks")
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(gh_mod, "CI_WATCH", -1)
+
+    with pytest.raises(ReleaseError, match="Timed out waiting for"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+
 # --- pkit-plxh: ruleset awareness + no-checks grace window ---
 
 
@@ -3749,6 +4104,522 @@ def test_pr_merge_real_merge_failure_still_fails(
 
     with pytest.raises(ReleaseError):
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
+# --- PrMerger.merge: squash-merge retry loop past attempt 1 ---
+#
+# The loop's ``time.sleep(wait)`` call lives in pr_merge.py, which shares
+# the process's one ``time`` module object with release.py (only one
+# ``import time`` per module, no ``from time import sleep`` anywhere in
+# either) — so patching ``punt_kit.phases.shared.pr_merge.time.sleep``
+# reaches the same attribute every other module's ``time.sleep(...)`` call
+# reads, with no real wall-clock spent on any of these tests.
+
+
+def _fake_which_gh(_name: str) -> str:
+    """Patched in for ``shutil.which`` so ``PrMerger.merge``'s own
+    ``shutil.which("gh")`` lookup resolves without a real ``gh`` binary on
+    ``PATH`` — matches ``tests/test_gh_fixture_contracts.py``'s convention.
+    """
+    return "gh"
+
+
+def _merge_env(
+    root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
+) -> tuple[FaultInjectingOps, str]:
+    """A real git repo on a release branch plus a scripted gh double.
+
+    Wires the ``gh pr list``/``gh pr create``/``gh pr view`` calls every
+    ``PrMerger.merge`` invocation needs before it ever reaches the
+    squash-merge loop, leaving the caller to add only the merge-loop
+    ``FaultRule`` its scenario needs. Also patches ``shutil.which`` so
+    these scenarios run on a machine with no real ``gh`` binary installed.
+    """
+    monkeypatch.setattr("shutil.which", _fake_which_gh)
+    branch = "release/v1.0.0"
+    _init_git_repo(root)
+    # PrMerger.merge's post-merge step runs a bare `git pull --ff-only`
+    # (no explicit remote/branch), which needs main's upstream configured —
+    # unlike Phase5Tag's `ensure_on_main`, which always names `origin main`
+    # explicitly and needs no tracking branch at all.
+    _git(["push", "-u", "origin", "main"], cwd=str(root))
+    _git(["checkout", "-b", branch], cwd=str(root))
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["gh", "pr", "list"], response=CompletedProcessSpec(stdout="[]")
+            ),
+            FaultRule(
+                match=["gh", "pr", "create"],
+                response=CompletedProcessSpec(
+                    stdout=f"https://github.com/punt-labs/proj/pull/{pr_number}\n"
+                ),
+            ),
+            FaultRule(
+                match=["gh", "pr", "view", str(pr_number), "--json", "state"],
+                times=None,
+                response=CompletedProcessSpec(stdout=json.dumps({"state": "OPEN"})),
+            ),
+        ],
+    )
+    return ops, branch
+
+
+def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The squash-merge retry loop must actually retry, not stop at attempt 1.
+
+    Attempts 1 and 2 are blocked by a transient policy check; attempt 3
+    succeeds. Before this test, nothing drove ``merge_attempt`` past 0.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.shared.pr_merge.time.sleep", _noop_sleep)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    transient = CompletedProcessSpec(
+        returncode=1, stderr="required status check has not passed"
+    )
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            responses=[transient, transient, CompletedProcessSpec()],
+        )
+    )
+    resolve_calls: list[int] = []
+
+    def _record_resolve_threads(_gh: str, _cwd: str, pr: int) -> None:
+        resolve_calls.append(pr)
+
+    sha = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop_wait_for_checks,
+        resolve_threads=_record_resolve_threads,
+    )
+
+    assert sha
+    # Once before the merge loop, then once per retry (attempts 1 and 2).
+    assert resolve_calls == [42, 42, 42]
+
+
+def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A merge that stays transiently blocked for all 6 attempts really fails.
+
+    Regression guard for the exhaustion path: nothing before this test
+    proved the loop gives up after attempt 6 instead of retrying forever
+    or silently succeeding.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.shared.pr_merge.time.sleep", _noop_sleep)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    merge_rule = FaultRule(
+        match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+        response=CompletedProcessSpec(
+            returncode=1, stderr="required status check has not passed"
+        ),
+        times=6,
+    )
+    ops._rules.append(merge_rule)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+    with pytest.raises(ReleaseError, match="Failed to merge PR #42"):
+        PrMerger(ops=ops).merge(
+            cwd=root,
+            branch=branch,
+            title="chore: release v1.0.0",
+            wait_for_checks=_noop_wait_for_checks,
+            resolve_threads=_noop_resolve_threads,
+        )
+
+    # Pin the count directly — with only `times=6` + the fixed-transient
+    # response, a future off-by-one in the `merge_attempt < 5` guard that
+    # gave up after 5 or tried a 7th time would raise the same
+    # ReleaseError/message either way (5 attempts: exhausted at the
+    # `is_transient` check without a 6th `time.sleep`; 7 attempts: the
+    # rule's own exhaustion makes call 7 an unmatched `gh` command, a
+    # deny-by-default `AssertionError` instead of `ReleaseError` — so an
+    # *unbounded* runaway is already caught, but an off-by-one that stops
+    # one attempt early would not be, without this explicit count).
+    assert merge_rule._consumed == 6  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+
+
+def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A best-effort re-resolve failure mid-retry does not abort the retry.
+
+    Exercises the ``except (ReleaseError, SystemExit,
+    subprocess.CalledProcessError)`` swallow: attempt 1 is transiently
+    blocked, the subsequent re-resolve raises, and the loop must still
+    proceed to attempt 2 instead of propagating that exception.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_sleep(_seconds: float) -> None:
+        return None
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    monkeypatch.setattr("punt_kit.phases.shared.pr_merge.time.sleep", _noop_sleep)
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            responses=[
+                CompletedProcessSpec(
+                    returncode=1, stderr="required status check has not passed"
+                ),
+                CompletedProcessSpec(),
+            ],
+        )
+    )
+    resolve_calls = 0
+
+    def flaky_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        nonlocal resolve_calls
+        resolve_calls += 1
+        if resolve_calls == 2:  # the retry's re-resolve, not the first call
+            raise ReleaseError("threads API is down")
+
+    sha = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop_wait_for_checks,
+        resolve_threads=flaky_resolve_threads,
+    )
+
+    assert sha
+    printed = capsys.readouterr().out
+    assert "Could not re-resolve threads, proceeding with retry" in printed
+
+
+# --- PrMerger.merge_in_sibling: secondary cleanup failure -> SkipRecorder ---
+
+
+def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
+    tmp_path: Path,
+) -> None:
+    """A primary merge failure whose own cleanup also fails must recap both.
+
+    Before this fix, a failed "return sibling to main" checkout inside the
+    ``finally`` block only reached ``ops.info`` — invisible in the
+    end-of-run "Manual action required" recap that ``SkipRecorder`` drives.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="local changes would be overwritten"
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops, skips=skips)
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    (notice,) = skips.drain()
+    assert "required checks never passed" in notice
+    assert "local changes would be overwritten" in notice
+
+
+def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No SkipRecorder threaded through (Phase 4's own merge) keeps the
+    original info-only behavior — the routing is additive, not a
+    replacement for every caller.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="local changes would be overwritten"
+                ),
+            ),
+        ],
+    )
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops)  # no skips= — the _pr_merge/Phase 4 shape
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    printed = capsys.readouterr().out
+    assert "Warning: could not return sibling install-all-github to main" in printed
+
+
+def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
+    tmp_path: Path,
+) -> None:
+    """A hung cleanup checkout must not replace the primary merge failure.
+
+    Regression test for a review finding on pkit-f85t.6: the cleanup
+    checkout's ``ops.run(..., check=False)`` can still raise
+    ``TimeoutExpired`` (a hung git hook) even though ``check=False``
+    suppresses non-zero-exit errors. An uncaught ``TimeoutExpired`` inside
+    the ``finally`` block would replace the propagating primary exception
+    instead of merely accompanying it in the recap.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                raises=subprocess.TimeoutExpired(
+                    cmd=["git", "checkout", "main"], timeout=600
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops, skips=skips)
+    # The ORIGINAL exception must propagate, not the cleanup TimeoutExpired.
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    (notice,) = skips.drain()
+    assert "required checks never passed" in notice
+    assert "checkout" in notice
+
+
+def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
+    tmp_path: Path,
+) -> None:
+    """A cleanup timeout with no primary failure behaves as it always did.
+
+    When the merge itself succeeds and only the "return to main" cleanup
+    hangs, that timeout is the only failure — it must still surface (not
+    be swallowed into a quiet info line), matching pre-fix behavior where
+    nothing caught this exception at all.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                raises=subprocess.TimeoutExpired(
+                    cmd=["git", "checkout", "main"], timeout=600
+                ),
+            ),
+        ],
+    )
+
+    def successful_merge(**_kwargs: object) -> str:
+        return "abc1234"
+
+    merger = PrMerger(ops=ops)
+    with pytest.raises(subprocess.TimeoutExpired):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=successful_merge,
+        )
+
+
+def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
+    tmp_path: Path,
+) -> None:
+    """A failed ``git branch --show-current`` is a secondary failure too.
+
+    Regression test for a review finding: when the primary merge fails
+    AND the cleanup's own branch lookup returns non-zero, ``current``
+    becomes ``None`` — that path used to fall straight to an info-only
+    message, unlike the checkout-failure path below it, leaving it out
+    of the ``SkipRecorder`` recap.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "branch", "--show-current"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: not a git repository"
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def failing_merge(**_kwargs: object) -> str:
+        raise ReleaseError("required checks never passed")
+
+    merger = PrMerger(ops=ops, skips=skips)
+    with pytest.raises(ReleaseError, match="required checks never passed"):
+        merger.merge_in_sibling(
+            sibling,
+            "propagate/v1.0.0",
+            [".gitkeep"],
+            "chore: propagate v1.0.0",
+            "install-all-github",
+            dry_run=False,
+            merge=failing_merge,
+        )
+
+    (notice,) = skips.drain()
+    assert "required checks never passed" in notice
+    assert "could not read current branch" in notice
+
+
+def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No primary exception: a failed branch lookup stays info-only.
+
+    Mirrors ``test_merge_in_sibling_solo_cleanup_failure_still_only_infos``
+    for the branch-lookup path specifically — the routing only escalates
+    when there is a primary failure for the secondary one to accompany.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    _init_git_repo(sibling)
+    (sibling / ".gitkeep").write_text("changed\n")
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "branch", "--show-current"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="fatal: not a git repository"
+                ),
+            ),
+        ],
+    )
+    skips = SkipRecorder(ops=ops)
+
+    def successful_merge(**_kwargs: object) -> str:
+        return "abc1234"
+
+    merger = PrMerger(ops=ops, skips=skips)
+    merger.merge_in_sibling(
+        sibling,
+        "propagate/v1.0.0",
+        [".gitkeep"],
+        "chore: propagate v1.0.0",
+        "install-all-github",
+        dry_run=False,
+        merge=successful_merge,
+    )
+
+    assert skips.drain() == ()
+    printed = capsys.readouterr().out.replace("\n", " ")
+    assert "could not read current branch" in printed
 
 
 # --- fwql: README SHA pin lands after the release PR's squash-merge ---

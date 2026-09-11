@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
 from urllib.parse import urlparse
 
-from punt_kit.phases.shared.timeouts import NO_CHECKS_GRACE
+from punt_kit.phases.shared.timeouts import CI_WATCH, NO_CHECKS_GRACE
 
 if TYPE_CHECKING:
     import threading
@@ -205,7 +205,7 @@ class RequiredChecksWaiter:
             f"Waiting for {'required' if governed else 'all'} CI checks "
             f"on PR #{pr_number}..."
         )
-        deadline = time.time() + 7200
+        deadline = time.time() + CI_WATCH
         no_checks_deadline = time.time() + NO_CHECKS_GRACE
         consecutive_errors = 0
 
