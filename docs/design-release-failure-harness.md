@@ -238,17 +238,21 @@ class FaultInjectingOps:
         *,
         real_run: RunFn,
         rules: Sequence[FaultRule],
-        passthrough: Sequence[str] = (),
+        passthrough: Sequence[Sequence[str]] = (),
     ) -> None: ...
 
     def run(self, cmd, **kw) -> subprocess.CompletedProcess[str]:
         if rule := self._match(cmd):
             return rule.apply(cmd)
-        if cmd[0:1] == ["git"] or Path(cmd[0]).name in self._passthrough_names:
+        if Path(cmd[0]).name == "git" or self._passthrough_match(cmd):
+            # _passthrough_match uses FaultRule's own prefix semantics
+            # (basename for argv[0], exact for the rest) — an entry is an
+            # argv PREFIX like ["gh", "--version"], never a bare binary
+            # name, so allowing one gh invocation never allows them all.
             return self._real_run(cmd, **kw)
         raise AssertionError(
             f"unmatched network command in a fault-injection test: {cmd!r} — "
-            "add a FaultRule or an explicit passthrough entry"
+            "add a FaultRule or an explicit passthrough prefix"
         )
 ```
 
@@ -273,11 +277,15 @@ to `real_run` — a test that intends to inject exactly one fault and forgot
 that a later phase also calls `gh` would otherwise execute that later call
 against production GitHub with no warning, exactly the failure mode this
 design exists to prevent. `FaultInjectingOps` therefore raises
-`AssertionError` on any unmatched command whose basename is not `git` and is
-not in the constructor's `passthrough` allowlist (for the rare case — e.g.
-`gh --version` — where hitting the real binary but not the network is
-genuinely safe and desired). This is a Wave 0 acceptance criterion: a unit
-test asserts that an unrouted `gh` call raises rather than delegates.
+`AssertionError` on any unmatched command whose basename is not `git` and
+which matches no entry in the constructor's `passthrough` allowlist. A
+passthrough entry is an argv *prefix* with `FaultRule.match`'s own semantics
+(basename comparison for argv[0], exact for the rest) — e.g.
+`["gh", "--version"]` — never a bare binary name, so sanctioning one safe
+invocation shape cannot sanction every other invocation of the same binary.
+This is a Wave 0 acceptance criterion: unit tests assert that an unrouted
+`gh` call raises rather than delegates, and that a `["gh", "--version"]`
+passthrough does not admit `["gh", "pr", "merge"]`.
 
 ### 2b. Recorded-fixture library + contract test (drift avoidance)
 
