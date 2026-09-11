@@ -137,9 +137,21 @@ class SiblingRepo:
 
     def validate(self) -> None:
         """Validate this sibling repo is ready for propagation."""
-        branch = self._ops.run(
-            ["git", "branch", "--show-current"], cwd=str(self._path)
-        ).stdout.strip()
+        branch_result = self._ops.run(
+            ["git", "branch", "--show-current"], cwd=str(self._path), check=False
+        )
+        if branch_result.returncode != 0:
+            # A sibling checkout is far less controlled than the project's
+            # own repo (§ pkit-f85t.7) — a git command failing here (a
+            # corrupted checkout, a detached/unborn HEAD in some git
+            # versions) must raise a diagnosed ReleaseError, not a raw
+            # CalledProcessError with no indication which sibling or which
+            # command failed.
+            self._ops.fail(
+                f"Sibling {self._name}: git branch --show-current failed:\n"
+                f"{branch_result.stderr.strip()}"
+            )
+        branch = branch_result.stdout.strip()
         if branch != "main":
             self._ops.fail(
                 f"Sibling {self._name} is on branch '{branch}', expected main"
@@ -147,9 +159,15 @@ class SiblingRepo:
 
         # Only block on modified/staged files — untracked files and .beads/
         # are harmless.
-        status = self._ops.run(
-            ["git", "status", "--porcelain"], cwd=str(self._path)
-        ).stdout.strip()
+        status_result = self._ops.run(
+            ["git", "status", "--porcelain"], cwd=str(self._path), check=False
+        )
+        if status_result.returncode != 0:
+            self._ops.fail(
+                f"Sibling {self._name}: git status --porcelain failed:\n"
+                f"{status_result.stderr.strip()}"
+            )
+        status = status_result.stdout.strip()
         dirty_lines: list[str] = []
         for ln in status.splitlines():
             if ln.startswith("?? "):

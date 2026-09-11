@@ -82,10 +82,11 @@ class Phase4ReleasePr:
                 head_name = str(head_data.get("name", ""))
                 if head_name.endswith("-dev"):
                     plugin_swap.reset_to_head()
-                    ops.run(
+                    swap_result = ops.run(
                         ["bash", str(release_script)],
                         cwd=str(root),
                         capture=False,
+                        check=False,
                         # The script commits, and that commit now runs the
                         # repo hooks — the bd pre-commit hook alone allows
                         # itself 300s against a networked Dolt server.
@@ -94,6 +95,15 @@ class Phase4ReleasePr:
                         # not a fault.
                         timeout=GIT_HOOK,
                     )
+                    if swap_result.returncode != 0:
+                        # The script may have mutated the working tree and
+                        # staged before failing (a rejected pre-commit
+                        # hook) — HEAD is untouched either way, so the next
+                        # --resume-from release-pr re-enters this branch,
+                        # resets to HEAD, and retries cleanly (see the
+                        # module docstring above for why HEAD, not the
+                        # working tree, is the idempotency source of truth).
+                        ops.fail(f"{release_script} failed — see output above")
                     ops.ok("Plugin swapped to prod")
                 else:
                     ops.ok("Plugin already swapped at HEAD (resume)")

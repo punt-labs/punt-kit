@@ -166,7 +166,18 @@ class Phase2VersionBump:
 
         lock_file = root / "uv.lock"
         if lock_file.exists():
-            ops.run(["uv", "lock"], cwd=str(root), timeout=UV)
+            # A network resolver op — same class as `uv build` (Phase 3),
+            # already diagnosed (pkit-f85t.7). capture=False streams the
+            # resolver's own output to the terminal as it runs, matching
+            # Phase 3's `uv build` and Phase 1's quality gates — without
+            # it, the "see output above" message pointed at output that
+            # was silently captured and never shown (Cursor/Copilot,
+            # PRRT_kwDORSgPKM6hbflO / PRRT_kwDORSgPKM6hbk7y).
+            lock_result = ops.run(
+                ["uv", "lock"], cwd=str(root), capture=False, check=False, timeout=UV
+            )
+            if lock_result.returncode != 0:
+                ops.fail("uv lock failed — see output above")
             ops.ok("uv.lock refreshed")
         # Stage only the files this phase edits — `git add -A` would sweep
         # unrelated untracked files into the release commit.

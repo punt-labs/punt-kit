@@ -50,7 +50,15 @@ class Phase3Build:
         if dist.exists():
             shutil.rmtree(dist)
 
-        ops.run(["uv", "build"], cwd=str(info.root), capture=False, timeout=UV)
+        build_result = ops.run(
+            ["uv", "build"],
+            cwd=str(info.root),
+            capture=False,
+            check=False,
+            timeout=UV,
+        )
+        if build_result.returncode != 0:
+            ops.fail("uv build failed — see output above")
 
         # twine check on built artifacts only (.whl and .tar.gz)
         dist_dir = info.root / "dist"

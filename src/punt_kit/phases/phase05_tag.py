@@ -108,12 +108,20 @@ class Phase5Tag:
 
             # Unfiltered (no ref argument) — see _remote_tag_commit_sha's
             # docstring for why the filtered, explicit-ref form cannot be
-            # used here.
-            remote_listing = ops.run(
+            # used here. A network read, same risk class as `git fetch
+            # origin` (Phase 1) and this phase's own tag push, both already
+            # diagnosed (pkit-f85t.7).
+            ls_remote = ops.run(
                 ["git", "ls-remote", "--tags", "origin"],
                 cwd=str(root),
+                check=False,
                 timeout=GIT_NETWORK,
-            ).stdout
+            )
+            if ls_remote.returncode != 0:
+                ops.fail(
+                    f"git ls-remote --tags origin failed:\n{ls_remote.stderr.strip()}"
+                )
+            remote_listing = ls_remote.stdout
             remote_sha = self._remote_tag_commit_sha(remote_listing, tag)
             if remote_sha is not None:
                 # A remote tag's mere presence only proves *some* ref named
@@ -141,7 +149,13 @@ class Phase5Tag:
             ops.ok(f"Pushed tag {tag}")
             return
 
-        ops.run(["git", "tag", tag], cwd=str(root))
+        # A local write (disk full, permission, or a lock held by a
+        # concurrent git process) — kept in the same diagnosed convention as
+        # the push two lines below rather than left as the odd one out
+        # (pkit-f85t.7).
+        tag_result = ops.run(["git", "tag", tag], cwd=str(root), check=False)
+        if tag_result.returncode != 0:
+            ops.fail(f"git tag {tag} failed:\n{tag_result.stderr.strip()}")
         ops.ok(f"Tagged {tag}")
 
         # Push tag (not blocked by branch protection — targets refs/tags/*).
