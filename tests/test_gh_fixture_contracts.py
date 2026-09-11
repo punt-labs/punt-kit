@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit.detect import ProjectInfo
+from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.shared.ci_run import CiRunWatch, TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
@@ -60,6 +62,28 @@ def _noop_sleep(_seconds: float) -> None:
     """Patched in for ``time.sleep`` — per §1d, every release-engine module
     shares one ``import time``, so patching the bare module attribute
     reaches ``gh.py``'s poll loop with no dotted per-module path needed.
+    """
+
+
+def _fake_which(_name: str) -> str:
+    """Patched in for ``shutil.which`` — the collaborators under test
+    resolve ``gh`` themselves rather than taking it as an ``ops`` call, so
+    this keeps the test independent of whether a real ``gh`` binary is on
+    ``PATH``, matching ``tests/test_release.py``'s own convention.
+    """
+    return "gh"
+
+
+def _no_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+    """A ``wait_for_checks`` stand-in — its own behavior is covered by the
+    ``RequiredChecksWaiter.wait`` tests above; ``PrMerger.merge`` tests only
+    need it to be a no-op.
+    """
+
+
+def _no_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+    """A ``resolve_threads`` stand-in — its own behavior is covered by the
+    ``PrThreadResolver.resolve`` tests above.
     """
 
 
@@ -423,6 +447,18 @@ def test_pr_thread_resolver_no_op_when_nothing_unresolved(tmp_path: Path) -> Non
     resolver.resolve("gh", str(tmp_path), 355)  # must not raise, must not mutate
 
 
+def test_pr_thread_resolver_no_op_when_pr_has_no_threads_at_all(tmp_path: Path) -> None:
+    """A PR with no Copilot/Bugbot review posted yet — ``reviewThreads.nodes``
+    is an empty array rather than absent entirely.
+    """
+    ops = _thread_resolver_ops(
+        _rule(["gh", "api", "graphql"], "gh_graphql_pr_threads_empty.json")
+    )
+    resolver = PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops)
+
+    resolver.resolve("gh", str(tmp_path), 42)  # must not raise, must not mutate
+
+
 def test_pr_thread_resolver_resolves_the_recorded_unresolved_thread(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -445,6 +481,126 @@ def test_pr_thread_resolver_resolves_the_recorded_unresolved_thread(
     resolver.resolve("gh", str(tmp_path), 355)
 
     assert "Resolved 1/1 review thread(s)" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# PrMerger.merge — the full push-through-squash-merge path, including the
+# is_transient retry classification the two gh_pr_merge_*.json fixtures
+# exist specifically to validate (§2b step 1: mutation-outcome shapes are
+# "not exempt from validation just because [they weren't] captured live").
+# ---------------------------------------------------------------------------
+
+
+def _merge_env_ops(*merge_rules: FaultRule) -> FaultInjectingOps:
+    """Every ``git``/``gh`` call ``PrMerger.merge`` issues around the
+    ``gh pr merge`` retry loop itself, scripted rather than delegated to a
+    real repo — matching the established convention in
+    ``tests/test_release.py``'s own ``_fake_gh_run`` for exercising this
+    exact call sequence.
+    """
+    ok = CompletedProcessSpec(returncode=0)
+    return _ops_with(
+        FaultRule(match=["git", "push"], response=ok, times=None),
+        FaultRule(
+            match=["git", "rev-parse"],
+            response=CompletedProcessSpec(stdout="abc1234\n"),
+            times=None,
+        ),
+        _rule(["gh", "pr", "list"], "gh_pr_list_empty.json"),
+        _rule(["gh", "pr", "create"], "gh_pr_create_success.json"),
+        FaultRule(
+            match=["gh", "pr", "view"],
+            response=FaultRule.from_fixture("gh_pr_view_open.json"),
+            times=None,
+        ),
+        *merge_rules,
+        FaultRule(match=["git", "checkout"], response=ok, times=None),
+        FaultRule(match=["git", "pull"], response=ok, times=None),
+    )
+
+
+def test_merge_retries_past_a_transient_block_then_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("shutil.which", _fake_which)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    ops = _merge_env_ops(
+        FaultRule(
+            match=["gh", "pr", "merge"],
+            responses=[
+                FaultRule.from_fixture("gh_pr_merge_transient_block.json"),
+                CompletedProcessSpec(returncode=0),
+            ],
+        )
+    )
+    merger = PrMerger(ops=ops)
+
+    sha = merger.merge(
+        cwd=tmp_path,
+        branch="release/v1.2.3",
+        title="chore: release v1.2.3",
+        wait_for_checks=_no_wait_for_checks,
+        resolve_threads=_no_resolve_threads,
+    )
+
+    assert sha  # reached the post-merge git rev-parse, so the retry worked
+
+
+def test_merge_fails_loud_on_a_genuine_merge_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``gh_pr_merge_real_failure.json``'s stderr text does not match any of
+    ``is_transient``'s substrings — this must fail immediately, not retry.
+    """
+    monkeypatch.setattr("shutil.which", _fake_which)
+    ops = _merge_env_ops(_rule(["gh", "pr", "merge"], "gh_pr_merge_real_failure.json"))
+    merger = PrMerger(ops=ops)
+
+    with pytest.raises(ReleaseError, match="not mergeable"):
+        merger.merge(
+            cwd=tmp_path,
+            branch="release/v1.2.3",
+            title="chore: release v1.2.3",
+            wait_for_checks=_no_wait_for_checks,
+            resolve_threads=_no_resolve_threads,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase7GithubRelease — the already-released short-circuit and the
+# create-from-changelog path, driving gh_release_view_exists.json,
+# gh_release_view_missing.json, and gh_release_create_success.json.
+# ---------------------------------------------------------------------------
+
+
+def test_phase7_short_circuits_when_the_release_already_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("shutil.which", _fake_which)
+    ops = _ops_with(_rule(["gh", "release", "view"], "gh_release_view_exists.json"))
+    info = ProjectInfo(root=tmp_path)
+
+    Phase7GithubRelease(info, "1.2.3", dry_run=False, ops=ops).run()
+
+    assert "already exists" in capsys.readouterr().out
+
+
+def test_phase7_creates_the_release_from_the_changelog_when_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr("shutil.which", _fake_which)
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [1.2.3] - 2026-01-01\n\n### Added\n\n- Something.\n"
+    )
+    ops = _ops_with(
+        _rule(["gh", "release", "view"], "gh_release_view_missing.json"),
+        _rule(["gh", "release", "create"], "gh_release_create_success.json"),
+    )
+    info = ProjectInfo(root=tmp_path)
+
+    Phase7GithubRelease(info, "1.2.3", dry_run=False, ops=ops).run()
+
+    assert "created" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

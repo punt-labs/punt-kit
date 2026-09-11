@@ -365,6 +365,49 @@ def test_from_fixture_builds_the_matching_completed_process_spec(
     assert json.loads(result.stdout) == [{"number": 42, "state": "OPEN"}]
 
 
+def test_from_fixture_raises_on_a_missing_fixture_file(tmp_path: Path) -> None:
+    """A typo'd fixture name must fail loud, not silently build an empty
+    response — there is no fallback shape a scripted response could
+    reasonably default to.
+    """
+    fixtures_dir = tmp_path / "gh"
+    fixtures_dir.mkdir()
+
+    with pytest.raises(FileNotFoundError):
+        FaultRule.from_fixture("does_not_exist.json", fixtures_dir=fixtures_dir)
+
+
+def test_from_fixture_raises_on_malformed_json(tmp_path: Path) -> None:
+    """A fixture file that isn't valid JSON at all — e.g. hand-edited and
+    left broken — must not be silently treated as an empty envelope.
+    """
+    fixtures_dir = tmp_path / "gh"
+    fixtures_dir.mkdir()
+    (fixtures_dir / "broken.json").write_text("{not valid json")
+
+    with pytest.raises(json.JSONDecodeError):
+        FaultRule.from_fixture("broken.json", fixtures_dir=fixtures_dir)
+
+
+def test_from_fixture_raises_on_an_envelope_missing_a_required_key(
+    tmp_path: Path,
+) -> None:
+    """Valid JSON that isn't a valid envelope — missing ``stdout`` here —
+    must fail loud rather than build a spec with a silently-defaulted
+    field: ``from_fixture``'s ``cast()`` performs no runtime validation, so
+    the only thing standing between a malformed fixture and a wrong test
+    result is this exact failure.
+    """
+    fixtures_dir = tmp_path / "gh"
+    fixtures_dir.mkdir()
+    (fixtures_dir / "incomplete.json").write_text(
+        json.dumps({"returncode": 0, "stderr": ""})
+    )
+
+    with pytest.raises(KeyError):
+        FaultRule.from_fixture("incomplete.json", fixtures_dir=fixtures_dir)
+
+
 # ---------------------------------------------------------------------------
 # ReleaseOps conformance
 # ---------------------------------------------------------------------------
