@@ -447,8 +447,12 @@ the class rule each follows on migration:
 This reconciles with § 2.13 and
 [distribution.md § Installation Scope](distribution.md#installation-scope), which
 keep the tool's repo **config** as `init`'s artifact — now in the config zone
-(`.punt-labs/<tool>/config.*`), not at the legacy root path
-(`.beads/` is unaffected either way, already a directory-form marker). Sentinel
+(`.punt-labs/<tool>/config.*`), not at the legacy root path. `.beads/` is
+**out of scope for this whole migration, not exempted from a rule it
+otherwise breaks** — `bd` is a third-party tool with its own root-level
+convention independent of `.punt-labs/<tool>/`
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)), so there is
+nothing for it to migrate. Sentinel
 migration and config-zone migration are the same move, not two separate steps:
 enablement does not merely stop *reading* the legacy file as the presence
 marker while leaving it at the root — it relocates the settings and removes
@@ -468,8 +472,10 @@ still holds settings.
   `enabled` marker) must land in the **same release train** as the tool releases
   that perform the migration, so no peer starts checking the new marker before
   the tools that write it have shipped.
-- **`.beads/` needs no migration** — it is already a directory-form marker, not a
-  dotfile, and is unaffected.
+- **`.beads/` needs no migration because it is out of scope for this section
+  entirely** — not a directory-shaped exception to the rule this section
+  states, but a third-party tool's (`bd`) own root convention, independent of
+  `.punt-labs/<tool>/` altogether ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
 
 ## 2.13 `enable` versus `init`
 
@@ -486,7 +492,7 @@ duplicates:
 | Verb | Job | Writes |
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
-| `init` | Create and populate the tool's repo config/state | The tool's repo config file, in the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.toml`, `.beads/` — `.beads/` is unaffected, already a directory-form marker, not a root dotfile) |
+| `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.toml`). `.beads/` is not this row's business — `bd` is a third-party tool with no `.punt-labs/<tool>/` convention to write into ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) |
 | *(legacy, retired)* | — | `.biff`, `.quarry.toml` at the repo root — the shape [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table migrates into the row above |
 
 The repo config file is **no longer the enabled signal** — the `enabled`

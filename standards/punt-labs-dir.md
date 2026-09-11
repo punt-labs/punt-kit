@@ -65,7 +65,9 @@ Two questions this standard answers, that
 
 ## 2. Repo-Local Locations: the Tool Root and the Local Zone
 
-A tool may write repo-local state in exactly **two** places, and no others:
+A **Punt Labs tool built to this convention** may write repo-local state in
+exactly **two** places, and no others (`.beads/` is out of scope for this rule
+entirely — see the exemption below):
 
 - **The tool root — `<repo>/.punt-labs/<tool>/`.** Committed shared history
   (except local-convention paths within it,
@@ -94,14 +96,23 @@ machine-local **live state**. Both are ignored by the same local convention; the
 differ in location and in what they hold.
 
 **Outside these two, a tool creates no top-level dotfile or dot-directory of its
-own — in any form.** Operator ruling, 2026-09-10: every per-repo path a tool
-owns lives under `.punt-labs/` — committed tool-root content in
-`.punt-labs/<tool>/` ([§ 1 above](#1-core-principle)), machine-local live state
-in the local zone `.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) —
-and there is no repo-root sentinel outside `.punt-labs/` altogether, whatever
-shape it takes. Three shapes are attested in the fleet and all three are
-**deprecated legacy**, retired on the tool's next release
-([§ 9](#9-migration)):
+own — in any form.** Operator ruling, 2026-09-10: every per-repo path a
+**Punt Labs tool built to this convention** owns lives under `.punt-labs/` —
+committed tool-root content in `.punt-labs/<tool>/` ([§ 1 above](#1-core-principle)),
+machine-local live state in the local zone `.punt-labs/local/<tool>/`
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — and there
+is no repo-root sentinel outside `.punt-labs/` altogether, whatever shape it
+takes. **`.beads/` is explicitly outside this ruling's scope, not a violation
+of it**, for the same reason [integration.md](integration.md#l0-presence)
+already carves it out of the presence-check migration: `bd` is a third-party
+tool with its own established root-level convention that predates and is
+independent of the `.punt-labs/<tool>/` convention this standard governs — it
+is not "a Punt Labs tool that failed to adopt `.punt-labs/`," it is out of
+scope the same way `.git/` is. No other root-level directory gets this
+exemption without the same independent-of-the-convention justification. Three
+shapes of the in-scope legacy — a Punt Labs tool's own root sentinel — are
+attested in the fleet and all three are **deprecated legacy**, retired on the
+tool's next release ([§ 9](#9-migration)):
 
 - a **settings-bearing dotfile** — `.biff` (real TOML: `[team]`, `[relay]`,
   `[peers]`), `.quarry.toml`;
@@ -447,7 +458,7 @@ applies to exactly one of them.**
 | Zone | Path shape | Owner | Committed? | On `enable` / upgrade |
 |------|-----------|-------|-----------|----------------------|
 | Vendored | tool-deposited files (e.g. the `CLAUDE.md` guide) | The tool | Yes | Overwritten wholesale — the § 2.2 determinism contract lives here and **only** here |
-| Config | `.punt-labs/<tool>/config.*` and other `init`-written files | The repo (via `init`) | Yes | **Never touched** — `enable` / upgrade must not read, merge, or overwrite it |
+| Config | `.punt-labs/<tool>/config.*` and other `init`-written files | The repo (via `init`) — or the tool's own `enable`/`disable`/daemon, for the specific fields they own (below) | Yes | **Never touched by the vendored-zone wholesale overwrite** — that is what "never touched" scopes ([§ 2.2](tool-enable-disable.md#22-ownership)'s determinism contract lives in the Vendored zone only, never here). It does **not** mean no write ever reaches this file: a tool's own `enable`/`disable`/daemon may write the specific fields it owns (below) |
 | Local | `.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | The user | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Never touched |
 | Marker | `.punt-labs/<tool>/enabled` | The tool | Yes | Written by `enable`, deleted by `disable` ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
 
