@@ -102,13 +102,14 @@ injection* surface for three reasons:
 
 `punt_kit.release` imports `time` and keeps it importable (`# noqa: F401`)
 specifically so `monkeypatch.setattr(release_mod, "time.sleep", ...)`-style
-patches resolve. But **three other modules own their own `time` import and
+patches resolve. But **four other modules own their own `time` import and
 call `time.sleep` directly, independent of `release.py`'s**:
 
 | Module | Sleep call | Patched today via |
 |---|---|---|
 | `phases/shared/gh.py` (`RequiredChecksWaiter.wait`) | `time.sleep(15)` (multiple call sites) | tests shrink `NO_CHECKS_GRACE`/deadlines and patch `gh.time.sleep` directly, or accept real (short) sleeps |
 | `phases/shared/pr_merge.py` (`PrMerger.merge`, retry loop) | `time.sleep(wait)`, `wait = 10 * (attempt+1)` | not patched anywhere in the current suite — retry-path tests either don't reach 6 attempts or eat real wall-clock time |
+| `phases/phase08_verify_pypi.py` (PyPI install retry loop) | `time.sleep(30)`, fixed interval, up to 9 sleeps across 10 attempts (270s worst case) | not patched anywhere in the current suite — same shape of gap as `pr_merge.py`'s loop |
 | `phases/shared/ci_run.py` (`TagRunSelector.poll`) | injectable `sleep: Callable[[float], None] = time.sleep` parameter | the one seam done right — tests pass a fast poller or shrink `attempts`/`interval` |
 
 This is a real inconsistency, not a hypothetical one: `ci_run.py`'s
@@ -271,27 +272,45 @@ fixtures" — this is the mechanism:
    structure — that actually walks the fixture at test time and fails loudly
    on a missing key, a renamed field, or a type that changed shape. The
    `TypedDict` documents the contract; the validator function enforces it.
-   If `gh`'s CLI changes a field name or a JSON shape in a future version,
-   this test fails on the *fixture*, independent of any hand-rolled fake in
-   a specific test — catching drift at its source instead of at whichever
-   test happens to exercise that shape.
+   **What this test does and does not catch:** it runs offline against the
+   *committed, static* fixture files — it catches fixture/parser
+   *disagreement* (someone edits `phase06_ci_wait.py`'s parsing expectations,
+   or hand-edits a fixture, without updating the other side), deterministically
+   and in every CI run. It does **not**, by itself, catch a live `gh` CLI
+   upgrade that silently changes a field name or shape: the fixture is a
+   point-in-time recording, and CI has no live `gh` session to compare it
+   against, so nothing changes and nothing fails until someone reruns
+   `record_gh_fixtures.py`. The actual drift-from-reality detector is the
+   refresh cadence in step 4 below, not this test — this test's job is
+   narrower and purely offline: keep the fixture and the parser honest with
+   each other between refreshes, independent of any hand-rolled fake in a
+   specific test.
 3. **Fixture reuse.** `FaultRule.response` can load a recorded fixture by
    name (`FaultRule.from_fixture("gh_pr_list_open.json")`) instead of an
    inline dict literal — so a scenario test's "what does a normal `gh pr
    list` response look like" reuses the same ground truth the contract test
    checks, rather than each test maintaining its own drifted copy.
-4. **Refresh cadence.** Recording is not automated (it requires a live `gh`
-   session and a real repo) — it is a manual step run when `gh`'s CLI version
-   bumps materially, or when a new response shape is added to the release
-   engine's parsing. `tools/record_gh_fixtures.py --check` (a lightweight
-   mode using `gh --version` plus a page of the CLI's own changelog) can flag
-   "fixtures are N versions of `gh` old" as an informational note, not a
-   gate — actual gate is the contract test in step 2, which fails
-   deterministically without any live network access.
+4. **Refresh cadence — the actual drift-from-reality detector.** Recording
+   is not automated (it requires a live `gh` session and a real repo) — it
+   is a manual step run when `gh`'s CLI version bumps materially, or when a
+   new response shape is added to the release engine's parsing. Because
+   step 2's contract test cannot see a live `gh` upgrade on its own (it only
+   compares static fixtures to the parser), each recorded fixture carries a
+   `_meta` block stamped with the `gh --version` output at recording time.
+   `tools/record_gh_fixtures.py --check` re-runs the *live* `gh` command for
+   each fixture, diffs the live response's shape against the stored one, and
+   fails (not just informational) when they disagree — this is the piece
+   that actually observes a `gh` CLI change, and it is intentionally *not*
+   run in CI (no live credentials there); it is a scheduled or pre-release
+   manual gate. Step 2's contract test remains the CI-safe, offline
+   fixture/parser agreement check; step 4's `--check` is the live-reality
+   check that keeps the fixtures worth trusting between refreshes.
 
 This closes the reality-drift risk without requiring network access or live
-credentials in CI: the contract test runs offline against static fixtures;
-only the (manual, out-of-band) recording step touches the network.
+credentials in CI: the contract test (step 2) runs offline against static
+fixtures, keeping fixture and parser honest with each other on every CI run;
+the recording step (step 1) and the `--check` live-diff (step 4) are the two
+places that touch the network, and both are manual/out-of-band by design.
 
 ### 2c. Simulating what git and `gh` cannot express
 
@@ -375,11 +394,16 @@ the fake, not the release engine:
   whether an hours-long release genuinely hits a token expiry — and that is
   an operational/monitoring concern, not a unit-test concern.
 - **PyPI's actual propagation delay** (publish succeeds, index takes minutes
-  to reflect it). Phase 8/11's PyPI checks are already designed around this
-  (`--no-cache --reinstall` forces an index query) — the harness can simulate
-  "index query fails" via a scripted `uv pip install --dry-run` non-zero
-  exit, but cannot simulate "PyPI's own eventual-consistency window," because
-  that is a property of PyPI's infrastructure, not of this codebase.
+  to reflect it). Phase 8 and Phase 11's PyPI checks are each already
+  designed around this, by different mechanisms — Phase 8's 10-attempt
+  `time.sleep(30)` retry loop around a real `uv tool install --force
+  --refresh`, Phase 11's single `uv pip install --dry-run --no-deps
+  --no-cache --reinstall` resolve, which forces a fresh index query without
+  installing anything. The harness can simulate "the index query/install
+  fails" for either via a scripted non-zero exit on the respective `uv`
+  command, but cannot simulate "PyPI's own eventual-consistency window,"
+  because that is a property of PyPI's infrastructure, not of this
+  codebase.
 - **Real hook latency** (`bd hooks run` against a networked Dolt server,
   which is why `GIT_HOOK = 600` exists). The harness can and should test that
   the *timeout budget* is applied to the right call sites (there is already
@@ -564,11 +588,22 @@ existing bar), **P2** (inconsistency/hardening, no known live incident yet).
    covered, but Phase 8 itself — which runs earlier, right after PyPI
    publish, specifically to catch the just-published version not yet being
    resolvable — has no dedicated test forcing its own `ops.run(...)` to fail
-   or hang. Given Phase 8 and Phase 11's PyPI check share near-identical
-   logic (`uv pip install --dry-run --no-deps --no-cache --reinstall`), this
-   is lower risk than it would be for two independently-implemented checks,
-   but the two are not tested via a shared helper, so a future edit to one
-   could silently diverge from the other with nothing to notice.
+   or hang. **Correction to an earlier draft of this item:** Phase 8 and
+   Phase 11's PyPI check do *not* share near-identical logic. Phase 11
+   (phase11_verify.py:607-616) runs `uv pip install --dry-run --no-deps
+   --no-cache --reinstall` — a pure resolve, installs nothing. Phase 8
+   (phase08_verify_pypi.py:64-90) runs `uv tool install --force --refresh`
+   in a real 10-attempt retry loop (`time.sleep(30)` between attempts, up
+   to 270s), which actually installs the CLI tool and is followed by an
+   optional `<cli> doctor` invocation — a heavier, genuinely different
+   operation with its own untested retry-loop shape (the same class of gap
+   §1d and defect #1 already flag for `pr_merge.py`'s retry loop). The two
+   checks are related in *intent* (both confirm the just-published version
+   is live on PyPI) but not in *implementation*, so "a future edit to one
+   could silently diverge from the other" is the wrong risk framing — there
+   is no shared helper to diverge from because there never was shared code.
+   The isolated-test gap stands on its own merits for each phase
+   independently.
 
 7. **P2 — No test exhaustively drives `--resume-from` for all 11 phase
    names against a genuinely-incomplete state at that phase.**
@@ -617,7 +652,8 @@ one worker/evaluator pair, landable independently, and each wave's tests pass
 ### Wave 0 — Harness primitives (foundation, no new test scenarios)
 
 Deliverable: `tests/harness/fault_ops.py` (`FaultRule`, `FaultInjectingOps`,
-`interrupt_after`, the blocking-rule mechanism for Wave 3), plus a thin
+`interrupt_after`, the blocking-rule mechanism for Wave 3, and the
+`FaultRule.from_fixture(name)` classmethod §2b step 3 relies on), plus a thin
 `tests/harness/__init__.py`. Migrate **zero** existing tests in this wave —
 the goal is landing the primitive with its own unit tests, including as
 explicit acceptance criteria:
@@ -636,6 +672,11 @@ explicit acceptance criteria:
   `ThreadPoolExecutor` (an internal lock around match-and-consume).
 - `interrupt_after` fires exactly when its anchoring rule match completes,
   not before and not on an unrelated call.
+- `FaultRule.from_fixture(name)` reads a `tests/fixtures/gh/<name>.json` file
+  and builds the matching `CompletedProcessSpec` — tested here against a
+  fixture file created inline in the test, since Wave 0 does not depend on
+  Wave 1's actual fixture library existing yet, only on the loader mechanism
+  it will read from.
 
 Sized deliberately small so the primitive itself gets scrutinized before
 anything depends on it.
