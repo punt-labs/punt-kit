@@ -549,9 +549,14 @@ def test_recorder_refuses_a_command_needing_redaction(
         note="",
     )
 
-    with pytest.raises(CommandNotReplayableError, match="ghp_"):
+    # The exception message must never reproduce the raw secret — an
+    # operator could paste an uncaught traceback somewhere without
+    # noticing what it still contains — so this asserts the *absence* of
+    # the leaky substring, not a match against it.
+    with pytest.raises(CommandNotReplayableError, match="argv position") as excinfo:
         recorder.record_all((recording,))
 
+    assert "ghp_" not in str(excinfo.value)
     assert not (tmp_path / "example.json").exists()
 
 

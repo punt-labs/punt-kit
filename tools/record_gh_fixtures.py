@@ -857,11 +857,21 @@ class GhFixtureRecorder:
         sanitized = [self._sanitizer.sanitize(arg) for arg in recording.command]
         original = list(recording.command)
         if sanitized != original:
+            # The exception message reports only the already-redacted
+            # form — never `original`, which still carries the live
+            # secret substring this whole check exists to keep out of any
+            # output, including a traceback an operator might paste
+            # somewhere without noticing what it contains.
+            changed_at = [
+                i
+                for i, (o, s) in enumerate(zip(original, sanitized, strict=True))
+                if o != s
+            ]
             raise CommandNotReplayableError(
-                f"{recording.name}: the command itself needs redaction "
-                f"({original!r} -> {sanitized!r}) — refusing to record a "
-                "fixture whose _meta.command could not replay the command "
-                "that actually produced it"
+                f"{recording.name}: argv position(s) {changed_at} need "
+                f"redaction (sanitized form: {sanitized!r}) — refusing to "
+                "record a fixture whose _meta.command could not replay the "
+                "command that actually produced it"
             )
         return original
 
