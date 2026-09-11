@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "release",
+      "create",
+      "v1.2.3",
+      "--repo",
+      "acme-org/sample-repo",
+      "--title",
+      "v1.2.3",
+      "--notes",
+      "..."
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "Phase7GithubRelease's release-create step. 'gh release create' creates a real GitHub release and cannot be recorded live by a read-only tool — this fixture's stdout URL shape follows gh's documented behavior of printing the created release's URL to stdout on success.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "https://github.com/acme-org/sample-repo/releases/tag/v1.2.3\n"
+}

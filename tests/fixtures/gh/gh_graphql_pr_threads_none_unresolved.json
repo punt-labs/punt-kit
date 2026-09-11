@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "graphql",
+      "-f",
+      "query={ repository(owner: \"acme-org\", name: \"sample-repo\") { pullRequest(number: 42) { reviewThreads(first: 50) { nodes { id isResolved } } } } } }"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "PrThreadResolver.resolve's listing query, every thread already resolved (the resolver's no-op short-circuit path). A small variant of the live-recorded gh_graphql_pr_threads.json rather than a fresh capture, since re-finding a fully-resolved PR is not guaranteed at any given recording time.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"data\": {\"repository\": {\"pullRequest\": {\"reviewThreads\": {\"nodes\": [{\"id\": \"PRRT_kwDOexample0001\", \"isResolved\": true}, {\"id\": \"PRRT_kwDOexample0002\", \"isResolved\": true}]}}}}}"
+}

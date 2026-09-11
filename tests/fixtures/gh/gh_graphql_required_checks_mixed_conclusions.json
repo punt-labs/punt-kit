@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "graphql",
+      "--raw-field",
+      "query={ repository(owner: \"acme-org\", name: \"sample-repo\") { pullRequest(number: 42) { commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { ... on CheckRun { name isRequired(pullRequestNumber: 42) conclusion status } ... on StatusContext { context isRequired(pullRequestNumber: 42) state } } } } } } } } } }"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "RequiredChecksWaiter.wait's poll loop, a genuine mix of SUCCESS and NEUTRAL conclusions across required and non-required checks. Originally recorded live against an actively-updated dependabot PR whose CodeQL check happened to conclude NEUTRAL at capture time; a later re-recording pass caught the same PR after CodeQL had since re-run to SUCCESS, so the fixture no longer matched its own name. Hand-authored instead of chasing a live PR's transient CI state, using the exact field shapes GithubRepo/RequiredChecksWaiter's other live-recorded fixtures already establish as accurate.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"data\": {\"repository\": {\"pullRequest\": {\"commits\": {\"nodes\": [{\"commit\": {\"statusCheckRollup\": {\"contexts\": {\"nodes\": [{\"name\": \"Analyze (actions)\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"docs\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"lint\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"test\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"Analyze (python)\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"CodeQL\", \"isRequired\": false, \"conclusion\": \"NEUTRAL\", \"status\": \"COMPLETED\"}, {\"name\": \"Cursor Bugbot\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}]}}}}]}}}}}"
+}

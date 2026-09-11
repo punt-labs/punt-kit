@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "run",
+      "view",
+      "34254424833",
+      "--repo",
+      "punt-labs/punt-kit",
+      "--json",
+      "status,conclusion"
+    ],
+    "gh_version": "gh version 2.100.0 (2026-09-03)",
+    "hand_authored": false,
+    "note": "CiRunWatch.failure_message's verdict query, a healthy run.",
+    "recorded_at": "2026-09-11T06:14:43.838957+00:00"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"conclusion\": \"success\", \"status\": \"completed\"}"
+}

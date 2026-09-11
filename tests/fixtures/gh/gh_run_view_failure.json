@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "run",
+      "view",
+      "999999999",
+      "--repo",
+      "acme-org/sample-repo",
+      "--json",
+      "status,conclusion"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "CiRunWatch.failure_message's verdict query, a run that genuinely failed. Recording a live one would require triggering a real CI failure, which recording must never do.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "{\"status\": \"completed\", \"conclusion\": \"failure\"}"
+}

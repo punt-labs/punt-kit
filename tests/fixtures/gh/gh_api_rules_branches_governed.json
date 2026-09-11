@@ -1,0 +1,16 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "api",
+      "repos/punt-labs/punt-kit/rules/branches/main"
+    ],
+    "gh_version": "gh version 2.100.0 (2026-09-03)",
+    "hand_authored": false,
+    "note": "GithubRepo.has_ruleset on a ruleset-governed repo.",
+    "recorded_at": "2026-09-11T06:14:46.696060+00:00"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "[{\"type\": \"pull_request\", \"parameters\": {\"required_approving_review_count\": 0, \"dismiss_stale_reviews_on_push\": true, \"required_reviewers\": [], \"require_code_owner_review\": false, \"dismissal_restriction\": {\"enabled\": false, \"allowed_actors\": []}, \"require_last_push_approval\": false, \"required_review_thread_resolution\": true, \"require_extra_approval_for_unattributed_changes\": true, \"allowed_merge_methods\": [\"merge\", \"squash\", \"rebase\"]}, \"ruleset_source_type\": \"Repository\", \"ruleset_source\": \"punt-labs/punt-kit\", \"ruleset_id\": 12930903}, {\"type\": \"non_fast_forward\", \"ruleset_source_type\": \"Repository\", \"ruleset_source\": \"punt-labs/punt-kit\", \"ruleset_id\": 12930903}, {\"type\": \"deletion\", \"ruleset_source_type\": \"Repository\", \"ruleset_source\": \"punt-labs/punt-kit\", \"ruleset_id\": 12930903}, {\"type\": \"required_status_checks\", \"parameters\": {\"strict_required_status_checks_policy\": false, \"do_not_enforce_on_create\": false, \"required_status_checks\": [{\"context\": \"lint\"}, {\"context\": \"test\"}, {\"context\": \"docs\"}]}, \"ruleset_source_type\": \"Repository\", \"ruleset_source\": \"punt-labs/punt-kit\", \"ruleset_id\": 12930903}, {\"type\": \"copilot_code_review\", \"parameters\": {\"review_on_push\": true, \"review_draft_pull_requests\": true}, \"ruleset_source_type\": \"Repository\", \"ruleset_source\": \"punt-labs/punt-kit\", \"ruleset_id\": 12930903}]"
+}

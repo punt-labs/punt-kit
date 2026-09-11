@@ -1,0 +1,26 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "pr",
+      "list",
+      "--repo",
+      "punt-labs/punt-kit",
+      "--head",
+      "harness-fixture-probe-branch-does-not-exist",
+      "--state",
+      "all",
+      "--json",
+      "number,state,headRefOid",
+      "--limit",
+      "20"
+    ],
+    "gh_version": "gh version 2.100.0 (2026-09-03)",
+    "hand_authored": false,
+    "note": "Same lookup, no PR for the branch at all.",
+    "recorded_at": "2026-09-11T06:14:40.908535+00:00"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stdout": "[]"
+}

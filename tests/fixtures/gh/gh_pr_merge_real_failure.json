@@ -1,0 +1,21 @@
+{
+  "_meta": {
+    "command": [
+      "gh",
+      "pr",
+      "merge",
+      "123",
+      "--repo",
+      "acme-org/sample-repo",
+      "--squash",
+      "--delete-branch"
+    ],
+    "gh_version": "hand-authored 2026-09-11",
+    "hand_authored": true,
+    "note": "PrMerger.merge's squash-merge, a genuine (non-transient) failure that PrMerger's is_transient text-matching does not recognize and must fail loud on. 'gh pr merge' mutates a real PR and cannot be recorded live by a read-only tool.",
+    "recorded_at": "2026-09-11"
+  },
+  "returncode": 1,
+  "stderr": "GraphQL: Pull request is not mergeable: the merge commit cannot be cleanly created. (mergePullRequest)\n",
+  "stdout": ""
+}
