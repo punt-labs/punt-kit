@@ -1317,6 +1317,67 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
 
 
+def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
+    tmp_path: Path,
+) -> None:
+    """A remote tag's mere presence is not proof it is the right commit.
+
+    Regression test for the SHA-mismatch gap flagged in round-2 review: an
+    operator recovering from a botched release by recreating the local tag
+    at a corrected commit, while an older, wrong-commit tag of the same
+    name still sits on the remote, must get a loud diagnosed failure — not
+    a silent "already exists" that leaves the wrong commit tagged upstream.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # Remote gets v1.0.0 at the original commit — the "stale earlier
+    # attempt" this scenario recovers from.
+    _git(["tag", "v1.0.0"], cwd=str(root))
+    _git(["push", "origin", "v1.0.0"], cwd=str(root))
+    stale_sha = _git_out(["rev-parse", "v1.0.0"], cwd=str(root))
+
+    # Operator recovery: delete the local tag, advance HEAD, recreate the
+    # local tag at the corrected commit — without re-pushing it yet.
+    _git(["tag", "-d", "v1.0.0"], cwd=str(root))
+    (root / "corrected.txt").write_text("corrected\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "corrected release commit"], cwd=str(root))
+    _git(["tag", "v1.0.0"], cwd=str(root))
+    corrected_sha = _git_out(["rev-parse", "v1.0.0"], cwd=str(root))
+    assert corrected_sha != stale_sha
+
+    push_calls: list[list[str]] = []
+
+    def spying_run(
+        cmd: list[str], **kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["git", "push"]:
+            push_calls.append(cmd)
+        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+
+    with pytest.raises(ReleaseError, match="exists on the remote but points to"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+        ).run()
+
+    assert push_calls == [], "must fail loud, not silently push over the mismatch"
+    # The remote still has the stale tag — the failure did not corrupt
+    # anything, it only refused to proceed silently.
+    assert (
+        _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)).split()[0]
+        == stale_sha
+    )
+
+
 # --- sibling helpers ---
 
 

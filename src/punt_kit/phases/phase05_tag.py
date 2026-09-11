@@ -82,6 +82,24 @@ class Phase5Tag:
                 timeout=GIT_NETWORK,
             ).stdout.strip()
             if on_remote:
+                # `on_remote` truthy only proves *some* ref named `tag`
+                # exists on the remote — an earlier, wrong-commit attempt
+                # (operator recovery, a stale push from a prior run) can
+                # leave one there. Compare the SHA, not just presence: a
+                # blind "already exists" here would be the exact silent
+                # wrong-state this phase's fix exists to close, one branch
+                # over. A bare `git push` (no `--force`) is not a safe
+                # correction either — it would just fail non-fast-forward
+                # with a worse diagnosis, and force-pushing over a possibly
+                # intentional remote tag is not this code's call to make.
+                remote_sha = on_remote.split()[0]
+                if remote_sha != tag_sha:
+                    ops.fail(
+                        f"Tag {tag} exists on the remote but points to "
+                        f"{remote_sha[:8]}, not {tag_sha[:8]} — resolve "
+                        "manually before resuming"
+                    )
+                    return
                 ops.ok(f"Tag {tag} already exists at HEAD")
                 return
 
