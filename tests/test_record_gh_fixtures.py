@@ -271,7 +271,21 @@ def test_repo_context_parses_owner_and_name() -> None:
     assert repo.slug == "acme/sample"
 
 
-@pytest.mark.parametrize("slug", ["", "no-slash", "/missing-owner", "missing-name/"])
+@pytest.mark.parametrize(
+    "slug",
+    [
+        "",
+        "no-slash",
+        "/missing-owner",
+        "missing-name/",
+        # A repo slug is exactly two components — a third must be rejected,
+        # not silently folded into `name` (`"owner/repo/extra".partition("/")`
+        # would otherwise give `name == "repo/extra"`, embedding the extra
+        # segment into every REST path and GraphQL argument built from it).
+        "acme/sample/extra",
+        "acme/sample/",
+    ],
+)
 def test_repo_context_rejects_a_malformed_slug(slug: str) -> None:
     with pytest.raises(ValueError, match="owner/repo"):
         RepoContext.parse(slug)

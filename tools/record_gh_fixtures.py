@@ -415,9 +415,15 @@ class RepoContext:
 
     @classmethod
     def parse(cls, slug: str) -> Self:
-        owner, sep, name = slug.partition("/")
-        if not sep or not owner or not name:
+        # A GitHub repo slug is exactly two components — `partition("/")`
+        # alone accepts a third, embedding it into `name` (`"owner/repo/
+        # extra".partition("/")` gives `name == "repo/extra"`), which would
+        # then ride unnoticed into every REST path and GraphQL argument this
+        # tool builds from `self.slug`.
+        parts = slug.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
             raise ValueError(f"expected 'owner/repo', got {slug!r}")
+        owner, name = parts
         return cls(owner=owner, name=name)
 
     @property
@@ -794,17 +800,14 @@ class GhRecordingPlan:
                 ),
                 "RequiredChecksWaiter.wait, every required check SUCCESS.",
             ),
-            FixtureRecording(
-                "gh_graphql_required_checks_mixed_conclusions.json",
-                (
-                    "gh",
-                    "api",
-                    "graphql",
-                    "--raw-field",
-                    f"query={self._required_checks_query(repo, t.open_pr)}",
-                ),
-                "Same query, a mix of SUCCESS/NEUTRAL conclusions.",
-            ),
+            # gh_graphql_required_checks_mixed_conclusions.json is
+            # deliberately NOT in this plan: it needs a genuine mix of
+            # SUCCESS/NEUTRAL conclusions, and the live PR this table would
+            # otherwise source it from is actively updated — a prior
+            # recording pass caught it mid-mix, a later one caught it after
+            # every check had since settled to SUCCESS, silently
+            # invalidating the fixture's own documented shape. Hand-authored
+            # instead; see that fixture's own `_meta.note`.
             FixtureRecording(
                 "gh_graphql_pr_threads.json",
                 (
