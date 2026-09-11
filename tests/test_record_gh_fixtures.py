@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -31,7 +32,6 @@ from tools.record_gh_fixtures import (
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
 _TARGETS = DiscoveredTargets(
     open_pr=1,
@@ -63,6 +63,10 @@ def _never_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
 # ---------------------------------------------------------------------------
 
 
+_PROTECTION_ENDPOINT = "repos/acme/sample/branches/main/protection"
+_MERGE_ENDPOINT = "repos/acme/sample/pulls/1/merge"
+
+
 @pytest.mark.parametrize(
     "cmd",
     [
@@ -71,11 +75,18 @@ def _never_dispatch(monkeypatch: pytest.MonkeyPatch) -> None:
         ["gh", "pr", "view", "1", "--json", "state"],
         ["gh", "run", "list", "--workflow", "release.yml"],
         ["gh", "run", "view", "1", "--json", "status,conclusion"],
+        ["gh", "run", "watch", "1", "--exit-status"],
         ["gh", "release", "view", "v1.0.0"],
-        ["gh", "api", "repos/acme/sample/branches/main/protection"],
+        ["gh", "api", _PROTECTION_ENDPOINT],
         ["gh", "api", "repos/acme/sample/rules/branches/main"],
         ["gh", "api", "graphql", "-f", "query={ viewer { login } }"],
         ["/usr/bin/gh", "pr", "list"],  # basename match, absolute path
+        # A non-mutating method, in every spelling, must still be accepted —
+        # the read-only check keys off the *verb*, not the flag's presence.
+        ["gh", "api", _PROTECTION_ENDPOINT, "-X", "GET"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-XGET"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--method", "GET"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--method=GET"],
     ],
 )
 def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None:
@@ -89,8 +100,30 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
         ["gh", "pr", "create", "--title", "x"],
         ["gh", "pr", "close", "1"],
         ["gh", "release", "create", "v1.0.0"],
-        ["gh", "api", "repos/acme/sample/pulls/1/merge", "-X", "PUT"],
-        ["gh", "api", "repos/acme/sample/pulls/1", "--method", "DELETE"],
+        ["gh", "api", "orgs/acme/members"],  # not a repos/... or graphql endpoint
+        ["not-gh", "pr", "list"],
+        # -X/--method, every spelling gh's own pflag parser accepts
+        # identically: split, equals-form, and (for -X) attached-form.
+        ["gh", "api", _MERGE_ENDPOINT, "-X", "PUT"],
+        ["gh", "api", _MERGE_ENDPOINT, "-XPUT"],
+        ["gh", "api", _MERGE_ENDPOINT, "--method", "DELETE"],
+        ["gh", "api", _MERGE_ENDPOINT, "--method=DELETE"],
+        # -f/-F/--field/--raw-field on a REST endpoint, every spelling.
+        ["gh", "api", _PROTECTION_ENDPOINT, "-f", "x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-fx=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--field", "x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--field=x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-F", "x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "-Fx=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--raw-field", "x=1"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--raw-field=x=1"],
+        # --input supplies an opaque request body this tool cannot inspect —
+        # refused unconditionally, on both endpoint shapes, every spelling.
+        ["gh", "api", _PROTECTION_ENDPOINT, "--input", "payload.json"],
+        ["gh", "api", _PROTECTION_ENDPOINT, "--input=payload.json"],
+        ["gh", "api", "graphql", "--input", "payload.json"],
+        ["gh", "api", "graphql", "--input=payload.json"],
+        # A GraphQL mutation, split-token query text.
         [
             "gh",
             "api",
@@ -99,11 +132,6 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
             'query=mutation { resolveReviewThread(input: {threadId: "x"}) '
             "{ thread { isResolved } } }",
         ],
-        ["gh", "api", "orgs/acme/members"],  # not a repos/... or graphql endpoint
-        # gh api defaults to POST once a field is present, with no -X
-        # required to trigger it — refused outright on a REST endpoint.
-        ["gh", "api", "repos/acme/sample/branches/main/protection", "-f", "x=1"],
-        ["not-gh", "pr", "list"],
     ],
 )
 def test_require_read_only_refuses_every_mutating_shape(cmd: list[str]) -> None:
@@ -254,6 +282,92 @@ def test_discovery_raises_when_a_required_state_is_absent(
         discovery.discover()
 
 
+def test_discovery_skips_a_workflow_dispatch_run_for_the_tag_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``release.yml`` commonly also permits ``workflow_dispatch`` — a
+    manually re-run entry can be newer than the actual tag push. Recording
+    from it would produce a ``gh_run_list_matching_tag`` fixture that fails
+    to ``match()`` the ``TagRunSelector`` it exists to feed, since
+    ``TagRunSelector.matches`` rejects any non-``push`` event outright.
+    """
+
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd:
+            payload = [
+                {"number": 1, "state": "OPEN", "headRefName": "feature/open"},
+                {"number": 2, "state": "MERGED", "headRefName": "feature/merged"},
+                {"number": 3, "state": "CLOSED", "headRefName": "feature/closed"},
+            ]
+        else:
+            payload = [
+                {
+                    "databaseId": 111,
+                    "headBranch": "main",
+                    "event": "workflow_dispatch",
+                    "headSha": "b" * 40,
+                    "conclusion": "success",
+                },
+                {
+                    "databaseId": 999,
+                    "headBranch": "v1.2.3",
+                    "event": "push",
+                    "headSha": "a" * 40,
+                    "conclusion": "success",
+                },
+            ]
+        return subprocess.CompletedProcess(
+            args=list(cmd), returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    discovery = GhTargetDiscovery(
+        runner=ReadOnlyGhRunner(), repo=RepoContext.parse("acme/sample")
+    )
+
+    targets = discovery.discover()
+
+    assert targets.run_id == 999
+    assert targets.tag == "v1.2.3"
+
+
+def test_discovery_raises_when_only_dispatch_runs_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if "pr" in cmd:
+            payload = [
+                {"number": 1, "state": "OPEN", "headRefName": "feature/open"},
+                {"number": 2, "state": "MERGED", "headRefName": "feature/merged"},
+                {"number": 3, "state": "CLOSED", "headRefName": "feature/closed"},
+            ]
+        else:
+            payload = [
+                {
+                    "databaseId": 111,
+                    "headBranch": "main",
+                    "event": "workflow_dispatch",
+                    "headSha": "b" * 40,
+                    "conclusion": "success",
+                }
+            ]
+        return subprocess.CompletedProcess(
+            args=list(cmd), returncode=0, stdout=json.dumps(payload), stderr=""
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    discovery = GhTargetDiscovery(
+        runner=ReadOnlyGhRunner(), repo=RepoContext.parse("acme/sample")
+    )
+
+    with pytest.raises(LookupError, match="push-triggered"):
+        discovery.discover()
+
+
 # ---------------------------------------------------------------------------
 # GhSanitizer
 # ---------------------------------------------------------------------------
@@ -293,6 +407,23 @@ def test_sanitizer_leaves_non_json_text_alone_after_redaction() -> None:
     out = sanitizer.sanitize("release not found\n")
 
     assert out == "release not found\n"
+
+
+def test_sanitizer_recurses_into_a_nested_object_under_an_identity_key() -> None:
+    """GitHub sometimes returns a whole object under an identity key
+    (``"author": {"login": ..., "id": ...}``) rather than a bare string.
+    Blanking the object wholesale would corrupt its shape — a dict
+    replaced by a string — which would make ``GhFixtureDriftChecker``
+    report a false "drift" the next time a live response happens to carry
+    that shape. The nested ``login`` string must still be scrubbed.
+    """
+    sanitizer = GhSanitizer()
+    raw = json.dumps({"author": {"login": "realuser123", "id": 42}, "count": 3})
+
+    out = json.loads(sanitizer.sanitize(raw))
+
+    assert out["author"] == {"login": "redacted-user", "id": 42}
+    assert out["count"] == 3
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +469,47 @@ def test_recorder_writes_a_sanitized_envelope(
     assert envelope["_meta"]["hand_authored"] is False
     assert envelope["_meta"]["command"] == ["gh", "pr", "list"]
     assert envelope["_meta"]["gh_version"] == "gh version 2.100.0"
+
+
+def test_recorder_sanitizes_meta_command_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A branch/tag/PR-title argument copied from live GitHub data could in
+    principle carry a token- or email-shaped substring — sanitizing only
+    ``stdout``/``stderr`` and writing ``recording.command`` unchanged into
+    ``_meta`` would let it bypass the redaction pass entirely by riding
+    into the committed fixture through the metadata instead of the body.
+    """
+    from tools.record_gh_fixtures import FixtureRecording
+
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["gh", "--version"]:
+            return subprocess.CompletedProcess(
+                args=list(cmd), returncode=0, stdout="gh version 2.100.0\n", stderr=""
+            )
+        return subprocess.CompletedProcess(
+            args=list(cmd), returncode=0, stdout="[]", stderr=""
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    recorder = GhFixtureRecorder(
+        runner=ReadOnlyGhRunner(), sanitizer=GhSanitizer(), dest=tmp_path
+    )
+    leaky_branch = "release/" + "ghp_" + "a" * 36
+    recording = FixtureRecording(
+        name="example.json",
+        command=("gh", "pr", "list", "--head", leaky_branch),
+        note="",
+    )
+
+    recorder.record_all((recording,))
+
+    envelope = json.loads((tmp_path / "example.json").read_text())
+    command = envelope["_meta"]["command"]
+    assert "ghp_" not in command[-1]
+    assert "REDACTED_TOKEN" in command[-1]
 
 
 # ---------------------------------------------------------------------------
@@ -456,3 +628,114 @@ def test_drift_checker_reports_a_success_failure_disagreement(
 
     assert len(mismatches) == 1
     assert "disagreement" in mismatches[0]
+
+
+def test_drift_checker_fails_loud_on_an_empty_destination(tmp_path: Path) -> None:
+    """A missing or mistyped ``--dest`` makes the fixture-glob loop run
+    zero times — the empty ``mismatches`` list this would otherwise
+    produce is indistinguishable from a genuinely clean check to `main`'s
+    caller, so the check must report a failure explicitly instead.
+    """
+    empty_dir = tmp_path / "does-not-exist"
+
+    mismatches = GhFixtureDriftChecker(
+        runner=ReadOnlyGhRunner(), dest=empty_dir
+    ).check()
+
+    assert len(mismatches) == 1
+    assert "no fixture files found" in mismatches[0]
+
+
+def test_drift_checker_preserves_distinct_shapes_in_a_heterogeneous_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A GraphQL ``contexts`` list commonly mixes ``CheckRun`` and
+    ``StatusContext`` nodes with different fields. Fingerprinting only the
+    first element would let a change to the *other* shape go undetected —
+    exactly the case this test drives: the recorded fixture's first
+    element is unchanged, but the live response's second element gained an
+    extra field, and that alone must still be reported as drift.
+    """
+    _write_envelope(
+        tmp_path / "rec.json",
+        hand_authored=False,
+        command=["gh", "api", "graphql"],
+        stdout=json.dumps([{"kind": "a"}, {"kind": "b"}]),
+    )
+
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=list(cmd),
+            returncode=0,
+            # First element's shape is unchanged; the second gained a field.
+            stdout=json.dumps([{"kind": "a"}, {"kind": "b", "extra": 1}]),
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    mismatches = GhFixtureDriftChecker(runner=ReadOnlyGhRunner(), dest=tmp_path).check()
+
+    assert len(mismatches) == 1
+    assert "shape drifted" in mismatches[0]
+
+
+def test_drift_checker_list_shape_is_order_insensitive(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same two distinct element shapes, enumerated in a different
+    order between the recorded fixture and the live response, must not
+    read as drift — only the *set* of distinct shapes matters.
+    """
+    _write_envelope(
+        tmp_path / "rec.json",
+        hand_authored=False,
+        command=["gh", "api", "graphql"],
+        stdout=json.dumps([{"kind": "a"}, {"kind": "b", "extra": 1}]),
+    )
+
+    def fake_run(
+        cmd: Sequence[str], **_kwargs: object
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=list(cmd),
+            returncode=0,
+            stdout=json.dumps([{"kind": "b", "extra": 1}, {"kind": "a"}]),
+            stderr="",
+        )
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    mismatches = GhFixtureDriftChecker(runner=ReadOnlyGhRunner(), dest=tmp_path).check()
+
+    assert mismatches == []
+
+
+# ---------------------------------------------------------------------------
+# main() — path display never crashes for a --dest outside the repo root
+# ---------------------------------------------------------------------------
+
+
+def test_display_path_uses_the_relative_form_inside_the_repo() -> None:
+    from tools.record_gh_fixtures import (
+        _ROOT,  # pyright: ignore[reportPrivateUsage]
+        _display_path,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    shown = _display_path(_ROOT / "tests" / "fixtures" / "gh" / "example.json")
+
+    assert shown == Path("tests") / "fixtures" / "gh" / "example.json"
+
+
+def test_display_path_falls_back_to_absolute_outside_the_repo(
+    tmp_path: Path,
+) -> None:
+    from tools.record_gh_fixtures import (
+        _display_path,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    outside = tmp_path / "example.json"
+
+    assert _display_path(outside) == outside

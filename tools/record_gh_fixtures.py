@@ -77,6 +77,7 @@ _READ_ONLY_ALLOWLIST: tuple[tuple[str, ...], ...] = (
     ("gh", "pr", "view"),
     ("gh", "run", "list"),
     ("gh", "run", "view"),
+    ("gh", "run", "watch"),
     ("gh", "release", "view"),
 )
 
@@ -98,6 +99,44 @@ def _matches_prefix(cmd: Sequence[str], prefix: Sequence[str]) -> bool:
     if Path(cmd[0]).name != prefix[0]:
         return False
     return list(cmd[1 : len(prefix)]) == list(prefix[1:])
+
+
+def _flag_present(cmd: Sequence[str], name: str) -> bool:
+    """True if ``name`` (e.g. ``"-f"`` or ``"--field"``) appears anywhere in
+    ``cmd``, in any spelling ``gh``'s own pflag-based parser accepts
+    identically to the bare split form (``-f x=1``): the equals form
+    (``--field=x=1``, long flags only) and, for a single-dash single-letter
+    flag, the attached form (``-fx=1``). Checking only ``arg == name`` — as
+    an earlier version of this function did — misses both: `gh` parses
+    ``--method=PUT``, ``-XPUT``, ``--field=x=1``, and ``-Fx=1`` exactly like
+    their split-token equivalents, verified directly against a real ``gh``
+    binary, so enumerating spellings as separate literal tokens is the wrong
+    shape for this check — it will always be one spelling behind.
+    """
+    for arg in cmd:
+        if arg == name:
+            return True
+        if name.startswith("--") and arg.startswith(name + "="):
+            return True
+        if len(name) == 2 and name[0] == "-" and arg != name and arg.startswith(name):
+            return True
+    return False
+
+
+def _flag_value(cmd: Sequence[str], name: str) -> str | None:
+    """The value attached to ``name``'s first occurrence, in whichever of
+    the three spellings ``_flag_present`` recognizes — ``None`` if ``name``
+    never appears, or appears as a bare split-form token with nothing after
+    it (malformed input this tool never itself produces).
+    """
+    for i, arg in enumerate(cmd):
+        if arg == name:
+            return cmd[i + 1] if i + 1 < len(cmd) else None
+        if name.startswith("--") and arg.startswith(name + "="):
+            return arg[len(name) + 1 :]
+        if len(name) == 2 and name[0] == "-" and arg != name and arg.startswith(name):
+            return arg[len(name) :]
+    return None
 
 
 @final
@@ -137,22 +176,31 @@ class ReadOnlyGhRunner:
         """``gh api``'s endpoint is one combined token, so this checks it
         directly rather than via the prefix allowlist: the endpoint must be
         the GraphQL escape hatch or a ``repos/...`` REST path, it must carry
-        no explicit mutating HTTP method, and a GraphQL call must carry no
-        ``mutation`` operation in its query text.
+        no explicit mutating HTTP method (in any spelling — see
+        ``_flag_present``), no opaque ``--input`` request body, and a
+        GraphQL call must carry no ``mutation`` operation in its query text.
         """
         endpoint = cmd[2]
+        # `--input` reads the request body from a file or stdin this tool
+        # cannot safely inspect — a mutation's text could live entirely in
+        # that file and never appear as an argv string at all, so scanning
+        # argv for the literal "mutation" (below) would never see it.
+        # Refused unconditionally, for both endpoint shapes: no read-only
+        # call this tool ever issues needs a request body of any kind.
+        if _flag_present(cmd, "--input"):
+            raise ReadOnlyViolation(
+                f"{list(cmd)!r} passes --input, an unreadable request-body source"
+            )
         if endpoint != "graphql" and not endpoint.startswith("repos/"):
             raise ReadOnlyViolation(
                 f"{list(cmd)!r} targets an endpoint shape outside "
                 "'graphql' or 'repos/...'"
             )
-        for i, arg in enumerate(cmd):
-            if arg in ("-X", "--method") and i + 1 < len(cmd):
-                method = cmd[i + 1]
-                if _MUTATING_METHOD_RE.match(method):
-                    raise ReadOnlyViolation(
-                        f"{list(cmd)!r} passes a mutating HTTP method {method!r}"
-                    )
+        method = _flag_value(cmd, "-X") or _flag_value(cmd, "--method")
+        if method is not None and _MUTATING_METHOD_RE.match(method):
+            raise ReadOnlyViolation(
+                f"{list(cmd)!r} passes a mutating HTTP method {method!r}"
+            )
         if endpoint == "graphql":
             if any("mutation" in arg.lower() for arg in cmd):
                 raise ReadOnlyViolation(
@@ -164,14 +212,19 @@ class ReadOnlyGhRunner:
         # switches its own default to POST the moment a field parameter is
         # present, with no explicit `-X` required to trigger it. Neither
         # read-only `repos/...` endpoint this tool ever calls needs a body,
-        # so refusing any field flag outright closes that default-flip
-        # rather than relying on every future addition to remember it.
-        if any(arg in ("-f", "-F", "--field", "--raw-field", "--input") for arg in cmd):
-            raise ReadOnlyViolation(
-                f"{list(cmd)!r} passes a body field to a REST endpoint — "
-                "gh defaults to POST once a field is present, even with no "
-                "explicit -X"
-            )
+        # so refusing any field flag outright (in any spelling) closes that
+        # default-flip rather than relying on every future addition to
+        # remember it. `-f`/`-F`/`--field`/`--raw-field` are legitimate for
+        # a GraphQL call (`-f query=...`), so they are only refused here, on
+        # the REST branch — the `return` above already sent GraphQL callers
+        # past this point.
+        for name in ("-f", "-F", "--field", "--raw-field"):
+            if _flag_present(cmd, name):
+                raise ReadOnlyViolation(
+                    f"{list(cmd)!r} passes a body field ({name}) to a REST "
+                    "endpoint — gh defaults to POST once a field is present, "
+                    "even with no explicit -X"
+                )
 
     def run(self, cmd: Sequence[str]) -> subprocess.CompletedProcess[str]:
         """Run ``cmd``, refusing first if it is not provably read-only."""
@@ -229,17 +282,24 @@ class GhSanitizer:
             # Wire boundary — decoded JSON keys are `object` until narrowed
             # here to the `str` every JSON object key actually is (PY-TS-14).
             fields = cast("dict[str, object]", value)
-            return {
-                k: (
-                    "redacted-user"
-                    if k in self._IDENTITY_KEYS
-                    else self._scrub_identities(v)
-                )
-                for k, v in fields.items()
-            }
+            return {k: self._scrub_field(k, v) for k, v in fields.items()}
         if isinstance(value, list):
             return [self._scrub_identities(v) for v in cast("list[object]", value)]
         return value
+
+    def _scrub_field(self, key: str, value: object) -> object:
+        """Blank ``value`` only when it is itself the identity string a
+        key like ``login`` normally holds. GitHub's REST/GraphQL responses
+        sometimes nest a whole object under an identity key instead (e.g.
+        ``"author": {"login": ..., "id": ...}``) — blanking the object
+        wholesale would replace a dict with a bare string, corrupting the
+        shape `GhFixtureDriftChecker` fingerprints and producing a false
+        "drift" report the next time a live response happens to carry that
+        shape. Recursing instead keeps walking for a nested identity string.
+        """
+        if key in self._IDENTITY_KEYS and isinstance(value, str):
+            return "redacted-user"
+        return self._scrub_identities(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -359,6 +419,20 @@ class GhTargetDiscovery:
         )
 
     def _latest_release_run(self) -> _RunListingEntry:
+        """The most recent tag-*push* run of ``release.yml``.
+
+        ``release.yml`` commonly also permits ``workflow_dispatch`` (a
+        manual re-run), and ``gh run list`` returns runs newest-first
+        regardless of trigger — so the newest entry can be a manual
+        dispatch rather than the tag push this fixture is documented to
+        represent. ``TagRunSelector.matches`` (the production collaborator
+        this fixture exists to feed) rejects any run whose ``event`` is not
+        ``"push"`` outright, so recording from a dispatch run would produce
+        a `gh_run_list_matching_tag.json` fixture that fails to `match()`
+        the very selector it is named for. Filtering here to the same
+        `event == "push"` predicate keeps the fixture honest with its own
+        name.
+        """
         result = self._runner.run(
             [
                 "gh",
@@ -369,7 +443,7 @@ class GhTargetDiscovery:
                 "--workflow",
                 "release.yml",
                 "--limit",
-                "5",
+                "20",
                 "--json",
                 "databaseId,headBranch,event,headSha,conclusion",
             ]
@@ -379,7 +453,15 @@ class GhTargetDiscovery:
         parsed: object = json.loads(result.stdout)  # wire boundary, see above
         if not isinstance(parsed, list) or not parsed:
             raise LookupError(f"no release.yml runs found for {self._repo.slug}")
-        return cast("list[_RunListingEntry]", parsed)[0]
+        runs = cast("list[_RunListingEntry]", parsed)
+        for run in runs:
+            if run["event"] == "push":
+                return run
+        raise LookupError(
+            f"no push-triggered release.yml run found in the last {len(runs)} "
+            f"runs of {self._repo.slug} — only workflow_dispatch runs, or none "
+            "at all"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -545,6 +627,26 @@ class GhRecordingPlan:
                 "CiRunWatch.failure_message's verdict query, a healthy run.",
             ),
             FixtureRecording(
+                "gh_run_watch_healthy.json",
+                (
+                    "gh",
+                    "run",
+                    "watch",
+                    str(t.run_id),
+                    "--repo",
+                    repo,
+                    "--exit-status",
+                ),
+                "Phase6CiWait's post-selection watch call on an already-"
+                "completed run — part of the design's full recording "
+                "inventory (Phase 6, phase06_ci_wait.py), but no contract "
+                "test consumes it: production code runs it with "
+                "capture=False and only checks its returncode, never its "
+                "stdout, and Phase6CiWait itself is a phase class, not a "
+                "shared collaborator (out of Wave 1's collaborator-testing "
+                "scope per the design's matrix rows 21-27 boundary).",
+            ),
+            FixtureRecording(
                 "gh_release_view_exists.json",
                 ("gh", "release", "view", t.tag, "--repo", repo),
                 "Phase 7's already-released short-circuit.",
@@ -684,7 +786,14 @@ class GhFixtureRecorder:
             "_meta": {
                 "gh_version": self._gh_version,
                 "recorded_at": datetime.now(UTC).isoformat(),
-                "command": list(recording.command),
+                # Sanitized like stdout/stderr — a branch, tag, or PR-title
+                # argument copied from live GitHub data could in principle
+                # contain a token- or email-shaped substring, which would
+                # otherwise bypass the redaction pass entirely by riding
+                # into `_meta.command` unchanged. Most argv tokens are not
+                # valid JSON, so this only ever applies the regex-redaction
+                # half of `sanitize` here — never the JSON identity scrub.
+                "command": [self._sanitizer.sanitize(arg) for arg in recording.command],
                 "hand_authored": False,
                 "note": recording.note,
             },
@@ -716,8 +825,18 @@ class GhFixtureDriftChecker:
         return self
 
     def check(self) -> list[str]:
+        paths = sorted(self._dest.glob("*.json"))
+        if not paths:
+            # A missing or mistyped --dest makes this loop run zero times,
+            # which would otherwise report a silent, vacuous "no drift" —
+            # indistinguishable from a genuinely clean check to anyone
+            # reading only the exit code.
+            return [
+                f"{self._dest}: no fixture files found — refusing to report "
+                "'no drift' for an empty or missing directory"
+            ]
         mismatches: list[str] = []
-        for path in sorted(self._dest.glob("*.json")):
+        for path in paths:
             mismatches.extend(self._check_one(path))
         return mismatches
 
@@ -778,8 +897,25 @@ class GhFixtureDriftChecker:
             return {k: self._shape_of(v) for k, v in sorted(fields.items())}
         if isinstance(value, list):
             items = [self._shape_of(v) for v in cast("list[object]", value)]
-            return [items[0]] if items else []
+            return self._distinct_shapes(items)
         return type(value).__name__
+
+    @staticmethod
+    def _distinct_shapes(shapes: list[object]) -> list[object]:
+        """Every distinct element shape in a JSON array, in a deterministic,
+        order-insensitive form — not just the first element's shape.
+
+        The GraphQL arrays this recorder captures are commonly
+        heterogeneous (a ``contexts`` list mixes ``CheckRun`` and
+        ``StatusContext`` nodes with different fields), so collapsing to
+        one representative shape would let a later element's field or
+        value-kind change go undetected. Deduplicating and sorting by each
+        shape's own canonical JSON string keeps the result stable across
+        two responses that enumerate the same set of distinct shapes in a
+        different order.
+        """
+        keyed = {json.dumps(shape, sort_keys=True): shape for shape in shapes}
+        return [keyed[key] for key in sorted(keyed)]
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -796,6 +932,17 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="re-run recorded fixtures live and report shape drift",
     )
     return parser
+
+
+def _display_path(path: Path) -> Path:
+    """``path``, relative to the repo root when it lives inside it.
+
+    ``--dest`` need not live under the repo root — a path outside it (e.g.
+    a scratch directory for a one-off test recording) must still print
+    successfully after the write already landed, rather than raising from
+    ``Path.relative_to`` on a path that shares no common root.
+    """
+    return path.relative_to(_ROOT) if path.is_relative_to(_ROOT) else path
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -817,7 +964,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     sanitizer = GhSanitizer()
     recorder = GhFixtureRecorder(runner=runner, sanitizer=sanitizer, dest=args.dest)
     for path in recorder.record_all(plan.recordings()):
-        print(f"wrote {path.relative_to(_ROOT)}")
+        print(f"wrote {_display_path(path)}")
     return 0
 
 

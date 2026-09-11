@@ -5,14 +5,14 @@
       "api",
       "graphql",
       "-f",
-      "query={  repository(owner: \"punt-labs\", name: \"punt-kit\") {    pullRequest(number: 349) {      commits(last: 1) {        nodes {          commit {            statusCheckRollup {              contexts(first: 100) {                nodes {                  ... on CheckRun {                    name                    isRequired(pullRequestNumber: 349)                    conclusion                    status                  }                  ... on StatusContext {                    context                    isRequired(pullRequestNumber: 349)                    state                  }                }              }            }          }        }      }    }  }}"
+      "query={  repository(owner: \"punt-labs\", name: \"punt-kit\") {    pullRequest(number: 356) {      commits(last: 1) {        nodes {          commit {            statusCheckRollup {              contexts(first: 100) {                nodes {                  ... on CheckRun {                    name                    isRequired(pullRequestNumber: 356)                    conclusion                    status                  }                  ... on StatusContext {                    context                    isRequired(pullRequestNumber: 356)                    state                  }                }              }            }          }        }      }    }  }}"
     ],
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "Same query, a mix of SUCCESS/NEUTRAL conclusions.",
-    "recorded_at": "2026-09-11T03:47:39.142344+00:00"
+    "recorded_at": "2026-09-11T04:41:16.823994+00:00"
   },
   "returncode": 0,
   "stderr": "",
-  "stdout": "{\"data\": {\"repository\": {\"pullRequest\": {\"commits\": {\"nodes\": [{\"commit\": {\"statusCheckRollup\": {\"contexts\": {\"nodes\": [{\"name\": \"docs\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"lint\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"test\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"CodeQL\", \"isRequired\": false, \"conclusion\": \"NEUTRAL\", \"status\": \"COMPLETED\"}, {\"name\": \"Cursor Bugbot\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}]}}}}]}}}}}"
+  "stdout": "{\"data\": {\"repository\": {\"pullRequest\": {\"commits\": {\"nodes\": [{\"commit\": {\"statusCheckRollup\": {\"contexts\": {\"nodes\": [{\"name\": \"Analyze (actions)\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"docs\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"lint\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"test\", \"isRequired\": true, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"Analyze (python)\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}, {\"name\": \"Cursor Bugbot\", \"isRequired\": false, \"conclusion\": \"NEUTRAL\", \"status\": \"COMPLETED\"}, {\"name\": \"CodeQL\", \"isRequired\": false, \"conclusion\": \"SUCCESS\", \"status\": \"COMPLETED\"}]}}}}]}}}}}"
 }

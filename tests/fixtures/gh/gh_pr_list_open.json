@@ -7,7 +7,7 @@
       "--repo",
       "punt-labs/punt-kit",
       "--head",
-      "dependabot/uv/ruff-0.16.6",
+      "feat/harness-wave1",
       "--state",
       "all",
       "--json",
@@ -18,9 +18,9 @@
     "gh_version": "gh version 2.100.0 (2026-09-03)",
     "hand_authored": false,
     "note": "PrMerger's existing-PR lookup, an OPEN PR.",
-    "recorded_at": "2026-09-11T03:47:32.363531+00:00"
+    "recorded_at": "2026-09-11T04:41:06.209830+00:00"
   },
   "returncode": 0,
   "stderr": "",
-  "stdout": "[{\"headRefOid\": \"258afd3522aed1a5285f3b2c89ba04e998f07d81\", \"number\": 349, \"state\": \"OPEN\"}]"
+  "stdout": "[{\"headRefOid\": \"3e45a89d58142fb54e1da4bf5d3bbd45b9c00a23\", \"number\": 356, \"state\": \"OPEN\"}]"
 }

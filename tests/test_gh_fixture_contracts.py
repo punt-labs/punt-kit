@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -313,34 +313,64 @@ def test_ci_run_watch_reports_the_conclusion_on_a_failed_run(tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("fixture", "local_head", "expected"),
-    [
-        ("gh_pr_list_open.json", "irrelevant", (349, False)),
-        (
-            "gh_pr_list_merged.json",
-            "a7f457a370d64d3f74f1c48238d0264698ce0852",
-            (355, True),
-        ),
-        ("gh_pr_list_merged.json", "0" * 40, (None, False)),
-        ("gh_pr_list_closed.json", "irrelevant", (None, False)),
-        ("gh_pr_list_empty.json", "irrelevant", (None, False)),
-    ],
-)
-def test_select_existing_reads_the_recorded_pr_list_shapes(
-    fixture: str, local_head: str, expected: tuple[int | None, bool]
-) -> None:
-    ops = _ops_with(_rule(["gh", "pr", "list"], fixture))
-
-    result = ops.run(["gh", "pr", "list"])
-    prs = json.loads(result.stdout)
-
-    assert (
-        PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]
-            prs, local_head
-        )
-        == expected
+def _select_existing(
+    prs: list[dict[str, object]], local_head: str
+) -> tuple[int | None, bool]:
+    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]
+        prs, local_head
     )
+
+
+def _pr_list_entry(fixture: str) -> dict[str, object]:
+    """The one PR entry a `gh_pr_list_*` fixture carries — read from the
+    fixture itself rather than hardcoded, since these fixtures are
+    recorded live and their PR number/head SHA changes on every
+    re-recording pass.
+    """
+    ops = _ops_with(_rule(["gh", "pr", "list"], fixture))
+    # Wire boundary — a fixture's decoded stdout is `object` until narrowed
+    # here to the shape every `gh_pr_list_*` fixture actually has (PY-TS-14).
+    prs = cast(
+        "list[dict[str, object]]", json.loads(ops.run(["gh", "pr", "list"]).stdout)
+    )
+    assert len(prs) == 1, f"{fixture} does not carry exactly one PR entry"
+    return prs[0]
+
+
+def test_select_existing_picks_the_open_pr() -> None:
+    entry = _pr_list_entry("gh_pr_list_open.json")
+    assert entry["state"] == "OPEN"
+
+    assert _select_existing([entry], "irrelevant") == (entry["number"], False)
+
+
+def test_select_existing_matches_a_merged_pr_at_its_own_head() -> None:
+    entry = _pr_list_entry("gh_pr_list_merged.json")
+    assert entry["state"] == "MERGED"
+
+    result = _select_existing([entry], str(entry["headRefOid"]))
+
+    assert result == (entry["number"], True)
+
+
+def test_select_existing_ignores_a_merged_pr_at_a_stale_head() -> None:
+    entry = _pr_list_entry("gh_pr_list_merged.json")
+
+    assert _select_existing([entry], "0" * 40) == (None, False)
+
+
+def test_select_existing_ignores_a_closed_pr() -> None:
+    entry = _pr_list_entry("gh_pr_list_closed.json")
+    assert entry["state"] == "CLOSED"
+
+    assert _select_existing([entry], "irrelevant") == (None, False)
+
+
+def test_select_existing_finds_nothing_for_an_empty_list() -> None:
+    ops = _ops_with(_rule(["gh", "pr", "list"], "gh_pr_list_empty.json"))
+    prs = json.loads(ops.run(["gh", "pr", "list"]).stdout)
+
+    assert _select_existing(prs, "irrelevant") == (None, False)
 
 
 def test_is_merged_reads_open_state_as_false(tmp_path: Path) -> None:
@@ -426,17 +456,22 @@ def test_from_fixture_reads_the_real_fixture_library_by_default() -> None:
     """``from_fixture``'s default ``fixtures_dir`` resolves to the actual
     committed library, not only a fixture a test creates inline — the
     end-to-end wiring the loader exists to provide.
+
+    Compares against ``load_gh_fixture`` reading the same file directly,
+    rather than a hardcoded PR number/SHA: ``gh_pr_list_open.json`` is
+    recorded live and its content changes on every re-recording pass, so a
+    literal expected value here would be exactly as fragile as the
+    fixture's own real-world data — the wiring being tested doesn't depend
+    on what that data currently is.
     """
     spec = FaultRule.from_fixture("gh_pr_list_open.json")
+    envelope = load_gh_fixture("gh_pr_list_open.json")
 
-    assert spec.returncode == 0
-    assert json.loads(spec.stdout) == [
-        {
-            "headRefOid": "258afd3522aed1a5285f3b2c89ba04e998f07d81",
-            "number": 349,
-            "state": "OPEN",
-        }
-    ]
+    assert spec.returncode == envelope["returncode"]
+    assert spec.stdout == envelope["stdout"]
+    entries = json.loads(spec.stdout)
+    assert len(entries) == 1
+    assert entries[0]["state"] == "OPEN"
 
 
 # ---------------------------------------------------------------------------
