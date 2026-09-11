@@ -129,12 +129,19 @@ in the fleet and all three are **deprecated legacy**, retired on the tool's
 next release ([§ 9](#9-migration)):
 
 - a **settings-bearing dotfile** — `.biff` (real TOML: `[team]`, `[relay]`,
-  `[peers]`), `.quarry.toml`;
+  `[peers]`). `.quarry.toml` was this standard's earlier, proposed shape for
+  quarry — verified against quarry's own source (`_stdlib.py`) and the fleet
+  (zero repos surveyed carry it): quarry never shipped it, going straight to
+  `.punt-labs/quarry/config.md` (YAML frontmatter, not TOML). Kept here as a
+  corrected historical note, not a live migration target — see the quarry
+  (config) row in [§ 10](#10-adoption-status);
 - a **config-bearing directory** — `.vox/config.md`, `.lux/config.md`. Earlier
   drafts of this standard called these "pure presence" markers; the fleet
   survey ([§ 10](#10-adoption-status)) found otherwise — both carry live
-  settings — daemon-mutable for vox (vibe/notify/speak/voice, rewritten
-  at runtime by the MCP switch tools) and enable/disable-managed for lux (the
+  settings — daemon-mutable for vox (`model`/`notify`/`provider`/`speak`/`voice`,
+  vox's own durable-field set — `vibe` and its cluster are session-local and
+  live in `vox.local.md`, not this file — rewritten at runtime by the MCP
+  switch tools) and enable/disable-managed for lux (the
   `display` toggle, written only by the install/enablement flow, per lux's own
   `operations/config.py` docstring — not a daemon, not a runtime client
   setter) — the exact root-level predecessor of `.punt-labs/vox/vox.md` and
@@ -275,12 +282,16 @@ governs a file that *grows* — an audit log, a session transcript — where
 "deliberate lifecycle action" cannot describe the write cadence (a live
 process appends every few seconds, unbounded, for as long as it runs); such a
 file is never tracked, full stop, and lands in the local zone or behind the
-seal pattern below. `vox.md` never grows — it is a small, fixed-shape settings
-file (`vibe`, `notify`, `speak`, `voice`) whose *whole value* is rewritten in
-place each time an MCP switch tool runs. A `write_field` call is exactly as
-much a "deliberate action" as a human edit or an `enable` run — it is just
-triggered by a tool call instead of a keystroke — so it does not fail this
-rule's test at all; §4's naming-determined git status (not this section) is
+seal pattern below. `vox.md` never grows — it is a small, bounded set of
+durable fields (`model`, `notify`, `provider`, `speak`, `voice` — vox's own
+tracked-config set; the ephemeral `vibe` cluster is session-local and lives in
+`vox.local.md` instead, never in this file) rewritten in place by a
+`write_field` call only when an MCP switch tool actually changes a value — a
+list, no-op, refused, or failed switch call never touches the file at all. A
+successful `write_field` call is exactly as much a "deliberate action" as a
+human edit or an `enable` run — it is just triggered by a tool call instead of
+a keystroke — so it does not fail this rule's test at all; §4's
+naming-determined git status (not this section) is
 what decides `vox.md` stays tracked. The distinction is **append vs.
 rewrite-in-place**, not "important vs. throwaway" (as the closing line of this
 section already says) and not "human-triggered vs. tool-triggered."
@@ -478,8 +489,8 @@ tool owns `.punt-labs/<tool>/` and overwrites it **wholesale** on every
 `enable` / upgrade — "same tool version, same repo config, identical output."
 That contract collides with the placement rule
 ([§ 3](#3-repo-versus-home-the-placement-rule)), which puts **repo config** —
-the artifacts `init` writes (a roster, a database name; today `.biff`,
-`.quarry.toml` per
+the artifacts `init` writes (a roster, a database name; in the config zone —
+`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.md` — per
 [tool-enable-disable.md § 2.13](tool-enable-disable.md#213-enable-versus-init)) —
 inside the same subtree. A wholesale overwrite would clobber that config on
 every upgrade.
@@ -830,8 +841,8 @@ attested legacy forms ([§ 1](#1-core-principle)), not the dotfile case alone:
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.biff` (settings) | `.punt-labs/biff/config.yaml` (config zone) | Move settings, then delete the empty root file; never delete with settings inside |
-| `.quarry.toml` (root) | `.punt-labs/quarry/config.toml` (config zone) | Same |
-| `.vox/config.md` (daemon-mutable settings: vibe/notify/speak/voice) | `.punt-labs/vox/vox.md` | Move the file, then delete the empty root directory; the destination stays **tracked**, exactly like any other Config-zone file ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — being daemon-rewritten does not exempt it from git status; never deleted with settings inside |
+| `.quarry.toml` (proposed, never shipped) | `.punt-labs/quarry/config.md` (config zone, YAML frontmatter) | Not a live migration — quarry deposits directly at the config-zone path; row kept for historical accuracy only |
+| `.vox/config.md` (daemon-mutable settings: model/notify/provider/speak/voice) | `.punt-labs/vox/vox.md` | Move the file, then delete the empty root directory; the destination stays **tracked**, exactly like any other Config-zone file ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — being daemon-rewritten does not exempt it from git status; never deleted with settings inside |
 | `.lux/config.md` (enable/disable-managed setting: `display`, not daemon-rewritten) | `.punt-labs/lux/config.md` | Same |
 | `.biff` / `.vox` / `.lux` (pure presence — no settings inside) | — | Deleted once `.punt-labs/<tool>/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
 | `.ethos/missions.jsonl` — the file, inside the bare root **directory** `.ethos/` (**not** `.punt-labs/ethos/missions.jsonl` — no settings, no relation to the sealed-chunk subtree file) | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | Move the **file**, then delete the now-empty **directory** `.ethos/`; never delete with unread lines inside |
@@ -879,10 +890,10 @@ local-convention naming on their next release.
 | ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
 | ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
 | biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
-| quarry (config) | `.quarry.toml` root sentinel | — | `.punt-labs/quarry/config.toml` config zone | Planned |
+| quarry (config) | `.quarry.toml` (proposed, never shipped — verified against quarry's own source and a zero-repo fleet survey) | — | `.punt-labs/quarry/config.md` config zone, YAML frontmatter — already the deployed state everywhere, nothing to migrate | Done |
 | quarry (captures) | `captures/` live capture dir in-repo | `.punt-labs/quarry/captures/` | global tree or local-convention | Planned |
 | vox (ephemeral) | `ephemeral/` live stream dir in-repo | `.punt-labs/vox/ephemeral/` | relocated → global or local-convention | Planned |
-| vox (root config dir) | `.vox/config.md` root directory, git-tracked in some repos (e.g. punt-kit): carries live daemon-mutable settings (`vibe`, `notify`, `speak`, `voice`), not pure presence — an earlier draft of this row described it as a pure-presence sentinel; the fleet survey found otherwise | — | move the file to `.punt-labs/vox/vox.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.vox/` directory; a genuinely empty `.vox/` (no `config.md`) is deleted outright once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
+| vox (root config dir) | `.vox/config.md` root directory, git-tracked in some repos (e.g. punt-kit): carries live daemon-mutable settings (`model`, `notify`, `provider`, `speak`, `voice`), not pure presence — an earlier draft of this row described it as a pure-presence sentinel; the fleet survey found otherwise | — | move the file to `.punt-labs/vox/vox.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.vox/` directory; a genuinely empty `.vox/` (no `config.md`) is deleted outright once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
 | lux (bare file) | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
 | lux (root config dir) | `.lux/config.md` root directory, git-tracked in some repos: carries a live setting (`display`) written by `enable`/`disable` themselves (lux's `operations/config.py`: "not a client setter routed through the Hub"), not pure presence and not daemon-rewritten — same not-pure-presence correction as vox (root config dir) above, different writer | — | move the file to `.punt-labs/lux/config.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.lux/` directory; a genuinely empty `.lux/` is deleted outright once `.punt-labs/lux/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
 | ethos (root runtime dir) | the bare `.ethos/` root directory (no `.punt-labs/` prefix), holding `.ethos/missions.jsonl`, git-tracked in every surveyed ethos-adopting repo: a continuously-appended mission audit log with no settings, the root-level predecessor of the local zone. **Distinct from** `.punt-labs/ethos/missions.jsonl` inside the vendored subtree, which this row does not touch — that file's disposition is the pre-existing ethos(logs) row below | — | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), then delete the empty `.ethos/` directory. Graded by [§ 8](#8-what-punt-audit-checks)'s legacy-root-sentinel check, not the live-state check — the row carries no interim-exclude live path because the artifact being removed is the root directory itself, not a path under `.punt-labs/` | Planned |

@@ -1,5 +1,7 @@
 # Distribution Standards
 
+**Updated:** 2026-09-10
+
 How each of a tool's surfaces is shipped and installed. For what the surfaces
 are — the engine-and-clients model — see
 [architecture.md](architecture.md#the-projection-model-canonical).
@@ -454,11 +456,14 @@ historical, not a live prescription:
 | Project | Legacy config file | Config-zone destination | Contents |
 |---------|--------------------|--------------------------|----------|
 | Biff | `.biff` | `.punt-labs/biff/config.yaml` | Team roster, relay URL, auth credentials |
-| Quarry | `.quarry.toml` | `.punt-labs/quarry/config.toml` | Database name, registered directories, collection defaults |
 
 The migration from legacy dotfile to config zone is
 [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table; it
-never deletes a file that still holds settings.
+never deletes a file that still holds settings. Quarry has no row here:
+`.quarry.toml` was this table's earlier, proposed shape, but quarry never
+shipped it — it deposits directly at `.punt-labs/quarry/config.md` (YAML
+frontmatter, not TOML), verified against quarry's own source and a zero-repo
+fleet survey ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
 
 **`.beads/` is not a row in this table because it is out of scope for the
 migration entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
