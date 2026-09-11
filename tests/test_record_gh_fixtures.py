@@ -11,6 +11,7 @@ needed to prove it.
 
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 from pathlib import Path
@@ -137,6 +138,45 @@ def test_require_read_only_accepts_the_documented_shapes(cmd: list[str]) -> None
 def test_require_read_only_refuses_every_mutating_shape(cmd: list[str]) -> None:
     with pytest.raises(ReadOnlyViolation):
         ReadOnlyGhRunner().require_read_only(cmd)
+
+
+def test_require_read_only_uses_the_last_of_two_method_flags() -> None:
+    """``gh``'s pflag parser applies last-occurrence-wins for a repeated or
+    dual-spelled option — a harmless leading ``-X GET`` must not shadow a
+    later, real ``--method POST``.
+    """
+    with pytest.raises(ReadOnlyViolation, match="POST"):
+        ReadOnlyGhRunner().require_read_only(
+            ["gh", "api", _MERGE_ENDPOINT, "-X", "GET", "--method", "POST"]
+        )
+
+
+def test_require_read_only_accepts_a_safe_method_after_a_repeated_flag() -> None:
+    """The mirror case: the *last* occurrence is the safe one, so the call
+    must be accepted — proving the fix checks the last occurrence
+    specifically, not just "any occurrence is mutating."
+    """
+    ReadOnlyGhRunner().require_read_only(
+        [
+            "gh",
+            "api",
+            _PROTECTION_ENDPOINT,
+            "--method",
+            "POST",
+            "--method",
+            "GET",
+        ]
+    )  # must not raise — GET is the effective, last-wins method
+
+
+def test_read_only_gh_runner_has_no_configurable_allowlist() -> None:
+    """The read-only allowlist is not a constructor parameter — an
+    injectable allowlist would let a caller construct a
+    ``ReadOnlyGhRunner`` that accepts a mutating shape, making the class's
+    entire safety claim caller-configurable instead of structural.
+    """
+    parameters = inspect.signature(ReadOnlyGhRunner).parameters
+    assert "allowlist" not in parameters
 
 
 def test_run_never_dispatches_a_refused_command(
@@ -471,16 +511,19 @@ def test_recorder_writes_a_sanitized_envelope(
     assert envelope["_meta"]["gh_version"] == "gh version 2.100.0"
 
 
-def test_recorder_sanitizes_meta_command_too(
+def test_recorder_refuses_a_command_needing_redaction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A branch/tag/PR-title argument copied from live GitHub data could in
-    principle carry a token- or email-shaped substring — sanitizing only
-    ``stdout``/``stderr`` and writing ``recording.command`` unchanged into
-    ``_meta`` would let it bypass the redaction pass entirely by riding
-    into the committed fixture through the metadata instead of the body.
+    principle carry a token- or email-shaped substring. Silently storing a
+    *sanitized* ``_meta.command`` would be worse than the leak it prevents:
+    ``--check`` executes ``_meta.command`` as the live argv to replay, so a
+    redacted branch name would make it target a different, likely
+    nonexistent ref — reporting a wrong result instead of no longer
+    validating anything real. Refusing to record the fixture at all is the
+    only outcome that neither leaks the secret nor corrupts replay.
     """
-    from tools.record_gh_fixtures import FixtureRecording
+    from tools.record_gh_fixtures import CommandNotReplayableError, FixtureRecording
 
     def fake_run(
         cmd: Sequence[str], **_kwargs: object
@@ -504,12 +547,10 @@ def test_recorder_sanitizes_meta_command_too(
         note="",
     )
 
-    recorder.record_all((recording,))
+    with pytest.raises(CommandNotReplayableError, match="ghp_"):
+        recorder.record_all((recording,))
 
-    envelope = json.loads((tmp_path / "example.json").read_text())
-    command = envelope["_meta"]["command"]
-    assert "ghp_" not in command[-1]
-    assert "REDACTED_TOKEN" in command[-1]
+    assert not (tmp_path / "example.json").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -93,6 +93,15 @@ class ReadOnlyViolation(RuntimeError):
     """
 
 
+class CommandNotReplayableError(RuntimeError):
+    """Raised when a recorded command needs redaction before it is safe to
+    commit — see ``GhFixtureRecorder._replayable_command``. Never caught
+    inside this tool: a live branch/tag/PR-title that looks like a token or
+    email is an operator problem to look at, not a shape to paper over by
+    storing a ``_meta.command`` that no longer replays the real command.
+    """
+
+
 def _matches_prefix(cmd: Sequence[str], prefix: Sequence[str]) -> bool:
     if not cmd or len(cmd) < len(prefix):
         return False
@@ -123,20 +132,44 @@ def _flag_present(cmd: Sequence[str], name: str) -> bool:
     return False
 
 
-def _flag_value(cmd: Sequence[str], name: str) -> str | None:
-    """The value attached to ``name``'s first occurrence, in whichever of
-    the three spellings ``_flag_present`` recognizes — ``None`` if ``name``
-    never appears, or appears as a bare split-form token with nothing after
-    it (malformed input this tool never itself produces).
+def _flag_occurrences(cmd: Sequence[str], name: str) -> list[tuple[int, str]]:
+    """Every occurrence of ``name`` with a value, as ``(argv_index, value)``
+    pairs — every spelling ``_flag_present`` recognizes, but only those
+    that actually carry a value (a bare trailing flag with nothing after it
+    contributes no value to check, though ``_flag_present`` still treats it
+    as present for refusal purposes).
     """
+    occurrences: list[tuple[int, str]] = []
     for i, arg in enumerate(cmd):
         if arg == name:
-            return cmd[i + 1] if i + 1 < len(cmd) else None
+            if i + 1 < len(cmd):
+                occurrences.append((i, cmd[i + 1]))
+            continue
         if name.startswith("--") and arg.startswith(name + "="):
-            return arg[len(name) + 1 :]
+            occurrences.append((i, arg[len(name) + 1 :]))
+            continue
         if len(name) == 2 and name[0] == "-" and arg != name and arg.startswith(name):
-            return arg[len(name) :]
-    return None
+            occurrences.append((i, arg[len(name) :]))
+    return occurrences
+
+
+def _effective_method(cmd: Sequence[str]) -> str | None:
+    """The HTTP method ``gh`` will actually use for this call.
+
+    ``gh``'s pflag-based parser applies "last occurrence wins" for a
+    repeated flag, and ``-X``/``--method`` are two spellings of the exact
+    same option, so both must be considered *together*, in argv order, not
+    each spelling's first occurrence checked independently. Checking only
+    the first ``-X`` and first ``--method`` — an earlier version of this
+    function did — misses ``-X GET --method POST`` entirely: it finds the
+    harmless ``GET`` from ``-X`` first and, via a short-circuiting ``or``,
+    never even looks at ``--method``'s ``POST``.
+    """
+    occurrences = _flag_occurrences(cmd, "-X") + _flag_occurrences(cmd, "--method")
+    if not occurrences:
+        return None
+    occurrences.sort(key=lambda pair: pair[0])
+    return occurrences[-1][1]
 
 
 @final
@@ -151,23 +184,25 @@ class ReadOnlyGhRunner:
     operation in its query text.
     """
 
-    __slots__ = ("_allowlist",)
+    __slots__ = ()
 
-    _allowlist: tuple[tuple[str, ...], ...]
-
-    def __new__(
-        cls, *, allowlist: tuple[tuple[str, ...], ...] = _READ_ONLY_ALLOWLIST
-    ) -> Self:
-        self = super().__new__(cls)
-        self._allowlist = allowlist
-        return self
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
 
     def require_read_only(self, cmd: Sequence[str]) -> None:
-        """Raise ``ReadOnlyViolation`` unless ``cmd`` is provably read-only."""
+        """Raise ``ReadOnlyViolation`` unless ``cmd`` is provably read-only.
+
+        Checked against the module-level ``_READ_ONLY_ALLOWLIST`` constant
+        directly — deliberately not a constructor parameter. An injectable
+        allowlist would let a caller instantiate
+        ``ReadOnlyGhRunner`` with a custom prefix that includes a mutating
+        shape (e.g. ``("gh", "pr", "merge")``), which would make the class's
+        entire safety claim caller-configurable rather than structural.
+        """
         if len(cmd) >= 3 and Path(cmd[0]).name == "gh" and cmd[1] == "api":
             self._require_read_only_api_call(cmd)
             return
-        if not any(_matches_prefix(cmd, prefix) for prefix in self._allowlist):
+        if not any(_matches_prefix(cmd, prefix) for prefix in _READ_ONLY_ALLOWLIST):
             raise ReadOnlyViolation(
                 f"{list(cmd)!r} matches no entry in the read-only allowlist"
             )
@@ -196,7 +231,7 @@ class ReadOnlyGhRunner:
                 f"{list(cmd)!r} targets an endpoint shape outside "
                 "'graphql' or 'repos/...'"
             )
-        method = _flag_value(cmd, "-X") or _flag_value(cmd, "--method")
+        method = _effective_method(cmd)
         if method is not None and _MUTATING_METHOD_RE.match(method):
             raise ReadOnlyViolation(
                 f"{list(cmd)!r} passes a mutating HTTP method {method!r}"
@@ -779,6 +814,7 @@ class GhFixtureRecorder:
 
     def _record_one(self, recording: FixtureRecording) -> Path:
         result = self._runner.run(recording.command)
+        command = self._replayable_command(recording)
         envelope = {
             "returncode": result.returncode,
             "stdout": self._sanitizer.sanitize(result.stdout),
@@ -786,14 +822,7 @@ class GhFixtureRecorder:
             "_meta": {
                 "gh_version": self._gh_version,
                 "recorded_at": datetime.now(UTC).isoformat(),
-                # Sanitized like stdout/stderr — a branch, tag, or PR-title
-                # argument copied from live GitHub data could in principle
-                # contain a token- or email-shaped substring, which would
-                # otherwise bypass the redaction pass entirely by riding
-                # into `_meta.command` unchanged. Most argv tokens are not
-                # valid JSON, so this only ever applies the regex-redaction
-                # half of `sanitize` here — never the JSON identity scrub.
-                "command": [self._sanitizer.sanitize(arg) for arg in recording.command],
+                "command": command,
                 "hand_authored": False,
                 "note": recording.note,
             },
@@ -801,6 +830,35 @@ class GhFixtureRecorder:
         path = self._dest / recording.name
         path.write_text(json.dumps(envelope, indent=2, sort_keys=True) + "\n")
         return path
+
+    def _replayable_command(self, recording: FixtureRecording) -> list[str]:
+        """``recording.command``, verified to need no sanitization.
+
+        A branch, tag, or PR-title argument copied from live GitHub data
+        could in principle contain a token- or email-shaped substring,
+        which would bypass ``stdout``/``stderr``'s redaction pass entirely
+        by riding into ``_meta.command`` unchanged — so this checks the
+        same way ``sanitize`` would. Storing the *sanitized* command
+        instead, rather than refusing outright, would be worse: `--check`
+        (`GhFixtureDriftChecker`) executes `_meta.command` as the live argv
+        to replay, so a silently-redacted branch name would make it target
+        a different, likely-nonexistent ref — the drift check would then
+        report a wrong result instead of no longer validating anything
+        real, which is a worse failure mode than simply refusing to record.
+        A live branch/tag/PR-title that actually looks like a token or
+        email is itself worth an operator's attention, not something to
+        paper over.
+        """
+        sanitized = [self._sanitizer.sanitize(arg) for arg in recording.command]
+        original = list(recording.command)
+        if sanitized != original:
+            raise CommandNotReplayableError(
+                f"{recording.name}: the command itself needs redaction "
+                f"({original!r} -> {sanitized!r}) — refusing to record a "
+                "fixture whose _meta.command could not replay the command "
+                "that actually produced it"
+            )
+        return original
 
 
 @final
