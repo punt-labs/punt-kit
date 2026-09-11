@@ -168,10 +168,22 @@ class InstallAllPropagator:
         if not readme.exists():
             return
 
-        github_sha = ops.run(
+        log_result = ops.run(
             ["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
             cwd=str(sibling),
-        ).stdout.strip()
+            check=False,
+        )
+        if log_result.returncode != 0:
+            # Unlike a genuinely empty result (no commit has ever touched
+            # install-all.sh — handled below), a non-zero exit means the
+            # command itself failed against this less-controlled sibling
+            # checkout (corrupted repo, missing ref) and must not be
+            # silently treated as "no commits yet."
+            ops.fail(
+                f"git log on sibling {sibling} (install-all.sh) failed:\n"
+                f"{log_result.stderr.strip()}"
+            )
+        github_sha = log_result.stdout.strip()
         if not github_sha:
             ops.info(
                 "profile/README.md: no commits touch install-all.sh yet — "

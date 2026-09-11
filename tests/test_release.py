@@ -2407,6 +2407,68 @@ def test_propagate_install_all_repairs_stale_profile(
     assert f".github/{current_sha}/install-all.sh" in readme
 
 
+def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
+    tmp_path: Path,
+) -> None:
+    """A failing `git log` against the sibling checkout (install-all.sh's
+    last-touch commit) must diagnose, not leak a raw CalledProcessError.
+
+    `_sync_profile_readme`'s git log call is design doc defect #3's named
+    example — it defaulted to check=True with no surrounding message
+    (pkit-f85t.7), unlike a genuinely empty result (no commit has ever
+    touched install-all.sh), which is a distinct, already-handled case.
+    """
+    from punt_kit.phases.phase10_propagate import InstallAllPropagator
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+    root = _make_release_project(tmp_path)
+    d = str(root)
+    _git(["tag", "v0.2.0"], cwd=d)
+    _git(["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"], cwd=d)
+
+    install_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
+
+    # install-all.sh already current — the propagator falls straight through
+    # to _sync_profile_readme, which is where the fault below fires.
+    _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+            "profile/README.md": "# Punt Labs\n\nno pin yet\n",
+        },
+    )
+
+    info = detect(root)
+
+    ops = FaultInjectingOps(
+        real_run=_run,
+        rules=[
+            FaultRule(
+                match=["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
+                response=CompletedProcessSpec(
+                    returncode=128, stderr="fatal: bad revision 'HEAD'"
+                ),
+            )
+        ],
+    )
+
+    def _unreachable_merge(*_args: object, **_kwargs: object) -> bool:
+        raise AssertionError(
+            "merge_sibling must not run — the git log call fails first"
+        )
+
+    with pytest.raises(
+        ReleaseError, match="git log on sibling .* \\(install-all.sh\\) failed"
+    ):
+        InstallAllPropagator(info, ops=ops, skips=SkipRecorder(ops=ops)).run(
+            "0.2.0", dry_run=False, merge_sibling=_unreachable_merge
+        )
+
+
 def _get_install_all_short_sha(sibling: Path) -> str:
     """Return the short SHA of the last commit touching install-all.sh."""
     return subprocess.run(
