@@ -23,6 +23,7 @@ from punt_kit.detect import detect
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
+    _QUALITY_GATE_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
@@ -482,6 +483,143 @@ def test_preflight_python_make_check_failure_aborts_phase(
     monkeypatch.setattr(release_mod, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="Quality gate failed: make check"):
+        _phase1_preflight(info, dry_run=False)
+
+    assert "All quality gates passed" not in capsys.readouterr().out
+
+
+def test_preflight_fails_actionably_when_git_fetch_origin_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-zero `git fetch origin` (network failure) must abort with a diagnosis.
+
+    ``fetch.returncode != 0`` is already handled in code (phase01_preflight.py)
+    but nothing forced that branch before this test (matrix row 3).
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    info = detect(root)
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:3] == ["git", "fetch", "origin"]:
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout="", stderr="fatal: unable to access origin"
+            )
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(ReleaseError, match="git fetch origin failed"):
+        _phase1_preflight(info, dry_run=False)
+
+
+def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A hung `make check` (a wedge, not a failure) must diagnose, not traceback.
+
+    Phase 1's quality gate already opts into the QUALITY_GATE budget
+    (matrix row 5 covers a non-zero exit); nothing forced the TimeoutExpired
+    path at this specific call site before this test (matrix row 6).
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+    (root / "Makefile").write_text("check:\n\techo ok\n")
+    d = str(root)
+    _git(["add", "Makefile"], cwd=d)
+    _git(["commit", "-m", "add makefile"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    hung_cmd = ["make", "check"]
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd == hung_cmd:
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", dry_run=False)
+
+    assert exc_info.value.code == 1
+    normalized = " ".join(capsys.readouterr().out.split())
+    assert "make check" in normalized
+    assert f"{_QUALITY_GATE_TIMEOUT}s" in normalized
+    assert "phase 1 (preflight)" in normalized
+    assert "--resume-from preflight" in normalized
+
+
+def test_preflight_go_quality_gate_failure_aborts_phase(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A non-zero `go test -race` aborts the phase, parallel to the Python case.
+
+    Row 5's Python `make check` failure test has no Go-language sibling —
+    the Go branch (phase01_preflight.py) is unexercised on the failure path
+    (matrix row 55).
+    """
+    from punt_kit import release as release_mod
+
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "go.mod").write_text("module github.com/punt-labs/test-go\n\ngo 1.25.0\n")
+    (root / "main.go").write_text("package main\n\nfunc main() {}\n")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- New feature\n"
+    )
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    info = detect(root)
+    assert not (root / "Makefile").exists()
+
+    def fake_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[:2] == ["go", "test"]:
+            return subprocess.CompletedProcess(
+                cmd, 1, stdout="", stderr="race detected"
+            )
+        if cmd[:2] == ["go", "vet"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    monkeypatch.setattr(release_mod, "_run", fake_run)
+
+    with pytest.raises(
+        ReleaseError, match=r"Quality gate failed: go test -race \./\.\.\."
+    ):
         _phase1_preflight(info, dry_run=False)
 
     assert "All quality gates passed" not in capsys.readouterr().out
