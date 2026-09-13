@@ -10,6 +10,7 @@ Tagging HEAD blindly would drift the tag onto that commit instead.
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
@@ -87,16 +88,20 @@ class Phase5Tag:
         message ``chore: release vX.Y.Z`` (the ``title=`` it passes to
         ``merge()``) as the *subject line* — GitHub's default squash commit
         appends `` (#<pr-number>)`` to that subject, so the safe fallback
-        matches on that subject either bare (hand-committed, e.g. in tests)
-        or followed by a `` (`` PR-number suffix, not on exact equality.
+        matches the subject either bare (hand-committed, e.g. in tests) or
+        followed by exactly that PR-number suffix. A loose prefix check
+        (``subject.startswith(f"{target} (")``) would also accept an
+        unrelated commit like ``chore: release v1.0.0 (manual fix)`` —
+        the regex below only accepts a real GitHub PR-number suffix.
         """
         ops = self._ops
         root = self._info.root
         target = f"chore: release v{self._version}"
+        pattern = re.compile(rf"{re.escape(target)}( \(#\d+\))?")
         log = ops.run(["git", "log", "--format=%H %s", "main"], cwd=str(root))
         for line in log.stdout.splitlines():
             sha, _, subject = line.partition(" ")
-            if subject == target or subject.startswith(f"{target} ("):
+            if pattern.fullmatch(subject):
                 return sha
         ops.fail(
             f"Could not resolve the release commit for v{self._version} — no "

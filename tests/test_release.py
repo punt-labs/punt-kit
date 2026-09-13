@@ -2324,6 +2324,37 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
+def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
+    tmp_path: Path,
+) -> None:
+    """A commit like ``chore: release v1.0.0 (manual fix)`` must NOT match —
+    only a bare subject or the real GitHub squash suffix `` (#<number>)``
+    does. A loose prefix check would accept any parenthesized suffix,
+    including an unrelated commit that merely starts the same way.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    (root / "manual.txt").write_text("manual\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: release v1.0.0 (manual fix)"], cwd=str(root))
+
+    with pytest.raises(ReleaseError, match="Could not resolve the release commit"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ).run()
+
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
+
+
 # --- sibling helpers ---
 
 
