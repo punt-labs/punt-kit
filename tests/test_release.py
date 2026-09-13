@@ -1560,6 +1560,111 @@ def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
     assert _get_project_version(info) == "1.2.3"
 
 
+# --- pkit-wpe5: Go resume without --version, before the new tag exists ---
+
+
+def _make_go_project(tmp_path: Path, *, tag: str = "v0.1.0") -> Path:
+    """Create a minimal Go project ready for release testing, tagged once."""
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "go.mod").write_text("module github.com/punt-labs/test-go\n\ngo 1.25.0\n")
+    (root / "main.go").write_text("package main\n\nfunc main() {}\n")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- New feature\n"
+    )
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["tag", tag], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+    return root
+
+
+def test_run_release_go_resume_from_tag_without_version_fails_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Resuming a Go release AT the tag phase without --version must fail
+    loud, not silently run the rest of the pipeline against the PREVIOUS
+    release's tag.
+
+    The new tag doesn't exist until Phase 5 itself runs, so
+    `_get_project_version` (git tags, for Go) cannot tell the version this
+    resumed run is meant to produce apart from the one already tagged.
+    ``run_release`` converts every ``ReleaseError`` to ``SystemExit(1)`` at
+    its own boundary, so the diagnosed message is asserted from stdout.
+    """
+    root = _make_go_project(tmp_path)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), resume_from="tag")
+
+    assert "Cannot detect the version to resume with" in capsys.readouterr().out
+
+
+def test_run_release_go_resume_before_tag_without_version_fails_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same guard applies resuming from any phase at or before the tag
+    phase, not only "tag" itself — e.g. "release-pr", one phase earlier.
+    """
+    root = _make_go_project(tmp_path)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), resume_from="release-pr")
+
+    assert "Cannot detect the version to resume with" in capsys.readouterr().out
+
+
+def test_run_release_go_resume_after_tag_without_version_still_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resuming a Go release AFTER the tag phase without --version is
+    unaffected — the new tag already exists by then, so the latest git tag
+    genuinely is the version this run is resuming, not the previous one.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_go_project(tmp_path, tag="v0.2.0")
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase6_ci_wait", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root), resume_from="ci")
+
+
+def test_run_release_non_go_resume_from_tag_without_version_unaffected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-Go resume from the tag phase without --version is unaffected —
+    pyproject.toml already carries the bumped version regardless of
+    whether the tag exists yet, so there is no ambiguity to guard against.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase5_tag", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root), resume_from="tag")
+
+
 def test_run_release_resume_plugin_only_no_version_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

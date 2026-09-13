@@ -838,7 +838,23 @@ def run_release(
                     if not dry_run:
                         _info(f"Using suggested version {version}")
                 else:
-                    # Resuming — read current version
+                    # Resuming — read current version. For Go, the version
+                    # lives only in git tags (no pyproject.toml), and the
+                    # NEW release tag doesn't exist until Phase 5 — so
+                    # resuming at or before that phase, the latest git tag
+                    # is still the PREVIOUS release, indistinguishable here
+                    # from the version this run is meant to produce.
+                    # Silently running the rest of the pipeline against
+                    # that stale version is worse than asking; fail loud.
+                    if info.language == "go" and start <= PHASE_NAMES["tag"]:
+                        _fail(
+                            "Cannot detect the version to resume with — this "
+                            "is a Go project resuming at or before the tag "
+                            "phase, where the new release tag does not "
+                            "exist yet, so the latest git tag is still the "
+                            "PREVIOUS release. Re-run with an explicit "
+                            "--version X.Y.Z."
+                        )
                     version = _get_project_version(info)
                     source = "git tags" if info.language == "go" else "pyproject.toml"
                     _info(f"Detected version {version} from {source}")
