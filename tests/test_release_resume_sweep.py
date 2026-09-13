@@ -100,10 +100,20 @@ class _SignalInterrupt(KeyboardInterrupt):
 
 @dataclass(slots=True)
 class _PrRecord:
-    """One emulated pull request: its head branch and lifecycle state."""
+    """One emulated pull request: its head branch, title, lifecycle state,
+    and (once merged) the squash-merge commit's real sha. ``title`` backs
+    the squash commit message in ``_pr_merge`` — real ``gh pr merge
+    --squash`` (no ``--subject`` override) defaults the commit subject to
+    the PR title plus a `` (#<number>)`` suffix, and Phase 5's
+    release-commit fallback (phase05_tag.py) matches on exactly that
+    shape. ``merge_sha`` backs ``gh pr view --json mergeCommit`` —
+    ``PrMerger._merge_commit_oid``'s source of truth, independent of
+    whatever local main HEAD becomes after later commits land."""
 
     branch: str
     state: str
+    title: str
+    merge_sha: str | None = None
 
 
 @final
@@ -202,17 +212,23 @@ class _GithubSim:
 
     def _pr_create(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         head = self._flag(cmd, "--head")
+        title = self._flag(cmd, "--title")
         with self._lock:
             number = self._next_pr
             self._next_pr += 1
-            self._prs[number] = _PrRecord(branch=head, state="OPEN")
+            self._prs[number] = _PrRecord(branch=head, state="OPEN", title=title)
         return self._done(cmd, f"https://github.com/punt-labs/proj/pull/{number}\n")
 
     def _pr_view(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         number = int(cmd[3])
         with self._lock:
-            state = self._prs[number].state
-        return self._done(cmd, json.dumps({"state": state}))
+            record = self._prs[number]
+        if "mergeCommit" in cmd:
+            # `--jq .mergeCommit.oid` strips the JSON envelope on the real
+            # `gh` CLI too — the raw oid is the whole stdout, not a field
+            # inside a JSON blob.
+            return self._done(cmd, f"{record.merge_sha}\n")
+        return self._done(cmd, json.dumps({"state": record.state}))
 
     def _pr_merge(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
         """Squash-merge the PR's branch into local main — the emulated
@@ -223,11 +239,18 @@ class _GithubSim:
             record = self._prs[number]
         _run(["git", "checkout", "main"], cwd=cwd)
         _run(["git", "merge", "--squash", record.branch], cwd=cwd)
-        _run(["git", "commit", "-m", f"squash-merge PR #{number}"], cwd=cwd)
+        # Matches real `gh pr merge --squash` (no --subject override): the
+        # commit subject defaults to the PR title plus " (#<number>)".
+        _run(
+            ["git", "commit", "-m", f"{record.title} (#{number})"],
+            cwd=cwd,
+        )
+        merge_sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
         # --delete-branch: gh removes the head branch after the merge.
         _run(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
             record.state = "MERGED"
+            record.merge_sha = merge_sha
         return self._done(cmd)
 
     def _run_list(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
@@ -594,6 +617,23 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
     resumed_out = " ".join(capsys.readouterr().out.split())
     assert f"Release {_TAG} Complete" in resumed_out
     assert "Release incomplete" not in resumed_out
+
+    # Pin WHICH commit the tag points at, not just that a tag named _TAG
+    # exists — resolved independently of Phase5Tag's own resolution logic,
+    # from the release PR's real squash-merge subject (title plus GitHub's
+    # default " (#<number>)" suffix), so a broken Phase 4 -> Phase 5
+    # threading regression can't hide behind Phase5Tag's git-history
+    # fallback landing on the right commit by the same means it's meant to
+    # verify.
+    release_log = _git_out(["log", "--format=%H %s", "main"], cwd=str(root))
+    release_sha = next(
+        sha
+        for sha, _, subject in (
+            line.partition(" ") for line in release_log.splitlines()
+        )
+        if subject.startswith(f"chore: release v{_VERSION}")
+    )
+    assert _git_out(["rev-parse", f"{_TAG}^{{commit}}"], cwd=str(root)) == release_sha
 
     # End state: the release landed the same artifacts a fully clean run
     # produces, whichever phase the stop interrupted.

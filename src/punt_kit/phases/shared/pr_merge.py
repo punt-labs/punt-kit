@@ -168,7 +168,8 @@ class PrMerger:
                     # merged by an earlier run may already have left the
                     # workspace on main, but the pull --ff-only must still
                     # run to pick up that merge commit.
-                    return self._sync_local_main(root)
+                    self._sync_local_main(root)
+                    return self._merge_commit_oid(gh, root, pr_number)
                 self._ops.info(f"Found existing open PR #{pr_number}")
 
         # 3. Create PR if none exists
@@ -215,7 +216,8 @@ class PrMerger:
             self._ops.fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
         if pr_state == "MERGED":
             self._ops.ok(f"PR #{pr_number} already merged")
-            return self._sync_local_main(root)
+            self._sync_local_main(root)
+            return self._merge_commit_oid(gh, root, pr_number)
 
         # 6. Resolve review threads (Copilot/Bugbot auto-post on PRs)
         resolve_threads(gh, root, pr_number)
@@ -269,16 +271,24 @@ class PrMerger:
         self._ops.ok(f"PR #{pr_number} merged")
 
         # 8. Update local main
-        return self._sync_local_main(root)
+        self._sync_local_main(root)
+        return self._merge_commit_oid(gh, root, pr_number)
 
-    def _sync_local_main(self, root: str) -> str:
-        """Fast-forward local main to the just-merged remote state and
-        return its short SHA.
+    def _sync_local_main(self, root: str) -> None:
+        """Fast-forward local main to the just-merged remote state.
+
+        Workspace-state only — the caller's return value comes from
+        ``_merge_commit_oid`` instead. Local HEAD after this pull is not
+        reliably the squash-merge commit: any further commit landing on
+        main between the squash-merge and this pull (a concurrent release,
+        a hotfix) would fast-forward past it too, making local HEAD the
+        LATER commit — the exact race class this method's caller exists to
+        avoid.
 
         Extracted from three near-identical inline blocks (existing-PR
         resume, mid-wait resume, and the normal post-merge path) that each
-        hand-rolled the same checkout + pull + rev-parse sequence with an
-        unqualified ``check=True`` default (pkit-f85t.7).
+        hand-rolled the same checkout + pull sequence with an unqualified
+        ``check=True`` default (pkit-f85t.7).
         """
         checkout = self._ops.run(
             ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
@@ -291,15 +301,47 @@ class PrMerger:
         )
         if pull.returncode != 0:
             self._ops.fail(f"git pull --ff-only failed:\n{pull.stderr.strip()}")
-        # Reads the checkout this method just fast-forwarded to a
-        # known-good state one line above — a failure here means the repo
-        # itself is corrupt beyond this call's control, not an independent
-        # operational failure mode. Kept check=True (pkit-f85t.7 sweep
-        # boundary: constructor-time-invariant-equivalent), now centralized
-        # to this one call site instead of three.
-        return self._ops.run(
-            ["git", "rev-parse", "--short", "HEAD"], cwd=root
-        ).stdout.strip()
+
+    def _merge_commit_oid(self, gh: str, root: str, pr_number: int) -> str:
+        """Resolve PR #<pr_number>'s authoritative squash-merge commit oid
+        from GitHub itself, rather than reading local main HEAD.
+
+        GitHub's own record of the merge is the one source that cannot
+        drift: local main HEAD (even freshly pulled by
+        ``_sync_local_main``) is only correct as long as nothing else has
+        landed on main since the squash-merge — a race, not a guarantee.
+        """
+        result = self._ops.run(
+            [
+                gh,
+                "pr",
+                "view",
+                str(pr_number),
+                "--json",
+                "mergeCommit",
+                "--jq",
+                ".mergeCommit.oid",
+            ],
+            cwd=root,
+            check=False,
+        )
+        if result.returncode != 0:
+            self._ops.fail(
+                f"PR #{pr_number}'s squash-merge already landed, but "
+                f"resolving its merge commit oid failed:\n"
+                f"{result.stderr.strip()}"
+            )
+        oid = result.stdout.strip()
+        # `--jq .mergeCommit.oid` prints the literal string "null" (truthy
+        # as a string) when `mergeCommit` is absent from the API response —
+        # an empty-stdout check alone misses that case, and a bare "null"
+        # is not a commit gh tag/rev-parse could ever accept.
+        if not oid or oid.lower() == "null":
+            self._ops.fail(
+                f"Could not determine the merge commit for PR #{pr_number} "
+                "— gh reports it merged but the mergeCommit oid is missing"
+            )
+        return oid
 
     def merge_in_sibling(
         self,

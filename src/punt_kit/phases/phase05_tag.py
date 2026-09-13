@@ -1,7 +1,16 @@
-"""Phase 5: tag main HEAD and push the tag."""
+"""Phase 5: tag the release commit and push the tag.
+
+Tags the commit Phase 4's squash-merge produced — not whatever ``main`` HEAD
+happens to be at tag-time. A later commit (Phase 4c's README-install-SHA
+pin) lands on ``main`` right after the squash-merge (see
+``phase04_release_pr.py``'s module docstring), so by the time this phase
+runs, ``main`` HEAD can already be one commit past the actual release.
+Tagging HEAD blindly would drift the tag onto that commit instead.
+"""
 
 from __future__ import annotations
 
+import re
 from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
@@ -18,7 +27,7 @@ _console = Console()
 
 @final
 class Phase5Tag:
-    """Phase 5: tag main HEAD and push tag."""
+    """Phase 5: tag the release commit and push the tag."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_version")
 
@@ -67,7 +76,43 @@ class Phase5Tag:
                 plain_sha = sha
         return plain_sha
 
-    def run(self) -> None:
+    def _find_release_commit_sha(self) -> str:
+        """Resolve the release commit from git history when no captured SHA
+        is available.
+
+        ``--resume-from tag`` re-enters this phase without running Phase 4
+        first, so there is no ``merge()`` return value to thread through
+        this run. Falling back to ``git rev-parse HEAD`` here would
+        reproduce the exact defect this phase exists to fix — see the
+        module docstring. Phase 4's squash-merge always carries the commit
+        message ``chore: release vX.Y.Z`` (the ``title=`` it passes to
+        ``merge()``) as the *subject line* — GitHub's default squash commit
+        appends `` (#<pr-number>)`` to that subject, so the safe fallback
+        matches the subject either bare (hand-committed, e.g. in tests) or
+        followed by exactly that PR-number suffix. A loose prefix check
+        (``subject.startswith(f"{target} (")``) would also accept an
+        unrelated commit like ``chore: release v1.0.0 (manual fix)`` —
+        the regex below only accepts a real GitHub PR-number suffix.
+        """
+        ops = self._ops
+        root = self._info.root
+        target = f"chore: release v{self._version}"
+        pattern = re.compile(rf"{re.escape(target)}( \(#\d+\))?")
+        log = ops.run(["git", "log", "--format=%H %s", "main"], cwd=str(root))
+        for line in log.stdout.splitlines():
+            sha, _, subject = line.partition(" ")
+            if pattern.fullmatch(subject):
+                return sha
+        ops.fail(
+            f"Could not resolve the release commit for v{self._version} — no "
+            f"commit on main has the subject {target!r}. Re-run "
+            f"`punt release {self._version} --resume-from release-pr` "
+            "(the explicit version is required — a Go project resuming "
+            "before the tag phase cannot infer it from git tags alone), "
+            "or tag the correct commit manually."
+        )
+
+    def run(self, *, release_sha: str | None = None) -> None:
         info = self._info
         version = self._version
         ops = self._ops
@@ -77,32 +122,38 @@ class Phase5Tag:
         tag = f"v{version}"
 
         if self._dry_run:
-            ops.dry(f"git tag {tag}")
+            ops.dry(f"git tag {tag} <release-sha>")
             ops.dry(f"git push origin {tag}")
             return
 
         workspace = GitWorkspace(root, ops=ops)
         workspace.ensure_on_main()
 
+        # Both sources yield full-length SHAs — Phase 4's merge() reads the
+        # PR's mergeCommit oid from GitHub (PrMerger._merge_commit_oid),
+        # and the fallback above reads `git log --format=%H`. No
+        # canonicalization needed for the full-vs-full comparisons below.
+        if release_sha is None:
+            release_sha = self._find_release_commit_sha()
+
         # Check if tag already exists locally. A local tag alone is not
         # proof the push succeeded: Phase 5 creates the tag *before*
         # pushing it (below), so a push that failed on a prior run — a
         # network blip, a transient auth failure — leaves the tag sitting
-        # at HEAD locally while the remote has nothing. Re-entering via
-        # --resume-from tag must tell "exists locally and was already
-        # pushed" apart from "exists locally and was never pushed", or the
-        # resume silently skips the retry it exists to enable.
+        # at the release commit locally while the remote has nothing.
+        # Re-entering via --resume-from tag must tell "exists locally and
+        # was already pushed" apart from "exists locally and was never
+        # pushed", or the resume silently skips the retry it exists to
+        # enable.
         existing = ops.run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
         if existing:
-            # Verify it points to HEAD
+            # Verify it points to the release commit, not wherever main
+            # HEAD has since moved to.
             tag_sha = ops.run(["git", "rev-parse", tag], cwd=str(root)).stdout.strip()
-            head_sha = ops.run(
-                ["git", "rev-parse", "HEAD"], cwd=str(root)
-            ).stdout.strip()
-            if tag_sha != head_sha:
+            if tag_sha != release_sha:
                 ops.fail(
-                    f"Tag {tag} exists but points to {tag_sha[:8]}, "
-                    f"not HEAD ({head_sha[:8]})"
+                    f"Tag {tag} exists but points to {tag_sha[:8]}, not the "
+                    f"release commit ({release_sha[:8]})"
                 )
                 return
 
@@ -152,10 +203,16 @@ class Phase5Tag:
         # A local write (disk full, permission, or a lock held by a
         # concurrent git process) — kept in the same diagnosed convention as
         # the push two lines below rather than left as the odd one out
-        # (pkit-f85t.7).
-        tag_result = ops.run(["git", "tag", tag], cwd=str(root), check=False)
+        # (pkit-f85t.7). Tags `release_sha` explicitly rather than bare
+        # `git tag {tag}` (which would tag HEAD) — see the module docstring.
+        tag_result = ops.run(
+            ["git", "tag", tag, release_sha], cwd=str(root), check=False
+        )
         if tag_result.returncode != 0:
-            ops.fail(f"git tag {tag} failed:\n{tag_result.stderr.strip()}")
+            ops.fail(
+                f"git tag {tag} failed (release commit {release_sha[:8]}):\n"
+                f"{tag_result.stderr.strip()}"
+            )
         ops.ok(f"Tagged {tag}")
 
         # Push tag (not blocked by branch protection — targets refs/tags/*).

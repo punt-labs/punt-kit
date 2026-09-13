@@ -401,16 +401,27 @@ def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
     Phase3Build(info, dry_run=dry_run, ops=_ops).run()
 
 
-def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 4: Plugin swap, push branch, create PR, merge."""
-    Phase4ReleasePr(info, version, dry_run=dry_run, ops=_ops).run(
+def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
+    """Phase 4: Plugin swap, push branch, create PR, merge.
+
+    Returns the squash-merge commit SHA — the release commit Phase 5 tags.
+    """
+    return Phase4ReleasePr(info, version, dry_run=dry_run, ops=_ops).run(
         merge=_pr_merge, land_readme_sha_pin=_land_readme_sha_pin
     )
 
 
-def _phase5_tag(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 5: Tag main HEAD and push tag."""
-    Phase5Tag(info, version, dry_run=dry_run, ops=_ops).run()
+def _phase5_tag(
+    info: ProjectInfo, version: str, *, dry_run: bool, release_sha: str | None
+) -> None:
+    """Phase 5: Tag the release commit and push the tag.
+
+    ``release_sha`` is the SHA Phase 4 returned in this same run. It is
+    ``None`` only when ``--resume-from tag`` re-enters at this phase
+    directly — Phase5Tag resolves a safe fallback from git history in
+    that case rather than tagging whatever main HEAD currently is.
+    """
+    Phase5Tag(info, version, dry_run=dry_run, ops=_ops).run(release_sha=release_sha)
 
 
 def _bump_readme_install_sha(  # pyright: ignore[reportUnusedFunction]
@@ -827,10 +838,34 @@ def run_release(
                     if not dry_run:
                         _info(f"Using suggested version {version}")
                 else:
-                    # Resuming — read current version
+                    # Resuming — read current version. For Go, the version
+                    # lives only in git tags (no pyproject.toml), and the
+                    # NEW release tag doesn't exist until Phase 5 — so
+                    # resuming at or before that phase, the latest git tag
+                    # is still the PREVIOUS release, indistinguishable here
+                    # from the version this run is meant to produce.
+                    # Silently running the rest of the pipeline against
+                    # that stale version is worse than asking; fail loud.
+                    if info.language == "go" and start <= PHASE_NAMES["tag"]:
+                        _fail(
+                            "Cannot detect the version to resume with — this "
+                            "is a Go project resuming at or before the tag "
+                            "phase, where the new release tag does not "
+                            "exist yet, so the latest git tag is still the "
+                            "PREVIOUS release. Re-run with an explicit "
+                            "--version X.Y.Z."
+                        )
                     version = _get_project_version(info)
                     source = "git tags" if info.language == "go" else "pyproject.toml"
                     _info(f"Detected version {version} from {source}")
+
+            # Captured from Phase 4's return in this same run — the
+            # squash-merge SHA, i.e. the actual release commit. Stays None
+            # when `--resume-from tag` (or later) skips Phase 4 entirely in
+            # this process; Phase5Tag resolves its own git-history fallback
+            # in that case rather than being handed a stale None straight
+            # through to a HEAD-tagging default.
+            release_sha: str | None = None
 
             def _step2() -> None:
                 nonlocal current_phase_num
@@ -843,14 +878,14 @@ def run_release(
                 _phase3_build(info, dry_run=dry_run)
 
             def _step4() -> None:
-                nonlocal current_phase_num
+                nonlocal current_phase_num, release_sha
                 current_phase_num = 4
-                _phase4_release_pr(info, version, dry_run=dry_run)
+                release_sha = _phase4_release_pr(info, version, dry_run=dry_run)
 
             def _step5() -> None:
                 nonlocal current_phase_num
                 current_phase_num = 5
-                _phase5_tag(info, version, dry_run=dry_run)
+                _phase5_tag(info, version, dry_run=dry_run, release_sha=release_sha)
 
             def _step6() -> None:
                 nonlocal current_phase_num

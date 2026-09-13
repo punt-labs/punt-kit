@@ -45,13 +45,18 @@ class Phase4ReleasePr:
         *,
         merge: Callable[..., str],
         land_readme_sha_pin: Callable[..., None],
-    ) -> None:
+    ) -> str:
         """``merge``/``land_readme_sha_pin`` are injected rather than
         composing ``PrMerger``/``ReadmeShaPin`` directly —
         ``test_phase4_release_pr...`` monkeypatches
         ``punt_kit.release._pr_merge``/``_land_readme_sha_pin`` and calls
         ``punt_kit.release._phase4_release_pr`` expecting both patches
         observed (§0's mechanism).
+
+        Returns the squash-merge commit SHA ``merge()`` produced — the
+        actual release commit. Phase 5 tags this SHA directly rather than
+        ``main`` HEAD at tag-time, because 4c (below) lands a further
+        commit on ``main`` after the squash-merge.
         """
         info = self._info
         version = self._version
@@ -109,7 +114,7 @@ class Phase4ReleasePr:
                     ops.ok("Plugin already swapped at HEAD (resume)")
 
         # 4b. Push branch, create PR, wait for CI, squash-merge
-        merge(
+        release_sha = merge(
             cwd=root,
             branch=branch,
             title=f"chore: release v{version}",
@@ -119,5 +124,9 @@ class Phase4ReleasePr:
         # 4c. Pin README's install-URL SHA now that the squash-merge has
         # landed on main — see ReadmeShaPin.land for why this must happen
         # here and not during phase 2's version bump on the (about to be
-        # deleted) branch.
+        # deleted) branch. This lands a further commit on main, which is
+        # exactly why Phase 5 tags `release_sha` (returned below) instead of
+        # re-reading main HEAD after this call.
         land_readme_sha_pin(info, version, dry_run=dry_run)
+
+        return release_sha

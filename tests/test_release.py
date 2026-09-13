@@ -1560,6 +1560,111 @@ def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
     assert _get_project_version(info) == "1.2.3"
 
 
+# --- pkit-wpe5: Go resume without --version, before the new tag exists ---
+
+
+def _make_go_project(tmp_path: Path, *, tag: str = "v0.1.0") -> Path:
+    """Create a minimal Go project ready for release testing, tagged once."""
+    root = tmp_path / "go-proj"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "go.mod").write_text("module github.com/punt-labs/test-go\n\ngo 1.25.0\n")
+    (root / "main.go").write_text("package main\n\nfunc main() {}\n")
+    (root / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n### Added\n\n- New feature\n"
+    )
+    workflows_dir = root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    (workflows_dir / "release.yml").write_text("")
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "scaffold"], cwd=d)
+    _git(["tag", tag], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+    return root
+
+
+def test_run_release_go_resume_from_tag_without_version_fails_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Resuming a Go release AT the tag phase without --version must fail
+    loud, not silently run the rest of the pipeline against the PREVIOUS
+    release's tag.
+
+    The new tag doesn't exist until Phase 5 itself runs, so
+    `_get_project_version` (git tags, for Go) cannot tell the version this
+    resumed run is meant to produce apart from the one already tagged.
+    ``run_release`` converts every ``ReleaseError`` to ``SystemExit(1)`` at
+    its own boundary, so the diagnosed message is asserted from stdout.
+    """
+    root = _make_go_project(tmp_path)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), resume_from="tag")
+
+    assert "Cannot detect the version to resume with" in capsys.readouterr().out
+
+
+def test_run_release_go_resume_before_tag_without_version_fails_loud(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same guard applies resuming from any phase at or before the tag
+    phase, not only "tag" itself — e.g. "release-pr", one phase earlier.
+    """
+    root = _make_go_project(tmp_path)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), resume_from="release-pr")
+
+    assert "Cannot detect the version to resume with" in capsys.readouterr().out
+
+
+def test_run_release_go_resume_after_tag_without_version_still_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Resuming a Go release AFTER the tag phase without --version is
+    unaffected — the new tag already exists by then, so the latest git tag
+    genuinely is the version this run is resuming, not the previous one.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_go_project(tmp_path, tag="v0.2.0")
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase6_ci_wait", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root), resume_from="ci")
+
+
+def test_run_release_non_go_resume_from_tag_without_version_unaffected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-Go resume from the tag phase without --version is unaffected —
+    pyproject.toml already carries the bumped version regardless of
+    whether the tag exists yet, so there is no ambiguity to guard against.
+    """
+    from punt_kit import release as release_mod
+
+    root = _make_release_project(tmp_path)
+
+    class _StopAfterVersion(Exception):
+        """Sentinel raised once version resolution has succeeded."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAfterVersion
+
+    monkeypatch.setattr(release_mod, "_phase5_tag", _stop)
+
+    with pytest.raises(_StopAfterVersion):
+        run_release(str(root), resume_from="tag")
+
+
 def test_run_release_resume_plugin_only_no_version_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1840,6 +1945,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     ops = FaultInjectingOps(
         real_run=_run,
@@ -1854,7 +1960,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ReleaseError, match="git tag v1.0.0 failed"):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run(release_sha=head_sha)
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
@@ -1881,6 +1987,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     failing_ops = FaultInjectingOps(
         real_run=_run,
@@ -1895,7 +2002,9 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     )
 
     with pytest.raises(ReleaseError, match="git push origin v1.0.0 failed"):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run(
+            release_sha=head_sha
+        )
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
     assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
@@ -1919,6 +2028,7 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     failing_ops = FaultInjectingOps(
         real_run=_run,
@@ -1930,7 +2040,9 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
         ],
     )
     with pytest.raises(subprocess.CalledProcessError):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run(
+            release_sha=head_sha
+        )
 
     # Local tag exists at HEAD; the remote never received it.
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
@@ -1938,7 +2050,7 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
 
     # Resume with a clean ops double — the push must be retried, not skipped.
     resumed_ops = FaultInjectingOps(real_run=_run, rules=[])
-    Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run()
+    Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run(release_sha=head_sha)
 
     assert "v1.0.0" in _git_out(
         ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
@@ -1956,10 +2068,11 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     Phase5Tag(
         info, "1.0.0", dry_run=False, ops=FaultInjectingOps(real_run=_run, rules=[])
-    ).run()
+    ).run(release_sha=head_sha)
     assert "v1.0.0" in _git_out(
         ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
     )
@@ -1978,7 +2091,7 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
         "1.0.0",
         dry_run=False,
         ops=FaultInjectingOps(real_run=spying_run, rules=[]),
-    ).run()
+    ).run(release_sha=head_sha)
 
     assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
 
@@ -2033,7 +2146,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
             "1.0.0",
             dry_run=False,
             ops=FaultInjectingOps(real_run=spying_run, rules=[]),
-        ).run()
+        ).run(release_sha=corrected_sha)
 
     assert push_calls == [], "must fail loud, not silently push over the mismatch"
     # The remote still has the stale tag — the failure did not corrupt
@@ -2061,6 +2174,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     # Tag already exists locally at HEAD (the resume case) — reaches the
     # ls-remote call this test targets.
     _git(["tag", "v1.0.0"], cwd=str(root))
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     ops = FaultInjectingOps(
         real_run=_run,
@@ -2075,7 +2189,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ReleaseError, match="git ls-remote --tags origin failed"):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run(release_sha=head_sha)
 
 
 def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit(
@@ -2108,6 +2222,7 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
     # `existing` will be truthy).
     _git(["tag", "-d", "v1.0.0"], cwd=str(root))
     _git(["tag", "v1.0.0"], cwd=str(root))
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     push_calls: list[list[str]] = []
 
@@ -2123,7 +2238,7 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
         "1.0.0",
         dry_run=False,
         ops=FaultInjectingOps(real_run=spying_run, rules=[]),
-    ).run()
+    ).run(release_sha=head_sha)
 
     assert push_calls == [], "an annotated tag at the right commit must be a no-op"
 
@@ -2154,6 +2269,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
     _git(["add", "."], cwd=str(root))
     _git(["commit", "-m", "corrected release commit"], cwd=str(root))
     _git(["tag", "v1.0.0"], cwd=str(root))
+    corrected_sha = _git_out(["rev-parse", "v1.0.0"], cwd=str(root))
 
     with pytest.raises(ReleaseError, match="exists on the remote but points to"):
         Phase5Tag(
@@ -2161,7 +2277,187 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
             "1.0.0",
             dry_run=False,
             ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ).run(release_sha=corrected_sha)
+
+
+def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
+    tmp_path: Path,
+) -> None:
+    """Phase 4c lands a further commit on main (the README install-SHA pin)
+    right after the squash-merge Phase 4 itself returns — by the time
+    Phase 5 runs, main HEAD is one commit ahead of the actual release.
+    Passing the captured ``release_sha`` through must tag that commit, not
+    whatever HEAD has since become.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # The release squash-merge commit — this is the SHA Phase 4 would have
+    # returned and threaded through to Phase 5.
+    release_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    # A further commit lands on main afterward, exactly like Phase 4c's
+    # README-SHA-pin commit — main HEAD is now one commit past the release.
+    (root / "readme-pin.txt").write_text("pinned\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: update README install SHA to v1.0.0"], cwd=str(root))
+    advanced_head = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+    assert advanced_head != release_sha
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run(release_sha=release_sha)
+
+    assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
+    assert (
+        _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)).split()[0]
+        == release_sha
+    )
+
+
+def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_head(
+    tmp_path: Path,
+) -> None:
+    """``--resume-from tag`` with no captured SHA must resolve the release
+    commit from git history, not tag whatever main HEAD currently is.
+
+    Simulates the exact drift scenario from the bead: the release
+    squash-merge commit (``chore: release vX.Y.Z``) lands, then a further
+    commit (the README-SHA-pin) advances main HEAD past it, and only then
+    does Phase 5 run with no ``release_sha`` in hand (a resume that skipped
+    Phase 4 in this process).
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    (root / "release.txt").write_text("released\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: release v1.0.0"], cwd=str(root))
+    release_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    (root / "readme-pin.txt").write_text("pinned\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: update README install SHA to v1.0.0"], cwd=str(root))
+    advanced_head = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+    assert advanced_head != release_sha
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run()
+
+    assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
+
+
+def test_phase5_tag_resume_fallback_matches_squash_commit_with_pr_number_suffix(
+    tmp_path: Path,
+) -> None:
+    """The fallback must match GitHub's real default squash-commit subject.
+
+    ``gh pr merge --squash`` (no ``--subject`` override, as ``PrMerger``
+    calls it) appends `` (#<pr-number>)`` to the PR title by default — the
+    fallback search must match that shape, not only a bare, hand-committed
+    ``chore: release vX.Y.Z`` message.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    (root / "release.txt").write_text("released\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: release v1.0.0 (#429)"], cwd=str(root))
+    release_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    (root / "readme-pin.txt").write_text("pinned\n")
+    _git(["add", "."], cwd=str(root))
+    _git(
+        ["commit", "-m", "chore: update README install SHA to v1.0.0 (#430)"],
+        cwd=str(root),
+    )
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run()
+
+    assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
+
+
+def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
+    tmp_path: Path,
+) -> None:
+    """No matching ``chore: release`` commit on main must raise, not
+    silently fall back to tagging HEAD.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    with pytest.raises(ReleaseError, match="Could not resolve the release commit"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=_run, rules=[]),
         ).run()
+
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
+
+
+def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
+    tmp_path: Path,
+) -> None:
+    """A commit like ``chore: release v1.0.0 (manual fix)`` must NOT match —
+    only a bare subject or the real GitHub squash suffix `` (#<number>)``
+    does. A loose prefix check would accept any parenthesized suffix,
+    including an unrelated commit that merely starts the same way.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    (root / "manual.txt").write_text("manual\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: release v1.0.0 (manual fix)"], cwd=str(root))
+
+    with pytest.raises(ReleaseError, match="Could not resolve the release commit"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ).run()
+
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
 # --- sibling helpers ---
@@ -4711,6 +5007,7 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
 
 _LOCAL_HEAD = "a" * 40
 _STALE_HEAD = "b" * 40
+_MERGE_OID = "c" * 40
 
 
 def test_select_existing_pr_prefers_open() -> None:
@@ -4778,6 +5075,9 @@ def _fake_gh_run(
             r.stdout = json.dumps(pr_list)
         elif cmd[:3] == ["gh", "pr", "create"]:
             r.stdout = "https://github.com/punt-labs/proj/pull/99\n"
+        elif cmd[:3] == ["gh", "pr", "view"] and "mergeCommit" in cmd:
+            # `--jq .mergeCommit.oid` — raw oid, no JSON envelope.
+            r.stdout = f"{_MERGE_OID}\n"
         elif cmd[:3] == ["gh", "pr", "view"]:
             state = states.pop(0) if len(states) > 1 else states[0]
             r.stdout = json.dumps({"state": state})
@@ -4871,7 +5171,7 @@ def test_pr_merge_matching_merged_pr_short_circuits(
         cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
     )
 
-    assert sha == "abc1234"
+    assert sha == _MERGE_OID
     created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
     assert not created
     assert waited == []
@@ -4960,7 +5260,7 @@ def test_pr_merge_branch_deletion_404_is_success(
         cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
     )
 
-    assert sha == "abc1234"
+    assert sha == _MERGE_OID
     merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
     assert len(merges) == 1, "merge must not be retried once the PR is MERGED"
 
@@ -5163,9 +5463,137 @@ def _merge_env(
                 times=None,
                 response=CompletedProcessSpec(stdout=json.dumps({"state": "OPEN"})),
             ),
+            FaultRule(
+                match=[
+                    "gh",
+                    "pr",
+                    "view",
+                    str(pr_number),
+                    "--json",
+                    "mergeCommit",
+                    "--jq",
+                    ".mergeCommit.oid",
+                ],
+                times=None,
+                response=CompletedProcessSpec(stdout=f"{_MERGE_OID}\n"),
+            ),
         ],
     )
     return ops, branch
+
+
+def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-zero `gh pr view --json mergeCommit` (network/auth blip) AFTER
+    the squash-merge already landed must diagnose, not leak a raw
+    CalledProcessError — same diagnosed-failure convention as every other
+    gh/git call in merge() (pkit-f85t.7); run_release only catches
+    ReleaseError/TimeoutExpired, so an undiagnosed CalledProcessError here
+    would escape as a bare traceback.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(),
+        )
+    )
+    # Inserted at the front: _merge_env's own mergeCommit rule (unlimited
+    # `times`) would otherwise be consulted first and never let this one
+    # match.
+    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        0,
+        FaultRule(
+            match=[
+                "gh",
+                "pr",
+                "view",
+                "42",
+                "--json",
+                "mergeCommit",
+                "--jq",
+                ".mergeCommit.oid",
+            ],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="error connecting to api.github.com"
+            ),
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="resolving its merge commit oid failed"):
+        PrMerger(ops=ops).merge(
+            cwd=root,
+            branch=branch,
+            title="chore: release v1.0.0",
+            wait_for_checks=_noop_wait_for_checks,
+            resolve_threads=_noop_resolve_threads,
+        )
+
+
+def test_pr_merge_merge_commit_oid_null_fails_loud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`gh pr view --json mergeCommit --jq .mergeCommit.oid` prints the
+    literal string "null" (truthy as a string) when mergeCommit is absent
+    from the API response — an empty-stdout check alone misses this case.
+
+    merge() must fail loud instead of returning "null": since merge()
+    never returns in that case, Phase 5 (the only consumer of this return
+    value) can never receive "null" to hand to `git tag`.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(),
+        )
+    )
+    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        0,
+        FaultRule(
+            match=[
+                "gh",
+                "pr",
+                "view",
+                "42",
+                "--json",
+                "mergeCommit",
+                "--jq",
+                ".mergeCommit.oid",
+            ],
+            response=CompletedProcessSpec(stdout="null\n"),
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="Could not determine the merge commit"):
+        PrMerger(ops=ops).merge(
+            cwd=root,
+            branch=branch,
+            title="chore: release v1.0.0",
+            wait_for_checks=_noop_wait_for_checks,
+            resolve_threads=_noop_resolve_threads,
+        )
 
 
 def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
@@ -5324,6 +5752,100 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     assert sha
     printed = capsys.readouterr().out
     assert "Could not re-resolve threads, proceeding with retry" in printed
+
+
+# --- PrMerger.merge: return value survives a concurrent commit ---
+
+
+def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``merge()`` must return the PR's authoritative mergeCommit oid from
+    GitHub, not local main HEAD after ``_sync_local_main``'s pull.
+
+    If another commit lands on main between the squash-merge and that
+    pull — a concurrent release, a hotfix — local HEAD becomes the LATER
+    commit. The old `git rev-parse --short HEAD` return would have handed
+    that back silently instead of the actual merge commit; Phase 5 would
+    then tag the wrong commit even with the SHA-threading fix in place,
+    since it trusts whatever ``merge()`` returns.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    monkeypatch.setattr("shutil.which", _fake_which_gh)
+    root = tmp_path / "proj"
+    root.mkdir()
+    branch = "release/v1.0.0"
+    _init_git_repo(root)
+    _git(["push", "-u", "origin", "main"], cwd=str(root))
+    _git(["checkout", "-b", branch], cwd=str(root))
+    (root / "release.txt").write_text("v1.0.0\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "bump version"], cwd=str(root))
+
+    merge_sha: dict[str, str] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return CompletedProcessSpec(stdout="[]").to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "create"]:
+            return CompletedProcessSpec(
+                stdout="https://github.com/punt-labs/proj/pull/42\n"
+            ).to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "view"] and "mergeCommit" in cmd:
+            return CompletedProcessSpec(
+                stdout=f"{merge_sha['oid']}\n"
+            ).to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "view"]:
+            return CompletedProcessSpec(
+                stdout=json.dumps({"state": "OPEN"})
+            ).to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "merge"]:
+            # The real squash-merge GitHub performs.
+            _git(["checkout", "main"], cwd=str(root))
+            _git(["merge", "--squash", branch], cwd=str(root))
+            _git(["commit", "-m", "chore: release v1.0.0"], cwd=str(root))
+            merge_sha["oid"] = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+            # Then, before this process's own sync-back pull runs, a
+            # CONCURRENT commit lands on main too — a second release or a
+            # hotfix landing independently of this PR.
+            _git(["commit", "--allow-empty", "-m", "concurrent release"], cwd=str(root))
+            return CompletedProcessSpec().to_completed_process(cmd)
+        return cast("Callable[..., subprocess.CompletedProcess[str]]", _run)(
+            cmd, **kwargs
+        )
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    ops = FaultInjectingOps(
+        real_run=fake_run,
+        rules=[],
+        passthrough=[
+            ("gh", "pr", "list"),
+            ("gh", "pr", "create"),
+            ("gh", "pr", "view"),
+            ("gh", "pr", "merge"),
+        ],
+    )
+
+    sha = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop_wait_for_checks,
+        resolve_threads=_noop_resolve_threads,
+    )
+
+    concurrent_head = _git_out(["rev-parse", "main"], cwd=str(root))
+    assert merge_sha["oid"] != concurrent_head, (
+        "test setup bug — the concurrent commit must actually advance main "
+        "past the merge commit for this regression to mean anything"
+    )
+    assert sha == merge_sha["oid"]
 
 
 # --- PrMerger.merge_in_sibling: secondary cleanup failure -> SkipRecorder ---
@@ -5692,6 +6214,12 @@ def test_phase4_release_pr_pins_readme_after_merge(
 
     issued: list[list[str]] = []
     pr_number = {"n": 100}
+    # Distinguishable per call: `gh pr view --json mergeCommit` runs once
+    # after each of the two squash-merges below (the release PR, then the
+    # README-pin PR) — giving each a different oid proves
+    # _phase4_release_pr returns the FIRST (the release commit), not
+    # whatever HEAD became after the second.
+    merge_oids = iter(["aaa1111", "bbb2222"])
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         issued.append(list(cmd))
@@ -5703,8 +6231,6 @@ def test_phase4_release_pr_pins_readme_after_merge(
             r.stdout = "newsha1\n"
         elif cmd[:2] == ["git", "log"]:
             r.stdout = ""
-        elif cmd[:2] == ["git", "rev-parse"] and "--short" in cmd:
-            r.stdout = "abc1234\n"
         elif cmd[:2] == ["git", "rev-parse"]:
             r.stdout = "deadbeefcafe\n"
         elif cmd[:2] == ["git", "status"]:
@@ -5718,6 +6244,8 @@ def test_phase4_release_pr_pins_readme_after_merge(
         elif cmd[:3] == ["gh", "pr", "create"]:
             pr_number["n"] += 1
             r.stdout = f"https://github.com/punt-labs/proj/pull/{pr_number['n']}\n"
+        elif cmd[:3] == ["gh", "pr", "view"] and "mergeCommit" in cmd:
+            r.stdout = f"{next(merge_oids)}\n"
         elif cmd[:3] == ["gh", "pr", "view"]:
             r.stdout = json.dumps({"state": "OPEN"})
         elif cmd[:3] == ["gh", "pr", "merge"]:
@@ -5742,9 +6270,13 @@ def test_phase4_release_pr_pins_readme_after_merge(
     monkeypatch.setattr(release_mod, "_resolve_pr_threads", _no_threads)
     monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
 
-    release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
+    release_sha = release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
         info, "0.2.0", dry_run=False
     )
+
+    # The squash-merge sha, not whatever HEAD became after the README-pin
+    # PR's own squash-merge landed on top of it.
+    assert release_sha == "aaa1111"
 
     pushed_branches = [c[4] for c in issued if c[:3] == ["git", "push", "-u"]]
     assert "release/v0.2.0" in pushed_branches
