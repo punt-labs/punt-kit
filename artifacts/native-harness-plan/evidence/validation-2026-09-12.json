@@ -1,0 +1,17 @@
+{
+  "status": "passed",
+  "markdown_files": 19,
+  "json_files": 13,
+  "local_markdown_links_checked": 250,
+  "repo_task_line_references_checked": 89,
+  "tasks": 98,
+  "aggregate_dependency_edges": 304,
+  "scoped_outcomes": 39,
+  "expanded_dependency_edges": 458,
+  "certification_cells": 27,
+  "dependency_cycles": 0,
+  "unrelated_codex_capability_blockers_in_other_hosts": [],
+  "referenced_beads": 173,
+  "original_artifacts": 4,
+  "errors": []
+}

@@ -1,0 +1,4675 @@
+{
+  "schema_version": 1,
+  "date": "2026-09-12",
+  "status": "proposed_no_bead_mutations",
+  "scope": {
+    "repositories": [
+      "biff",
+      "beadle",
+      "vox",
+      "lux",
+      "quarry",
+      "ethos",
+      "prfaq",
+      "z-spec",
+      "punt-kit"
+    ],
+    "harnesses": [
+      "codex",
+      "opencode",
+      "pi"
+    ],
+    "cells": 27,
+    "beads_read": 2419
+  },
+  "conventions": {
+    "keys": "Planning identifiers, not Beads IDs; map to repo-scoped IDs during execution.",
+    "dependencies": "Aggregate task completion/integration gates; prototypes and unaffected subsets may proceed in parallel. A scoped_outcome has its own explicit prerequisites and can pass independently of other hosts while its aggregate task remains open.",
+    "sizes": "Relative scope/risk S/M/L/XL, not calendar estimates.",
+    "existing_beads": "Reuse/amend/split exact scope per repo report; closed items are references, never instructions to reopen.",
+    "epic_membership": "KIT-PROGRAM coordinates all tasks; preserve existing local parentage.",
+    "evidence": "Static/source research only; no native cell is certified by this plan."
+  },
+  "tasks": [
+    {
+      "key": "BIFF-DESIGN",
+      "repo": "biff",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Decompose 00v",
+      "scope": "Decompose 00v; close SP-1\u20134; model daemon/session/ack/trust transitions; resolve stable-address and IPC choices",
+      "acceptance": [
+        "Traceable DES/Z design; source claims supplemented by live OpenCode/Codex spikes"
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L68",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-00v",
+          "status_at_audit": "open",
+          "title": "biffd + message authenticity + multi-host: requirements program",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-CORE",
+      "repo": "biff",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "M1 daemon, command dependency inversion, authoritative sessions/leases, IPC client and migrations",
+      "scope": "M1 daemon, command dependency inversion, authoritative sessions/leases, IPC client and migrations",
+      "acceptance": [
+        "CLI and Claude M4 use daemon only; parallel clients isolated; existing tier 1\u20134 parity"
+      ],
+      "depends_on": [
+        "BIFF-DESIGN"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L69",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-00v",
+          "status_at_audit": "open",
+          "title": "biffd + message authenticity + multi-host: requirements program",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-bvl",
+          "status_at_audit": "open",
+          "title": "commands/ layer imports up into server/tools/_session (resolve_talk_target) \u2014 repo-wide dependency inversion",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-df0",
+          "status_at_audit": "open",
+          "title": "CLI session identity: adopt a claude-r-style named-session model so ttys and identity persist across invocations",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-e04",
+          "status_at_audit": "open",
+          "title": "Stable identity+repo addressing: tty-based @user:tty addresses rot on every session restart",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-ecl",
+          "status_at_audit": "open",
+          "title": "plan state desyncs after /clear: MCP plan writes go to stale session id, pre-tool-gate blocks edits forever",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-qou",
+          "status_at_audit": "open",
+          "title": "find_session_key() collapses nested claude sessions onto parent's unread-count file",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-AUTH",
+      "repo": "biff",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "M2 signatures, forwarding, replay/revocation and Ethos registry integration",
+      "scope": "M2 signatures, forwarding, replay/revocation and Ethos registry integration",
+      "acceptance": [
+        "Forgery/replay/chain tamper rejected; unsigned migration works; agent never holds owner key"
+      ],
+      "depends_on": [
+        "BIFF-CORE",
+        "ETHOS-AUTHORITY"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L70",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-00v",
+          "status_at_audit": "open",
+          "title": "biffd + message authenticity + multi-host: requirements program",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-e43",
+          "status_at_audit": "open",
+          "title": "Shared relay credential defeats DES-046 session-key consent (eavesdrop-then-forge)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-3pn",
+          "status_at_audit": "open",
+          "title": "Provisioning service: per-repo NATS credentials via GitHub identity",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-lff",
+          "status_at_audit": "open",
+          "title": "E2E encryption",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-5m4",
+          "status_at_audit": "open",
+          "title": "Relay-side scoped auth for CI's biff wall token (publish-only, wall subject)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-POLICY",
+      "repo": "biff",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "M3 policy/classification, recipient overrides, provenance and Z audit",
+      "scope": "M3 policy/classification, recipient overrides, provenance and Z audit",
+      "acceptance": [
+        "Required four-level table and min-of-chain pass model-check and zero-GAP audit"
+      ],
+      "depends_on": [
+        "BIFF-AUTH"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L71",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-00v",
+          "status_at_audit": "open",
+          "title": "biffd + message authenticity + multi-host: requirements program",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-EVENTS",
+      "repo": "biff",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "watch/cursor/ack, typed command result/errors, finite talk/forward and consumer recovery",
+      "scope": "watch/cursor/ack, typed command result/errors, finite talk/forward and consumer recovery",
+      "acceptance": [
+        "Exact session routing; reconnect/dedup/backpressure; read-once preserved"
+      ],
+      "depends_on": [
+        "BIFF-CORE"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L72",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-6vvo",
+          "status_at_audit": "open",
+          "title": "biff watch: JSON-lines message-event subcommand as the universal harness delivery contract",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-24z",
+          "status_at_audit": "open",
+          "title": "write/read: no ordering signal to detect crossed messages",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-bv8w",
+          "status_at_audit": "open",
+          "title": "Status bar: per-identity unread counts for dual-session (human + agent)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-CODEX",
+      "repo": "biff",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native package/hooks/skills, validated context and queue receive worker",
+      "scope": "Native package/hooks/skills, validated context and queue receive worker",
+      "acceptance": [
+        "Signed trusted message reaches real idle/busy stock Codex thread once; sandbox retained"
+      ],
+      "depends_on": [
+        "BIFF-EVENTS",
+        "BIFF-POLICY",
+        "BIFF-SETUP",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT",
+        "HOST-CODEX-DELIVERY"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/biff.md#L73",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-lp5r",
+          "status_at_audit": "open",
+          "title": "biff-codex: queue-worker + hook port (parity receive via codex queue)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-OPENCODE",
+      "repo": "biff",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native server/tools/TUI, event push, session cleanup",
+      "scope": "Native server/tools/TUI, event push, session cleanup",
+      "acceptance": [
+        "Signed push+toast in seconds, zero polling, concurrent session isolation"
+      ],
+      "depends_on": [
+        "BIFF-EVENTS",
+        "BIFF-POLICY",
+        "BIFF-SETUP",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/biff.md#L74",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-bhfj",
+          "status_at_audit": "open",
+          "title": "biff-opencode: plugin (parity-or-better receive via messages.transform + session.prompt)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-PI",
+      "repo": "biff",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native tools/commands/watch/lifecycle/rendering and delivery",
+      "scope": "Native tools/commands/watch/lifecycle/rendering and delivery",
+      "acceptance": [
+        "Signed push during active/settled session; reload/fork/shutdown clean; JSON/print finite"
+      ],
+      "depends_on": [
+        "BIFF-EVENTS",
+        "BIFF-POLICY",
+        "BIFF-SETUP",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/biff.md#L75",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-lt0v",
+          "status_at_audit": "open",
+          "title": "biff-pi: TypeScript pi extension (parity-plus receive via sendMessage/triggerTurn)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-SETUP",
+      "repo": "biff",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Explicit harness registration, shared marker/guidance, ownership-aware upgrade/remove/doctor",
+      "scope": "Explicit harness registration, shared marker/guidance, ownership-aware upgrade/remove/doctor; repair Vox diagnostics",
+      "acceptance": [
+        "No startup permission rewriting; one disabled repo stays dormant across all installed adapters"
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "BIFF-CORE"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L76",
+      "existing_beads": [
+        {
+          "repo": "biff",
+          "id": "biff-kq5",
+          "status_at_audit": "open",
+          "title": "biff enable writes repo marker but deposits no .punt-labs/biff/CLAUDE.md \u2014 violates \u00a7 2.5 (user ruled repo-scope, missing guide is a bug)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        },
+        {
+          "repo": "biff",
+          "id": "biff-zdx",
+          "status_at_audit": "open",
+          "title": "vox integration swallows TTS subprocess failures: exit code discarded, failure logs filtered by default",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/biff.md"
+        }
+      ]
+    },
+    {
+      "key": "BIFF-RELEASE",
+      "repo": "biff",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Core/Claude/Codex/OpenCode/pi artifacts, version compatibility and coordinated migrations",
+      "scope": "Core/Claude/Codex/OpenCode/pi artifacts, version compatibility and coordinated migrations",
+      "acceptance": [
+        "Clean machines outside checkout install/version/doctor; actual Claude and three-native journeys pass"
+      ],
+      "depends_on": [
+        "BIFF-CODEX",
+        "BIFF-OPENCODE",
+        "BIFF-PI",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/biff.md#L77",
+      "existing_beads": [],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "BIFF-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/biff.md#L77",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "BIFF-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/biff.md#L77",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "BIFF-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/biff.md#L77",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-MAIL",
+      "repo": "beadle",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Shared authorized mail actions, structured CLI/MCP outputs, finite missing commands, cancellation and truthful signing",
+      "scope": "Shared authorized mail actions, structured CLI/MCP outputs, finite missing commands, cancellation and truthful signing; no harness dependency.",
+      "acceptance": [
+        "Same denied sender/recipient, encryption, attachments, CC/BCC, error and degraded result through CLI/MCP/direct client; cancel stops bounded transport work."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L75",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-5xog",
+          "status_at_audit": "open",
+          "title": "send: signed mail over a MIME-stripping transport reports success with a broken signature",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-n2p",
+          "status_at_audit": "open",
+          "title": "chore(security): filepath.Clean calls from gosec G304 fixes are cosmetic, not real traversal guards",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-SESSION",
+      "repo": "beadle",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Explicit scoped identity/Ethos binding, poller alignment and contact authority",
+      "scope": "Explicit scoped identity/Ethos binding, poller alignment and contact authority; depends shared context design and MAIL.",
+      "acceptance": [
+        "Two accounts in concurrent sessions never swap identity, grants or notifications; switch/reset/fork have defined behavior."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "BEADLE-MAIL",
+        "ETHOS-CONTEXT"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L76",
+      "existing_beads": []
+    },
+    {
+      "key": "BEADLE-RECEIVE",
+      "repo": "beadle",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Durable arrival/unread API, cursor/ack, reconnect and worker claims/queue",
+      "scope": "Durable arrival/unread API, cursor/ack, reconnect and worker claims/queue; MAIL+SESSION, beadle-1ljl.",
+      "acceptance": [
+        "Equal-count arrival found; replay deduped; crash/restart yields one claimed job; read-only watcher cannot execute work."
+      ],
+      "depends_on": [
+        "BEADLE-MAIL",
+        "BEADLE-SESSION"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L77",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-1ljl",
+          "status_at_audit": "open",
+          "title": "poll intervals jump 1m to 5m with a 30m default \u2014 wrong shape for an agent mailbox",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-TRANSPORT",
+      "repo": "beadle",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Existing WS credential handoff, framing/error cleanup and actual launched-client tests",
+      "scope": "Existing WS credential handoff, framing/error cleanup and actual launched-client tests.",
+      "acceptance": [
+        "Authenticated normal launch works; unauthorized client fails; large supported result delivered or bounded explicit error. Independent of native stdio release."
+      ],
+      "depends_on": [],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L78",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-nimy",
+          "status_at_audit": "closed",
+          "title": "security: 'serve --transport ws' binds 0.0.0.0 with no authentication, bypassing the whole permission model",
+          "disposition": "reference_closed_only",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-CODEX",
+      "repo": "beadle",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native interactive plugin/skills/MCP/hooks and queue spike",
+      "scope": "Native interactive plugin/skills/MCP/hooks and queue spike; MAIL+SESSION+RECEIVE and shared Codex binding probe.",
+      "acceptance": [
+        "Live identity isolation, native denial and supported notification mode; plugin install outside checkout, bounded cleanup."
+      ],
+      "depends_on": [
+        "BEADLE-MAIL",
+        "BEADLE-SESSION",
+        "BEADLE-RECEIVE",
+        "BEADLE-SETUP",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT",
+        "HOST-CODEX-DELIVERY"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/beadle.md#L79",
+      "existing_beads": []
+    },
+    {
+      "key": "BEADLE-OPENCODE",
+      "repo": "beadle",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native server/TUI package, typed contextual tools, subscription and busy-delivery policy",
+      "scope": "Native server/TUI package, typed contextual tools, subscription and busy-delivery policy; MAIL+SESSION+RECEIVE.",
+      "acceptance": [
+        "Concurrent server sessions route correctly; reentrant prompt does not deadlock; dispose/reconnect duplicates absent."
+      ],
+      "depends_on": [
+        "BEADLE-MAIL",
+        "BEADLE-SESSION",
+        "BEADLE-RECEIVE",
+        "BEADLE-SETUP",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/beadle.md#L80",
+      "existing_beads": []
+    },
+    {
+      "key": "BEADLE-PI",
+      "repo": "beadle",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native extension/package/direct actions and receiver lifecycle",
+      "scope": "Native extension/package/direct actions and receiver lifecycle; MAIL+SESSION+RECEIVE.",
+      "acceptance": [
+        "Native tool schemas and attributed inbox delivery work in TUI and appropriate RPC/headless modes; abort/reload leaves no watcher."
+      ],
+      "depends_on": [
+        "BEADLE-MAIL",
+        "BEADLE-SESSION",
+        "BEADLE-RECEIVE",
+        "BEADLE-SETUP",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/beadle.md#L81",
+      "existing_beads": []
+    },
+    {
+      "key": "BEADLE-WORKER-CONTRACT",
+      "repo": "beadle",
+      "kind": "worker_backend",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Amend beadle-tmo",
+      "scope": "Amend beadle-tmo; WorkerSpec, recipe schema/signature migration, grant compilation and configurable actors; coordinate Ethos mission API.",
+      "acceptance": [
+        "Existing signed v1 recipes retain semantics; changed grant/backend invalidates signature; unsupported capability fails preflight."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "ETHOS-SERVICE",
+        "ETHOS-GOVERNANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L82",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-tmo",
+          "status_at_audit": "open",
+          "title": "design: keep Runner/Spawner interfaces multi-backend-ready (pi, opencode)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-f34m",
+          "status_at_audit": "open",
+          "title": "DefaultMCPRegistry wires 'ethos mcp', a subcommand that does not exist (it is 'serve')",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-40k",
+          "status_at_audit": "open",
+          "title": "feat(ethos): propose inputs.trigger field for mission contracts",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-SUPERVISOR",
+      "repo": "beadle",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Containment, credentials, bounded events/cancel/budgets, durable claims, result submit/finalize and audit/model work",
+      "scope": "Containment, credentials, bounded events/cancel/budgets, durable claims, result submit/finalize and audit/model work; WORKER-CONTRACT+RECEIVE.",
+      "acceptance": [
+        "No-tool worker completes and records result; close failure cannot report success; denied/timeout/crash jobs finalize predictably; no secret/home/process escape in defined boundary."
+      ],
+      "depends_on": [
+        "BEADLE-WORKER-CONTRACT",
+        "BEADLE-RECEIVE"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L83",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-tmo",
+          "status_at_audit": "open",
+          "title": "design: keep Runner/Spawner interfaces multi-backend-ready (pi, opencode)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-vr0v",
+          "status_at_audit": "closed",
+          "title": "daemon: no pipeline with 2+ stages can complete \u2014 mission never closes, write_set conflict blocks the next stage",
+          "disposition": "reference_closed_only",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-623",
+          "status_at_audit": "open",
+          "title": "feat(daemon): implement the tamperproof audit log invariant",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-8zti",
+          "status_at_audit": "open",
+          "title": "formal: model-check the new daemon Z schemas \u2014 hand-proved only, and WORKFLOW.md requires machine-checking for this class",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-9zh",
+          "status_at_audit": "open",
+          "title": "epic: headless GPG email agent (Docker)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-juk",
+          "status_at_audit": "open",
+          "title": "feat(docker): full agent stack \u2014 ethos, biff, quarry, vox in compose",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-WORKER-CODEX",
+      "repo": "beadle",
+      "kind": "worker_backend",
+      "status": "proposed",
+      "size": "L",
+      "title": "Three independent native backend implementations",
+      "scope": "Three independent native backend implementations; WORKER-CONTRACT+SUPERVISOR and respective harness probes.",
+      "acceptance": [
+        "Signed harmless email job executes with exactly granted capabilities, records native session/version/usage, returns validated result and correct reply outcome; native denial and cancellation tested."
+      ],
+      "depends_on": [
+        "BEADLE-SUPERVISOR",
+        "HOST-CODEX-PACKAGE"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/beadle.md#L84",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-tmo",
+          "status_at_audit": "open",
+          "title": "design: keep Runner/Spawner interfaces multi-backend-ready (pi, opencode)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-WORKER-OPENCODE",
+      "repo": "beadle",
+      "kind": "worker_backend",
+      "status": "proposed",
+      "size": "L",
+      "title": "Three independent native backend implementations",
+      "scope": "Three independent native backend implementations; WORKER-CONTRACT+SUPERVISOR and respective harness probes.",
+      "acceptance": [
+        "Signed harmless email job executes with exactly granted capabilities, records native session/version/usage, returns validated result and correct reply outcome; native denial and cancellation tested."
+      ],
+      "depends_on": [
+        "BEADLE-SUPERVISOR",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/beadle.md#L84",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-tmo",
+          "status_at_audit": "open",
+          "title": "design: keep Runner/Spawner interfaces multi-backend-ready (pi, opencode)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-WORKER-PI",
+      "repo": "beadle",
+      "kind": "worker_backend",
+      "status": "proposed",
+      "size": "L",
+      "title": "Three independent native backend implementations",
+      "scope": "Three independent native backend implementations; WORKER-CONTRACT+SUPERVISOR and respective harness probes.",
+      "acceptance": [
+        "Signed harmless email job executes with exactly granted capabilities, records native session/version/usage, returns validated result and correct reply outcome; native denial and cancellation tested."
+      ],
+      "depends_on": [
+        "BEADLE-SUPERVISOR",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/beadle.md#L84",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-tmo",
+          "status_at_audit": "open",
+          "title": "design: keep Runner/Spawner interfaces multi-backend-ready (pi, opencode)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-SETUP",
+      "repo": "beadle",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Explicit per-harness install/update/remove/doctor, shared repo marker and preference migration",
+      "scope": "Explicit per-harness install/update/remove/doctor, shared repo marker and preference migration; package manifests may proceed alongside core work.",
+      "acceptance": [
+        "Enable/disable preserves unrelated guidance/config; uninstall removes owned registration only; unsupported backend/version/missing creds diagnosed."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L85",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-r32",
+          "status_at_audit": "open",
+          "title": "chore(beadle-email): follow-ups from doctor-identity-config-fallback review",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ]
+    },
+    {
+      "key": "BEADLE-RELEASE",
+      "repo": "beadle",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Include beadle-daemon artifacts (beadle-5ma), native package contents, docs and GPG/Ethos/backend conformance",
+      "scope": "Include beadle-daemon artifacts (beadle-5ma), native package contents, docs and GPG/Ethos/backend conformance; package dependencies above.",
+      "acceptance": [
+        "Fresh installation outside source checkout runs interactive and explicitly enabled worker journeys on supported platforms. No claim from schema/unit tests alone."
+      ],
+      "depends_on": [
+        "BEADLE-CODEX",
+        "BEADLE-OPENCODE",
+        "BEADLE-PI",
+        "BEADLE-WORKER-CODEX",
+        "BEADLE-WORKER-OPENCODE",
+        "BEADLE-WORKER-PI",
+        "BEADLE-TRANSPORT",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/beadle.md#L86",
+      "existing_beads": [
+        {
+          "repo": "beadle",
+          "id": "beadle-5ma",
+          "status_at_audit": "open",
+          "title": "fix(release): include beadle-daemon in release binaries",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-fbhp",
+          "status_at_audit": "open",
+          "title": "daemon: OnNewMail's spawner branch is untested, so the Store wiring line has zero coverage",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-ivtd",
+          "status_at_audit": "open",
+          "title": "daemon: the production planner rule is unasserted \u2014 no test connects a real email to a plan",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-hi4n",
+          "status_at_audit": "open",
+          "title": "39 t.Skip('gpg not installed') sites remain in internal/pgp and internal/email",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        },
+        {
+          "repo": "beadle",
+          "id": "beadle-c5j",
+          "status_at_audit": "open",
+          "title": "fix(test): GPG key generation intermittently fails under parallel 'make check'",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/beadle.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "BEADLE-CODEX",
+            "BEADLE-WORKER-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/beadle.md#L86",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "BEADLE-OPENCODE",
+            "BEADLE-WORKER-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/beadle.md#L86",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "BEADLE-PI",
+            "BEADLE-WORKER-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/beadle.md#L86",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "VOX-DESIGN",
+      "repo": "vox",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Reconcile zugu/o718 and voice architecture decisions",
+      "scope": "Reconcile zugu/o718 and voice architecture decisions; define session/default/host ownership and neutral event semantics",
+      "acceptance": [
+        "One reviewed state/operation/event contract; explicit old-bead amendments and voice-specific decision gates."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/vox.md#L67",
+      "existing_beads": [
+        {
+          "repo": "vox",
+          "id": "vox-zugu",
+          "status_at_audit": "open",
+          "title": "Session state lives in the MCP client, not the engine \u2014 violates architecture.md invariant 4",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-o718",
+          "status_at_audit": "open",
+          "title": "opencode host support: native vox adapter",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        }
+      ]
+    },
+    {
+      "key": "VOX-STATE",
+      "repo": "vox",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Engine session registry, ratified provider/model value object and NullModel, preference resolver, leases/reconnect, thin Claude/CLI/MCP/panel callers",
+      "scope": "Engine session registry, ratified provider/model value object and NullModel, preference resolver, leases/reconnect, thin Claude/CLI/MCP/panel callers",
+      "acceptance": [
+        "Two sessions in one repo independently change voice/notify/vibe with deliberate default persistence; restart/reconnect behavior specified."
+      ],
+      "depends_on": [
+        "VOX-DESIGN"
+      ],
+      "harnesses": [],
+      "spec": "repos/vox.md#L68",
+      "existing_beads": [
+        {
+          "repo": "vox",
+          "id": "vox-zugu",
+          "status_at_audit": "open",
+          "title": "Session state lives in the MCP client, not the engine \u2014 violates architecture.md invariant 4",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        }
+      ]
+    },
+    {
+      "key": "VOX-CONTRACT",
+      "repo": "vox",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Typed WS/API contract, engine-owned neutral lifecycle events, completion dedup/recap-loop limits, cancellation/errors/capabilities, client parity, heavy-module extraction, version diagnostics",
+      "scope": "Typed WS/API contract, engine-owned neutral lifecycle events, completion dedup/recap-loop limits, cancellation/errors/capabilities, client parity, heavy-module extraction, version diagnostics",
+      "acceptance": [
+        "Same operations/results across Python/CLI/MCP/TS; repeated lifecycle events produce one intended cue, recap limits terminate loops, and adapters contain no duplicate engine decisions."
+      ],
+      "depends_on": [
+        "VOX-DESIGN",
+        "VOX-STATE"
+      ],
+      "harnesses": [],
+      "spec": "repos/vox.md#L69",
+      "existing_beads": [
+        {
+          "repo": "vox",
+          "id": "vox-165w",
+          "status_at_audit": "open",
+          "title": "VoxClient/VoxClientSync drift is real: fetch_part exists on async only, and no test compares the surfaces",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-r1fv",
+          "status_at_audit": "open",
+          "title": "Version skew between a running MCP server and the installed build is invisible \u2014 and WORKFLOW.md says a daemon restart is enough",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-eo00",
+          "status_at_audit": "open",
+          "title": "voxd dies at boot on a bad SSL_CERT_FILE because the music provider builds its HTTPS client eagerly",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-gs9u",
+          "status_at_audit": "in_progress",
+          "title": "Conversation Mode \u2014 Phase 1",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-gs9u.2",
+          "status_at_audit": "in_progress",
+          "title": "Slice 1b: One real round trip",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-gs9u.3",
+          "status_at_audit": "open",
+          "title": "Slice 2a: Playback-ownership (ratified: extend PlaybackQueue directly)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        }
+      ]
+    },
+    {
+      "key": "VOX-ENABLE",
+      "repo": "vox",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Neutral marker/guidance plus explicit selected harness registration/install/remove",
+      "scope": "Neutral marker/guidance plus explicit selected harness registration/install/remove",
+      "acceptance": [
+        "Enabling pi alone leaves other harness registrations unchanged; failures cannot leave marker-on/half-configured state."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/vox.md#L70",
+      "existing_beads": []
+    },
+    {
+      "key": "VOX-CODEX",
+      "repo": "vox",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native plugin/MCP/hooks/skills and context binding",
+      "scope": "Native plugin/MCP/hooks/skills and context binding",
+      "acceptance": [
+        "Real stock Codex completion, waiting and interrupt audio with correct session and host."
+      ],
+      "depends_on": [
+        "VOX-STATE",
+        "VOX-CONTRACT",
+        "VOX-ENABLE",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/vox.md#L71",
+      "existing_beads": []
+    },
+    {
+      "key": "VOX-OPENCODE",
+      "repo": "vox",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Amend o718",
+      "scope": "Amend o718; native server tools/events and optional TUI",
+      "acceptance": [
+        "Two sessions plus local-TUI/remote-server journey, audible recap and cancellation witnessed."
+      ],
+      "depends_on": [
+        "VOX-STATE",
+        "VOX-CONTRACT",
+        "VOX-ENABLE",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/vox.md#L72",
+      "existing_beads": [
+        {
+          "repo": "vox",
+          "id": "vox-o718",
+          "status_at_audit": "open",
+          "title": "opencode host support: native vox adapter",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        }
+      ]
+    },
+    {
+      "key": "VOX-PI",
+      "repo": "vox",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "TS package/tools/commands/native lifecycle and status",
+      "scope": "TS package/tools/commands/native lifecycle and status",
+      "acceptance": [
+        "Real pi TUI plus RPC/print lifecycle, no MCP/Claude install, no leaked sound/receivers."
+      ],
+      "depends_on": [
+        "VOX-STATE",
+        "VOX-CONTRACT",
+        "VOX-ENABLE",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/vox.md#L73",
+      "existing_beads": []
+    },
+    {
+      "key": "VOX-CALL",
+      "repo": "vox",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Reconciled call/voice-first implementation and native launch/steer connectors",
+      "scope": "Reconciled call/voice-first implementation and native launch/steer connectors",
+      "acceptance": [
+        "For each controlled native backend, first prove launch/attach/steer/interrupt, exact session ownership, credential/read scope and policy inheritance; then meet the existing audio-demo bar, user-voiced steer receipt and barge-in race tests; no TTY shim."
+      ],
+      "depends_on": [
+        "VOX-DESIGN",
+        "VOX-CONTRACT",
+        "HOST-CODEX-PACKAGE",
+        "HOST-OPENCODE",
+        "HOST-PI"
+      ],
+      "harnesses": [],
+      "spec": "repos/vox.md#L74",
+      "existing_beads": [
+        {
+          "repo": "vox",
+          "id": "vox-hobl",
+          "status_at_audit": "open",
+          "title": "vox call: design investigation \u2014 persistent, parallel call agent (not spawned per turn)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-hobl.1",
+          "status_at_audit": "closed",
+          "title": "Design the call-agent context-snapshot content and post-call summary handoff",
+          "disposition": "reference_closed_only",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-hobl.2",
+          "status_at_audit": "open",
+          "title": "Implement the persistent call-agent SessionAttach replacement (pi --mode rpc), with required security hardening",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-m2ss",
+          "status_at_audit": "closed",
+          "title": "Ratify FR-4's revised wording: call agent gets a context snapshot, not a literal session resume",
+          "disposition": "reference_closed_only",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-04qy",
+          "status_at_audit": "closed",
+          "title": "Spike: steering a running Mode B session (pi RPC steer + claude tmux send-keys)",
+          "disposition": "reference_closed_only",
+          "details": "repos/vox.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "VOX-DESIGN",
+            "VOX-CONTRACT",
+            "HOST-CODEX-PACKAGE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/vox.md#L74",
+          "acceptance": [
+            "Run the controlled-host probe and native voice journey for this backend; successful stock interactive packaging is insufficient."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "VOX-DESIGN",
+            "VOX-CONTRACT",
+            "HOST-OPENCODE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/vox.md#L74",
+          "acceptance": [
+            "Run the controlled-host probe and native voice journey for this backend; successful stock interactive packaging is insufficient."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "VOX-DESIGN",
+            "VOX-CONTRACT",
+            "HOST-PI"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/vox.md#L74",
+          "acceptance": [
+            "Run the controlled-host probe and native voice journey for this backend; successful stock interactive packaging is insufficient."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "VOX-RELEASE",
+      "repo": "vox",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Package artifacts, CI, migrations/docs, live audio matrix and Claude regression",
+      "scope": "Package artifacts, CI, migrations/docs, live audio matrix and Claude regression",
+      "acceptance": [
+        "Versioned artifacts work outside checkout; upgrades/restarts/removal do not orphan media or overwrite user preferences."
+      ],
+      "depends_on": [
+        "VOX-CODEX",
+        "VOX-OPENCODE",
+        "VOX-PI",
+        "VOX-CALL",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/vox.md#L75",
+      "existing_beads": [
+        {
+          "repo": "vox",
+          "id": "vox-9354",
+          "status_at_audit": "open",
+          "title": "vox daemon has no stop or start, only restart",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-dvri",
+          "status_at_audit": "closed",
+          "title": "EPIC: daemon is the audio host \u2014 route all client audio/state ops through voxd",
+          "disposition": "reference_closed_only",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-ovb7",
+          "status_at_audit": "closed",
+          "title": "vox play bypasses voxd \u2014 plays in the client process, so remote playback lands on the wrong machine",
+          "disposition": "reference_closed_only",
+          "details": "repos/vox.md"
+        },
+        {
+          "repo": "vox",
+          "id": "vox-ghqw",
+          "status_at_audit": "closed",
+          "title": "test_voxd_daemon drives the real lifespan, so MusicPlayerSubsystem connects to the LIVE Lux hub",
+          "disposition": "reference_closed_only",
+          "details": "repos/vox.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "VOX-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "VOX-CALL",
+              "scope": "codex"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/vox.md#L75",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "VOX-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "VOX-CALL",
+              "scope": "opencode"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/vox.md#L75",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "VOX-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "VOX-CALL",
+              "scope": "pi"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/vox.md#L75",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "LUX-CONTEXT",
+      "repo": "lux",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native context fields, ownership lineage, kind/transport separation, PID/name decoupling and connection epochs",
+      "scope": "Native context fields, ownership lineage, kind/transport separation, PID/name decoupling and connection epochs",
+      "acceptance": [
+        "Same repo/harness with two sessions and two applets yields distinct logical owners and correctly shared transport legs."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/lux.md#L68",
+      "existing_beads": [
+        {
+          "repo": "lux",
+          "id": "lux-fh49",
+          "status_at_audit": "open",
+          "title": "ADR needed: applet identity pid convention (SESSION vs OWN) \u2014 lux and z-spec differ, no guidance for future authors",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-1qyy",
+          "status_at_audit": "in_progress",
+          "title": "Acting agent mcp-session is invisible in the Clients menu roster",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-wjsd",
+          "status_at_audit": "closed",
+          "title": "Client identity and scene ownership across all surfaces (design)",
+          "disposition": "reference_closed_only",
+          "details": "repos/lux.md"
+        }
+      ]
+    },
+    {
+      "key": "LUX-LIFETIME",
+      "repo": "lux",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "qbtv/tfn1/6chc successor and callback behavior",
+      "scope": "qbtv/tfn1/6chc successor and callback behavior; integrate existing closed fixes",
+      "acceptance": [
+        "Reconnect/twin/kill/lease expiry never steals a callback, loses a live peer or leaves silent dead controls."
+      ],
+      "depends_on": [
+        "LUX-CONTEXT"
+      ],
+      "harnesses": [],
+      "spec": "repos/lux.md#L69",
+      "existing_beads": [
+        {
+          "repo": "lux",
+          "id": "lux-qbtv",
+          "status_at_audit": "open",
+          "title": "Two-live-sessions window: subscribe binds the wrong owner's handler; a predecessor's subscribe after successor teardown raises KeyError",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-tfn1",
+          "status_at_audit": "open",
+          "title": "Hub silently accepts second callback set on a connection from a different program (defense-in-depth for lux-e6i4)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-6chc",
+          "status_at_audit": "open",
+          "title": "list_clients: expose a per-connection epoch beside the identity-derived connection_id",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-95zt",
+          "status_at_audit": "closed",
+          "title": "MCP disconnect leg: a surviving twin session silently loses its subscriptions",
+          "disposition": "reference_closed_only",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-m3xr",
+          "status_at_audit": "closed",
+          "title": "Agent menu_set items are dead on click \u2014 no frame_id binding, no click routing to owner",
+          "disposition": "reference_closed_only",
+          "details": "repos/lux.md"
+        }
+      ]
+    },
+    {
+      "key": "LUX-ENABLE",
+      "repo": "lux",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "yy7s marker, explicit context resolution, guide/install projections",
+      "scope": "yy7s marker, explicit context resolution, guide/install projections",
+      "acceptance": [
+        "Disabled repo opens no new applets; enable/disable works for nested cwd/worktree without touching another session."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/lux.md#L70",
+      "existing_beads": [
+        {
+          "repo": "lux",
+          "id": "lux-yy7s",
+          "status_at_audit": "open",
+          "title": "Migrate lux enablement to the punt-kit \u00a72.7 marker (.punt-labs/lux/enabled)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        }
+      ]
+    },
+    {
+      "key": "LUX-CLIENT",
+      "repo": "lux",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Versioned typed REST/WS contracts, TS client, bounded streams, error parity",
+      "scope": "Versioned typed REST/WS contracts, TS client, bounded streams, error parity; teyq",
+      "acceptance": [
+        "Python/CLI/HTTP/TS show/inspect/events agree; non-ASCII identities match both legs; down display is a named state."
+      ],
+      "depends_on": [
+        "LUX-CONTEXT"
+      ],
+      "harnesses": [],
+      "spec": "repos/lux.md#L71",
+      "existing_beads": [
+        {
+          "repo": "lux",
+          "id": "lux-aom6",
+          "status_at_audit": "open",
+          "title": "Add SessionInspectCommand (net-new command)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-teyq",
+          "status_at_audit": "open",
+          "title": "punt_lux/__init__.py eagerly imports domain.hub.client_identity \u2014 any punt_lux.* import loads the full Hub package (~605 modules)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        },
+        {
+          "repo": "lux",
+          "id": "lux-duqj",
+          "status_at_audit": "closed",
+          "title": "Library leaks its internal REST client \u2014 encapsulate, don't expose (AppletRunner._rest, top-level rest_client.py)",
+          "disposition": "reference_closed_only",
+          "details": "repos/lux.md"
+        }
+      ]
+    },
+    {
+      "key": "LUX-CODEX",
+      "repo": "lux",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native plugin/skills/MCP plus lifecycle-owned callback leg",
+      "scope": "Native plugin/skills/MCP plus lifecycle-owned callback leg",
+      "acceptance": [
+        "Stock Codex renders/inspects a scene, reopens a frame immediately and routes interaction to its owning thread."
+      ],
+      "depends_on": [
+        "LUX-CONTEXT",
+        "LUX-LIFETIME",
+        "LUX-ENABLE",
+        "LUX-CLIENT",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/lux.md#L72",
+      "existing_beads": []
+    },
+    {
+      "key": "LUX-OPENCODE",
+      "repo": "lux",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Server tools/WS lifecycle and native TUI controls",
+      "scope": "Server tools/WS lifecycle and native TUI controls",
+      "acceptance": [
+        "Shared server/multiple sessions/local or remote TUI maintain correct owner and display destination."
+      ],
+      "depends_on": [
+        "LUX-CONTEXT",
+        "LUX-LIFETIME",
+        "LUX-ENABLE",
+        "LUX-CLIENT",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/lux.md#L73",
+      "existing_beads": []
+    },
+    {
+      "key": "LUX-PI",
+      "repo": "lux",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "TS tools/commands/skills/status with direct HTTP/WS",
+      "scope": "TS tools/commands/skills/status with direct HTTP/WS",
+      "acceptance": [
+        "Real pi scene+callback journey across /new, /fork, /tree, /reload; no Claude/MCP dependency."
+      ],
+      "depends_on": [
+        "LUX-CONTEXT",
+        "LUX-LIFETIME",
+        "LUX-ENABLE",
+        "LUX-CLIENT",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/lux.md#L74",
+      "existing_beads": []
+    },
+    {
+      "key": "LUX-RELEASE",
+      "repo": "lux",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Artifact packaging, downstream Vox/z-spec contract tests, docs/doctor and live display suite",
+      "scope": "Artifact packaging, downstream Vox/z-spec contract tests, docs/doctor and live display suite",
+      "acceptance": [
+        "Clean installation outside checkout; incompatible protocol diagnosed; removal of one adapter leaves shared Hub/Display and peers intact."
+      ],
+      "depends_on": [
+        "LUX-CODEX",
+        "LUX-OPENCODE",
+        "LUX-PI",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/lux.md#L75",
+      "existing_beads": [
+        {
+          "repo": "lux",
+          "id": "lux-swkm",
+          "status_at_audit": "in_progress",
+          "title": "Dead code: CallbackOperations.invoke_callback is unwired (only exercised by tests)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/lux.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "LUX-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/lux.md#L75",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "LUX-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/lux.md#L75",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "LUX-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/lux.md#L75",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "QUARRY-DESIGN",
+      "repo": "quarry",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Reconcile rqoi table, selection authority, capture identity/lifecycle and delivery guarantee",
+      "scope": "Reconcile rqoi table, selection authority, capture identity/lifecycle and delivery guarantee",
+      "acceptance": [
+        "Reviewed operation/context/capture contracts; current topology and outstanding choices recorded accurately."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L69",
+      "existing_beads": [
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi",
+          "status_at_audit": "open",
+          "title": "Unify quarry CLI/MCP/HTTP/library naming to the noun-verb standard",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi.1",
+          "status_at_audit": "open",
+          "title": "Design: ratify CLI/MCP/HTTP/library naming table",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        }
+      ]
+    },
+    {
+      "key": "QUARRY-CONTEXT",
+      "repo": "quarry",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Explicit origin and core-owned selected target",
+      "scope": "Explicit origin and core-owned selected target; remove implicit CWD/global selection",
+      "acceptance": [
+        "Concurrent sessions cannot change another session's database or lessons collection; reconnect semantics specified."
+      ],
+      "depends_on": [
+        "QUARRY-DESIGN"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L70",
+      "existing_beads": []
+    },
+    {
+      "key": "QUARRY-SURFACE",
+      "repo": "quarry",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "rqoi client/CLI/MCP/HTTP changes, JSON errors, enablement parity",
+      "scope": "rqoi client/CLI/MCP/HTTP changes, JSON errors, enablement parity",
+      "acceptance": [
+        "Existing and native clients agree on names, fields and results; new collection ranking never falsely advertised."
+      ],
+      "depends_on": [
+        "QUARRY-DESIGN"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L71",
+      "existing_beads": [
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi",
+          "status_at_audit": "open",
+          "title": "Unify quarry CLI/MCP/HTTP/library naming to the noun-verb standard",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi.2",
+          "status_at_audit": "open",
+          "title": "Implement CLI noun-first regrouping (document/collection/registration/database/capture/remote/hook)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi.3",
+          "status_at_audit": "open",
+          "title": "Rename QuarryClient methods to noun_verb (document_search, collection_list, etc.)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi.4",
+          "status_at_audit": "open",
+          "title": "Restructure MCP tools to noun-scoped with subcommand dispatch, add enablement tool",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi.5",
+          "status_at_audit": "open",
+          "title": "Align HTTP routes with the ratified naming (fix /capture vs /captures/push clash)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-rqoi.7",
+          "status_at_audit": "open",
+          "title": "Cross-surface equivalence tests for the renamed operations (bug class 3)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-bwq",
+          "status_at_audit": "open",
+          "title": "Epic: Quarry CLI & MCP tool surface rework",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        }
+      ]
+    },
+    {
+      "key": "QUARRY-CAPTURE",
+      "repo": "quarry",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Reader protocol, source lineage, collision-free identity, bounded redaction/checkpoints and recovery",
+      "scope": "Reader protocol, source lineage, collision-free identity, bounded redaction/checkpoints and recovery",
+      "acceptance": [
+        "Fork/resume/compaction/child capture is isolated, ordered, deduplicated and recoverable under the chosen guarantee."
+      ],
+      "depends_on": [
+        "QUARRY-DESIGN",
+        "QUARRY-CONTEXT"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L72",
+      "existing_beads": [
+        {
+          "repo": "quarry",
+          "id": "quarry-9hks",
+          "status_at_audit": "open",
+          "title": "transcript_reader minor hardening: budget separator accounting + non-string role guard",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-ppv",
+          "status_at_audit": "open",
+          "title": "/capture command: capture conversation research as indexed documents",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-en68",
+          "status_at_audit": "closed",
+          "title": "Converge hooks onto QuarryClient: add content-ingest to the single daemon path + delete BackgroundIngest engine path",
+          "disposition": "reference_closed_only",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-atsz",
+          "status_at_audit": "closed",
+          "title": "remember has no durable copy \u2014 drain-abort under deep backlog silently loses an admitted remember",
+          "disposition": "reference_closed_only",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-ow3k",
+          "status_at_audit": "closed",
+          "title": "Private capture shadow-repo sync pattern (repo-quarry)",
+          "disposition": "reference_closed_only",
+          "details": "repos/quarry.md"
+        }
+      ]
+    },
+    {
+      "key": "QUARRY-TASKS",
+      "repo": "quarry",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Existing poller reuse, opt-in wait, terminal exits, abortable adapter polling",
+      "scope": "Existing poller reuse, opt-in wait, terminal exits, abortable adapter polling",
+      "acceptance": [
+        "Accepted, indexed, failed, unreachable and canceled-wait states are distinct; default remains immediate."
+      ],
+      "depends_on": [
+        "QUARRY-SURFACE"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L73",
+      "existing_beads": [
+        {
+          "repo": "quarry",
+          "id": "quarry-65o5",
+          "status_at_audit": "open",
+          "title": "Robust fire-and-forget: opt-in poll of a dispatched task result plus real CLI exit codes",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-bxwd",
+          "status_at_audit": "open",
+          "title": "Carry connection-lost fail-fast behavior + test into QuarryClient (RemoteClient deleted by veb0)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        }
+      ]
+    },
+    {
+      "key": "QUARRY-ENABLE",
+      "repo": "quarry",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Neutral enable/register gate and explicit harness package/guidance setup",
+      "scope": "Neutral enable/register gate and explicit harness package/guidance setup",
+      "acceptance": [
+        "Idempotent selected setup; disable cleanup/keep-data matches existing policy; other harness registrations preserved."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "QUARRY-SURFACE"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L74",
+      "existing_beads": [
+        {
+          "repo": "quarry",
+          "id": "quarry-a4wt",
+          "status_at_audit": "open",
+          "title": "Single-command setup with editor detection",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-gx4c",
+          "status_at_audit": "closed",
+          "title": "SessionStart marker gate + reconcile drift; quarry disable must deregister",
+          "disposition": "reference_closed_only",
+          "details": "repos/quarry.md"
+        }
+      ]
+    },
+    {
+      "key": "QUARRY-CODEX-CAPTURE",
+      "repo": "quarry",
+      "kind": "spike",
+      "status": "proposed",
+      "size": "M",
+      "title": "Prove stock Codex capture fidelity through supported hooks/snapshots, independently of implementation",
+      "scope": "Prove stock Codex capture fidelity through supported hooks/snapshots, independently of implementation",
+      "acceptance": [
+        "Controlled conversation with tool output, child, compaction and resume yields a measured capture coverage report and supported checkpoint design; missing required fidelity is an upstream blocker."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "HOST-CODEX-PACKAGE"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/quarry.md#L75",
+      "existing_beads": []
+    },
+    {
+      "key": "QUARRY-CODEX",
+      "repo": "quarry",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native plugin/MCP/skills/hooks and capture capability spike",
+      "scope": "Native plugin/MCP/skills/hooks and capture capability spike",
+      "acceptance": [
+        "Real stock Codex retrieval/learning and truthful native capture fidelity, no Claude reader dependency."
+      ],
+      "depends_on": [
+        "QUARRY-CONTEXT",
+        "QUARRY-SURFACE",
+        "QUARRY-CAPTURE",
+        "QUARRY-ENABLE",
+        "QUARRY-TASKS",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT",
+        "QUARRY-CODEX-CAPTURE"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/quarry.md#L76",
+      "existing_beads": []
+    },
+    {
+      "key": "QUARRY-OPENCODE",
+      "repo": "quarry",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native server tools/SDK snapshots, optional TUI status",
+      "scope": "Native server tools/SDK snapshots, optional TUI status",
+      "acceptance": [
+        "Two server sessions plus remote TUI retain independent targets, source IDs and task cursors."
+      ],
+      "depends_on": [
+        "QUARRY-CONTEXT",
+        "QUARRY-SURFACE",
+        "QUARRY-CAPTURE",
+        "QUARRY-ENABLE",
+        "QUARRY-TASKS",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/quarry.md#L77",
+      "existing_beads": []
+    },
+    {
+      "key": "QUARRY-PI",
+      "repo": "quarry",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native TS direct clients/tools/commands/branch-aware capture",
+      "scope": "Native TS direct clients/tools/commands/branch-aware capture",
+      "acceptance": [
+        "Real pi TUI and RPC/print lifecycle, no MCP/Claude install and no leaked work after reload."
+      ],
+      "depends_on": [
+        "QUARRY-CONTEXT",
+        "QUARRY-SURFACE",
+        "QUARRY-CAPTURE",
+        "QUARRY-ENABLE",
+        "QUARRY-TASKS",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/quarry.md#L78",
+      "existing_beads": []
+    },
+    {
+      "key": "QUARRY-RELEASE",
+      "repo": "quarry",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Wheel/native packaging, docs/OpenAPI, diagnostics, conformance and Claude regression",
+      "scope": "Wheel/native packaging, docs/OpenAPI, diagnostics, conformance and Claude regression",
+      "acceptance": [
+        "Installed artifacts outside checkout pass local/remote retrieval, capture and failure recovery journeys."
+      ],
+      "depends_on": [
+        "QUARRY-TASKS",
+        "QUARRY-CODEX",
+        "QUARRY-OPENCODE",
+        "QUARRY-PI",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/quarry.md#L79",
+      "existing_beads": [
+        {
+          "repo": "quarry",
+          "id": "quarry-4qr8",
+          "status_at_audit": "open",
+          "title": "test-wheel.sh aborts its own search round-trip on a head -N line-count bug",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-im3c",
+          "status_at_audit": "open",
+          "title": "cleanup: remove residual mcp-proxy references and stop using ~/.punt-labs/mcp-proxy/ paths",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        },
+        {
+          "repo": "quarry",
+          "id": "quarry-kv5k",
+          "status_at_audit": "open",
+          "title": "doctor: report per-collection watch state (watched/degraded/scan-only)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/quarry.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "QUARRY-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/quarry.md#L79",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "QUARRY-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/quarry.md#L79",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "QUARRY-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/quarry.md#L79",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "ETHOS-CONTEXT",
+      "repo": "ethos",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Shared session contract spike, runtime mapping, actor/parent identity, lease/reconcile and migration",
+      "scope": "Shared session contract spike, runtime mapping, actor/parent identity, lease/reconcile and migration; starts after toolkit context definition.",
+      "acceptance": [
+        "Two same-repo sessions and two same-persona children remain separate; fork/reopen mappings deterministic; stale context rejected."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/ethos.md#L59",
+      "existing_beads": [
+        {
+          "repo": "ethos",
+          "id": "ethos-leh7",
+          "status_at_audit": "closed",
+          "title": "Harness-neutral sessions: ethos session start verb + resolution strategy chain (Codex/plain-CLI support)",
+          "disposition": "reference_closed_only",
+          "details": "repos/ethos.md"
+        },
+        {
+          "repo": "ethos",
+          "id": "ethos-vqwn",
+          "status_at_audit": "closed",
+          "title": "Session pointer sessions/current/<pid> is keyed on the host-shared Claude daemon PID \u2014 cross-repo mission misattribution",
+          "disposition": "reference_closed_only",
+          "details": "repos/ethos.md"
+        }
+      ]
+    },
+    {
+      "key": "ETHOS-SERVICE",
+      "repo": "ethos",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Explicit service context, CLI JSON coverage, MCP method permissions",
+      "scope": "Explicit service context, CLI JSON coverage, MCP method permissions; depends on context contract.",
+      "acceptance": [
+        "CLI/native/MCP equivalent domain results, stable errors, no ambient shared-session mutation."
+      ],
+      "depends_on": [
+        "ETHOS-CONTEXT"
+      ],
+      "harnesses": [],
+      "spec": "repos/ethos.md#L60",
+      "existing_beads": [
+        {
+          "repo": "ethos",
+          "id": "ethos-k2xs",
+          "status_at_audit": "open",
+          "title": "seed --json unimplemented; unknown team subcommands exit 0 silently",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        }
+      ]
+    },
+    {
+      "key": "ETHOS-AUTHORITY",
+      "repo": "ethos",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Public key/delegation/revocation service and key-custody design required by Biff M2",
+      "scope": "Public key/delegation/revocation service and key-custody design required by Biff M2; toolkit authority contract and existing identity store first, coordinated with ethos-wb4/Biff M2.",
+      "acceptance": [
+        "Biff resolves verifiable author/owner facts; agent/owner key separation, revocation/rotation, scoped delegation, historical policy and stale-cache behavior pass reviewed fixtures; Beadle GPG remains functional."
+      ],
+      "depends_on": [
+        "ETHOS-CONTEXT",
+        "ETHOS-SERVICE"
+      ],
+      "harnesses": [],
+      "spec": "repos/ethos.md#L61",
+      "existing_beads": [
+        {
+          "repo": "ethos",
+          "id": "ethos-wb4",
+          "status_at_audit": "in_progress",
+          "title": "Integration design: ethos + biff \u2014 agents with team messaging",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        }
+      ]
+    },
+    {
+      "key": "ETHOS-GOVERNANCE",
+      "repo": "ethos",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Admission/result/cancel service and three cited safety defects",
+      "scope": "Admission/result/cancel service and three cited safety defects; native execution policy mapping.",
+      "acceptance": [
+        "Denials cover absolute/traversal/symlink targets, missing binding and unavailable invariants; policy bypasses never reported as verified."
+      ],
+      "depends_on": [
+        "ETHOS-SERVICE"
+      ],
+      "harnesses": [],
+      "spec": "repos/ethos.md#L62",
+      "existing_beads": [
+        {
+          "repo": "ethos",
+          "id": "ethos-vaib",
+          "status_at_audit": "open",
+          "title": "[bug] pathAllowed treats an absolute target as repo-relative (CanonicalPath strips leading slash)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        },
+        {
+          "repo": "ethos",
+          "id": "ethos-yf6n",
+          "status_at_audit": "open",
+          "title": "Frozen-evaluator gate skip on empty MISSION_ID is silent + couples write-set enforcement and DES-033 gate to MISSION_ID propagation",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        },
+        {
+          "repo": "ethos",
+          "id": "ethos-ty7f",
+          "status_at_audit": "open",
+          "title": "ethos: validateContract silently drops archetype invariants on Load/Update archetype-load error",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        }
+      ]
+    },
+    {
+      "key": "ETHOS-PERSONAS",
+      "repo": "ethos",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Semantic persona source, target renderers and ownership model against documented schemas",
+      "scope": "Semantic persona source, target renderers and ownership model against documented schemas; live native loading/installation certification belongs to each adapter.",
+      "acceptance": [
+        "Rendered assets validate against their declared schemas and grants; no dev references or generated source churn. Each native adapter proves live discovery and owned installation independently."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/ethos.md#L63",
+      "existing_beads": [
+        {
+          "repo": "ethos",
+          "id": "ethos-7t5z",
+          "status_at_audit": "open",
+          "title": "ethos enable: harness-aware persona import (CLAUDE.md vs AGENTS.md for Codex)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        },
+        {
+          "repo": "ethos",
+          "id": "ethos-hmzd",
+          "status_at_audit": "open",
+          "title": "Session-start render of .claude/agents/*.md leaks dev-plugin tools (contributor-machine-specific)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        },
+        {
+          "repo": "ethos",
+          "id": "ethos-79fv",
+          "status_at_audit": "open",
+          "title": "[bug] committed agent stubs (agents/*.md) carry static tools: with no MCP grant \u2014 fallback path misses the specialist MCP tools",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        }
+      ]
+    },
+    {
+      "key": "ETHOS-CODEX",
+      "repo": "ethos",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native plugin, skills, hooks and agent integration",
+      "scope": "Native plugin, skills, hooks and agent integration; blocked on proven Codex context channel, services and governance.",
+      "acceptance": [
+        "Stock Codex identity/delegation/mission journey with authoritative attribution and permission denial."
+      ],
+      "depends_on": [
+        "ETHOS-SERVICE",
+        "ETHOS-GOVERNANCE",
+        "ETHOS-PERSONAS",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/ethos.md#L64",
+      "existing_beads": []
+    },
+    {
+      "key": "ETHOS-OPENCODE",
+      "repo": "ethos",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native server plugin/tools/agents and optional status TUI",
+      "scope": "Native server plugin/tools/agents and optional status TUI; services first.",
+      "acceptance": [
+        "Shared server routes every call and child result correctly; synchronous admission cannot deadlock."
+      ],
+      "depends_on": [
+        "ETHOS-SERVICE",
+        "ETHOS-GOVERNANCE",
+        "ETHOS-PERSONAS",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/ethos.md#L65",
+      "existing_beads": []
+    },
+    {
+      "key": "ETHOS-PI",
+      "repo": "ethos",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native extension and delegated persona binding",
+      "scope": "Native extension and delegated persona binding; services and shared pi supervisor first.",
+      "acceptance": [
+        "Independent child agents, fork/tree/retry semantics, abort cleanup, truthful enforcement scope."
+      ],
+      "depends_on": [
+        "ETHOS-SERVICE",
+        "ETHOS-GOVERNANCE",
+        "ETHOS-PERSONAS",
+        "HOST-PI",
+        "HOST-PI-DELEGATION"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/ethos.md#L66",
+      "existing_beads": []
+    },
+    {
+      "key": "ETHOS-RELEASE",
+      "repo": "ethos",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Four-platform binaries, selected-target installer/doctor/docs, audit durability and certification",
+      "scope": "Four-platform binaries, selected-target installer/doctor/docs, audit durability and certification; all relevant packages.",
+      "acceptance": [
+        "Clean packaged install, upgrade, disable, removal and existing Claude journey pass without touching unrelated state."
+      ],
+      "depends_on": [
+        "ETHOS-CODEX",
+        "ETHOS-OPENCODE",
+        "ETHOS-PI",
+        "ETHOS-AUTHORITY",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/ethos.md#L67",
+      "existing_beads": [
+        {
+          "repo": "ethos",
+          "id": "ethos-015a",
+          "status_at_audit": "open",
+          "title": "removing a git worktree with an active session loses unsealed audit lines, with no warning until the next commit",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        },
+        {
+          "repo": "ethos",
+          "id": "ethos-j9hp",
+          "status_at_audit": "open",
+          "title": "Ship prebuilt release binaries so install.sh stops falling back to a Go source build",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/ethos.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "ETHOS-CODEX",
+            "ETHOS-AUTHORITY",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/ethos.md#L67",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "ETHOS-OPENCODE",
+            "ETHOS-AUTHORITY",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/ethos.md#L67",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "ETHOS-PI",
+            "ETHOS-AUTHORITY",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/ethos.md#L67",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "PRFAQ-CLI",
+      "repo": "prfaq",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Extend 350/7i8",
+      "scope": "Extend 350/7i8; package reusable scripts/assets and JSON process contracts.",
+      "acceptance": [
+        "Init/lint/compile/export/doctor run outside checkout; missing deps and abort are structured; no partial publication."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/prfaq.md#L56",
+      "existing_beads": [
+        {
+          "repo": "prfaq",
+          "id": "prfaq-350",
+          "status_at_audit": "open",
+          "title": "Add standalone CLI",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        },
+        {
+          "repo": "prfaq",
+          "id": "prfaq-7i8",
+          "status_at_audit": "open",
+          "title": "Add doctor command",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        }
+      ]
+    },
+    {
+      "key": "PRFAQ-MEETING",
+      "repo": "prfaq",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Structured records, reducer, role-result schema, migration and resume",
+      "scope": "Structured records, reducer, role-result schema, migration and resume; CLI first.",
+      "acceptance": [
+        "Fixture-driven door rules, independent-role provenance, user resolutions and interrupted/resumed workflows are preserved."
+      ],
+      "depends_on": [
+        "PRFAQ-CLI"
+      ],
+      "harnesses": [],
+      "spec": "repos/prfaq.md#L57",
+      "existing_beads": [
+        {
+          "repo": "prfaq",
+          "id": "prfaq-350",
+          "status_at_audit": "open",
+          "title": "Add standalone CLI",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        }
+      ]
+    },
+    {
+      "key": "PRFAQ-RESEARCH",
+      "repo": "prfaq",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Reuse n4d, explicit source capabilities and citation records",
+      "scope": "Reuse n4d, explicit source capabilities and citation records; shared capability contract.",
+      "acceptance": [
+        "An unavailable internal source is visible; authorized connectors work with native grants; no invented evidence."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/prfaq.md#L58",
+      "existing_beads": [
+        {
+          "repo": "prfaq",
+          "id": "prfaq-n4d",
+          "status_at_audit": "open",
+          "title": "Connector onboarding UX so the researcher agent can use internal data sources",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        }
+      ]
+    },
+    {
+      "key": "PRFAQ-CODEX",
+      "repo": "prfaq",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native plugin/skills/roles/questions and actual delegation",
+      "scope": "Native plugin/skills/roles/questions and actual delegation; CLI, meeting contract, Codex context spike.",
+      "acceptance": [
+        "Stock Codex completes interactive and hive meetings with distinct child transcripts and correct decisions."
+      ],
+      "depends_on": [
+        "PRFAQ-CLI",
+        "PRFAQ-MEETING",
+        "PRFAQ-RESEARCH",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/prfaq.md#L59",
+      "existing_beads": []
+    },
+    {
+      "key": "PRFAQ-OPENCODE",
+      "repo": "prfaq",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native commands/agents/server tools/TUI coordinator",
+      "scope": "Native commands/agents/server tools/TUI coordinator; CLI and meeting contract.",
+      "acceptance": [
+        "Two sessions review independently; native permission denial and unanswered UI suspend safely; no self-prompt deadlock."
+      ],
+      "depends_on": [
+        "PRFAQ-CLI",
+        "PRFAQ-MEETING",
+        "PRFAQ-RESEARCH",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/prfaq.md#L60",
+      "existing_beads": []
+    },
+    {
+      "key": "PRFAQ-PI",
+      "repo": "prfaq",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native tools/UI/skills and real supervisor binding",
+      "scope": "Native tools/UI/skills and real supervisor binding; CLI, meeting contract, shared pi delegation.",
+      "acceptance": [
+        "Four independent reviewers, cancellation/restart and final state agree with recorded evidence."
+      ],
+      "depends_on": [
+        "PRFAQ-CLI",
+        "PRFAQ-MEETING",
+        "PRFAQ-RESEARCH",
+        "HOST-PI",
+        "HOST-PI-DELEGATION"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/prfaq.md#L61",
+      "existing_beads": []
+    },
+    {
+      "key": "PRFAQ-MEDIA",
+      "repo": "prfaq",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Existing Vox/Lux/Quarry task integration",
+      "scope": "Existing Vox/Lux/Quarry task integration; shared meeting and peer capability contracts.",
+      "acceptance": [
+        "Correct speaker/session, text fallback, display consistency and scoped ingestion; no cross-session media."
+      ],
+      "depends_on": [
+        "PRFAQ-MEETING",
+        "VOX-CONTRACT",
+        "LUX-CLIENT",
+        "LUX-LIFETIME",
+        "LUX-ENABLE",
+        "QUARRY-CONTEXT",
+        "QUARRY-SURFACE",
+        "VOX-CODEX",
+        "VOX-OPENCODE",
+        "VOX-PI"
+      ],
+      "harnesses": [],
+      "spec": "repos/prfaq.md#L62",
+      "existing_beads": [
+        {
+          "repo": "prfaq",
+          "id": "prfaq-y0s",
+          "status_at_audit": "open",
+          "title": "Lux integration: meeting decision dashboard",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        },
+        {
+          "repo": "prfaq",
+          "id": "prfaq-bmf",
+          "status_at_audit": "open",
+          "title": "prfaq 2.0: Voiced Personas \u2014 TTS integration for meetings",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        },
+        {
+          "repo": "prfaq",
+          "id": "prfaq-37p",
+          "status_at_audit": "open",
+          "title": "Voiced interactive meetings \u2014 per-persona narration with user moderation",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        },
+        {
+          "repo": "prfaq",
+          "id": "prfaq-8b6",
+          "status_at_audit": "open",
+          "title": "Voiced hive meetings \u2014 autonomous multi-voice debate",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        },
+        {
+          "repo": "prfaq",
+          "id": "prfaq-7ds",
+          "status_at_audit": "open",
+          "title": "Auto-ingest ./research/ into quarry database when quarry is available",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/prfaq.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "PRFAQ-MEETING",
+            "VOX-CONTRACT",
+            "VOX-CODEX",
+            "LUX-CLIENT",
+            "LUX-LIFETIME",
+            "LUX-ENABLE",
+            "QUARRY-CONTEXT",
+            "QUARRY-SURFACE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/prfaq.md#L62",
+          "acceptance": [
+            "Observe this host\u2019s meeting playback and optional display/scoped-ingest paths, plus usable missing-peer fallback; the corresponding Vox adapter supplies native audio operations."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "PRFAQ-MEETING",
+            "VOX-CONTRACT",
+            "VOX-OPENCODE",
+            "LUX-CLIENT",
+            "LUX-LIFETIME",
+            "LUX-ENABLE",
+            "QUARRY-CONTEXT",
+            "QUARRY-SURFACE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/prfaq.md#L62",
+          "acceptance": [
+            "Observe this host\u2019s meeting playback and optional display/scoped-ingest paths, plus usable missing-peer fallback; the corresponding Vox adapter supplies native audio operations."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "PRFAQ-MEETING",
+            "VOX-CONTRACT",
+            "VOX-PI",
+            "LUX-CLIENT",
+            "LUX-LIFETIME",
+            "LUX-ENABLE",
+            "QUARRY-CONTEXT",
+            "QUARRY-SURFACE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/prfaq.md#L62",
+          "acceptance": [
+            "Observe this host\u2019s meeting playback and optional display/scoped-ingest paths, plus usable missing-peer fallback; the corresponding Vox adapter supplies native audio operations."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "PRFAQ-RELEASE",
+      "repo": "prfaq",
+      "kind": "release",
+      "status": "proposed",
+      "size": "M",
+      "title": "Targeted install/upgrade/remove, permissions ownership, docs, linter distribution and four-harness certification",
+      "scope": "Targeted install/upgrade/remove, permissions ownership, docs, linter distribution and four-harness certification.",
+      "acceptance": [
+        "Clean install outside repo, owned cleanup and existing Claude permissions/workflows remain correct."
+      ],
+      "depends_on": [
+        "PRFAQ-CODEX",
+        "PRFAQ-OPENCODE",
+        "PRFAQ-PI",
+        "PRFAQ-MEDIA",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/prfaq.md#L63",
+      "existing_beads": [
+        {
+          "repo": "prfaq",
+          "id": "prfaq-wwa",
+          "status_at_audit": "closed",
+          "title": "Installer writes global permission rules; Write() rules now warn at every session start",
+          "disposition": "reference_closed_only",
+          "details": "repos/prfaq.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "PRFAQ-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "PRFAQ-MEDIA",
+              "scope": "codex"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/prfaq.md#L63",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "PRFAQ-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "PRFAQ-MEDIA",
+              "scope": "opencode"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/prfaq.md#L63",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "PRFAQ-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "PRFAQ-MEDIA",
+              "scope": "pi"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/prfaq.md#L63",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "ZSPEC-CORRECTNESS",
+      "repo": "z-spec",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Existing correctness epic and missing-counter task",
+      "scope": "Existing correctness epic and missing-counter task; real solver fixtures/version contract.",
+      "acceptance": [
+        "Empty/incomplete/unsupported checks cannot pass; actual supported ProB versions parse correctly; semantic inputs and bounds exercised."
+      ],
+      "depends_on": [],
+      "harnesses": [],
+      "spec": "repos/z-spec.md#L57",
+      "existing_beads": [
+        {
+          "repo": "z-spec",
+          "id": "z-spec-st9",
+          "status_at_audit": "open",
+          "title": "EPIC: correctness sweep \u2014 false passes, ProB 1.16 unpin, inert gate, spec-corpus bugs, probcli passthrough",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-2mm",
+          "status_at_audit": "open",
+          "title": "A .tex file with no Z paragraphs type-checks clean",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-v0m",
+          "status_at_audit": "open",
+          "title": "src/punt_zspec/coverage.py cannot parse ProB >=1.16.0's coverage census output \u2014 every spec silently fails coverage check on current ProB",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-edh",
+          "status_at_audit": "open",
+          "title": "cbc_assertions may be structurally incapable of failing on a Z specification",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-cbg",
+          "status_at_audit": "open",
+          "title": "source? and reason? are declared and discarded in all five session specs",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-hhm",
+          "status_at_audit": "open",
+          "title": "z-spec model-check: pass extra args to probcli, drop named knobs",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-51t",
+          "status_at_audit": "open",
+          "title": "claude-code.tex: maxContext=200 is a production value in an animation-bound field",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-myh",
+          "status_at_audit": "open",
+          "title": "states_analysed and transitions_fired conflate 'probcli said zero' with 'probcli said nothing'",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        }
+      ]
+    },
+    {
+      "key": "ZSPEC-EXECUTION",
+      "repo": "z-spec",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Complete JSON/error/progress/abort runner and atomic run artifacts",
+      "scope": "Complete JSON/error/progress/abort runner and atomic run artifacts; existing command layer.",
+      "acceptance": [
+        "CLI/MCP/native adapters return the same outcome; timeout/cancel kill children and never publish success; concurrent artifacts stay distinct."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/z-spec.md#L58",
+      "existing_beads": [
+        {
+          "repo": "z-spec",
+          "id": "z-spec-uq7",
+          "status_at_audit": "open",
+          "title": "Explore: push z-spec functionality into deterministic code paths (L1 tools for L4 agents)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        }
+      ]
+    },
+    {
+      "key": "ZSPEC-CONTEXT",
+      "repo": "z-spec",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Per-call project/run/session context, owned activation and applet lifecycle",
+      "scope": "Per-call project/run/session context, owned activation and applet lifecycle; shared toolkit context plus Lux public identity contract.",
+      "acceptance": [
+        "Two sessions/worktrees and multiple child agents route correctly; no PID/private-name coupling or plugin-cwd writes."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "LUX-CONTEXT",
+        "LUX-CLIENT",
+        "LUX-ENABLE",
+        "LUX-LIFETIME"
+      ],
+      "harnesses": [],
+      "spec": "repos/z-spec.md#L59",
+      "existing_beads": [
+        {
+          "repo": "z-spec",
+          "id": "z-spec-kl3",
+          "status_at_audit": "open",
+          "title": "Every agent-team teammate spawns a z-spec MCP server + lux applet \u2014 Clients menu fills with duplicate repo entries",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-5yi",
+          "status_at_audit": "closed",
+          "title": "Lux: applet name stamps its own pid, not the session pid \u2014 z-spec never merges into the session's Clients submenu",
+          "disposition": "reference_closed_only",
+          "details": "repos/z-spec.md"
+        }
+      ]
+    },
+    {
+      "key": "ZSPEC-BMETHOD",
+      "repo": "z-spec",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Reuse 77g deterministic B services and thin workflow invocations",
+      "scope": "Reuse 77g deterministic B services and thin workflow invocations; execution contract.",
+      "acceptance": [
+        "B check/animate behave identically across CLI/MCP and three adapters with actual solver fixtures."
+      ],
+      "depends_on": [
+        "ZSPEC-EXECUTION",
+        "ZSPEC-CORRECTNESS"
+      ],
+      "harnesses": [],
+      "spec": "repos/z-spec.md#L60",
+      "existing_beads": [
+        {
+          "repo": "z-spec",
+          "id": "z-spec-77g",
+          "status_at_audit": "open",
+          "title": "Phase 5: B-Method parity (run_probcli_b wrapper, b-check/b-animate CLI+MCP, thin b-*.md)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        }
+      ]
+    },
+    {
+      "key": "ZSPEC-WORKFLOWS",
+      "repo": "z-spec",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native authored-workflow specifications, oracle/proof artifacts and independent review protocol",
+      "scope": "Native authored-workflow specifications, oracle/proof artifacts and independent review protocol; correctness and shared delegation contracts.",
+      "acceptance": [
+        "Equivalent authored outputs and evidence; failing implementation produces counterexample; absent proof never labeled proven."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "ZSPEC-CORRECTNESS"
+      ],
+      "harnesses": [],
+      "spec": "repos/z-spec.md#L61",
+      "existing_beads": [
+        {
+          "repo": "z-spec",
+          "id": "z-spec-srr",
+          "status_at_audit": "open",
+          "title": "SDK test tier: drive a real model through the command prompts",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        }
+      ]
+    },
+    {
+      "key": "ZSPEC-CODEX",
+      "repo": "z-spec",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Plugin/MCP/skills/hooks and real native review delegation",
+      "scope": "Plugin/MCP/skills/hooks and real native review delegation; execution, context spike, workflows.",
+      "acceptance": [
+        "Stock Codex completes code\u2192model\u2192check\u2192independent audit\u2192display with correct attribution and denial handling."
+      ],
+      "depends_on": [
+        "ZSPEC-EXECUTION",
+        "ZSPEC-CONTEXT",
+        "ZSPEC-WORKFLOWS",
+        "ZSPEC-BMETHOD",
+        "HOST-CODEX-PACKAGE",
+        "HOST-CODEX-CONTEXT"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/z-spec.md#L62",
+      "existing_beads": []
+    },
+    {
+      "key": "ZSPEC-OPENCODE",
+      "repo": "z-spec",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native plugin/tools/commands/agents and optional TUI progress",
+      "scope": "Native plugin/tools/commands/agents and optional TUI progress; execution/context/workflows.",
+      "acceptance": [
+        "Shared-server isolation, abort propagation and live display selection pass."
+      ],
+      "depends_on": [
+        "ZSPEC-EXECUTION",
+        "ZSPEC-CONTEXT",
+        "ZSPEC-WORKFLOWS",
+        "ZSPEC-BMETHOD",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/z-spec.md#L63",
+      "existing_beads": []
+    },
+    {
+      "key": "ZSPEC-PI",
+      "repo": "z-spec",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "L",
+      "title": "Native extension/tools/UI/skills with optional required-per-workflow supervisor",
+      "scope": "Native extension/tools/UI/skills with optional required-per-workflow supervisor; execution/context/workflows.",
+      "acceptance": [
+        "Direct CLI operation, fork/tree/reopen handling and independent oracle review work without MCP bridge."
+      ],
+      "depends_on": [
+        "ZSPEC-EXECUTION",
+        "ZSPEC-CONTEXT",
+        "ZSPEC-WORKFLOWS",
+        "ZSPEC-BMETHOD",
+        "HOST-PI",
+        "HOST-PI-DELEGATION"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/z-spec.md#L64",
+      "existing_beads": []
+    },
+    {
+      "key": "ZSPEC-RELEASE",
+      "repo": "z-spec",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Existing installer/resource/SDK tests, capability docs and four-harness certification",
+      "scope": "Existing installer/resource/SDK tests, capability docs and four-harness certification; all relevant packages.",
+      "acceptance": [
+        "Install from wheel outside checkout on macOS/Linux; no sudo/Claude requirement for CLI; owned target upgrade/remove and Claude regression pass."
+      ],
+      "depends_on": [
+        "ZSPEC-CODEX",
+        "ZSPEC-OPENCODE",
+        "ZSPEC-PI",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "repos/z-spec.md#L65",
+      "existing_beads": [
+        {
+          "repo": "z-spec",
+          "id": "z-spec-9v6",
+          "status_at_audit": "open",
+          "title": "Tutorial manifest: resolve via package data, not __file__ (wheel-safe)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-5te",
+          "status_at_audit": "in_progress",
+          "title": "fuzz install: eliminate sudo requirement via user-prefixed build",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        },
+        {
+          "repo": "z-spec",
+          "id": "z-spec-58u",
+          "status_at_audit": "in_progress",
+          "title": "Add non-blocking CI verification for the installer and for plugin-install cleanliness (macOS + Linux)",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/z-spec.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "ZSPEC-CODEX",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/z-spec.md#L65",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "ZSPEC-OPENCODE",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/z-spec.md#L65",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "ZSPEC-PI",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/z-spec.md#L65",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "KIT-STD",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Amend architecture, CLI, integration, hooks, plugins/distribution, permissions, enablement, context and release standards to distinguish core semantics from harness mechanics. Reconcile conflicting doctor/admin guidance and target artifact drift. Complete before adapter designs freeze",
+      "scope": "Amend architecture, CLI, integration, hooks, plugins/distribution, permissions, enablement, context and release standards to distinguish core semantics from harness mechanics. Reconcile conflicting doctor/admin guidance and target artifact drift. Complete before adapter designs freeze.",
+      "acceptance": [
+        "Amend architecture, CLI, integration, hooks, plugins/distribution, permissions, enablement, context and release standards to distinguish core semantics from harness mechanics. Reconcile conflicting doctor/admin guidance and target artifact drift. Complete before adapter designs freeze."
+      ],
+      "depends_on": [],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L44",
+      "existing_beads": []
+    },
+    {
+      "key": "KIT-RESULT",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Extract typed results and full JSON handling for audit/init/pii/seed",
+      "scope": "Extract typed results and full JSON handling for audit/init/pii/seed; test successful and failing commands, non-TTY mode and cancellation. No harness dependency.",
+      "acceptance": [
+        "Extract typed results and full JSON handling for audit/init/pii/seed; test successful and failing commands, non-TTY mode and cancellation. No harness dependency."
+      ],
+      "depends_on": [],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L45",
+      "existing_beads": [
+        {
+          "repo": "punt-kit",
+          "id": "pkit-zmca",
+          "status_at_audit": "open",
+          "title": "Standards auditor agent: punt audit gains a judgment examiner, one standard per run",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        },
+        {
+          "repo": "punt-kit",
+          "id": "pkit-fp5x",
+          "status_at_audit": "open",
+          "title": "EPIC: audit engine \u2014 a findings type, then the consumers that need it",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        }
+      ]
+    },
+    {
+      "key": "KIT-MANAGER",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Add explicit native registration and own-resource lifecycle to the existing kit-manager design. Validate install/register/enable as separate actions",
+      "scope": "Add explicit native registration and own-resource lifecycle to the existing kit-manager design. Validate install/register/enable as separate actions; disabling a tool preserves its data and another harness's registration.",
+      "acceptance": [
+        "Add explicit native registration and own-resource lifecycle to the existing kit-manager design. Validate install/register/enable as separate actions; disabling a tool preserves its data and another harness's registration."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L46",
+      "existing_beads": [
+        {
+          "repo": "punt-kit",
+          "id": "pkit-pjwn",
+          "status_at_audit": "open",
+          "title": "Kit-manager surface: punt enable (self) + punt install/enable <tool> dispatch, absorbing the init \u00a72.1 fix",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        },
+        {
+          "repo": "punt-kit",
+          "id": "pkit-52xz",
+          "status_at_audit": "open",
+          "title": "EPIC: kit-manager \u2014 settle where per-repo config lives, then build on it",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        },
+        {
+          "repo": "punt-kit",
+          "id": "pkit-qv4",
+          "status_at_audit": "closed",
+          "title": "Update filesystem standard: per-repo config in .punt-labs/<tool>/, not repo root sentinels",
+          "disposition": "reference_closed_only",
+          "details": "repos/punt-kit.md"
+        }
+      ]
+    },
+    {
+      "key": "KIT-POLICY",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "M",
+      "title": "Audit only declared tool/harness policy",
+      "scope": "Audit only declared tool/harness policy; add native package checks. Depends on KIT-STD and KIT-MANAGER's policy schema, not on every toolkit implementation.",
+      "acceptance": [
+        "Audit only declared tool/harness policy; add native package checks. Depends on KIT-STD and KIT-MANAGER's policy schema, not on every toolkit implementation."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "KIT-MANAGER"
+      ],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L47",
+      "existing_beads": [
+        {
+          "repo": "punt-kit",
+          "id": "pkit-mb8k",
+          "status_at_audit": "open",
+          "title": "Audit revival keyed to enabled policy: scope punt audit to a repo's declared kit",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        }
+      ]
+    },
+    {
+      "key": "KIT-CONTENT",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Resolve converter/reconcile drift",
+      "scope": "Resolve converter/reconcile drift; ship shared reference assets and native wrappers; keep existing declared operator-only triggers. Validate package paths from clean external consumer dirs.",
+      "acceptance": [
+        "Resolve converter/reconcile drift; ship shared reference assets and native wrappers; keep existing declared operator-only triggers. Validate package paths from clean external consumer dirs."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L48",
+      "existing_beads": [
+        {
+          "repo": "punt-kit",
+          "id": "pkit-k29q",
+          "status_at_audit": "in_progress",
+          "title": "Punt-kit product rethink: assess what's implemented vs working vs used",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        },
+        {
+          "repo": "punt-kit",
+          "id": "pkit-s00b",
+          "status_at_audit": "open",
+          "title": "Rollout: strip org duplicates + punt auto claude across all repos",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        }
+      ]
+    },
+    {
+      "key": "KIT-CODEX",
+      "repo": "punt-kit",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "M",
+      "title": "Codex skills/package/guidance",
+      "scope": "Codex skills/package/guidance; depends KIT-STD, KIT-RESULT, KIT-CONTENT and Codex packaging proof. Install/invoke/update/remove in stock Codex without Claude installed.",
+      "acceptance": [
+        "Codex skills/package/guidance; depends KIT-STD, KIT-RESULT, KIT-CONTENT and Codex packaging proof. Install/invoke/update/remove in stock Codex without Claude installed."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "KIT-RESULT",
+        "KIT-CONTENT",
+        "HOST-CODEX-PACKAGE"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "repos/punt-kit.md#L49",
+      "existing_beads": []
+    },
+    {
+      "key": "KIT-OPENCODE",
+      "repo": "punt-kit",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "M",
+      "title": "Commands/skills and typed operations with native permission declarations",
+      "scope": "Commands/skills and typed operations with native permission declarations; same core dependencies, own OpenCode packaging proof.",
+      "acceptance": [
+        "Commands/skills and typed operations with native permission declarations; same core dependencies, own OpenCode packaging proof."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "KIT-RESULT",
+        "KIT-CONTENT",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "repos/punt-kit.md#L50",
+      "existing_beads": []
+    },
+    {
+      "key": "KIT-PI",
+      "repo": "punt-kit",
+      "kind": "adapter",
+      "status": "proposed",
+      "size": "M",
+      "title": "pi package and explicit commands/tools",
+      "scope": "pi package and explicit commands/tools; same core dependencies, own pi packaging proof.",
+      "acceptance": [
+        "pi package and explicit commands/tools; same core dependencies, own pi packaging proof."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "KIT-RESULT",
+        "KIT-CONTENT",
+        "HOST-PI"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "repos/punt-kit.md#L51",
+      "existing_beads": []
+    },
+    {
+      "key": "KIT-AUDITOR",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "One-standard judgment workflow and separate evaluator on all hosts. Preserve deterministic-only exit status. Does not block initial deterministic audit support",
+      "scope": "One-standard judgment workflow and separate evaluator on all hosts. Preserve deterministic-only exit status. Does not block initial deterministic audit support.",
+      "acceptance": [
+        "One-standard judgment workflow and separate evaluator on all hosts. Preserve deterministic-only exit status. Does not block initial deterministic audit support."
+      ],
+      "depends_on": [
+        "KIT-RESULT",
+        "KIT-CONTENT",
+        "HOST-PI-DELEGATION",
+        "HOST-CODEX-PACKAGE",
+        "HOST-OPENCODE"
+      ],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L52",
+      "existing_beads": [
+        {
+          "repo": "punt-kit",
+          "id": "pkit-zmca",
+          "status_at_audit": "open",
+          "title": "Standards auditor agent: punt audit gains a judgment examiner, one standard per run",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        },
+        {
+          "repo": "punt-kit",
+          "id": "pkit-fp5x",
+          "status_at_audit": "open",
+          "title": "EPIC: audit engine \u2014 a findings type, then the consumers that need it",
+          "disposition": "reuse_amend_or_split_existing_scope",
+          "details": "repos/punt-kit.md"
+        }
+      ],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-RESULT",
+            "KIT-CONTENT",
+            "HOST-CODEX-PACKAGE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/punt-kit.md#L52",
+          "acceptance": [
+            "Independent judgment and evaluator sessions are observed in this host with deterministic-only exit policy preserved."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-RESULT",
+            "KIT-CONTENT",
+            "HOST-OPENCODE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/punt-kit.md#L52",
+          "acceptance": [
+            "Independent judgment and evaluator sessions are observed in this host with deterministic-only exit policy preserved."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-RESULT",
+            "KIT-CONTENT",
+            "HOST-PI",
+            "HOST-PI-DELEGATION"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/punt-kit.md#L52",
+          "acceptance": [
+            "Independent judgment and evaluator sessions are observed in this host with deterministic-only exit policy preserved."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "KIT-RELEASE",
+      "repo": "punt-kit",
+      "kind": "release",
+      "status": "proposed",
+      "size": "L",
+      "title": "Extend product/package metadata, builds, pins, publication, rollback and external-install verification for native Codex and two npm channels. Pilot one tool before fleet propagation",
+      "scope": "Extend product/package metadata, builds, pins, publication, rollback and external-install verification for native Codex and two npm channels. Pilot one tool before fleet propagation.",
+      "acceptance": [
+        "Extend product/package metadata, builds, pins, publication, rollback and external-install verification for native Codex and two npm channels. Pilot one tool before fleet propagation."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "KIT-MANAGER",
+        "KIT-CODEX",
+        "KIT-OPENCODE",
+        "KIT-PI"
+      ],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L53",
+      "existing_beads": [],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-STD",
+            "KIT-MANAGER",
+            "KIT-CODEX"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/punt-kit.md#L53",
+          "acceptance": [
+            "The selected native channel has verified final artifacts, compatibility metadata, upgrade/rollback and clean-consumer installation; other channels can remain pending."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-STD",
+            "KIT-MANAGER",
+            "KIT-OPENCODE"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/punt-kit.md#L53",
+          "acceptance": [
+            "The selected native channel has verified final artifacts, compatibility metadata, upgrade/rollback and clean-consumer installation; other channels can remain pending."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-STD",
+            "KIT-MANAGER",
+            "KIT-PI"
+          ],
+          "required_scoped_outcomes": [],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "repos/punt-kit.md#L53",
+          "acceptance": [
+            "The selected native channel has verified final artifacts, compatibility metadata, upgrade/rollback and clean-consumer installation; other channels can remain pending."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "KIT-CONFORMANCE",
+      "repo": "punt-kit",
+      "kind": "work_package",
+      "status": "proposed",
+      "size": "L",
+      "title": "Version-pinned loader, lifecycle, identity, permission, package and product journey fixtures. Each repo runs its own acceptance",
+      "scope": "Version-pinned loader, lifecycle, identity, permission, package and product journey fixtures. Each repo runs its own acceptance; master matrix tracks 27 outcomes separately.",
+      "acceptance": [
+        "Version-pinned loader, lifecycle, identity, permission, package and product journey fixtures. Each repo runs its own acceptance; master matrix tracks 27 outcomes separately."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [],
+      "spec": "repos/punt-kit.md#L54",
+      "existing_beads": []
+    },
+    {
+      "key": "KIT-PROGRAM",
+      "repo": "punt-kit",
+      "kind": "epic",
+      "status": "proposed",
+      "size": "L",
+      "title": "Coordinate native support for all nine products",
+      "scope": "Own decision log, cross-repo key-to-ID map, scope reconciliation and the 27-cell ledger; preserve product epic ownership.",
+      "acceptance": [
+        "Every work package has a repository owner, traceable requirements and nonduplicated bead disposition; blocked host capabilities stay visible."
+      ],
+      "depends_on": [],
+      "harnesses": [],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "HOST-CODEX-PACKAGE",
+      "repo": "punt-kit",
+      "kind": "spike",
+      "status": "proposed",
+      "size": "M",
+      "title": "Prove stock Codex native package and workflow discovery",
+      "scope": "Run the native manifest/skills/MCP/hooks and optional agent-registration experiment in roadmap Wave 0.",
+      "acceptance": [
+        "Final artifact installs, invokes, updates and removes outside checkout without Claude; exact agent/instruction loader and compatibility constraints recorded."
+      ],
+      "depends_on": [],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "HOST-CODEX-CONTEXT",
+      "repo": "punt-kit",
+      "kind": "spike",
+      "status": "proposed",
+      "size": "L",
+      "title": "Prove authoritative Codex per-call session and actor binding",
+      "scope": "Test candidate native hook enrichment and engine-validated binding in stock concurrent CLI/desktop, children, worktrees, retries and bypass paths.",
+      "acceptance": [
+        "Successful trace and forged/stale/ambiguous denial tests establish a supported per-call channel; otherwise upstream reproducer blocks dependent stateful completion."
+      ],
+      "depends_on": [
+        "KIT-STD",
+        "HOST-CODEX-PACKAGE"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "HOST-CODEX-DELIVERY",
+      "repo": "punt-kit",
+      "kind": "spike",
+      "status": "proposed",
+      "size": "L",
+      "title": "Prove exact-thread native Codex queue delivery",
+      "scope": "Exercise queue add/start, active/idle, duplicate submission, restart, cancellation, consumption/ack and policy inheritance.",
+      "acceptance": [
+        "Documented tested native path meets each required delivery mode with durable uncertainty handling; experimental queue has pinned canary; no claimed wake from an async hook alone."
+      ],
+      "depends_on": [
+        "HOST-CODEX-PACKAGE"
+      ],
+      "harnesses": [
+        "codex"
+      ],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "HOST-OPENCODE",
+      "repo": "punt-kit",
+      "kind": "spike",
+      "status": "proposed",
+      "size": "L",
+      "title": "Prove native OpenCode session, TUI and delivery contracts",
+      "scope": "Run server/TUI, contextual tools, gate coverage, unawaited event drain, noReply/prompt scheduling, disposal and remote-host experiment.",
+      "acceptance": [
+        "Two sessions remain isolated; real TUI and busy/idle paths pass without self-prompt deadlock or reliance on uninvoked permission.ask."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [
+        "opencode"
+      ],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "HOST-PI",
+      "repo": "punt-kit",
+      "kind": "spike",
+      "status": "proposed",
+      "size": "L",
+      "title": "Prove released pi package, lifecycle and direct-client contracts",
+      "scope": "Exercise native tools/commands/skills, JSONL subprocess, attributed message delivery and new/fork/tree/reload in TUI/RPC/print.",
+      "acceptance": [
+        "Released APIs pass generation/branch/lease/cancel tests with finite headless behavior, no MCP bridge and no unpublished server dependency."
+      ],
+      "depends_on": [
+        "KIT-STD"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "HOST-PI-DELEGATION",
+      "repo": "punt-kit",
+      "kind": "feature",
+      "status": "proposed",
+      "size": "L",
+      "title": "Provide a native pi independent-child supervisor helper",
+      "scope": "Define an optional reusable released SDK/JSON child supervisor with explicit discovery, lineage, grants, timeout, output limits, validation and cancellation; validate with two workflow consumers.",
+      "acceptance": [
+        "Versioned installed helper package resolves from a clean consumer outside checkout; independent child contexts/results and cancellation observed; incomplete output is honest; ordinary use requires no Ethos daemon and implies no OS isolation."
+      ],
+      "depends_on": [
+        "HOST-PI",
+        "KIT-STD"
+      ],
+      "harnesses": [
+        "pi"
+      ],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    },
+    {
+      "key": "KIT-CERTIFY",
+      "repo": "punt-kit",
+      "kind": "certification",
+      "status": "proposed",
+      "size": "L",
+      "title": "Certify Punt workflows in all three native harnesses",
+      "scope": "Run deterministic and judgment audits, scoped beads, scaffolding, playbooks, explicit automation dry-run, install/update/remove and Claude regression.",
+      "acceptance": [
+        "Punt product journeys and G01-G12 applicable gates have final-package evidence on each declared host mode."
+      ],
+      "depends_on": [
+        "KIT-CODEX",
+        "KIT-OPENCODE",
+        "KIT-PI",
+        "KIT-AUDITOR",
+        "KIT-MANAGER",
+        "KIT-POLICY",
+        "KIT-RELEASE",
+        "KIT-CONFORMANCE"
+      ],
+      "harnesses": [],
+      "spec": "roadmap.md",
+      "existing_beads": [],
+      "scoped_outcomes": [
+        {
+          "scope": "codex",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-CODEX",
+            "KIT-MANAGER",
+            "KIT-POLICY",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-AUDITOR",
+              "scope": "codex"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "codex"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "roadmap.md",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "opencode",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-OPENCODE",
+            "KIT-MANAGER",
+            "KIT-POLICY",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-AUDITOR",
+              "scope": "opencode"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "opencode"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "roadmap.md",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        },
+        {
+          "scope": "pi",
+          "status": "planned_not_certified",
+          "required_tasks": [
+            "KIT-PI",
+            "KIT-MANAGER",
+            "KIT-POLICY",
+            "KIT-CONFORMANCE"
+          ],
+          "required_scoped_outcomes": [
+            {
+              "task": "KIT-AUDITOR",
+              "scope": "pi"
+            },
+            {
+              "task": "KIT-RELEASE",
+              "scope": "pi"
+            }
+          ],
+          "acceptance_scope": "selected_harness_only",
+          "acceptance_source": "roadmap.md",
+          "acceptance": [
+            "G01-G12 applicable gates and this product\u2019s selected-host journey have final-artifact evidence, migration/doctor/owned cleanup and existing Claude/core regression results. Completion of sibling native adapters is not required for this scoped outcome."
+          ]
+        }
+      ]
+    },
+    {
+      "key": "KIT-FLEET",
+      "repo": "punt-kit",
+      "kind": "certification",
+      "status": "proposed",
+      "size": "XL",
+      "title": "Certify all 27 product cells together and separately",
+      "scope": "Aggregate product release evidence and run all-nine collision/context/daemon/optional-peer/upgrade scenarios with an unrelated extension.",
+      "acceptance": [
+        "All 27 cells satisfy required task components and actual product journeys, including workers/voice/independent review, with no unresolved required capability blocker."
+      ],
+      "depends_on": [
+        "BIFF-RELEASE",
+        "BEADLE-RELEASE",
+        "VOX-RELEASE",
+        "LUX-RELEASE",
+        "QUARRY-RELEASE",
+        "ETHOS-RELEASE",
+        "PRFAQ-RELEASE",
+        "ZSPEC-RELEASE",
+        "KIT-CERTIFY",
+        "ETHOS-AUTHORITY"
+      ],
+      "harnesses": [],
+      "spec": "roadmap.md",
+      "existing_beads": []
+    }
+  ],
+  "certification_cells": [
+    {
+      "repo": "biff",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "BIFF-CODEX",
+      "required_feature_tasks": [
+        "BIFF-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "BIFF-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "BIFF-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "biff",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "BIFF-OPENCODE",
+      "required_feature_tasks": [
+        "BIFF-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "BIFF-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "BIFF-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "biff",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "BIFF-PI",
+      "required_feature_tasks": [
+        "BIFF-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "BIFF-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "BIFF-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "beadle",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "BEADLE-CODEX",
+      "required_feature_tasks": [
+        "BEADLE-CODEX",
+        "BEADLE-WORKER-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "BEADLE-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "BEADLE-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "beadle",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "BEADLE-OPENCODE",
+      "required_feature_tasks": [
+        "BEADLE-OPENCODE",
+        "BEADLE-WORKER-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "BEADLE-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "BEADLE-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "beadle",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "BEADLE-PI",
+      "required_feature_tasks": [
+        "BEADLE-PI",
+        "BEADLE-WORKER-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "BEADLE-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "BEADLE-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "vox",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "VOX-CODEX",
+      "required_feature_tasks": [
+        "VOX-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "VOX-CALL",
+          "scope": "codex"
+        },
+        {
+          "task": "VOX-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "VOX-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "vox",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "VOX-OPENCODE",
+      "required_feature_tasks": [
+        "VOX-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "VOX-CALL",
+          "scope": "opencode"
+        },
+        {
+          "task": "VOX-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "VOX-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "vox",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "VOX-PI",
+      "required_feature_tasks": [
+        "VOX-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "VOX-CALL",
+          "scope": "pi"
+        },
+        {
+          "task": "VOX-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "VOX-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "lux",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "LUX-CODEX",
+      "required_feature_tasks": [
+        "LUX-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "LUX-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "LUX-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "lux",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "LUX-OPENCODE",
+      "required_feature_tasks": [
+        "LUX-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "LUX-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "LUX-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "lux",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "LUX-PI",
+      "required_feature_tasks": [
+        "LUX-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "LUX-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "LUX-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "quarry",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "QUARRY-CODEX",
+      "required_feature_tasks": [
+        "QUARRY-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "QUARRY-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "QUARRY-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "quarry",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "QUARRY-OPENCODE",
+      "required_feature_tasks": [
+        "QUARRY-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "QUARRY-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "QUARRY-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "quarry",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "QUARRY-PI",
+      "required_feature_tasks": [
+        "QUARRY-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "QUARRY-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "QUARRY-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "ethos",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "ETHOS-CODEX",
+      "required_feature_tasks": [
+        "ETHOS-CODEX",
+        "ETHOS-AUTHORITY"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "ETHOS-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "ETHOS-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "ethos",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "ETHOS-OPENCODE",
+      "required_feature_tasks": [
+        "ETHOS-OPENCODE",
+        "ETHOS-AUTHORITY"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "ETHOS-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "ETHOS-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "ethos",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "ETHOS-PI",
+      "required_feature_tasks": [
+        "ETHOS-PI",
+        "ETHOS-AUTHORITY"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "ETHOS-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "ETHOS-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "prfaq",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "PRFAQ-CODEX",
+      "required_feature_tasks": [
+        "PRFAQ-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "PRFAQ-MEDIA",
+          "scope": "codex"
+        },
+        {
+          "task": "PRFAQ-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "PRFAQ-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "prfaq",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "PRFAQ-OPENCODE",
+      "required_feature_tasks": [
+        "PRFAQ-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "PRFAQ-MEDIA",
+          "scope": "opencode"
+        },
+        {
+          "task": "PRFAQ-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "PRFAQ-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "prfaq",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "PRFAQ-PI",
+      "required_feature_tasks": [
+        "PRFAQ-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "PRFAQ-MEDIA",
+          "scope": "pi"
+        },
+        {
+          "task": "PRFAQ-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "PRFAQ-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "z-spec",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "ZSPEC-CODEX",
+      "required_feature_tasks": [
+        "ZSPEC-CODEX"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "ZSPEC-RELEASE",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "ZSPEC-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "z-spec",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "ZSPEC-OPENCODE",
+      "required_feature_tasks": [
+        "ZSPEC-OPENCODE"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "ZSPEC-RELEASE",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "ZSPEC-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "z-spec",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "ZSPEC-PI",
+      "required_feature_tasks": [
+        "ZSPEC-PI"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "ZSPEC-RELEASE",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "ZSPEC-RELEASE",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "punt-kit",
+      "harness": "codex",
+      "status": "planned_not_certified",
+      "adapter_task": "KIT-CODEX",
+      "required_feature_tasks": [
+        "KIT-CODEX",
+        "KIT-MANAGER",
+        "KIT-POLICY"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "KIT-AUDITOR",
+          "scope": "codex"
+        },
+        {
+          "task": "KIT-CERTIFY",
+          "scope": "codex"
+        }
+      ],
+      "aggregate_product_gate": "KIT-CERTIFY",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "punt-kit",
+      "harness": "opencode",
+      "status": "planned_not_certified",
+      "adapter_task": "KIT-OPENCODE",
+      "required_feature_tasks": [
+        "KIT-OPENCODE",
+        "KIT-MANAGER",
+        "KIT-POLICY"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "KIT-AUDITOR",
+          "scope": "opencode"
+        },
+        {
+          "task": "KIT-CERTIFY",
+          "scope": "opencode"
+        }
+      ],
+      "aggregate_product_gate": "KIT-CERTIFY",
+      "acceptance_spec": "acceptance.md"
+    },
+    {
+      "repo": "punt-kit",
+      "harness": "pi",
+      "status": "planned_not_certified",
+      "adapter_task": "KIT-PI",
+      "required_feature_tasks": [
+        "KIT-PI",
+        "KIT-MANAGER",
+        "KIT-POLICY"
+      ],
+      "required_scoped_outcomes": [
+        {
+          "task": "KIT-AUDITOR",
+          "scope": "pi"
+        },
+        {
+          "task": "KIT-CERTIFY",
+          "scope": "pi"
+        }
+      ],
+      "aggregate_product_gate": "KIT-CERTIFY",
+      "acceptance_spec": "acceptance.md"
+    }
+  ],
+  "topological_order": [
+    "KIT-STD",
+    "BIFF-DESIGN",
+    "BIFF-CORE",
+    "ETHOS-CONTEXT",
+    "ETHOS-SERVICE",
+    "ETHOS-AUTHORITY",
+    "BIFF-AUTH",
+    "BIFF-POLICY",
+    "BIFF-EVENTS",
+    "BIFF-SETUP",
+    "HOST-CODEX-PACKAGE",
+    "HOST-CODEX-CONTEXT",
+    "HOST-CODEX-DELIVERY",
+    "BIFF-CODEX",
+    "HOST-OPENCODE",
+    "BIFF-OPENCODE",
+    "HOST-PI",
+    "BIFF-PI",
+    "KIT-MANAGER",
+    "KIT-RESULT",
+    "KIT-CONTENT",
+    "KIT-CODEX",
+    "KIT-OPENCODE",
+    "KIT-PI",
+    "KIT-RELEASE",
+    "KIT-CONFORMANCE",
+    "BIFF-RELEASE",
+    "BEADLE-MAIL",
+    "BEADLE-SESSION",
+    "BEADLE-RECEIVE",
+    "BEADLE-TRANSPORT",
+    "BEADLE-SETUP",
+    "BEADLE-CODEX",
+    "BEADLE-OPENCODE",
+    "BEADLE-PI",
+    "ETHOS-GOVERNANCE",
+    "BEADLE-WORKER-CONTRACT",
+    "BEADLE-SUPERVISOR",
+    "BEADLE-WORKER-CODEX",
+    "BEADLE-WORKER-OPENCODE",
+    "BEADLE-WORKER-PI",
+    "BEADLE-RELEASE",
+    "VOX-DESIGN",
+    "VOX-STATE",
+    "VOX-CONTRACT",
+    "VOX-ENABLE",
+    "VOX-CODEX",
+    "VOX-OPENCODE",
+    "VOX-PI",
+    "VOX-CALL",
+    "VOX-RELEASE",
+    "LUX-CONTEXT",
+    "LUX-LIFETIME",
+    "LUX-ENABLE",
+    "LUX-CLIENT",
+    "LUX-CODEX",
+    "LUX-OPENCODE",
+    "LUX-PI",
+    "LUX-RELEASE",
+    "QUARRY-DESIGN",
+    "QUARRY-CONTEXT",
+    "QUARRY-SURFACE",
+    "QUARRY-CAPTURE",
+    "QUARRY-TASKS",
+    "QUARRY-ENABLE",
+    "QUARRY-CODEX-CAPTURE",
+    "QUARRY-CODEX",
+    "QUARRY-OPENCODE",
+    "QUARRY-PI",
+    "QUARRY-RELEASE",
+    "ETHOS-PERSONAS",
+    "ETHOS-CODEX",
+    "ETHOS-OPENCODE",
+    "HOST-PI-DELEGATION",
+    "ETHOS-PI",
+    "ETHOS-RELEASE",
+    "PRFAQ-CLI",
+    "PRFAQ-MEETING",
+    "PRFAQ-RESEARCH",
+    "PRFAQ-CODEX",
+    "PRFAQ-OPENCODE",
+    "PRFAQ-PI",
+    "PRFAQ-MEDIA",
+    "PRFAQ-RELEASE",
+    "ZSPEC-CORRECTNESS",
+    "ZSPEC-EXECUTION",
+    "ZSPEC-CONTEXT",
+    "ZSPEC-BMETHOD",
+    "ZSPEC-WORKFLOWS",
+    "ZSPEC-CODEX",
+    "ZSPEC-OPENCODE",
+    "ZSPEC-PI",
+    "ZSPEC-RELEASE",
+    "KIT-POLICY",
+    "KIT-AUDITOR",
+    "KIT-PROGRAM",
+    "KIT-CERTIFY",
+    "KIT-FLEET"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "files_read": 4,
+  "description": "Original toolkit target-state artifacts read for this plan; native-harness-plan is newly added.",
+  "files": [
+    {
+      "path": "artifacts/command-surface.html",
+      "bytes": 31635,
+      "sha256": "da721d64b01a81a25b5796caa7b93866e182ce15c952944499656e6222627609"
+    },
+    {
+      "path": "artifacts/gen_spec.py",
+      "bytes": 63616,
+      "sha256": "44274b888afe2ce35d3fdec3a0b9f95104b47195c57f92f6b4b48b56df1a4375"
+    },
+    {
+      "path": "artifacts/pl-command-spec.html",
+      "bytes": 160498,
+      "sha256": "e08d3fcf191738b8d7ba29737d4d8ffd946f2bf0d24a5cc2f6b4e5baeba2aaee"
+    },
+    {
+      "path": "artifacts/pl-lexicon.html",
+      "bytes": 18834,
+      "sha256": "b5e2e04262c6c0ecd7d1b20c251ce95d32cdd504bfef9a0cb07e79e01ea9aaa5"
+    }
+  ]
+}

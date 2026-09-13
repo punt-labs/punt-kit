@@ -1,0 +1,247 @@
+{
+  "date": "2026-09-12",
+  "scope": "worktree source and repo-scoped bd reads; no runtime integration tests",
+  "repositories": [
+    {
+      "repo": "beadle",
+      "head": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "branch": "main",
+      "worktree_changes": [
+        "M .claude/agents/kwb.md",
+        " M .punt-labs/vox/vox.md",
+        "?? .claude/agents/code-reviewer.md",
+        "?? .claude/agents/invariant-completeness-reviewer.md",
+        "?? .claude/agents/silent-failure-hunter.md"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "beadle",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/beadle",
+        "all": 191,
+        "open": 24,
+        "in_progress": 0
+      }
+    },
+    {
+      "repo": "biff",
+      "head": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "branch": "main",
+      "worktree_changes": [
+        "M .claude/agents/ach.md",
+        " M .claude/agents/adb.md",
+        " M .claude/agents/adt.md",
+        " M .claude/agents/ahj.md",
+        " M .claude/agents/bcs.md",
+        " M .claude/agents/bne.md",
+        " M .claude/agents/bwk.md",
+        " M .claude/agents/csl.md",
+        " M .claude/agents/djb.md",
+        " M .claude/agents/dna.md",
+        " M .claude/agents/edt.md",
+        " M .claude/agents/ghr.md",
+        " M .claude/agents/gvr.md",
+        " M .claude/agents/jms.md",
+        " M .claude/agents/jra.md",
+        " M .claude/agents/kpz.md",
+        " M .claude/agents/kth.md",
+        " M .claude/agents/kwb.md",
+        " M .claude/agents/mcg.md",
+        " M .claude/agents/mdm.md",
+        " M .claude/agents/rej.md",
+        " M .claude/agents/rmh.md",
+        " M .claude/agents/rop.md",
+        " M .claude/agents/rsc.md",
+        " M .claude/agents/srn.md",
+        " M .claude/agents/tdt.md",
+        " M .claude/agents/ylc.md",
+        " M .punt-labs/vox/vox.md"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "biff",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/biff",
+        "all": 159,
+        "open": 48,
+        "in_progress": 0
+      }
+    },
+    {
+      "repo": "ethos",
+      "head": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "branch": "chore/doc-hygiene",
+      "worktree_changes": [
+        "M .claude/agents/ach.md",
+        " M .claude/agents/adb.md",
+        " M .claude/agents/adt.md",
+        " M .claude/agents/bcs.md",
+        " M .claude/agents/bwk.md",
+        " M .claude/agents/djb.md",
+        " M .claude/agents/dna.md",
+        " M .claude/agents/edt.md",
+        " M .claude/agents/ghr.md",
+        " M .claude/agents/gvr.md",
+        " M .claude/agents/jms.md",
+        " M .claude/agents/jra.md",
+        " M .claude/agents/kth.md",
+        " M .claude/agents/mcg.md",
+        " M .claude/agents/mdm.md",
+        " M .claude/agents/rmh.md",
+        " M .claude/agents/rop.md",
+        " M .claude/agents/rsc.md",
+        " M .punt-labs/ethos/missions/m-2026-08-22-011/results.yaml",
+        " M .punt-labs/ethos/sessions/2026-05-23-f8f75233-e179-460c-8871-f243bc3b1a85/audit.jsonl",
+        " M .punt-labs/ethos/sessions/2026-08-20-94901c4f-5d86-41c5-bd06-98cbd86216b8/audit-1787125083841877647-1787178320813044578.jsonl",
+        " M .punt-labs/vox/vox.md",
+        " M docs/agent-teams.md",
+        " M docs/build-plan-des011.md",
+        " M internal/hook/audit_content_test.go",
+        " M internal/hook/audit_entry_test.go",
+        " M internal/mission/redact_test.go"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "ethos",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/ethos",
+        "all": 387,
+        "open": 46,
+        "in_progress": 3
+      }
+    },
+    {
+      "repo": "lux",
+      "head": "c64d41dce57e70c7e976c79a93f757e7f212c63d",
+      "branch": "chore/lux-m3xr-quality-followups",
+      "worktree_changes": [
+        "M src/punt_lux/display/menus/model.py",
+        " M src/punt_lux/display/menus/windows_menu.py",
+        " M src/punt_lux/display/menus/wire.py",
+        "?? src/punt_lux/display/menus/hidden_id.py"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "lux",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/lux",
+        "all": 479,
+        "open": 134,
+        "in_progress": 7
+      }
+    },
+    {
+      "repo": "prfaq",
+      "head": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "branch": "main",
+      "worktree_changes": [
+        "?? .beads/dolt-server.lock",
+        "?? .beads/dolt-server.pid",
+        "?? .beads/dolt-server.port",
+        "?? .beads/dolt/"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "prfaq",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/prfaq",
+        "all": 69,
+        "open": 17,
+        "in_progress": 0
+      }
+    },
+    {
+      "repo": "punt-kit",
+      "head": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "branch": "main",
+      "worktree_changes": [
+        "M .claude/agents/ach.md",
+        " M .claude/agents/adb.md",
+        " M .claude/agents/adt.md",
+        " M .claude/agents/ahj.md",
+        " M .claude/agents/bcs.md",
+        " M .claude/agents/bne.md",
+        " M .claude/agents/bwk.md",
+        " M .claude/agents/csl.md",
+        " M .claude/agents/djb.md",
+        " M .claude/agents/dna.md",
+        " M .claude/agents/edt.md",
+        " M .claude/agents/ghr.md",
+        " M .claude/agents/gvr.md",
+        " M .claude/agents/jms.md",
+        " M .claude/agents/jra.md",
+        " M .claude/agents/kpz.md",
+        " M .claude/agents/kth.md",
+        " M .claude/agents/kwb.md",
+        " M .claude/agents/mcg.md",
+        " M .claude/agents/mdm.md",
+        " M .claude/agents/rej.md",
+        " M .claude/agents/rmh.md",
+        " M .claude/agents/rop.md",
+        " M .claude/agents/rsc.md",
+        " M .claude/agents/srn.md",
+        " M .claude/agents/tdt.md",
+        " M .claude/agents/ylc.md",
+        "?? .beads/dolt-server.lock",
+        "?? .beads/dolt-server.pid",
+        "?? .beads/dolt-server.port",
+        "?? .beads/dolt/",
+        "?? .claude/agents/code-reviewer.md",
+        "?? .claude/agents/invariant-completeness-reviewer.md",
+        "?? .claude/agents/silent-failure-hunter.md",
+        "?? artifacts/"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "punt-kit",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/punt-kit",
+        "all": 266,
+        "open": 25,
+        "in_progress": 3
+      }
+    },
+    {
+      "repo": "quarry",
+      "head": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "branch": "main",
+      "worktree_changes": [],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "quarry",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/quarry",
+        "all": 392,
+        "open": 72,
+        "in_progress": 0
+      }
+    },
+    {
+      "repo": "vox",
+      "head": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "branch": "main",
+      "worktree_changes": [
+        "M .punt-labs/ethos/missions.jsonl",
+        "?? .punt-labs/ethos/missions/m-2026-09-01-008/"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "vox",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/vox",
+        "all": 380,
+        "open": 44,
+        "in_progress": 3
+      }
+    },
+    {
+      "repo": "z-spec",
+      "head": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "branch": "main",
+      "worktree_changes": [
+        "M .claude/agents/jms.md",
+        " M .punt-labs/vox/vox.md"
+      ],
+      "beads": {
+        "command": "bd --readonly list --all --limit 0 --json",
+        "cwd": "z-spec",
+        "context_repo": "/home/jfreeman/Coding/punt-labs/z-spec",
+        "all": 96,
+        "open": 36,
+        "in_progress": 2
+      }
+    }
+  ]
+}
