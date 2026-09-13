@@ -106,8 +106,10 @@ class Phase5Tag:
         ops.fail(
             f"Could not resolve the release commit for v{self._version} — no "
             f"commit on main has the subject {target!r}. Re-run "
-            "`punt release --resume-from release-pr`, or tag the correct "
-            "commit manually."
+            f"`punt release {self._version} --resume-from release-pr` "
+            "(the explicit version is required — a Go project resuming "
+            "before the tag phase cannot infer it from git tags alone), "
+            "or tag the correct commit manually."
         )
 
     def run(self, *, release_sha: str | None = None) -> None:
