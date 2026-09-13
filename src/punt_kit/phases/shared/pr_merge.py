@@ -323,12 +323,23 @@ class PrMerger:
                 ".mergeCommit.oid",
             ],
             cwd=root,
+            check=False,
         )
-        oid = result.stdout.strip()
-        if not oid:
+        if result.returncode != 0:
             self._ops.fail(
-                f"PR #{pr_number} has no mergeCommit oid — gh reports it "
-                "merged but the commit oid is missing"
+                f"PR #{pr_number}'s squash-merge already landed, but "
+                f"resolving its merge commit oid failed:\n"
+                f"{result.stderr.strip()}"
+            )
+        oid = result.stdout.strip()
+        # `--jq .mergeCommit.oid` prints the literal string "null" (truthy
+        # as a string) when `mergeCommit` is absent from the API response —
+        # an empty-stdout check alone misses that case, and a bare "null"
+        # is not a commit gh tag/rev-parse could ever accept.
+        if not oid or oid.lower() == "null":
+            self._ops.fail(
+                f"Could not determine the merge commit for PR #{pr_number} "
+                "— gh reports it merged but the mergeCommit oid is missing"
             )
         return oid
 

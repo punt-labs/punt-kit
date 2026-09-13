@@ -5482,6 +5482,120 @@ def _merge_env(
     return ops, branch
 
 
+def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A non-zero `gh pr view --json mergeCommit` (network/auth blip) AFTER
+    the squash-merge already landed must diagnose, not leak a raw
+    CalledProcessError — same diagnosed-failure convention as every other
+    gh/git call in merge() (pkit-f85t.7); run_release only catches
+    ReleaseError/TimeoutExpired, so an undiagnosed CalledProcessError here
+    would escape as a bare traceback.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(),
+        )
+    )
+    # Inserted at the front: _merge_env's own mergeCommit rule (unlimited
+    # `times`) would otherwise be consulted first and never let this one
+    # match.
+    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        0,
+        FaultRule(
+            match=[
+                "gh",
+                "pr",
+                "view",
+                "42",
+                "--json",
+                "mergeCommit",
+                "--jq",
+                ".mergeCommit.oid",
+            ],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="error connecting to api.github.com"
+            ),
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="resolving its merge commit oid failed"):
+        PrMerger(ops=ops).merge(
+            cwd=root,
+            branch=branch,
+            title="chore: release v1.0.0",
+            wait_for_checks=_noop_wait_for_checks,
+            resolve_threads=_noop_resolve_threads,
+        )
+
+
+def test_pr_merge_merge_commit_oid_null_fails_loud(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`gh pr view --json mergeCommit --jq .mergeCommit.oid` prints the
+    literal string "null" (truthy as a string) when mergeCommit is absent
+    from the API response — an empty-stdout check alone misses this case.
+
+    merge() must fail loud instead of returning "null": since merge()
+    never returns in that case, Phase 5 (the only consumer of this return
+    value) can never receive "null" to hand to `git tag`.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch)
+    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        FaultRule(
+            match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(),
+        )
+    )
+    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        0,
+        FaultRule(
+            match=[
+                "gh",
+                "pr",
+                "view",
+                "42",
+                "--json",
+                "mergeCommit",
+                "--jq",
+                ".mergeCommit.oid",
+            ],
+            response=CompletedProcessSpec(stdout="null\n"),
+        ),
+    )
+
+    with pytest.raises(ReleaseError, match="Could not determine the merge commit"):
+        PrMerger(ops=ops).merge(
+            cwd=root,
+            branch=branch,
+            title="chore: release v1.0.0",
+            wait_for_checks=_noop_wait_for_checks,
+            resolve_threads=_noop_resolve_threads,
+        )
+
+
 def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
