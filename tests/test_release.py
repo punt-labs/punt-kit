@@ -2178,10 +2178,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
 def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
     tmp_path: Path,
 ) -> None:
-    """Regression test for pkit-z9yq (biff v1.19.0's tag landing on the
-    README-SHA-pin commit instead of the release commit).
-
-    Phase 4c lands a further commit on main (the README install-SHA pin)
+    """Phase 4c lands a further commit on main (the README install-SHA pin)
     right after the squash-merge Phase 4 itself returns — by the time
     Phase 5 runs, main HEAD is one commit ahead of the actual release.
     Passing the captured ``release_sha`` through must tag that commit, not
@@ -2306,7 +2303,7 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
     tmp_path: Path,
 ) -> None:
     """No matching ``chore: release`` commit on main must raise, not
-    silently fall back to tagging HEAD — the exact defect pkit-z9yq fixes.
+    silently fall back to tagging HEAD.
     """
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.phase05_tag import Phase5Tag

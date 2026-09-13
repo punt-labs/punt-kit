@@ -1,12 +1,11 @@
 """Phase 5: tag the release commit and push the tag.
 
 Tags the commit Phase 4's squash-merge produced — not whatever ``main`` HEAD
-happens to be at tag-time. Phase 4c lands a README-install-SHA-pin commit on
-``main`` right after the squash-merge (see ``phase04_release_pr.py``'s module
-docstring), so by the time this phase runs, ``main`` HEAD can already be one
-commit past the actual release. Tagging HEAD blindly drifts the tag onto that
-commit instead (observed in biff v1.19.0: the ``v1.19.0`` tag landed on the
-README bump, PR #430, instead of the release commit, PR #429).
+happens to be at tag-time. A later commit (Phase 4c's README-install-SHA
+pin) lands on ``main`` right after the squash-merge (see
+``phase04_release_pr.py``'s module docstring), so by the time this phase
+runs, ``main`` HEAD can already be one commit past the actual release.
+Tagging HEAD blindly would drift the tag onto that commit instead.
 """
 
 from __future__ import annotations
