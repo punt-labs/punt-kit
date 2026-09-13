@@ -1840,6 +1840,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     ops = FaultInjectingOps(
         real_run=_run,
@@ -1854,7 +1855,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ReleaseError, match="git tag v1.0.0 failed"):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run(release_sha=head_sha)
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
@@ -1881,6 +1882,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     failing_ops = FaultInjectingOps(
         real_run=_run,
@@ -1895,7 +1897,9 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     )
 
     with pytest.raises(ReleaseError, match="git push origin v1.0.0 failed"):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run(
+            release_sha=head_sha
+        )
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
     assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
@@ -1919,6 +1923,7 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     failing_ops = FaultInjectingOps(
         real_run=_run,
@@ -1930,7 +1935,9 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
         ],
     )
     with pytest.raises(subprocess.CalledProcessError):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run(
+            release_sha=head_sha
+        )
 
     # Local tag exists at HEAD; the remote never received it.
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == "v1.0.0"
@@ -1938,7 +1945,7 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
 
     # Resume with a clean ops double — the push must be retried, not skipped.
     resumed_ops = FaultInjectingOps(real_run=_run, rules=[])
-    Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run()
+    Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run(release_sha=head_sha)
 
     assert "v1.0.0" in _git_out(
         ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
@@ -1956,10 +1963,11 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     root.mkdir()
     _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
     info = ProjectInfo(root=root)
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     Phase5Tag(
         info, "1.0.0", dry_run=False, ops=FaultInjectingOps(real_run=_run, rules=[])
-    ).run()
+    ).run(release_sha=head_sha)
     assert "v1.0.0" in _git_out(
         ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
     )
@@ -1978,7 +1986,7 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
         "1.0.0",
         dry_run=False,
         ops=FaultInjectingOps(real_run=spying_run, rules=[]),
-    ).run()
+    ).run(release_sha=head_sha)
 
     assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
 
@@ -2033,7 +2041,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
             "1.0.0",
             dry_run=False,
             ops=FaultInjectingOps(real_run=spying_run, rules=[]),
-        ).run()
+        ).run(release_sha=corrected_sha)
 
     assert push_calls == [], "must fail loud, not silently push over the mismatch"
     # The remote still has the stale tag — the failure did not corrupt
@@ -2061,6 +2069,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     # Tag already exists locally at HEAD (the resume case) — reaches the
     # ls-remote call this test targets.
     _git(["tag", "v1.0.0"], cwd=str(root))
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     ops = FaultInjectingOps(
         real_run=_run,
@@ -2075,7 +2084,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ReleaseError, match="git ls-remote --tags origin failed"):
-        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run()
+        Phase5Tag(info, "1.0.0", dry_run=False, ops=ops).run(release_sha=head_sha)
 
 
 def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit(
@@ -2108,6 +2117,7 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
     # `existing` will be truthy).
     _git(["tag", "-d", "v1.0.0"], cwd=str(root))
     _git(["tag", "v1.0.0"], cwd=str(root))
+    head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
     push_calls: list[list[str]] = []
 
@@ -2123,7 +2133,7 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
         "1.0.0",
         dry_run=False,
         ops=FaultInjectingOps(real_run=spying_run, rules=[]),
-    ).run()
+    ).run(release_sha=head_sha)
 
     assert push_calls == [], "an annotated tag at the right commit must be a no-op"
 
@@ -2154,6 +2164,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
     _git(["add", "."], cwd=str(root))
     _git(["commit", "-m", "corrected release commit"], cwd=str(root))
     _git(["tag", "v1.0.0"], cwd=str(root))
+    corrected_sha = _git_out(["rev-parse", "v1.0.0"], cwd=str(root))
 
     with pytest.raises(ReleaseError, match="exists on the remote but points to"):
         Phase5Tag(
@@ -2161,7 +2172,159 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
             "1.0.0",
             dry_run=False,
             ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ).run(release_sha=corrected_sha)
+
+
+def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
+    tmp_path: Path,
+) -> None:
+    """Regression test for pkit-z9yq (biff v1.19.0's tag landing on the
+    README-SHA-pin commit instead of the release commit).
+
+    Phase 4c lands a further commit on main (the README install-SHA pin)
+    right after the squash-merge Phase 4 itself returns — by the time
+    Phase 5 runs, main HEAD is one commit ahead of the actual release.
+    Passing the captured ``release_sha`` through must tag that commit, not
+    whatever HEAD has since become.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # The release squash-merge commit — this is the SHA Phase 4 would have
+    # returned and threaded through to Phase 5.
+    release_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    # A further commit lands on main afterward, exactly like Phase 4c's
+    # README-SHA-pin commit — main HEAD is now one commit past the release.
+    (root / "readme-pin.txt").write_text("pinned\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: update README install SHA to v1.0.0"], cwd=str(root))
+    advanced_head = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+    assert advanced_head != release_sha
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run(release_sha=release_sha)
+
+    assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
+    assert (
+        _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)).split()[0]
+        == release_sha
+    )
+
+
+def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_head(
+    tmp_path: Path,
+) -> None:
+    """``--resume-from tag`` with no captured SHA must resolve the release
+    commit from git history, not tag whatever main HEAD currently is.
+
+    Simulates the exact drift scenario from the bead: the release
+    squash-merge commit (``chore: release vX.Y.Z``) lands, then a further
+    commit (the README-SHA-pin) advances main HEAD past it, and only then
+    does Phase 5 run with no ``release_sha`` in hand (a resume that skipped
+    Phase 4 in this process).
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    (root / "release.txt").write_text("released\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: release v1.0.0"], cwd=str(root))
+    release_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    (root / "readme-pin.txt").write_text("pinned\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: update README install SHA to v1.0.0"], cwd=str(root))
+    advanced_head = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+    assert advanced_head != release_sha
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run()
+
+    assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
+
+
+def test_phase5_tag_resume_fallback_matches_squash_commit_with_pr_number_suffix(
+    tmp_path: Path,
+) -> None:
+    """The fallback must match GitHub's real default squash-commit subject.
+
+    ``gh pr merge --squash`` (no ``--subject`` override, as ``PrMerger``
+    calls it) appends `` (#<pr-number>)`` to the PR title by default — the
+    fallback search must match that shape, not only a bare, hand-committed
+    ``chore: release vX.Y.Z`` message.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    (root / "release.txt").write_text("released\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "chore: release v1.0.0 (#429)"], cwd=str(root))
+    release_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+
+    (root / "readme-pin.txt").write_text("pinned\n")
+    _git(["add", "."], cwd=str(root))
+    _git(
+        ["commit", "-m", "chore: update README install SHA to v1.0.0 (#430)"],
+        cwd=str(root),
+    )
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run()
+
+    assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
+
+
+def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
+    tmp_path: Path,
+) -> None:
+    """No matching ``chore: release`` commit on main must raise, not
+    silently fall back to tagging HEAD — the exact defect pkit-z9yq fixes.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    with pytest.raises(ReleaseError, match="Could not resolve the release commit"):
+        Phase5Tag(
+            info,
+            "1.0.0",
+            dry_run=False,
+            ops=FaultInjectingOps(real_run=_run, rules=[]),
         ).run()
+
+    assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
 # --- sibling helpers ---
