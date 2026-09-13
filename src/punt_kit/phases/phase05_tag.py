@@ -122,19 +122,12 @@ class Phase5Tag:
         workspace = GitWorkspace(root, ops=ops)
         workspace.ensure_on_main()
 
+        # Both sources yield full-length SHAs — Phase 4's merge() reads the
+        # PR's mergeCommit oid from GitHub (PrMerger._merge_commit_oid),
+        # and the fallback above reads `git log --format=%H`. No
+        # canonicalization needed for the full-vs-full comparisons below.
         if release_sha is None:
             release_sha = self._find_release_commit_sha()
-
-        # Phase 4's merge() can hand back a SHORT sha (PrMerger's
-        # `git rev-parse --short HEAD`), while every comparison below —
-        # the existing tag's `git rev-parse {tag}`, the remote tag's
-        # peeled sha — is full length. A short-vs-full mismatch here would
-        # read as "tag points to the wrong commit" even when it doesn't,
-        # blocking the exact resume this phase exists to support.
-        # Canonicalize once so every comparison downstream is full-vs-full.
-        release_sha = ops.run(
-            ["git", "rev-parse", release_sha], cwd=str(root)
-        ).stdout.strip()
 
         # Check if tag already exists locally. A local tag alone is not
         # proof the push succeeded: Phase 5 creates the tag *before*

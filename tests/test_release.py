@@ -2324,44 +2324,6 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
-def test_phase5_tag_resume_repushes_when_release_sha_is_short(
-    tmp_path: Path,
-) -> None:
-    """A SHORT ``release_sha`` (as ``PrMerger._sync_local_main`` returns from
-    ``git rev-parse --short HEAD``) must not read as a mismatch against the
-    existing tag's full-length SHA.
-
-    Simulates a prior run that created the local tag but failed to push it
-    (the exact resume case this branch of ``run`` exists for) and passes the
-    SHORT form of the release SHA, as Phase 4's real ``merge()`` return would
-    be. Comparing that directly against the full ``git rev-parse {tag}``
-    output would always disagree and wrongly fail the resume.
-    """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
-    info = ProjectInfo(root=root)
-
-    # The prior (interrupted) run already created the local tag at the
-    # release commit but never reached the push.
-    _git(["tag", "v1.0.0"], cwd=str(root))
-    short_sha = _git_out(["rev-parse", "--short", "HEAD"], cwd=str(root))
-
-    Phase5Tag(
-        info,
-        "1.0.0",
-        dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
-    ).run(release_sha=short_sha)
-
-    assert "v1.0.0" in _git_out(
-        ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
-    )
-
-
 # --- sibling helpers ---
 
 
@@ -4909,6 +4871,7 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
 
 _LOCAL_HEAD = "a" * 40
 _STALE_HEAD = "b" * 40
+_MERGE_OID = "c" * 40
 
 
 def test_select_existing_pr_prefers_open() -> None:
@@ -4976,6 +4939,9 @@ def _fake_gh_run(
             r.stdout = json.dumps(pr_list)
         elif cmd[:3] == ["gh", "pr", "create"]:
             r.stdout = "https://github.com/punt-labs/proj/pull/99\n"
+        elif cmd[:3] == ["gh", "pr", "view"] and "mergeCommit" in cmd:
+            # `--jq .mergeCommit.oid` — raw oid, no JSON envelope.
+            r.stdout = f"{_MERGE_OID}\n"
         elif cmd[:3] == ["gh", "pr", "view"]:
             state = states.pop(0) if len(states) > 1 else states[0]
             r.stdout = json.dumps({"state": state})
@@ -5069,7 +5035,7 @@ def test_pr_merge_matching_merged_pr_short_circuits(
         cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
     )
 
-    assert sha == "abc1234"
+    assert sha == _MERGE_OID
     created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
     assert not created
     assert waited == []
@@ -5158,7 +5124,7 @@ def test_pr_merge_branch_deletion_404_is_success(
         cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0"
     )
 
-    assert sha == "abc1234"
+    assert sha == _MERGE_OID
     merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
     assert len(merges) == 1, "merge must not be retried once the PR is MERGED"
 
@@ -5361,6 +5327,20 @@ def _merge_env(
                 times=None,
                 response=CompletedProcessSpec(stdout=json.dumps({"state": "OPEN"})),
             ),
+            FaultRule(
+                match=[
+                    "gh",
+                    "pr",
+                    "view",
+                    str(pr_number),
+                    "--json",
+                    "mergeCommit",
+                    "--jq",
+                    ".mergeCommit.oid",
+                ],
+                times=None,
+                response=CompletedProcessSpec(stdout=f"{_MERGE_OID}\n"),
+            ),
         ],
     )
     return ops, branch
@@ -5522,6 +5502,100 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     assert sha
     printed = capsys.readouterr().out
     assert "Could not re-resolve threads, proceeding with retry" in printed
+
+
+# --- PrMerger.merge: return value survives a concurrent commit ---
+
+
+def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``merge()`` must return the PR's authoritative mergeCommit oid from
+    GitHub, not local main HEAD after ``_sync_local_main``'s pull.
+
+    If another commit lands on main between the squash-merge and that
+    pull — a concurrent release, a hotfix — local HEAD becomes the LATER
+    commit. The old `git rev-parse --short HEAD` return would have handed
+    that back silently instead of the actual merge commit; Phase 5 would
+    then tag the wrong commit even with the SHA-threading fix in place,
+    since it trusts whatever ``merge()`` returns.
+    """
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    monkeypatch.setattr("shutil.which", _fake_which_gh)
+    root = tmp_path / "proj"
+    root.mkdir()
+    branch = "release/v1.0.0"
+    _init_git_repo(root)
+    _git(["push", "-u", "origin", "main"], cwd=str(root))
+    _git(["checkout", "-b", branch], cwd=str(root))
+    (root / "release.txt").write_text("v1.0.0\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "bump version"], cwd=str(root))
+
+    merge_sha: dict[str, str] = {}
+
+    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return CompletedProcessSpec(stdout="[]").to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "create"]:
+            return CompletedProcessSpec(
+                stdout="https://github.com/punt-labs/proj/pull/42\n"
+            ).to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "view"] and "mergeCommit" in cmd:
+            return CompletedProcessSpec(
+                stdout=f"{merge_sha['oid']}\n"
+            ).to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "view"]:
+            return CompletedProcessSpec(
+                stdout=json.dumps({"state": "OPEN"})
+            ).to_completed_process(cmd)
+        if cmd[:3] == ["gh", "pr", "merge"]:
+            # The real squash-merge GitHub performs.
+            _git(["checkout", "main"], cwd=str(root))
+            _git(["merge", "--squash", branch], cwd=str(root))
+            _git(["commit", "-m", "chore: release v1.0.0"], cwd=str(root))
+            merge_sha["oid"] = _git_out(["rev-parse", "HEAD"], cwd=str(root))
+            # Then, before this process's own sync-back pull runs, a
+            # CONCURRENT commit lands on main too — a second release or a
+            # hotfix landing independently of this PR.
+            _git(["commit", "--allow-empty", "-m", "concurrent release"], cwd=str(root))
+            return CompletedProcessSpec().to_completed_process(cmd)
+        return cast("Callable[..., subprocess.CompletedProcess[str]]", _run)(
+            cmd, **kwargs
+        )
+
+    def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    ops = FaultInjectingOps(
+        real_run=fake_run,
+        rules=[],
+        passthrough=[
+            ("gh", "pr", "list"),
+            ("gh", "pr", "create"),
+            ("gh", "pr", "view"),
+            ("gh", "pr", "merge"),
+        ],
+    )
+
+    sha = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop_wait_for_checks,
+        resolve_threads=_noop_resolve_threads,
+    )
+
+    concurrent_head = _git_out(["rev-parse", "main"], cwd=str(root))
+    assert merge_sha["oid"] != concurrent_head, (
+        "test setup bug — the concurrent commit must actually advance main "
+        "past the merge commit for this regression to mean anything"
+    )
+    assert sha == merge_sha["oid"]
 
 
 # --- PrMerger.merge_in_sibling: secondary cleanup failure -> SkipRecorder ---
@@ -5890,12 +5964,12 @@ def test_phase4_release_pr_pins_readme_after_merge(
 
     issued: list[list[str]] = []
     pr_number = {"n": 100}
-    # Distinguishable per call: PrMerger._sync_local_main's `git rev-parse
-    # --short HEAD` runs once after each of the two squash-merges below (the
-    # release PR, then the README-pin PR) — giving each a different sha
-    # proves _phase4_release_pr returns the FIRST (the release commit), not
+    # Distinguishable per call: `gh pr view --json mergeCommit` runs once
+    # after each of the two squash-merges below (the release PR, then the
+    # README-pin PR) — giving each a different oid proves
+    # _phase4_release_pr returns the FIRST (the release commit), not
     # whatever HEAD became after the second.
-    short_shas = iter(["aaa1111", "bbb2222"])
+    merge_oids = iter(["aaa1111", "bbb2222"])
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         issued.append(list(cmd))
@@ -5907,8 +5981,6 @@ def test_phase4_release_pr_pins_readme_after_merge(
             r.stdout = "newsha1\n"
         elif cmd[:2] == ["git", "log"]:
             r.stdout = ""
-        elif cmd[:2] == ["git", "rev-parse"] and "--short" in cmd:
-            r.stdout = f"{next(short_shas)}\n"
         elif cmd[:2] == ["git", "rev-parse"]:
             r.stdout = "deadbeefcafe\n"
         elif cmd[:2] == ["git", "status"]:
@@ -5922,6 +5994,8 @@ def test_phase4_release_pr_pins_readme_after_merge(
         elif cmd[:3] == ["gh", "pr", "create"]:
             pr_number["n"] += 1
             r.stdout = f"https://github.com/punt-labs/proj/pull/{pr_number['n']}\n"
+        elif cmd[:3] == ["gh", "pr", "view"] and "mergeCommit" in cmd:
+            r.stdout = f"{next(merge_oids)}\n"
         elif cmd[:3] == ["gh", "pr", "view"]:
             r.stdout = json.dumps({"state": "OPEN"})
         elif cmd[:3] == ["gh", "pr", "merge"]:

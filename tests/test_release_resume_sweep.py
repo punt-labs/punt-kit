@@ -100,16 +100,20 @@ class _SignalInterrupt(KeyboardInterrupt):
 
 @dataclass(slots=True)
 class _PrRecord:
-    """One emulated pull request: its head branch, title, and lifecycle
-    state. ``title`` backs the squash commit message in ``_pr_merge`` —
-    real ``gh pr merge --squash`` (no ``--subject`` override) defaults the
-    commit subject to the PR title plus a `` (#<number>)`` suffix, and
-    Phase 5's release-commit fallback (phase05_tag.py) matches on exactly
-    that shape."""
+    """One emulated pull request: its head branch, title, lifecycle state,
+    and (once merged) the squash-merge commit's real sha. ``title`` backs
+    the squash commit message in ``_pr_merge`` — real ``gh pr merge
+    --squash`` (no ``--subject`` override) defaults the commit subject to
+    the PR title plus a `` (#<number>)`` suffix, and Phase 5's
+    release-commit fallback (phase05_tag.py) matches on exactly that
+    shape. ``merge_sha`` backs ``gh pr view --json mergeCommit`` —
+    ``PrMerger._merge_commit_oid``'s source of truth, independent of
+    whatever local main HEAD becomes after later commits land."""
 
     branch: str
     state: str
     title: str
+    merge_sha: str | None = None
 
 
 @final
@@ -218,8 +222,13 @@ class _GithubSim:
     def _pr_view(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         number = int(cmd[3])
         with self._lock:
-            state = self._prs[number].state
-        return self._done(cmd, json.dumps({"state": state}))
+            record = self._prs[number]
+        if "mergeCommit" in cmd:
+            # `--jq .mergeCommit.oid` strips the JSON envelope on the real
+            # `gh` CLI too — the raw oid is the whole stdout, not a field
+            # inside a JSON blob.
+            return self._done(cmd, f"{record.merge_sha}\n")
+        return self._done(cmd, json.dumps({"state": record.state}))
 
     def _pr_merge(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
         """Squash-merge the PR's branch into local main — the emulated
@@ -236,10 +245,12 @@ class _GithubSim:
             ["git", "commit", "-m", f"{record.title} (#{number})"],
             cwd=cwd,
         )
+        merge_sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
         # --delete-branch: gh removes the head branch after the merge.
         _run(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
             record.state = "MERGED"
+            record.merge_sha = merge_sha
         return self._done(cmd)
 
     def _run_list(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
