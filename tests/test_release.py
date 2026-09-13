@@ -5890,6 +5890,12 @@ def test_phase4_release_pr_pins_readme_after_merge(
 
     issued: list[list[str]] = []
     pr_number = {"n": 100}
+    # Distinguishable per call: PrMerger._sync_local_main's `git rev-parse
+    # --short HEAD` runs once after each of the two squash-merges below (the
+    # release PR, then the README-pin PR) — giving each a different sha
+    # proves _phase4_release_pr returns the FIRST (the release commit), not
+    # whatever HEAD became after the second.
+    short_shas = iter(["aaa1111", "bbb2222"])
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         issued.append(list(cmd))
@@ -5902,7 +5908,7 @@ def test_phase4_release_pr_pins_readme_after_merge(
         elif cmd[:2] == ["git", "log"]:
             r.stdout = ""
         elif cmd[:2] == ["git", "rev-parse"] and "--short" in cmd:
-            r.stdout = "abc1234\n"
+            r.stdout = f"{next(short_shas)}\n"
         elif cmd[:2] == ["git", "rev-parse"]:
             r.stdout = "deadbeefcafe\n"
         elif cmd[:2] == ["git", "status"]:
@@ -5940,9 +5946,13 @@ def test_phase4_release_pr_pins_readme_after_merge(
     monkeypatch.setattr(release_mod, "_resolve_pr_threads", _no_threads)
     monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
 
-    release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
+    release_sha = release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
         info, "0.2.0", dry_run=False
     )
+
+    # The squash-merge sha, not whatever HEAD became after the README-pin
+    # PR's own squash-merge landed on top of it.
+    assert release_sha == "aaa1111"
 
     pushed_branches = [c[4] for c in issued if c[:3] == ["git", "push", "-u"]]
     assert "release/v0.2.0" in pushed_branches

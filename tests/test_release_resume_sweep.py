@@ -607,6 +607,23 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
     assert f"Release {_TAG} Complete" in resumed_out
     assert "Release incomplete" not in resumed_out
 
+    # Pin WHICH commit the tag points at, not just that a tag named _TAG
+    # exists — resolved independently of Phase5Tag's own resolution logic,
+    # from the release PR's real squash-merge subject (title plus GitHub's
+    # default " (#<number>)" suffix), so a broken Phase 4 -> Phase 5
+    # threading regression can't hide behind Phase5Tag's git-history
+    # fallback landing on the right commit by the same means it's meant to
+    # verify.
+    release_log = _git_out(["log", "--format=%H %s", "main"], cwd=str(root))
+    release_sha = next(
+        sha
+        for sha, _, subject in (
+            line.partition(" ") for line in release_log.splitlines()
+        )
+        if subject.startswith(f"chore: release v{_VERSION}")
+    )
+    assert _git_out(["rev-parse", f"{_TAG}^{{commit}}"], cwd=str(root)) == release_sha
+
     # End state: the release landed the same artifacts a fully clean run
     # produces, whichever phase the stop interrupted.
     assert _git_out(["branch", "--show-current"], cwd=str(root)) == "main"
