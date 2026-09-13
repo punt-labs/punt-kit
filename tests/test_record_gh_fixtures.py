@@ -967,10 +967,13 @@ def test_display_path_falls_back_to_absolute_outside_the_repo(
     repo root — which would put ``tmp_path`` *inside* the repo and
     collapse the outside-the-repo premise this test exists to prove.
 
-    Build the temp directory independent of ``TMPDIR`` instead: clear the
-    env var and ``tempfile``'s own cached answer (``gettempdir()`` resolves
+    Build the temp directory independent of ``TMPDIR`` instead: clear
+    ``TMPDIR``, ``TEMP``, and ``TMP`` — ``tempfile.gettempdir()`` consults
+    all three, in that order, before falling back to a platform default —
+    and clear ``tempfile``'s own cached answer (``gettempdir()`` resolves
     once per process and remembers it in ``tempfile.tempdir``), so
-    ``TemporaryDirectory`` falls through to a real system temp root.
+    ``TemporaryDirectory`` falls through to a real system temp root
+    regardless of which of the three was set.
     """
     from tools.record_gh_fixtures import (
         _ROOT,  # pyright: ignore[reportPrivateUsage]
@@ -978,6 +981,8 @@ def test_display_path_falls_back_to_absolute_outside_the_repo(
     )
 
     monkeypatch.delenv("TMPDIR", raising=False)
+    monkeypatch.delenv("TEMP", raising=False)
+    monkeypatch.delenv("TMP", raising=False)
     monkeypatch.setattr(tempfile, "tempdir", None)
 
     with tempfile.TemporaryDirectory() as tmp_dir:
