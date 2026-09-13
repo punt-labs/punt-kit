@@ -2324,6 +2324,44 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
+def test_phase5_tag_resume_repushes_when_release_sha_is_short(
+    tmp_path: Path,
+) -> None:
+    """A SHORT ``release_sha`` (as ``PrMerger._sync_local_main`` returns from
+    ``git rev-parse --short HEAD``) must not read as a mismatch against the
+    existing tag's full-length SHA.
+
+    Simulates a prior run that created the local tag but failed to push it
+    (the exact resume case this branch of ``run`` exists for) and passes the
+    SHORT form of the release SHA, as Phase 4's real ``merge()`` return would
+    be. Comparing that directly against the full ``git rev-parse {tag}``
+    output would always disagree and wrongly fail the resume.
+    """
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.phases.phase05_tag import Phase5Tag
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    info = ProjectInfo(root=root)
+
+    # The prior (interrupted) run already created the local tag at the
+    # release commit but never reached the push.
+    _git(["tag", "v1.0.0"], cwd=str(root))
+    short_sha = _git_out(["rev-parse", "--short", "HEAD"], cwd=str(root))
+
+    Phase5Tag(
+        info,
+        "1.0.0",
+        dry_run=False,
+        ops=FaultInjectingOps(real_run=_run, rules=[]),
+    ).run(release_sha=short_sha)
+
+    assert "v1.0.0" in _git_out(
+        ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
+    )
+
+
 # --- sibling helpers ---
 
 

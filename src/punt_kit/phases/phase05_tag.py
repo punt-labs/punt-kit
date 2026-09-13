@@ -125,6 +125,17 @@ class Phase5Tag:
         if release_sha is None:
             release_sha = self._find_release_commit_sha()
 
+        # Phase 4's merge() can hand back a SHORT sha (PrMerger's
+        # `git rev-parse --short HEAD`), while every comparison below —
+        # the existing tag's `git rev-parse {tag}`, the remote tag's
+        # peeled sha — is full length. A short-vs-full mismatch here would
+        # read as "tag points to the wrong commit" even when it doesn't,
+        # blocking the exact resume this phase exists to support.
+        # Canonicalize once so every comparison downstream is full-vs-full.
+        release_sha = ops.run(
+            ["git", "rev-parse", release_sha], cwd=str(root)
+        ).stdout.strip()
+
         # Check if tag already exists locally. A local tag alone is not
         # proof the push succeeded: Phase 5 creates the tag *before*
         # pushing it (below), so a push that failed on a prior run — a
