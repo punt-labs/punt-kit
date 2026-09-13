@@ -14,6 +14,7 @@ from __future__ import annotations
 import inspect
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -959,12 +960,33 @@ def test_display_path_uses_the_relative_form_inside_the_repo() -> None:
 
 
 def test_display_path_falls_back_to_absolute_outside_the_repo(
-    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """``tmp_path`` is not usable here: it inherits ``TMPDIR``, and this
+    project's own ``.envrc`` exports ``TMPDIR`` into ``.tmp/`` under the
+    repo root — which would put ``tmp_path`` *inside* the repo and
+    collapse the outside-the-repo premise this test exists to prove.
+
+    Build the temp directory independent of ``TMPDIR`` instead: clear
+    ``TMPDIR``, ``TEMP``, and ``TMP`` — ``tempfile.gettempdir()`` consults
+    all three, in that order, before falling back to a platform default —
+    and clear ``tempfile``'s own cached answer (``gettempdir()`` resolves
+    once per process and remembers it in ``tempfile.tempdir``), so
+    ``TemporaryDirectory`` falls through to a real system temp root
+    regardless of which of the three was set.
+    """
     from tools.record_gh_fixtures import (
+        _ROOT,  # pyright: ignore[reportPrivateUsage]
         _display_path,  # pyright: ignore[reportPrivateUsage]
     )
 
-    outside = tmp_path / "example.json"
+    monkeypatch.delenv("TMPDIR", raising=False)
+    monkeypatch.delenv("TEMP", raising=False)
+    monkeypatch.delenv("TMP", raising=False)
+    monkeypatch.setattr(tempfile, "tempdir", None)
 
-    assert _display_path(outside) == outside
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        outside = Path(tmp_dir) / "example.json"
+        assert not outside.is_relative_to(_ROOT)  # the premise this test proves
+
+        assert _display_path(outside) == outside
