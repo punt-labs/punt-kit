@@ -100,10 +100,16 @@ class _SignalInterrupt(KeyboardInterrupt):
 
 @dataclass(slots=True)
 class _PrRecord:
-    """One emulated pull request: its head branch and lifecycle state."""
+    """One emulated pull request: its head branch, title, and lifecycle
+    state. ``title`` backs the squash commit message in ``_pr_merge`` —
+    real ``gh pr merge --squash`` (no ``--subject`` override) defaults the
+    commit subject to the PR title plus a `` (#<number>)`` suffix, and
+    Phase 5's release-commit fallback (phase05_tag.py) matches on exactly
+    that shape."""
 
     branch: str
     state: str
+    title: str
 
 
 @final
@@ -202,10 +208,11 @@ class _GithubSim:
 
     def _pr_create(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         head = self._flag(cmd, "--head")
+        title = self._flag(cmd, "--title")
         with self._lock:
             number = self._next_pr
             self._next_pr += 1
-            self._prs[number] = _PrRecord(branch=head, state="OPEN")
+            self._prs[number] = _PrRecord(branch=head, state="OPEN", title=title)
         return self._done(cmd, f"https://github.com/punt-labs/proj/pull/{number}\n")
 
     def _pr_view(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
@@ -223,7 +230,12 @@ class _GithubSim:
             record = self._prs[number]
         _run(["git", "checkout", "main"], cwd=cwd)
         _run(["git", "merge", "--squash", record.branch], cwd=cwd)
-        _run(["git", "commit", "-m", f"squash-merge PR #{number}"], cwd=cwd)
+        # Matches real `gh pr merge --squash` (no --subject override): the
+        # commit subject defaults to the PR title plus " (#<number>)".
+        _run(
+            ["git", "commit", "-m", f"{record.title} (#{number})"],
+            cwd=cwd,
+        )
         # --delete-branch: gh removes the head branch after the merge.
         _run(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
