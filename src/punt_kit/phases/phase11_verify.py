@@ -39,33 +39,28 @@ class VerificationCheck:
     detail: str
 
     @classmethod
-    def pinned_ancestor(
-        cls, name: str, sha: str, ref: str, *, cwd: Path, ops: ReleaseOps
-    ) -> Self:
-        """Verify a plain SHA pin resolves as an ancestor of ``ref``.
+    def matches_install_sha(cls, name: str, pinned_sha: str, install_sha: str) -> Self:
+        """Verify a pinned SHA matches the CURRENT install.sh commit.
 
-        Shared by the SHA-pin sites that have nothing left to check once
-        ancestry holds — the README's own install URLs and the
-        public-website ``installCommand``. install-all.sh and the profile
-        pin inline their own ancestor check instead: a pass there also
-        requires the pinned commit's *content* to carry this project's
-        current entry, not just reachability from ``ref``.
+        Ancestry alone (is the pin reachable from the tag?) is not enough: a
+        previous release's install.sh commit is itself an ancestor of every
+        later tag, so an ancestor-only check would pass the exact rot this
+        exists to catch — Phase 9/10 left the pin one release behind.
+        ``install_sha`` (``ReleaseProject.install_sh_sha()``) is compared as
+        a prefix, matching Check 6's own convention (profile SHA's
+        direct-URL path), since a longer pinned SHA that starts with the
+        current short SHA still names the same commit.
         """
-        result = ops.run(
-            ["git", "merge-base", "--is-ancestor", sha, ref], cwd=str(cwd), check=False
+        current = (
+            re.fullmatch(rf"{re.escape(install_sha)}[0-9a-fA-F]*", pinned_sha)
+            is not None
         )
-        if result.returncode == 0:
-            return cls(name, True, f"SHA={sha}")
-        if result.returncode == 1:
-            return cls(name, False, f"SHA={sha} (not an ancestor of {ref})")
-        # merge-base --is-ancestor exits 1 for "not an ancestor" and >=128 for
-        # a genuine git error (e.g. a missing ref) — the latter is not a
-        # stale pin and must not be reported as one.
-        return cls(
-            name,
-            False,
-            f"SHA={sha} (git error verifying ancestry: {result.stderr.strip()})",
+        detail = (
+            f"SHA={pinned_sha}"
+            if current
+            else f"SHA={pinned_sha} (stale — expected {install_sha})"
         )
+        return cls(name, current, detail)
 
 
 @final
@@ -585,16 +580,18 @@ class Phase11Verify:
                                     )
                                 )
 
-        # 7. Product README (own repo's SHA-pinned install URLs). Reuses the
-        # same URL pattern ReadmeShaPin.land() writes, so it never drifts
-        # from the pin it is verifying. Only runs when a pin is present at
-        # all — a README that predates any SHA pin (still a bare version-tag
-        # URL, or no install snippet) is not this check's concern; the
-        # concern here is a pin that resolves but is stale.
+        # 7. Product README (own repo's SHA-pinned install URLs) must match
+        # the CURRENT install.sh commit — see matches_install_sha() for why
+        # ancestry alone would miss the realistic rot. Reuses the same URL
+        # pattern ReadmeShaPin.bump() writes, so it never drifts from the
+        # pin it is verifying. Only runs when a pin is present at all — a
+        # README that predates any SHA pin (still a bare version-tag URL, or
+        # no install snippet) is not this check's concern.
         if repo and install_sh.exists():
             owner, repo_name = repo.split("/", 1)
             own_readme = info.root / "README.md"
             if own_readme.exists():
+                install_sha = project.install_sh_sha()
                 pinned_shas = sorted(
                     set(
                         ReadmeShaPin.find_pinned_shas(
@@ -604,8 +601,8 @@ class Phase11Verify:
                 )
                 for sha in pinned_shas:
                     checks.append(
-                        VerificationCheck.pinned_ancestor(
-                            "README pin", sha, tag, cwd=info.root, ops=ops
+                        VerificationCheck.matches_install_sha(
+                            "README pin", sha, install_sha
                         )
                     )
 
@@ -635,8 +632,17 @@ class Phase11Verify:
                                 # Same gate WebsitePropagator uses to decide
                                 # whether it bumps installCommand's SHA — a
                                 # website entry legitimately has no
-                                # installCommand (e.g. PyPI-only listings), and
-                                # that absence is not this check's concern.
+                                # installCommand (e.g. PyPI-only listings) or
+                                # a non-SHA install URL (version-tag or
+                                # branch pin), and the propagator's own
+                                # re.sub silently no-ops on those rather than
+                                # treating them as an error. This check
+                                # mirrors that tolerance: it only verifies
+                                # entries that ARE SHA-pinned — that is the
+                                # only rot this check targets — against the
+                                # CURRENT install.sh commit (see
+                                # matches_install_sha()), not merely a
+                                # commit reachable from the tag.
                                 install_cmd = str(entry.get("installCommand") or "")
                                 if install_cmd and f"/{project_name}/" in install_cmd:
                                     sha_match = re.search(
@@ -644,23 +650,12 @@ class Phase11Verify:
                                         r"([0-9a-fA-F]{7,40})/install\.sh",
                                         install_cmd,
                                     )
-                                    if sha_match is None:
+                                    if sha_match is not None:
                                         checks.append(
-                                            VerificationCheck(
-                                                "website SHA",
-                                                False,
-                                                "installCommand has no "
-                                                "SHA-pinned install URL",
-                                            )
-                                        )
-                                    else:
-                                        checks.append(
-                                            VerificationCheck.pinned_ancestor(
+                                            VerificationCheck.matches_install_sha(
                                                 "website SHA",
                                                 sha_match.group(1),
-                                                tag,
-                                                cwd=info.root,
-                                                ops=ops,
+                                                project.install_sh_sha(),
                                             )
                                         )
                             web_found = True

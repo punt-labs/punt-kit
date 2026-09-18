@@ -25,6 +25,12 @@ class ReadmeShaPin:
 
     __slots__ = ("_info", "_ops")
 
+    # Single source of truth for the SHA charclass in a pinned install URL.
+    # bump()'s SHA-refresh substitution and find_pinned_shas()'s read-back
+    # both build their pattern from this constant plus _url_prefix() below —
+    # neither hand-copies the shape, so the two can never silently diverge.
+    _SHA_SHAPE = r"[0-9a-fA-F]{7,40}"
+
     _info: ProjectInfo
     _ops: ReleaseOps
 
@@ -35,21 +41,33 @@ class ReadmeShaPin:
         return self
 
     @staticmethod
-    def find_pinned_shas(content: str, owner: str, repo_name: str) -> list[str]:
-        """Return every SHA-pinned install.sh URL's commit SHA in ``content``.
+    def _url_prefix(owner: str, repo_name: str) -> str:
+        """The regex prefix common to every install URL for this repo.
 
-        Same URL shape ``bump()`` writes (``raw.githubusercontent.com/<owner>/
-        <repo>/<sha>/install.sh``) — shared so Phase 11's verification check,
-        which must catch every pin in a README with several separate install
-        snippets (curl | bash, curl -o, --no-plugin variants, ...) rather than
-        just the first, never drifts from the pattern the landing PR actually
-        writes.
+        ``raw.githubusercontent.com/<owner>/<repo>/`` — everything before the
+        SHA-or-tag segment. The one place that knows the URL's host and path
+        shape; every consumer of that shape (the two substitutions in
+        ``bump()`` and the read-back in ``find_pinned_shas()``) builds its
+        pattern by appending to this, so a change to the shape (e.g. a CDN
+        migration) changes every consumer at once instead of three
+        hand-copied literals drifting independently.
         """
         esc_owner = re.escape(owner)
         esc_repo = re.escape(repo_name)
+        return rf"raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/"
+
+    @classmethod
+    def find_pinned_shas(cls, content: str, owner: str, repo_name: str) -> list[str]:
+        """Return every SHA-pinned install.sh URL's commit SHA in ``content``.
+
+        Built from the same ``_url_prefix()`` + ``_SHA_SHAPE`` ``bump()``'s
+        SHA-refresh substitution uses, so this can never drift from the
+        pattern the landing PR actually writes — catches every pin in a
+        README with several separate install snippets (curl | bash, curl -o,
+        --no-plugin variants, ...) rather than just the first.
+        """
         pattern = re.compile(
-            rf"raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/"
-            r"([0-9a-fA-F]{7,40})/install\.sh"
+            rf"{cls._url_prefix(owner, repo_name)}({cls._SHA_SHAPE})/install\.sh"
         )
         return pattern.findall(content)
 
@@ -89,21 +107,18 @@ class ReadmeShaPin:
         )
 
         content = readme_path.read_text(encoding="utf-8")
-        esc_owner = re.escape(owner)
-        esc_repo = re.escape(repo_name)
+        prefix = self._url_prefix(owner, repo_name)
 
         # Replace SHA-pinned install URLs: <owner>/<repo>/<hex-sha>/install.sh
         new_content = re.sub(
-            rf"(raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/)"
-            r"[0-9a-fA-F]{7,40}(/install\.sh)",
+            rf"({prefix}){self._SHA_SHAPE}(/install\.sh)",
             rf"\g<1>{short_sha}\2",
             content,
         )
 
         # Also replace version-tag install URLs: <owner>/<repo>/v1.2.3/install.sh
         new_content = re.sub(
-            rf"(raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/)"
-            r"v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
+            rf"({prefix})v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
             rf"\g<1>{short_sha}\2",
             new_content,
         )
