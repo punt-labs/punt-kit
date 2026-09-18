@@ -624,18 +624,29 @@ class Phase11Verify:
             owner, repo_name = repo.split("/", 1)
             own_readme = info.root / "README.md"
             if own_readme.exists():
-                install_sha = project.install_sh_sha()
-                pinned_shas = sorted(
-                    set(
-                        ReadmeShaPin.find_pinned_shas(
-                            own_readme.read_text(encoding="utf-8"), owner, repo_name
-                        )
-                    )
+                trusted_shas, has_untrusted = ReadmeShaPin.classify_install_urls(
+                    own_readme.read_text(encoding="utf-8"), owner, repo_name
                 )
-                for sha in pinned_shas:
+                # Trusted and untrusted pins are detected and reported
+                # independently — a README can carry one trusted current-SHA
+                # pin AND one untrusted-host/owner pin (e.g. an injected
+                # line), and the untrusted one must never be skipped just
+                # because a trusted pin was also found.
+                if trusted_shas:
+                    install_sha = project.install_sh_sha()
+                    for sha in sorted(set(trusted_shas)):
+                        checks.append(
+                            VerificationCheck.matches_install_sha(
+                                "README pin", sha, install_sha, cwd=info.root, ops=ops
+                            )
+                        )
+                if has_untrusted:
                     checks.append(
-                        VerificationCheck.matches_install_sha(
-                            "README pin", sha, install_sha, cwd=info.root, ops=ops
+                        VerificationCheck(
+                            "README pin",
+                            False,
+                            "SHA-pinned install URL is not on the trusted "
+                            f"raw.githubusercontent.com/{owner}/{repo_name}/ host",
                         )
                     )
 
@@ -665,27 +676,25 @@ class Phase11Verify:
                                 install_cmd = str(entry.get("installCommand") or "")
                                 if install_cmd:
                                     owner = repo.split("/", 1)[0]
-                                    # Trusted-host, find-all: reuses the same
-                                    # matcher the README check uses
-                                    # (raw.githubusercontent.com/<owner>/
-                                    # <repo>/<sha>/install.sh), so README and
-                                    # website validate identically. A bare
-                                    # `/{project_name}/{sha}/install.sh`
-                                    # search on any host would let
+                                    # Same shared matcher the README check
+                                    # uses, so README and website validate
+                                    # identically. Trusted and untrusted
+                                    # pins are detected and reported
+                                    # independently — an installCommand can
+                                    # carry one trusted current-SHA pin AND
+                                    # one untrusted-host/owner pin (e.g.
                                     # https://evil.example/proj/<sha>/
-                                    # install.sh pass, and re.search (first
-                                    # match only) would let a second, stale
-                                    # pin in the same string escape.
-                                    trusted_shas = sorted(
-                                        set(
-                                            ReadmeShaPin.find_pinned_shas(
-                                                install_cmd, owner, project_name
-                                            )
+                                    # install.sh), and the untrusted one
+                                    # must never be skipped just because a
+                                    # trusted pin was also found.
+                                    trusted_shas, has_untrusted = (
+                                        ReadmeShaPin.classify_install_urls(
+                                            install_cmd, owner, project_name
                                         )
                                     )
                                     if trusted_shas:
                                         install_sha = project.install_sh_sha()
-                                        for sha in trusted_shas:
+                                        for sha in sorted(set(trusted_shas)):
                                             checks.append(
                                                 VerificationCheck.matches_install_sha(
                                                     "website SHA",
@@ -695,13 +704,7 @@ class Phase11Verify:
                                                     ops=ops,
                                                 )
                                             )
-                                    elif re.search(
-                                        r"[0-9a-fA-F]{7,40}/install\.sh", install_cmd
-                                    ):
-                                        # Looks SHA-pinned but not on the
-                                        # trusted URL — a spoofed host or
-                                        # wrong owner/repo must fail loud,
-                                        # not silently pass or skip.
+                                    if has_untrusted:
                                         checks.append(
                                             VerificationCheck(
                                                 "website SHA",
@@ -712,9 +715,9 @@ class Phase11Verify:
                                                 f"{owner}/{project_name}/ host",
                                             )
                                         )
-                                    # else: no SHA-shaped install URL at all
-                                    # (version-tag or branch pin, or no
-                                    # install.sh reference) — skip. That
+                                    # If neither: no SHA-shaped install URL
+                                    # at all (version-tag or branch pin, or
+                                    # no install.sh reference) — skip. That
                                     # shape is not this check's concern; it
                                     # matches WebsitePropagator's own
                                     # tolerance, whose re.sub silently no-ops

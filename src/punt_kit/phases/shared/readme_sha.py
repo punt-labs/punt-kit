@@ -5,7 +5,8 @@ squash-merge lands on main."""
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
+from urllib.parse import urlparse
 
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -26,10 +27,19 @@ class ReadmeShaPin:
     __slots__ = ("_info", "_ops")
 
     # Single source of truth for the SHA charclass in a pinned install URL.
-    # bump()'s SHA-refresh substitution and find_pinned_shas()'s read-back
-    # both build their pattern from this constant plus _url_prefix() below —
-    # neither hand-copies the shape, so the two can never silently diverge.
-    _SHA_SHAPE = r"[0-9a-fA-F]{7,40}"
+    # bump()'s SHA-refresh substitution and classify_install_urls()'s
+    # authority-validated read-back both build their pattern from this
+    # constant — neither hand-copies the shape, so the two can never
+    # silently diverge.
+    _SHA_SHAPE: str = r"[0-9a-fA-F]{7,40}"
+
+    # Every candidate install.sh URL in free-form text (a README, an
+    # installCommand string). Deliberately requires an explicit "https://"
+    # scheme — every install snippet this project writes or reads always
+    # spells it out — so a candidate can be handed to urlparse() and its
+    # authority validated, rather than trusting a bare substring/regex
+    # match that can appear inside an attacker host's PATH.
+    _INSTALL_URL_CANDIDATE = re.compile(r"https://\S+/install\.sh")
 
     _info: ProjectInfo
     _ops: ReleaseOps
@@ -45,31 +55,78 @@ class ReadmeShaPin:
         """The regex prefix common to every install URL for this repo.
 
         ``raw.githubusercontent.com/<owner>/<repo>/`` — everything before the
-        SHA-or-tag segment. The one place that knows the URL's host and path
-        shape; every consumer of that shape (the two substitutions in
-        ``bump()`` and the read-back in ``find_pinned_shas()``) builds its
-        pattern by appending to this, so a change to the shape (e.g. a CDN
-        migration) changes every consumer at once instead of three
-        hand-copied literals drifting independently.
+        SHA-or-tag segment. Used by ``bump()``'s two substitutions, which
+        rewrite this project's OWN already-trusted README content, so a
+        plain regex prefix is sufficient there. ``classify_install_urls()``
+        (the read-back used for verification) does NOT build from this
+        prefix — a bare substring/regex match on the trusted host string
+        can appear inside an attacker host's PATH (see its docstring), so
+        verification parses each candidate URL with ``urlparse`` and checks
+        its authority instead.
         """
         esc_owner = re.escape(owner)
         esc_repo = re.escape(repo_name)
         return rf"raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/"
 
     @classmethod
-    def find_pinned_shas(cls, content: str, owner: str, repo_name: str) -> list[str]:
-        """Return every SHA-pinned install.sh URL's commit SHA in ``content``.
+    def classify_install_urls(
+        cls, content: str, owner: str, repo_name: str
+    ) -> tuple[list[str], bool]:
+        """Classify every install.sh URL in ``content`` as trusted or not.
 
-        Built from the same ``_url_prefix()`` + ``_SHA_SHAPE`` ``bump()``'s
-        SHA-refresh substitution uses, so this can never drift from the
-        pattern the landing PR actually writes — catches every pin in a
-        README with several separate install snippets (curl | bash, curl -o,
-        --no-plugin variants, ...) rather than just the first.
+        Returns ``(trusted_shas, has_untrusted)``. A candidate URL is
+        trusted only when its AUTHORITY genuinely resolves to
+        ``raw.githubusercontent.com/<owner>/<repo>`` — each candidate is
+        parsed with ``urllib.parse.urlparse`` and accepted only when
+        ``scheme == "https"`` and ``hostname == "raw.githubusercontent.com"``
+        EXACTLY (not ``endswith``, which would accept the attacker host
+        ``raw.githubusercontent.com.evil.com``), before its path is matched
+        against ``/<owner>/<repo>/<sha>/install.sh``. A bare substring/regex
+        match on the trusted host string is not enough:
+        ``https://evil.example/raw.githubusercontent.com/<owner>/<repo>/
+        <sha>/install.sh`` carries the trusted string inside an attacker
+        host's PATH, and curl would download from evil.example, not GitHub.
+
+        Every SHA-shaped install.sh URL that fails the authority check sets
+        ``has_untrusted`` — independently of whether any trusted pin was
+        also found. A message can carry one trusted pin (this release's own
+        current SHA) alongside one injected untrusted URL, and the
+        untrusted one must never be skipped just because a trusted pin also
+        exists.
         """
-        pattern = re.compile(
-            rf"{cls._url_prefix(owner, repo_name)}({cls._SHA_SHAPE})/install\.sh"
+        esc_owner = re.escape(owner)
+        esc_repo = re.escape(repo_name)
+        trusted_path = re.compile(
+            rf"^/{esc_owner}/{esc_repo}/({cls._SHA_SHAPE})/install\.sh$"
         )
-        return pattern.findall(content)
+        sha_shaped_path = re.compile(rf"{cls._SHA_SHAPE}/install\.sh$")
+        trusted_shas: list[str] = []
+        has_untrusted = False
+        candidates = cast("list[str]", cls._INSTALL_URL_CANDIDATE.findall(content))
+        for candidate in candidates:
+            parsed = urlparse(candidate)
+            trusted_match = (
+                trusted_path.match(parsed.path)
+                if parsed.scheme == "https"
+                and parsed.hostname == "raw.githubusercontent.com"
+                else None
+            )
+            if trusted_match is not None:
+                trusted_shas.append(trusted_match.group(1))
+            elif sha_shaped_path.search(parsed.path):
+                has_untrusted = True
+        return trusted_shas, has_untrusted
+
+    @classmethod
+    def find_pinned_shas(cls, content: str, owner: str, repo_name: str) -> list[str]:
+        """Return every trusted, SHA-pinned install.sh URL's commit SHA.
+
+        Thin wrapper over ``classify_install_urls()`` — catches every pin
+        in a README with several separate install snippets (curl | bash,
+        curl -o, --no-plugin variants, ...) rather than just the first.
+        """
+        trusted_shas, _ = cls.classify_install_urls(content, owner, repo_name)
+        return trusted_shas
 
     def bump(
         self,
