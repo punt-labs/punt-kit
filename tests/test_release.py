@@ -7373,6 +7373,271 @@ def test_absent_github_dedups_to_single_recap_across_phases(
     assert len(notices) == 1
 
 
+# --- Phase 11: README pin check ---
+
+
+def test_phase11_verify_readme_pin_passes_when_ancestor_of_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A README SHA-pinned install URL passes when it is on the tag's history."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme sha"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "README pin" in out
+    assert "✗ README pin" not in out
+
+
+def test_phase11_verify_readme_pin_fails_when_not_ancestor_of_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A resolvable README SHA pin that isn't on the tag's history fails.
+
+    Regression for the gap this check closes: before it existed, the
+    released repo's own README curl | sh install lines were never
+    reconciled against the release tag at all — a stale pin there
+    silently kept installing the previous release.
+    """
+    version = "0.1.0"
+    root, _ = _setup_verify_project(tmp_path, version)
+    d = str(root)
+
+    _git(["checkout", "-b", "stale-readme-branch"], cwd=d)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
+        "# unrelated edit on an unmerged branch\n"
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "stale branch edit"], cwd=d)
+    stale_sha = _git_out(["rev-parse", "HEAD"], cwd=d)
+    _git(["checkout", "main"], cwd=d)
+
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{stale_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin stale readme sha"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "ancestor" in out
+
+
+def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every install snippet's pin is checked, not just the first.
+
+    A README with a correct SHA in one snippet and a stale SHA in another
+    (e.g. a --no-plugin variant hand-edited or missed by the landing PR)
+    must still fail — verifying only the first regex match would let the
+    second, wrong pin through undetected.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+
+    _git(["checkout", "-b", "stale-readme-branch-2"], cwd=d)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
+        "# unrelated edit on an unmerged branch\n"
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "stale branch edit"], cwd=d)
+    stale_sha = _git_out(["rev-parse", "HEAD"], cwd=d)
+    _git(["checkout", "main"], cwd=d)
+
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n\n"
+        "```\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{stale_sha}"
+        "/install.sh | sh -s -- --no-plugin\n```\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme (one current, one stale)"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✓ README pin" in out
+    assert "✗ README pin" in out
+
+
+# --- Phase 11: website SHA + version check ---
+
+
+def _add_website_sibling(
+    tmp_path: Path, project_name: str, version: str, install_sha: str
+) -> Path:
+    """Create a public-website sibling with one pinned project entry."""
+    projects = [
+        {
+            "id": project_name,
+            "version": version,
+            "githubUrl": f"https://github.com/punt-labs/{project_name}",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com/punt-labs/"
+                f"{project_name}/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    return _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+
+def test_phase11_verify_readme_and_website_pins_pass_when_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """README pin and website SHA + version all pass together when current."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme sha"], cwd=d)
+
+    _add_website_sibling(tmp_path, "proj", version, install_sha)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" not in out
+    assert "✗ website" not in out
+
+
+def test_phase11_verify_website_sha_fails_when_not_ancestor_of_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A resolvable website installCommand SHA off the tag's history fails.
+
+    Regression for the gap this check closes: Phase 10 propagates the
+    website's installCommand SHA but nothing previously verified it landed
+    on the tag's history — a stale pin there silently kept installing the
+    previous release.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    _git(["checkout", "-b", "stale-website-branch"], cwd=d)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
+        "# unrelated edit on an unmerged branch\n"
+        'uv tool install --force "$PACKAGE==$VERSION"\n'
+    )
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "stale branch edit"], cwd=d)
+    stale_sha = _git_out(["rev-parse", "HEAD"], cwd=d)
+    _git(["checkout", "main"], cwd=d)
+
+    _add_website_sibling(tmp_path, "proj", version, stale_sha)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "ancestor" in out
+
+
+def test_phase11_verify_website_fails_when_version_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A website entry with a stale version fails even when its SHA is
+    current — the pre-existing version check, exercised alongside the new
+    SHA check to prove one flipping doesn't mask the other.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    _add_website_sibling(tmp_path, "proj", "0.0.9", install_sha)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website" in out
+    assert "version=0.0.9" in out
+
+
+def test_phase11_verify_website_absent_sibling_skips_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No public-website sibling checked out → no website checks run at all,
+    and verify does not fail because of it.
+
+    public-website is an optional propagation sibling (like .github and
+    claude-plugins) — its absence must be the same tolerated skip the
+    install-all.sh/profile checks already give an absent .github, not a
+    failure.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    # No public-website sibling created — SiblingRepo.resolve returns None.
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "website" not in out.lower()
+
+
 # --- Phase 11: PyPI check ---
 
 
