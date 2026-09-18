@@ -8334,6 +8334,90 @@ def test_phase11_verify_readme_and_website_pins_pass_for_zero_and_one_layer_enco
     assert "✗ website SHA" not in out
 
 
+def test_phase11_verify_website_sha_fails_when_installcommand_points_at_wrong_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A website entry ALREADY matched to this project (by id) whose
+    installCommand's install.sh URL points at a DIFFERENT repo — a stale
+    entry left over from a rename, or any other misconfiguration — must
+    fail the website check, even on the trusted raw.githubusercontent.com
+    host, since it carries no ``/<repo_name>/`` segment for a reference
+    filter to catch.
+
+    Regression: classify_install_urls() used the same repo-name-only
+    reference filter for both README and website. A wrong-repo URL by
+    definition doesn't reference THIS project's repo name, so the filter
+    ignored it — Phase 11 silently approved a website command that
+    installs the wrong software, even though the caller already knows
+    this installCommand belongs to this project's entry.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com/"
+                f"other-org/other-repo/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_ignores_unrelated_tool_different_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A README documenting an UNRELATED tool's install.sh one-liner
+    (a different repo entirely, on the genuine trusted host) must still
+    be ignored — the website's all_urls_relevant mode does not apply to
+    README, which legitimately references other tools' install scripts
+    alongside its own.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n\n"
+        "Also see this other tool:\n\n"
+        "curl -fsSL https://raw.githubusercontent.com/other-org/"
+        "other-tool/main/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme, also mention an unrelated tool"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" not in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
