@@ -39,22 +39,55 @@ class VerificationCheck:
     detail: str
 
     @classmethod
-    def matches_install_sha(cls, name: str, pinned_sha: str, install_sha: str) -> Self:
-        """Verify a pinned SHA matches the CURRENT install.sh commit.
+    def matches_install_sha(
+        cls,
+        name: str,
+        pinned_sha: str,
+        install_sha: str,
+        *,
+        cwd: Path,
+        ops: ReleaseOps,
+    ) -> Self:
+        """Verify a pinned SHA resolves to the CURRENT install.sh commit.
 
         Ancestry alone (is the pin reachable from the tag?) is not enough: a
         previous release's install.sh commit is itself an ancestor of every
         later tag, so an ancestor-only check would pass the exact rot this
         exists to catch — Phase 9/10 left the pin one release behind.
-        ``install_sha`` (``ReleaseProject.install_sh_sha()``) is compared as
-        a prefix, matching Check 6's own convention (profile SHA's
-        direct-URL path), since a longer pinned SHA that starts with the
-        current short SHA still names the same commit.
+
+        A textual prefix match (``pinned_sha.startswith(install_sha)``) is
+        not enough either: it treats an unresolved string as commit
+        identity, so a fabricated or nonexistent hash that merely starts
+        with the right characters — or a real but unrelated commit that
+        happens to share the short prefix — would pass without ever being
+        resolved. Both ``install_sha`` and ``pinned_sha`` are resolved to
+        full commit object IDs via ``git rev-parse <sha>^{commit}`` and
+        compared for equality, so a valid abbreviated or full pin of the
+        right commit passes, and an arbitrary/nonexistent hash fails.
         """
-        current = (
-            re.fullmatch(rf"{re.escape(install_sha)}[0-9a-fA-F]*", pinned_sha)
-            is not None
+        expected = ops.run(
+            ["git", "rev-parse", f"{install_sha}^{{commit}}"],
+            cwd=str(cwd),
+            check=False,
         )
+        if expected.returncode != 0:
+            # install_sha comes from a fresh git log on the caller's own
+            # repo, so it always resolves — a failure here is a genuine git
+            # error, not a stale pin, and must not be misreported as one.
+            return cls(
+                name,
+                False,
+                f"SHA={pinned_sha} (git error resolving expected commit "
+                f"{install_sha}: {expected.stderr.strip()})",
+            )
+        resolved = ops.run(
+            ["git", "rev-parse", f"{pinned_sha}^{{commit}}"],
+            cwd=str(cwd),
+            check=False,
+        )
+        if resolved.returncode != 0:
+            return cls(name, False, f"SHA={pinned_sha} (does not resolve to a commit)")
+        current = resolved.stdout.strip() == expected.stdout.strip()
         detail = (
             f"SHA={pinned_sha}"
             if current
@@ -602,7 +635,7 @@ class Phase11Verify:
                 for sha in pinned_shas:
                     checks.append(
                         VerificationCheck.matches_install_sha(
-                            "README pin", sha, install_sha
+                            "README pin", sha, install_sha, cwd=info.root, ops=ops
                         )
                     )
 
@@ -629,35 +662,64 @@ class Phase11Verify:
                                 )
                             )
                             if install_sh.exists():
-                                # Same gate WebsitePropagator uses to decide
-                                # whether it bumps installCommand's SHA — a
-                                # website entry legitimately has no
-                                # installCommand (e.g. PyPI-only listings) or
-                                # a non-SHA install URL (version-tag or
-                                # branch pin), and the propagator's own
-                                # re.sub silently no-ops on those rather than
-                                # treating them as an error. This check
-                                # mirrors that tolerance: it only verifies
-                                # entries that ARE SHA-pinned — that is the
-                                # only rot this check targets — against the
-                                # CURRENT install.sh commit (see
-                                # matches_install_sha()), not merely a
-                                # commit reachable from the tag.
                                 install_cmd = str(entry.get("installCommand") or "")
-                                if install_cmd and f"/{project_name}/" in install_cmd:
-                                    sha_match = re.search(
-                                        rf"/{re.escape(project_name)}/"
-                                        r"([0-9a-fA-F]{7,40})/install\.sh",
-                                        install_cmd,
-                                    )
-                                    if sha_match is not None:
-                                        checks.append(
-                                            VerificationCheck.matches_install_sha(
-                                                "website SHA",
-                                                sha_match.group(1),
-                                                project.install_sh_sha(),
+                                if install_cmd:
+                                    owner = repo.split("/", 1)[0]
+                                    # Trusted-host, find-all: reuses the same
+                                    # matcher the README check uses
+                                    # (raw.githubusercontent.com/<owner>/
+                                    # <repo>/<sha>/install.sh), so README and
+                                    # website validate identically. A bare
+                                    # `/{project_name}/{sha}/install.sh`
+                                    # search on any host would let
+                                    # https://evil.example/proj/<sha>/
+                                    # install.sh pass, and re.search (first
+                                    # match only) would let a second, stale
+                                    # pin in the same string escape.
+                                    trusted_shas = sorted(
+                                        set(
+                                            ReadmeShaPin.find_pinned_shas(
+                                                install_cmd, owner, project_name
                                             )
                                         )
+                                    )
+                                    if trusted_shas:
+                                        install_sha = project.install_sh_sha()
+                                        for sha in trusted_shas:
+                                            checks.append(
+                                                VerificationCheck.matches_install_sha(
+                                                    "website SHA",
+                                                    sha,
+                                                    install_sha,
+                                                    cwd=info.root,
+                                                    ops=ops,
+                                                )
+                                            )
+                                    elif re.search(
+                                        r"[0-9a-fA-F]{7,40}/install\.sh", install_cmd
+                                    ):
+                                        # Looks SHA-pinned but not on the
+                                        # trusted URL — a spoofed host or
+                                        # wrong owner/repo must fail loud,
+                                        # not silently pass or skip.
+                                        checks.append(
+                                            VerificationCheck(
+                                                "website SHA",
+                                                False,
+                                                "SHA-pinned install URL is not "
+                                                "on the trusted "
+                                                f"raw.githubusercontent.com/"
+                                                f"{owner}/{project_name}/ host",
+                                            )
+                                        )
+                                    # else: no SHA-shaped install URL at all
+                                    # (version-tag or branch pin, or no
+                                    # install.sh reference) — skip. That
+                                    # shape is not this check's concern; it
+                                    # matches WebsitePropagator's own
+                                    # tolerance, whose re.sub silently no-ops
+                                    # on a non-SHA-shaped install URL rather
+                                    # than treating it as an error.
                             web_found = True
                             break
                     if not web_found:
