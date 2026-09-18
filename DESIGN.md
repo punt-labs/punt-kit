@@ -1977,3 +1977,32 @@ resolved identity + trusted host together mean what the check claims.
 | Substring/regex match for `raw.githubusercontent.com/<owner>/<repo>/…` | The trusted string can sit in the *path* of an attacker URL (`https://evil.example/raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh`) or a lookalike host (`raw.githubusercontent.com.evil.com`) and pass. The authority must be parsed (`urlparse`) and the host compared with `==`, not matched as a substring. |
 | Reject untrusted URLs only when no trusted pin is found | A command carrying one trusted current-SHA URL and a second untrusted-host SHA URL would pass on the strength of the first; untrusted SHA-shaped install URLs are rejected independently of any trusted pin present. |
 | Duplicate the pin URL regex in the writer and the verifier | Drifts silently — a change to the written URL leaves the verifier matching the old shape and passing vacuously; one shared source in `ReadmeShaPin` keeps them equal by construction. |
+
+### Threat model and scope
+
+The check's purpose is **rot prevention**: catching a release-process failure that
+leaves a real, legitimately-formatted install pin at the *previous* release's
+commit. Against that — the operational bug this exists for — it is complete.
+
+As a **secondary** benefit it flags a project-referencing install URL pointing at
+an untrusted host/owner, and the classifier is hardened to see through the
+realistic obfuscations of normal committed content: case variation (GitHub routes
+repos case-insensitively), percent-encoding to a bounded fixed point, whitespace
+evasion (`${IFS}`, non-greedy split), and multiple/glued URLs per token (every
+`install.sh` span is scanned, not just the first). A candidate that references the
+project but is not a clean, fully-matching trusted URL — including one whose
+encoding never resolves within the decode cap — is failed closed, never silently
+dropped.
+
+**Explicitly out of scope (accepted risk):** an adversary who can *write to the
+repo's `README.md` or the website's `projects.json`* is not the threat this check
+defends against. Such an adversary already has strictly stronger attacks — most
+directly, replacing `install.sh` at the very commit the pin legitimately names —
+that no URL-text check can see. This verifier is defense-in-depth on the pinned
+URL's shape and destination, not a general supply-chain-injection control; the
+controls for repo-write compromise are branch protection, review, and signing
+(DES-022's "verification over trust" applies to the *release process's own*
+state, not to a hostile committer). We do not chase an unbounded tail of
+URL-encoding evasions beyond what normal committed content produces, because the
+attacker who could exploit the residual tail can bypass the check's purpose
+entirely by other means.
