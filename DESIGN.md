@@ -1994,15 +1994,20 @@ project but is not a clean, fully-matching trusted URL — including one whose
 encoding never resolves within the decode cap — is failed closed, never silently
 dropped.
 
+The encoding tail is closed categorically rather than case by case: a URL-shaped
+install candidate that does not reach a percent-decode fixed point within a
+bounded number of passes (`_MAX_DECODE_DEPTH`) is failed closed unconditionally.
+A legitimately-written pin carries zero encoding layers (`bump()` emits a plain
+URL), so any token still changing after the cap is definitively not normal
+content and cannot be treated as trusted — which removes the whole "one more
+nesting layer" class of evasion in one rule instead of chasing depths.
+
 **Explicitly out of scope (accepted risk):** an adversary who can *write to the
 repo's `README.md` or the website's `projects.json`* is not the threat this check
-defends against. Such an adversary already has strictly stronger attacks — most
-directly, replacing `install.sh` at the very commit the pin legitimately names —
-that no URL-text check can see. This verifier is defense-in-depth on the pinned
-URL's shape and destination, not a general supply-chain-injection control; the
-controls for repo-write compromise are branch protection, review, and signing
-(DES-022's "verification over trust" applies to the *release process's own*
-state, not to a hostile committer). We do not chase an unbounded tail of
-URL-encoding evasions beyond what normal committed content produces, because the
-attacker who could exploit the residual tail can bypass the check's purpose
-entirely by other means.
+defends against. Such an adversary already has strictly stronger, less
+conspicuous attacks — most directly, replacing `install.sh` at the very commit
+the pin legitimately names — that no URL-text check can see. This verifier is
+defense-in-depth on the pinned URL's shape and destination, not a general
+supply-chain-injection control; the controls for repo-write compromise are branch
+protection, review, and signing (DES-022's "verification over trust" applies to
+the *release process's own* state, not to a hostile committer).
