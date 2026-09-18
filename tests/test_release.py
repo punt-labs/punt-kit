@@ -20,6 +20,7 @@ import pytest
 
 from punt_kit import release
 from punt_kit.detect import detect
+from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
@@ -1351,6 +1352,38 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     )
     expected_sha = result.stdout.strip()
     assert f"{expected_sha}/install.sh" in readme_content
+
+
+def test_find_pinned_shas_never_drifts_from_bump(tmp_path: Path) -> None:
+    """find_pinned_shas() must find exactly the pin a real bump() writes.
+
+    Both derive from ``ReadmeShaPin._url_prefix()``/``_SHA_SHAPE`` rather
+    than hand-copied literals — this drives an actual bump() and reads the
+    result back through find_pinned_shas(), so a future edit to one and not
+    the other breaks this test instead of Phase 11 silently passing a stale
+    README because the read-back pattern quietly stopped matching.
+    """
+    root = _make_release_project(tmp_path)
+    d = str(root)
+
+    (root / "README.md").write_text(
+        "# proj\n\n```bash\n"
+        "curl -fsSL https://raw.githubusercontent.com/"
+        "punt-labs/proj/abc1234/install.sh | sh\n"
+        "```\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "sha-pinned readme"], cwd=d)
+    _git(["tag", "v0.2.0"], cwd=d)
+
+    info = detect(root)
+    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+
+    readme_content = (root / "README.md").read_text()
+    expected_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
+
+    found = ReadmeShaPin.find_pinned_shas(readme_content, "punt-labs", "proj")
+    assert found == [expected_sha]
 
 
 def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
@@ -7403,30 +7436,25 @@ def test_phase11_verify_readme_pin_passes_when_ancestor_of_tag(
     assert "✗ README pin" not in out
 
 
-def test_phase11_verify_readme_pin_fails_when_not_ancestor_of_tag(
+def test_phase11_verify_readme_pin_fails_when_pinned_to_previous_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A resolvable README SHA pin that isn't on the tag's history fails.
+    """A README SHA pin left at an earlier commit fails, even though that
+    commit is reachable from the tag.
 
-    Regression for the gap this check closes: before it existed, the
-    released repo's own README curl | sh install lines were never
-    reconciled against the release tag at all — a stale pin there
-    silently kept installing the previous release.
+    Regression for the realistic rot this check exists to catch: a
+    previous release's install.sh commit is itself an ancestor of every
+    later tag, so ancestry alone would pass this silently — the pin has
+    to match the CURRENT install.sh commit, not merely be on the tag's
+    history. The stale pin here is the repo's own root commit — reachable
+    from the tag and fully resolvable, but not the commit install_sh_sha()
+    resolves to.
     """
     version = "0.1.0"
-    root, _ = _setup_verify_project(tmp_path, version)
+    root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
 
-    _git(["checkout", "-b", "stale-readme-branch"], cwd=d)
-    (root / "install.sh").write_text(
-        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
-        "# unrelated edit on an unmerged branch\n"
-        'uv tool install --force "$PACKAGE==$VERSION"\n'
-    )
-    _git(["add", "install.sh"], cwd=d)
-    _git(["commit", "-m", "stale branch edit"], cwd=d)
-    stale_sha = _git_out(["rev-parse", "HEAD"], cwd=d)
-    _git(["checkout", "main"], cwd=d)
+    stale_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
 
     (root / "README.md").write_text(
         "# proj\n\ncurl -fsSL "
@@ -7434,7 +7462,7 @@ def test_phase11_verify_readme_pin_fails_when_not_ancestor_of_tag(
         "/install.sh | sh\n"
     )
     _git(["add", "README.md"], cwd=d)
-    _git(["commit", "-m", "pin stale readme sha"], cwd=d)
+    _git(["commit", "-m", "pin readme to a stale, but ancestor, commit"], cwd=d)
 
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
@@ -7444,7 +7472,7 @@ def test_phase11_verify_readme_pin_fails_when_not_ancestor_of_tag(
 
     out = capsys.readouterr().out
     assert "✗ README pin" in out
-    assert "ancestor" in out
+    assert "stale" in out
 
 
 def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
@@ -7452,27 +7480,18 @@ def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
 ) -> None:
     """Every install snippet's pin is checked, not just the first.
 
-    A README with a correct SHA in one snippet and a stale SHA in another
-    (e.g. a --no-plugin variant hand-edited or missed by the landing PR)
-    must still fail — verifying only the first regex match would let the
-    second, wrong pin through undetected.
+    A README with a correct SHA in one snippet and a stale SHA (the repo's
+    own root commit — reachable from the tag, but not the current
+    install.sh commit) in another (e.g. a --no-plugin variant hand-edited
+    or missed by the landing PR) must still fail — verifying only the
+    first regex match would let the second, wrong pin through undetected.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
 
     install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
-
-    _git(["checkout", "-b", "stale-readme-branch-2"], cwd=d)
-    (root / "install.sh").write_text(
-        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
-        "# unrelated edit on an unmerged branch\n"
-        'uv tool install --force "$PACKAGE==$VERSION"\n'
-    )
-    _git(["add", "install.sh"], cwd=d)
-    _git(["commit", "-m", "stale branch edit"], cwd=d)
-    stale_sha = _git_out(["rev-parse", "HEAD"], cwd=d)
-    _git(["checkout", "main"], cwd=d)
+    stale_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
 
     (root / "README.md").write_text(
         "# proj\n\ncurl -fsSL "
@@ -7550,30 +7569,25 @@ def test_phase11_verify_readme_and_website_pins_pass_when_current(
     assert "✗ website" not in out
 
 
-def test_phase11_verify_website_sha_fails_when_not_ancestor_of_tag(
+def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A resolvable website installCommand SHA off the tag's history fails.
+    """A website installCommand SHA pinned to an earlier commit fails, even
+    though that commit is reachable from the tag.
 
-    Regression for the gap this check closes: Phase 10 propagates the
-    website's installCommand SHA but nothing previously verified it landed
-    on the tag's history — a stale pin there silently kept installing the
-    previous release.
+    Regression for the realistic rot this check exists to catch: a
+    previous release's install.sh commit is itself an ancestor of every
+    later tag, so ancestry alone would pass this silently — Phase 10 must
+    have actually advanced the pin to the CURRENT install.sh commit, not
+    merely to something on the tag's history. The stale pin here is the
+    repo's own root commit — reachable from the tag and fully resolvable,
+    but not the commit install_sh_sha() resolves to.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     d = str(root)
 
-    _git(["checkout", "-b", "stale-website-branch"], cwd=d)
-    (root / "install.sh").write_text(
-        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
-        "# unrelated edit on an unmerged branch\n"
-        'uv tool install --force "$PACKAGE==$VERSION"\n'
-    )
-    _git(["add", "install.sh"], cwd=d)
-    _git(["commit", "-m", "stale branch edit"], cwd=d)
-    stale_sha = _git_out(["rev-parse", "HEAD"], cwd=d)
-    _git(["checkout", "main"], cwd=d)
+    stale_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
 
     _add_website_sibling(tmp_path, "proj", version, stale_sha)
 
@@ -7585,7 +7599,46 @@ def test_phase11_verify_website_sha_fails_when_not_ancestor_of_tag(
 
     out = capsys.readouterr().out
     assert "✗ website SHA" in out
-    assert "ancestor" in out
+    assert "stale" in out
+
+
+def test_phase11_verify_website_sha_skips_when_not_sha_pinned(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A version-tag (non-SHA) installCommand is skipped, not failed.
+
+    Matches WebsitePropagator's own tolerance: its re.sub silently no-ops
+    on a non-SHA-shaped install URL (a version-tag or branch pin) rather
+    than treating it as an error, so a website entry that legitimately
+    isn't SHA-pinned must not fail every release.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com/punt-labs/"
+                f"proj/v{version}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "website SHA" not in out
 
 
 def test_phase11_verify_website_fails_when_version_mismatch(
@@ -7611,6 +7664,9 @@ def test_phase11_verify_website_fails_when_version_mismatch(
     out = capsys.readouterr().out
     assert "✗ website" in out
     assert "version=0.0.9" in out
+    # The SHA check must be independent of the version check — a stale
+    # version does not mean the SHA check was skipped or also flagged.
+    assert "✓ website SHA" in out
 
 
 def test_phase11_verify_website_absent_sibling_skips_cleanly(
