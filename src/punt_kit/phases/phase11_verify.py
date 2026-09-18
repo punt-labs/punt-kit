@@ -678,18 +678,26 @@ class Phase11Verify:
                                     owner = repo.split("/", 1)[0]
                                     # Same shared matcher the README check
                                     # uses, so README and website validate
-                                    # identically. Trusted and untrusted
-                                    # pins are detected and reported
-                                    # independently — an installCommand can
-                                    # carry one trusted current-SHA pin AND
-                                    # one untrusted-host/owner pin (e.g.
-                                    # https://evil.example/proj/<sha>/
-                                    # install.sh), and the untrusted one
-                                    # must never be skipped just because a
-                                    # trusted pin was also found.
+                                    # identically. require_owner=False since
+                                    # an installCommand embeds only the
+                                    # project slug (.../proj/<sha>/
+                                    # install.sh), not necessarily the
+                                    # owner, so "references this project"
+                                    # is judged on the project name alone.
+                                    # Trusted and untrusted pins are
+                                    # detected and reported independently —
+                                    # an installCommand can carry one
+                                    # trusted current-SHA pin AND one
+                                    # untrusted-host/owner pin, and the
+                                    # untrusted one must never be skipped
+                                    # just because a trusted pin was also
+                                    # found.
                                     trusted_shas, has_untrusted = (
                                         ReadmeShaPin.classify_install_urls(
-                                            install_cmd, owner, project_name
+                                            install_cmd,
+                                            owner,
+                                            project_name,
+                                            require_owner=False,
                                         )
                                     )
                                     if trusted_shas:
