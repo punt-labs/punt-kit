@@ -1922,3 +1922,92 @@ which would never retry the propagation it is reporting on.
 | Use `multiprocessing` with `terminate()` instead of threads | DES-018 already rejected this for the unrelated reason (no CPU-bound work, shared memory needed for error collection). Terminating a process mid-`git`/`gh` call risks a half-written propagation branch with no cleanup hook to run — worse than the current interrupted-but-diagnosed state. |
 | Shrink `CI_WATCH` (the overall 2-hour deadline) instead of adding an interrupt check | Fixes the worst case but not the actual complaint — an operator who wants to stop *now* still waits out whatever the shorter deadline is. The interrupt check is what makes Ctrl-C mean "now" instead of "eventually." |
 | Detect the stuck join with a watchdog thread and force-exit | Adds a second interrupt mechanism with its own race conditions (how long is "stuck"?) on top of the one Python already provides. Checking the existing `_interrupted` event from inside the loop that can actually observe it is simpler and has no new failure mode. |
+
+## DES-030: Install-SHA Pin Verification Is Currency + Identity + Host, Not Ancestry
+
+**Date:** 2026-09-18
+**Status:** SETTLED
+**Topic:** What Phase 11 must prove about a pinned `install.sh` SHA (the product's own README `curl | sh` lines and `public-website`'s `projects.json` `installCommand`) for the pin to count as verified
+
+### Design
+
+A pinned install SHA is verified only when all three hold:
+
+1. **Currency, not reachability.** The pin must name the *current* installer
+   commit — `ReleaseProject.install_sh_sha()`, the commit that last modified
+   `install.sh` — not merely a commit reachable from the release tag. Every
+   release advances that commit (it bumps `VERSION="X.Y.Z"`), and every prior
+   release's installer commit stays on `main`, so ancestry is trivially
+   satisfied by a pin left one release behind. Ancestry answers "is this a real
+   commit on our history"; it does not answer "is this *this* release."
+2. **Resolved commit identity, not text.** Both the pinned SHA and the expected
+   SHA are resolved to full object IDs (`git rev-parse <sha>^{commit}`) and
+   compared for equality. A pin that does not resolve to a real commit fails; a
+   textual prefix is never treated as identity.
+3. **Trusted URL host/owner/repo.** A SHA is only trusted when it sits in the
+   exact `raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh` shape the
+   release itself writes (one shared matcher in `ReadmeShaPin`, used by both the
+   pin writer and the verifier so they cannot drift). A SHA-shaped `install.sh`
+   URL on any other host or owner fails loud; a non-SHA install URL
+   (version-tag or branch pin) is skipped, matching `WebsitePropagator`'s own
+   `re.sub` no-op tolerance.
+
+Extends DES-022 ("verification over trust") to the two pin consumers the
+earlier pass (pkit-9n6q) left unchecked.
+
+### Why
+
+The whole point of Phase 11 is to catch when an earlier phase failed to update
+a pin. The realistic failure is a pin left at the *previous* release's
+installer commit — which is an ancestor of the new tag, so an ancestry-only
+check is blind to exactly the rot it exists to find. Textual prefix comparison
+lets a fabricated or prefix-colliding hash pass without being a real commit,
+and matching a bare `/<project>/<sha>/install.sh` path on any host would stamp
+`https://evil.example/<project>/<current-sha>/install.sh` as verified. Each
+weaker check gives a false "verified" for a different reason; only currency +
+resolved identity + trusted host together mean what the check claims.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Ancestry-only (`git merge-base --is-ancestor <pin> <tag>`) | A previous release's installer commit is an ancestor of every later tag, so a pin left one release behind passes silently — the exact rot the check targets. |
+| Textual prefix match (`re.fullmatch(f"{short_sha}[0-9a-f]*", pin)`) | Treats a string prefix as commit identity; a fabricated/longer hash beginning with the short SHA, or a prefix collision, passes without resolving to a real commit. |
+| Match `/<project>/<sha>/install.sh` on any host | Accepts a SHA-shaped path on an untrusted host/owner as verified — a security hole that would stamp attacker-hosted install content as current. |
+| Substring/regex match for `raw.githubusercontent.com/<owner>/<repo>/…` | The trusted string can sit in the *path* of an attacker URL (`https://evil.example/raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh`) or a lookalike host (`raw.githubusercontent.com.evil.com`) and pass. The authority must be parsed (`urlparse`) and the host compared with `==`, not matched as a substring. |
+| Reject untrusted URLs only when no trusted pin is found | A command carrying one trusted current-SHA URL and a second untrusted-host SHA URL would pass on the strength of the first; untrusted SHA-shaped install URLs are rejected independently of any trusted pin present. |
+| Duplicate the pin URL regex in the writer and the verifier | Drifts silently — a change to the written URL leaves the verifier matching the old shape and passing vacuously; one shared source in `ReadmeShaPin` keeps them equal by construction. |
+
+### Threat model and scope
+
+The check's purpose is **rot prevention**: catching a release-process failure that
+leaves a real, legitimately-formatted install pin at the *previous* release's
+commit. Against that — the operational bug this exists for — it is complete.
+
+As a **secondary** benefit it flags a project-referencing install URL pointing at
+an untrusted host/owner, and the classifier is hardened to see through the
+realistic obfuscations of normal committed content: case variation (GitHub routes
+repos case-insensitively), percent-encoding to a bounded fixed point, whitespace
+evasion (`${IFS}`, non-greedy split), and multiple/glued URLs per token (every
+`install.sh` span is scanned, not just the first). A candidate that references the
+project but is not a clean, fully-matching trusted URL — including one whose
+encoding never resolves within the decode cap — is failed closed, never silently
+dropped.
+
+The encoding tail is closed categorically rather than case by case: a URL-shaped
+install candidate that does not reach a percent-decode fixed point within a
+bounded number of passes (`_MAX_DECODE_DEPTH`) is failed closed unconditionally.
+A legitimately-written pin carries zero encoding layers (`bump()` emits a plain
+URL), so any token still changing after the cap is definitively not normal
+content and cannot be treated as trusted — which removes the whole "one more
+nesting layer" class of evasion in one rule instead of chasing depths.
+
+**Explicitly out of scope (accepted risk):** an adversary who can *write to the
+repo's `README.md` or the website's `projects.json`* is not the threat this check
+defends against. Such an adversary already has strictly stronger, less
+conspicuous attacks — most directly, replacing `install.sh` at the very commit
+the pin legitimately names — that no URL-text check can see. This verifier is
+defense-in-depth on the pinned URL's shape and destination, not a general
+supply-chain-injection control; the controls for repo-write compromise are branch
+protection, review, and signing (DES-022's "verification over trust" applies to
+the *release process's own* state, not to a hostile committer).

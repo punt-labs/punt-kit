@@ -13,6 +13,7 @@ from rich.console import Console
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
 from punt_kit.phases.shared.timeouts import UV
 
@@ -36,6 +37,63 @@ class VerificationCheck:
     name: str
     passed: bool
     detail: str
+
+    @classmethod
+    def matches_install_sha(
+        cls,
+        name: str,
+        pinned_sha: str,
+        install_sha: str,
+        *,
+        cwd: Path,
+        ops: ReleaseOps,
+    ) -> Self:
+        """Verify a pinned SHA resolves to the CURRENT install.sh commit.
+
+        Ancestry alone (is the pin reachable from the tag?) is not enough: a
+        previous release's install.sh commit is itself an ancestor of every
+        later tag, so an ancestor-only check would pass the exact rot this
+        exists to catch — Phase 9/10 left the pin one release behind.
+
+        A textual prefix match (``pinned_sha.startswith(install_sha)``) is
+        not enough either: it treats an unresolved string as commit
+        identity, so a fabricated or nonexistent hash that merely starts
+        with the right characters — or a real but unrelated commit that
+        happens to share the short prefix — would pass without ever being
+        resolved. Both ``install_sha`` and ``pinned_sha`` are resolved to
+        full commit object IDs via ``git rev-parse <sha>^{commit}`` and
+        compared for equality, so a valid abbreviated or full pin of the
+        right commit passes, and an arbitrary/nonexistent hash fails.
+        """
+        expected = ops.run(
+            ["git", "rev-parse", f"{install_sha}^{{commit}}"],
+            cwd=str(cwd),
+            check=False,
+        )
+        if expected.returncode != 0:
+            # install_sha comes from a fresh git log on the caller's own
+            # repo, so it always resolves — a failure here is a genuine git
+            # error, not a stale pin, and must not be misreported as one.
+            return cls(
+                name,
+                False,
+                f"SHA={pinned_sha} (git error resolving expected commit "
+                f"{install_sha}: {expected.stderr.strip()})",
+            )
+        resolved = ops.run(
+            ["git", "rev-parse", f"{pinned_sha}^{{commit}}"],
+            cwd=str(cwd),
+            check=False,
+        )
+        if resolved.returncode != 0:
+            return cls(name, False, f"SHA={pinned_sha} (does not resolve to a commit)")
+        current = resolved.stdout.strip() == expected.stdout.strip()
+        detail = (
+            f"SHA={pinned_sha}"
+            if current
+            else f"SHA={pinned_sha} (stale — expected {install_sha})"
+        )
+        return cls(name, current, detail)
 
 
 @final
@@ -555,7 +613,44 @@ class Phase11Verify:
                                     )
                                 )
 
-        # 7. Website (optional — sibling may not exist)
+        # 7. Product README (own repo's SHA-pinned install URLs) must match
+        # the CURRENT install.sh commit — see matches_install_sha() for why
+        # ancestry alone would miss the realistic rot. Reuses the same URL
+        # pattern ReadmeShaPin.bump() writes, so it never drifts from the
+        # pin it is verifying. Only runs when a pin is present at all — a
+        # README that predates any SHA pin (still a bare version-tag URL, or
+        # no install snippet) is not this check's concern.
+        if repo and install_sh.exists():
+            owner, repo_name = repo.split("/", 1)
+            own_readme = info.root / "README.md"
+            if own_readme.exists():
+                trusted_shas, has_untrusted = ReadmeShaPin.classify_install_urls(
+                    own_readme.read_text(encoding="utf-8"), owner, repo_name
+                )
+                # Trusted and untrusted pins are detected and reported
+                # independently — a README can carry one trusted current-SHA
+                # pin AND one untrusted-host/owner pin (e.g. an injected
+                # line), and the untrusted one must never be skipped just
+                # because a trusted pin was also found.
+                if trusted_shas:
+                    install_sha = project.install_sh_sha()
+                    for sha in sorted(set(trusted_shas)):
+                        checks.append(
+                            VerificationCheck.matches_install_sha(
+                                "README pin", sha, install_sha, cwd=info.root, ops=ops
+                            )
+                        )
+                if has_untrusted:
+                    checks.append(
+                        VerificationCheck(
+                            "README pin",
+                            False,
+                            "SHA-pinned install URL is not on the trusted "
+                            f"raw.githubusercontent.com/{owner}/{repo_name}/ host",
+                        )
+                    )
+
+        # 8. Website (optional — sibling may not exist)
         if repo:
             project_name = repo.split("/")[-1]
             website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
@@ -577,6 +672,74 @@ class Phase11Verify:
                                     f"version={web_ver}",
                                 )
                             )
+                            if install_sh.exists():
+                                install_cmd = str(entry.get("installCommand") or "")
+                                if install_cmd:
+                                    owner = repo.split("/", 1)[0]
+                                    # Same shared matcher the README check
+                                    # uses, so README and website validate
+                                    # identically — except this entry is
+                                    # ALREADY matched to this project (by
+                                    # id or githubUrl, above), so unlike a
+                                    # README (which legitimately documents
+                                    # other tools' install one-liners too),
+                                    # EVERY install.sh URL in this field is
+                                    # claimed to install this project.
+                                    # all_urls_relevant=True drops the
+                                    # repo-name reference filter so a URL
+                                    # pointing at a different repo — wrong
+                                    # owner, wrong name, untrusted host, or
+                                    # a stale entry left over from a rename
+                                    # — is flagged instead of silently
+                                    # ignored for not matching the pattern
+                                    # a wrong-repo URL never carries.
+                                    # Trusted and untrusted pins are still
+                                    # detected and reported independently —
+                                    # an installCommand can carry one
+                                    # trusted current-SHA pin AND one
+                                    # untrusted-host/owner pin, and the
+                                    # untrusted one must never be skipped
+                                    # just because a trusted pin was also
+                                    # found.
+                                    trusted_shas, has_untrusted = (
+                                        ReadmeShaPin.classify_install_urls(
+                                            install_cmd,
+                                            owner,
+                                            project_name,
+                                            all_urls_relevant=True,
+                                        )
+                                    )
+                                    if trusted_shas:
+                                        install_sha = project.install_sh_sha()
+                                        for sha in sorted(set(trusted_shas)):
+                                            checks.append(
+                                                VerificationCheck.matches_install_sha(
+                                                    "website SHA",
+                                                    sha,
+                                                    install_sha,
+                                                    cwd=info.root,
+                                                    ops=ops,
+                                                )
+                                            )
+                                    if has_untrusted:
+                                        checks.append(
+                                            VerificationCheck(
+                                                "website SHA",
+                                                False,
+                                                "SHA-pinned install URL is not "
+                                                "on the trusted "
+                                                f"raw.githubusercontent.com/"
+                                                f"{owner}/{project_name}/ host",
+                                            )
+                                        )
+                                    # If neither: no SHA-shaped install URL
+                                    # at all (version-tag or branch pin, or
+                                    # no install.sh reference) — skip. That
+                                    # shape is not this check's concern; it
+                                    # matches WebsitePropagator's own
+                                    # tolerance, whose re.sub silently no-ops
+                                    # on a non-SHA-shaped install URL rather
+                                    # than treating it as an error.
                             web_found = True
                             break
                     if not web_found:
@@ -586,7 +749,7 @@ class Phase11Verify:
                             )
                         )
 
-        # 8. PyPI — confirm the exact published version resolves from the
+        # 9. PyPI — confirm the exact published version resolves from the
         # INDEX. `uv pip install --dry-run` uses uv's own resolver, so it
         # needs no `pip` binary (uv-managed project venvs do not ship one —
         # `uv run pip` fails with "Failed to spawn: pip"). This must assert
