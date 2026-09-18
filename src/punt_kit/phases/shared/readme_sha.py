@@ -177,7 +177,12 @@ class ReadmeShaPin:
 
     @classmethod
     def classify_install_urls(
-        cls, content: str, owner: str, repo_name: str
+        cls,
+        content: str,
+        owner: str,
+        repo_name: str,
+        *,
+        all_urls_relevant: bool = False,
     ) -> tuple[list[str], bool]:
         """Classify every install.sh URL in ``content`` as trusted or not.
 
@@ -250,25 +255,41 @@ class ReadmeShaPin:
         SHA-shaped (a version tag or branch) is tolerated with no further
         check — that shape is not a SHA pin and has nothing to go stale.
 
-        EVERY token with an install.sh reference — not just the ones that
-        fail the trusted-prefix test — is independently checked for
-        whether it "references this project": the DECODED path contains
-        ``/<repo_name>/``, compared CASE-INSENSITIVELY for the same
-        GitHub-routing reason as the trusted check. (The repo name alone,
-        not owner+repo together: an attacker can register their own
-        same-named repo on the genuine raw.githubusercontent.com host, so
-        requiring both would let ``.../attacker-org/<repo_name>/...``
-        silently evade detection.) A token that references this project
-        but did NOT achieve a clean, fully-matching trusted URL — trailing
-        garbage, extra path, wrong host, wrong scheme, wrong owner — sets
-        ``has_untrusted``, independently of whether any trusted pin was
-        ALSO found in the same content and regardless of whether the
-        untrusted token's segment is SHA-shaped or a version tag/branch (a
-        SHA-pin-to-version-tag downgrade onto an untrusted host must fail
-        exactly like an untrusted SHA does, or it would evade the check
-        entirely by no longer looking like a SHA). A token that does not
-        reference this project at all — some unrelated tool's install.sh
-        URL — is ignored.
+        A span that did NOT achieve a clean, fully-matching trusted URL —
+        trailing garbage, extra path, wrong host, wrong scheme, wrong
+        owner — sets ``has_untrusted``, independently of whether any
+        trusted pin was ALSO found in the same content and regardless of
+        whether the untrusted span's segment is SHA-shaped or a version
+        tag/branch (a SHA-pin-to-version-tag downgrade onto an untrusted
+        host must fail exactly like an untrusted SHA does, or it would
+        evade the check entirely by no longer looking like a SHA). Which
+        non-trusted spans COUNT toward ``has_untrusted`` depends on
+        ``all_urls_relevant``:
+
+        - Default (``False``, README's mode): only a span that
+          independently "references this project" — the DECODED path
+          contains ``/<repo_name>/``, compared CASE-INSENSITIVELY for the
+          same GitHub-routing reason as the trusted check. (The repo name
+          alone, not owner+repo together: an attacker can register their
+          own same-named repo on the genuine raw.githubusercontent.com
+          host, so requiring both would let
+          ``.../attacker-org/<repo_name>/...`` silently evade detection.)
+          A README legitimately documents OTHER tools' install
+          one-liners too, so a span that doesn't reference this project
+          at all is ignored rather than flagged.
+        - ``all_urls_relevant=True`` (the website's mode): EVERY non-
+          trusted span counts, with no reference test at all. The
+          website's ``installCommand`` field belongs to an entry the
+          caller has ALREADY matched to this project by id or GitHub URL
+          — every install.sh URL inside it is claimed to install THIS
+          project, so a URL pointing at a different repo (wrong owner,
+          wrong repo name, or an untrusted host entirely — including a
+          stale entry left over from a rename) is a real misconfiguration
+          the check exists to catch, not a reference to unpack. Applying
+          README's repo-name filter here would let exactly that
+          misconfiguration — an installCommand that installs the WRONG
+          software — pass silently, since a wrong-repo URL by definition
+          carries no ``/<repo_name>/`` segment to match against.
         """
         esc_owner = re.escape(owner)
         esc_repo = re.escape(repo_name)
@@ -310,7 +331,7 @@ class ReadmeShaPin:
                     segment = full_match.group(1)
                     if re.fullmatch(cls._SHA_SHAPE, segment):
                         trusted_shas.append(segment)
-                elif reference_pattern.search(parsed.path):
+                elif all_urls_relevant or reference_pattern.search(parsed.path):
                     has_untrusted = True
         return trusted_shas, has_untrusted
 

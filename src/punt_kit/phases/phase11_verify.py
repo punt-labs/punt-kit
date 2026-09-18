@@ -678,17 +678,35 @@ class Phase11Verify:
                                     owner = repo.split("/", 1)[0]
                                     # Same shared matcher the README check
                                     # uses, so README and website validate
-                                    # identically. Trusted and untrusted
-                                    # pins are detected and reported
-                                    # independently — an installCommand can
-                                    # carry one trusted current-SHA pin AND
-                                    # one untrusted-host/owner pin, and the
+                                    # identically — except this entry is
+                                    # ALREADY matched to this project (by
+                                    # id or githubUrl, above), so unlike a
+                                    # README (which legitimately documents
+                                    # other tools' install one-liners too),
+                                    # EVERY install.sh URL in this field is
+                                    # claimed to install this project.
+                                    # all_urls_relevant=True drops the
+                                    # repo-name reference filter so a URL
+                                    # pointing at a different repo — wrong
+                                    # owner, wrong name, untrusted host, or
+                                    # a stale entry left over from a rename
+                                    # — is flagged instead of silently
+                                    # ignored for not matching the pattern
+                                    # a wrong-repo URL never carries.
+                                    # Trusted and untrusted pins are still
+                                    # detected and reported independently —
+                                    # an installCommand can carry one
+                                    # trusted current-SHA pin AND one
+                                    # untrusted-host/owner pin, and the
                                     # untrusted one must never be skipped
                                     # just because a trusted pin was also
                                     # found.
                                     trusted_shas, has_untrusted = (
                                         ReadmeShaPin.classify_install_urls(
-                                            install_cmd, owner, project_name
+                                            install_cmd,
+                                            owner,
+                                            project_name,
+                                            all_urls_relevant=True,
                                         )
                                     )
                                     if trusted_shas:
