@@ -192,15 +192,21 @@ class ReadmeShaPin:
         passes, and nothing bounds how many layers an attacker nests, so
         decoding repeats until the string stops changing rather than
         hard-coding a pass count. When the depth cap is hit WHILE the
-        string is still changing (a ``%25``-self-reference chain or
-        similar pathological nesting), that token is never trusted enough
-        to extract a SHA from or confirm a clean install.sh boundary in —
-        but silently dropping it would be the exact zero-candidate evasion
-        this method exists to close, so the best-effort (still partially
-        encoded) decode is checked for a reference to this project
-        (``/<repo_name>/``, case-insensitively) and, if found, counted as
-        untrusted directly, without attempting install.sh-boundary
-        detection on unreliable text.
+        string is still changing (a ``%25``-self-reference chain, a repo
+        segment nested 6+ encoding layers deep, or similar pathological
+        nesting), the token is counted as untrusted UNCONDITIONALLY —
+        not only when the repo name happens to already be legible in the
+        partial decode. A legitimate, committed install URL carries ZERO
+        percent-encoding layers (``bump()`` only ever writes a plain
+        ``https://raw.githubusercontent.com/...`` URL), so any URL-shaped
+        token that still hasn't stabilized after the depth cap is
+        definitively not normal content and cannot be verified as
+        trusted — requiring the reference to be independently findable
+        in that same partial decode would only move the evasion to
+        whichever encoding depth keeps the repo name itself unresolved
+        past the cap, rather than closing the category. Silently
+        dropping an unresolved token instead would be the exact
+        zero-candidate evasion this method exists to close.
 
         Once decoded to a fixed point, EVERY install.sh reference within
         the token is found and classified independently
@@ -276,8 +282,20 @@ class ReadmeShaPin:
         for token in tokens:
             decoded, reached_fixed_point = cls._decode_to_fixed_point(token)
             if not reached_fixed_point:
-                if reference_pattern.search(decoded):
-                    has_untrusted = True
+                # A legitimate, committed install URL carries ZERO
+                # percent-encoding layers — bump() only ever writes a
+                # plain https://raw.githubusercontent.com/... URL. A
+                # URL-shaped token (every token here is one, by
+                # construction of _URL_TOKEN) that still hasn't
+                # stabilized after _MAX_DECODE_DEPTH passes is therefore
+                # definitively not normal content, independent of
+                # whether the repo name happens to already be legible in
+                # the partial decode — requiring that would only move
+                # the evasion to whichever encoding depth keeps the repo
+                # name itself unresolved past the cap. Fail closed
+                # unconditionally instead of trying to read a reference
+                # out of text that never finished decoding.
+                has_untrusted = True
                 continue
             for start, end in cls._install_sh_spans(decoded):
                 candidate = decoded[start:end]
