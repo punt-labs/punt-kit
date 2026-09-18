@@ -42,7 +42,16 @@ class ReadmeShaPin:
     # each candidate is handed to urlparse() (which normalizes scheme to
     # lowercase) and its authority validated, rather than trusting a bare
     # substring/regex match that can appear inside an attacker host's PATH.
-    _INSTALL_URL_CANDIDATE = re.compile(r"https?://\S+/install\.sh", re.IGNORECASE)
+    #
+    # Non-greedy (`+?`) is load-bearing: a zero-whitespace payload chaining
+    # two curl|sh invocations back to back (e.g. shell `${IFS}` in place
+    # of literal spaces) has no whitespace to stop a greedy `\S+` at, so
+    # it would glob both URLs into ONE candidate whose path starts with
+    # the first URL's (possibly trusted) prefix but doesn't end cleanly at
+    # its own "/install.sh" — hiding the second, appended URL from
+    # classification entirely. Non-greedy matching stops at the FIRST
+    # "/install.sh" it finds, so each real URL becomes its own candidate.
+    _INSTALL_URL_CANDIDATE = re.compile(r"https?://\S+?/install\.sh", re.IGNORECASE)
 
     _info: ProjectInfo
     _ops: ReleaseOps
@@ -73,80 +82,75 @@ class ReadmeShaPin:
 
     @classmethod
     def classify_install_urls(
-        cls,
-        content: str,
-        owner: str,
-        repo_name: str,
-        *,
-        require_owner: bool = True,
+        cls, content: str, owner: str, repo_name: str
     ) -> tuple[list[str], bool]:
         """Classify every install.sh URL in ``content`` as trusted or not.
 
         Returns ``(trusted_shas, has_untrusted)``.
 
-        A candidate is TRUSTED only when its full prefix genuinely resolves
-        to ``https://raw.githubusercontent.com/<owner>/<repo>/`` — each
-        candidate is parsed with ``urllib.parse.urlparse`` (which
+        A candidate is TRUSTED only when the FULL candidate is exactly
+        ``https://raw.githubusercontent.com/<owner>/<repo>/<segment>/
+        install.sh`` — parsed with ``urllib.parse.urlparse`` (which
         normalizes scheme case, so ``HTTPS://`` and ``https://`` are
         equivalent) and accepted only when ``scheme == "https"`` and
         ``hostname == "raw.githubusercontent.com"`` EXACTLY (not
         ``endswith``, which would accept the attacker host
-        ``raw.githubusercontent.com.evil.com``), with the PATH additionally
-        required to start with ``/<owner>/<repo>/``. A bare substring/regex
-        match on the trusted host string is not enough:
-        ``https://evil.example/raw.githubusercontent.com/<owner>/<repo>/
-        <sha>/install.sh`` carries the trusted string inside an attacker
-        host's PATH, and curl would download from evil.example, not GitHub.
+        ``raw.githubusercontent.com.evil.com``), with the PATH required to
+        FULLY match ``/<owner>/<repo>/<segment>/install.sh`` end to end — a
+        prefix match is not enough: a candidate whose path merely STARTS
+        with the trusted ``/<owner>/<repo>/`` prefix but carries trailing
+        garbage (e.g. two URLs glued together with no separating
+        whitespace) would otherwise be misclassified as "trusted but not
+        SHA-shaped" and tolerated, hiding whatever follows. A bare
+        substring/regex match on the trusted host string is not enough
+        either: ``https://evil.example/raw.githubusercontent.com/<owner>/
+        <repo>/<sha>/install.sh`` carries the trusted string inside an
+        attacker host's PATH, and curl would download from evil.example,
+        not GitHub.
 
-        A trusted candidate whose final path segment is SHA-shaped is a
-        trusted SHA, collected into ``trusted_shas`` for the caller to
-        verify currency against. A trusted candidate whose final segment is
-        NOT SHA-shaped (a version tag or branch) is tolerated with no
-        further check — that shape is not a SHA pin and has nothing to go
-        stale, but the host/owner/repo prefix has still been validated.
+        A trusted (fully-matching) candidate whose segment is SHA-shaped is
+        a trusted SHA, collected into ``trusted_shas`` for the caller to
+        verify currency against. A trusted candidate whose segment is NOT
+        SHA-shaped (a version tag or branch) is tolerated with no further
+        check — that shape is not a SHA pin and has nothing to go stale.
 
-        A candidate whose prefix is NOT trusted (wrong scheme, wrong host,
-        or the right host with the wrong owner/repo) sets ``has_untrusted``
-        — independently of whether any trusted pin was also found, and
-        regardless of whether the untrusted candidate's final segment is
-        SHA-shaped or a version tag/branch. A SHA-pin-to-version-tag
-        downgrade onto an untrusted host must fail exactly like an
-        untrusted SHA does — checking only SHA-shaped untrusted URLs would
-        let a downgraded pin evade the check entirely by no longer looking
-        like a SHA. This only fires when the candidate "references this
-        project": the path contains ``/<owner>/<repo>/`` when
-        ``require_owner`` is True (the README's own install lines always
-        embed both), or just ``/<repo_name>/`` when ``require_owner`` is
-        False (a website ``installCommand`` embeds only the project slug,
-        not necessarily the owner). A candidate that does not reference
-        this project at all — some unrelated tool's install.sh URL — is
-        ignored.
+        EVERY candidate — not just the ones that fail the trusted-prefix
+        test — is independently checked for whether it "references this
+        project": the path contains ``/<repo_name>/``. (The repo name
+        alone, not owner+repo together: an attacker can register their own
+        same-named repo on the genuine raw.githubusercontent.com host, so
+        requiring both would let ``.../attacker-org/<repo_name>/...``
+        silently evade detection.) A candidate that references this
+        project but did NOT achieve a clean, fully-matching trusted URL —
+        trailing garbage, extra path, wrong host, wrong scheme, wrong
+        owner — sets ``has_untrusted``, independently of whether any
+        trusted pin was ALSO found in the same content and regardless of
+        whether the untrusted candidate's segment is SHA-shaped or a
+        version tag/branch (a SHA-pin-to-version-tag downgrade onto an
+        untrusted host must fail exactly like an untrusted SHA does, or it
+        would evade the check entirely by no longer looking like a SHA). A
+        candidate that does not reference this project at all — some
+        unrelated tool's install.sh URL — is ignored.
         """
         esc_owner = re.escape(owner)
         esc_repo = re.escape(repo_name)
-        trusted_prefix = re.compile(rf"^/{esc_owner}/{esc_repo}/")
-        trusted_sha_path = re.compile(
-            rf"^/{esc_owner}/{esc_repo}/({cls._SHA_SHAPE})/install\.sh$"
-        )
-        reference_pattern = (
-            re.compile(rf"/{esc_owner}/{esc_repo}/")
-            if require_owner
-            else re.compile(rf"/{esc_repo}/")
-        )
+        trusted_full = re.compile(rf"/{esc_owner}/{esc_repo}/([^/]+)/install\.sh")
+        reference_pattern = re.compile(rf"/{esc_repo}/")
         trusted_shas: list[str] = []
         has_untrusted = False
         candidates = cast("list[str]", cls._INSTALL_URL_CANDIDATE.findall(content))
         for candidate in candidates:
             parsed = urlparse(candidate)
-            is_trusted_prefix = (
-                parsed.scheme == "https"
+            full_match = (
+                trusted_full.fullmatch(parsed.path)
+                if parsed.scheme == "https"
                 and parsed.hostname == "raw.githubusercontent.com"
-                and trusted_prefix.match(parsed.path) is not None
+                else None
             )
-            if is_trusted_prefix:
-                sha_match = trusted_sha_path.match(parsed.path)
-                if sha_match is not None:
-                    trusted_shas.append(sha_match.group(1))
+            if full_match is not None:
+                segment = full_match.group(1)
+                if re.fullmatch(cls._SHA_SHAPE, segment):
+                    trusted_shas.append(segment)
             elif reference_pattern.search(parsed.path):
                 has_untrusted = True
         return trusted_shas, has_untrusted
