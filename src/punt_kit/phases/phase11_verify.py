@@ -13,6 +13,7 @@ from rich.console import Console
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
 from punt_kit.phases.shared.timeouts import UV
 
@@ -36,6 +37,35 @@ class VerificationCheck:
     name: str
     passed: bool
     detail: str
+
+    @classmethod
+    def pinned_ancestor(
+        cls, name: str, sha: str, ref: str, *, cwd: Path, ops: ReleaseOps
+    ) -> Self:
+        """Verify a plain SHA pin resolves as an ancestor of ``ref``.
+
+        Shared by the SHA-pin sites that have nothing left to check once
+        ancestry holds — the README's own install URLs and the
+        public-website ``installCommand``. install-all.sh and the profile
+        pin inline their own ancestor check instead: a pass there also
+        requires the pinned commit's *content* to carry this project's
+        current entry, not just reachability from ``ref``.
+        """
+        result = ops.run(
+            ["git", "merge-base", "--is-ancestor", sha, ref], cwd=str(cwd), check=False
+        )
+        if result.returncode == 0:
+            return cls(name, True, f"SHA={sha}")
+        if result.returncode == 1:
+            return cls(name, False, f"SHA={sha} (not an ancestor of {ref})")
+        # merge-base --is-ancestor exits 1 for "not an ancestor" and >=128 for
+        # a genuine git error (e.g. a missing ref) — the latter is not a
+        # stale pin and must not be reported as one.
+        return cls(
+            name,
+            False,
+            f"SHA={sha} (git error verifying ancestry: {result.stderr.strip()})",
+        )
 
 
 @final
@@ -555,7 +585,31 @@ class Phase11Verify:
                                     )
                                 )
 
-        # 7. Website (optional — sibling may not exist)
+        # 7. Product README (own repo's SHA-pinned install URLs). Reuses the
+        # same URL pattern ReadmeShaPin.land() writes, so it never drifts
+        # from the pin it is verifying. Only runs when a pin is present at
+        # all — a README that predates any SHA pin (still a bare version-tag
+        # URL, or no install snippet) is not this check's concern; the
+        # concern here is a pin that resolves but is stale.
+        if repo and install_sh.exists():
+            owner, repo_name = repo.split("/", 1)
+            own_readme = info.root / "README.md"
+            if own_readme.exists():
+                pinned_shas = sorted(
+                    set(
+                        ReadmeShaPin.find_pinned_shas(
+                            own_readme.read_text(encoding="utf-8"), owner, repo_name
+                        )
+                    )
+                )
+                for sha in pinned_shas:
+                    checks.append(
+                        VerificationCheck.pinned_ancestor(
+                            "README pin", sha, tag, cwd=info.root, ops=ops
+                        )
+                    )
+
+        # 8. Website (optional — sibling may not exist)
         if repo:
             project_name = repo.split("/")[-1]
             website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
@@ -577,6 +631,38 @@ class Phase11Verify:
                                     f"version={web_ver}",
                                 )
                             )
+                            if install_sh.exists():
+                                # Same gate WebsitePropagator uses to decide
+                                # whether it bumps installCommand's SHA — a
+                                # website entry legitimately has no
+                                # installCommand (e.g. PyPI-only listings), and
+                                # that absence is not this check's concern.
+                                install_cmd = str(entry.get("installCommand") or "")
+                                if install_cmd and f"/{project_name}/" in install_cmd:
+                                    sha_match = re.search(
+                                        rf"/{re.escape(project_name)}/"
+                                        r"([0-9a-fA-F]{7,40})/install\.sh",
+                                        install_cmd,
+                                    )
+                                    if sha_match is None:
+                                        checks.append(
+                                            VerificationCheck(
+                                                "website SHA",
+                                                False,
+                                                "installCommand has no "
+                                                "SHA-pinned install URL",
+                                            )
+                                        )
+                                    else:
+                                        checks.append(
+                                            VerificationCheck.pinned_ancestor(
+                                                "website SHA",
+                                                sha_match.group(1),
+                                                tag,
+                                                cwd=info.root,
+                                                ops=ops,
+                                            )
+                                        )
                             web_found = True
                             break
                     if not web_found:
@@ -586,7 +672,7 @@ class Phase11Verify:
                             )
                         )
 
-        # 8. PyPI — confirm the exact published version resolves from the
+        # 9. PyPI — confirm the exact published version resolves from the
         # INDEX. `uv pip install --dry-run` uses uv's own resolver, so it
         # needs no `pip` binary (uv-managed project venvs do not ship one —
         # `uv run pip` fails with "Failed to spawn: pip"). This must assert

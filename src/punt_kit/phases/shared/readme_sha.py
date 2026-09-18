@@ -34,6 +34,25 @@ class ReadmeShaPin:
         self._ops = ops
         return self
 
+    @staticmethod
+    def find_pinned_shas(content: str, owner: str, repo_name: str) -> list[str]:
+        """Return every SHA-pinned install.sh URL's commit SHA in ``content``.
+
+        Same URL shape ``bump()`` writes (``raw.githubusercontent.com/<owner>/
+        <repo>/<sha>/install.sh``) — shared so Phase 11's verification check,
+        which must catch every pin in a README with several separate install
+        snippets (curl | bash, curl -o, --no-plugin variants, ...) rather than
+        just the first, never drifts from the pattern the landing PR actually
+        writes.
+        """
+        esc_owner = re.escape(owner)
+        esc_repo = re.escape(repo_name)
+        pattern = re.compile(
+            rf"raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/"
+            r"([0-9a-fA-F]{7,40})/install\.sh"
+        )
+        return pattern.findall(content)
+
     def bump(
         self,
         version: str,
