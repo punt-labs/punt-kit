@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import re
 from typing import TYPE_CHECKING, Self, cast, final
-from urllib.parse import urlparse
+from urllib.parse import unquote, urlparse
 
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -33,25 +33,45 @@ class ReadmeShaPin:
     # silently diverge.
     _SHA_SHAPE: str = r"[0-9a-fA-F]{7,40}"
 
-    # Every candidate install.sh URL in free-form text (a README, an
-    # installCommand string). Matches http OR https, case-insensitively —
-    # curl fetches HTTPS://, Https://, and http://, all just as readily as
-    # https://, and a candidate filter that misses them lets that URL
-    # evade classification entirely (no check at all, worse than
-    # "untrusted"). Classification, not this filter, decides trust:
-    # each candidate is handed to urlparse() (which normalizes scheme to
-    # lowercase) and its authority validated, rather than trusting a bare
-    # substring/regex match that can appear inside an attacker host's PATH.
+    # Every URL-shaped token in free-form text (a README, an installCommand
+    # string). Matches http OR https, case-insensitively — curl fetches
+    # HTTPS://, Https://, and http://, all just as readily as https://, and
+    # a token filter that misses them lets that URL evade classification
+    # entirely (no check at all, worse than "untrusted").
     #
-    # Non-greedy (`+?`) is load-bearing: a zero-whitespace payload chaining
-    # two curl|sh invocations back to back (e.g. shell `${IFS}` in place
-    # of literal spaces) has no whitespace to stop a greedy `\S+` at, so
-    # it would glob both URLs into ONE candidate whose path starts with
-    # the first URL's (possibly trusted) prefix but doesn't end cleanly at
-    # its own "/install.sh" — hiding the second, appended URL from
-    # classification entirely. Non-greedy matching stops at the FIRST
-    # "/install.sh" it finds, so each real URL becomes its own candidate.
-    _INSTALL_URL_CANDIDATE = re.compile(r"https?://\S+?/install\.sh", re.IGNORECASE)
+    # Deliberately NOT anchored on a literal "install.sh" substring (the
+    # prior design): an attacker who percent-encodes even one character of
+    # "install.sh" — "%69nstall.sh", where %69 decodes to "i" — produces a
+    # URL with no such substring anywhere in the raw text, so a filter that
+    # requires it finds zero tokens and the URL evades classification
+    # entirely. Every URL-shaped token is captured here; deciding whether
+    # a token is an install.sh reference happens after percent-decoding,
+    # in classify_install_urls().
+    #
+    # Bounded by real text/shell delimiters — whitespace, a quote, a shell
+    # pipe, or a shell command separator — not by that literal substring.
+    # This still keeps two invocations glued by a zero-whitespace shell
+    # trick (`${IFS}` in place of a literal space) as separate tokens:
+    # `${IFS}` itself contains no quote/pipe/semicolon, but the literal
+    # `|` a real payload needs to pipe into a shell does, and that `|` is
+    # one of the stop characters.
+    _URL_TOKEN = re.compile(r"""https?://[^\s"'|;]+""", re.IGNORECASE)
+
+    # Where, within a percent-decoded token, an install.sh reference ends.
+    # Matches "install.sh" case-insensitively only when followed by a
+    # non-word character or the end of the string — never by another
+    # letter, digit, or underscore. That boundary is what lets
+    # classify_install_urls() find the reference and discard everything
+    # after it, rather than requiring the token to end there: a
+    # zero-whitespace shell trick can glue non-URL noise (e.g. "${IFS}")
+    # directly onto a genuine ".../install.sh" with no delimiter between
+    # them, and the trailing "$" of "${IFS}" is itself a non-word
+    # character, so the boundary still lands exactly at the end of
+    # "install.sh" and the glued noise is dropped. A different real
+    # filename that merely starts with "install" — "install.shellscript"
+    # — is correctly NOT matched, because "e" (a word character)
+    # immediately follows "install.sh" there.
+    _INSTALL_SH_BOUNDARY = re.compile(r"install\.sh(?=$|\W)", re.IGNORECASE)
 
     _info: ProjectInfo
     _ops: ReleaseOps
@@ -88,7 +108,24 @@ class ReadmeShaPin:
 
         Returns ``(trusted_shas, has_untrusted)``.
 
-        A candidate is TRUSTED only when the FULL candidate is exactly
+        Every URL-shaped token (``_URL_TOKEN``) is percent-decoded via
+        ``urllib.parse.unquote`` BEFORE any comparison — raw, undecoded
+        text is never compared against ``owner``/``repo_name`` or the
+        trusted host. Two evasions live in comparing encoded text: percent-
+        encoding one character of ``install.sh`` (``%69nstall.sh``, where
+        ``%69`` decodes to ``i``) hides the reference from a literal-text
+        search, and percent-encoding a character of the repo segment
+        (``%77idget``, where ``%77`` decodes to ``w``) hides it from a
+        plain-text "does this reference our project" test — both decode to
+        the real characters before curl ever requests them, so decoding
+        first is what a real HTTP client effectively does too. Each
+        decoded token is then searched for an install.sh reference
+        (``_INSTALL_SH_BOUNDARY``) and truncated right after it, discarding
+        anything the boundary regex's own docstring explains was glued on
+        afterward; a token with no such reference isn't an install.sh URL
+        at all and is skipped.
+
+        A truncated token is TRUSTED only when the FULL token is exactly
         ``https://raw.githubusercontent.com/<owner>/<repo>/<segment>/
         install.sh`` — parsed with ``urllib.parse.urlparse`` (which
         normalizes scheme case, so ``HTTPS://`` and ``https://`` are
@@ -96,9 +133,13 @@ class ReadmeShaPin:
         ``hostname == "raw.githubusercontent.com"`` EXACTLY (not
         ``endswith``, which would accept the attacker host
         ``raw.githubusercontent.com.evil.com``), with the PATH required to
-        FULLY match ``/<owner>/<repo>/<segment>/install.sh`` end to end — a
-        prefix match is not enough: a candidate whose path merely STARTS
-        with the trusted ``/<owner>/<repo>/`` prefix but carries trailing
+        FULLY match ``/<owner>/<repo>/<segment>/install.sh`` end to end,
+        comparing ``owner``/``repo_name`` CASE-INSENSITIVELY — GitHub
+        routes repository URLs case-insensitively, so a real pin to
+        ``.../PUNT-KIT/...`` is exactly as trusted as ``.../punt-kit/...``,
+        and a case-sensitive comparison would false-fail the former. A
+        prefix match is not enough: a token whose path merely STARTS with
+        the trusted ``/<owner>/<repo>/`` prefix but carries trailing
         garbage (e.g. two URLs glued together with no separating
         whitespace) would otherwise be misclassified as "trusted but not
         SHA-shaped" and tolerated, hiding whatever follows. A bare
@@ -108,38 +149,47 @@ class ReadmeShaPin:
         attacker host's PATH, and curl would download from evil.example,
         not GitHub.
 
-        A trusted (fully-matching) candidate whose segment is SHA-shaped is
-        a trusted SHA, collected into ``trusted_shas`` for the caller to
-        verify currency against. A trusted candidate whose segment is NOT
+        A trusted (fully-matching) token whose segment is SHA-shaped is a
+        trusted SHA, collected into ``trusted_shas`` for the caller to
+        verify currency against. A trusted token whose segment is NOT
         SHA-shaped (a version tag or branch) is tolerated with no further
         check — that shape is not a SHA pin and has nothing to go stale.
 
-        EVERY candidate — not just the ones that fail the trusted-prefix
-        test — is independently checked for whether it "references this
-        project": the path contains ``/<repo_name>/``. (The repo name
-        alone, not owner+repo together: an attacker can register their own
+        EVERY token with an install.sh reference — not just the ones that
+        fail the trusted-prefix test — is independently checked for
+        whether it "references this project": the DECODED path contains
+        ``/<repo_name>/``, compared CASE-INSENSITIVELY for the same
+        GitHub-routing reason as the trusted check. (The repo name alone,
+        not owner+repo together: an attacker can register their own
         same-named repo on the genuine raw.githubusercontent.com host, so
         requiring both would let ``.../attacker-org/<repo_name>/...``
-        silently evade detection.) A candidate that references this
-        project but did NOT achieve a clean, fully-matching trusted URL —
-        trailing garbage, extra path, wrong host, wrong scheme, wrong
-        owner — sets ``has_untrusted``, independently of whether any
-        trusted pin was ALSO found in the same content and regardless of
-        whether the untrusted candidate's segment is SHA-shaped or a
-        version tag/branch (a SHA-pin-to-version-tag downgrade onto an
-        untrusted host must fail exactly like an untrusted SHA does, or it
-        would evade the check entirely by no longer looking like a SHA). A
-        candidate that does not reference this project at all — some
-        unrelated tool's install.sh URL — is ignored.
+        silently evade detection.) A token that references this project
+        but did NOT achieve a clean, fully-matching trusted URL — trailing
+        garbage, extra path, wrong host, wrong scheme, wrong owner — sets
+        ``has_untrusted``, independently of whether any trusted pin was
+        ALSO found in the same content and regardless of whether the
+        untrusted token's segment is SHA-shaped or a version tag/branch (a
+        SHA-pin-to-version-tag downgrade onto an untrusted host must fail
+        exactly like an untrusted SHA does, or it would evade the check
+        entirely by no longer looking like a SHA). A token that does not
+        reference this project at all — some unrelated tool's install.sh
+        URL — is ignored.
         """
         esc_owner = re.escape(owner)
         esc_repo = re.escape(repo_name)
-        trusted_full = re.compile(rf"/{esc_owner}/{esc_repo}/([^/]+)/install\.sh")
-        reference_pattern = re.compile(rf"/{esc_repo}/")
+        trusted_full = re.compile(
+            rf"/{esc_owner}/{esc_repo}/([^/]+)/install\.sh", re.IGNORECASE
+        )
+        reference_pattern = re.compile(rf"/{esc_repo}/", re.IGNORECASE)
         trusted_shas: list[str] = []
         has_untrusted = False
-        candidates = cast("list[str]", cls._INSTALL_URL_CANDIDATE.findall(content))
-        for candidate in candidates:
+        tokens = cast("list[str]", cls._URL_TOKEN.findall(content))
+        for token in tokens:
+            decoded = unquote(token)
+            boundary = cls._INSTALL_SH_BOUNDARY.search(decoded)
+            if boundary is None:
+                continue  # not an install.sh reference at all — not a candidate
+            candidate = decoded[: boundary.end()]
             parsed = urlparse(candidate)
             full_match = (
                 trusted_full.fullmatch(parsed.path)
