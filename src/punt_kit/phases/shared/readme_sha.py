@@ -73,6 +73,26 @@ class ReadmeShaPin:
     # immediately follows "install.sh" there.
     _INSTALL_SH_BOUNDARY = re.compile(r"install\.sh(?=$|\W)", re.IGNORECASE)
 
+    # Locates BOTH ends of every install.sh reference in one pass over a
+    # fully decoded token: a scheme start (group 1) or an install.sh
+    # boundary (group 2, built from ``_INSTALL_SH_BOUNDARY`` rather than
+    # re-typing its pattern, so the two can never silently diverge). A
+    # single token can hide more than one reference once decoded — a
+    # ``%0A`` (encoded newline) reveals a second "https://.../install.sh"
+    # glued onto the first with no real delimiter anywhere in the RAW
+    # text — so every scheme/boundary pair in the token is walked, not
+    # just the first of each.
+    _SCHEME_OR_BOUNDARY = re.compile(
+        rf"(https?://)|({_INSTALL_SH_BOUNDARY.pattern})", re.IGNORECASE
+    )
+
+    # Depth cap for percent-decoding a token to a fixed point (see
+    # _decode_to_fixed_point). unquote() never lengthens a string, so
+    # decoding to a fixed point always terminates — this cap exists only
+    # to bound the work against a pathological input, not because more
+    # than a handful of encoding layers is ever legitimate.
+    _MAX_DECODE_DEPTH = 5
+
     _info: ProjectInfo
     _ops: ReleaseOps
 
@@ -101,6 +121,61 @@ class ReadmeShaPin:
         return rf"raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/"
 
     @classmethod
+    def _decode_to_fixed_point(cls, token: str) -> tuple[str, bool]:
+        """Percent-decode ``token`` repeatedly until it stops changing.
+
+        Returns ``(decoded, reached_fixed_point)``. A single ``unquote()``
+        pass only unwraps ONE layer of encoding — a double-encoded
+        ``%2569nstall.sh`` (``%25`` decodes to ``%``) yields
+        ``%69nstall.sh`` after one pass, still not the literal
+        "install.sh" a caller needs to recognize, evading detection
+        exactly like the single-encoding case one layer deeper. Repeating
+        the decode to a fixed point closes every encoding depth
+        uniformly, rather than hard-coding "two passes" and leaving a
+        triple-encoded variant to evade the next round.
+
+        ``unquote()`` never lengthens a string, so decoding to a fixed
+        point always terminates for any input — bounded above by the
+        token's own length in passes. ``_MAX_DECODE_DEPTH`` exists only to
+        bound the work against a pathological input (e.g. a ``%25``-self-
+        reference chain unwrapping one ``%`` at a time), not because a
+        legitimate encoding is ever nested that deep. When the cap is hit
+        while the string is STILL changing, ``reached_fixed_point`` is
+        ``False`` — the caller must not trust that partial decode enough
+        to extract a SHA or confirm a clean install.sh boundary from it.
+        """
+        current = token
+        for _ in range(cls._MAX_DECODE_DEPTH):
+            nxt = unquote(current)
+            if nxt == current:
+                return current, True
+            current = nxt
+        return current, False
+
+    @classmethod
+    def _install_sh_spans(cls, decoded: str) -> list[tuple[int, int]]:
+        """Every ``(start, end)`` span of a complete install.sh URL within
+        a fully percent-decoded token.
+
+        Pairs each install.sh boundary with the CLOSEST preceding scheme
+        start — not necessarily position 0, since only the very first URL
+        in a token starts there. Truncating at the FIRST boundary and
+        stopping (the prior design) silently discarded every reference
+        after it; walking the whole decoded string once and collecting
+        every span is what lets a second, untrusted reference revealed
+        only after decoding (e.g. behind a decoded ``%0A``) still get
+        classified instead of vanishing with the truncated remainder.
+        """
+        spans: list[tuple[int, int]] = []
+        last_scheme_start: int | None = None
+        for match in cls._SCHEME_OR_BOUNDARY.finditer(decoded):
+            if match.group(1) is not None:
+                last_scheme_start = match.start()
+            elif last_scheme_start is not None:
+                spans.append((last_scheme_start, match.end()))
+        return spans
+
+    @classmethod
     def classify_install_urls(
         cls, content: str, owner: str, repo_name: str
     ) -> tuple[list[str], bool]:
@@ -108,24 +183,38 @@ class ReadmeShaPin:
 
         Returns ``(trusted_shas, has_untrusted)``.
 
-        Every URL-shaped token (``_URL_TOKEN``) is percent-decoded via
-        ``urllib.parse.unquote`` BEFORE any comparison — raw, undecoded
-        text is never compared against ``owner``/``repo_name`` or the
-        trusted host. Two evasions live in comparing encoded text: percent-
-        encoding one character of ``install.sh`` (``%69nstall.sh``, where
-        ``%69`` decodes to ``i``) hides the reference from a literal-text
-        search, and percent-encoding a character of the repo segment
-        (``%77idget``, where ``%77`` decodes to ``w``) hides it from a
-        plain-text "does this reference our project" test — both decode to
-        the real characters before curl ever requests them, so decoding
-        first is what a real HTTP client effectively does too. Each
-        decoded token is then searched for an install.sh reference
-        (``_INSTALL_SH_BOUNDARY``) and truncated right after it, discarding
-        anything the boundary regex's own docstring explains was glued on
-        afterward; a token with no such reference isn't an install.sh URL
-        at all and is skipped.
+        Every URL-shaped token (``_URL_TOKEN``) is percent-decoded to a
+        FIXED POINT (``_decode_to_fixed_point``) BEFORE any comparison —
+        raw, undecoded, or only-partially-decoded text is never compared
+        against ``owner``/``repo_name`` or the trusted host. A single
+        ``unquote()`` pass only closes a single-encoding evasion
+        (``%69nstall.sh``); a double-encoded ``%2569nstall.sh`` needs two
+        passes, and nothing bounds how many layers an attacker nests, so
+        decoding repeats until the string stops changing rather than
+        hard-coding a pass count. When the depth cap is hit WHILE the
+        string is still changing (a ``%25``-self-reference chain or
+        similar pathological nesting), that token is never trusted enough
+        to extract a SHA from or confirm a clean install.sh boundary in —
+        but silently dropping it would be the exact zero-candidate evasion
+        this method exists to close, so the best-effort (still partially
+        encoded) decode is checked for a reference to this project
+        (``/<repo_name>/``, case-insensitively) and, if found, counted as
+        untrusted directly, without attempting install.sh-boundary
+        detection on unreliable text.
 
-        A truncated token is TRUSTED only when the FULL token is exactly
+        Once decoded to a fixed point, EVERY install.sh reference within
+        the token is found and classified independently
+        (``_install_sh_spans``) — not just the first. Percent-encoding a
+        character of the repo segment (``%77idget``, where ``%77`` decodes
+        to ``w``) hides it from a plain-text "does this reference our
+        project" test unless the search runs on decoded text; an encoded
+        separator (``%0A``, a newline) can reveal a SECOND
+        "https://.../install.sh" glued onto the first with no delimiter
+        anywhere in the raw text, and truncating at the first boundary
+        found would discard that second reference along with whatever
+        attack it carries.
+
+        A found span is TRUSTED only when the FULL span is exactly
         ``https://raw.githubusercontent.com/<owner>/<repo>/<segment>/
         install.sh`` — parsed with ``urllib.parse.urlparse`` (which
         normalizes scheme case, so ``HTTPS://`` and ``https://`` are
@@ -185,24 +274,26 @@ class ReadmeShaPin:
         has_untrusted = False
         tokens = cast("list[str]", cls._URL_TOKEN.findall(content))
         for token in tokens:
-            decoded = unquote(token)
-            boundary = cls._INSTALL_SH_BOUNDARY.search(decoded)
-            if boundary is None:
-                continue  # not an install.sh reference at all — not a candidate
-            candidate = decoded[: boundary.end()]
-            parsed = urlparse(candidate)
-            full_match = (
-                trusted_full.fullmatch(parsed.path)
-                if parsed.scheme == "https"
-                and parsed.hostname == "raw.githubusercontent.com"
-                else None
-            )
-            if full_match is not None:
-                segment = full_match.group(1)
-                if re.fullmatch(cls._SHA_SHAPE, segment):
-                    trusted_shas.append(segment)
-            elif reference_pattern.search(parsed.path):
-                has_untrusted = True
+            decoded, reached_fixed_point = cls._decode_to_fixed_point(token)
+            if not reached_fixed_point:
+                if reference_pattern.search(decoded):
+                    has_untrusted = True
+                continue
+            for start, end in cls._install_sh_spans(decoded):
+                candidate = decoded[start:end]
+                parsed = urlparse(candidate)
+                full_match = (
+                    trusted_full.fullmatch(parsed.path)
+                    if parsed.scheme == "https"
+                    and parsed.hostname == "raw.githubusercontent.com"
+                    else None
+                )
+                if full_match is not None:
+                    segment = full_match.group(1)
+                    if re.fullmatch(cls._SHA_SHAPE, segment):
+                        trusted_shas.append(segment)
+                elif reference_pattern.search(parsed.path):
+                    has_untrusted = True
         return trusted_shas, has_untrusted
 
     @classmethod
