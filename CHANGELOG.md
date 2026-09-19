@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-09-19
+
 ### Added
 
 - **Repository agent definitions are refreshed, with three dedicated review agents.** Adds code-quality, silent-failure, and invariant-completeness reviewers; fixes generated YAML descriptions so all profiles parse correctly.
