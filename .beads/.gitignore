@@ -47,3 +47,9 @@ daemon.log
 daemon.pid
 bd.sock
 sync-state.json
+
+# Dolt server-mode runtime (per-machine; never tracked)
+dolt-server.lock
+dolt-server.pid
+dolt-server.port
+dolt/

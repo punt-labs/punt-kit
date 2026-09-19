@@ -83,6 +83,7 @@ ehthumbs.db
 .codex/
 .accio/
 .claude-flow/
+artifacts/
 *.swp
 *.swo
 *~
