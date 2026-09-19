@@ -161,7 +161,7 @@ Fourteen design patterns extracted from shipping Claude Code plugins. Each patte
 | [Daemon + Proxy MCP](patterns/daemon-proxy-mcp.md) | A resident daemon behind an MCP proxy for tools with heavy initialization costs |
 | [Humble Object Commands](patterns/humble-object-commands.md) | CLI commands as thin shells over testable core calls — no infrastructure in `@app.command()` bodies |
 | [Ethos Extension Setup](patterns/ethos-ext-setup.md) | Tools write session context into ethos identity extension files during install |
-| [Dual Command Path](patterns/dual-command-path.md) | Dev commands use `uv run --directory`, prod commands use the installed CLI |
+| [Dual Command Path](patterns/dual-command-path.md) | Dev commands use local source, prod commands use the installed CLI |
 | [Two-Channel Display](patterns/two-channel-display.md) | Status bar for ambient state, conversation for interactions |
 | [Stash and Wrap](patterns/stash-and-wrap.md) | PostToolUse hooks suppress raw MCP output, show clean narration |
 | [Copy Not Symlink](patterns/copy-not-symlink.md) | Plugin install copies files instead of symlinking |
@@ -202,6 +202,26 @@ claude --plugin-dir plugin     # Load the local plugin as punt-dev:*
 `--plugin-dir` argument is `plugin`, not `.` — it must name the directory
 holding `.claude-plugin/plugin.json` so `${CLAUDE_PLUGIN_ROOT}` matches what a
 marketplace install sees.
+
+The local plugin exposes these development commands alongside the installed
+`punt:*` commands:
+
+| Command | Local development behavior |
+|---------|----------------------------|
+| `/punt-dev:init-dev [project-path]` | Scaffold a project using the local CLI |
+| `/punt-dev:audit-dev [project-path] [--fix]` | Audit compliance using the local CLI |
+| `/punt-dev:pii-dev [project-path] [--staged]` | Scan for PII using the local CLI |
+| `/punt-dev:reconcile-dev [project-path]` | Reconcile standards with the local command and CLI |
+| `/punt-dev:auto-dev <playbook> [key=value ...]` | Execute local playbooks with the local executor skill |
+| `/punt-dev:bead-review-dev [repo-path]` | Review a backlog with the local bead-review skill |
+| `/punt-dev:claude2cursor-dev [output-path]` | Convert local production commands to Cursor skills |
+
+CLI wrappers use `uv run --project "${CLAUDE_PLUGIN_ROOT}/.."`, which selects
+punt-kit's source environment while preserving the invoking directory. An
+omitted project path targets that directory; relative paths resolve from it.
+`auto-dev` also runs playbook steps in the invoking directory; each step uses
+the command specified in the playbook. Cursor conversion defaults its output
+to the current workspace. Development commands are removed from release tags.
 
 ## License
 

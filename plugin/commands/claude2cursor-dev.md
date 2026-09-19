@@ -6,7 +6,7 @@ allowed-tools: Read, Write, Glob, Edit, Delete
 
 # Claude to Cursor Conversion (Dev)
 
-Run the same conversion as `/punt claude2cursor`, but using the **local working tree** as the plugin root (`${CLAUDE_PLUGIN_ROOT}`). Use this when developing punt-kit to convert from the repo you are editing. The full specification below is identical to the prod command.
+Run the same conversion as `/punt:claude2cursor`, but using the **local working tree** as the plugin root (`${CLAUDE_PLUGIN_ROOT}`). Use this when developing punt-kit to convert from the repo you are editing. The full specification below is identical to the prod command.
 
 Convert this Punt Labs plugin's prod commands (and optionally CLAUDE.md/AGENTS.md) into Cursor-compatible skills and rules. Safe to run repeatedly: each run overwrites existing artifacts and removes obsolete skill dirs so output stays in sync with the plugin.
 

@@ -9357,8 +9357,8 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(
 
     Simulates the scenario where multiple PRs merge between the release swap
     and Phase 9 (post-release), so HEAD~1 no longer has the dev plugin state.
-    Run against both layouts: the script walks plugin.json's history by path,
-    so naming the wrong path yields an empty log and an early exit.
+    A command-only commit after the last dev manifest edit must survive the
+    restore, including commands removed by the release swap. Cover both layouts.
     """
     root = tmp_path / "repo"
     root.mkdir()
@@ -9378,10 +9378,17 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "add dev plugin state"], cwd=d)
 
+    # Command-only changes do not appear in a path-filtered manifest history.
+    (commands_dir / "hello.md").write_text("# Hello\nUpdated command\n")
+    (commands_dir / "hello-dev.md").write_text("# Hello dev\nLatest dev command\n")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "fix commands without changing the manifest"], cwd=d)
+
     # Release swap: remove -dev from name (simulates release-plugin.sh)
     (plugin_dir / "plugin.json").write_text(
         json.dumps({"name": "test", "version": "0.1.0"}, indent=2) + "\n"
     )
+    (commands_dir / "hello-dev.md").unlink()
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "chore: prepare plugin for release"], cwd=d)
 
@@ -9421,8 +9428,11 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(
     restored = json.loads((plugin_dir / "plugin.json").read_text())
     assert restored["name"] == "test-dev"
 
-    # Verify the dev command was restored
-    assert (commands_dir / "hello.md").read_text() == "# Hello\nDev command\n"
+    # Restore the newest commands, not the snapshot from the last manifest edit.
+    assert (commands_dir / "hello.md").read_text() == "# Hello\nUpdated command\n"
+    assert (commands_dir / "hello-dev.md").read_text() == (
+        "# Hello dev\nLatest dev command\n"
+    )
 
     # Contract: the script stages but does NOT commit — HEAD is unchanged
     # and the restored files are in the index, waiting for the caller
@@ -9443,12 +9453,9 @@ def test_restore_dev_plugin_finds_dev_commit_past_head1(
         text=True,
         check=True,
     ).stdout.split()
-    # Only plugin.json differs from the dev commit — commands/hello.md
-    # was never removed by the simulated release swap so `git add
-    # commands/` finds nothing new to stage. What matters for the
-    # contract is that the name-flip landed in the index.
     expected = (plugin_dir / "plugin.json").relative_to(root).as_posix()
     assert expected in staged
+    assert (commands_dir / "hello-dev.md").relative_to(root).as_posix() in staged
 
 
 def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
@@ -9512,19 +9519,13 @@ def test_phase9_dev_restore_single_commit_with_restamp(
 
     # Establish a dev-state commit that also carries a -dev command
     # file, so restore-dev-plugin.sh's `git checkout ... commands/` has
-    # something to walk back to. The commit must touch plugin.json —
-    # the script walks plugin.json history, so a commit that only adds
-    # commands/ would be invisible to it and it would keep walking back
-    # to the initial scaffold commit (which has no commands/).
+    # something to walk back to.
     plugin_json = plugin_root / ".claude-plugin" / "plugin.json"
     commands_dir = plugin_root / "commands"
     commands_dir.mkdir(parents=True, exist_ok=True)
     (commands_dir / "hello-dev.md").write_text("# hello-dev\n")
-    # Force plugin.json to differ from the scaffold — the restore
-    # script walks plugin.json history and picks the newest commit
-    # whose JSON has a -dev name. A no-op write leaves plugin.json out
-    # of this commit and the script walks back past it to the scaffold
-    # (which has no commands/) and errors on the checkout.
+    # Include manifest metadata so this fixture exercises restoring both
+    # the manifest and commands before the caller re-stamps the version.
     plugin_json.write_text(
         json.dumps(
             {"name": "test-dev", "version": "0.1.0", "description": "d"},

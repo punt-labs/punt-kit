@@ -4,7 +4,7 @@ set -euo pipefail
 # Restore dev plugin state on main after a release tag.
 #
 # Instead of assuming HEAD~1 has the dev state (which breaks when multiple
-# PRs merge between the release swap and Phase 9), walk plugin.json history
+# PRs merge between the release swap and Phase 9), walk first-parent history
 # to find the most recent commit where the name ended with -dev.
 #
 # CONTRACT: This script restores dev-state files and stages them. It does
@@ -42,9 +42,11 @@ PLUGIN_JSON="${PLUGIN_PREFIX}.claude-plugin/plugin.json"
 COMMANDS_DIR="${PLUGIN_PREFIX}commands/"
 
 # Find the most recent commit where plugin.json contained the dev name.
-# Dev plugin names always end with -dev. Walk plugin.json history and
-# check each commit's content until we find one with the dev name.
-LOG_OUTPUT="$(git -C "$REPO_ROOT" log --format='%H' -- "$PLUGIN_JSON")"
+# Dev plugin names always end with -dev. Inspect every first-parent commit:
+# filtering by plugin.json would miss command-only changes made after the last
+# manifest edit. First-parent order follows the released branch's snapshots,
+# including commands added before a squash-merged production swap.
+LOG_OUTPUT="$(git -C "$REPO_ROOT" log --first-parent --format='%H')"
 if [ -z "$LOG_OUTPUT" ]; then
   echo "ERROR: No commit history found for ${PLUGIN_JSON} — is the path correct?" >&2
   exit 1
@@ -59,7 +61,7 @@ while IFS= read -r sha; do
   show_output="$(git -C "$REPO_ROOT" show "${sha}:${PLUGIN_JSON}" 2>"$STDERR_FILE")" && rc=0 || rc=$?
   if [ "$rc" -ne 0 ]; then
     show_stderr="$(cat "$STDERR_FILE")"
-    if echo "$show_stderr" | grep -qE "does not exist|not a valid object"; then
+    if echo "$show_stderr" | grep -qE "does not exist|exists on disk, but not in|not a valid object"; then
       continue
     fi
     echo "ERROR: git show failed: ${show_stderr}" >&2

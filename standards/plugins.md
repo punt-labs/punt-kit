@@ -1,5 +1,7 @@
 # Plugin Standards
 
+**Updated:** 2026-09-19
+
 Standards for Claude Code plugins across all Punt Labs projects.
 
 ---
@@ -34,11 +36,14 @@ This gives you:
 
 | Source | Commands | What they run |
 |--------|----------|---------------|
-| Marketplace `punt` | `/punt init`, `/punt audit` | Installed CLI |
-| Local `punt-dev` | `/punt-dev init-dev`, `/punt-dev audit-dev` | `uv run` against working tree |
+| Marketplace `punt` | `/punt:init`, `/punt:audit` | Installed CLI |
+| Local `punt-dev` | `/punt-dev:init-dev`, `/punt-dev:audit-dev` | `uv run` against working tree |
 
-The `-dev` commands use `uv run --directory ${CLAUDE_PLUGIN_ROOT}/..` to
-execute the working tree code directly, bypassing the installed CLI. The `/..`
+The `-dev` commands use `uv run --project "${CLAUDE_PLUGIN_ROOT}/.."` to
+execute the working tree code directly, bypassing the installed CLI, while
+preserving the caller's working directory and relative target paths. Use
+`--project` here because `--directory` changes where those targets resolve.
+The `/..`
 is required, not incidental: `${CLAUDE_PLUGIN_ROOT}` is the `plugin/`
 subdirectory, which carries no `pyproject.toml`. For editable-install projects
 (tts, biff), the installed binary already points to the working tree, so dev
@@ -53,7 +58,7 @@ extension points automatically.
 
 | Layer | Production | Development |
 |-------|-----------|-------------|
-| Commands | `/punt init` | `/punt-dev init-dev` |
+| Commands | `/punt:init` | `/punt-dev:init-dev` |
 | MCP tools | `mcp__plugin_punt_*` | `mcp__plugin_punt_dev_*` |
 | Skills | `punt:reconcile` | `punt-dev:reconcile-dev` |
 

@@ -66,8 +66,9 @@ Two rules follow, and both are load-bearing:
   outside itself at runtime.** A command or skill may name a path under the
   plugin root or under the *consumer's* repo, not a path elsewhere in this
   repo — that path will not exist on an installed plugin. The one deliberate
-  exception is the `-dev` commands' `uv run --directory
-  ${CLAUDE_PLUGIN_ROOT}/..`, which needs this repo's `pyproject.toml`; those
+  exception is the `-dev` commands' `uv run --project
+  "${CLAUDE_PLUGIN_ROOT}/.."`, which needs this repo's `pyproject.toml` while
+  preserving the consumer's working directory; those
   commands are stripped from every release, so they only ever run against a
   checkout.
 - **`claude --plugin-dir plugin`**, not `--plugin-dir .`. The plugin root has

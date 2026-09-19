@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Development commands preserve the target repository.** CLI wrappers use quoted `uv run --project` paths, audit/init follow-ups point to the dev reconciliation command, and `bead-review-dev` completes the command pairs. The README now documents every development command.
+- **Post-release restoration keeps the latest development commands.** The restore script now includes command-only commits when selecting the pre-release snapshot, preventing new commands and fixes from reverting to the last manifest edit.
+
 ## [0.17.3] - 2026-09-19
 
 ### Added
