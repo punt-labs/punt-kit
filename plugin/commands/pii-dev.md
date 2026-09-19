@@ -15,12 +15,12 @@ Arguments: $ARGUMENTS (defaults to `.` if empty; pass `--staged` for pre-commit 
 
 ## Process
 
-Run from the working tree. `${CLAUDE_PLUGIN_ROOT}` is the repo's `plugin/`
-subdirectory, which carries no `pyproject.toml`; `uv run` needs the project
-root, hence the `/..`.
+Run in the user's current directory. `${CLAUDE_PLUGIN_ROOT}` is punt-kit's
+`plugin/` subdirectory; `--project` selects its parent as the source project
+without changing the current directory or the meaning of relative target paths.
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt pii $ARGUMENTS
+uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt pii $ARGUMENTS
 ```
 
 Report the output to the user. If findings are detected, explain each category and suggest remediation.

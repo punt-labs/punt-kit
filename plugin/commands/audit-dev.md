@@ -15,14 +15,14 @@ Arguments: $ARGUMENTS (defaults to `.` if empty; pass `--fix` to auto-create mis
 
 ## Process
 
-Run from the working tree. `${CLAUDE_PLUGIN_ROOT}` is the repo's `plugin/`
-subdirectory, which carries no `pyproject.toml`; `uv run` needs the project
-root, hence the `/..`.
+Run in the user's current directory. `${CLAUDE_PLUGIN_ROOT}` is punt-kit's
+`plugin/` subdirectory; `--project` selects its parent as the source project
+without changing the current directory or the meaning of relative target paths.
 
 ```bash
-uv run --directory ${CLAUDE_PLUGIN_ROOT}/.. punt audit $ARGUMENTS
+uv run --project "${CLAUDE_PLUGIN_ROOT}/.." punt audit $ARGUMENTS
 ```
 
 Report the output to the user. Summarize the pass/fail results.
 
-If there are failures that `--fix` can resolve, suggest re-running with `--fix`. For issues requiring contextual judgment, suggest `/punt reconcile`.
+If there are failures that `--fix` can resolve, suggest re-running with `--fix`. For issues requiring contextual judgment, suggest `/punt-dev:reconcile-dev`.
