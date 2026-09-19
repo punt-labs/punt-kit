@@ -1,5 +1,5 @@
 ---
-description: "[DEV] Execute an automation playbook using the working tree"
+description: "[DEV] Execute local playbooks with the local executor skill"
 allowed-tools:
   - "Read"
   - "Edit"
@@ -30,6 +30,9 @@ Load and execute the playbook specified below. Follow the executor protocol
 defined in the `auto` skill (`${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md`).
 
 Read the skill file first, then execute the playbook.
+
+This selects the working tree's playbook and executor instructions. Each step
+runs the command written in its playbook; a `punt` step uses the installed CLI.
 
 IMPORTANT: `${CLAUDE_PLUGIN_ROOT}` is used ONLY for playbook discovery (finding
 the YAML file). All preconditions and steps execute in the user's current
