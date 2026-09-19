@@ -84,6 +84,7 @@ ehthumbs.db
 .accio/
 .claude-flow/
 artifacts/
+/.mcp.json
 *.swp
 *.swo
 *~

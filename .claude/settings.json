@@ -37,7 +37,14 @@
       "Read",
       "Edit",
       "Write",
-      "Bash(vox:*)"
+      "Bash(vox:*)",
+      "mcp__plugin_ethos_self__*",
+      "mcp__plugin_z-spec_zspec__*",
+      "mcp__plugin_biff-dev_tty__*",
+      "mcp__plugin_ethos-dev_self__*",
+      "mcp__plugin_quarry-dev_quarry__*",
+      "mcp__plugin_z-spec-dev_zspec__*",
+      "mcp__quarry-dev__*"
     ],
     "deny": [
       "Bash(curl:*)",
