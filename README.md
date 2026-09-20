@@ -219,8 +219,7 @@ CLI wrappers use `uv run --project "${CLAUDE_PLUGIN_ROOT}/.."`, which selects
 punt-kit's source environment while preserving the invoking directory. An
 omitted project path targets that directory; relative paths resolve from it.
 `auto-dev` also runs playbook steps in the invoking directory; each step uses
-the command specified in the playbook. Cursor conversion defaults its output
-to the current workspace. Development commands are removed from release tags.
+the command specified in the playbook. Development commands are removed from release tags.
 
 ## License
 
