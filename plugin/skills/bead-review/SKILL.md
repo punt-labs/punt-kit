@@ -1,6 +1,7 @@
 ---
 name: bead-review
 description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work
+disable-model-invocation: true
 ---
 
 # bead-review — Full Backlog Audit

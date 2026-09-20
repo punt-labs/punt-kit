@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **`/punt:bead-review` no longer appears twice.** The `bead-review` skill lacked `disable-model-invocation: true`, so it surfaced as a slash entry alongside the command that invokes it — two `/punt:bead-review` with different help strings. Added the flag (mirroring the `auto` skill) so the command is the single entry point. `auto` was the only other command+skill pair and already had the flag.
+
 ### Removed
 
 - **`/punt:claude2cursor` and `/punt-dev:claude2cursor-dev`.** The Cursor-conversion command is removed again, reaffirming DES-021 — it had drifted back in via #327 without an ADR superseding that ruling. Only the two command prompts and their README dev-table entry referenced it (no Python code, tests, or `punt init` Skill permission). The `.cursor/` gitignore entry stays: it guards local Cursor *editor* state, which DES-021 deliberately kept.
