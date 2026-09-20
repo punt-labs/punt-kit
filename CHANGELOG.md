@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+
+- **`/punt:claude2cursor` and `/punt-dev:claude2cursor-dev`.** The Cursor-conversion command is removed again, reaffirming DES-021 — it had drifted back in via #327 without an ADR superseding that ruling. Only the two command prompts and their README dev-table entry referenced it (no Python code, tests, or `punt init` Skill permission). The `.cursor/` gitignore entry stays: it guards local Cursor *editor* state, which DES-021 deliberately kept.
+
 ## [0.17.4] - 2026-09-19
 
 ### Fixed
