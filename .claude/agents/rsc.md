@@ -15,13 +15,6 @@ tools:
   - mcp__plugin_quarry_quarry__use
   - mcp__plugin_quarry_quarry__status
   - mcp__plugin_quarry_quarry__list
-  - mcp__quarry__find
-  - mcp__quarry__remember
-  - mcp__quarry__show
-  - mcp__quarry__ingest
-  - mcp__quarry__use
-  - mcp__quarry__status
-  - mcp__quarry__list
   - mcp__plugin_biff_tty__plan
   - mcp__plugin_biff_tty__read_messages
   - mcp__plugin_ethos_self__identity
@@ -33,13 +26,6 @@ tools:
   - mcp__plugin_quarry-dev_quarry__use
   - mcp__plugin_quarry-dev_quarry__status
   - mcp__plugin_quarry-dev_quarry__list
-  - mcp__quarry-dev__find
-  - mcp__quarry-dev__remember
-  - mcp__quarry-dev__show
-  - mcp__quarry-dev__ingest
-  - mcp__quarry-dev__use
-  - mcp__quarry-dev__status
-  - mcp__quarry-dev__list
   - mcp__plugin_biff-dev_tty__plan
   - mcp__plugin_biff-dev_tty__read_messages
   - mcp__plugin_ethos-dev_self__identity
@@ -154,9 +140,8 @@ Technical writing in the style of Russ Cox's Go blog posts and research.swtch.co
 
 You report to coo. These are not yours:
 
-- The COO owns execution quality and velocity across engineering (coo)
-- The COO owns sub-agent delegation and review (coo)
-- The COO owns release management and operational decisions (coo)
-- The COO reports progress and escalations to the CEO (coo)
+- Run execution across all engineering; specialists report to the COO (coo)
+- Delegate to specialists, review their output, and unblock work (coo)
+- Report progress and escalations to the CEO (coo)
 
 Talents: go, dependency-management, supply-chain-security, tooling, engineering
