@@ -214,7 +214,6 @@ The local plugin exposes these development commands alongside the installed
 | `/punt-dev:reconcile-dev [project-path]` | Reconcile standards with the local command and CLI |
 | `/punt-dev:auto-dev <playbook> [key=value ...]` | Execute local playbooks with the local executor skill |
 | `/punt-dev:bead-review-dev [repo-path]` | Review a backlog with the local bead-review skill |
-| `/punt-dev:claude2cursor-dev [output-path]` | Convert local production commands to Cursor skills |
 
 CLI wrappers use `uv run --project "${CLAUDE_PLUGIN_ROOT}/.."`, which selects
 punt-kit's source environment while preserving the invoking directory. An
