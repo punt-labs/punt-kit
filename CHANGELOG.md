@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-09-20
+
 ### Fixed
 
 - **`/punt:bead-review` no longer appears twice.** The `bead-review` skill lacked `disable-model-invocation: true`, so it surfaced as a slash entry alongside the command that invokes it — two `/punt:bead-review` with different help strings. Added the flag (mirroring the `auto` skill) so the command is the single entry point. `auto` was the only other command+skill pair and already had the flag.
