@@ -67,10 +67,15 @@ from punt_kit.release import (
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
-from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
+from tests.harness.fault_ops import (
+    CompletedProcessSpec,
+    FaultInjectingOps,
+    FaultRule,
+    RunFn,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
 
 
@@ -100,6 +105,21 @@ def isolate_interrupted_event() -> Iterator[None]:
     release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
     yield
     release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+
+
+def _fault_ops(
+    rules: Sequence[FaultRule] = (),
+    *,
+    real_run: RunFn = _run,
+    passthrough: Sequence[Sequence[str]] = (),
+) -> FaultInjectingOps:
+    """Build the ``ReleaseOps`` double every test shares.
+
+    Real ``git`` runs through ``real_run``; anything else must match a rule or
+    ``passthrough``, so a forgotten ``gh`` rule fails loudly instead of
+    reaching GitHub.
+    """
+    return FaultInjectingOps(real_run=real_run, rules=rules, passthrough=passthrough)
 
 
 def _git(args: list[str], cwd: str) -> None:
@@ -981,7 +1001,7 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
 
     info = detect(root)
-    ops = FaultInjectingOps(real_run=_run, rules=[], passthrough=[["uv", "lock"]])
+    ops = _fault_ops(passthrough=[["uv", "lock"]])
 
     with pytest.raises(ReleaseError, match="uv lock failed"):
         Phase2VersionBump(info, "0.2.0", dry_run=False, ops=ops).run()
@@ -996,7 +1016,7 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
 def _rewrite_pins(info: ProjectInfo, version: str, *, dry_run: bool) -> list[_Path]:
     """Run the live ``ReleaseProject.rewrite_template_pins`` Phase 2 calls."""
 
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
     return ReleaseProject(info, ops=ops).rewrite_template_pins(version, dry_run=dry_run)
 
 
@@ -1276,7 +1296,7 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
 
 def _bump_readme_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run the live ``ReadmeShaPin.bump`` that ``ReadmeShaPin.land`` calls."""
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
     ReadmeShaPin(info, ops=ops).bump(
         version,
         dry_run=dry_run,
@@ -1404,7 +1424,7 @@ def test_bump_warns_when_repo_slug_unresolved(
     """An unresolvable remote falls back to the directory name — loudly."""
     root = _make_release_project(tmp_path)
     (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
 
     ReadmeShaPin(detect(root), ops=ops).bump(
         "0.2.0", dry_run=True, resolve_repo=lambda _root: None
@@ -1420,7 +1440,7 @@ def test_bump_warns_when_no_install_url_matches_slug(
     root = _make_release_project(tmp_path)
     readme = _readme_with_install_url("punt-labs/renamed")
     (root / "README.md").write_text(readme)
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
 
     ReadmeShaPin(detect(root), ops=ops).bump(
         "0.2.0", dry_run=False, resolve_repo=lambda _root: "punt-labs/proj"
@@ -1436,7 +1456,7 @@ def test_bump_does_not_warn_when_pin_matches(
     """A resolved slug whose URLs match produces no warning."""
     root = _make_release_project(tmp_path)
     (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
 
     ReadmeShaPin(detect(root), ops=ops).bump(
         "0.2.0", dry_run=True, resolve_repo=lambda _root: "punt-labs/proj"
@@ -1454,7 +1474,7 @@ def test_land_dry_run_previews_readme_rewrite_without_writing(
     (root / "README.md").write_text(readme)
     _git(["add", "."], cwd=str(root))
     _git(["commit", "-m", "pinned readme"], cwd=str(root))
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
 
     def _no_merge(**_kwargs: object) -> str:
         raise AssertionError("a dry run must not merge")
@@ -1839,8 +1859,7 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
     _init_git_repo(root)
     _git(["checkout", "-b", "feature"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -1848,7 +1867,7 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
                     returncode=1, stderr="error: pathspec 'main' did not match"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git checkout main failed"):
@@ -1865,8 +1884,7 @@ def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> 
     root.mkdir()
     _init_git_repo(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "pull", "--ff-only", "origin", "main"],
@@ -1874,7 +1892,7 @@ def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> 
                     returncode=1, stderr="fatal: unable to access origin"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git pull --ff-only origin main failed"):
@@ -1892,8 +1910,7 @@ def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
     _init_git_repo(root)
     _git(["branch", "release/v1.0.0"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "release/v1.0.0"],
@@ -1901,7 +1918,7 @@ def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
                     returncode=1, stderr="error: pre-checkout hook rejected"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git checkout release/v1.0.0 failed"):
@@ -1918,8 +1935,7 @@ def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
     root.mkdir()
     _init_git_repo(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "-b", "release/v1.0.0"],
@@ -1927,7 +1943,7 @@ def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
                     returncode=1, stderr="fatal: a branch named ... already exists"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git checkout -b release/v1.0.0 failed"):
@@ -1948,8 +1964,7 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
     _init_git_repo(root)
     (root / "release-marker.txt").write_text("v1.0.0\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "commit", "-m", "chore: release v1.0.0"],
@@ -1957,7 +1972,7 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
                     returncode=1, stderr="pre-commit hook rejected"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git commit failed"):
@@ -1985,8 +2000,7 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["uv", "build"],
@@ -1994,7 +2008,7 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
                     returncode=1, stderr="error: build backend failed"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="uv build failed"):
@@ -2017,8 +2031,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "tag", "v1.0.0"],
@@ -2026,7 +2039,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
                     returncode=128, stderr="fatal: cannot lock ref"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git tag v1.0.0 failed"):
@@ -2057,8 +2070,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
+    failing_ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "push", "origin", "v1.0.0"],
@@ -2066,7 +2078,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
                     returncode=1, stderr="fatal: unable to access remote"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git push origin v1.0.0 failed"):
@@ -2096,14 +2108,13 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
+    failing_ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "push", "origin", "v1.0.0"],
                 raises=subprocess.CalledProcessError(1, ["git", "push"]),
             )
-        ],
+        ]
     )
     with pytest.raises(subprocess.CalledProcessError):
         Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run(
@@ -2115,7 +2126,7 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
 
     # Resume with a clean ops double — the push must be retried, not skipped.
-    resumed_ops = FaultInjectingOps(real_run=_run, rules=[])
+    resumed_ops = _fault_ops()
     Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run(release_sha=head_sha)
 
     assert "v1.0.0" in _git_out(
@@ -2134,9 +2145,7 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    Phase5Tag(
-        info, "1.0.0", dry_run=False, ops=FaultInjectingOps(real_run=_run, rules=[])
-    ).run(release_sha=head_sha)
+    Phase5Tag(info, "1.0.0", dry_run=False, ops=_fault_ops()).run(release_sha=head_sha)
     assert "v1.0.0" in _git_out(
         ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
     )
@@ -2154,7 +2163,7 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+        ops=_fault_ops(real_run=spying_run),
     ).run(release_sha=head_sha)
 
     assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
@@ -2207,7 +2216,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+            ops=_fault_ops(real_run=spying_run),
         ).run(release_sha=corrected_sha)
 
     assert push_calls == [], "must fail loud, not silently push over the mismatch"
@@ -2236,8 +2245,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     _git(["tag", "v1.0.0"], cwd=str(root))
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "ls-remote", "--tags", "origin"],
@@ -2245,7 +2253,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
                     returncode=1, stderr="fatal: unable to access origin"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git ls-remote --tags origin failed"):
@@ -2295,7 +2303,7 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+        ops=_fault_ops(real_run=spying_run),
     ).run(release_sha=head_sha)
 
     assert push_calls == [], "an annotated tag at the right commit must be a no-op"
@@ -2332,7 +2340,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=_run, rules=[]),
+            ops=_fault_ops(),
         ).run(release_sha=corrected_sha)
 
 
@@ -2367,7 +2375,7 @@ def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ops=_fault_ops(),
     ).run(release_sha=release_sha)
 
     assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
@@ -2410,7 +2418,7 @@ def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_he
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ops=_fault_ops(),
     ).run()
 
     assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
@@ -2448,7 +2456,7 @@ def test_phase5_tag_resume_fallback_matches_squash_commit_with_pr_number_suffix(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ops=_fault_ops(),
     ).run()
 
     assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
@@ -2471,7 +2479,7 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=_run, rules=[]),
+            ops=_fault_ops(),
         ).run()
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
@@ -2500,7 +2508,7 @@ def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=_run, rules=[]),
+            ops=_fault_ops(),
         ).run()
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
@@ -2553,7 +2561,7 @@ def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
     sibling = _make_sibling(tmp_path, "sib", {})
     _git(["checkout", "-b", "feature"], cwd=str(sibling))
 
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
     with pytest.raises(ReleaseError):
         SiblingRepo(sibling, "sib", ops=ops).validate()
 
@@ -2565,7 +2573,7 @@ def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
     (sibling / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(sibling))
 
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
     with pytest.raises(ReleaseError):
         SiblingRepo(sibling, "sib", ops=ops).validate()
 
@@ -2584,8 +2592,7 @@ def test_validate_sibling_diagnoses_branch_read_command_failure(
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "--show-current"],
@@ -2593,7 +2600,7 @@ def test_validate_sibling_diagnoses_branch_read_command_failure(
                     returncode=128, stderr="fatal: not a git repository"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git branch --show-current failed"):
@@ -2608,8 +2615,7 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "status", "--porcelain"],
@@ -2617,7 +2623,7 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
                     returncode=128, stderr="fatal: index file corrupt"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git status --porcelain failed"):
@@ -3239,8 +3245,7 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
 
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
@@ -3248,7 +3253,7 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
                     returncode=128, stderr="fatal: bad revision 'HEAD'"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(*_args: object, **_kwargs: object) -> bool:
@@ -4174,7 +4179,7 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
 
 def _repo_answering(root: Path, rule: FaultRule) -> GithubRepo:
     """A ``GithubRepo`` whose ``gh api`` call is answered by ``rule``."""
-    return GithubRepo(root, ops=FaultInjectingOps(real_run=_run, rules=[rule]))
+    return GithubRepo(root, ops=_fault_ops(rules=[rule]))
 
 
 def test_branch_protection_exists_true_on_200(tmp_path: Path) -> None:
@@ -5274,8 +5279,7 @@ def test_phase7_github_release_create_failure_diagnoses(
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which_gh)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["gh", "release", "view", "v0.2.0"],
@@ -5287,7 +5291,7 @@ def test_phase7_github_release_create_failure_diagnoses(
                     returncode=1, stderr="HTTP 403: Forbidden"
                 ),
             ),
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="Failed to create release"):
@@ -5335,7 +5339,7 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
         match=install_cmd,
         raises=subprocess.TimeoutExpired(install_cmd, 600),
     )
-    ops = FaultInjectingOps(real_run=_run, rules=[first_attempt, second_attempt])
+    ops = _fault_ops(rules=[first_attempt, second_attempt])
 
     with pytest.raises(subprocess.TimeoutExpired):
         Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
@@ -5361,8 +5365,7 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["uv", "tool", "install", "--force", "--refresh"],
@@ -5374,7 +5377,7 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
                     returncode=1, stderr="error: no pyproject.toml found"
                 ),
             ),
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="uv tool install --editable . failed"):
@@ -5401,8 +5404,7 @@ def _merge_env(
     # explicitly and needs no tracking branch at all.
     _git(["push", "-u", "origin", "main"], cwd=str(root))
     _git(["checkout", "-b", branch], cwd=str(root))
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["gh", "pr", "list"], response=CompletedProcessSpec(stdout="[]")
@@ -5432,7 +5434,7 @@ def _merge_env(
                 times=None,
                 response=CompletedProcessSpec(stdout=f"{_MERGE_OID}\n"),
             ),
-        ],
+        ]
     )
     return ops, branch
 
@@ -5770,9 +5772,8 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
         return None
 
-    ops = FaultInjectingOps(
+    ops = _fault_ops(
         real_run=fake_run,
-        rules=[],
         passthrough=[
             ("gh", "pr", "list"),
             ("gh", "pr", "create"),
@@ -5815,8 +5816,7 @@ def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -5824,7 +5824,7 @@ def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
                     returncode=1, stderr="local changes would be overwritten"
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -5861,8 +5861,7 @@ def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -5870,7 +5869,7 @@ def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
                     returncode=1, stderr="local changes would be overwritten"
                 ),
             ),
-        ],
+        ]
     )
 
     def failing_merge(**_kwargs: object) -> str:
@@ -5910,8 +5909,7 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -5919,7 +5917,7 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
                     cmd=["git", "checkout", "main"], timeout=600
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -5960,8 +5958,7 @@ def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -5969,7 +5966,7 @@ def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
                     cmd=["git", "checkout", "main"], timeout=600
                 ),
             ),
-        ],
+        ]
     )
 
     def successful_merge(**_kwargs: object) -> str:
@@ -6005,8 +6002,7 @@ def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "--show-current"],
@@ -6014,7 +6010,7 @@ def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
                     returncode=1, stderr="fatal: not a git repository"
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -6053,8 +6049,7 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "--show-current"],
@@ -6062,7 +6057,7 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
                     returncode=1, stderr="fatal: not a git repository"
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -6096,8 +6091,7 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
     sibling.mkdir()
     _init_git_repo(sibling)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "status", "--porcelain", "--", ".gitkeep"],
@@ -6105,7 +6099,7 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
                     returncode=128, stderr="fatal: index file corrupt"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -7263,7 +7257,7 @@ def test_phase_summary_recaps_skipped_propagation(
     )
     capsys.readouterr()  # discard the inline warning emitted by record()
 
-    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ops = _fault_ops()
     ReleasePipeline((), ops=ops).summarize(
         info,
         "0.2.0",
@@ -9599,9 +9593,7 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     pre_commit_hook.write_text("#!/bin/sh\nexit 1\n")
     pre_commit_hook.chmod(0o755)
 
-    ops = FaultInjectingOps(
-        real_run=_run, rules=[], passthrough=[["bash", str(release_script)]]
-    )
+    ops = _fault_ops(passthrough=[["bash", str(release_script)]])
 
     def _unreachable_merge(**_kwargs: object) -> str:
         raise AssertionError("merge must not run when the swap script fails")
@@ -9637,9 +9629,7 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     def _capture_pin(*_args: object, **_kwargs: object) -> None:
         return None
 
-    resumed_ops = FaultInjectingOps(
-        real_run=_run, rules=[], passthrough=[["bash", str(release_script)]]
-    )
+    resumed_ops = _fault_ops(passthrough=[["bash", str(release_script)]])
     Phase4ReleasePr(info, "0.2.0", dry_run=False, ops=resumed_ops).run(
         merge=_capture_merge, land_readme_sha_pin=_capture_pin
     )
@@ -9846,8 +9836,7 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
     pre_head = _git_out(["rev-parse", "HEAD"], cwd=d)
     restore_script = root / "scripts" / "restore-dev-plugin.sh"
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
+    failing_ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "commit", "-m", "chore: restore dev plugin state"],
@@ -9879,9 +9868,7 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
         merged.update(kwargs)
         return "abc1234"
 
-    resumed_ops = FaultInjectingOps(
-        real_run=_run, rules=[], passthrough=[["bash", str(restore_script)]]
-    )
+    resumed_ops = _fault_ops(passthrough=[["bash", str(restore_script)]])
     Phase9PostRelease(info, "0.2.0", dry_run=False, ops=resumed_ops).run(
         merge=_capture_merge
     )
@@ -9902,8 +9889,7 @@ def test_phase9_post_release_restore_script_itself_failing_diagnoses(
     info = detect(root)
     restore_script = root / "scripts" / "restore-dev-plugin.sh"
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["bash", str(restore_script)],
@@ -9912,7 +9898,7 @@ def test_phase9_post_release_restore_script_itself_failing_diagnoses(
                     stderr="ERROR: No commit found with dev plugin name",
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -9945,8 +9931,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
     info = detect(root)
     assert not info.is_plugin
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -9954,7 +9939,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
                     returncode=1, stderr="error: pre-checkout hook rejected"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -9985,8 +9970,7 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
 
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "-D", "post-release/v0.2.0"],
@@ -9994,7 +9978,7 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
                     returncode=1, stderr="error: branch is checked out"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -11686,8 +11670,7 @@ def _interrupted_poll_scenario(
     pending_forever.interrupt_after(
         release._interrupted  # pyright: ignore[reportPrivateUsage]
     )
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             # The sibling's origin is itself (non-bare), which refuses a push
             # of its own checked-out branch — scripted success keeps the merge
@@ -11722,7 +11705,7 @@ def _interrupted_poll_scenario(
             ),
             warmup,
             pending_forever,
-        ],
+        ]
     )
     monkeypatch.setattr(release, "_run", ops.run)
     return root, warmup, pending_forever
@@ -11864,7 +11847,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
         match=["git", "checkout", "-b"],
         raises=subprocess.TimeoutExpired(cmd=["git", "checkout", "-b"], timeout=600),
     )
-    ops = FaultInjectingOps(real_run=_run, rules=[status_rule, checkout_rule])
+    ops = _fault_ops(rules=[status_rule, checkout_rule])
     monkeypatch.setattr(release, "_run", ops.run)
 
     with pytest.raises(SystemExit) as exc_info:
