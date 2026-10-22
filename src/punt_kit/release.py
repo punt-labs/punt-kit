@@ -198,18 +198,6 @@ def _read_changelog(root: Path) -> str:
     return Changelog(root, ops=_ops).text()
 
 
-def _extract_version_notes(  # pyright: ignore[reportUnusedFunction]
-    changelog: str, version: str
-) -> str:
-    """Extract release notes for a specific version from changelog.
-
-    No caller remains in this module — Phase7GithubRelease calls
-    changelog_mod.extract_version_notes directly. Kept importable for
-    public API preservation (this name is also directly tested).
-    """
-    return changelog_mod.extract_version_notes(changelog, version)
-
-
 def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     """Resolve all unresolved review threads on a PR."""
     PrThreadResolver(GithubRepo(Path(cwd), ops=_ops), ops=_ops).resolve(

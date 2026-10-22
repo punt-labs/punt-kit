@@ -21,6 +21,7 @@ import pytest
 from punt_kit import release
 from punt_kit.detect import detect
 from punt_kit.phases.phase11_verify import VerificationCheck
+from punt_kit.phases.shared.changelog import extract_version_notes
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
@@ -29,7 +30,6 @@ from punt_kit.release import (
     PHASE_NAMES,
     ReleaseError,
     _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
-    _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
@@ -266,14 +266,14 @@ def test_extract_version_notes() -> None:
         "## [0.1.0] - 2026-01-01\n\n"
         "### Added\n\n- Initial\n"
     )
-    notes = _extract_version_notes(changelog, "0.2.0")
+    notes = extract_version_notes(changelog, "0.2.0")
     assert "New feature" in notes
     assert "Initial" not in notes
 
 
 def test_extract_version_notes_missing() -> None:
     """Returns default when version not found."""
-    notes = _extract_version_notes("## [Unreleased]\n", "9.9.9")
+    notes = extract_version_notes("## [Unreleased]\n", "9.9.9")
     assert "v9.9.9" in notes
 
 
