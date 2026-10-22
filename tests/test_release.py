@@ -3864,31 +3864,54 @@ def _graphql_no_required_checks_response() -> dict[str, object]:
     return _graphql_checks_response([])
 
 
-def _protection_response(*, protected: bool) -> MagicMock:
-    """Build the ``MagicMock`` for a ``gh api .../branches/main/protection`` call."""
-    result = MagicMock()
+def _protection_argv(owner: str = "punt-labs", repo: str = "punt-kit") -> list[str]:
+    """The full ``gh api`` argv of the legacy branch-protection check."""
+    return ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection"]
+
+
+def _ruleset_argv(owner: str = "punt-labs", repo: str = "punt-kit") -> list[str]:
+    """The full ``gh api`` argv of the ruleset check."""
+    return ["gh", "api", f"repos/{owner}/{repo}/rules/branches/main"]
+
+
+def _protection_spec(*, protected: bool) -> CompletedProcessSpec:
+    """What ``gh api .../branches/main/protection`` returns for each state."""
     if protected:
-        result.returncode = 0
-        result.stdout = json.dumps({"required_status_checks": {"contexts": []}})
-        result.stderr = ""
-    else:
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: Branch not protected (HTTP 404)"
-    return result
+        return CompletedProcessSpec(
+            stdout=json.dumps({"required_status_checks": {"contexts": []}})
+        )
+    return CompletedProcessSpec(
+        returncode=1, stderr="gh: Branch not protected (HTTP 404)"
+    )
 
 
-def _ruleset_response(*, governed: bool) -> MagicMock:
-    """Build the ``MagicMock`` for a ``gh api .../rules/branches/main`` call.
+def _ruleset_spec(*, governed: bool) -> CompletedProcessSpec:
+    """What ``gh api .../rules/branches/main`` returns for each state.
 
     The endpoint returns a JSON array of active rules — non-empty when a
     ruleset governs the branch, empty (never a non-zero exit) when none do.
     """
+    rules = [{"type": "required_status_checks"}] if governed else []
+    return CompletedProcessSpec(stdout=json.dumps(rules))
+
+
+def _as_mock(spec: CompletedProcessSpec) -> MagicMock:
+    """Render a scripted response as the ``MagicMock`` a fake ``_run`` returns."""
     result = MagicMock()
-    result.returncode = 0
-    result.stderr = ""
-    result.stdout = json.dumps([{"type": "required_status_checks"}] if governed else [])
+    result.returncode = spec.returncode
+    result.stdout = spec.stdout
+    result.stderr = spec.stderr
     return result
+
+
+def _protection_response(*, protected: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../branches/main/protection`` call."""
+    return _as_mock(_protection_spec(protected=protected))
+
+
+def _ruleset_response(*, governed: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../rules/branches/main`` call."""
+    return _as_mock(_ruleset_spec(governed=governed))
 
 
 def _is_protection_call(cmd: list[str]) -> bool:
@@ -4187,12 +4210,7 @@ def test_branch_protection_exists_true_on_200(tmp_path: Path) -> None:
     """A 200 from the protection endpoint means the branch is protected."""
     repo = _repo_answering(
         tmp_path,
-        FaultRule(
-            match=["gh", "api"],
-            response=CompletedProcessSpec(
-                stdout=json.dumps({"required_status_checks": {"contexts": []}})
-            ),
-        ),
+        FaultRule(match=_protection_argv(), response=_protection_spec(protected=True)),
     )
     assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
@@ -4201,12 +4219,7 @@ def test_branch_protection_exists_false_on_404(tmp_path: Path) -> None:
     """A confirmed 404 means the branch has no protection configured."""
     repo = _repo_answering(
         tmp_path,
-        FaultRule(
-            match=["gh", "api"],
-            response=CompletedProcessSpec(
-                returncode=1, stderr="gh: Branch not protected (HTTP 404)"
-            ),
-        ),
+        FaultRule(match=_protection_argv(), response=_protection_spec(protected=False)),
     )
     assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is False
 
@@ -4216,7 +4229,7 @@ def test_branch_protection_exists_true_on_unrelated_error(tmp_path: Path) -> Non
     repo = _repo_answering(
         tmp_path,
         FaultRule(
-            match=["gh", "api"],
+            match=_protection_argv(),
             response=CompletedProcessSpec(
                 returncode=1, stderr="gh: API rate limit exceeded"
             ),
@@ -4230,8 +4243,8 @@ def test_branch_protection_exists_true_on_timeout(tmp_path: Path) -> None:
     repo = _repo_answering(
         tmp_path,
         FaultRule(
-            match=["gh", "api"],
-            raises=subprocess.TimeoutExpired(["gh", "api"], 60),
+            match=_protection_argv(),
+            raises=subprocess.TimeoutExpired(_protection_argv(), 60),
         ),
     )
     assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
@@ -4248,7 +4261,7 @@ def test_branch_protection_exists_true_on_permission_404(tmp_path: Path) -> None
     repo = _repo_answering(
         tmp_path,
         FaultRule(
-            match=["gh", "api"],
+            match=_protection_argv(),
             response=CompletedProcessSpec(
                 returncode=1, stderr="gh: Not Found (HTTP 404)"
             ),
@@ -4402,10 +4415,7 @@ def test_has_ruleset_true_when_rules_present(tmp_path: Path) -> None:
     repo = _repo_answering(
         tmp_path,
         FaultRule(
-            match=["gh", "api"],
-            response=CompletedProcessSpec(
-                stdout=json.dumps([{"type": "required_status_checks"}])
-            ),
+            match=_ruleset_argv(repo="ethos"), response=_ruleset_spec(governed=True)
         ),
     )
     assert repo.has_ruleset("gh", "punt-labs", "ethos") is True
@@ -4415,9 +4425,7 @@ def test_has_ruleset_false_when_rules_empty(tmp_path: Path) -> None:
     """An empty rules array means no ruleset governs the branch."""
     repo = _repo_answering(
         tmp_path,
-        FaultRule(
-            match=["gh", "api"], response=CompletedProcessSpec(stdout=json.dumps([]))
-        ),
+        FaultRule(match=_ruleset_argv(), response=_ruleset_spec(governed=False)),
     )
     assert repo.has_ruleset("gh", "punt-labs", "punt-kit") is False
 
@@ -4427,13 +4435,23 @@ def test_has_ruleset_false_on_error(tmp_path: Path) -> None:
     repo = _repo_answering(
         tmp_path,
         FaultRule(
-            match=["gh", "api"],
+            match=_ruleset_argv(),
             response=CompletedProcessSpec(
                 returncode=1, stderr="gh: API rate limit exceeded"
             ),
         ),
     )
     assert repo.has_ruleset("gh", "punt-labs", "punt-kit") is False
+
+
+def test_ruleset_check_does_not_hit_the_protection_endpoint(tmp_path: Path) -> None:
+    """A rule scripted for the protection endpoint cannot answer the ruleset call."""
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(match=_protection_argv(), response=_protection_spec(protected=True)),
+    )
+    with pytest.raises(AssertionError, match="unmatched network command"):
+        repo.has_ruleset("gh", "punt-labs", "punt-kit")
 
 
 def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
