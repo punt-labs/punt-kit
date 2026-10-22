@@ -22,6 +22,7 @@ from punt_kit import release
 from punt_kit.detect import detect
 from punt_kit.phases.phase11_verify import VerificationCheck
 from punt_kit.phases.shared.changelog import extract_version_notes
+from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
@@ -4203,81 +4204,66 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
 # --- f85t.4: branch-protection fallback ---
 
 
-def test_branch_protection_exists_true_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
+def _repo_answering(root: Path, rule: FaultRule) -> GithubRepo:
+    """A ``GithubRepo`` whose ``gh api`` call is answered by ``rule``."""
+    return GithubRepo(root, ops=FaultInjectingOps(real_run=_run, rules=[rule]))
+
+
+def test_branch_protection_exists_true_on_200(tmp_path: Path) -> None:
     """A 200 from the protection endpoint means the branch is protected."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _protection_response(protected=True)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            response=CompletedProcessSpec(
+                stdout=json.dumps({"required_status_checks": {"contexts": []}})
+            ),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
-def test_branch_protection_exists_false_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_branch_protection_exists_false_on_404(tmp_path: Path) -> None:
     """A confirmed 404 means the branch has no protection configured."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _protection_response(protected=False)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is False
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: Branch not protected (HTTP 404)"
+            ),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is False
 
 
-def test_branch_protection_exists_true_on_unrelated_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_branch_protection_exists_true_on_unrelated_error(tmp_path: Path) -> None:
     """An unrelated failure (rate limit, auth) does not widen the check set."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: API rate limit exceeded"
-        return result
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: API rate limit exceeded"
+            ),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
-def test_branch_protection_exists_true_on_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_branch_protection_exists_true_on_timeout(tmp_path: Path) -> None:
     """A hung protection check fails open rather than aborting the release."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        raise subprocess.TimeoutExpired(cmd, 60)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            raises=subprocess.TimeoutExpired(["gh", "api"], 60),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
-def test_branch_protection_exists_true_on_permission_404(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_branch_protection_exists_true_on_permission_404(tmp_path: Path) -> None:
     """A 404 without the "branch not protected" marker is treated as protected.
 
     GitHub's branch-protection REST endpoint 404s when the token lacks
@@ -4285,22 +4271,16 @@ def test_branch_protection_exists_true_on_permission_404(
     to protected=True in that case rather than silently widening the
     check set to include informational-only checks the repo excluded.
     """
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: Not Found (HTTP 404)"
-        return result
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: Not Found (HTTP 404)"
+            ),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
 def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
@@ -4449,56 +4429,43 @@ def test_wait_for_required_checks_deadline_tracks_ci_watch(
 # --- pkit-plxh: ruleset awareness + no-checks grace window ---
 
 
-def test_has_ruleset_true_when_rules_present(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_ruleset_true_when_rules_present(tmp_path: Path) -> None:
     """A non-empty rules array means the branch is ruleset-governed."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _ruleset_response(governed=True)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "ethos"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            response=CompletedProcessSpec(
+                stdout=json.dumps([{"type": "required_status_checks"}])
+            ),
+        ),
     )
+    assert repo.has_ruleset("gh", "punt-labs", "ethos") is True
 
 
-def test_has_ruleset_false_when_rules_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_ruleset_false_when_rules_empty(tmp_path: Path) -> None:
     """An empty rules array means no ruleset governs the branch."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _ruleset_response(governed=False)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is False
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"], response=CompletedProcessSpec(stdout=json.dumps([]))
+        ),
     )
+    assert repo.has_ruleset("gh", "punt-labs", "punt-kit") is False
 
 
-def test_has_ruleset_false_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_ruleset_false_on_error(tmp_path: Path) -> None:
     """A non-zero exit fails safe to "no ruleset", same direction as a timeout."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: API rate limit exceeded"
-        return result
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is False
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=["gh", "api"],
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: API rate limit exceeded"
+            ),
+        ),
     )
+    assert repo.has_ruleset("gh", "punt-labs", "punt-kit") is False
 
 
 def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(

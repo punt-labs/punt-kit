@@ -220,35 +220,6 @@ def _suggest_version(changelog: str, current: str) -> str:
     return changelog_mod.suggest_next_version(changelog, current)
 
 
-def _branch_protection_exists(  # pyright: ignore[reportUnusedFunction]
-    gh: str, cwd: str, owner: str, repo_name: str
-) -> bool:
-    """True if ``main`` has a branch protection rule; False only on a confirmed
-    "branch not protected" response.
-
-    No caller remains in this module — RequiredChecksWaiter.wait calls
-    self._repo.has_branch_protection directly. Kept importable for public
-    API preservation.
-    """
-    return GithubRepo(Path(cwd), ops=_ops).has_branch_protection(gh, owner, repo_name)
-
-
-def _has_ruleset(  # pyright: ignore[reportUnusedFunction]
-    gh: str, cwd: str, owner: str, repo_name: str
-) -> bool:
-    """True if a GitHub ruleset (not the legacy branch-protection API)
-    governs ``main``.
-
-    No production caller in this module — RequiredChecksWaiter.wait calls
-    self._repo.has_ruleset directly. Kept as a bare module-level name
-    (mirroring ``_branch_protection_exists``) purely as a test seam:
-    ``monkeypatch.setattr(release_mod, "_run", ...)`` reaches
-    ``GithubRepo.has_ruleset`` through this wrapper the same way it reaches
-    every other collaborator built on the shared ``_ops`` adapter.
-    """
-    return GithubRepo(Path(cwd), ops=_ops).has_ruleset(gh, owner, repo_name)
-
-
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     """Poll required CI checks until all pass or any fail.
 
