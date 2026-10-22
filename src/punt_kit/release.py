@@ -342,18 +342,6 @@ def _resolve_sibling(root: Path, name: str) -> Path | None:
     return repo.path if repo is not None else None
 
 
-def _validate_sibling(  # pyright: ignore[reportUnusedFunction]
-    path: Path, name: str
-) -> None:
-    """Validate a sibling repo is ready for propagation.
-
-    No caller remains in this module — every former call site now
-    constructs SiblingRepo directly. Kept importable for public API
-    preservation (this name is also directly tested).
-    """
-    SiblingRepo(path, name, ops=_ops).validate()
-
-
 def _sibling_pr_merge(
     path: Path,
     branch: str,
@@ -466,25 +454,6 @@ def _run_phases_9_10(
 def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 11: Run release verification checks."""
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
-
-
-def _phase_summary(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> None:
-    """Print release summary.
-
-    No caller remains in this module — run_release calls
-    ReleasePipeline.summarize directly on the pipeline it already built.
-    Kept importable for public API preservation (this name is also
-    directly tested).
-    """
-    ReleasePipeline((), ops=_ops).summarize(
-        info,
-        version,
-        dry_run=dry_run,
-        project=ReleaseProject(info, ops=_ops),
-        skips=_skips,
-    )
 
 
 # ---------------------------------------------------------------------------

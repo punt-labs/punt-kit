@@ -39,7 +39,6 @@ from punt_kit.release import (
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _phase11_verify,  # pyright: ignore[reportPrivateUsage]
     _phase_name,  # pyright: ignore[reportPrivateUsage]
-    _phase_summary,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
@@ -50,7 +49,6 @@ from punt_kit.release import (
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
-    _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
@@ -838,8 +836,8 @@ def test_version_bump_updates_all_files(tmp_path: Path, *, subdir: bool) -> None
     assert 'VERSION="0.2.0"' in install_content
 
     # README install URLs are NOT updated in Phase 2 — they are updated
-    # in Phase 9 (_bump_readme_install_sha) after tagging, when the SHA
-    # is known.
+    # by ReadmeShaPin.bump once the release squash-merge has landed, when
+    # the SHA is known.
 
     # Check CHANGELOG.md
     cl = (root / "CHANGELOG.md").read_text()
@@ -2554,21 +2552,27 @@ def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
 
 def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
     """Fails when sibling is on wrong branch."""
+    from punt_kit.phases.shared.siblings import SiblingRepo
+
     sibling = _make_sibling(tmp_path, "sib", {})
     _git(["checkout", "-b", "feature"], cwd=str(sibling))
 
+    ops = FaultInjectingOps(real_run=_run, rules=[])
     with pytest.raises(ReleaseError):
-        _validate_sibling(sibling, "sib")
+        SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
 def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
     """Fails when sibling has uncommitted changes."""
+    from punt_kit.phases.shared.siblings import SiblingRepo
+
     sibling = _make_sibling(tmp_path, "sib", {})
     (sibling / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(sibling))
 
+    ops = FaultInjectingOps(real_run=_run, rules=[])
     with pytest.raises(ReleaseError):
-        _validate_sibling(sibling, "sib")
+        SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
 def test_validate_sibling_diagnoses_branch_read_command_failure(
@@ -4939,7 +4943,7 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
     hand, because the reset cannot tell the two apart. What it can
     promise is that nothing outside the owned set is touched — a sibling
     with only unrelated modifications is left entirely alone for the
-    existing _validate_sibling guard to trip on, as it does today.
+    existing SiblingRepo.validate guard to trip on, as it does today.
     """
     from punt_kit import release as release_mod
 
@@ -6534,7 +6538,7 @@ def test_readme_sha_pin_survives_tag(
     # SHA and the README's install URL. Pin the URL owner/repo to what
     # _make_release_project wrote ("test-pkg") — otherwise the real
     # _get_github_repo (no remote configured in tmp) falls back to
-    # root.name ("proj"), the regex misses, and _bump_readme_install_sha
+    # root.name ("proj"), the regex misses, and ReadmeShaPin.bump
     # returns silently. That would make this whole test a no-op.
     def _repo_slug(_root: Path) -> str:
         return "punt-labs/test-pkg"
@@ -7355,6 +7359,9 @@ def test_phase_summary_recaps_skipped_propagation(
     With Phase 11 no longer the backstop, a skip recorded mid-run must be
     re-surfaced at the end so a scrolled-past warning is never the only notice.
     """
+    from punt_kit.phases.shared.pipeline import ReleasePipeline
+    from punt_kit.phases.shared.project_info import ReleaseProject
+
     root = _make_release_project(tmp_path)
     info = detect(root)
 
@@ -7363,7 +7370,14 @@ def test_phase_summary_recaps_skipped_propagation(
     )
     capsys.readouterr()  # discard the inline warning emitted by record()
 
-    _phase_summary(info, "0.2.0", dry_run=False)
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ReleasePipeline((), ops=ops).summarize(
+        info,
+        "0.2.0",
+        dry_run=False,
+        project=ReleaseProject(info, ops=ops),
+        skips=release._skips,  # pyright: ignore[reportPrivateUsage]
+    )
 
     out = capsys.readouterr().out
     assert "Manual action required" in out
