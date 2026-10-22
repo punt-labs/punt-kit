@@ -19,11 +19,25 @@ from unittest.mock import MagicMock
 import pytest
 
 from punt_kit import release
-from punt_kit.detect import detect
+from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase02_version_bump import Phase2VersionBump
+from punt_kit.phases.phase03_build import Phase3Build
+from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
+from punt_kit.phases.phase05_tag import Phase5Tag
+from punt_kit.phases.phase07_github_release import Phase7GithubRelease
+from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
+from punt_kit.phases.phase09_post_release import Phase9PostRelease
+from punt_kit.phases.phase10_propagate import InstallAllPropagator
 from punt_kit.phases.phase11_verify import VerificationCheck
+from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared.changelog import extract_version_notes
 from punt_kit.phases.shared.gh import GithubRepo
+from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.pipeline import ReleasePipeline
+from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
+from punt_kit.phases.shared.siblings import SiblingRepo, SkipRecorder
 from punt_kit.release import (
     _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
@@ -34,6 +48,7 @@ from punt_kit.release import (
     _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
@@ -57,8 +72,6 @@ from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, Fau
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
-
-    from punt_kit.detect import ProjectInfo
 
 
 @pytest.fixture(autouse=True)
@@ -282,8 +295,6 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
     (root / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(root))
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError):
@@ -310,8 +321,6 @@ def test_preflight_daemon_mutable_only_dirt_names_stash_command(
     _git(["fetch", "origin"], cwd=d)
 
     (vox_dir / "vox.md").write_text("voice: nova\n")
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -347,8 +356,6 @@ def test_preflight_daemon_only_dirt_with_untracked_reports_both(
     (vox_dir / "vox.md").write_text("voice: nova\n")
     (root / "stray.txt").write_text("stray")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError) as exc_info:
@@ -381,8 +388,6 @@ def test_preflight_daemon_stash_pop_index_preserves_staged_state(
 
     (vox_dir / "vox.md").write_text("voice: nova\n")
     _git(["add", ".punt-labs/vox/vox.md"], cwd=d)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -422,8 +427,6 @@ def test_preflight_mixed_daemon_and_other_dirt_keeps_generic_shape(
     (vox_dir / "vox.md").write_text("voice: nova\n")
     (root / "README.md").write_text("# test-pkg\n\nunrelated edit\n")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError) as exc_info:
@@ -457,8 +460,6 @@ def test_preflight_clean_tree_with_daemon_file_unmodified_passes(
     _git(["commit", "-m", "add vox settings"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     # Should not raise — dry_run skips quality gates.
@@ -475,8 +476,6 @@ def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     (root / "untracked.txt").write_text("untracked")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError, match="[Uu]ntracked"):
@@ -490,8 +489,6 @@ def test_preflight_ignores_untracked_beads(tmp_path: Path) -> None:
     beads.mkdir()
     (beads / "state.json").write_text("{}")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     # Should not raise
@@ -502,8 +499,6 @@ def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
     """Pre-flight fails when not on main branch."""
     root = _make_release_project(tmp_path)
     _git(["checkout", "-b", "feature"], cwd=str(root))
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -522,8 +517,6 @@ def test_preflight_fails_empty_unreleased(tmp_path: Path) -> None:
     _git(["commit", "-m", "empty changelog"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError):
@@ -533,8 +526,6 @@ def test_preflight_fails_empty_unreleased(tmp_path: Path) -> None:
 def test_preflight_passes_clean(tmp_path: Path) -> None:
     """Pre-flight passes for clean project on main."""
     root = _make_release_project(tmp_path)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -552,7 +543,6 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
     own Makefile, so the bare `uv run mypy`/`pyright` sequence — which reports
     false errors against the base wheel env — must not run.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "Makefile").write_text("check:\n\techo ok\n")
@@ -578,7 +568,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     _phase1_preflight(info, dry_run=False)
 
@@ -589,7 +579,6 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without a Makefile, the Python branch keeps running the hardcoded gates."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     assert not (root / "Makefile").exists()
@@ -611,7 +600,7 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     _phase1_preflight(info, dry_run=False)
 
@@ -630,7 +619,6 @@ def test_preflight_python_make_check_failure_aborts_phase(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A non-zero `make check` aborts the phase instead of reporting success."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "Makefile").write_text("check:\n\techo ok\n")
@@ -653,7 +641,7 @@ def test_preflight_python_make_check_failure_aborts_phase(
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="lint failed")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="Quality gate failed: make check"):
         _phase1_preflight(info, dry_run=False)
@@ -669,7 +657,6 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
     ``fetch.returncode != 0`` is already handled in code (phase01_preflight.py)
     but nothing forced that branch before this test (matrix row 3).
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -688,7 +675,7 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
             )
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="git fetch origin failed"):
         _phase1_preflight(info, dry_run=False)
@@ -705,7 +692,6 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
     (matrix row 5 covers a non-zero exit); nothing forced the TimeoutExpired
     path at this specific call site before this test (matrix row 6).
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "Makefile").write_text("check:\n\techo ok\n")
@@ -728,7 +714,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
             raise subprocess.TimeoutExpired(cmd, timeout)
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False)
@@ -750,7 +736,6 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
     the Go branch (phase01_preflight.py) is unexercised on the failure path
     (matrix row 55).
     """
-    from punt_kit import release as release_mod
 
     root = tmp_path / "go-proj"
     root.mkdir()
@@ -788,7 +773,7 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(
         ReleaseError, match=r"Quality gate failed: go test -race \./\.\.\."
@@ -811,8 +796,6 @@ def test_version_bump_updates_all_files(tmp_path: Path, *, subdir: bool) -> None
     user's /plugin reports the wrong number.
     """
     root = _make_release_project(tmp_path, subdir=subdir)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -858,8 +841,6 @@ def test_version_bump_install_sh_no_version_pin(tmp_path: Path) -> None:
     _git(["commit", "-m", "unpin install.sh"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -872,8 +853,6 @@ def test_version_bump_install_sh_no_version_pin(tmp_path: Path) -> None:
 def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     """Dry run does not modify any files."""
     root = _make_release_project(tmp_path)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -905,8 +884,6 @@ def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     (root / "stray-transcript.jsonl").write_text("{}\n")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -933,7 +910,6 @@ def test_version_bump_uv_lock_failure_diagnoses(
     """A failing `uv lock` (network resolver op) must diagnose, not leak a
     raw CalledProcessError — the same risk class as `uv build` (Phase 3,
     already diagnosed), missed by round 1's sweep (pkit-f85t.7 round 2)."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "uv.lock").write_text("# lock\n")
@@ -958,7 +934,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
             )
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="uv lock failed"):
         _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -982,7 +958,6 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     level, unlike `capsys` — can observe what the terminal actually
     would.
     """
-    from punt_kit.phases.phase02_version_bump import Phase2VersionBump
 
     root = _make_release_project(tmp_path)
     (root / "uv.lock").write_text("# lock\n")
@@ -1020,7 +995,6 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
 
 def _rewrite_pins(info: ProjectInfo, version: str, *, dry_run: bool) -> list[_Path]:
     """Run the live ``ReleaseProject.rewrite_template_pins`` Phase 2 calls."""
-    from punt_kit.phases.shared.project_info import ReleaseProject
 
     ops = FaultInjectingOps(real_run=_run, rules=[])
     return ReleaseProject(info, ops=ops).rewrite_template_pins(version, dry_run=dry_run)
@@ -1062,8 +1036,6 @@ def test_template_pin_rewritten(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -1085,8 +1057,6 @@ def test_template_pin_idempotent(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
     after_first = template.read_text()
@@ -1107,8 +1077,6 @@ def test_template_pin_dry_run_no_changes(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     changed = _rewrite_pins(info, "0.2.0", dry_run=True)
 
@@ -1127,8 +1095,6 @@ def test_template_pin_unrelated_package_untouched(tmp_path: Path) -> None:
         f"  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n"
         "  - run: uvx --from punt-other==9.9.9 other --do-thing\n",
     )
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -1153,8 +1119,6 @@ def test_template_pin_multiple_files_rewritten(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --deploy\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -1177,8 +1141,6 @@ def test_template_pin_normalizes_separator_and_case(tmp_path: Path) -> None:
         "src/test_pkg/data/notify.yml",
         f"steps:\n  - run: uvx --from {underscored}==0.1.0 test-cli --user wall\n",
     )
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -1206,8 +1168,6 @@ def test_template_pin_plugin_only_strips_dev_suffix(tmp_path: Path) -> None:
         "steps:\n  - run: uvx --from punt-widget==0.1.0 widget --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -1217,8 +1177,6 @@ def test_template_pin_plugin_only_strips_dev_suffix(tmp_path: Path) -> None:
 def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
     """No src/**/data or plugin/**/*.yml files present is not an error."""
     root = _make_release_project(tmp_path)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -1235,7 +1193,6 @@ def test_phase9_post_release_no_longer_bumps_readme(
     Regression guard: phase 4 now guarantees the README is already current
     by the time phase 9 runs, so phase 9's job shrinks to dev-restore only.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -1267,9 +1224,7 @@ def test_phase9_post_release_no_longer_bumps_readme(
     def fake_pr_merge(**_kwargs: object) -> str:
         raise AssertionError("phase 9 has nothing to land — _pr_merge must not run")
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
     _phase9_post_release(info, "0.2.0", dry_run=False)
@@ -1285,7 +1240,6 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     Ports the untracked-file-exclusion invariant that used to guard phase 9's
     README commit (removed by fwql) to its new home.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -1305,12 +1259,10 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     def fake_pr_merge(**_kwargs: object) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
-    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+    release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
         info, "0.2.0", dry_run=False
     )
 
@@ -1349,8 +1301,6 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
 
     # Create a tag so git rev-parse works
     _git(["tag", "v0.2.0"], cwd=d)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _bump_readme_pin(info, "0.2.0", dry_run=False)
@@ -1417,8 +1367,6 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "version-tag readme"], cwd=d)
     _git(["tag", "v0.2.0"], cwd=d)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _bump_readme_pin(info, "0.2.0", dry_run=False)
@@ -1543,8 +1491,6 @@ def test_bump_readme_install_sha_dry_run_no_changes(
 
     original = (root / "README.md").read_text()
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _bump_readme_pin(info, "0.2.0", dry_run=True)
 
@@ -1594,8 +1540,6 @@ def test_bump_readme_install_sha_tag_on_different_commit(tmp_path: Path) -> None
     )
     tag_sha = tag_result.stdout.strip()
     assert tag_sha != install_sh_sha, "test setup: tag and install.sh SHAs must differ"
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _bump_readme_pin(info, "0.2.0", dry_run=False)
@@ -1688,7 +1632,6 @@ def test_get_project_version_python_unaffected(tmp_path: Path) -> None:
 
 def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
     """The Go tag path is unchanged by the new plugin-only branch."""
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "go-proj"
     root.mkdir()
@@ -1765,7 +1708,6 @@ def test_run_release_go_resume_after_tag_without_version_still_works(
     unaffected — the new tag already exists by then, so the latest git tag
     genuinely is the version this run is resuming, not the previous one.
     """
-    from punt_kit import release as release_mod
 
     root = _make_go_project(tmp_path, tag="v0.2.0")
 
@@ -1775,7 +1717,7 @@ def test_run_release_go_resume_after_tag_without_version_still_works(
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase6_ci_wait", _stop)
+    monkeypatch.setattr(release, "_phase6_ci_wait", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root), resume_from="ci")
@@ -1788,7 +1730,6 @@ def test_run_release_non_go_resume_from_tag_without_version_unaffected(
     pyproject.toml already carries the bumped version regardless of
     whether the tag exists yet, so there is no ambiguity to guard against.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
 
@@ -1798,7 +1739,7 @@ def test_run_release_non_go_resume_from_tag_without_version_unaffected(
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase5_tag", _stop)
+    monkeypatch.setattr(release, "_phase5_tag", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root), resume_from="tag")
@@ -1812,7 +1753,6 @@ def test_run_release_resume_plugin_only_no_version_flag(
     Regresses the bug this bead reports verbatim: "Error: No pyproject.toml
     found" when resuming a marketplace-only plugin release past phase 1.
     """
-    from punt_kit import release as release_mod
 
     root = _make_language_none_plugin_project(tmp_path)
 
@@ -1822,7 +1762,7 @@ def test_run_release_resume_plugin_only_no_version_flag(
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase3_build", _stop)
+    monkeypatch.setattr(release, "_phase3_build", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root), resume_from="build")
@@ -1837,7 +1777,6 @@ def test_run_release_fresh_plugin_only_no_version_flag(
     project failed here even though the resume path (once fixed) could
     already resolve the same version from plugin.json.
     """
-    from punt_kit import release as release_mod
 
     root = _make_language_none_plugin_project(tmp_path)
 
@@ -1847,7 +1786,7 @@ def test_run_release_fresh_plugin_only_no_version_flag(
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase2_version_bump", _stop)
+    monkeypatch.setattr(release, "_phase2_version_bump", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root))
@@ -1894,7 +1833,6 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
     5, and 9's `run()` — a hook-firing checkout that defaulted to
     check=True was missed by round 1's sweep (pkit-f85t.7 round 2).
     """
-    from punt_kit.phases.shared.git import GitWorkspace
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1922,7 +1860,6 @@ def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> 
     call, structurally identical in risk to `git fetch origin` (Phase 1,
     already diagnosed) and `GitWorkspace.push` (Phase 5, already
     diagnosed), but missed for `ensure_on_main` by round 1's sweep."""
-    from punt_kit.phases.shared.git import GitWorkspace
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1949,7 +1886,6 @@ def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
 ) -> None:
     """A failing `git checkout <branch>` for an already-existing branch must
     diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.git import GitWorkspace
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1977,7 +1913,6 @@ def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
 ) -> None:
     """A failing `git checkout -b <branch>` for a genuinely new branch must
     diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.git import GitWorkspace
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2007,7 +1942,6 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
     restore commit, but this one backs *every* phase's own commit,
     including Phase 2's release-version-bump commit, and was missed by
     round 1's sweep (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.git import GitWorkspace
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2047,7 +1981,6 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     exception handling and surfaced as a bare traceback, not just a
     lower-quality diagnosis.
     """
-    from punt_kit.phases.phase03_build import Phase3Build
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -2077,8 +2010,6 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     CalledProcessError — kept in the same diagnosed convention as the push
     two lines below in the source, rather than left as the odd one out
     (pkit-f85t.7 round 2)."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2119,8 +2050,6 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     escaped run_release's diagnosis path entirely and surfaced as a bare
     traceback.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2160,8 +2089,6 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     would treat that as success and never re-push — this is the exact
     defect the fix closes.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2200,8 +2127,6 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     tmp_path: Path,
 ) -> None:
     """Resuming after a fully successful tag+push must not push again."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2246,8 +2171,6 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
     name still sits on the remote, must get a loud diagnosed failure — not
     a silent "already exists" that leaves the wrong commit tagged upstream.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2302,8 +2225,6 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     network risk class as `git fetch origin` (Phase 1) and this phase's own
     tag push, both already diagnosed. Missed in earlier sweep passes
     (pkit-f85t.7 round 2)."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2345,8 +2266,6 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
     commit SHA would treat every annotated remote tag as a mismatch, even
     one at the exact right commit.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2390,8 +2309,6 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
     Companion to the same-commit no-op test above — proves the peeled-SHA
     resolution is being compared, not merely tolerated as "present."
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2428,8 +2345,6 @@ def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
     Passing the captured ``release_sha`` through must tag that commit, not
     whatever HEAD has since become.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2474,8 +2389,6 @@ def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_he
     does Phase 5 run with no ``release_sha`` in hand (a resume that skipped
     Phase 4 in this process).
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2513,8 +2426,6 @@ def test_phase5_tag_resume_fallback_matches_squash_commit_with_pr_number_suffix(
     fallback search must match that shape, not only a bare, hand-committed
     ``chore: release vX.Y.Z`` message.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2549,8 +2460,6 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
     """No matching ``chore: release`` commit on main must raise, not
     silently fall back to tagging HEAD.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2576,8 +2485,6 @@ def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
     does. A loose prefix check would accept any parenthesized suffix,
     including an unrelated commit that merely starts the same way.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2642,7 +2549,6 @@ def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
 
 def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
     """Fails when sibling is on wrong branch."""
-    from punt_kit.phases.shared.siblings import SiblingRepo
 
     sibling = _make_sibling(tmp_path, "sib", {})
     _git(["checkout", "-b", "feature"], cwd=str(sibling))
@@ -2654,7 +2560,6 @@ def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
 
 def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
     """Fails when sibling has uncommitted changes."""
-    from punt_kit.phases.shared.siblings import SiblingRepo
 
     sibling = _make_sibling(tmp_path, "sib", {})
     (sibling / "dirty.txt").write_text("dirty")
@@ -2676,7 +2581,6 @@ def test_validate_sibling_diagnoses_branch_read_command_failure(
     the `git pull --ff-only` a few lines later in the same method, which
     already diagnosed its own failures.
     """
-    from punt_kit.phases.shared.siblings import SiblingRepo
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
@@ -2701,7 +2605,6 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
 ) -> None:
     """A `git status --porcelain` command failure on a sibling checkout must
     diagnose, not leak a raw CalledProcessError (pkit-f85t.7)."""
-    from punt_kit.phases.shared.siblings import SiblingRepo
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
@@ -2753,7 +2656,6 @@ def test_propagate_install_all_updates_sha(
     )
 
     # Mock _sibling_pr_merge to avoid needing gh CLI
-    from punt_kit import release as release_mod
 
     calls: list[tuple[str, str, list[str]]] = []
 
@@ -2769,9 +2671,7 @@ def test_propagate_install_all_updates_sha(
         calls.append((name, message, files))
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -2825,7 +2725,6 @@ def test_propagate_install_all_idempotent(
     )
 
     # Mock _sibling_pr_merge
-    from punt_kit import release as release_mod
 
     calls: list[str] = []
 
@@ -2841,9 +2740,7 @@ def test_propagate_install_all_idempotent(
         calls.append(name)
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -2950,7 +2847,6 @@ def test_propagate_marketplace_updates_version(
     )
 
     # Mock _sibling_pr_merge
-    from punt_kit import release as release_mod
 
     calls: list[str] = []
 
@@ -2966,9 +2862,7 @@ def test_propagate_marketplace_updates_version(
         calls.append(name)
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_marketplace(info, "0.2.0", dry_run=False)
@@ -3051,9 +2945,7 @@ def test_propagate_marketplace_matches_by_marketplace_short_name(
         },
     )
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
 
     info = detect(root)
     _propagate_marketplace(info, "0.2.0", dry_run=False)
@@ -3102,9 +2994,7 @@ def test_propagate_marketplace_matches_url_with_and_without_git_suffix(
         },
     )
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
 
     info = detect(root)
     _propagate_marketplace(info, "0.2.0", dry_run=False)
@@ -3170,8 +3060,6 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "init"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     assert not info.is_plugin
@@ -3246,14 +3134,8 @@ def test_propagate_install_all_pins_profile_to_merged_commit(
     # SHA of the last install-all.sh commit BEFORE propagation
     pre_merge_sha = _get_install_all_short_sha(sibling)
 
-    from punt_kit import release as release_mod
-
     calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr(
-        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
-    )
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", _merging_sibling_pr_merge(calls))
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -3309,14 +3191,8 @@ def test_propagate_install_all_repairs_stale_profile(
         },
     )
 
-    from punt_kit import release as release_mod
-
     calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr(
-        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
-    )
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", _merging_sibling_pr_merge(calls))
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -3339,8 +3215,6 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
     (pkit-f85t.7), unlike a genuinely empty result (no commit has ever
     touched install-all.sh), which is a distinct, already-handled case.
     """
-    from punt_kit.phases.phase10_propagate import InstallAllPropagator
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -3427,7 +3301,6 @@ def test_propagate_website_updates_version(
     )
 
     # Mock _sibling_pr_merge
-    from punt_kit import release as release_mod
 
     calls: list[str] = []
 
@@ -3443,9 +3316,7 @@ def test_propagate_website_updates_version(
         calls.append(name)
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_website(info, "0.2.0", dry_run=False)
@@ -3464,8 +3335,6 @@ def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
         ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
         cwd=str(root),
     )
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     # Should not raise
@@ -3530,7 +3399,6 @@ def test_sibling_pr_merge_returns_to_main(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """After _sibling_pr_merge, sibling is back on main (5b4/zay fix)."""
-    from punt_kit import release as release_mod
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
 
@@ -3550,9 +3418,9 @@ def test_sibling_pr_merge_returns_to_main(
         _git(["checkout", "main"], cwd=str(cwd))
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
-    release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+    release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
         sibling, "test-branch", ["file.txt"], "test commit", "sib", dry_run=False
     )
 
@@ -3571,7 +3439,6 @@ def test_sibling_pr_merge_returns_to_main_on_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Sibling returns to main even when _pr_merge fails (5b4/zay)."""
-    from punt_kit import release as release_mod
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
@@ -3579,10 +3446,10 @@ def test_sibling_pr_merge_returns_to_main_on_failure(
     def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
         raise SystemExit(1)
 
-    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", failing_pr_merge)
 
     with pytest.raises(SystemExit):
-        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
             sibling,
             "test-branch",
             ["file.txt"],
@@ -3614,7 +3481,6 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
     call site). A future change that dropped or misdirected that one
     argument would not be caught by anything else in the suite.
     """
-    from punt_kit import release as release_mod
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
@@ -3636,11 +3502,11 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
             )
         return _run(cmd, **kwargs)  # type: ignore[arg-type]
 
-    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_pr_merge", failing_pr_merge)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="required checks never passed"):
-        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
             sibling,
             "test-branch",
             ["file.txt"],
@@ -3649,7 +3515,7 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
             dry_run=False,
         )
 
-    (notice,) = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    (notice,) = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
     assert "required checks never passed" in notice
     assert "local changes would be overwritten" in notice
 
@@ -3904,7 +3770,6 @@ def test_preflight_warns_when_prior_tag_version_mismatches(
 
 def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
     """Verify phase finds projects in the 'for plugin in ...' loop."""
-    import re
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -4081,7 +3946,6 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Returns immediately when all required checks succeed."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4113,8 +3977,8 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
     # One graphql poll — the pre-loop branch-protection and ruleset checks
     # are intercepted separately and are not counted here.
@@ -4125,7 +3989,6 @@ def test_wait_for_required_checks_fails_on_required_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Calls _fail when a required check fails."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4143,8 +4006,8 @@ def test_wait_for_required_checks_fails_on_required_failure(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(ReleaseError):
         _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4153,7 +4016,6 @@ def test_wait_for_required_checks_ignores_non_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Does not fail when only non-required checks fail."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4177,8 +4039,8 @@ def test_wait_for_required_checks_ignores_non_required(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise
     _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4187,7 +4049,6 @@ def test_wait_for_required_checks_status_context_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """StatusContext nodes with state=SUCCESS are treated as passed."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4204,8 +4065,8 @@ def test_wait_for_required_checks_status_context_success(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise — SUCCESS StatusContext is a pass
     _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4214,7 +4075,6 @@ def test_wait_for_required_checks_status_context_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """StatusContext nodes with state=ERROR are treated as failures."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4231,8 +4091,8 @@ def test_wait_for_required_checks_status_context_error(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(ReleaseError):
         _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4247,7 +4107,6 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
     counter — the release still has most of its polling window left —
     rather than escape as a traceback and abort the whole run.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4280,8 +4139,8 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
     assert call_count == 2
 
@@ -4295,7 +4154,6 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
     infinite retry — routing into consecutive_errors means the existing
     five-strikes ceiling still trips.
     """
-    from punt_kit import release as release_mod
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -4305,8 +4163,8 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         raise subprocess.TimeoutExpired(cmd, 60)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(ReleaseError, match="5 consecutive times"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4397,7 +4255,6 @@ def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No branch protection means every check is waited on, not just isRequired."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4417,8 +4274,8 @@ def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise — the non-required "lint" check is treated as the
     # pass condition because the repo has no branch protection configured.
     _wait_for_required_checks("gh", "/tmp", 42)
@@ -4434,7 +4291,6 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
     clock crosses it in a handful of iterations instead of the test
     sleeping for ``NO_CHECKS_GRACE`` real seconds.
     """
-    from punt_kit import release as release_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4450,8 +4306,8 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
     monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
     with pytest.raises(ReleaseError, match="No CI checks registered"):
@@ -4466,7 +4322,6 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     Branch protection is resolved once before the loop starts, so this is a
     proof of function structure rather than a distinct behavior.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4488,8 +4343,8 @@ def test_wait_for_required_checks_warns_once_on_fallback(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
 
     printed = capsys.readouterr().out
@@ -4503,7 +4358,6 @@ def test_gh_module_has_no_hardcoded_7200_literal() -> None:
     drift the moment CI_WATCH changes — this asserts the import, not just
     the current numeric coincidence.
     """
-    from punt_kit.phases.shared import gh as gh_mod
 
     source = inspect.getsource(gh_mod)
     assert "7200" not in source
@@ -4518,8 +4372,6 @@ def test_wait_for_required_checks_deadline_tracks_ci_watch(
     Proves the deadline is read from the module attribute at call time
     (patchable), not baked in as a literal at import time.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.phases.shared import gh as gh_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4528,8 +4380,8 @@ def test_wait_for_required_checks_deadline_tracks_ci_watch(
             return _ruleset_response(governed=False)
         raise AssertionError("should time out before ever polling checks")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr(gh_mod, "CI_WATCH", -1)
 
     with pytest.raises(ReleaseError, match="Timed out waiting for"):
@@ -4584,7 +4436,6 @@ def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
     """A ruleset-governed repo with no legacy branch protection is not warned
     about, and required checks are still honored (the ethos main shape).
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4612,8 +4463,8 @@ def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise — the ruleset governs, so isRequired narrows to
     # "lint" alone, and the in-progress non-required review is ignored.
     _wait_for_required_checks("gh", "/tmp", 42)
@@ -4633,7 +4484,6 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
     crosses ``NO_CHECKS_GRACE`` in a few iterations; the failure names the
     likely causes an operator needs to check.
     """
-    from punt_kit import release as release_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4649,8 +4499,8 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
     monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
 
@@ -4673,7 +4523,6 @@ def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
     grace-expiry failure must say so, not repeat the "no CI checks
     registered at all" wording that fits the null-rollup case.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4698,8 +4547,8 @@ def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
     monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
 
@@ -4721,7 +4570,6 @@ def test_wait_for_required_checks_late_arriving_checks_still_proceed(
     the check appears — the grace window must not trip on a commit whose
     checks are merely slow to attach, only on one that never gets any.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4753,8 +4601,8 @@ def test_wait_for_required_checks_late_arriving_checks_still_proceed(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
     # A small step keeps every poll well inside NO_CHECKS_GRACE (300s) even
     # across several no-checks iterations, unlike the expiry test's clock.
@@ -4777,7 +4625,6 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
     thread receives SIGINT — so it would keep polling for up to two hours,
     blocking ``ThreadPoolExecutor.__exit__``'s join for the same span.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4799,14 +4646,14 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
     try:
         with pytest.raises(ReleaseError, match="Interrupted while waiting"):
             _wait_for_required_checks("gh", "/tmp", 42)
     finally:
-        release_mod._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+        release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 # --- _reset_propagation_siblings ---
@@ -4816,7 +4663,6 @@ def test_reset_propagation_siblings_resets_propagation_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Resets siblings on propagate/v* branches to main."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4839,8 +4685,8 @@ def test_reset_propagation_siblings_resets_propagation_branch(
     def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
         return tmp_path / name
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
     _reset_propagation_siblings(info)
     assert any("main" in c for c in checkout_calls)
 
@@ -4849,7 +4695,6 @@ def test_reset_propagation_siblings_skips_feature_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Does not touch siblings on non-propagation branches."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4869,8 +4714,8 @@ def test_reset_propagation_siblings_skips_feature_branches(
     def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
         return tmp_path / name
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
     _reset_propagation_siblings(info)
     assert not checkout_calls  # Should not have attempted any checkout
 
@@ -4879,7 +4724,6 @@ def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With fail_on_error=False, a checkout failure does not abort remaining ones."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4913,8 +4757,8 @@ def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
     def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
         return tmp_path / name if name in sibling_names else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     # Should not raise even though first checkout fails
     _reset_propagation_siblings(info, fail_on_error=False)
@@ -4926,7 +4770,6 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With fail_on_error=True (default), a checkout failure raises ReleaseError."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4948,8 +4791,8 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
     def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
         return tmp_path / name
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError):
         _reset_propagation_siblings(info, fail_on_error=True)
@@ -4988,7 +4831,6 @@ def test_reset_propagation_siblings_restores_dirty_owned_file(
     refused to run. _reset_propagation_siblings must restore that file
     so --resume-from propagate can retry the same idempotent write.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -5006,7 +4848,7 @@ def test_reset_propagation_siblings_restores_dirty_owned_file(
     def fake_resolve(_root: object, name: str) -> Path | None:
         return sib if name == "public-website" else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
 
     _reset_propagation_siblings(info)
 
@@ -5035,7 +4877,6 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
     with only unrelated modifications is left entirely alone for the
     existing SiblingRepo.validate guard to trip on, as it does today.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -5055,7 +4896,7 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
     def fake_resolve(_root: object, name: str) -> Path | None:
         return sib if name == "public-website" else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
 
     _reset_propagation_siblings(info)
 
@@ -5083,7 +4924,6 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     on — losing operator work is unrecoverable, letting the guard fail
     once is not.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -5106,7 +4946,7 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     def fake_resolve(_root: object, name: str) -> Path | None:
         return sib if name == "public-website" else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
 
     _reset_propagation_siblings(info)
 
@@ -5125,7 +4965,6 @@ def _select_existing_pr(
     prs: list[dict[str, object]], local_head: str
 ) -> tuple[int | None, bool]:
     """Drive the live PR selection that ``PrMerger.merge`` itself calls."""
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
         prs, local_head
@@ -5217,9 +5056,6 @@ def _patch_pr_merge_env(
     waited_prs: list[int],
 ) -> None:
     """Wire _pr_merge to the fake gh environment."""
-    import shutil
-
-    from punt_kit import release as release_mod
 
     def fake_which(_name: str) -> str:
         return "gh"
@@ -5231,9 +5067,9 @@ def _patch_pr_merge_env(
         return None
 
     monkeypatch.setattr(shutil, "which", fake_which)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_wait_for_required_checks", fake_wait)
-    monkeypatch.setattr(release_mod, "_resolve_pr_threads", fake_resolve_threads)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_wait_for_required_checks", fake_wait)
+    monkeypatch.setattr(release, "_resolve_pr_threads", fake_resolve_threads)
 
 
 def test_pr_merge_ignores_closed_pr_creates_fresh(
@@ -5433,7 +5269,6 @@ def test_phase7_github_release_create_failure_diagnoses(
     Phase 7 had no isolated failure-path test at all before this (matrix
     row 29).
     """
-    from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -5482,7 +5317,6 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
     could not distinguish "nothing catches TimeoutExpired" from "nothing
     catches TimeoutExpired on the first attempt specifically").
     """
-    from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5523,7 +5357,6 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
     CalledProcessError — same external-tool risk class as the install
     retry loop above, missed in earlier sweep passes (pkit-f85t.7 round 2).
     """
-    from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -5614,7 +5447,6 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     ReleaseError/TimeoutExpired, so an undiagnosed CalledProcessError here
     would escape as a bare traceback.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
         return None
@@ -5674,7 +5506,6 @@ def test_pr_merge_merge_commit_oid_null_fails_loud(
     never returns in that case, Phase 5 (the only consumer of this return
     value) can never receive "null" to hand to `git tag`.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
         return None
@@ -5726,7 +5557,6 @@ def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
     Attempts 1 and 2 are blocked by a transient policy check; attempt 3
     succeeds. Before this test, nothing drove ``merge_attempt`` past 0.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5775,7 +5605,6 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
     proved the loop gives up after attempt 6 instead of retrying forever
     or silently succeeding.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5831,7 +5660,6 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     blocked, the subsequent re-resolve raises, and the loop must still
     proceed to attempt 2 instead of propagating that exception.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5892,7 +5720,6 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     then tag the wrong commit even with the SHA-threading fix in place,
     since it trusts whatever ``merge()`` returns.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     monkeypatch.setattr("shutil.which", _fake_which_gh)
     root = tmp_path / "proj"
@@ -5982,8 +5809,6 @@ def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
     ``finally`` block only reached ``ops.info`` — invisible in the
     end-of-run "Manual action required" recap that ``SkipRecorder`` drives.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6030,7 +5855,6 @@ def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
     original info-only behavior — the routing is additive, not a
     replacement for every caller.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6080,8 +5904,6 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
     the ``finally`` block would replace the propagating primary exception
     instead of merely accompanying it in the recap.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6132,7 +5954,6 @@ def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
     be swallowed into a quiet info line), matching pre-fix behavior where
     nothing caught this exception at all.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6178,8 +5999,6 @@ def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
     message, unlike the checkout-failure path below it, leaving it out
     of the ``SkipRecorder`` recap.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6228,8 +6047,6 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
     for the branch-lookup path specifically — the routing only escalates
     when there is a primary failure for the secondary one to accompany.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6274,7 +6091,6 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
     risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
     git log, both already diagnosed. Missed in earlier sweep passes
     (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6315,8 +6131,6 @@ def test_phase4_release_pr_pins_readme_after_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Phase 4 lands a second, README-only PR right after the release PR merges."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6387,12 +6201,12 @@ def test_phase4_release_pr_pins_readme_after_merge(
         return "punt-labs/proj"
 
     monkeypatch.setattr(shutil, "which", _which_gh)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_wait_for_required_checks", _no_wait)
-    monkeypatch.setattr(release_mod, "_resolve_pr_threads", _no_threads)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_wait_for_required_checks", _no_wait)
+    monkeypatch.setattr(release, "_resolve_pr_threads", _no_threads)
+    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
 
-    release_sha = release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
+    release_sha = release._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
         info, "0.2.0", dry_run=False
     )
 
@@ -6417,8 +6231,6 @@ def test_land_readme_sha_pin_noop_when_readme_already_current(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No PR is created when the README already pins the current install SHA."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6455,10 +6267,10 @@ def test_land_readme_sha_pin_noop_when_readme_already_current(
     def _repo_slug(_root: Path) -> str:
         return "punt-labs/proj"
 
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release, "_run", fake_run)
 
-    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+    release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
         info, "0.2.0", dry_run=False
     )
 
@@ -6472,8 +6284,6 @@ def test_land_readme_sha_pin_cleanup_diagnoses_checkout_failure(
     (README already pins the current SHA) must diagnose, not leak a raw
     CalledProcessError — the same cleanup pattern Phase 9 already
     diagnoses, missed here in earlier sweep passes (pkit-f85t.7 round 2)."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6511,11 +6321,11 @@ def test_land_readme_sha_pin_cleanup_diagnoses_checkout_failure(
     def _repo_slug(_root: Path) -> str:
         return "punt-labs/proj"
 
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="git checkout main failed"):
-        release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
             info, "0.2.0", dry_run=False
         )
 
@@ -6525,8 +6335,6 @@ def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
     diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6564,11 +6372,11 @@ def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
     def _repo_slug(_root: Path) -> str:
         return "punt-labs/proj"
 
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="git branch -D .* failed"):
-        release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+        release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
             info, "0.2.0", dry_run=False
         )
 
@@ -6585,8 +6393,6 @@ def test_readme_sha_pin_survives_tag(
     resolves via ``git show`` for a while after deletion. Reachability from
     main is the property that matters once CI checks out the release tag.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.detect import detect
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -6622,7 +6428,7 @@ def test_readme_sha_pin_survives_tag(
             check=True,
         ).stdout.strip()
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     # The reachability guard runs against the working tree's install.sh
     # SHA and the README's install URL. Pin the URL owner/repo to what
@@ -6633,17 +6439,17 @@ def test_readme_sha_pin_survives_tag(
     def _repo_slug(_root: Path) -> str:
         return "punt-labs/test-pkg"
 
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
 
     # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
     # first _pr_merge call, for the release branch itself).
-    release_mod._pr_merge(  # pyright: ignore[reportPrivateUsage]
+    release._pr_merge(  # pyright: ignore[reportPrivateUsage]
         cwd=root, branch=release_branch, title="chore: release v0.2.0"
     )
 
     # Step 2: land the README pin — the fix under test.
     info = detect(root)
-    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
+    release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
         info, "0.2.0", dry_run=False
     )
 
@@ -6798,9 +6604,8 @@ def _patch_pypi_probe(
     involved. Returns the list of intercepted ``(cmd, kwargs)`` pairs so callers
     can assert the probe ran exactly once and inspect its ``cwd``.
     """
-    from punt_kit import release as release_mod
 
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
+    original_run = release._run  # pyright: ignore[reportPrivateUsage]
     calls: list[tuple[list[str], dict[str, object]]] = []
 
     def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
@@ -6813,7 +6618,7 @@ def _patch_pypi_probe(
             return result
         return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
 
-    monkeypatch.setattr(release_mod, "_run", patched_run)
+    monkeypatch.setattr(release, "_run", patched_run)
     return calls
 
 
@@ -7449,8 +7254,6 @@ def test_phase_summary_recaps_skipped_propagation(
     With Phase 11 no longer the backstop, a skip recorded mid-run must be
     re-surfaced at the end so a scrolled-past warning is never the only notice.
     """
-    from punt_kit.phases.shared.pipeline import ReleasePipeline
-    from punt_kit.phases.shared.project_info import ReleaseProject
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -9606,10 +9409,6 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     a single new commit (not an amend of one, not a commit-plus-amend
     pair), and it carries both the name flip and the correct version.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
-    )
 
     root = _make_release_project(tmp_path, subdir=subdir)
     d = str(root)
@@ -9685,7 +9484,7 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     ) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
     _phase9_post_release(info, "0.2.0", dry_run=False)
@@ -9771,7 +9570,6 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     (pkit-f85t.7), so a rejected commit here previously leaked a raw
     CalledProcessError instead of a diagnosed message (matrix row 13).
     """
-    from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -9877,10 +9675,6 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     HEAD:<path>`` and a path that does not exist at HEAD makes the phase
     raise rather than answer.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
-    )
 
     root = _make_release_project(tmp_path, subdir=subdir)
     d = str(root)
@@ -9972,7 +9766,7 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
         )["name"]
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     # The fwql pin step runs against a real remote in production; this
     # test has none. Stub it out — the assertions here are about the
@@ -9980,7 +9774,7 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     def _skip_pin(*_a: object, **_k: object) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_land_readme_sha_pin", _skip_pin)
+    monkeypatch.setattr(release, "_land_readme_sha_pin", _skip_pin)
 
     info = detect(root)
     _phase4_release_pr(info, "0.2.0", dry_run=False)
@@ -10005,7 +9799,6 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
     CalledProcessError instead of the diagnosed message this phase's
     HEAD-consult idempotency check exists to recover from (matrix row 32).
     """
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -10104,7 +9897,6 @@ def test_phase9_post_release_restore_script_itself_failing_diagnoses(
     from the follow-up commit failing, already covered above — must
     diagnose too. Flagged by Copilot's round-1 PR review as an uncovered
     branch of the same converted call site."""
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -10138,7 +9930,6 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
     """A failing `git checkout main` in the no-changes-needed cleanup path
     must diagnose, not leak a raw CalledProcessError — missed by round 1's
     sweep (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -10180,7 +9971,6 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
     diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -10231,10 +10021,6 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     commit. Consulting HEAD (name AND version) forces the retry to
     complete and land a properly-labelled restore commit.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
-    )
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -10322,7 +10108,7 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     ) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
     _phase9_post_release(info, "0.2.0", dry_run=False)
@@ -10381,16 +10167,14 @@ def test_phase10_propagate_runs_concurrently(
         calls.append("website")
         barrier.wait()
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
-    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
-    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+    monkeypatch.setattr(release, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release, "_propagate_website", mock_website)
 
     def _noop_reset(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
     _phase10_propagate(info, "0.2.0", dry_run=False)
 
@@ -10416,16 +10200,14 @@ def test_phase10_propagate_collects_errors(
     def mock_website(*args: object, **kwargs: object) -> None:
         calls.append("website")
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
-    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
-    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+    monkeypatch.setattr(release, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release, "_propagate_website", mock_website)
 
     def _noop_reset(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
     with pytest.raises(ReleaseError):
         _phase10_propagate(info, "0.2.0", dry_run=False)
@@ -10456,21 +10238,19 @@ def test_phase10_propagate_records_leg_failure_in_skips(
     def mock_website(*args: object, **kwargs: object) -> None:
         return None
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
-    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
-    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+    monkeypatch.setattr(release, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release, "_propagate_website", mock_website)
 
     def _noop_reset(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
     with pytest.raises(ReleaseError):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
-    notices = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    notices = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
     assert len(notices) == 1
     assert "FAILED" in notices[0]
     assert "Phase 10 propagation" in notices[0]
@@ -10490,16 +10270,14 @@ def test_phases_9_10_run_concurrently(
 
     calls: list[str] = []
 
-    from punt_kit import release as release_mod
-
     def mock_p9(*args: object, **kwargs: object) -> None:
         calls.append("p9")
 
     def mock_p10(*args: object, **kwargs: object) -> None:
         calls.append("p10")
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", mock_p9)
-    monkeypatch.setattr(release_mod, "_phase10_propagate", mock_p10)
+    monkeypatch.setattr(release, "_phase9_post_release", mock_p9)
+    monkeypatch.setattr(release, "_phase10_propagate", mock_p10)
 
     _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
     assert sorted(calls) == ["p10", "p9"]
@@ -10514,16 +10292,14 @@ def test_phases_9_10_only_p10_when_start_10(
 
     calls: list[str] = []
 
-    from punt_kit import release as release_mod
-
     def mock_p9(*args: object, **kwargs: object) -> None:
         calls.append("p9")
 
     def mock_p10(*args: object, **kwargs: object) -> None:
         calls.append("p10")
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", mock_p9)
-    monkeypatch.setattr(release_mod, "_phase10_propagate", mock_p10)
+    monkeypatch.setattr(release, "_phase9_post_release", mock_p9)
+    monkeypatch.setattr(release, "_phase10_propagate", mock_p10)
 
     _run_phases_9_10(info, "0.2.0", dry_run=False, start=10)
     assert calls == ["p10"]
@@ -10536,17 +10312,15 @@ def test_phases_9_10_exception_propagates(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    from punt_kit import release as release_mod
-
     def noop_p9(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", noop_p9)
+    monkeypatch.setattr(release, "_phase9_post_release", noop_p9)
 
     def failing_p10(*args: object, **kwargs: object) -> None:
         raise RuntimeError("P10 exploded")
 
-    monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
+    monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
     with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
@@ -10559,17 +10333,15 @@ def test_phases_9_10_p9_systemexit_propagates(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    from punt_kit import release as release_mod
-
     def failing_p9(*args: object, **kwargs: object) -> None:
         raise SystemExit(1)
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", failing_p9)
+    monkeypatch.setattr(release, "_phase9_post_release", failing_p9)
 
     def noop_p10(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_phase10_propagate", noop_p10)
+    monkeypatch.setattr(release, "_phase10_propagate", noop_p10)
 
     with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
@@ -10582,17 +10354,15 @@ def test_phases_9_10_both_fail_reports_both(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    from punt_kit import release as release_mod
-
     def failing_p9(*args: object, **kwargs: object) -> None:
         raise RuntimeError("P9 exploded")
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", failing_p9)
+    monkeypatch.setattr(release, "_phase9_post_release", failing_p9)
 
     def failing_p10(*args: object, **kwargs: object) -> None:
         raise RuntimeError("P10 exploded")
 
-    monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
+    monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
     with pytest.raises(ReleaseError):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
@@ -10787,13 +10557,12 @@ def test_phase6_reports_gh_failure_rather_than_a_missing_run(
     Both produce an empty run list, but the operator's next action is
     completely different, so the two must not share a message.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
@@ -10802,7 +10571,7 @@ def test_phase6_reports_gh_failure_rather_than_a_missing_run(
             cmd, 1, stdout="", stderr="gh: not authenticated"
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="not authenticated"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10818,13 +10587,12 @@ def test_phase6_blames_the_missing_run_when_gh_worked_at_least_once(
     end. Reporting that blip as "gh never succeeded" points the operator at
     their network when the real story is that no run was ever created.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     gh_calls: list[int] = []
 
@@ -10839,7 +10607,7 @@ def test_phase6_blames_the_missing_run_when_gh_worked_at_least_once(
             cmd, 1, stdout="", stderr="gh: connection reset"
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="no release.yml run found"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10853,13 +10621,12 @@ def test_phase6_lists_runs_filtered_to_the_tag(
     Without --branch, a busy release.yml history can push the target run past
     the limit, which reads identically to "the tag never triggered CI".
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     seen: list[list[str]] = []
 
@@ -10869,7 +10636,7 @@ def test_phase6_lists_runs_filtered_to_the_tag(
         seen.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10902,20 +10669,19 @@ def test_phase6_survives_unparseable_gh_output(
     A JSONDecodeError escaping list_runs would bypass both _fail sites and
     end the release in a stack trace instead of a message.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="not json at all", stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="unparseable JSON"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10950,13 +10716,12 @@ def test_phase6_survives_wrong_shaped_gh_json(
     one to a run sequence surfaces as a TypeError from inside poll, which
     escapes both _fail sites the same way a decode error would.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
@@ -10965,7 +10730,7 @@ def test_phase6_survives_wrong_shaped_gh_json(
             cmd, 0, stdout='{"message":"Not Found"}', stderr=""
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="unexpected JSON shape"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -11006,13 +10771,12 @@ def test_phase6_reports_failed_lookups_alongside_the_missing_run(
     read as 24 clean looks that found nothing, and the operator concludes the
     tag never triggered CI when most of the search never ran.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     calls: list[int] = []
 
@@ -11026,7 +10790,7 @@ def test_phase6_reports_failed_lookups_alongside_the_missing_run(
             cmd, 1, stdout="", stderr="gh: API rate limit exceeded"
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError) as caught:
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -11045,13 +10809,12 @@ def test_phase6_names_the_near_miss_run_it_rejected(
     triggered CI" — saying that while holding evidence to the contrary is the
     worst message this phase can print.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     stale = json.dumps(
         [
@@ -11065,7 +10828,7 @@ def test_phase6_names_the_near_miss_run_it_rejected(
         ]
     )
     monkeypatch.setattr(
-        release_mod,
+        release,
         "_run",
         _run_stub(
             {"list": subprocess.CompletedProcess([], 0, stdout=stale, stderr="")}
@@ -11090,17 +10853,16 @@ def test_phase6_does_not_call_an_unreachable_run_a_ci_failure(
     failed" sends the operator to a green run, and the natural recovery from
     there is to resume past this phase — publishing with no verdict at all.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": "success"}])
     monkeypatch.setattr(
-        release_mod,
+        release,
         "_run",
         _run_stub(
             {
@@ -11126,17 +10888,16 @@ def test_phase6_still_reports_a_genuine_ci_failure_as_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The unreachable-run handling must not soften a real red build."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": "failure"}])
     monkeypatch.setattr(
-        release_mod,
+        release,
         "_run",
         _run_stub(
             {
@@ -11165,13 +10926,12 @@ def test_phase6_timeout_explains_itself_instead_of_raising(
     stack trace — and the release environment's manual approval gate makes
     outlasting the two-hour watch a routine occurrence, not an exotic one.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
 
@@ -11182,7 +10942,7 @@ def test_phase6_timeout_explains_itself_instead_of_raising(
             raise subprocess.TimeoutExpired(cmd, 7200)
         return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="release environment approval"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
@@ -11196,20 +10956,19 @@ def test_phase6_treats_a_hung_run_list_as_a_failed_lookup(
     The watch call was hardened against TimeoutExpired; the listing goes
     through the same _run and would escape poll the same way.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
         raise subprocess.TimeoutExpired(cmd, 60)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="timed out"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
@@ -11224,13 +10983,12 @@ def test_phase6_survives_a_hung_verdict_query(
     likeliest reason the follow-up status query hangs, so a timeout there
     must produce the could-not-confirm message rather than a traceback.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
 
@@ -11243,7 +11001,7 @@ def test_phase6_survives_a_hung_verdict_query(
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="could not confirm"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
@@ -11256,13 +11014,11 @@ def test_phase6_skips_for_pure_plugin_without_release_yml(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A pure (non-hybrid) plugin with no release.yml has nothing to wait for."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     def _unreachable(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("_run must not be called on the pure-plugin skip path")
 
-    monkeypatch.setattr(release_mod, "_run", _unreachable)
+    monkeypatch.setattr(release, "_run", _unreachable)
 
     info = ProjectInfo(
         root=_Path("/nonexistent"),
@@ -11274,7 +11030,6 @@ def test_phase6_skips_for_pure_plugin_without_release_yml(
 
 def test_phase6_fails_actionably_when_python_project_missing_release_yml() -> None:
     """A non-plugin project missing release.yml fails loud, not silent."""
-    from punt_kit.detect import ProjectInfo
 
     info = ProjectInfo(
         root=_Path("/nonexistent"),
@@ -11287,7 +11042,6 @@ def test_phase6_fails_actionably_when_python_project_missing_release_yml() -> No
 
 def test_phase6_hybrid_missing_release_yml_still_fails() -> None:
     """A hybrid project (CLI + plugin) must have release.yml — no silent skip."""
-    from punt_kit.detect import ProjectInfo
 
     info = ProjectInfo(
         root=_Path("/nonexistent"),
@@ -11309,7 +11063,6 @@ def test_phase6_proceeds_normally_when_release_yml_present(
     (added for this guard), so this exercises the unchanged code path after
     the new guard using the pre-existing ``_run_stub`` dict-dispatch mocks.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -11322,7 +11075,7 @@ def test_phase6_proceeds_normally_when_release_yml_present(
             "watch": subprocess.CompletedProcess([], 0, stdout="", stderr=""),
         }
     )
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
 
@@ -11431,7 +11184,6 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     surfaces the hang as a diagnosis naming the command that timed out,
     the phase it was in, and the exact --resume-from string to retry with.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
@@ -11441,7 +11193,7 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     def fake_preflight(*_args: object, **_kwargs: object) -> None:
         raise subprocess.TimeoutExpired(hung_cmd, 300)
 
-    monkeypatch.setattr(release_mod, "_phase1_preflight", fake_preflight)
+    monkeypatch.setattr(release, "_phase1_preflight", fake_preflight)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False)
@@ -11485,7 +11237,6 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
     the diagnosis is pinned to the genuine DEFAULT_RUN fallback value, not
     a named budget (matrix row 54).
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     hung_cmd = ["git", "branch", "--show-current"]
@@ -11502,7 +11253,7 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
             raise subprocess.TimeoutExpired(cmd, timeout)
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False)
@@ -11529,7 +11280,6 @@ def test_run_release_credits_propagate_when_resuming_from_it(
     which is the exact contract failure the phase-in-diagnosis fix
     exists to close.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
@@ -11544,7 +11294,7 @@ def test_run_release_credits_propagate_when_resuming_from_it(
         assert dry_run is False
         raise subprocess.TimeoutExpired(hung_cmd, 300)
 
-    monkeypatch.setattr(release_mod, "_run_phases_9_10", fake_run_phases_9_10)
+    monkeypatch.setattr(release, "_run_phases_9_10", fake_run_phases_9_10)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
@@ -11574,7 +11324,6 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     --resume-from verify, which would never retry the propagation that
     verify's own checks are reporting on.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
@@ -11590,9 +11339,9 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     def fake_phase11_verify(_info: object, version: str, *, dry_run: bool) -> None:
         verify_calls.append(version)
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", fake_phase9)
-    monkeypatch.setattr(release_mod, "_phase10_propagate", fake_phase10)
-    monkeypatch.setattr(release_mod, "_phase11_verify", fake_phase11_verify)
+    monkeypatch.setattr(release, "_phase9_post_release", fake_phase9)
+    monkeypatch.setattr(release, "_phase10_propagate", fake_phase10)
+    monkeypatch.setattr(release, "_phase11_verify", fake_phase11_verify)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(
@@ -11625,20 +11374,19 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     a Phase 4/10 check-wait hang go unresolved without anyone noticing the
     release was left mid-flight.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
 
     def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
-        release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
         raise KeyboardInterrupt()
 
     def _noop_reset(*_args: object, **_kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_phase6_ci_wait", fake_ci_wait)
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_phase6_ci_wait", fake_ci_wait)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="ci")
@@ -11702,7 +11450,6 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
     run is not a warning; it teaches the operator to skim past the ones
     that matter.
     """
-    from punt_kit import release as release_mod
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -11739,8 +11486,8 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
             )
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
 
     _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -11757,7 +11504,6 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Naming the null-rollup case must not silence real structure errors."""
-    from punt_kit import release as release_mod
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -11794,8 +11540,8 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
             )
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
 
     _wait_for_required_checks("gh", "/tmp", 42)
 
