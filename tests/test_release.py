@@ -80,15 +80,16 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture(autouse=True)
-def isolate_skip_recorder() -> Iterator[None]:
-    """Clear the module-scoped skip recorder around every test.
+def skips(monkeypatch: pytest.MonkeyPatch) -> SkipRecorder:
+    """Install a fresh skip recorder as the release module's own for each test.
 
-    ``release._skips`` persists for the process; a test that records a skip
-    would otherwise leak the notice into the next test's summary recap.
+    ``release`` keeps one recorder for the whole process; a test that records a
+    skip would otherwise leak the notice into the next test's summary recap.
+    Tests that assert on recorded skips take this fixture by name.
     """
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
-    yield
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
+    recorder = SkipRecorder(ops=_fault_ops())
+    monkeypatch.setattr(release, "_skips", recorder)
+    return recorder
 
 
 @pytest.fixture(autouse=True)
@@ -3475,7 +3476,7 @@ def test_sibling_pr_merge_returns_to_main_on_failure(
 
 
 def test_sibling_pr_merge_wrapper_wires_skips_through(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
     """The real ``_sibling_pr_merge`` wrapper threads ``_skips`` through.
 
@@ -3520,7 +3521,7 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
             dry_run=False,
         )
 
-    (notice,) = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    (notice,) = skips.drain()
     assert "required checks never passed" in notice
     assert "local changes would be overwritten" in notice
 
@@ -4959,59 +4960,11 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
 
 
-# --- PrMerger._select_existing / _pr_merge: stale same-named PRs ---
+# --- PrMerger.merge: stale same-named PRs ---
 
 _LOCAL_HEAD = "a" * 40
 _STALE_HEAD = "b" * 40
 _MERGE_OID = "c" * 40
-
-
-def _select_existing_pr(
-    prs: list[dict[str, object]], local_head: str
-) -> tuple[int | None, bool]:
-    """Drive the live PR selection that ``PrMerger.merge`` itself calls."""
-
-    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        prs, local_head
-    )
-
-
-def test_select_existing_pr_prefers_open() -> None:
-    """An OPEN PR is always the current release."""
-    prs: list[dict[str, object]] = [
-        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
-        {"number": 7, "state": "OPEN", "headRefOid": _LOCAL_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (7, False)
-
-
-def test_select_existing_pr_ignores_closed() -> None:
-    """A CLOSED PR is never reused — its CI is dead."""
-    prs: list[dict[str, object]] = [
-        {"number": 7, "state": "CLOSED", "headRefOid": _LOCAL_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
-
-
-def test_select_existing_pr_ignores_stale_merged() -> None:
-    """A MERGED PR at a different head is a stale earlier attempt."""
-    prs: list[dict[str, object]] = [
-        {"number": 5, "state": "MERGED", "headRefOid": _STALE_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
-
-
-def test_select_existing_pr_accepts_matching_merged() -> None:
-    """A MERGED PR at the local branch head is the completed release."""
-    prs: list[dict[str, object]] = [
-        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (5, True)
-
-
-def test_select_existing_pr_empty() -> None:
-    """No PRs means create a fresh one."""
-    assert _select_existing_pr([], _LOCAL_HEAD) == (None, False)
 
 
 def _fake_gh_run(
@@ -5138,6 +5091,26 @@ def test_pr_merge_matching_merged_pr_short_circuits(
     created = [c for c in issued if c[:3] == ["gh", "pr", "create"]]
     assert not created
     assert waited == []
+
+
+def test_pr_merge_resumes_open_pr_over_a_merged_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OPEN PR is the current release even beside a MERGED one at the same head."""
+    fake_run, issued = _fake_gh_run(
+        [
+            {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
+            {"number": 7, "state": "OPEN", "headRefOid": _LOCAL_HEAD},
+        ],
+        view_states=["OPEN", "MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+    assert waited == [7]
+    assert not [c for c in issued if c[:3] == ["gh", "pr", "create"]]
 
 
 def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
@@ -6818,6 +6791,7 @@ def test_phase11_verify_skips_when_github_absent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    skips: SkipRecorder,
 ) -> None:
     """Absent .github sibling → Phase 11 skips its two checks, does not fail.
 
@@ -6846,7 +6820,7 @@ def test_phase11_verify_skips_when_github_absent(
     assert "✗ install-all.sh" not in out
     assert "✗ profile SHA" not in out
     # Recorded (once, deduplicated) for the end-of-run recap.
-    assert len(release._skips.drain()) == 1  # pyright: ignore[reportPrivateUsage]
+    assert len(skips.drain()) == 1
 
 
 def test_phase11_verify_fails_when_install_all_missing(
@@ -7241,7 +7215,7 @@ def test_phase11_verify_profile_sha_direct_url_path_unaffected(
 
 
 def test_phase_summary_recaps_skipped_propagation(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], skips: SkipRecorder
 ) -> None:
     """End-of-run summary recaps recorded skips and drains them.
 
@@ -7252,9 +7226,7 @@ def test_phase_summary_recaps_skipped_propagation(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    release._skips.record(  # pyright: ignore[reportPrivateUsage]
-        "SKIPPED — manual action required: verify ../.github by hand"
-    )
+    skips.record("SKIPPED — manual action required: verify ../.github by hand")
     capsys.readouterr()  # discard the inline warning emitted by record()
 
     ops = _fault_ops()
@@ -7263,18 +7235,18 @@ def test_phase_summary_recaps_skipped_propagation(
         "0.2.0",
         dry_run=False,
         project=ReleaseProject(info, ops=ops),
-        skips=release._skips,  # pyright: ignore[reportPrivateUsage]
+        skips=skips,
     )
 
     out = capsys.readouterr().out
     assert "Manual action required" in out
     assert "verify ../.github by hand" in out
     # drain() inside the summary consumed the notice — nothing left to recap.
-    assert release._skips.drain() == ()  # pyright: ignore[reportPrivateUsage]
+    assert skips.drain() == ()
 
 
 def test_absent_github_dedups_to_single_recap_across_phases(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
     """`.github` absent for a whole run → exactly ONE recap bullet.
 
@@ -7298,7 +7270,7 @@ def test_absent_github_dedups_to_single_recap_across_phases(
     _phase11_verify(info, version, dry_run=False)
 
     # All three collapse to a single deduplicated recap line.
-    notices = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    notices = skips.drain()
     assert len(notices) == 1
 
 
@@ -10201,7 +10173,7 @@ def test_phase10_propagate_collects_errors(
 
 
 def test_phase10_propagate_records_leg_failure_in_skips(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
     """A leg failure lands in the shared SkipRecorder, not only the raised error.
 
@@ -10234,7 +10206,7 @@ def test_phase10_propagate_records_leg_failure_in_skips(
     with pytest.raises(ReleaseError):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
-    notices = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    notices = skips.drain()
     assert len(notices) == 1
     assert "FAILED" in notices[0]
     assert "Phase 10 propagation" in notices[0]
