@@ -100,7 +100,7 @@ def isolate_interrupted_event() -> Iterator[None]:
     to exercise the interrupt path (directly, or via a mocked phase raising
     ``KeyboardInterrupt``) would otherwise leak it into every later test —
     including unrelated ``_wait_for_required_checks`` tests, which now check
-    this same event on every poll iteration (pkit-d7mz/pkit-plxh) and would
+    this same event on every poll iteration and would
     fail immediately with "Interrupted" on a leaked, already-set event.
     """
     release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
@@ -221,7 +221,7 @@ def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
 
     # Placeholder so info.workflow_files includes "release.yml" — Phase 6
     # (_phase6_ci_wait) fails fast when it's absent for a hybrid/non-plugin
-    # project (see f85t.2). Content is irrelevant; only the filename matters
+    # project. Content is irrelevant; only the filename matters
     # to detect().
     workflows_dir = root / ".github" / "workflows"
     workflows_dir.mkdir(parents=True)
@@ -559,7 +559,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
 ) -> None:
     """Python quality gate runs `make check` when the project has a Makefile.
 
-    Mirrors the Go branch's behavior (pkit-mjcb): a project with optional
+    Mirrors the Go branch's behavior: a project with optional
     heavy extras (e.g. a `[display]` extra) knows how to gate itself via its
     own Makefile, so the bare `uv run mypy`/`pyright` sequence — which reports
     false errors against the base wheel env — must not run.
@@ -930,7 +930,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
 ) -> None:
     """A failing `uv lock` (network resolver op) must diagnose, not leak a
     raw CalledProcessError — the same risk class as `uv build` (Phase 3,
-    already diagnosed), missed by round 1's sweep (pkit-f85t.7 round 2)."""
+    already diagnosed), missed by round 1's sweep."""
 
     root = _make_release_project(tmp_path)
     (root / "uv.lock").write_text("# lock\n")
@@ -1011,7 +1011,7 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     assert "failed to resolve dependencies for punt-kit" in captured.err
 
 
-# --- phase 2 template pin rewrite (pkit-3zu8) ---
+# --- phase 2 template pin rewrite ---
 
 
 def _rewrite_pins(info: ProjectInfo, version: str, *, dry_run: bool) -> list[_Path]:
@@ -1209,7 +1209,7 @@ def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
 def test_phase9_post_release_no_longer_bumps_readme(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Phase 9 no longer touches README — that job moved to phase 4 (fwql).
+    """Phase 9 no longer touches README — that job moved to phase 4.
 
     Regression guard: phase 4 now guarantees the README is already current
     by the time phase 9 runs, so phase 9's job shrinks to dev-restore only.
@@ -1259,7 +1259,7 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     """The README-SHA-pin commit stages only README.md, not stray files.
 
     Ports the untracked-file-exclusion invariant that used to guard phase 9's
-    README commit (removed by fwql) to its new home.
+    README commit to its new home.
     """
 
     root = _make_release_project(tmp_path)
@@ -1663,7 +1663,7 @@ def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
     assert _get_project_version(info) == "1.2.3"
 
 
-# --- pkit-wpe5: Go resume without --version, before the new tag exists ---
+# --- Go resume without --version, before the new tag exists ---
 
 
 def _make_go_project(tmp_path: Path, *, tag: str = "v0.1.0") -> Path:
@@ -1841,7 +1841,7 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "CHANGELOG.md").read_text() == original_changelog
 
 
-# --- GitWorkspace (pkit-f85t.7 round 2: sites the round-1 sweep missed) ---
+# --- GitWorkspace: git commands that must diagnose, not leak CalledProcessError ---
 
 
 def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
@@ -1852,7 +1852,7 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
 
     `GitWorkspace.ensure_on_main` is called unconditionally from Phase 2,
     5, and 9's `run()` — a hook-firing checkout that defaulted to
-    check=True was missed by round 1's sweep (pkit-f85t.7 round 2).
+    check=True was missed by round 1's sweep.
     """
 
     root = tmp_path / "proj"
@@ -1904,7 +1904,7 @@ def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git checkout <branch>` for an already-existing branch must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1930,7 +1930,7 @@ def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git checkout -b <branch>` for a genuinely new branch must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1958,7 +1958,7 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
     hook-firing-mutation class as the Phase 4 swap commit and Phase 9
     restore commit, but this one backs *every* phase's own commit,
     including Phase 2's release-version-bump commit, and was missed by
-    round 1's sweep (pkit-f85t.7 round 2)."""
+    round 1's sweep."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1989,13 +1989,13 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     tmp_path: Path,
 ) -> None:
     """A non-zero `uv build` must diagnose as a ReleaseError, not leak a raw
-    CalledProcessError.
+     CalledProcessError.
 
-    Phase 3 had no isolated failure-path test at all before this (matrix row
-    12, design doc defect #5) — `uv build` also defaulted to check=True
-    (pkit-f85t.7), so a failure here previously escaped run_release's own
-    exception handling and surfaced as a bare traceback, not just a
-    lower-quality diagnosis.
+     Phase 3 had no isolated failure-path test at all before this (matrix row
+     12, design doc defect #5) — `uv build` also defaulted to check=True
+    , so a failure here previously escaped run_release's own
+     exception handling and surfaced as a bare traceback, not just a
+     lower-quality diagnosis.
     """
 
     root = _make_release_project(tmp_path)
@@ -2021,10 +2021,10 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
 
 def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     """A failing `git tag {tag}` (disk full, permission, a lock held by a
-    concurrent git process) must diagnose, not leak a raw
-    CalledProcessError — kept in the same diagnosed convention as the push
-    two lines below in the source, rather than left as the odd one out
-    (pkit-f85t.7 round 2)."""
+     concurrent git process) must diagnose, not leak a raw
+     CalledProcessError — kept in the same diagnosed convention as the push
+     two lines below in the source, rather than left as the odd one out
+    ."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2059,7 +2059,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     moment itself (matrix row 20) — the tag lands locally at HEAD, the
     remote gets nothing, and the phase raises a diagnosed ReleaseError
     rather than a raw CalledProcessError. `GitWorkspace.push` defaulted to
-    check=True (pkit-f85t.7); a non-threaded phase like this one had no
+    check=True; a non-threaded phase like this one had no
     handler that would catch a raw CalledProcessError, so it would have
     escaped run_release's diagnosis path entirely and surfaced as a bare
     traceback.
@@ -2231,10 +2231,10 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
 
 def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     """A failing `git ls-remote --tags origin` (network) in the existing-tag
-    resume path must diagnose, not leak a raw CalledProcessError — same
-    network risk class as `git fetch origin` (Phase 1) and this phase's own
-    tag push, both already diagnosed. Missed in earlier sweep passes
-    (pkit-f85t.7 round 2)."""
+     resume path must diagnose, not leak a raw CalledProcessError — same
+     network risk class as `git fetch origin` (Phase 1) and this phase's own
+     tag push, both already diagnosed. Missed in earlier sweep passes
+    ."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2563,7 +2563,7 @@ def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
     _git(["checkout", "-b", "feature"], cwd=str(sibling))
 
     ops = _fault_ops()
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Sibling sib is on branch 'feature'"):
         SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
@@ -2575,7 +2575,7 @@ def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
     _git(["add", "dirty.txt"], cwd=str(sibling))
 
     ops = _fault_ops()
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Sibling sib has uncommitted changes"):
         SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
@@ -2586,7 +2586,7 @@ def test_validate_sibling_diagnoses_branch_read_command_failure(
     must diagnose, not leak a raw CalledProcessError.
 
     Sibling checkouts are far less controlled than the project's own repo
-    (pkit-f85t.7) — this call defaulted to check=True, inconsistent with
+    — this call defaulted to check=True, inconsistent with
     the `git pull --ff-only` a few lines later in the same method, which
     already diagnosed its own failures.
     """
@@ -2612,7 +2612,7 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
     tmp_path: Path,
 ) -> None:
     """A `git status --porcelain` command failure on a sibling checkout must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7)."""
+    diagnose, not leak a raw CalledProcessError."""
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
@@ -2907,7 +2907,7 @@ def test_propagate_marketplace_matches_by_marketplace_short_name(
     ``source.url`` points somewhere that does not end in the project's repo
     name — e.g. a renamed or forked upstream URL that predates a rename.
 
-    Regression coverage for pkit-p328/pkit-d8ij: marketplace entries key on
+    Regression coverage: marketplace entries key on
     the plugin's short name (``punt``), not the PyPI distribution name
     (``punt-kit``) or a URL that happens to match the repo. ``proj``'s
     manifest name (``test-dev`` in the base fixture) is overridden here so
@@ -3017,7 +3017,7 @@ def test_propagate_marketplace_fails_when_no_entry_matches_any_candidate(
     """No matching name or url in marketplace.json — a hard failure.
 
     Plugin/hybrid releases require a marketplace entry; a silent no-op here
-    is exactly the pkit-d8ij failure mode (propagation runs, nothing lands).
+    is exactly the failure mode here (propagation runs, nothing lands).
     """
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -3215,12 +3215,12 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
     tmp_path: Path,
 ) -> None:
     """A failing `git log` against the sibling checkout (install-all.sh's
-    last-touch commit) must diagnose, not leak a raw CalledProcessError.
+     last-touch commit) must diagnose, not leak a raw CalledProcessError.
 
-    `_sync_profile_readme`'s git log call is design doc defect #3's named
-    example — it defaulted to check=True with no surrounding message
-    (pkit-f85t.7), unlike a genuinely empty result (no commit has ever
-    touched install-all.sh), which is a distinct, already-handled case.
+     `_sync_profile_readme`'s git log call is design doc defect #3's named
+     example — it defaulted to check=True with no surrounding message
+    , unlike a genuinely empty result (no commit has ever
+     touched install-all.sh), which is a distinct, already-handled case.
     """
 
     root = _make_release_project(tmp_path)
@@ -3599,7 +3599,7 @@ def _make_language_none_plugin_project(tmp_path: Path) -> Path:
     Unlike ``_make_pure_plugin_project`` (which still writes a
     ``pyproject.toml`` without ``[project.scripts]``, so ``info.language ==
     "python"`` and ``info.pyproject is not None``), this fixture leaves
-    ``language`` and ``pyproject`` both unset — the precondition f85t.1's
+    ``language`` and ``pyproject`` both unset — the precondition the
     plugin-only branch of ``_get_project_version`` actually guards on.
     """
     root = tmp_path / "proj"
@@ -3688,7 +3688,7 @@ def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None
         _phase1_preflight(info, dry_run=False)
 
 
-# --- pkit-dlv6: preflight out-of-band tag detection ---
+# --- preflight out-of-band tag detection ---
 
 
 def test_preflight_silent_with_no_prior_tags(
@@ -4198,7 +4198,7 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
-# --- f85t.4: branch-protection fallback ---
+# --- branch-protection fallback ---
 
 
 def _repo_answering(root: Path, rule: FaultRule) -> GithubRepo:
@@ -4407,7 +4407,7 @@ def test_wait_for_required_checks_deadline_tracks_ci_watch(
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
-# --- pkit-plxh: ruleset awareness + no-checks grace window ---
+# --- ruleset awareness + no-checks grace window ---
 
 
 def test_has_ruleset_true_when_rules_present(tmp_path: Path) -> None:
@@ -4643,7 +4643,7 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
     """An interrupt raised while a worker thread is blocked in the poll loop
     is observed within one iteration, not only after the two-hour deadline.
 
-    This is the direct regression guard for pkit-d7mz: without checking
+    This is the direct regression guard for the interrupt path: without checking
     ``interrupted`` inside the loop, a worker thread polling here has no way
     to learn that the main thread's signal handler fired — only the main
     thread receives SIGINT — so it would keep polling for up to two hours,
@@ -5139,7 +5139,7 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
 
     One of three near-identical inline blocks `PrMerger.merge` hand-rolled
     with an unqualified check=True default, missed by round 1's sweep and
-    now centralized into `_sync_local_main` (pkit-f85t.7 round 2)."""
+    now centralized into `_sync_local_main`."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
@@ -5167,7 +5167,7 @@ def test_pr_merge_sync_local_main_diagnoses_pull_failure(
     """A failing `git pull --ff-only` while fast-forwarding local main — a
     network call, structurally identical in risk to `git fetch origin`
     (Phase 1) and `GitWorkspace.push` (Phase 5), both already diagnosed —
-    must diagnose too (pkit-f85t.7 round 2)."""
+    must diagnose too."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
@@ -5350,7 +5350,7 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
     """A failing `uv tool install --force --editable .` (restoring the dev
     install after the PyPI verify succeeds) must diagnose, not leak a raw
     CalledProcessError — same external-tool risk class as the install
-    retry loop above, missed in earlier sweep passes (pkit-f85t.7 round 2).
+    retry loop above, missed in earlier sweep passes.
     """
 
     root = _make_release_project(tmp_path)
@@ -5436,7 +5436,7 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     """A non-zero `gh pr view --json mergeCommit` (network/auth blip) AFTER
     the squash-merge already landed must diagnose, not leak a raw
     CalledProcessError — same diagnosed-failure convention as every other
-    gh/git call in merge() (pkit-f85t.7); run_release only catches
+    gh/git call in merge(); run_release only catches
     ReleaseError/TimeoutExpired, so an undiagnosed CalledProcessError here
     would escape as a bare traceback.
     """
@@ -5887,7 +5887,7 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
 ) -> None:
     """A hung cleanup checkout must not replace the primary merge failure.
 
-    Regression test for a review finding on pkit-f85t.6: the cleanup
+    Regression test for a review finding: the cleanup
     checkout's ``ops.run(..., check=False)`` can still raise
     ``TimeoutExpired`` (a hung git hook) even though ``check=False``
     suppresses non-zero-exit errors. An uncaught ``TimeoutExpired`` inside
@@ -6073,10 +6073,10 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
 
 def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
     """A failing `git status --porcelain` on the sibling checkout must
-    diagnose, not leak a raw CalledProcessError — a cross-repo read, same
-    risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
-    git log, both already diagnosed. Missed in earlier sweep passes
-    (pkit-f85t.7 round 2)."""
+     diagnose, not leak a raw CalledProcessError — a cross-repo read, same
+     risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
+     git log, both already diagnosed. Missed in earlier sweep passes
+    ."""
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6109,7 +6109,7 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
         )
 
 
-# --- fwql: README SHA pin lands after the release PR's squash-merge ---
+# --- README SHA pin lands after the release PR's squash-merge ---
 
 
 def test_phase4_release_pr_pins_readme_after_merge(
@@ -6268,7 +6268,7 @@ def test_land_readme_sha_pin_cleanup_diagnoses_checkout_failure(
     """A failing `git checkout main` in the no-changes-needed cleanup path
     (README already pins the current SHA) must diagnose, not leak a raw
     CalledProcessError — the same cleanup pattern Phase 9 already
-    diagnoses, missed here in earlier sweep passes (pkit-f85t.7 round 2)."""
+    diagnoses, missed here in earlier sweep passes."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6319,7 +6319,7 @@ def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6862,7 +6862,7 @@ def test_phase11_verify_fails_when_install_all_missing(
         _phase11_verify(info, version, dry_run=False)
 
 
-# --- pkit-9n6q: install SHA pins must be ancestors of the release, not just
+# --- install SHA pins must be ancestors of the release, not just
 # resolvable objects with matching content ---
 
 
@@ -7020,7 +7020,7 @@ def test_phase11_verify_profile_sha_fails_when_not_ancestor_of_main(
     assert "ancestor" in out
 
 
-# --- f85t.3: profile SHA marketplace-pin chain for marketplace-only plugins ---
+# --- profile SHA marketplace-pin chain for marketplace-only plugins ---
 
 
 def _marketplace_json(project_version: str) -> str:
@@ -7043,7 +7043,7 @@ def _marketplace_json(project_version: str) -> str:
 def _setup_marketplace_only_verify_project(
     tmp_path: Path, version: str, *, pinned_marketplace_version: str
 ) -> tuple[Path, Path, Path]:
-    """Build a marketplace-only plugin project for f85t.3 profile-SHA tests.
+    """Build a marketplace-only plugin project for profile-SHA tests.
 
     Returns ``(root, github_sibling, claude_plugins_sibling)``. The
     claude-plugins sibling's HEAD always carries ``version`` (so check 5,
@@ -9511,7 +9511,6 @@ def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
     marked commit skips the branch-protected lint/test/docs workflows —
     and the PR becomes unmergeable because the required checks never
     ran. Guard against reintroduction by scanning the phase 9 module.
-    See pkit-x5j8.
     """
     phase9 = (
         _Path(__file__).parent.parent
@@ -9537,22 +9536,22 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     tmp_path: Path,
 ) -> None:
     """A rejected plugin-swap commit (a real pre-commit hook, exactly the
-    failure mode the module docstring documents) must diagnose, and a
-    clean retry from the same starting state must still land a
-    production-shaped commit and reach merge.
+     failure mode the module docstring documents) must diagnose, and a
+     clean retry from the same starting state must still land a
+     production-shaped commit and reach merge.
 
-    Uses the *real* release-plugin.sh with a real rejecting pre-commit
-    hook — not fault injection at the `ops.run` boundary — so the first
-    attempt genuinely leaves the tree mutated and staged but uncommitted
-    (the partial state this phase's HEAD-consult retry exists to recover
-    from), and the second attempt proves the retry produces the actual
-    production-shaped result: name swapped, dev command removed, merge
-    reached (qodo round-1 review: the fault-injection version of this
-    test intercepted the whole script call and so never reached that
-    partial state at all — this replaces it). `bash
-    scripts/release-plugin.sh` also defaulted to check=True
-    (pkit-f85t.7), so a rejected commit here previously leaked a raw
-    CalledProcessError instead of a diagnosed message (matrix row 13).
+     Uses the *real* release-plugin.sh with a real rejecting pre-commit
+     hook — not fault injection at the `ops.run` boundary — so the first
+     attempt genuinely leaves the tree mutated and staged but uncommitted
+     (the partial state this phase's HEAD-consult retry exists to recover
+     from), and the second attempt proves the retry produces the actual
+     production-shaped result: name swapped, dev command removed, merge
+     reached (qodo round-1 review: the fault-injection version of this
+     test intercepted the whole script call and so never reached that
+     partial state at all — this replaces it). `bash
+     scripts/release-plugin.sh` also defaulted to check=True
+    , so a rejected commit here previously leaked a raw
+     CalledProcessError instead of a diagnosed message (matrix row 13).
     """
 
     root = _make_release_project(tmp_path)
@@ -9637,7 +9636,7 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
 ) -> None:
     """Phase 4 must NOT skip the swap when a prior run failed mid-commit.
 
-    Removing --no-verify (pkit-sliw) let pre-commit hooks abort
+    Removing --no-verify let pre-commit hooks abort
     release-plugin.sh AFTER it mutated the working tree and staged the
     changes. A working-tree read of plugin.json then reports the swap
     complete, phase 4 falls through to _pr_merge, and the release tag
@@ -9748,7 +9747,7 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
 
     monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
-    # The fwql pin step runs against a real remote in production; this
+    # The README pin step runs against a real remote in production; this
     # test has none. Stub it out — the assertions here are about the
     # swap behavior, not the pin.
     def _skip_pin(*_a: object, **_k: object) -> None:
@@ -9770,14 +9769,14 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
     tmp_path: Path,
 ) -> None:
     """A rejected restore commit must diagnose, and a clean retry from the
-    same starting state must still land the restore and reach merge.
+     same starting state must still land the restore and reach merge.
 
-    The restore script only stages (never commits — see restore-dev-
-    plugin.sh's CONTRACT); Phase 9's own explicit `git commit` is where a
-    hook rejection actually lands. That call defaulted to check=True
-    (pkit-f85t.7), so the failure previously leaked a raw
-    CalledProcessError instead of the diagnosed message this phase's
-    HEAD-consult idempotency check exists to recover from (matrix row 32).
+     The restore script only stages (never commits — see restore-dev-
+     plugin.sh's CONTRACT); Phase 9's own explicit `git commit` is where a
+     hook rejection actually lands. That call defaulted to check=True
+    , so the failure previously leaked a raw
+     CalledProcessError instead of the diagnosed message this phase's
+     HEAD-consult idempotency check exists to recover from (matrix row 32).
     """
 
     root = _make_release_project(tmp_path)
@@ -9905,7 +9904,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
 ) -> None:
     """A failing `git checkout main` in the no-changes-needed cleanup path
     must diagnose, not leak a raw CalledProcessError — missed by round 1's
-    sweep (pkit-f85t.7 round 2)."""
+    sweep."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -9945,7 +9944,7 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -10099,7 +10098,7 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
         .splitlines()
     )
     # One commit — dev restore only. Phase 9 no longer bumps README;
-    # that moved to phase 4 (fwql). The restore commit must land
+    # that moved to phase 4. The restore commit must land
     # cleanly regardless of the prior mid-hook stage.
     assert log == [
         "chore: restore dev plugin state",
@@ -10195,7 +10194,7 @@ def test_phase10_propagate_records_leg_failure_in_skips(
 ) -> None:
     """A leg failure lands in the shared SkipRecorder, not only the raised error.
 
-    pkit-d7mz: the end-of-run recap drains ``_skips`` even when the pipeline
+    The end-of-run recap drains ``_skips`` even when the pipeline
     stops before a successful ``pipeline.summarize()`` — so a Phase 10 leg
     failure must be recorded there, not only surfaced as the exception that
     ``ThreadedStep.collect`` raises and the caller sees.
@@ -10981,7 +10980,7 @@ def test_phase6_survives_a_hung_verdict_query(
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
 
 
-# --- f85t.2: phase 6 skip/fail on a missing release.yml workflow ---
+# --- phase 6 skip/fail on a missing release.yml workflow ---
 
 
 def test_phase6_skips_for_pure_plugin_without_release_yml(
@@ -11287,7 +11286,7 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """pkit-d7mz: Phase 11 still runs and reports after a Phase 9/10 failure,
+    """Phase 11 still runs and reports after a Phase 9/10 failure,
     and the release exits non-zero naming the phase to resume from.
 
     Reproduces the vox v5.0.4 shape at the orchestration level: P10 fails
@@ -11339,7 +11338,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """pkit-d7mz: an interrupted release exits non-zero naming exactly what
+    """An interrupted release exits non-zero naming exactly what
     was not confirmed landed and the --resume-from command to finish.
 
     Before this fix, the interrupt path in run_release's ``finally`` printed
