@@ -50,7 +50,6 @@ from punt_kit.release import (
     _rewrite_template_pins,  # pyright: ignore[reportPrivateUsage]
     _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
-    _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
     _validate_sibling,  # pyright: ignore[reportPrivateUsage]
@@ -5004,11 +5003,22 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
 
 
-# --- _select_existing_pr / _pr_merge: stale same-named PRs ---
+# --- PrMerger._select_existing / _pr_merge: stale same-named PRs ---
 
 _LOCAL_HEAD = "a" * 40
 _STALE_HEAD = "b" * 40
 _MERGE_OID = "c" * 40
+
+
+def _select_existing_pr(
+    prs: list[dict[str, object]], local_head: str
+) -> tuple[int | None, bool]:
+    """Drive the live PR selection that ``PrMerger.merge`` itself calls."""
+    from punt_kit.phases.shared.pr_merge import PrMerger
+
+    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+        prs, local_head
+    )
 
 
 def test_select_existing_pr_prefers_open() -> None:

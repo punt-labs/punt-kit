@@ -235,34 +235,6 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     )
 
 
-def _select_existing_pr(  # pyright: ignore[reportUnusedFunction]
-    prs: list[dict[str, object]], local_head: str
-) -> tuple[int | None, bool]:
-    """Pick which same-named PR, if any, represents the current release.
-
-    No caller remains in this module — PrMerger.merge calls
-    PrMerger._select_existing directly. Kept importable for public API
-    preservation.
-    """
-    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        prs, local_head
-    )
-
-
-def _pr_is_merged(  # pyright: ignore[reportUnusedFunction]
-    gh: str, cwd: str, pr_number: int
-) -> bool:
-    """Check whether a PR has reached the MERGED state.
-
-    No caller remains in this module — PrMerger.merge calls
-    PrMerger._is_merged directly. Kept importable for public API
-    preservation.
-    """
-    return PrMerger(ops=_ops)._is_merged(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        gh, cwd, pr_number
-    )
-
-
 def _pr_merge(
     *,
     cwd: Path,
