@@ -1437,8 +1437,97 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
     assert f"{expected_sha}/install.sh" in readme_content
 
 
-def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
-    """Dry run does not modify README."""
+def _readme_with_install_url(slug: str) -> str:
+    return (
+        "# proj\n\n```bash\n"
+        f"curl -fsSL https://raw.githubusercontent.com/{slug}/abc1234/install.sh"
+        " | sh\n```\n"
+    )
+
+
+def _flat(text: str) -> str:
+    """Collapse rich's width-dependent line wrapping into single spaces."""
+    return " ".join(text.split())
+
+
+def test_bump_warns_when_repo_slug_unresolved(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unresolvable remote falls back to the directory name — loudly."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+
+    ReadmeShaPin(detect(root), ops=ops).bump(
+        "0.2.0", dry_run=True, resolve_repo=lambda _root: None
+    )
+
+    assert "falling back to punt-labs/proj" in _flat(capsys.readouterr().out)
+
+
+def test_bump_warns_when_no_install_url_matches_slug(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Install URLs present but none rewritten means a stale pin — say so."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_install_url("punt-labs/renamed")
+    (root / "README.md").write_text(readme)
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+
+    ReadmeShaPin(detect(root), ops=ops).bump(
+        "0.2.0", dry_run=False, resolve_repo=lambda _root: "punt-labs/proj"
+    )
+
+    assert "none match punt-labs/proj" in _flat(capsys.readouterr().out)
+    assert (root / "README.md").read_text() == readme
+
+
+def test_bump_does_not_warn_when_pin_matches(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A resolved slug whose URLs match produces no warning."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+
+    ReadmeShaPin(detect(root), ops=ops).bump(
+        "0.2.0", dry_run=True, resolve_repo=lambda _root: "punt-labs/proj"
+    )
+
+    assert "WARNING" not in capsys.readouterr().out
+
+
+def test_land_dry_run_previews_readme_rewrite_without_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """land(dry_run=True) reaches bump's dry branch and touches nothing."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "pinned readme"], cwd=str(root))
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+
+    def _no_merge(**_kwargs: object) -> str:
+        raise AssertionError("a dry run must not merge")
+
+    ReadmeShaPin(detect(root), ops=ops).land(
+        "0.2.0",
+        dry_run=True,
+        merge=_no_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README.md: install URLs → <SHA> (v0.2.0)" in out
+    assert (root / "README.md").read_text() == readme
+    assert _git_out(["status", "--porcelain"], cwd=str(root)) == ""
+
+
+def test_bump_readme_install_sha_dry_run_no_changes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Dry run reports the rewrite it would make and does not modify README."""
     root = _make_release_project(tmp_path)
     d = str(root)
 
@@ -1459,6 +1548,7 @@ def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
     info = detect(root)
     _bump_readme_pin(info, "0.2.0", dry_run=True)
 
+    assert "README.md: install URLs → <SHA> (v0.2.0)" in _flat(capsys.readouterr().out)
     assert (root / "README.md").read_text() == original
 
 

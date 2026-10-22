@@ -303,19 +303,11 @@ class ReadmeShaPin:
         for token in tokens:
             decoded, reached_fixed_point = cls._decode_to_fixed_point(token)
             if not reached_fixed_point:
-                # A legitimate, committed install URL carries ZERO
-                # percent-encoding layers — bump() only ever writes a
-                # plain https://raw.githubusercontent.com/... URL. A
-                # URL-shaped token (every token here is one, by
-                # construction of _URL_TOKEN) that still hasn't
-                # stabilized after _MAX_DECODE_DEPTH passes is therefore
-                # definitively not normal content, independent of
-                # whether the repo name happens to already be legible in
-                # the partial decode — requiring that would only move
-                # the evasion to whichever encoding depth keeps the repo
-                # name itself unresolved past the cap. Fail closed
-                # unconditionally instead of trying to read a reference
-                # out of text that never finished decoding.
+                # A legitimate install URL carries zero percent-encoding
+                # layers, so a token still changing after the depth cap is
+                # not normal content. Fail closed rather than read a
+                # reference out of text that never finished decoding (see
+                # this method's docstring).
                 has_untrusted = True
                 continue
             for start, end in cls._install_sh_spans(decoded):
@@ -346,6 +338,18 @@ class ReadmeShaPin:
         trusted_shas, _ = cls.classify_install_urls(content, owner, repo_name)
         return trusted_shas
 
+    def _owner_and_repo(
+        self, resolve_repo: Callable[[Path], str | None]
+    ) -> tuple[str, str]:
+        """Return ``(owner, repo)``, warning when it falls back to a guess."""
+        github_repo = resolve_repo(self._info.root)
+        if github_repo:
+            owner, repo_name = github_repo.split("/", 1)
+            return owner, repo_name
+        repo_name = self._info.root.name
+        self._ops.warn(f"repo unresolved — falling back to punt-labs/{repo_name}")
+        return "punt-labs", repo_name
+
     def bump(
         self,
         version: str,
@@ -356,10 +360,7 @@ class ReadmeShaPin:
         """Update SHA-pinned install.sh URLs in README to the install.sh commit.
 
         ``resolve_repo`` is injected rather than composing ``GithubRepo``
-        directly — ``test_readme_sha_pin_survives_tag`` monkeypatches
-        ``punt_kit.release._get_github_repo`` and calls
-        ``punt_kit.release._land_readme_sha_pin`` expecting the patch to be
-        observed (§0's mechanism).
+        directly, so a caller's patched resolver is observed here.
         """
         root = self._info.root
         readme_path = root / "README.md"
@@ -368,11 +369,7 @@ class ReadmeShaPin:
             return
 
         tag = f"v{version}"
-        github_repo = resolve_repo(root)
-        if github_repo:
-            owner, repo_name = github_repo.split("/", 1)
-        else:
-            owner, repo_name = "punt-labs", root.name
+        owner, repo_name = self._owner_and_repo(resolve_repo)
 
         # Get the short SHA of the commit that last modified install.sh
         short_sha = (
@@ -385,18 +382,25 @@ class ReadmeShaPin:
         prefix = self._url_prefix(owner, repo_name)
 
         # Replace SHA-pinned install URLs: <owner>/<repo>/<hex-sha>/install.sh
-        new_content = re.sub(
+        new_content, sha_count = re.subn(
             rf"({prefix}){self._SHA_SHAPE}(/install\.sh)",
             rf"\g<1>{short_sha}\2",
             content,
         )
 
         # Also replace version-tag install URLs: <owner>/<repo>/v1.2.3/install.sh
-        new_content = re.sub(
+        new_content, tag_count = re.subn(
             rf"({prefix})v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
             rf"\g<1>{short_sha}\2",
             new_content,
         )
+
+        if sha_count + tag_count == 0 and "/install.sh" in content:
+            # A wrong slug matches nothing, leaving the pin stale in silence.
+            self._ops.warn(
+                f"README.md has install.sh URLs but none match {owner}/{repo_name}"
+                " — the install SHA pin was not updated"
+            )
 
         if new_content == content:
             return
@@ -428,11 +432,8 @@ class ReadmeShaPin:
         tree on the just-merged main, pins a commit that is main's own
         permanent history.
 
-        ``merge`` is injected rather than composing ``PrMerger`` directly —
-        tests monkeypatch ``punt_kit.release._pr_merge`` and call
-        ``punt_kit.release._land_readme_sha_pin`` expecting the patch to be
-        observed (§0's mechanism, same reasoning as ``PrMerger.merge``'s
-        injected ``wait_for_checks``/``resolve_threads``).
+        ``merge`` is injected rather than composing ``PrMerger`` directly,
+        so a caller's patched merger is observed here.
         """
         root = self._info.root
         branch = f"release-readme-pin/v{version}"
@@ -447,7 +448,7 @@ class ReadmeShaPin:
             return
 
         if dry_run:
-            self._ops.dry("bump(...)")
+            self.bump(version, dry_run=True, resolve_repo=resolve_repo)
             self._ops.dry(
                 f'git commit -m "chore: update README install SHA to v{version}"'
             )
@@ -476,8 +477,7 @@ class ReadmeShaPin:
             ).stdout.strip()
             if not ahead:
                 # Hook-firing checkout + local branch delete — same
-                # diagnosed convention as Phase 9's identical cleanup path
-                # (pkit-f85t.7 round 2).
+                # diagnosed convention as Phase 9's identical cleanup path.
                 checkout = self._ops.run(
                     ["git", "checkout", "main"],
                     cwd=str(root),
