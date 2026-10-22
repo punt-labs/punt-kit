@@ -176,18 +176,6 @@ _ops = _ReleaseOpsAdapter()
 _skips = SkipRecorder(ops=_ops)
 
 
-def _get_install_sh_sha(  # pyright: ignore[reportUnusedFunction]
-    root: Path,
-) -> str:
-    """Get the short SHA of the commit that last modified install.sh.
-
-    No caller remains in this module — every former call site now
-    constructs ReleaseProject directly. Kept importable for public API
-    preservation.
-    """
-    return ReleaseProject(ProjectInfo(root), ops=_ops).install_sh_sha()
-
-
 def _get_project_version(info: ProjectInfo) -> str:
     """Extract current version from pyproject.toml, plugin.json, or git tags (Go)."""
     if info.language == "go":
@@ -198,43 +186,6 @@ def _get_project_version(info: ProjectInfo) -> str:
 def _get_latest_tag_version(root: Path) -> str:
     """Get the latest semantic version from git tags."""
     return ReleaseProject(ProjectInfo(root), ops=_ops).latest_tag_version()
-
-
-def _get_package_name(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo,
-) -> str:
-    """Extract package name from pyproject.toml.
-
-    No caller remains in this module — every former call site now
-    constructs ReleaseProject directly. Kept importable for public API
-    preservation.
-    """
-    return ReleaseProject(info, ops=_ops).package_name()
-
-
-def _self_package_name(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo,
-) -> str | None:
-    """Return the project's own PyPI package name for self-referential pins.
-
-    No caller remains in this module — _rewrite_template_pins now delegates
-    fully to ReleaseProject.rewrite_template_pins, which calls the class's
-    own self_package_name() rather than this bare name. Kept importable for
-    public API preservation (punt_kit.release.<name> stays reachable).
-    """
-    return ReleaseProject(info, ops=_ops).self_package_name()
-
-
-def _find_package_dir(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo,
-) -> Path | None:
-    """Find the Python package directory (src layout).
-
-    No caller remains in this module — every former call site now
-    constructs ReleaseProject directly. Kept importable for public API
-    preservation.
-    """
-    return ReleaseProject(info, ops=_ops).package_dir()
 
 
 def _get_github_repo(root: Path) -> str | None:
@@ -540,20 +491,6 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     """10d. Update version in public-website projects.json."""
     WebsitePropagator(info, ops=_ops).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
-    )
-
-
-def _reset_sibling_owned_dirt(  # pyright: ignore[reportUnusedFunction]
-    sib_path: Path, sib_name: str, *, fail_on_error: bool
-) -> None:
-    """Restore propagation-owned files if a sibling on main is dirty in them.
-
-    No caller remains in this module — SiblingRegistry.reset_all constructs
-    a SiblingRepo and calls its own reset_owned_dirt() directly. Kept
-    importable for public API preservation.
-    """
-    SiblingRepo(sib_path, sib_name, ops=_ops).reset_owned_dirt(
-        fail_on_error=fail_on_error
     )
 
 
