@@ -543,10 +543,16 @@ the entry is part of what gets reviewed, never added retroactively on main.
   changes (CI config, dev tooling, test-only) do not get entries.
 - **DESIGN.md.** Use `DESIGN.md` at the repo root. Write an ADR entry when a
   decision is non-obvious, has rejected alternatives worth recording, or
-  would confuse a future reader. Consult the log before proposing changes to
-  settled architecture; do not revisit a settled decision without new
-  evidence. See [Design Decision Log](../patterns/design-decision-log.md)
-  for the full pattern.
+  would confuse a future reader. Consult the log before **any** design
+  proposal — a design mission, a design review, and a naming, UX, or
+  architecture suggestion the leader makes directly to the operator alike —
+  not only before changing settled architecture. Look up by topic, not by
+  number: `grep '^## DES-' DESIGN.md`, read every matching entry in full,
+  and cite the ADRs consulted in the proposal; a proposal on a topic the
+  log covers that cites none has skipped the step and is returned. Do not
+  revisit a settled decision without new evidence. See
+  [Design Decision Log](../patterns/design-decision-log.md) for the full
+  pattern.
 
   **A design mission always produces a `DESIGN.md` ADR entry.** A design
   mission (per §6 The Mission Loop) exists precisely for the non-obvious
