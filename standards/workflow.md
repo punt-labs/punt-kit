@@ -679,7 +679,11 @@ A mission is **not required** for:
   finding before delegating, which collapses (not skips) the design step.
   Bare spawns are still audit-tagged by ethos (Tier A audited delegation)
   but carry no write-set enforcement or evaluator. This is the one
-  delegation that is not a mission.
+  delegation that is not a mission. The exception is for *mechanical*
+  fixes only: a fix that changes a design — new classes, moved
+  responsibilities, resolving a quality-ratchet regression — is a mission
+  with an evaluator, whatever review raised it. A bare spawn has nothing
+  checking it before its report reaches the leader.
 
 A leader **may** still wrap either case in a mission when the audit surface
 is worth the ceremony (e.g. a T4 change to release mechanics).
@@ -748,6 +752,28 @@ must either commit by proxy or lose the work. Required criterion text:
 > concern, or single PR-equivalent slice). Each commit must pass
 > `make check`. Do not accumulate more than 30 minutes of uncommitted
 > changes.
+
+**The standing worker contract.** Each repo's `docs/WORKFLOW.md` keeps one
+standing contract that every implementation mission carries verbatim; the
+leader never paraphrases it per round, because guardrails rewritten from
+memory drift and a worker reads a missing rule as permission. It must state:
+
+- **The goal as design, metrics as signals.** The goal is stated as
+  responsibilities (which object owns what, who depends on what). Quality
+  ratchet numbers are signals of that design, never targets; no contract
+  sets a numeric target for a ratchet metric. A change that moves a number
+  without improving responsibilities is rejected even when the gate passes.
+- **The forbidden operations.** Writing ratchet baseline or audit files by
+  any means but the repo's update targets; any baseline bless (a leader-only
+  act); restoring files from git; destructive git; pushing or touching a PR.
+- **Stop on regression.** On any ratchet regression the worker stops and
+  reports the design and the numbers; it does not extract to move the
+  number, bless, or commit.
+- **Evidence, not claims.** The worker saves the full gate output to a file
+  and cites it. The evaluator and the leader re-run the gate; a report that
+  disagrees with their run rejects the work.
+
+lux's `docs/WORKFLOW.md` (Level 3, step 1) is the reference text.
 
 ### Dispatch is two operations
 
