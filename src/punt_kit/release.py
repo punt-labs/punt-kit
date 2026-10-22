@@ -37,8 +37,6 @@ from punt_kit.phases.phase10_propagate import (
 )
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import changelog as changelog_mod
-from punt_kit.phases.shared import project_info as project_info_mod
-from punt_kit.phases.shared import siblings as siblings_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.ci_run import TagRunSelector
@@ -59,26 +57,17 @@ console = Console()
 # Set by the signal handler so threads can drain before cleanup runs.
 _interrupted = threading.Event()
 
-# Aliases — see phases/shared/siblings.py for the source of truth.
-PROPAGATION_SIBLINGS = siblings_mod.PROPAGATION_SIBLINGS
-_GITHUB_ABSENT_SKIP = siblings_mod.GITHUB_ABSENT_SKIP
-_PROPAGATION_OWNED_PATHS = siblings_mod.PROPAGATION_OWNED_PATHS
-
 # ---------------------------------------------------------------------------
 # Timeout budgets — see phases/shared/timeouts.py for the source of truth and
 # the rationale behind each budget. Aliased here (not just imported) because
 # _CI_RUN_POLL_ATTEMPTS/_CI_RUN_POLL_INTERVAL are monkeypatched directly on
-# this module by tests/test_release.py; every other name is a plain re-export.
+# this module by tests/test_release.py, and the tests read the other three
+# through this module.
 _DEFAULT_RUN_TIMEOUT = timeouts.DEFAULT_RUN
-_UV_TIMEOUT = timeouts.UV
-_GIT_NETWORK_TIMEOUT = timeouts.GIT_NETWORK
 _GIT_HOOK_TIMEOUT = timeouts.GIT_HOOK
 _QUALITY_GATE_TIMEOUT = timeouts.QUALITY_GATE
 _CI_RUN_POLL_INTERVAL = timeouts.CI_RUN_POLL_INTERVAL
 _CI_RUN_POLL_ATTEMPTS = timeouts.CI_RUN_POLL_ATTEMPTS
-_CI_ADVERSE_CONCLUSIONS = timeouts.CI_ADVERSE_CONCLUSIONS
-_CI_WATCH_TIMEOUT = timeouts.CI_WATCH
-_CI_RUN_LIST_TIMEOUT = timeouts.CI_RUN_LIST
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -130,7 +119,7 @@ class _ReleaseOpsAdapter:
     exactly like every other function already in this file. That is what
     lets ``monkeypatch.setattr(release_mod, "_run", fake_run)`` reach a
     ``RequiredChecksWaiter`` or a ``Phase6CiWait`` that was constructed with
-    this adapter, with zero changes to ``tests/test_release.py``.
+    this adapter.
 
     Legitimate PY-OO-7 exception: a stateless Adapter whose entire purpose is
     to forward to module globals for this testability reason, not a data
@@ -253,10 +242,6 @@ def _pr_merge(
         wait_for_checks=_wait_for_required_checks,
         resolve_threads=_resolve_pr_threads,
     )
-
-
-# Static alias — pure string transform, no test monkeypatches this name.
-_normalize_package_name = project_info_mod.normalize_package_name
 
 
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -608,8 +593,7 @@ def run_release(
         # exit-1 conversion), and _print_incomplete_release's contract is
         # "called from every stop-early path". With these blocks outside
         # the try, a Ctrl-C during preflight escaped as a raw
-        # KeyboardInterrupt with no report and no --resume-from hint
-        # (pkit-f85t.11).
+        # KeyboardInterrupt with no report and no --resume-from hint.
         try:
             # Run preflight before version detection (need clean tree for
             # accurate reads)
@@ -726,8 +710,8 @@ def run_release(
                 # A ReleaseError here is caught, not raised — Phase 11 still
                 # runs against the actual post-propagation state so its own
                 # checks report exactly what did and didn't land, instead of
-                # the pipeline stopping before verify ever sees the failure
-                # (pkit-d7mz). The failure is not swallowed: recorded here,
+                # the pipeline stopping before verify ever sees the failure.
+                # The failure is not swallowed: recorded here,
                 # it is re-raised as a hard failure once the pipeline
                 # finishes, so the release still exits non-zero.
                 nonlocal current_phase_num
