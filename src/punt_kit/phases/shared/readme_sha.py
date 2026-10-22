@@ -358,8 +358,8 @@ class ReadmeShaPin:
         ``resolve_repo`` is injected rather than composing ``GithubRepo``
         directly — ``test_readme_sha_pin_survives_tag`` monkeypatches
         ``punt_kit.release._get_github_repo`` and calls
-        ``punt_kit.release._land_readme_sha_pin``/``_bump_readme_install_sha``
-        expecting the patch to be observed (§0's mechanism).
+        ``punt_kit.release._land_readme_sha_pin`` expecting the patch to be
+        observed (§0's mechanism).
         """
         root = self._info.root
         readme_path = root / "README.md"

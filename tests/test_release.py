@@ -30,7 +30,6 @@ from punt_kit.release import (
     _QUALITY_GATE_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
-    _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
     _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
@@ -47,7 +46,6 @@ from punt_kit.release import (
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
-    _rewrite_template_pins,  # pyright: ignore[reportPrivateUsage]
     _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
     _suggest_version,  # pyright: ignore[reportPrivateUsage]
@@ -1021,6 +1019,15 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
 
 # --- phase 2 template pin rewrite (pkit-3zu8) ---
 
+
+def _rewrite_pins(info: ProjectInfo, version: str, *, dry_run: bool) -> list[_Path]:
+    """Run the live ``ReleaseProject.rewrite_template_pins`` Phase 2 calls."""
+    from punt_kit.phases.shared.project_info import ReleaseProject
+
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+    return ReleaseProject(info, ops=ops).rewrite_template_pins(version, dry_run=dry_run)
+
+
 # The pin regex only captures ``punt-*`` names (PL-PL-2: every PyPI package in
 # the fleet is punt-prefixed) — the shared fixture's "test-pkg" name predates
 # that convention, so these tests rename it before writing any pins.
@@ -1086,7 +1093,7 @@ def test_template_pin_idempotent(tmp_path: Path) -> None:
     _phase2_version_bump(info, "0.2.0", dry_run=False)
     after_first = template.read_text()
 
-    changed = _rewrite_template_pins(info, "0.2.0", dry_run=False)
+    changed = _rewrite_pins(info, "0.2.0", dry_run=False)
 
     assert changed == []
     assert template.read_text() == after_first
@@ -1105,7 +1112,7 @@ def test_template_pin_dry_run_no_changes(tmp_path: Path) -> None:
     from punt_kit.detect import detect
 
     info = detect(root)
-    changed = _rewrite_template_pins(info, "0.2.0", dry_run=True)
+    changed = _rewrite_pins(info, "0.2.0", dry_run=True)
 
     assert changed == [template]
     assert f"uvx --from {_OWN_PKG}==0.1.0" in template.read_text()
@@ -1217,7 +1224,7 @@ def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    changed = _rewrite_template_pins(info, "0.2.0", dry_run=False)
+    changed = _rewrite_pins(info, "0.2.0", dry_run=False)
 
     assert changed == []
 
@@ -1235,7 +1242,7 @@ def test_phase9_post_release_no_longer_bumps_readme(
     root = _make_release_project(tmp_path)
     d = str(root)
 
-    # A stale SHA that _bump_readme_install_sha would have rewritten under
+    # A stale SHA that ReadmeShaPin.bump would have rewritten under
     # the old phase-9 behavior this fix removes.
     stale_readme = (
         "# proj\n\n```bash\n"
@@ -1255,9 +1262,9 @@ def test_phase9_post_release_no_longer_bumps_readme(
     _git(["commit", "-m", "stale readme, dev/released HEAD"], cwd=d)
 
     def _unreachable(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("phase 9 must not call _bump_readme_install_sha")
+        raise AssertionError("phase 9 must not call ReadmeShaPin.bump")
 
-    monkeypatch.setattr(release_mod, "_bump_readme_install_sha", _unreachable)
+    monkeypatch.setattr(ReadmeShaPin, "bump", _unreachable)
 
     def fake_pr_merge(**_kwargs: object) -> str:
         raise AssertionError("phase 9 has nothing to land — _pr_merge must not run")
@@ -1314,7 +1321,17 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     assert (root / "stray-transcript.jsonl").exists()
 
 
-# --- README install SHA bump (used in Phase 9: post-release) ---
+# --- README install SHA bump (ReadmeShaPin.bump, reached via Phase 4) ---
+
+
+def _bump_readme_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Run the live ``ReadmeShaPin.bump`` that ``ReadmeShaPin.land`` calls."""
+    ops = FaultInjectingOps(real_run=_run, rules=[])
+    ReadmeShaPin(info, ops=ops).bump(
+        version,
+        dry_run=dry_run,
+        resolve_repo=lambda root: GithubRepo(root, ops=ops).resolve(),
+    )
 
 
 def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
@@ -1338,7 +1355,7 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     from punt_kit.detect import detect
 
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     # Old SHA should be gone
@@ -1378,7 +1395,7 @@ def test_find_pinned_shas_never_drifts_from_bump(tmp_path: Path) -> None:
     _git(["tag", "v0.2.0"], cwd=d)
 
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     expected_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
@@ -1406,7 +1423,7 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
     from punt_kit.detect import detect
 
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     assert "v0.1.0" not in readme_content
@@ -1442,7 +1459,7 @@ def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
     from punt_kit.detect import detect
 
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=True)
+    _bump_readme_pin(info, "0.2.0", dry_run=True)
 
     assert (root / "README.md").read_text() == original
 
@@ -1493,7 +1510,7 @@ def test_bump_readme_install_sha_tag_on_different_commit(tmp_path: Path) -> None
     from punt_kit.detect import detect
 
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     assert f"{install_sh_sha}/install.sh" in readme_content

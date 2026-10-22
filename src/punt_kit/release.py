@@ -259,20 +259,6 @@ def _pr_merge(
 _normalize_package_name = project_info_mod.normalize_package_name
 
 
-def _rewrite_template_pins(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> list[Path]:
-    """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins.
-
-    No caller remains in this module — Phase2VersionBump calls
-    ReleaseProject.rewrite_template_pins directly. Kept importable for
-    public API preservation (this name is also directly tested).
-    """
-    return ReleaseProject(info, ops=_ops).rewrite_template_pins(
-        version, dry_run=dry_run
-    )
-
-
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 2: Bump version on release branch."""
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
@@ -304,19 +290,6 @@ def _phase5_tag(
     that case rather than tagging whatever main HEAD currently is.
     """
     Phase5Tag(info, version, dry_run=dry_run, ops=_ops).run(release_sha=release_sha)
-
-
-def _bump_readme_install_sha(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> None:
-    """Update SHA-pinned install.sh URLs in README to the install.sh commit.
-
-    No caller remains in this module — ReadmeShaPin.land calls self.bump
-    directly. Kept importable for public API preservation.
-    """
-    ReadmeShaPin(info, ops=_ops).bump(
-        version, dry_run=dry_run, resolve_repo=_get_github_repo
-    )
 
 
 def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
