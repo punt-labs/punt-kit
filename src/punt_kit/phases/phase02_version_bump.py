@@ -109,7 +109,7 @@ class Phase2VersionBump:
                 f"{self._version}; set it by hand"
             )
         if len(lines := assignment.assigned_lines(content)) > 1:
-            shown = "; ".join(f"`{line}`" for line in lines)
+            shown = "; ".join(assignment.described_lines(content))
             self._ops.warn(
                 f"install.sh: VERSION is assigned on {len(lines)} lines ({shown}); "
                 f"every plain one is bumped to {self._version}, but a heredoc, a "

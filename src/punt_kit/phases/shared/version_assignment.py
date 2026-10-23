@@ -67,7 +67,8 @@ class VersionAssignment:
         assignment that is a plain string is rewritten with it, so a re-pin in
         a branch cannot stay stale; one that is computed is left alone. An
         unquoted literal (``VERSION=0.0.9``) is a plain value like a quoted one
-        and is rewritten without quotes. A value is
+        and is rewritten without quotes. An empty string (``VERSION=""``) is a
+        deliberate reset: it is neither rewritten nor checked. A value is
         computed, so assigned but not readable, when it is double-quoted and
         contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
         ``"$(git describe)"``), or when the closing quote is followed by more
@@ -101,10 +102,15 @@ class VersionAssignment:
         return match.group(3) if match else None
 
     def is_pinned_to(self, text: str, value: str) -> bool:
-        """True when the first assignment is plain and every plain one is ``value``."""
+        """True when the first assignment is plain and every plain one is ``value``.
+
+        An empty reset (``VERSION=""``) is not a pin, so it neither matches nor
+        spoils the others; a file with nothing but resets is not pinned.
+        """
         if self.read(text) is None:
             return False
-        return all(found in (None, value) for found in self.values(text))
+        plain = [found for found in self.values(text) if found is not None]
+        return bool(plain) and all(found == value for found in plain)
 
     def rewritten(self, text: str, value: str) -> tuple[str, int]:
         """``text`` with every plain quoted assignment set to ``value``, and the count.
@@ -124,9 +130,34 @@ class VersionAssignment:
         return "".join(parts), len(matches)
 
     def values(self, text: str) -> tuple[str | None, ...]:
-        """The value of each assignment in order; ``None`` for a computed one."""
+        """The value of each assignment in order; ``None`` for a computed one.
+
+        An empty reset (``VERSION=""``) is deliberate, not a value, and is left out.
+        """
         found = (self._value_at(text, m.start()) for m in self._assigned.finditer(text))
-        return tuple(m.group(3) if m else None for m in found)
+        return tuple(
+            m.group(3) if m else None for m in found if not (m and self._is_reset(m))
+        )
+
+    def described_lines(self, text: str) -> tuple[str, ...]:
+        """Each assigning line in backticks, with what the bump does to it.
+
+        ``local`` declarations and empty resets are marked, so an operator can
+        tell a function-scoped pin from the script's own.
+        """
+        described: list[str] = []
+        for head in self._assigned.finditer(text):
+            line = text[head.start() :].split("\n", 1)[0].strip()
+            value = self._value_at(text, head.start())
+            if value is None:
+                fate = "computed, left as is"
+            elif self._is_reset(value):
+                fate = "empty reset, left as is"
+            else:
+                fate = "rewritten"
+            marks = ["local"] if "local" in head.group(0).split() else []
+            described.append(f"`{line}` ({', '.join([*marks, fate])})")
+        return tuple(described)
 
     def _rewritable(self, text: str) -> list[re.Match[str]]:
         """The matches to rewrite: all plain ones, when the first is plain."""
@@ -137,7 +168,12 @@ class VersionAssignment:
             return [first]
         starts = (m.start() for m in self._assigned.finditer(text))
         found = (self._value_at(text, start) for start in starts)
-        return [m for m in found if m is not None]
+        return [m for m in found if m is not None and not self._is_reset(m)]
+
+    @staticmethod
+    def _is_reset(match: re.Match[str]) -> bool:
+        """True for a quoted empty value: a deliberate reset, never rewritten."""
+        return bool(match.group(2)) and match.group(3) == ""
 
     def _readable(self, text: str) -> re.Match[str] | None:
         """The match that supplies the value, or ``None`` when it is not plain."""

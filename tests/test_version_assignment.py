@@ -165,6 +165,47 @@ def test_an_unquoted_pin_is_rewritten_and_stays_unquoted() -> None:
     )
 
 
+@pytest.mark.parametrize("empty", ['""', "''"])
+def test_an_empty_shell_reset_is_never_rewritten(empty: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = f'VERSION="0.1.0"\nVERSION={empty}\n'
+
+    assert assignment.rewritten(text, "0.2.0") == (
+        f'VERSION="0.2.0"\nVERSION={empty}\n',
+        1,
+    )
+
+
+def test_an_empty_shell_reset_is_not_a_value_and_does_not_unpin() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'VERSION="0.2.0"\nVERSION=""\n'
+
+    assert (assignment.values(text), assignment.is_pinned_to(text, "0.2.0")) == (
+        ("0.2.0",),
+        True,
+    )
+
+
+def test_a_file_with_only_empty_resets_is_not_pinned() -> None:
+    assert not VersionAssignment.in_shell("VERSION").is_pinned_to('VERSION=""\n', "1")
+
+
+def test_every_assignment_is_described_with_what_becomes_of_it() -> None:
+    text = (
+        'VERSION="0.1.0"\n'
+        'f() {\n  local VERSION="x"\n  local VERSION=""\n}\n'
+        "VERSION=\"$(f)\"\nVERSION=''\n"
+    )
+
+    assert VersionAssignment.in_shell("VERSION").described_lines(text) == (
+        '`VERSION="0.1.0"` (rewritten)',
+        '`local VERSION="x"` (local, rewritten)',
+        '`local VERSION=""` (local, empty reset, left as is)',
+        '`VERSION="$(f)"` (computed, left as is)',
+        "`VERSION=''` (empty reset, left as is)",
+    )
+
+
 def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
 

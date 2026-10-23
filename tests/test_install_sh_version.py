@@ -238,6 +238,42 @@ def test_phase11_fails_when_a_later_plain_assignment_is_stale(tmp_path: Path) ->
     assert (passed, "0.1.0" in detail) == (False, True)
 
 
+def test_phase2_leaves_an_empty_reset_and_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    script = '#!/bin/sh\nVERSION="0.1.0"\nVERSION=""\n'
+    (root / "install.sh").write_text(script)
+    commit_all(root, "empty reset")
+
+    bump(root)
+
+    assert (root / "install.sh").read_text() == (
+        '#!/bin/sh\nVERSION="0.2.0"\nVERSION=""\n'
+    )
+    assert '`VERSION=""` (empty reset, left as is)' in flat(capsys.readouterr().out)
+
+
+def test_phase2_rewrites_a_local_in_a_function_and_marks_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    script = '#!/bin/sh\nVERSION="0.1.0"\nf() {\n  local VERSION="0.1.0"\n}\n'
+    (root / "install.sh").write_text(script)
+    commit_all(root, "local")
+
+    bump(root)
+
+    assert (root / "install.sh").read_text() == script.replace("0.1.0", "0.2.0")
+    assert '`local VERSION="0.1.0"` (local, rewritten)' in flat(capsys.readouterr().out)
+
+
+def test_phase11_ignores_an_empty_reset(tmp_path: Path) -> None:
+    (tmp_path / "install.sh").write_text('#!/bin/sh\nVERSION="0.2.0"\nVERSION=""\n')
+
+    assert _install_sh_checks(tmp_path) == {"install.sh": (True, "VERSION=0.2.0")}
+
+
 def test_phase2_rewrites_a_stale_unquoted_pin_after_a_quoted_one(
     tmp_path: Path,
 ) -> None:
