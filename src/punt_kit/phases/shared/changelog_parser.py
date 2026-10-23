@@ -6,7 +6,9 @@ import re
 from dataclasses import dataclass
 from typing import Self, final
 
-_STAMPED_HEADING = re.compile(r"## \[[^\]]*\] - \d{4}-\d{2}-\d{2}")
+# A date after the version stamps the heading; whatever follows it ("  ",
+# " (yanked)") does not matter, so the check is a prefix match.
+_STAMPED_HEADING = re.compile(r"## \[[^\]]*\] - \d{4}-\d{2}-\d{2}(?!\d)")
 
 # How the fleet marks a breaking change (surveyed across the sibling repos'
 # CHANGELOG.md files): a bold ``**Breaking:**`` / ``**BREAKING —`` lead-in,
@@ -64,8 +66,8 @@ class Section:
 
     @property
     def is_stamped(self) -> bool:
-        """True for a dated ``## [X.Y.Z] - YYYY-MM-DD`` heading."""
-        return _STAMPED_HEADING.fullmatch(self.heading) is not None
+        """True for a ``## [X.Y.Z] - YYYY-MM-DD`` heading, trailing text allowed."""
+        return _STAMPED_HEADING.match(self.heading) is not None
 
     def has_entries_under(self, name: str) -> bool:
         """True when a subsection titled ``name`` has at least one entry."""
@@ -81,7 +83,7 @@ class ChangelogDocument:
     HTML comments, a leading UTF-8 BOM, and either line ending.
     """
 
-    __slots__ = ("_lines", "_sections")
+    __slots__ = ("_bom", "_lines", "_sections")
 
     _VERSION_HEADING = re.compile(r"## \[([^\]]*)\]")
     _SUBSECTION_HEADING = re.compile(r"###\s+(.*?)\s*$")
@@ -91,17 +93,27 @@ class ChangelogDocument:
     # footer Keep a Changelog files carry: bookkeeping, not an entry.
     _LINK_DEFINITION = re.compile(r"\[[^\]]+\]:\s")
 
+    _bom: str
     _lines: tuple[str, ...]
     _sections: tuple[Section, ...]
 
     def __new__(cls, text: str) -> Self:
         self = super().__new__(cls)
+        self._bom = "\ufeff" if text.startswith("\ufeff") else ""
         self._lines = tuple(text.removeprefix("\ufeff").splitlines(keepends=True))
-        heads = cls._version_headings(self._lines)
+        # One scan decides, for every line, whether it is code and what text
+        # is visible once comments are removed. Headings and entries are both
+        # read from it, so they cannot disagree about fences or comments.
+        scanned = cls._scan(self._lines)
+        heads = [
+            (index, match.group(1))
+            for index, (is_code, text) in enumerate(scanned)
+            if not is_code and (match := cls._VERSION_HEADING.match(text))
+        ]
         starts = [index for index, _ in heads]
         ends = [*starts[1:], len(self._lines)] if heads else []
         self._sections = tuple(
-            cls._section(self._lines, version, start, end)
+            cls._section(self._lines, scanned, version, start, end)
             for (start, version), end in zip(heads, ends, strict=True)
         )
         return self
@@ -123,16 +135,16 @@ class ChangelogDocument:
         """Return the text with a new dated ``version`` heading under Unreleased.
 
         Inserts at the parsed [Unreleased] heading (never at a look-alike
-        inside a code fence) and preserves the file's line endings. Text
-        with no [Unreleased] section comes back unchanged.
+        inside a code fence) and preserves the file's BOM and line endings.
+        Text with no [Unreleased] section comes back unchanged.
         """
         unreleased = self.section("Unreleased")
         if unreleased is None:
-            return "".join(self._lines)
+            return self._bom + "".join(self._lines)
         index = unreleased.line_index
         heading = self._lines[index]
         eol = "\r\n" if heading.endswith("\r\n") else "\n"
-        return "".join(
+        return self._bom + "".join(
             (
                 *self._lines[:index],
                 heading.rstrip("\r\n") + eol,
@@ -161,27 +173,56 @@ class ChangelogDocument:
         return f"{major}.{minor}.{patch + 1}"
 
     @classmethod
-    def _version_headings(cls, lines: tuple[str, ...]) -> list[tuple[int, str]]:
-        """Every ``(line_index, version)`` heading that is outside a code fence."""
-        found: list[tuple[int, str]] = []
+    def _scan(cls, lines: tuple[str, ...]) -> tuple[tuple[bool, str], ...]:
+        """Label every line ``(is_code, visible_text)`` in one pass.
+
+        Code is a fenced block (delimiters included) and keeps its text
+        verbatim. Outside code, HTML comments — single- or multi-line — are
+        removed from the text. A fence or comment that is never closed is
+        plain text, not a state that runs to the end of the file: swallowing
+        every later release over one stray backtick fence would hide
+        published versions, so an opener only counts when a closer follows.
+        """
+        closes_later = [False] * len(lines)
+        seen_close = False
+        for index in range(len(lines) - 1, -1, -1):
+            closes_later[index] = seen_close
+            seen_close = seen_close or "-->" in lines[index]
+        scanned: list[tuple[bool, str]] = []
         fence: str | None = None
-        for index, line in enumerate(lines):
-            fence, is_fence_line = cls._advance_fence(line, fence)
-            if fence is None and not is_fence_line:
-                match = cls._VERSION_HEADING.match(line)
-                if match:
-                    found.append((index, match.group(1)))
-        return found
+        in_comment = False
+        for index, raw in enumerate(lines):
+            line = raw.rstrip("\r\n")
+            if fence is not None:
+                if cls._closes_fence(line, fence):
+                    fence = None
+                scanned.append((True, line))
+                continue
+            opened = None if in_comment else cls._FENCE_OPEN.match(line)
+            if opened and cls._fence_is_closed(lines, index, opened.group(1)):
+                fence = opened.group(1)
+                scanned.append((True, line))
+                continue
+            text, in_comment = cls._without_comments(
+                line, in_comment, closable=closes_later[index]
+            )
+            scanned.append((False, text))
+        return tuple(scanned)
 
     @classmethod
     def _section(
-        cls, lines: tuple[str, ...], version: str, start: int, end: int
+        cls,
+        lines: tuple[str, ...],
+        scanned: tuple[tuple[bool, str], ...],
+        version: str,
+        start: int,
+        end: int,
     ) -> Section:
         body = lines[start + 1 : end]
         entries: list[str] = []
         titles: list[str] = []
         grouped: list[list[str]] = []
-        for title, entry in cls._classify(body):
+        for title, entry in cls._classify(scanned[start + 1 : end]):
             if title is not None:
                 titles.append(title)
                 grouped.append([])
@@ -202,23 +243,21 @@ class ChangelogDocument:
         )
 
     @classmethod
-    def _classify(cls, body: tuple[str, ...]) -> list[tuple[str | None, str]]:
-        """Label each body line: ``(title, "")`` for a ``###`` heading, or
+    def _classify(
+        cls, body: tuple[tuple[bool, str], ...]
+    ) -> list[tuple[str | None, str]]:
+        """Label each scanned line: ``(title, "")`` for a ``###`` heading, or
         ``(None, text)`` for an entry; everything else is dropped.
 
-        Dropped: blank lines, other headings, HTML comments (single- or
-        multi-line), and link definitions. Everything inside a code fence is
-        an entry.
+        Dropped: blank lines, other headings, comments (already removed by
+        the scan), and link definitions. Everything inside a code fence is an
+        entry.
         """
         labelled: list[tuple[str | None, str]] = []
-        fence: str | None = None
-        in_comment = False
-        for raw in body:
-            fence, is_fence_line = cls._advance_fence(raw, fence)
-            if fence is not None or is_fence_line:
-                labelled.append((None, raw.rstrip("\r\n")))
+        for is_code, text in body:
+            if is_code:
+                labelled.append((None, text))
                 continue
-            text, in_comment = cls._without_comments(raw.rstrip("\r\n"), in_comment)
             if not text.strip():
                 continue
             subsection = cls._SUBSECTION_HEADING.match(text)
@@ -228,26 +267,30 @@ class ChangelogDocument:
                 labelled.append((None, text))
         return labelled
 
-    @classmethod
-    def _advance_fence(cls, line: str, fence: str | None) -> tuple[str | None, bool]:
-        """Advance the code-fence state over ``line``.
-
-        Returns ``(fence, is_fence_line)``: the open fence marker (``None``
-        when outside a fence) and whether ``line`` itself opens or closes
-        one. A fence closes only on a line of the same character, at least
-        as long as the opener.
-        """
-        if fence is None:
-            opened = cls._FENCE_OPEN.match(line)
-            return (opened.group(1), True) if opened else (None, False)
+    @staticmethod
+    def _closes_fence(line: str, fence: str) -> bool:
+        """True when ``line`` closes ``fence``: same character, at least as long."""
         stripped = line.strip()
-        if stripped and set(stripped) == {fence[0]} and len(stripped) >= len(fence):
-            return None, True
-        return fence, False
+        return (
+            bool(stripped)
+            and set(stripped) == {fence[0]}
+            and len(stripped) >= len(fence)
+        )
+
+    @classmethod
+    def _fence_is_closed(cls, lines: tuple[str, ...], opener: int, fence: str) -> bool:
+        """True when some line after ``opener`` closes ``fence``."""
+        return any(cls._closes_fence(line, fence) for line in lines[opener + 1 :])
 
     @staticmethod
-    def _without_comments(line: str, in_comment: bool) -> tuple[str, bool]:
-        """Strip HTML comment spans from ``line``, carrying multi-line state."""
+    def _without_comments(
+        line: str, in_comment: bool, *, closable: bool
+    ) -> tuple[str, bool]:
+        """Strip HTML comment spans from ``line``, carrying multi-line state.
+
+        ``closable`` says whether a later line contains ``-->``; an opener
+        that nothing closes is left in the text.
+        """
         kept: list[str] = []
         rest = line
         while rest:
@@ -259,6 +302,9 @@ class ChangelogDocument:
             else:
                 start = rest.find("<!--")
                 if start < 0:
+                    kept.append(rest)
+                    break
+                if "-->" not in rest[start + 4 :] and not closable:
                     kept.append(rest)
                     break
                 kept.append(rest[:start])

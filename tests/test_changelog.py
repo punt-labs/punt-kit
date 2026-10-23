@@ -216,7 +216,14 @@ def test_stamped_ignores_an_unreleased_look_alike_inside_a_fence() -> None:
 def test_stamped_preserves_crlf_and_the_bom() -> None:
     cl = "\ufeff## [Unreleased]\r\n\r\n- x\r\n"
     stamped = ChangelogDocument(cl).stamped("0.2.0", "2026-03-01")
-    assert stamped == "## [Unreleased]\r\n\r\n## [0.2.0] - 2026-03-01\r\n\r\n- x\r\n"
+    assert stamped == (
+        "\ufeff## [Unreleased]\r\n\r\n## [0.2.0] - 2026-03-01\r\n\r\n- x\r\n"
+    )
+
+
+def test_stamped_without_unreleased_keeps_the_bom() -> None:
+    cl = "\ufeff# Changelog\n\n## [0.1.0] - 2026-01-01\n"
+    assert ChangelogDocument(cl).stamped("0.2.0", "2026-03-01") == cl
 
 
 def test_stamped_leaves_a_changelog_without_unreleased_unchanged() -> None:
@@ -227,6 +234,60 @@ def test_stamped_leaves_a_changelog_without_unreleased_unchanged() -> None:
 def test_is_stamped_requires_a_dated_heading() -> None:
     doc = ChangelogDocument("## [0.2.0] - 2026-03-01\n\n## [0.3.0]\n")
     assert [doc.is_stamped("0.2.0"), doc.is_stamped("0.3.0")] == [True, False]
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        pytest.param("  ", id="trailing-spaces"),
+        pytest.param(" (yanked)", id="trailing-text"),
+        pytest.param(" \t", id="trailing-tab"),
+    ],
+)
+def test_a_dated_heading_with_trailing_text_is_still_stamped(suffix: str) -> None:
+    """A published release must not read as unstamped over trailing text."""
+    doc = ChangelogDocument(f"## [1.0.0] - 2026-01-01{suffix}\n\n- x\n")
+    assert doc.is_stamped("1.0.0")
+
+
+@pytest.mark.parametrize("heading", ["## [1.0.0] - 2026-1-1", "## [1.0.0] 2026-01-01"])
+def test_a_malformed_date_is_not_stamped(heading: str) -> None:
+    assert not ChangelogDocument(f"{heading}\n").is_stamped("1.0.0")
+
+
+# --- one scan state for fences and comments ---
+
+
+def test_commented_out_version_heading_is_not_a_section() -> None:
+    cl = (
+        "## [Unreleased]\n\n- x\n\n<!--\n## [0.9.0] - 2025-01-01\n-->\n\n"
+        "## [1.2.3] - 2026-01-01\n\n- y\n"
+    )
+    doc = ChangelogDocument(cl)
+    assert doc.section("0.9.0") is None
+    assert doc.section("Unreleased") is not None
+    assert doc.is_stamped("1.2.3")
+
+
+def test_unclosed_fence_is_text_and_does_not_swallow_later_releases() -> None:
+    """Choice: a fence with no closing line is not a fence, so later version
+    headings stay visible (a loud failure would block a release over a typo)."""
+    cl = "## [Unreleased]\n\n```\n- x\n\n## [1.0.0] - 2026-01-01\n\n- y\n"
+    doc = ChangelogDocument(cl)
+    assert doc.is_stamped("1.0.0")
+    unreleased = doc.section("Unreleased")
+    assert unreleased is not None
+    assert unreleased.has_entries
+
+
+def test_unclosed_comment_is_text_and_does_not_swallow_later_releases() -> None:
+    cl = "## [Unreleased]\n\n<!-- todo\n- x\n\n## [1.0.0] - 2026-01-01\n\n- y\n"
+    assert ChangelogDocument(cl).is_stamped("1.0.0")
+
+
+def test_a_fence_inside_a_comment_does_not_open_a_fence() -> None:
+    cl = "## [Unreleased]\n\n<!--\n```\n-->\n\n## [1.0.0] - 2026-01-01\n\n- y\n"
+    assert ChangelogDocument(cl).is_stamped("1.0.0")
 
 
 # --- Changelog (file access and the preflight gate) ---
