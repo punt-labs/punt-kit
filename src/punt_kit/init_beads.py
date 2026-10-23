@@ -62,12 +62,21 @@ class BeadsInit:
             msg = f"beads init timed out after {timeouts.BD_INIT}s"
             if detail := OperationalFailure.detail(exc):
                 msg = f"{msg}: {detail}"
-            raise BeadsInitError(msg) from exc
+            raise BeadsInitError(self._with_partial(msg)) from exc
         except subprocess.CalledProcessError as exc:
             msg = f"beads init failed: {OperationalFailure.one_line(exc)}"
-            raise BeadsInitError(msg) from exc
+            raise BeadsInitError(self._with_partial(msg)) from exc
         except OSError as exc:
             msg = f"beads init failed: {exc}"
-            raise BeadsInitError(msg) from exc
+            raise BeadsInitError(self._with_partial(msg)) from exc
         console.print(f"  [green]+[/green] Initialized beads (prefix: {prefix})")
         return [".beads/"]
+
+    def _with_partial(self, msg: str) -> str:
+        """``msg``, plus a warning when the failed run left a ``.beads/`` behind.
+
+        Only called after ``run`` saw no ``.beads/``, so one now is bd's debris.
+        """
+        if not (self._info.root / ".beads").exists():
+            return msg
+        return f"{msg}; bd init left a partial .beads/ — remove it before retrying"

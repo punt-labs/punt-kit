@@ -138,3 +138,46 @@ def test_a_bd_that_hangs_raises_naming_the_timeout(
 
     with pytest.raises(BeadsInitError, match="beads init timed out after 1s"):
         BeadsInit(detect(root)).run()
+
+
+def test_a_bd_that_hangs_after_creating_beads_names_the_partial_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    script = (
+        "#!/bin/sh\nmkdir .beads\n"
+        "echo 'cloning https://u:ghp_SECRET@host.example/db' >&2\n"
+        "exec sleep 30\n"
+    )
+    _with_bd(monkeypatch, tmp_path, script)
+    monkeypatch.setattr(timeouts, "BD_INIT", 1)
+
+    with pytest.raises(BeadsInitError) as caught:
+        BeadsInit(detect(root)).run()
+
+    message = str(caught.value)
+    assert ("ghp_SECRET" in message, "cloning" in message) == (False, True)
+    assert "bd init left a partial .beads/ — remove it before retrying" in message
+
+
+def test_a_bd_that_fails_after_creating_beads_names_the_partial_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    script = "#!/bin/sh\nmkdir .beads\necho half done >&2\nexit 3\n"
+    _with_bd(monkeypatch, tmp_path, script)
+
+    with pytest.raises(BeadsInitError, match=r"half done.*partial \.beads/"):
+        BeadsInit(detect(root)).run()
+
+
+def test_a_bd_failure_that_created_nothing_does_not_mention_a_partial_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    _with_bd(monkeypatch, tmp_path, "#!/bin/sh\necho no database >&2\nexit 3\n")
+
+    with pytest.raises(BeadsInitError) as caught:
+        BeadsInit(detect(root)).run()
+
+    assert "partial" not in str(caught.value)
