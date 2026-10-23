@@ -51,7 +51,7 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.repo_slug import RepoSlug
 from punt_kit.phases.shared.siblings import SiblingRepo
-from punt_kit.phases.shared.skips import SkipRecorder
+from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
 
 # Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
 # wrappers, `_pr_merge`, `_run`, `_wait_for_required_checks`, `_propagate_*`,
@@ -7508,9 +7508,9 @@ def test_absent_github_dedups_to_single_recap_across_phases(
     _propagate_install_all(info, version, dry_run=False)
     _phase11_verify(info, version, dry_run=False)
 
-    # All three collapse to a single deduplicated recap line.
-    notices = skips.drain()
-    assert len(notices) == 1
+    # All three collapse to a single deduplicated recap line: the shared
+    # template, filled in for this project and release.
+    assert skips.drain() == (GITHUB_ABSENT_SKIP.format(name="proj", ver=version),)
 
 
 # --- Phase 11: README pin check ---
@@ -13895,3 +13895,32 @@ def test_phase8_warns_when_the_installed_cli_doctor_exits_non_zero(
     out = _flat(capsys.readouterr().out)
     assert "WARNING" in out
     assert "test-cli doctor exited 3" in out
+
+
+def test_run_release_recaps_a_phase11_remote_skip_in_its_printed_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End to end: the skip Phase 11 records reaches the recap the operator reads."""
+    root, sibling = _setup_verify_project(tmp_path)
+    shutil.rmtree(sibling)
+    for name in ("install.sh", ".claude-plugin"):
+        path = root / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    _commit_all(root, "bare project")
+    _git(["remote", "remove", "origin"], cwd=str(root))
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "proj", "version": "0.1.0"}])},
+    )
+    _patch_pypi_probe(monkeypatch)
+
+    run_release(str(root), version="0.1.0", dry_run=False, resume_from="verify")
+
+    out = _flat(capsys.readouterr().out)
+    recap = out[out.index("Manual action required") :]
+    assert "the website checks did not run" in recap
+    assert "no github.com origin remote" in recap
