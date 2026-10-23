@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Self, final
 
+from punt_kit.phases.shared.shell_heredoc import HeredocBodies
+
 # What may precede a shell assignment: indentation, and the declaration
 # builtins with their flags (``readonly -r``, ``declare -x``, ``typeset -r``).
 _SHELL_LEAD = (
@@ -75,16 +77,19 @@ class VersionAssignment:
         contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
         ``"$(git describe)"``), or when the closing quote is followed by more
         word (``"1.0"$SUFFIX``, ``'1'"$x"``, ``"1.0"#x``; a ``#`` only starts
-        a comment after whitespace). A later assignment can still
-        replace an earlier one at run time, and a line inside a heredoc or an
-        untaken branch is not an assignment at all; ``assigned_lines`` lists
-        them all so the caller can warn that it cannot tell which take effect.
+        a comment after whitespace). A line inside a here-document body
+        (``<<EOF``, ``<<-EOF``, quoted delimiters; one never closed runs to
+        the end of the file) is data, not an assignment: it is never read,
+        rewritten or listed. A later assignment can still replace an earlier
+        one at run time, and a line in an untaken branch is not an assignment
+        at all; ``assigned_lines`` lists the rest so the caller can warn that
+        it cannot tell which take effect.
         """
         return cls(name, lead=_SHELL_LEAD, is_shell=True)
 
     def is_assigned(self, text: str) -> bool:
         """True when ``text`` assigns the name at the start of some line."""
-        return self._assigned.search(text) is not None
+        return next(iter(self._heads(text)), None) is not None
 
     def assigned_lines(self, text: str) -> tuple[str, ...]:
         """Every line that assigns the name, stripped, in order.
@@ -95,8 +100,16 @@ class VersionAssignment:
         """
         return tuple(
             text[match.start() :].split("\n", 1)[0].strip()
-            for match in self._assigned.finditer(text)
+            for match in self._heads(text)
         )
+
+    def _heads(self, text: str) -> list[re.Match[str]]:
+        """The assignments, in order; a shell's skip the bodies of here-documents."""
+        heads = list(self._assigned.finditer(text))
+        if not self._is_shell or not heads:
+            return heads
+        bodies = HeredocBodies(text)
+        return [m for m in heads if not bodies.contains(m.start())]
 
     # None: absence is the contract; callers branch on "no plain value assigned".
     def read(self, text: str) -> str | None:
@@ -142,7 +155,7 @@ class VersionAssignment:
 
         An empty reset (``VERSION=""``) is deliberate, not a value, and is left out.
         """
-        found = (self._value_at(text, m.start()) for m in self._assigned.finditer(text))
+        found = (self._value_at(text, m.start()) for m in self._heads(text))
         return tuple(
             m.group(3) if m else None for m in found if not (m and self._is_reset(m))
         )
@@ -151,7 +164,7 @@ class VersionAssignment:
         """Each assigning line whose value is computed, stripped, in order."""
         return tuple(
             text[m.start() :].split("\n", 1)[0].strip()
-            for m in self._assigned.finditer(text)
+            for m in self._heads(text)
             if self._value_at(text, m.start()) is None
         )
 
@@ -162,7 +175,7 @@ class VersionAssignment:
         tell a function-scoped pin from the script's own.
         """
         described: list[str] = []
-        for head in self._assigned.finditer(text):
+        for head in self._heads(text):
             line = text[head.start() :].split("\n", 1)[0].strip()
             value = self._value_at(text, head.start())
             if value is None:
@@ -182,7 +195,7 @@ class VersionAssignment:
             return []
         if not self._is_shell:
             return [first]
-        starts = (m.start() for m in self._assigned.finditer(text))
+        starts = (m.start() for m in self._heads(text))
         found = (self._value_at(text, start) for start in starts)
         return [m for m in found if m is not None and not self._is_reset(m)]
 
@@ -196,7 +209,7 @@ class VersionAssignment:
         """The match that supplies the value, or ``None`` when it is not plain."""
         if not self._is_shell:
             return self._quoted.search(text)
-        first = self._assigned.search(text)
+        first = next(iter(self._heads(text)), None)
         if first is None:
             return None
         return self._value_at(text, first.start())

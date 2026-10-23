@@ -147,18 +147,28 @@ def test_phase2_rewrites_a_re_pin_in_an_if_block(tmp_path: Path) -> None:
     assert (root / "install.sh").read_text() == script.replace("0.1.0", "0.2.0")
 
 
-def test_phase2_rewrites_a_heredoc_line_and_the_real_pin_and_warns_of_both(
+def test_phase2_leaves_a_heredoc_body_alone_and_rewrites_the_real_pin(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = make_release_project(tmp_path)
-    script = '#!/bin/sh\ncat <<EOF\nVERSION="0.1.0"\nEOF\nVERSION="0.1.0"\n'
+    script = '#!/bin/sh\nVERSION="0.1.0"\ncat <<EOF\nVERSION="0.1.0"\nEOF\n'
     (root / "install.sh").write_text(script)
     commit_all(root, "heredoc")
 
     bump(root)
 
-    assert (root / "install.sh").read_text() == script.replace("0.1.0", "0.2.0")
-    assert flat(capsys.readouterr().out).count('VERSION="0.1.0"') == 2
+    assert (root / "install.sh").read_text() == (
+        '#!/bin/sh\nVERSION="0.2.0"\ncat <<EOF\nVERSION="0.1.0"\nEOF\n'
+    )
+    assert "assigned on" not in flat(capsys.readouterr().out)
+
+
+def test_phase11_ignores_a_stale_line_inside_a_heredoc(tmp_path: Path) -> None:
+    (tmp_path / "install.sh").write_text(
+        '#!/bin/sh\nVERSION="0.2.0"\ncat <<EOF\nVERSION="0.1.0"\nEOF\n'
+    )
+
+    assert _install_sh_checks(tmp_path) == {"install.sh": (True, "VERSION=0.2.0")}
 
 
 def test_phase2_does_not_warn_for_a_single_assignment(

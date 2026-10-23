@@ -253,6 +253,75 @@ def test_a_file_of_only_resets_assigns_no_value() -> None:
     ] == [False, False, True]
 
 
+@pytest.mark.parametrize(
+    "opener",
+    [
+        "cat <<EOF",
+        "cat <<-EOF",
+        "cat <<'EOF'",
+        'cat <<"EOF"',
+        "cat << EOF",
+        "cat >f <<EOF",
+    ],
+)
+def test_a_heredoc_body_holds_no_assignment(opener: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = f'VERSION="1.0"\n{opener}\nVERSION="9.9"\nEOF\nVERSION="1.0"\n'
+
+    assert (
+        assignment.assigned_lines(text),
+        assignment.values(text),
+        assignment.rewritten(text, "2.0"),
+    ) == (
+        ('VERSION="1.0"', 'VERSION="1.0"'),
+        ("1.0", "1.0"),
+        (text.replace('"1.0"', '"2.0"'), 2),
+    )
+
+
+def test_a_dash_heredoc_ends_at_a_tab_indented_delimiter() -> None:
+    text = 'cat <<-EOF\n\tVERSION="9"\n\tEOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_a_plain_heredoc_does_not_end_at_an_indented_or_longer_delimiter() -> None:
+    text = 'cat <<EOF\nVERSION="9"\n EOF\nEOF2\nVERSION="8"\nEOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_an_unterminated_heredoc_runs_to_the_end_of_the_file() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'cat <<EOF\nVERSION="9"\n'
+
+    assert (assignment.is_assigned(text), assignment.values(text)) == (False, ())
+
+
+def test_two_heredocs_on_one_line_are_both_skipped() -> None:
+    text = 'cat <<A <<B\nVERSION="1"\nA\nVERSION="2"\nB\nVERSION="3"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("3",)
+
+
+def test_a_here_string_and_a_commented_heredoc_do_not_open_a_body() -> None:
+    text = 'cat <<<word\n# cat <<EOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_a_shift_in_arithmetic_does_not_open_a_body() -> None:
+    text = 'n=$((1<<k))\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_a_heredoc_only_script_is_not_assigned() -> None:
+    text = 'cat <<EOF\nVERSION="1"\nEOF\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (text, 0)
+
+
 def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
 

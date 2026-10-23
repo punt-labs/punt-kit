@@ -117,7 +117,7 @@ class Phase2VersionBump:
             shown = "; ".join(assignment.described_lines(content))
             self._ops.warn(
                 f"install.sh: VERSION is assigned on {len(lines)} lines ({shown}); "
-                f"every plain one is bumped to {self._version}, but a heredoc, a "
+                f"every plain one is bumped to {self._version}, but a "
                 "branch or a computed value may change which takes effect"
             )
         if new_content == content:
