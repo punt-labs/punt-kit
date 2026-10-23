@@ -6831,12 +6831,15 @@ def test_phase11_verify_profile_sha_passes(
     _phase11_verify(info, version, dry_run=False)
 
 
-def _assert_failed_checks(out: str, names: list[str], detail: str) -> None:
+def _assert_failed_checks(
+    out: str, names: list[str], detail: str, *, on: str | None = None
+) -> None:
     """Assert Phase 11's printed output shows exactly these failed checks.
 
     ``_phase11_verify`` raises one generic error for every cause; the verdict
-    lines it prints (``out``) say which check failed, and the failed line
-    itself — not a passing line or surrounding output — carries ``detail``.
+    lines it prints (``out``) say which check failed. ``detail`` must appear
+    on the failed line of the check named ``on`` (default: the first name) —
+    not on another check's line, a passing line, or surrounding output.
     """
     # rich wraps by terminal width, so flatten first, then cut into one
     # segment per verdict line at each marker that starts a printed line.
@@ -6846,7 +6849,11 @@ def _assert_failed_checks(out: str, names: list[str], detail: str) -> None:
         m.group(1) for line in failed if (m := re.match(r"✗ ([^:]+):", line))
     ]
     assert failed_names == names
-    assert any(detail in line for line in failed), failed
+    owner = on or names[0]
+    owned = [
+        line for name, line in zip(failed_names, failed, strict=True) if name == owner
+    ]
+    assert any(detail in line for line in owned), (owner, owned)
 
 
 def test_phase11_verify_profile_sha_fails_bad_sha(
@@ -7356,6 +7363,7 @@ def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
         capsys.readouterr().out,
         ["marketplace", "profile SHA"],
         "claude-plugins sibling not found",
+        on="profile SHA",
     )
 
 
