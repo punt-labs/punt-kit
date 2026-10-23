@@ -136,7 +136,7 @@ class GitWorkspace:
         # makes — a transient auth failure or connectivity blip must raise a
         # diagnosed ReleaseError, not a raw CalledProcessError. Phase 5 (the
         # only caller) is a synchronous, non-threaded phase, so an
-        # undiagnosed CalledProcessError here would previously escape
+        # undiagnosed CalledProcessError here would escape
         # run_release's `except ReleaseError`/`except TimeoutExpired`
         # handlers entirely and surface as a bare traceback instead of the
         # usual "Release incomplete — resume with ..." diagnosis.

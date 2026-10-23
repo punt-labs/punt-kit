@@ -468,7 +468,8 @@ class Phase10Propagate:
         ``_propagate_website``/``_reset_propagation_siblings`` and call
         ``punt_kit.release._phase10_propagate`` expecting every patch to be
         observed. ``interrupted`` is release.py's own ``threading.Event``,
-        which stays unmoved in release.py per §1a and so must be passed in.
+        which stays in release.py (the signal handler sets it) and so must be
+        passed in.
         """
         info = self._info
         version = self._version

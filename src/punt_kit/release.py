@@ -7,11 +7,11 @@ import subprocess
 import sys
 import threading
 
-# Unused directly in this module since the polling loops moved to
-# phases/shared/gh.py and ci_run.py, but several tests monkeypatch
-# "punt_kit.release.time.sleep" — that dotted path resolves through this
-# module's own `time` attribute, so removing the import breaks the patch
-# with an ImportError before the test body even runs.
+# Unused directly in this module (the polling loops live in phases/shared/gh.py
+# and ci_run.py), but several tests monkeypatch "punt_kit.release.time.sleep" —
+# that dotted path resolves through this module's own `time` attribute, so
+# removing the import breaks the patch with an ImportError before the test
+# body even runs.
 import time  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path

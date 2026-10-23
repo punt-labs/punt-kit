@@ -242,8 +242,8 @@ class Phase1Preflight:
         ``untracked_lines`` is folded in whenever non-empty, even in the
         daemon-only case: ``ops.fail`` raises immediately, so a
         daemon-only-dirty message that omits an untracked file would send
-        the operator through a stash only to hit a second, previously
-        invisible failure on the very next run. One failure now reports
+        the operator through a stash only to hit a second, invisible
+        failure on the very next run. One failure now reports
         the whole picture.
 
         This does not auto-stash — that touches the interrupt/resume

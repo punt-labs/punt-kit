@@ -31,8 +31,8 @@ class PrMerger:
     ``punt_kit.release._resolve_pr_threads`` directly and calls
     ``punt_kit.release._pr_merge`` — the wrapper this class backs — expecting
     those patches to be observed. Composing the waiter/resolver classes
-    directly here would bypass that seam entirely (§0's mechanism only
-    reaches call sites that use the bare release.py name), so the caller
+    directly here would bypass that seam entirely (a patch only reaches call
+    sites that use the bare release.py name), so the caller
     passes the bare name through instead, mirroring
     ``SiblingRegistry.reset_all``'s injected ``resolve`` collaborator.
     """
@@ -285,10 +285,9 @@ class PrMerger:
         LATER commit — the exact race class this method's caller exists to
         avoid.
 
-        Extracted from three near-identical inline blocks (existing-PR
-        resume, mid-wait resume, and the normal post-merge path) that each
-        hand-rolled the same checkout + pull sequence with an unqualified
-        ``check=True`` default.
+        Shared by the existing-PR resume, mid-wait resume, and normal
+        post-merge paths, so the checkout + pull sequence is diagnosed in
+        one place instead of failing as a bare ``CalledProcessError``.
         """
         checkout = self._ops.run(
             ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK

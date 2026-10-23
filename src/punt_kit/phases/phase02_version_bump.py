@@ -167,9 +167,8 @@ class Phase2VersionBump:
             # already diagnosed. capture=False streams the
             # resolver's own output to the terminal as it runs, matching
             # Phase 3's `uv build` and Phase 1's quality gates — without
-            # it, the "see output above" message pointed at output that
-            # was silently captured and never shown (Cursor/Copilot,
-            # PRRT_kwDORSgPKM6hbflO / PRRT_kwDORSgPKM6hbk7y).
+            # it, the "see output above" message would point at output that
+            # was silently captured and never shown.
             lock_result = ops.run(
                 ["uv", "lock"], cwd=str(root), capture=False, check=False, timeout=UV
             )

@@ -46,7 +46,7 @@ class Phase9PostRelease:
         """``merge`` is injected rather than composing ``PrMerger`` directly —
         several tests monkeypatch ``punt_kit.release._pr_merge`` and call
         ``punt_kit.release._phase9_post_release`` expecting the patch to be
-        observed (§0's mechanism).
+        observed.
         """
         info = self._info
         version = self._version
@@ -136,7 +136,7 @@ class Phase9PostRelease:
                 # No [skip ci] marker on this commit: the PR's required
                 # status checks (lint/test/docs) run per branch protection,
                 # and GitHub Actions honors [skip ci] on pull_request
-                # triggers too — so the marker used to make the PR
+                # triggers too — so the marker would make the PR
                 # unmergeable. The squash-merge onto main uses the PR
                 # title (which never carried the marker), so removing it
                 # here also does not add a redundant CI run on main.

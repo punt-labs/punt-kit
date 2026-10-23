@@ -51,7 +51,7 @@ class Phase4ReleasePr:
         ``test_phase4_release_pr...`` monkeypatches
         ``punt_kit.release._pr_merge``/``_land_readme_sha_pin`` and calls
         ``punt_kit.release._phase4_release_pr`` expecting both patches
-        observed (§0's mechanism).
+        observed.
 
         Returns the squash-merge commit SHA ``merge()`` produced — the
         actual release commit. Phase 5 tags this SHA directly rather than
@@ -68,15 +68,13 @@ class Phase4ReleasePr:
         branch = f"release/v{version}"
 
         # 4a. Plugin swap (hybrid/plugin — idempotent: skip if already
-        # committed at HEAD). The old shape read plugin.json from the
-        # working tree, which is only correct while --no-verify guarantees
-        # the commit cannot fail. With hooks live, a failed commit leaves
-        # plugin.json prod-shaped on disk without a corresponding commit; a
-        # working-tree read then reports the swap done and merge() pushes a
-        # release branch whose HEAD still carries the -dev name — the
-        # release tag lands on it, silently. Consult HEAD, and reset the
-        # swap paths so the script's fresh-run precondition (dev name on
-        # disk) holds even on retry.
+        # committed at HEAD). Consult HEAD, not the working tree: with hooks
+        # live, a failed commit leaves plugin.json prod-shaped on disk
+        # without a corresponding commit, so a working-tree read would
+        # report the swap done and merge() would push a release branch whose
+        # HEAD still carries the -dev name — the release tag lands on it,
+        # silently. Reset the swap paths so the script's fresh-run
+        # precondition (dev name on disk) holds even on retry.
         if info.is_hybrid or info.is_plugin:
             release_script = root / "scripts" / "release-plugin.sh"
             if dry_run:
