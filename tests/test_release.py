@@ -273,12 +273,12 @@ def test_suggest_version_patch_bump() -> None:
 
 
 def test_suggest_version_ignores_the_next_release_after_an_empty_unreleased() -> None:
-    """An empty [Unreleased] must not borrow the previous release's ### Added."""
+    """An empty [Unreleased] suggests no bump and ignores the next release's notes."""
     cl = (
         "# Changelog\n\n## [Unreleased]\n\n"
         "## [1.2.3] - 2026-01-01\n\n### Added\n\n- x\n"
     )
-    assert _suggest_version(cl, "1.2.3") == "1.2.4"
+    assert _suggest_version(cl, "1.2.3") == "1.2.3"
 
 
 def test_suggest_version_major_bump() -> None:
@@ -293,6 +293,19 @@ def test_suggest_version_detects_breaking_change_in_crlf_changelog() -> None:
         "# Changelog\r\n\r\n## [Unreleased]\r\n\r\n### Changed\r\n\r\n"
         "- BREAKING: drop the old flag\r\n\r\n### Added\r\n\r\n- new flag\r\n"
     )
+    assert _suggest_version(cl, "1.2.3") == "2.0.0"
+
+
+def test_suggest_version_empty_unreleased_at_eof_without_newline_suggests_no_bump() -> (
+    None
+):
+    """A changelog ending in a bare ``## [Unreleased]`` has nothing to release."""
+    assert _suggest_version("# Changelog\n\n## [Unreleased]", "1.2.3") == "1.2.3"
+
+
+def test_suggest_version_tolerates_trailing_whitespace_after_changed_heading() -> None:
+    """``### Changed`` followed by spaces is still the Changed heading."""
+    cl = "## [Unreleased]\n\n### Changed  \t\n\n- BREAKING: drop the old flag\n"
     assert _suggest_version(cl, "1.2.3") == "2.0.0"
 
 

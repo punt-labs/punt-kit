@@ -39,7 +39,8 @@ def extract_version_notes(changelog: str, version: str) -> str:
 def suggest_next_version(changelog: str, current: str) -> str:
     """Suggest a version bump based on changelog content. Pure string transform."""
     unreleased = _UNRELEASED.search(changelog)
-    if not unreleased:
+    # An empty [Unreleased] has nothing to release, so it suggests no bump.
+    if not unreleased or not unreleased.group(1).strip():
         return current
 
     content = unreleased.group(1)
@@ -51,7 +52,7 @@ def suggest_next_version(changelog: str, current: str) -> str:
 
     # Check for breaking changes only within the ### Changed subsection
     changed_match = re.search(
-        r"### Changed\r?\n(.*?)(?=\r?\n### |\Z)", content, re.DOTALL
+        r"### Changed[ \t]*\r?\n(.*?)(?=\r?\n### |\Z)", content, re.DOTALL
     )
     has_breaking = (
         changed_match is not None and "breaking" in changed_match.group(1).lower()
