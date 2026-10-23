@@ -11558,6 +11558,9 @@ _UNREADABLE_ARGV_ALLOWLIST = {
         "['git', 'checkout', 'HEAD', '--', *dirty_owned]",
         0,
     ): _Unaudited("git checkout of paths fires post-checkout", fires_hooks=True),
+    ("phase08_verify_pypi.py", "Phase8VerifyPypi.run", "[cli_path, 'doctor']", 0): (
+        _Unaudited("the installed punt CLI's doctor, not git", fires_hooks=False)
+    ),
     ("release.py", "_run", "cmd", 0): _Unaudited(
         "the ReleaseOps runner itself; each caller's argv is audited at its own site",
         fires_hooks=False,
@@ -11590,7 +11593,7 @@ def test_every_run_receiver_is_classified() -> None:
             (call.file, ast.unparse(call.receiver))
             for call in RunCall.collect(_release_source_files())
             if not call.is_runner
-            and not isinstance(call.receiver, ast.Call)
+            and not call.is_phase_object
             and ast.unparse(call.receiver) not in _NON_PROCESS_RUN_RECEIVERS
         }
     )
@@ -11613,7 +11616,7 @@ def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
     this test pins the classification in code so the next audit cannot undo
     it without a test failure to answer for.
     """
-    inspected = [c for c in _process_runs() if c.git_verb in HOOK_FIRING_VERBS]
+    inspected = [c for c in _process_runs() if c.fires_hooks]
 
     assert inspected, "no hook-firing git call was inspected — the audit is vacuous"
     # Presence of `timeout=` is not enough. The network budget is 300s,

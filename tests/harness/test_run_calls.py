@@ -102,3 +102,87 @@ def test_timeout_budget_reads_the_identifier() -> None:
 
 def test_timeout_budget_is_none_without_a_timeout() -> None:
     assert _only('ops.run(["git", "push"])').timeout_budget is None
+
+
+# --- argv[0]: a variable or a path to the binary must not hide the command ---
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param('ops.run([git, "push", "origin"])', id="git-variable"),
+        pytest.param('ops.run(["/usr/bin/git", "push"])', id="absolute-git-path"),
+        pytest.param('ops.run(["./bin/git", "-C", d, "push"])', id="relative-git-path"),
+    ],
+)
+def test_git_behind_a_variable_or_a_path_is_still_a_git_push(call: str) -> None:
+    found = _only(call)
+    assert (found.is_readable, found.git_verb, found.fires_hooks) == (
+        True,
+        "push",
+        True,
+    )
+
+
+def test_an_unknown_variable_binary_is_unreadable() -> None:
+    assert not _only('ops.run([binary, "push"])').is_readable
+
+
+def test_a_non_constant_binary_expression_is_unreadable() -> None:
+    assert not _only('ops.run([self.git_path(), "push"])').is_readable
+
+
+# --- gh subcommands that run local git ---
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param('[gh, "pr", "merge", "1", "--delete-branch"]', id="merge-delete"),
+        pytest.param('[gh, "pr", "merge", "1", "-d", "--squash"]', id="merge-short-d"),
+        pytest.param('[gh, "-R", repo, "pr", "merge", "1", "--delete-branch"]', id="R"),
+        pytest.param('[gh, "pr", "checkout", "1"]', id="pr-checkout"),
+        pytest.param('["gh", "pr", "create", "--title", t]', id="create-pushes"),
+        pytest.param('[gh, "repo", "sync"]', id="repo-sync"),
+        pytest.param('[gh, "repo", "clone", r]', id="repo-clone"),
+        pytest.param('[gh, "issue", "develop", "1", "--checkout"]', id="develop"),
+    ],
+)
+def test_gh_commands_that_run_local_git_fire_hooks(argv: str) -> None:
+    assert _only(f"ops.run({argv})").fires_hooks
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param('[gh, "pr", "merge", "1", "--squash"]', id="merge-via-api"),
+        pytest.param('[gh, "pr", "create", "--head", b, "--title", t]', id="head"),
+        pytest.param('[gh, "pr", "view", "1"]', id="view"),
+        pytest.param('[gh, "run", "list"]', id="run-list"),
+        pytest.param('[gh, "api", "graphql"]', id="api"),
+    ],
+)
+def test_gh_commands_that_stay_off_local_git_do_not_fire_hooks(argv: str) -> None:
+    assert not _only(f"ops.run({argv})").fires_hooks
+
+
+def test_a_git_verb_outside_the_hook_set_does_not_fire_hooks() -> None:
+    assert not _only('ops.run(["git", "status"])').fires_hooks
+
+
+# --- receivers: a constructed runner is audited unless it is a phase object ---
+
+
+def test_a_constructed_receiver_given_a_variable_argv_is_a_process_run() -> None:
+    found = _only("Something().run(cmd_var)")
+    assert (found.is_runner, found.is_readable) == (True, False)
+
+
+def test_a_constructed_phase_object_is_not_a_process_run() -> None:
+    found = _only("InstallAllPropagator(info, ops=ops).run(version)")
+    assert (found.is_runner, found.is_phase_object) == (False, True)
+
+
+def test_an_unknown_constructed_receiver_with_no_args_is_unclassified() -> None:
+    found = _only("Something().run()")
+    assert (found.is_runner, found.is_phase_object) == (False, False)

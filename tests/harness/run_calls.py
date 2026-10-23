@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import ast
+import re
 from collections import Counter
 from dataclasses import dataclass
+from pathlib import PurePath
 from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
@@ -32,6 +34,43 @@ HOOK_FIRING_VERBS = frozenset(
 _VALUE_OPTIONS = frozenset(
     {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}
 )
+
+# gh options that sit before the subcommand and take the next word as a value.
+_GH_VALUE_OPTIONS = frozenset({"-R", "--repo", "--hostname"})
+
+# gh commands with no action word (``gh api <endpoint>``); every other gh
+# command is ``gh <group> <action>``.
+_GH_SINGLE_LEVEL = frozenset(
+    {"api", "auth", "browse", "search", "status", "alias", "config", "help"}
+)
+
+# gh commands that run local git, and so fire the bd hooks. Each is stated here
+# because gh, not this code, runs the git:
+#   pr checkout / co     git fetch + git checkout of the PR branch
+#   repo sync            git fetch + merge into the local branch
+#   repo clone           git clone (post-checkout in the new tree)
+#   pr merge -d          after the API merge: checkout base, delete branch, pull
+#   issue develop -c     git fetch + git checkout of the new branch
+#   pr create            git push of the head branch, unless --head names a
+#                        branch that is already pushed (gh then skips the push)
+_GH_ALWAYS: frozenset[tuple[str, ...]] = frozenset(
+    {("pr", "checkout"), ("pr", "co"), ("repo", "sync"), ("repo", "clone")}
+)
+_GH_WITH_FLAG: dict[tuple[str, ...], frozenset[str]] = {
+    ("pr", "merge"): frozenset({"--delete-branch", "-d"}),
+    ("issue", "develop"): frozenset({"--checkout", "-c"}),
+}
+_GH_UNLESS_FLAG: dict[tuple[str, ...], frozenset[str]] = {
+    ("pr", "create"): frozenset({"--head", "-H"})
+}
+
+# Variables the release code binds to the gh and git executables; any other
+# non-constant argv[0] is an unknown binary.
+_BINARY_VARIABLES = {"gh": "gh", "git": "git"}
+
+# Constructors whose `.run(...)` is a release phase or propagator, not a
+# process. The set is closed: any other constructed receiver is audited.
+_PHASE_OBJECT = re.compile(r"Phase\d+\w*|\w+Propagator|MarketplacePinCheck")
 
 # `.run(` receivers that are a process runner: a ReleaseOps (``ops``,
 # ``self._ops``) or the subprocess module.
@@ -89,14 +128,30 @@ class RunCall:
         return (self.file, self.function, self.argv_text, self.ordinal)
 
     @property
-    def is_runner(self) -> bool:
-        """True when this call runs a process: a runner receiver or an argv list."""
+    def is_phase_object(self) -> bool:
+        """True for ``Phase3Build(...).run(...)`` and the other phase objects."""
         receiver = self.receiver
         return (
-            (isinstance(receiver, ast.Name) and receiver.id in _RUNNER_NAMES)
-            or (isinstance(receiver, ast.Attribute) and receiver.attr == "_ops")
-            or isinstance(self._argv, ast.List | ast.Tuple)
+            isinstance(receiver, ast.Call)
+            and isinstance(receiver.func, ast.Name)
+            and _PHASE_OBJECT.fullmatch(receiver.func.id) is not None
         )
+
+    @property
+    def is_runner(self) -> bool:
+        """True when this call runs a process.
+
+        A runner receiver, an argv list, or a constructed receiver that is not
+        a phase object and is given an argument (``Adapter().run(cmd)``).
+        """
+        receiver = self.receiver
+        if isinstance(self._argv, ast.List | ast.Tuple):
+            return True
+        if isinstance(receiver, ast.Name):
+            return receiver.id in _RUNNER_NAMES
+        if isinstance(receiver, ast.Attribute):
+            return receiver.attr == "_ops"
+        return bool(self.node.args) and not self.is_phase_object
 
     @property
     def words(self) -> list[str | None] | None:
@@ -111,12 +166,21 @@ class RunCall:
             return None
         if any(isinstance(elt, ast.Starred) for elt in argv.elts):
             return None
-        return [
+        words = [
             elt.value
             if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
             else None
             for elt in argv.elts
         ]
+        if words:
+            # The binary: a path names it by basename; a variable the release
+            # code binds to gh or git stands for it.
+            first = argv.elts[0]
+            if words[0] is not None:
+                words[0] = PurePath(words[0]).name
+            elif isinstance(first, ast.Name):
+                words[0] = _BINARY_VARIABLES.get(first.id)
+        return words
 
     @property
     def is_git(self) -> bool:
@@ -147,15 +211,72 @@ class RunCall:
         return None
 
     @property
+    def is_gh(self) -> bool:
+        words = self.words
+        return words is not None and words[:1] == ["gh"]
+
+    @property
+    def gh_command(self) -> tuple[tuple[str, ...], frozenset[str]] | None:
+        """The gh command words and the flags given; ``None`` if not gh or unclear.
+
+        Skips gh's leading ``-R repo`` style options. A command is ``(group,)``
+        for ``gh api`` and the like, else ``(group, action)``.
+        """
+        words = self.words
+        if words is None or words[:1] != ["gh"]:
+            return None
+        positional: list[str | None] = []
+        flags: set[str] = set()
+        index = 1
+        while index < len(words):
+            word = words[index]
+            if word in _GH_VALUE_OPTIONS:
+                index += 2
+                continue
+            if word is not None and word.startswith("-"):
+                flags.add(word.split("=", 1)[0])
+            else:
+                positional.append(word)
+            index += 1
+        group = positional[0] if positional else None
+        if group is None:
+            return None
+        if group in _GH_SINGLE_LEVEL:
+            return (group,), frozenset(flags)
+        action = positional[1] if len(positional) > 1 else None
+        return ((group, action), frozenset(flags)) if action else None
+
+    @property
     def is_readable(self) -> bool:
         """True when the audits can tell what the call runs.
 
-        A git argv is readable only if its verb is; any other list is a
-        command the audits classify by its first word.
+        The argv must be a list whose binary is a constant or a variable the
+        release code binds to gh or git. A git argv also needs a constant verb,
+        and a gh argv a constant command.
         """
-        if self.words is None:
+        words = self.words
+        if words is None or not words or words[0] is None:
             return False
-        return not self.is_git or self.git_verb is not None
+        if self.is_git:
+            return self.git_verb is not None
+        return not self.is_gh or self.gh_command is not None
+
+    @property
+    def fires_hooks(self) -> bool:
+        """True when the command runs hook-firing git, directly or through gh."""
+        if self.is_git:
+            return self.git_verb in HOOK_FIRING_VERBS
+        parsed = self.gh_command
+        if parsed is None:
+            return False
+        command, flags = parsed
+        if command in _GH_ALWAYS:
+            return True
+        if command in _GH_WITH_FLAG:
+            return bool(flags & _GH_WITH_FLAG[command])
+        if command in _GH_UNLESS_FLAG:
+            return not flags & _GH_UNLESS_FLAG[command]
+        return False
 
     @property
     def timeout_budget(self) -> str | None:
