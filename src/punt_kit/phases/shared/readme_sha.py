@@ -137,7 +137,7 @@ class ReadmeShaPin:
         so a caller's patched merger is observed here.
         """
         root = self._info.root
-        branch = f"release-readme-pin/v{version}"
+        branch = self._branch_name(version)
 
         # No README or no install.sh means there is nothing to pin — the
         # subsequent bump() would be a no-op. Skip the whole branch/checkout/
@@ -149,16 +149,7 @@ class ReadmeShaPin:
             return
 
         if dry_run:
-            if not self.bump(version, dry_run=True, resolve_repo=resolve_repo):
-                self._ops.ok("README already pins the current install SHA")
-                return
-            self._ops.dry(
-                f'git commit -m "chore: update README install SHA to v{version}"'
-            )
-            self._ops.dry(
-                f"merge(branch={branch}, "
-                f'title="chore: update README install SHA v{version}")'
-            )
+            self._preview_land(version, resolve_repo)
             return
 
         workspace = GitWorkspace(root, ops=self._ops)
@@ -179,25 +170,7 @@ class ReadmeShaPin:
                 ["git", "log", "main..HEAD", "--oneline"], cwd=str(root)
             ).stdout.strip()
             if not ahead:
-                # Hook-firing checkout + local branch delete — same
-                # diagnosed convention as Phase 9's identical cleanup path.
-                checkout = self._ops.run(
-                    ["git", "checkout", "main"],
-                    cwd=str(root),
-                    check=False,
-                    timeout=GIT_HOOK,
-                )
-                if checkout.returncode != 0:
-                    self._ops.fail(
-                        f"git checkout main failed:\n{checkout.stderr.strip()}"
-                    )
-                delete = self._ops.run(
-                    ["git", "branch", "-D", branch], cwd=str(root), check=False
-                )
-                if delete.returncode != 0:
-                    self._ops.fail(
-                        f"git branch -D {branch} failed:\n{delete.stderr.strip()}"
-                    )
+                self._discard_branch(branch)
                 self._ops.ok("README already pins the current install SHA")
                 return
         else:
@@ -212,3 +185,37 @@ class ReadmeShaPin:
             dry_run=False,
         )
         self._ops.ok("README SHA pin PR merged")
+
+    @staticmethod
+    def _branch_name(version: str) -> str:
+        """The branch a version's README pin lands from."""
+        return f"release-readme-pin/v{version}"
+
+    def _preview_land(
+        self, version: str, resolve_repo: Callable[[Path], str | None]
+    ) -> None:
+        """Print what ``land`` would commit and merge, or say nothing is needed."""
+        if not self.bump(version, dry_run=True, resolve_repo=resolve_repo):
+            self._ops.ok("README already pins the current install SHA")
+            return
+        self._ops.dry(f'git commit -m "chore: update README install SHA to v{version}"')
+        self._ops.dry(
+            f"merge(branch={self._branch_name(version)}, "
+            f'title="chore: update README install SHA v{version}")'
+        )
+
+    def _discard_branch(self, branch: str) -> None:
+        """Return to main and delete ``branch``, which has nothing to land.
+
+        Hook-firing checkout + local branch delete — the same diagnosed
+        convention as Phase 9's identical cleanup path.
+        """
+        root = str(self._info.root)
+        checkout = self._ops.run(
+            ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
+        )
+        if checkout.returncode != 0:
+            self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
+        delete = self._ops.run(["git", "branch", "-D", branch], cwd=root, check=False)
+        if delete.returncode != 0:
+            self._ops.fail(f"git branch -D {branch} failed:\n{delete.stderr.strip()}")

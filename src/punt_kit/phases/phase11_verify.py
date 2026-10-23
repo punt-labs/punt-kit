@@ -616,34 +616,17 @@ class Phase11Verify:
         if repo and install_sh.exists():
             own_readme = info.root / "README.md"
             try:
-                recognizer = InstallUrlRecognizer.for_slug(repo)
+                readme_recognizer = InstallUrlRecognizer.for_slug(repo)
             except ValueError as exc:
                 checks.append(VerificationCheck("README pin", False, str(exc)))
-                recognizer = None
-            if recognizer is not None and own_readme.exists():
-                trusted_shas, has_untrusted = recognizer.classify(
-                    own_readme.read_text(encoding="utf-8")
-                )
-                # Trusted and untrusted pins are detected and reported
-                # independently — a README can carry one trusted current-SHA
-                # pin AND one untrusted-host/owner pin (e.g. an injected
-                # line), and the untrusted one must never be skipped just
-                # because a trusted pin was also found.
-                if trusted_shas:
-                    install_sha = project.install_sh_sha()
-                    for sha in sorted(set(trusted_shas)):
-                        checks.append(
-                            VerificationCheck.matches_install_sha(
-                                "README pin", sha, install_sha, cwd=info.root, ops=ops
-                            )
-                        )
-                if has_untrusted:
-                    checks.append(
-                        VerificationCheck(
+            else:
+                if own_readme.exists():
+                    checks.extend(
+                        self._pin_checks(
                             "README pin",
-                            False,
-                            "SHA-pinned install URL is not on the trusted "
-                            f"raw.githubusercontent.com/{recognizer.slug}/ host",
+                            own_readme.read_text(encoding="utf-8"),
+                            readme_recognizer,
+                            all_urls_relevant=False,
                         )
                     )
 
@@ -690,37 +673,16 @@ class Phase11Verify:
                                     # silently ignored. Trusted and
                                     # untrusted pins are still reported
                                     # independently.
-                                    web_recognizer = InstallUrlRecognizer(
-                                        repo.split("/", 1)[0], project_name
-                                    )
-                                    trusted_shas, has_untrusted = (
-                                        web_recognizer.classify(
-                                            install_cmd, all_urls_relevant=True
+                                    checks.extend(
+                                        self._pin_checks(
+                                            "website SHA",
+                                            install_cmd,
+                                            InstallUrlRecognizer(
+                                                repo.split("/", 1)[0], project_name
+                                            ),
+                                            all_urls_relevant=True,
                                         )
                                     )
-                                    if trusted_shas:
-                                        install_sha = project.install_sh_sha()
-                                        for sha in sorted(set(trusted_shas)):
-                                            checks.append(
-                                                VerificationCheck.matches_install_sha(
-                                                    "website SHA",
-                                                    sha,
-                                                    install_sha,
-                                                    cwd=info.root,
-                                                    ops=ops,
-                                                )
-                                            )
-                                    if has_untrusted:
-                                        checks.append(
-                                            VerificationCheck(
-                                                "website SHA",
-                                                False,
-                                                "SHA-pinned install URL is not "
-                                                "on the trusted "
-                                                f"raw.githubusercontent.com/"
-                                                f"{web_recognizer.slug}/ host",
-                                            )
-                                        )
                                     # If neither: no SHA-shaped install URL
                                     # at all (version-tag or branch pin, or
                                     # no install.sh reference) — skip. That
@@ -788,3 +750,41 @@ class Phase11Verify:
 
         if not all_pass:
             ops.fail("Some verification checks failed — see above")
+
+    def _pin_checks(
+        self,
+        label: str,
+        text: str,
+        recognizer: InstallUrlRecognizer,
+        *,
+        all_urls_relevant: bool,
+    ) -> list[VerificationCheck]:
+        """One verdict per pinned install URL ``recognizer`` finds in ``text``.
+
+        Trusted and untrusted pins are detected and reported independently —
+        a text can carry one trusted current-SHA pin AND one untrusted-host
+        or owner pin (e.g. an injected line), and the untrusted one must
+        never be skipped just because a trusted pin was also found.
+        """
+        trusted_shas, has_untrusted = recognizer.classify(
+            text, all_urls_relevant=all_urls_relevant
+        )
+        checks: list[VerificationCheck] = []
+        if trusted_shas:
+            install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
+            checks.extend(
+                VerificationCheck.matches_install_sha(
+                    label, sha, install_sha, cwd=self._info.root, ops=self._ops
+                )
+                for sha in sorted(set(trusted_shas))
+            )
+        if has_untrusted:
+            checks.append(
+                VerificationCheck(
+                    label,
+                    False,
+                    "SHA-pinned install URL is not on the trusted "
+                    f"raw.githubusercontent.com/{recognizer.slug}/ host",
+                )
+            )
+        return checks
