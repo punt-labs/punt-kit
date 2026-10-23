@@ -82,11 +82,13 @@ class Phase11Verify:
         repo, remote_checks = self._remote_slug()
         checks.extend(remote_checks)
         if repo is None and not remote_checks:
-            self._skips.record(
-                "SKIPPED — manual action required: the install-all.sh, marketplace, "
-                "README and website checks did not run because the project has no "
-                "github.com origin remote."
-            )
+            names = self._remote_check_names()
+            if names:
+                self._skips.record(
+                    f"SKIPPED — manual action required: the {', '.join(names)} "
+                    "checks did not run because the project has no github.com "
+                    "origin remote."
+                )
         if repo is not None:
             checks.extend(self._install_all_checks(repo))
             checks.extend(self._marketplace_checks(repo))
@@ -208,11 +210,30 @@ class Phase11Verify:
             return None, [VerificationCheck("GitHub remote", False, str(exc))]
         if slug is None and (self._installs_from_github() or info.is_hybrid):
             detail = (
-                "no github.com origin remote — the install-all.sh, marketplace, "
-                "README, and website checks could not run"
+                "no github.com origin remote — the "
+                f"{', '.join(self._remote_check_names())} checks could not run"
             )
             return None, [VerificationCheck("GitHub remote", False, detail)]
         return slug, []
+
+    def _remote_check_names(self) -> list[str]:
+        """The checks that need the origin slug AND apply to this project.
+
+        Naming a check that would have been skipped anyway (no README pin to
+        verify on a project with no install.sh, no marketplace entry for a
+        non-plugin) sends the operator after work that was never undone.
+        """
+        info = self._info
+        names: list[str] = []
+        if self._installs_from_github():
+            names.extend(["install-all.sh", "profile SHA"])
+        if info.is_plugin or info.is_hybrid:
+            names.append("marketplace")
+        if (info.root / "install.sh").exists() and (info.root / "README.md").exists():
+            names.append("README pin")
+        if SiblingRepo.resolve(info.root, "public-website", ops=self._ops) is not None:
+            names.append("website")
+        return names
 
     def _installs_from_github(self) -> bool:
         """True for a project with an ``install.sh`` or a plugin manifest."""

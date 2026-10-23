@@ -31,6 +31,9 @@ class PinResult:
     changed: bool
     # One line per install pin (or reason) still not current after the bump.
     stale: tuple[str, ...]
+    # Why the README was not examined at all (no slug), as opposed to pins
+    # found and left stale; ``""`` when it was examined.
+    skip_reason: str = ""
 
 
 @final
@@ -56,7 +59,7 @@ class ReadmeShaPin:
         """Record that the README pin was not updated, and why."""
         message = f"README pin not updated: {reason}"
         self._skips.record(message)
-        return PinResult(changed=False, stale=(message,))
+        return PinResult(changed=False, stale=(message,), skip_reason=reason)
 
     def _recognizer(
         self, resolve_repo: Callable[[Path], str | None]
@@ -236,6 +239,11 @@ class ReadmeShaPin:
             self._ops.ok("README already pins the current install SHA")
 
     def _warn_stale(self, result: PinResult) -> None:
+        if result.skip_reason:
+            self._ops.warn(
+                f"README install pins were not checked or updated: {result.skip_reason}"
+            )
+            return
         self._ops.warn(
             f"README still carries {len(result.stale)} stale install pin(s) "
             "that were not updated"

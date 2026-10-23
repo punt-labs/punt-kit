@@ -13203,6 +13203,12 @@ def test_phase11_records_a_skip_when_a_bare_project_has_no_github_remote(
     _git(["add", "."], cwd=str(root))
     _git(["commit", "-m", "bare"], cwd=str(root))
     _git(["tag", "v0.1.0"], cwd=str(root))
+    # The website check applies only when the optional sibling is present.
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "bare", "version": "0.1.0"}])},
+    )
     ops = _fault_ops(
         [
             _NO_ORIGIN,
@@ -13781,3 +13787,111 @@ def test_phase11_reads_a_single_quoted_init_version(
     _phase11_verify(detect(root), version, dry_run=False)  # must not raise
 
     assert "__version__=0.1.0" in _flat(capsys.readouterr().out)
+
+
+# --- skip notices say what actually applies ---
+
+
+def _verify_bare_project_without_remote(
+    tmp_path: Path, skips: SkipRecorder, *, with_website: bool
+) -> None:
+    """Phase 11 on a project that installs nothing from GitHub and has no origin."""
+    root, sibling = _setup_verify_project(tmp_path)
+    shutil.rmtree(sibling)
+    for name in ("install.sh", ".claude-plugin"):
+        path = root / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    _commit_all(root, "bare project")
+    if with_website:
+        _make_sibling(
+            tmp_path,
+            "public-website",
+            {
+                "src/data/projects.json": json.dumps(
+                    [{"id": "proj", "version": "0.1.0"}]
+                )
+            },
+        )
+    ops = _fault_ops(
+        [
+            _NO_ORIGIN,
+            FaultRule(match=["uv", "pip", "install"], response=CompletedProcessSpec()),
+        ]
+    )
+    Phase11Verify(detect(root), "0.1.0", dry_run=False, ops=ops, skips=skips).run()
+
+
+def test_phase11_bare_project_skip_lists_only_the_checks_that_apply(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    _verify_bare_project_without_remote(tmp_path, skips, with_website=True)
+
+    (notice,) = skips.drain()
+    assert "website" in notice
+    for inapplicable in ("install-all.sh", "marketplace", "README"):
+        assert inapplicable not in notice
+
+
+def test_phase11_bare_project_with_nothing_remote_to_check_records_no_skip(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    _verify_bare_project_without_remote(tmp_path, skips, with_website=False)
+
+    assert skips.drain() == ()
+
+
+def test_land_without_a_slug_names_the_lookup_not_stale_pins(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    _commit_all(root, "readme")
+    ops = _fault_ops()
+    pin = ReadmeShaPin(detect(root), ops=ops, skips=SkipRecorder(ops=ops))
+
+    def merge(**_kwargs: object) -> str:
+        return "sha"
+
+    pin.land("0.2.0", dry_run=False, merge=merge, resolve_repo=lambda _root: None)
+
+    out = _flat(capsys.readouterr().out)
+    assert "no github.com origin remote names this repository" in out
+    assert "stale install pin" not in out
+
+
+def test_phase8_warns_when_the_installed_cli_doctor_exits_non_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 3 if cmd[-1] == "doctor" else 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", _fake_which_cli)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install"],
+                times=None,
+                response=CompletedProcessSpec(),
+            )
+        ],
+        real_run=run,
+        passthrough=[["test-cli", "doctor"]],
+    )
+
+    Phase8VerifyPypi(
+        detect(_make_release_project(tmp_path)), "0.1.0", dry_run=False, ops=ops
+    ).run()
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "test-cli doctor exited 3" in out

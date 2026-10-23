@@ -135,3 +135,7 @@ class Phase8VerifyPypi:
             return
         if result.returncode == 0:
             self._ops.ok(f"{cli_name} doctor passed")
+        else:
+            self._ops.warn(
+                f"{cli_name} doctor exited {result.returncode} — see output above"
+            )
