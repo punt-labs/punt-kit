@@ -156,6 +156,16 @@ _ops = _ReleaseOpsAdapter()
 _skips = SkipRecorder(ops=_ops)
 
 
+def interrupt_event() -> threading.Event:
+    """Return the event the signal handler sets and polling workers read."""
+    return _interrupted
+
+
+def skip_recorder() -> SkipRecorder:
+    """Return the recorder every phase of the running release writes skips to."""
+    return _skips
+
+
 def _get_project_version(info: ProjectInfo) -> str:
     """Extract current version from pyproject.toml, plugin.json, or git tags (Go)."""
     if info.language == "go":

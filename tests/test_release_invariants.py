@@ -849,6 +849,141 @@ def test_no_source_or_plugin_file_suppresses_a_check() -> None:
     assert found == {}
 
 
+# --- tests reach release.py through its public names ---
+
+_TESTS = Path(__file__).parent
+
+
+@final
+class ReleaseReachIns:
+    """The lines that fetch a private ``release`` name by string.
+
+    ``vars(release)["_run"]``, ``vars(release).get("_run")`` and
+    ``getattr(release, "_run")`` read the same private name a
+    ``release._run`` would, but no type checker flags them. Scope: the
+    ``release`` module, bound by ``from punt_kit import release`` or
+    ``import punt_kit.release as ...``; other modules are out of scope.
+    """
+
+    __slots__ = ("_aliases", "_tree")
+
+    _tree: ast.Module
+    _aliases: frozenset[str]
+
+    def __new__(cls, source: str) -> Self:
+        self = super().__new__(cls)
+        self._tree = ast.parse(source)
+        self._aliases = frozenset(cls._bound_names(self._tree))
+        return self
+
+    def lines(self) -> list[int]:
+        """Line numbers of every reach-in, in source order."""
+        return sorted(
+            node.lineno
+            for node in ast.walk(self._tree)
+            if isinstance(node, ast.Subscript | ast.Call) and self._reaches(node)
+        )
+
+    @staticmethod
+    def _bound_names(tree: ast.Module) -> set[str]:
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == "punt_kit":
+                names |= {a.asname or a.name for a in node.names if a.name == "release"}
+            elif isinstance(node, ast.Import):
+                names |= {
+                    a.asname
+                    for a in node.names
+                    if a.name == "punt_kit.release" and a.asname
+                }
+        return names
+
+    def _reaches(self, node: ast.Subscript | ast.Call) -> bool:
+        if isinstance(node, ast.Subscript):
+            return self._vars_of_release(node.value) and self._private(node.slice)
+        return self._vars_get(node) or self._getattr(node)
+
+    def _vars_of_release(self, node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "vars"
+            and len(node.args) == 1
+            and self._is_release(node.args[0])
+        )
+
+    def _vars_get(self, call: ast.Call) -> bool:
+        func = call.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr == "get"
+            and self._vars_of_release(func.value)
+            and bool(call.args)
+            and self._private(call.args[0])
+        )
+
+    def _getattr(self, call: ast.Call) -> bool:
+        return (
+            isinstance(call.func, ast.Name)
+            and call.func.id == "getattr"
+            and len(call.args) >= 2
+            and self._is_release(call.args[0])
+            and self._private(call.args[1])
+        )
+
+    def _is_release(self, node: ast.AST) -> bool:
+        return isinstance(node, ast.Name) and node.id in self._aliases
+
+    @staticmethod
+    def _private(node: ast.AST) -> bool:
+        return (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and node.value.startswith("_")
+        )
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from punt_kit import release\nx = vars(release)["_run"]\n',
+        'from punt_kit import release as r\nx = vars(r)["_run"]\n',
+        "import punt_kit.release as r\nx = vars(r).get('_interrupted')\n",
+        'from punt_kit import release\nx = getattr(release, "_skips")\n',
+    ],
+    ids=["vars-subscript", "aliased", "vars-get", "getattr"],
+)
+def test_the_reach_in_scan_finds_a_private_release_name_fetched_by_string(
+    source: str,
+) -> None:
+    assert ReleaseReachIns(source).lines() == [2]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        'from punt_kit import release\nx = vars(release)["run_release"]\n',
+        'from punt_kit import audit\nx = vars(audit)["_check"]\n',
+        "from punt_kit import release\nx = vars(release)[name]\n",
+        "from punt_kit import release\nx = release.run_release\n",
+        'x = vars(release)["_run"]\n',
+    ],
+    ids=["public-name", "other-module", "computed-key", "attribute", "unbound-name"],
+)
+def test_the_reach_in_scan_ignores_everything_else(source: str) -> None:
+    assert ReleaseReachIns(source).lines() == []
+
+
+def test_no_test_reaches_a_private_release_name_by_string() -> None:
+    """``vars(release)["_x"]`` hides from pyright what a suppression would show."""
+    found = {
+        str(path.relative_to(_TESTS)): lines
+        for path in sorted(_TESTS.rglob("*.py"))
+        if (lines := ReleaseReachIns(path.read_text("utf-8")).lines())
+    }
+    assert found == {}
+
+
 # --- release-managed files are read and written through TextFile / JsonFile ---
 
 _MANAGED_FILES = frozenset(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -18,7 +18,6 @@ from tests.helpers import (
 )
 
 if TYPE_CHECKING:
-    import threading
     from pathlib import Path
 
 
@@ -277,7 +276,7 @@ def test_an_interrupt_before_any_phase_says_it_was_an_interrupt(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     root = make_release_project(tmp_path)
-    interrupted = cast("threading.Event", vars(release)["_interrupted"])
+    interrupted = release.interrupt_event()
 
     class _InterruptedThenFails:
         def clear(self) -> None:

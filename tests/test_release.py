@@ -1392,9 +1392,10 @@ def test_bump_with_a_malformed_remote_names_it_and_skips(
     _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
     readme = _readme_with_install_url("punt-labs/proj")
     (root / "README.md").write_text(readme)
-    resolve_repo = cast(
-        "Callable[[Path], str | None]", vars(release)["_get_github_repo"]
-    )
+    ops = _fault_ops()
+
+    def resolve_repo(path: Path) -> str | None:
+        return GithubRepo(path, ops=ops).slug_text()
 
     result = _readme_pin(detect(root)).bump(
         "0.2.0", dry_run=True, resolve_repo=resolve_repo

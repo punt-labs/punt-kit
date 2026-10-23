@@ -6,12 +6,13 @@ import json
 import os
 import shutil
 import subprocess
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
-from punt_kit import release
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.phases.phase02_version_bump import Phase2VersionBump
+from punt_kit.phases.shared.hook_firing import HookFiringCommand
+from punt_kit.phases.shared.timeouts import DEFAULT_RUN
 from tests.harness.fault_ops import FaultInjectingOps
 
 if TYPE_CHECKING:
@@ -21,11 +22,30 @@ if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
     from tests.harness.fault_ops import FaultRule, RunFn
 
-# release.py's real command runner. Its name is private on purpose (tests
-# rebind it on the module), so it is fetched by key rather than imported.
-_RUN = cast("RunFn", vars(release)["_run"])
-
 real_which = shutil.which
+
+
+def run_real(
+    cmd: list[str],
+    *,
+    cwd: str | None = None,
+    timeout: int = DEFAULT_RUN,
+    check: bool = True,
+    capture: bool = True,
+) -> subprocess.CompletedProcess[str]:
+    """Run ``cmd`` for real, with release.py's own floor on hook-firing timeouts.
+
+    The runner a test hands ``FaultInjectingOps`` for the git it lets through.
+    It is independent of ``release._run``, which tests rebind on the module.
+    """
+    return subprocess.run(
+        cmd,
+        cwd=cwd,
+        capture_output=capture,
+        text=True,
+        timeout=HookFiringCommand(cmd).timeout(timeout),
+        check=check,
+    )
 
 
 def git(args: list[str], cwd: str) -> None:
@@ -157,7 +177,7 @@ def make_sibling(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
 def fault_ops(
     rules: Sequence[FaultRule] = (),
     *,
-    real_run: RunFn = _RUN,
+    real_run: RunFn = run_real,
     passthrough: Sequence[Sequence[str]] = (),
 ) -> FaultInjectingOps:
     """Build the ``ReleaseOps`` double every test shares.
