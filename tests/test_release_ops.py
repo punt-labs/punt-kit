@@ -6,6 +6,7 @@ import subprocess
 from typing import TYPE_CHECKING
 
 from punt_kit import release
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.ops import ReleaseOps
 
 if TYPE_CHECKING:
@@ -76,13 +77,13 @@ def test_release_ops_fail_reaches_monkeypatched_fail(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_fail(msg: str) -> None:
-        raise release.ReleaseError(f"patched: {msg}")
+        raise ReleaseError(f"patched: {msg}")
 
     monkeypatch.setattr(release, "_fail", fake_fail)  # pyright: ignore[reportPrivateUsage]
 
     try:
         release._ops.fail("boom")  # pyright: ignore[reportPrivateUsage]
-    except release.ReleaseError as exc:
+    except ReleaseError as exc:
         assert str(exc) == "patched: boom"
     else:
         raise AssertionError("expected ReleaseError")

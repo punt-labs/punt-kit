@@ -32,7 +32,7 @@ from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.command_runner import CommandRunner
-from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.phase_order import PhaseOrder

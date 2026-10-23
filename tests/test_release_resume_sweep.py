@@ -39,9 +39,10 @@ import pytest
 
 from punt_kit import release
 from punt_kit.phases.shared.command_runner import CommandRunner
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.timeouts import DEFAULT_RUN
-from punt_kit.release import ReleaseError, run_release
+from punt_kit.release import run_release
 from tests import helpers
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
 

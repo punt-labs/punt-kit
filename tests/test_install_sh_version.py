@@ -8,7 +8,7 @@ import pytest
 
 from punt_kit.detect import detect
 from punt_kit.phases.phase11_versions import VersionPinChecks
-from punt_kit.release import ReleaseError
+from punt_kit.phases.shared.errors import ReleaseError
 from tests.harness.fault_ops import FaultInjectingOps
 from tests.helpers import (
     bump,

@@ -38,7 +38,7 @@ from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
-from punt_kit.phases.shared.errors import RemoteLookupError
+from punt_kit.phases.shared.errors import ReleaseError, RemoteLookupError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.github_repo import GithubRepo
@@ -63,7 +63,6 @@ from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
 # in `PhaseOrder`, imported above);
 # `_interrupted` is the module-level Event the signal handler owns.
 from punt_kit.release import (
-    ReleaseError,
     _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
