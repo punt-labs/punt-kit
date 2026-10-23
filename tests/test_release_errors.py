@@ -212,6 +212,65 @@ def test_an_operational_failure_in_a_worker_thread_has_no_traceback(
     assert "Traceback" not in captured.err
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        FileNotFoundError(2, "No such file or directory", "gh"),
+        PermissionError(13, "Permission denied", "gh"),
+        subprocess.CalledProcessError(1, ["gh", "pr", "list"]),
+    ],
+    ids=["missing-tool", "permission", "called-process-error"],
+)
+def test_an_operational_failure_in_a_synchronous_phase_has_no_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    """A missing tool in the main thread is one line with its type, like a worker's."""
+    root = make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", fake_which)
+
+    def phase11(*_a: object, **_k: object) -> None:
+        raise error
+
+    monkeypatch.setattr(release, "_phase11_verify", phase11)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", resume_from="verify")
+
+    captured = capsys.readouterr()
+    out = flat(captured.out)
+    assert exc_info.value.code == 1
+    assert out.count(f"{type(error).__name__}: ") == 1
+    assert "Traceback" not in captured.err
+    assert "--resume-from verify" in out
+
+
+def test_a_bug_in_a_synchronous_phase_keeps_its_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A KeyError in the main thread is traced once, then the recap and hint."""
+    root = make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", fake_which)
+
+    def phase11(*_a: object, **_k: object) -> None:
+        raise KeyError("version")
+
+    monkeypatch.setattr(release, "_phase11_verify", phase11)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", resume_from="verify")
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert captured.err.count("Traceback") == 1
+    assert "KeyError" in captured.err
+    assert "--resume-from verify" in flat(captured.out)
+
+
 def test_an_interrupt_before_any_phase_says_it_was_an_interrupt(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

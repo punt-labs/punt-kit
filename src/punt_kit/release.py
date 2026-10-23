@@ -6,7 +6,6 @@ import signal
 import subprocess
 import sys
 import threading
-import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import NoReturn, final
@@ -751,11 +750,12 @@ def run_release(
         ReleasePipeline.print_timeout(exc, current_phase_num, _resume_phase_num())
         ReleasePipeline.print_manual_actions(_skips)
         raise SystemExit(1) from None
-    except Exception:
-        # System boundary: whatever escaped a phase (a parse error in a file a
-        # check read, a bug) must not leave the operator with a bare traceback
-        # and no idea what landed. Show the traceback, then the same recap and
-        # --resume-from hint every other stop-early path gives.
-        traceback.print_exc()
+    except Exception as exc:
+        # System boundary: whatever escaped a phase (a missing tool, a parse
+        # error in a file a check read, a bug) must not leave the operator with
+        # a bare traceback and no idea what landed. Operational errors get one
+        # line, bugs a traceback, then the same recap and --resume-from hint
+        # every other stop-early path gives.
+        ReleasePipeline.print_crash(exc)
         _print_incomplete_release(current_phase_num, _resume_phase_num())
         raise SystemExit(1) from None

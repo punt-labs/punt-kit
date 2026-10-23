@@ -2,6 +2,44 @@
 
 from __future__ import annotations
 
+import subprocess
+import traceback
+from typing import final
+
+
+@final
+class OperationalFailure:
+    """Tells a failure the environment caused from a bug, and reports each.
+
+    Operational means a timeout, a failed command, or any ``OSError``: a
+    missing tool and a permission problem are properties of the machine, not
+    of the code, so every ``OSError`` counts and the one-line entry keeps the
+    exception type to say which. Everything else is a bug and keeps its
+    traceback. The worker-thread collector and the main-thread handler both
+    classify here so the same error reads the same wherever it surfaces.
+    """
+
+    __slots__ = ()
+
+    TYPES = (OSError, subprocess.TimeoutExpired, subprocess.CalledProcessError)
+
+    @classmethod
+    def covers(cls, exc: BaseException) -> bool:
+        """True when ``exc`` is an environmental failure, not a bug."""
+        return isinstance(exc, cls.TYPES)
+
+    @staticmethod
+    def one_line(exc: BaseException) -> str:
+        """Return ``Type: message``; ``str(KeyError("x"))`` alone is ``'x'``."""
+        return f"{type(exc).__name__}: {exc}"
+
+    @classmethod
+    def report(cls, exc: BaseException) -> str:
+        """Print a traceback if ``exc`` is a bug; return its one-line entry."""
+        if not cls.covers(exc):
+            traceback.print_exception(exc)
+        return cls.one_line(exc)
+
 
 class ReleaseError(Exception):
     """Raised by release phases to indicate a failure with a message."""

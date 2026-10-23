@@ -3,8 +3,6 @@ describing one step, and the runner that iterates them."""
 
 from __future__ import annotations
 
-import subprocess
-import traceback
 from concurrent.futures import as_completed
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, Self, cast, final, runtime_checkable
@@ -12,10 +10,15 @@ from typing import TYPE_CHECKING, Protocol, Self, cast, final, runtime_checkable
 from rich.console import Console
 from rich.markup import escape
 
-from punt_kit.phases.shared.errors import ReleaseError, ReportedReleaseError
+from punt_kit.phases.shared.errors import (
+    OperationalFailure,
+    ReleaseError,
+    ReportedReleaseError,
+)
 from punt_kit.phases.shared.phase_order import PhaseOrder
 
 if TYPE_CHECKING:
+    import subprocess
     import threading
     from collections.abc import Callable, Sequence
     from concurrent.futures import Future
@@ -30,13 +33,6 @@ if TYPE_CHECKING:
 # uses raw console.print() with rich markup rather than the _ok/_info/_warn
 # vocabulary.
 _console = Console()
-
-# Failures the environment causes, as opposed to bugs: no stack trace for these.
-_OPERATIONAL = (
-    OSError,
-    subprocess.TimeoutExpired,
-    subprocess.CalledProcessError,
-)
 
 
 @runtime_checkable
@@ -107,7 +103,7 @@ class ThreadedStep:
             except BaseException as e:
                 # Thread-pool boundary: whatever a task raised is collected so
                 # its siblings finish, then every error is re-raised together.
-                errors.append((name, self._describe_crash(e)))
+                errors.append((name, OperationalFailure.report(e)))
         if interrupted.is_set():
             raise KeyboardInterrupt
         if errors:
@@ -127,18 +123,6 @@ class ThreadedStep:
         if isinstance(exc.code, str) and exc.code.strip():
             return exc.code
         return f"{name} failed"
-
-    @staticmethod
-    def _describe_crash(exc: BaseException) -> str:
-        """Return the one-line entry for ``exc``, printing a traceback for a bug.
-
-        Only a bug is worth a traceback; a timeout or a missing tool is an
-        expected failure the one-line entry already explains. The type goes in
-        the text: ``str(KeyError("x"))`` is just ``"'x'"``.
-        """
-        if not isinstance(exc, _OPERATIONAL):
-            traceback.print_exception(exc)
-        return f"{type(exc).__name__}: {exc}"
 
 
 @final
@@ -186,6 +170,13 @@ class ReleasePipeline:
         """Print ``exc`` unless ``Reporter.fail`` already printed it."""
         if not isinstance(exc, ReportedReleaseError):
             _console.print(f"[red]Error:[/red] {escape(str(exc))}")
+
+    @staticmethod
+    def print_crash(exc: Exception) -> None:
+        """Report an unexpected exception: one line if operational, else a trace."""
+        line = OperationalFailure.report(exc)
+        if OperationalFailure.covers(exc):
+            _console.print(f"[red]Error:[/red] {escape(line)}")
 
     @staticmethod
     def print_timeout(
