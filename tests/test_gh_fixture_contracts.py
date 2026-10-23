@@ -25,9 +25,10 @@ from punt_kit.detect import ProjectInfo
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.shared.ci_run import CiRunWatch, TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError
-from punt_kit.phases.shared.gh import PrThreadResolver, RequiredChecksWaiter
+from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.pr_threads import PrThreadResolver
 from punt_kit.phases.shared.timeouts import DEFAULT_RUN
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
 from tests.harness.gh_shapes import load_gh_fixture

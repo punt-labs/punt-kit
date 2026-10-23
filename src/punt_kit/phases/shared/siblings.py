@@ -152,6 +152,11 @@ class SiblingRepo:
                 f"{branch_result.stderr.strip()}"
             )
         branch = branch_result.stdout.strip()
+        if not branch:
+            # --show-current prints nothing on a detached HEAD.
+            self._ops.fail(
+                f"Sibling {self._name} has a detached HEAD, expected branch main"
+            )
         if branch != "main":
             self._ops.fail(
                 f"Sibling {self._name} is on branch '{branch}', expected main"

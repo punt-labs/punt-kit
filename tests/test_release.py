@@ -38,12 +38,13 @@ from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.errors import RemoteLookupError
-from punt_kit.phases.shared.gh import PrThreadResolver, RequiredChecksWaiter
+from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.pipeline import ReleasePipeline
 from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.pr_threads import PrThreadResolver
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.repo_slug import RepoSlug
@@ -2779,6 +2780,16 @@ def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
 
     result = SiblingRepo.resolve(root, "nonexistent", ops=_fault_ops())
     assert result is None
+
+
+def test_validate_sibling_names_a_detached_head(tmp_path: Path) -> None:
+    sibling = _make_sibling(tmp_path, "sib", {})
+    _git(["checkout", "--detach"], cwd=str(sibling))
+
+    with pytest.raises(ReleaseError, match="Sibling sib has a detached HEAD") as caught:
+        SiblingRepo(sibling, "sib", ops=_fault_ops()).validate()
+
+    assert "on branch" not in str(caught.value)
 
 
 def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
@@ -12879,3 +12890,108 @@ def test_phase8_runs_the_installed_cli_doctor_under_an_explicit_budget(
     Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
 
     assert budgets["doctor"] == timeouts.CLI_DOCTOR
+
+
+# --- review threads: nulls and pagination ---
+
+
+def _thread_page(ids: list[tuple[str, bool]], *, next_cursor: str | None = None) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {
+                                "hasNextPage": next_cursor is not None,
+                                "endCursor": next_cursor,
+                            },
+                            "nodes": [
+                                {"id": tid, "isResolved": done} for tid, done in ids
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+
+def _resolve_threads(tmp_path: Path, replies: list[str]) -> list[list[str]]:
+    """Run the resolver against scripted ``gh api graphql`` replies, in order."""
+    seen: list[list[str]] = []
+    answers = iter(replies)
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        seen.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, next(answers), "")
+
+    origin = _origin_rule(stdout="git@github.com:o/r.git\n")
+    ops = _fault_ops([origin], real_run=run, passthrough=[["gh", "api", "graphql"]])
+    PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops).resolve(
+        "gh", str(tmp_path), 7
+    )
+    return seen
+
+
+def _threads_body(review_threads: str) -> str:
+    return (
+        '{"data": {"repository": {"pullRequest": '
+        f'{{"reviewThreads": {review_threads}}}}}}}}}'
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param('{"data": null}', id="data"),
+        pytest.param('{"data": {"repository": null}}', id="repository"),
+        pytest.param(
+            '{"data": {"repository": {"pullRequest": null}}}', id="pull-request"
+        ),
+        pytest.param(
+            '{"data": {"repository": {"pullRequest": {"reviewThreads": null}}}}',
+            id="review-threads",
+        ),
+        pytest.param(
+            _threads_body('{"nodes": null}'),
+            id="nodes",
+        ),
+        pytest.param(
+            _threads_body('{"nodes": [null, 3, {}]}'),
+            id="odd-elements",
+        ),
+        pytest.param("null", id="whole-body"),
+    ],
+)
+def test_a_null_anywhere_in_the_threads_response_resolves_nothing(
+    tmp_path: Path, body: str
+) -> None:
+    seen = _resolve_threads(tmp_path, [body])
+
+    assert len(seen) == 1  # the listing only: no mutation was attempted
+
+
+def test_review_threads_are_paged_past_the_first_page(tmp_path: Path) -> None:
+    replies = [
+        _thread_page([("T1", False), ("T0", True)], next_cursor="CUR1"),
+        _thread_page([("T2", False)]),
+        "{}",
+        "{}",
+    ]
+
+    seen = _resolve_threads(tmp_path, replies)
+
+    queries = [cmd[-1] for cmd in seen]
+    assert ('after: "CUR1"' in queries[1], len(queries)) == (True, 4)
+    assert ('threadId: "T1"' in queries[2], 'threadId: "T2"' in queries[3]) == (
+        True,
+        True,
+    )

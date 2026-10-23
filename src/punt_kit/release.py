@@ -39,10 +39,11 @@ from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import hook_firing, timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
-from punt_kit.phases.shared.gh import PrThreadResolver, RequiredChecksWaiter
+from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.pr_threads import PrThreadResolver
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
