@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime
 import re
+import tomllib
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
@@ -14,8 +15,11 @@ from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
 
@@ -43,6 +47,58 @@ class Phase2VersionBump:
         self._ops = ops
         return self
 
+    @staticmethod
+    def _project_version(toml_text: str) -> object:
+        """``[project] version`` of ``toml_text``; ``None`` when there is none."""
+        project = tomllib.loads(toml_text).get("project")
+        if isinstance(project, dict):
+            return cast("dict[str, object]", project).get("version")
+        return None
+
+    def _bump_pyproject(self, path: Path) -> None:
+        """Set ``[project] version``; fail when it is there but cannot be set."""
+        content = TextFile(path).read()
+        if self._project_version(content) is None:
+            self._ops.info("pyproject.toml: no static version field — not bumped")
+            return
+        new_content, count = VersionAssignment("version").rewritten(
+            content, self._version
+        )
+        rewritten = self._project_version(new_content) if count else None
+        if rewritten != self._version:
+            self._ops.fail(
+                "pyproject.toml: [project] version is present but is not a line "
+                f'of the form version = "X.Y.Z", so it cannot be bumped to '
+                f"{self._version}; set it by hand"
+            )
+        if self._dry_run:
+            self._ops.dry(f'pyproject.toml: version = "{self._version}"')
+        else:
+            TextFile(path).write(new_content)
+            self._ops.ok(f'pyproject.toml: version = "{self._version}"')
+
+    def _bump_init(self, path: Path) -> None:
+        """Set ``__version__``; fail when it is assigned but cannot be set."""
+        content = TextFile(path).read()
+        uses_metadata = (
+            "importlib.metadata" in content or "importlib_metadata" in content
+        )
+        assignment = VersionAssignment("__version__")
+        if uses_metadata or not assignment.is_assigned(content):
+            return
+        new_content, count = assignment.rewritten(content, self._version)
+        if count == 0:
+            self._ops.fail(
+                f"{path.name}: __version__ is assigned but not as a plain quoted "
+                f'string (__version__ = "X.Y.Z"), so it cannot be bumped to '
+                f"{self._version}; set it by hand"
+            )
+        if self._dry_run:
+            self._ops.dry(f'{path.name}: __version__ = "{self._version}"')
+        else:
+            TextFile(path).write(new_content)
+            self._ops.ok(f'{path.name}: __version__ = "{self._version}"')
+
     def run(self) -> None:
         info = self._info
         version = self._version
@@ -68,22 +124,12 @@ class Phase2VersionBump:
             else:
                 ops.ok(f"Created branch {branch}")
 
-        # 2b. Bump version in pyproject.toml
+        # 2b. Bump version in pyproject.toml. A present version field that the
+        # rewrite does not change is a failure: printing ok for a no-op would
+        # tag a release whose pyproject still names the previous version.
         pyproject_path = root / "pyproject.toml"
         if pyproject_path.exists():
-            content = TextFile(pyproject_path).read()
-            new_content = re.sub(
-                r'^(version\s*=\s*")[^"]*(")',
-                rf"\g<1>{version}\2",
-                content,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            if dry_run:
-                ops.dry(f'pyproject.toml: version = "{version}"')
-            else:
-                TextFile(pyproject_path).write(new_content)
-                ops.ok(f'pyproject.toml: version = "{version}"')
+            self._bump_pyproject(pyproject_path)
 
         # Bump __init__.py __version__ (skip if version comes from
         # importlib.metadata)
@@ -91,23 +137,7 @@ class Phase2VersionBump:
         if pkg_dir is not None:
             init_py = pkg_dir / "__init__.py"
             if init_py.exists():
-                content = TextFile(init_py).read()
-                uses_metadata = (
-                    "importlib.metadata" in content or "importlib_metadata" in content
-                )
-                if "__version__" in content and not uses_metadata:
-                    new_content = re.sub(
-                        r'^(__version__\s*=\s*")[^"]*(")',
-                        rf"\g<1>{version}\2",
-                        content,
-                        count=1,
-                        flags=re.MULTILINE,
-                    )
-                    if dry_run:
-                        ops.dry(f'{init_py.name}: __version__ = "{version}"')
-                    else:
-                        TextFile(init_py).write(new_content)
-                        ops.ok(f'{init_py.name}: __version__ = "{version}"')
+                self._bump_init(init_py)
 
         # Bump plugin.json version. None for a non-plugin project — absence
         # is the contract, and 2d below stages only the files that exist.

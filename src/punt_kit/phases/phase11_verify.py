@@ -22,6 +22,7 @@ from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -137,8 +138,7 @@ class Phase11Verify:
         pyproject_path = info.root / "pyproject.toml"
         if pyproject_path.exists():
             content = TextFile(pyproject_path).read()
-            match = re.search(r'^version\s*=\s*"([^"]*)"', content, re.MULTILINE)
-            current = match.group(1) if match else "not found"
+            current = VersionAssignment("version").read(content) or "not found"
             checks.append(
                 VerificationCheck(
                     "pyproject.toml", current == version, f"version={current}"
@@ -151,14 +151,26 @@ class Phase11Verify:
             uses_metadata = (
                 "importlib.metadata" in content or "importlib_metadata" in content
             )
-            match = re.search(r'__version__\s*=\s*"([^"]*)"', content)
-            if match and not uses_metadata:
-                init_ver = match.group(1)
-                checks.append(
-                    VerificationCheck(
-                        "__init__.py", init_ver == version, f"__version__={init_ver}"
+            assignment = VersionAssignment("__version__")
+            if assignment.is_assigned(content) and not uses_metadata:
+                init_ver = assignment.read(content)
+                if init_ver is None:
+                    checks.append(
+                        VerificationCheck(
+                            "__init__.py",
+                            False,
+                            "__version__ is assigned but not as a plain quoted "
+                            "string, so it cannot be verified",
+                        )
                     )
-                )
+                else:
+                    checks.append(
+                        VerificationCheck(
+                            "__init__.py",
+                            init_ver == version,
+                            f"__version__={init_ver}",
+                        )
+                    )
 
         if info.is_plugin:
             pj_data = cast("dict[str, object]", JsonFile(info.plugin_manifest).load())

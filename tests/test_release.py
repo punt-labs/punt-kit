@@ -13677,3 +13677,107 @@ def test_website_without_a_sibling_is_skipped_quietly_even_without_a_remote(
     ).run("0.2.0", dry_run=False, merge_sibling=_never_merge)
 
     assert skips.drain() == ()
+
+
+# --- version fields: a no-op bump is a failure, not an ok ---
+
+
+def _commit_all(root: Path, message: str) -> None:
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", message], cwd=str(root))
+
+
+def _init_py(root: Path) -> Path:
+    return root / "src" / "test_pkg" / "__init__.py"
+
+
+def test_phase2_bumps_a_single_quoted_version_and_keeps_the_quote(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text("__version__ = '0.1.0'\n")
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"0.1.0"', "'0.1.0'", 1))
+    _commit_all(root, "single quotes")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == "__version__ = '0.2.0'\n"
+    assert "version = '0.2.0'" in pyproject.read_text()
+
+
+def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text('__version__: str = "0.1.0"\n')
+    _commit_all(root, "annotated")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == '__version__: str = "0.2.0"\n'
+
+
+def test_phase2_fails_when_the_init_version_cannot_be_rewritten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text("__version__ = compute_version()\n")
+    _commit_all(root, "computed version")
+
+    with pytest.raises(ReleaseError, match=r"__init__\.py.*__version__"):
+        _bump(root)
+
+    assert "✓ __init__.py" not in capsys.readouterr().out
+
+
+def test_phase2_fails_when_the_pyproject_version_cannot_be_rewritten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "pyproject.toml").write_text(
+        'project = {name = "test-pkg", version = "0.1.0"}\n'
+    )
+    _commit_all(root, "inline project table")
+
+    with pytest.raises(ReleaseError, match=r"pyproject\.toml.*version"):
+        _bump(root)
+
+    assert "✓ pyproject.toml" not in capsys.readouterr().out
+
+
+def test_phase2_leaves_an_imported_version_alone(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text("from ._v import __version__\n")
+    _commit_all(root, "imported version")
+
+    _bump(root)  # not an assignment: nothing to bump, nothing to fail
+
+    assert _init_py(root).read_text() == "from ._v import __version__\n"
+
+
+def test_phase11_fails_when_the_init_version_is_assigned_but_unparseable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _init_py(root).write_text("__version__ = compute_version()\n")
+    _commit_all(root, "computed version")
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["__init__.py"], "__version__")
+
+
+def test_phase11_reads_a_single_quoted_init_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _init_py(root).write_text("__version__ = '0.1.0'\n")
+    _commit_all(root, "single quotes")
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), version, dry_run=False)  # must not raise
+
+    assert "__version__=0.1.0" in _flat(capsys.readouterr().out)
