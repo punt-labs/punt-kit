@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit import audit
 from punt_kit.audit import run_audit
+from punt_kit.audit_verdict import PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
+
+    from punt_kit.detect import ProjectInfo
 
 
 def _make_compliant_python(tmp_path: Path) -> None:
@@ -826,3 +831,41 @@ def test_audit_hint_covers_both_kinds(
     out = capsys.readouterr().out
     assert "run punt init" in out
     assert "hand" in out
+
+
+def _bom_project(tmp_path: Path, pyproject: str) -> ProjectInfo:
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + pyproject).encode())
+    return detect(tmp_path)
+
+
+def test_audit_tool_config_reads_a_pyproject_that_starts_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    info = _bom_project(
+        tmp_path,
+        '[project]\r\nname = "t"\r\n\r\n[tool.ruff]\r\nline-length = 88\r\n',
+    )
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_tool_config"],
+    )
+
+    findings = check(info)
+
+    assert findings
+    assert any(status == PASS for status, _label, _detail in findings)
+
+
+def test_audit_plugin_version_sync_reads_a_pyproject_that_starts_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    plugin = tmp_path / ".claude-plugin" / "plugin.json"
+    plugin.parent.mkdir()
+    plugin.write_text('{"name": "t", "version": "0.1.0"}\n')
+    info = _bom_project(tmp_path, '[project]\r\nname = "t"\r\nversion = "0.1.0"\r\n')
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_plugin_version_sync"],
+    )
+
+    assert check(info) == [(PASS, "Plugin version matches pyproject.toml", "v0.1.0")]

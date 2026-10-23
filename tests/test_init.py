@@ -7,15 +7,24 @@ import os
 import shutil
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit import init as init_mod
+from punt_kit.detect import detect
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 
 _EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
 
 
 _real_which = shutil.which
+
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from punt_kit.detect import ProjectInfo
 
 
 def _no_bd(
@@ -989,3 +998,18 @@ def test_mcp_wildcards_are_all_or_nothing() -> None:
     # prfaq and punt ship no MCP server, so they must not appear.
     assert not any("prfaq" in p for p in perms if p.startswith("mcp__"))
     assert not any(p.startswith("mcp__plugin_punt_") for p in perms)
+
+
+def test_init_python_config_reads_a_pyproject_that_starts_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    body = '[project]\r\nname = "test-pkg"\r\nversion = "0.1.0"\r\n'
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + body).encode())
+    init_python_config = cast(
+        "Callable[[ProjectInfo], list[str]]", vars(init_mod)["_init_python_config"]
+    )
+
+    changes = init_python_config(detect(tmp_path))
+
+    assert changes  # the missing tool sections were added, not a TOMLDecodeError
+    assert "tool" in tomllib.loads((tmp_path / "pyproject.toml").read_text("utf-8-sig"))
