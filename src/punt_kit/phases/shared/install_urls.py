@@ -132,6 +132,9 @@ class InstallUrlRecognizer:
     _reference: re.Pattern[str]
 
     def __new__(cls, owner: str, repo_name: str) -> Self:
+        if not owner or not repo_name:
+            msg = f"owner and repo must both be non-empty: {owner!r}/{repo_name!r}"
+            raise ValueError(msg)
         self = super().__new__(cls)
         self._owner = owner
         self._repo = repo_name
@@ -147,6 +150,16 @@ class InstallUrlRecognizer:
         """The ``owner/repo`` this recognizer trusts."""
         return f"{self._owner}/{self._repo}"
 
+    @property
+    def repo_name(self) -> str:
+        """The repository half of the slug."""
+        return self._repo
+
+    @staticmethod
+    def normalize_slug(slug: str) -> str:
+        """Strip surrounding whitespace and slashes from a resolved slug."""
+        return slug.strip().strip("/")
+
     @classmethod
     def for_slug(cls, slug: str) -> Self:
         """Build a recognizer from an ``owner/repo`` slug.
@@ -156,7 +169,7 @@ class InstallUrlRecognizer:
         Raises ``ValueError`` unless exactly one non-empty owner and one
         non-empty repo remain.
         """
-        parts = slug.strip().strip("/").split("/")
+        parts = cls.normalize_slug(slug).split("/")
         if len(parts) != 2 or not all(parts):
             msg = f"not an owner/repo slug: {slug!r}"
             raise ValueError(msg)

@@ -8674,6 +8674,57 @@ def test_phase11_verify_readme_and_website_pins_pass_when_current(
     assert "✗ website" not in out
 
 
+def test_phase11_verify_passes_with_a_trailing_slash_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A remote like ``https://github.com/o/r/`` resolves to ``o/r/``; every
+    Phase 11 check, the website one included, must use the normalized slug."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+    _git(["remote", "set-url", "origin", "https://github.com/punt-labs/proj/"], cwd=d)
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme sha"], cwd=d)
+    _add_website_sibling(tmp_path, "proj", version, install_sha)
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), version, dry_run=False)  # must not raise
+
+    assert "✗" not in capsys.readouterr().out
+
+
+def test_phase11_verify_reports_an_unusable_slug_as_a_failed_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
+    install_sha = _git_out(
+        ["log", "-1", "--format=%H", "--", "install.sh"], cwd=str(root)
+    )
+    _add_website_sibling(tmp_path, "proj", version, install_sha)
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    assert "not an owner/repo slug" in _flat(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize(("owner", "repo"), [("", "r"), ("o", ""), ("", "")])
+def test_recognizer_cannot_be_built_with_an_empty_owner_or_repo(
+    owner: str, repo: str
+) -> None:
+    with pytest.raises(ValueError, match="owner and repo"):
+        InstallUrlRecognizer(owner, repo)
+
+
 def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -278,7 +278,7 @@ class Phase11Verify:
 
         # 4. install-all.sh entry (curl SHA for CLI projects, plugin loop for
         # pure plugins)
-        repo = GithubRepo(info.root, ops=ops).resolve()
+        repo = self._repo_slug()
         if repo and (install_sh.exists() or info.is_plugin):
             project_name = repo.split("/")[-1]
             github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
@@ -376,7 +376,7 @@ class Phase11Verify:
 
         # 5. Marketplace
         if info.is_plugin or info.is_hybrid:
-            repo = GithubRepo(info.root, ops=ops).resolve()
+            repo = self._repo_slug()
             if repo:
                 project_name = repo.split("/")[-1]
                 marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
@@ -443,7 +443,7 @@ class Phase11Verify:
                             )
 
         # 6. Profile SHA (install-all.sh URL resolves)
-        repo = GithubRepo(info.root, ops=ops).resolve()
+        repo = self._repo_slug()
         if repo and (install_sh.exists() or info.is_plugin):
             github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
             if github_sibling is None:
@@ -673,16 +673,25 @@ class Phase11Verify:
                                     # silently ignored. Trusted and
                                     # untrusted pins are still reported
                                     # independently.
-                                    checks.extend(
-                                        self._pin_checks(
-                                            "website SHA",
-                                            install_cmd,
-                                            InstallUrlRecognizer(
-                                                repo.split("/", 1)[0], project_name
-                                            ),
-                                            all_urls_relevant=True,
+                                    try:
+                                        web_recognizer = InstallUrlRecognizer.for_slug(
+                                            repo
                                         )
-                                    )
+                                    except ValueError as exc:
+                                        checks.append(
+                                            VerificationCheck(
+                                                "website SHA", False, str(exc)
+                                            )
+                                        )
+                                    else:
+                                        checks.extend(
+                                            self._pin_checks(
+                                                "website SHA",
+                                                install_cmd,
+                                                web_recognizer,
+                                                all_urls_relevant=True,
+                                            )
+                                        )
                                     # If neither: no SHA-shaped install URL
                                     # at all (version-tag or branch pin, or
                                     # no install.sh reference) — skip. That
@@ -750,6 +759,16 @@ class Phase11Verify:
 
         if not all_pass:
             ops.fail("Some verification checks failed — see above")
+
+    def _repo_slug(self) -> str | None:
+        """The GitHub ``owner/repo`` of this project, normalized, or ``None``.
+
+        A remote like ``https://github.com/o/r/`` resolves to ``o/r/``;
+        stripping the slashes here means every ``split("/")`` below sees the
+        same slug the recognizer does.
+        """
+        repo = GithubRepo(self._info.root, ops=self._ops).resolve()
+        return InstallUrlRecognizer.normalize_slug(repo) if repo else repo
 
     def _pin_checks(
         self,
