@@ -9,12 +9,16 @@ from punt_kit.phases.shared.pin_rules import ShaPin
 _SHA = "0123abc"
 
 
+def _never(_pinned: str) -> bool:
+    return False
+
+
 @pytest.mark.parametrize("sha", ["abc1234", "ABCDEF1", "a" * 40])
 def test_install_all_entry_reads_back_the_sha_it_writes(sha: str) -> None:
     pin = ShaPin.install_all_entry("proj")
     content = 'curl -fsSL "$GH/proj/abc1234/install.sh" | sh\n'
 
-    rewritten, count = pin.repinned(content, sha)
+    rewritten, count = pin.repinned(content, sha, is_current=_never)
 
     assert (count, pin.all_shas(rewritten)) == (1, [sha])
 
@@ -27,7 +31,7 @@ def test_install_all_entry_ignores_other_projects() -> None:
         'curl "$GH/proj/main/install.sh"\n'
     )
 
-    assert pin.repinned(content, _SHA) == (content, 0)
+    assert pin.repinned(content, _SHA, is_current=_never) == (content, 0)
     assert pin.all_shas(content) == []
 
 
@@ -55,7 +59,7 @@ def test_profile_pin_reads_back_the_sha_it_writes() -> None:
         "/install-all.sh | sh\n"
     )
 
-    rewritten, count = pin.repinned(content, _SHA)
+    rewritten, count = pin.repinned(content, _SHA, is_current=_never)
 
     assert (count, pin.all_shas(rewritten)) == (1, [_SHA])
 
@@ -64,3 +68,15 @@ def test_profile_pin_ignores_other_repositories() -> None:
     content = "https://raw.githubusercontent.com/punt-labs/other/abc1234/install-all.sh"
 
     assert ShaPin.profile().all_shas(content) == []
+
+
+def test_repinned_leaves_current_pins_alone_and_still_counts_them() -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = 'curl "$GH/proj/aaaaaaa/install.sh"\ncurl "$GH/proj/bbbbbbb/install.sh"\n'
+
+    rewritten, count = pin.repinned(
+        content, _SHA, is_current=lambda pinned: pinned == "aaaaaaa"
+    )
+
+    assert count == 2
+    assert pin.all_shas(rewritten) == ["aaaaaaa", _SHA]

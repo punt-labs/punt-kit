@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SHA = r"[0-9a-fA-F]{7,40}"
 
@@ -37,9 +40,23 @@ class ShaPin:
         """``punt-labs/.github/<sha>/install-all.sh`` in the org profile README."""
         return cls(r"punt-labs/\.github/", r"/install-all\.sh")
 
-    def repinned(self, content: str, sha: str) -> tuple[str, int]:
-        """``content`` with every pin moved to ``sha``, and how many there were."""
-        return self._pattern.subn(rf"\g<1>{sha}\g<3>", content)
+    def repinned(
+        self, content: str, sha: str, *, is_current: Callable[[str], bool]
+    ) -> tuple[str, int]:
+        """``content`` with each stale pin moved to ``sha``, and the pin count.
+
+        A pin for which ``is_current`` is true is left exactly as written
+        (still counted), so a full-length pin of the right commit is not
+        rewritten to the short form. The caller supplies
+        ``PinCurrency.is_current``: the one test of currency.
+        """
+
+        def move(found: re.Match[str]) -> str:
+            if is_current(found.group(2)):
+                return found.group(0)
+            return f"{found.group(1)}{sha}{found.group(3)}"
+
+        return self._pattern.subn(move, content)
 
     def all_shas(self, content: str) -> list[str]:
         """Every pinned SHA in ``content``, in order; empty is the answer for no pin."""

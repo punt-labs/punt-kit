@@ -114,8 +114,9 @@ class InstallAllPropagator:
         install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
 
         content = TextFile(install_all).read()
+        currency = PinCurrency(install_sha, cwd=info.root, ops=ops)
         new_content, count = ShaPin.install_all_entry(project_name).repinned(
-            content, install_sha
+            content, install_sha, is_current=currency.is_current
         )
 
         if count == 0:
@@ -207,7 +208,10 @@ class InstallAllPropagator:
             return
 
         readme_content = TextFile(readme).read()
-        new_readme, readme_count = ShaPin.profile().repinned(readme_content, github_sha)
+        currency = PinCurrency(github_sha, cwd=sibling, ops=ops)
+        new_readme, readme_count = ShaPin.profile().repinned(
+            readme_content, github_sha, is_current=currency.is_current
+        )
         if readme_count == 0:
             ops.info(
                 "profile/README.md: no install-all.sh SHA reference found — "

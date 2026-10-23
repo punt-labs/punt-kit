@@ -460,14 +460,17 @@ class Phase11Verify:
         """The pinned install-all.sh must carry this project's current install SHA."""
         install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
         currency = PinCurrency(install_sha, cwd=self._info.root, ops=self._ops)
-        is_current = any(
-            currency.is_current(pin)
-            for pin in ShaPin.install_all_entry(repo.name).all_shas(install_all)
-        )
+        pins = self._distinct(ShaPin.install_all_entry(repo.name).all_shas(install_all))
+        stale = [pin for pin in pins if not currency.is_current(pin)]
         detail = f"SHA={profile_sha}"
-        if not is_current:
+        if len(stale) == len(pins):
             detail += f" (stale — lacks {repo.name}@{install_sha})"
-        return VerificationCheck("profile SHA", is_current, detail)
+        elif stale:
+            detail += (
+                f" (stale — also carries {repo.name}@{', '.join(stale)}, "
+                f"expected {install_sha})"
+            )
+        return VerificationCheck("profile SHA", bool(pins) and not stale, detail)
 
     def _profile_marketplace_chain(
         self, repo: RepoSlug, profile_sha: str, install_all: str

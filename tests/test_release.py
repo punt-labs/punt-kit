@@ -13947,3 +13947,114 @@ def test_run_release_recaps_a_phase11_remote_skip_in_its_printed_summary(
     recap = out[out.index("Manual action required") :]
     assert "the website checks did not run" in recap
     assert "no github.com origin remote" in recap
+
+
+# --- the writers and the verifier share one currency test ---
+
+
+def _failing_merge(
+    _sibling: Path,
+    _branch: str,
+    files: list[str],
+    _message: str,
+    _label: str,
+    *,
+    dry_run: bool,
+) -> bool:
+    raise AssertionError(f"a current pin must not open a propagation PR: {files}")
+
+
+def test_install_all_leaves_a_full_length_current_pin_and_opens_no_pr(
+    tmp_path: Path,
+) -> None:
+    info = _project_with_origin(tmp_path)
+    full = _git_out(
+        ["log", "-1", "--format=%H", "--", "install.sh"], cwd=str(info.root)
+    )
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{full}/install.sh" | sh\n'
+            ),
+            "profile/README.md": "no pin here\n",
+        },
+    )
+    before = (sibling / "install-all.sh").read_text()
+    ops = _fault_ops()
+
+    InstallAllPropagator(info, ops=ops, skips=SkipRecorder(ops=ops)).run(
+        "0.2.0", dry_run=False, merge_sibling=_failing_merge
+    )
+
+    assert (sibling / "install-all.sh").read_text() == before
+
+
+def test_the_profile_keeps_a_full_length_current_pin_and_opens_no_pr(
+    tmp_path: Path,
+) -> None:
+    info = _project_with_origin(tmp_path)
+    install_sha = _git_out(
+        ["log", "-1", "--format=%h", "--", "install.sh"], cwd=str(info.root)
+    )
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+        },
+    )
+    full = _git_out(
+        ["log", "-1", "--format=%H", "--", "install-all.sh"], cwd=str(sibling)
+    )
+    readme = (
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{full}/install-all.sh | sh\n"
+    )
+    (sibling / "profile").mkdir()
+    (sibling / "profile" / "README.md").write_text(readme)
+    _commit_all(sibling, "profile")
+    ops = _fault_ops()
+
+    InstallAllPropagator(info, ops=ops, skips=SkipRecorder(ops=ops)).run(
+        "0.2.0", dry_run=False, merge_sibling=_failing_merge
+    )
+
+    assert (sibling / "profile" / "README.md").read_text() == readme
+
+
+def test_phase11_fails_when_a_second_profile_install_all_line_is_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The pinned install-all.sh carries a current line AND a stale one."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    sibling = tmp_path / ".github"
+    first = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=str(root))[:7]
+    install_all = sibling / "install-all.sh"
+    install_all.write_text(
+        install_all.read_text() + f'curl -fsSL "$GH/proj/{first}/install.sh" | sh\n'
+    )
+    _commit_all(sibling, "second, stale line")
+    pinned = _git_out(["rev-parse", "HEAD"], cwd=str(sibling))
+    (sibling / "profile" / "README.md").write_text(
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{pinned}/install-all.sh | sh\n"
+    )
+    _commit_all(sibling, "pin it")
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["install-all.sh", "profile SHA"],
+        first,
+        on="profile SHA",
+    )
