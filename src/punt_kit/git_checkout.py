@@ -8,7 +8,6 @@ import subprocess
 from contextlib import suppress
 from pathlib import Path
 from typing import Self, final
-from urllib.parse import urlsplit
 
 from punt_kit.phases.shared.repo_slug import RepoSlug
 
@@ -43,7 +42,7 @@ class GitCheckout:
         with suppress(ValueError):
             slug = RepoSlug.from_remote_url(url)
         if slug is None:
-            shown = self._without_userinfo(url)
+            shown = RepoSlug.without_userinfo(url)
             msg = f"origin remote is not a GitHub owner/repo: {shown}"
             raise ValueError(msg)
         return str(slug)
@@ -99,20 +98,3 @@ class GitCheckout:
         except OSError as exc:
             msg = f"git is not installed or cannot run ({exc})"
             raise ValueError(msg) from exc
-
-    @staticmethod
-    def _without_userinfo(url: str) -> str:
-        """``url`` without credentials: no ``user[:token]@``, query, or fragment."""
-        if "://" not in url:
-            # scp-style ``[user@]host:path``: the user may itself be a token.
-            head, colon, path = url.partition(":")
-            user, at, host = head.partition("@")
-            if at and "/" not in user:
-                head = host
-            return f"{head}{colon}{path.split('?')[0].split('#')[0]}"
-        try:
-            parts = urlsplit(url)
-        except ValueError:
-            return "<unparseable url>"  # never echo what could not be parsed
-        host = parts.netloc.rpartition("@")[2]
-        return parts._replace(netloc=host, query="", fragment="").geturl()

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Self
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 # GitHub owners and repositories are made of word characters, dots, and
 # hyphens; "." and ".." are path components, never names.
@@ -60,3 +60,20 @@ class RepoSlug:
 
     def __str__(self) -> str:
         return f"{self.owner}/{self.name}"
+
+    @staticmethod
+    def without_userinfo(url: str) -> str:
+        """``url`` without ``user[:token]@``, query and fragment, safe to show."""
+        if "://" not in url:
+            # scp-style ``[user@]host:path``: the user may itself be a token.
+            head, colon, path = url.partition(":")
+            user, at, host = head.partition("@")
+            if at and "/" not in user:
+                head = host
+            return f"{head}{colon}{path.split('?')[0].split('#')[0]}"
+        try:
+            parts = urlsplit(url)
+        except ValueError:
+            return "<unparseable url>"  # never echo what could not be parsed
+        host = parts.netloc.rpartition("@")[2]
+        return parts._replace(netloc=host, query="", fragment="").geturl()

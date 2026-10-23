@@ -33,21 +33,43 @@ _CHANGELOG = "CHANGELOG.md"
 class FileAccess:
     """The lines where a module reads or writes named files itself.
 
-    By default the file is CHANGELOG.md and the access is a read. An access
-    is a method in ``methods`` or ``open`` on a path that traces to one of
-    ``names``: directly, through a name it was assigned to, through
-    a wrapper such as ``TextFile(p)`` (and a name bound to that wrapper), or
-    through an imported constant that holds the file name. ``git show
-    <ref>:CHANGELOG.md`` reads it too.
+    A tripwire for the plausible forms, not a proof. By default the file is
+    CHANGELOG.md and the access is a read. An access is a method in
+    ``methods`` or ``open`` on a path that traces to one of ``names``:
+    directly, through a name it was assigned to (module-wide, by name, not per
+    function), through a wrapper such as ``TextFile(p)`` (and a name bound to
+    that wrapper), through an imported constant that holds the file name, or
+    through an attribute in ``attributes`` (``info.plugin_manifest``). A
+    ``shutil`` call in ``shutil_calls`` with such a path argument is an
+    access, and so is a ``git`` argv in ``git_verbs`` (``show``,
+    ``cat-file``) naming the file, written inline or held in a variable
+    assigned a list or tuple.
+
+    Out of scope, and not caught: a path that reaches the call through tuple
+    unpacking, a loop variable, a walrus, a helper's argument, an alias such as
+    ``m = os``, a path assembled from pieces, or ``Path(...)`` built without
+    the literal name.
     """
 
-    __slots__ = ("_constants", "_include_git_show", "_methods", "_names", "_tree")
+    __slots__ = (
+        "_argvs",
+        "_attributes",
+        "_constants",
+        "_git_verbs",
+        "_methods",
+        "_names",
+        "_shutil_calls",
+        "_tree",
+    )
 
     _tree: ast.Module
     _constants: frozenset[str]
     _names: frozenset[str]
     _methods: frozenset[str]
-    _include_git_show: bool
+    _git_verbs: frozenset[str]
+    _attributes: frozenset[str]
+    _shutil_calls: frozenset[str]
+    _argvs: dict[str, ast.List | ast.Tuple]
 
     def __new__(
         cls,
@@ -56,14 +78,25 @@ class FileAccess:
         constants: frozenset[str] = frozenset(),
         names: frozenset[str] = frozenset({_CHANGELOG}),
         methods: frozenset[str] = _READ_METHODS,
-        include_git_show: bool = True,
+        git_verbs: frozenset[str] = frozenset({"show", "cat-file"}),
+        attributes: frozenset[str] = frozenset(),
+        shutil_calls: frozenset[str] = frozenset(),
     ) -> Self:
         self = super().__new__(cls)
         self._tree = ast.parse(source)
         self._constants = constants
         self._names = names
         self._methods = methods
-        self._include_git_show = include_git_show
+        self._git_verbs = git_verbs
+        self._attributes = attributes
+        self._shutil_calls = shutil_calls
+        self._argvs = {
+            ast.unparse(target): node.value
+            for node in ast.walk(self._tree)
+            if isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.List | ast.Tuple)
+            for target in node.targets
+        }
         return self
 
     @staticmethod
@@ -90,7 +123,8 @@ class FileAccess:
             if isinstance(node, ast.Call)
             and (
                 self._reads(node, paths)
-                or (self._include_git_show and self._shows(node, paths))
+                or self._shows(node, paths)
+                or self._copies(node, paths)
             )
         )
 
@@ -124,6 +158,8 @@ class FileAccess:
                 and any(name in part.value for name in self._names)
             ):
                 return True
+            if isinstance(part, ast.Attribute) and part.attr in self._attributes:
+                return True
             if isinstance(part, ast.Name | ast.Attribute):
                 text = ast.unparse(part)
                 if text in bound or text in self._constants:
@@ -141,15 +177,31 @@ class FileAccess:
         return self._mentions(target, paths)
 
     def _shows(self, call: ast.Call, paths: set[str]) -> bool:
-        """True for a ``["git", "show", "<ref>:CHANGELOG.md"]`` argument vector."""
-        return any(
-            isinstance(arg, ast.List | ast.Tuple)
-            and any(
-                isinstance(item, ast.Constant) and item.value == "show"
-                for item in arg.elts
+        """True for a ``git`` argv with a verb in ``git_verbs`` that names the file."""
+        for arg in call.args:
+            argv = (
+                self._argvs.get(ast.unparse(arg)) if isinstance(arg, ast.Name) else arg
             )
-            and self._mentions(arg, paths)
-            for arg in call.args
+            if (
+                isinstance(argv, ast.List | ast.Tuple)
+                and any(
+                    isinstance(item, ast.Constant) and item.value in self._git_verbs
+                    for item in argv.elts
+                )
+                and self._mentions(argv, paths)
+            ):
+                return True
+        return False
+
+    def _copies(self, call: ast.Call, paths: set[str]) -> bool:
+        """True for a ``shutil`` copy or move with a managed path argument."""
+        func = call.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr in self._shutil_calls
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "shutil"
+            and any(self._mentions(arg, paths) for arg in call.args)
         )
 
 
@@ -413,7 +465,14 @@ _RE_FUNCTIONS = frozenset(
 
 @final
 class PinRegexes:
-    """The lines where a module builds a regex for an install-URL or install-all pin."""
+    """The lines where a module builds a regex for an install-URL or install-all pin.
+
+    A tripwire, not a proof: it sees a ``re.<fn>(...)`` call whose first
+    argument holds a pin marker, directly or through a name assigned such a
+    string. Out of scope: a pattern assembled from pieces, one passed through a
+    helper's argument, or one compiled by a module imported under another name
+    than ``re``.
+    """
 
     __slots__ = ("_tree",)
 
@@ -526,6 +585,7 @@ def test_only_the_pin_rule_modules_build_a_pin_regex() -> None:
 
 _SLUG_MODULES = frozenset({"repo_slug.py"})
 _SPLITTERS = frozenset({"split", "rsplit", "partition", "rpartition"})
+_SLUG_SEPARATORS = frozenset({"/", ":"})
 _REMOTE_WORDS = ("remote", "origin", "slug", "url")
 _GITHUB_PREFIXES = (
     "https://github.com",
@@ -537,7 +597,16 @@ _GITHUB_PREFIXES = (
 
 @final
 class SlugParsing:
-    """The lines where a module reads an owner/repo out of a remote URL itself."""
+    """The lines where a module reads an owner/repo out of a remote URL itself.
+
+    A tripwire, not a proof. It flags ``split``, ``rsplit``, ``partition`` and
+    ``rpartition`` on ``/`` or ``:`` (positional or ``sep=``), and
+    ``removesuffix(".git")``, when the receiver's name says remote, origin,
+    slug or url; and a string literal that is a github.com host, scheme prefix
+    or ``github.com/`` / ``github.com:`` path. Docstrings are skipped. Out of
+    scope: a receiver with a neutral name (``path``, ``text``), a separator held
+    in a variable, a regex without a host, tuple-unpacking or loop variables.
+    """
 
     __slots__ = ("_tree",)
 
@@ -583,16 +652,23 @@ class SlugParsing:
 
     @staticmethod
     def _splits_a_remote(node: ast.Call) -> bool:
-        if not (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr in _SPLITTERS
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and node.args[0].value == "/"
-        ):
+        if not isinstance(node.func, ast.Attribute):
             return False
         receiver = ast.unparse(node.func.value).lower()
-        return any(word in receiver for word in _REMOTE_WORDS)
+        if not any(word in receiver for word in _REMOTE_WORDS):
+            return False
+        if node.func.attr == "removesuffix":
+            return bool(node.args) and ast.unparse(node.args[0]) in {"'.git'", '".git"'}
+        if node.func.attr not in _SPLITTERS:
+            return False
+        separators = [
+            *node.args[:1],
+            *(k.value for k in node.keywords if k.arg == "sep"),
+        ]
+        return any(
+            isinstance(sep, ast.Constant) and sep.value in _SLUG_SEPARATORS
+            for sep in separators
+        )
 
     @staticmethod
     def _names_github_host(node: ast.Constant) -> bool:
@@ -649,12 +725,32 @@ def test_only_repo_slug_reads_an_owner_and_repo_out_of_a_remote() -> None:
 
 
 def _constructs_entry_matcher(source: str) -> list[int]:
+    """Lines that call ``EntryMatcher(...)`` directly.
+
+    A tripwire: the bare name, a name it was imported as (``from x import
+    EntryMatcher as EM``), and ``<module>.EntryMatcher(...)``. Out of scope: an
+    alias made by assignment, ``type(m)(...)``, or a class built by a factory
+    other than ``for_marketplace`` / ``for_website``.
+    """
+    tree = ast.parse(source)
+    names = {"EntryMatcher"} | {
+        alias.asname
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        for alias in node.names
+        if alias.name == "EntryMatcher" and alias.asname
+    }
     return sorted(
         node.lineno
-        for node in ast.walk(ast.parse(source))
+        for node in ast.walk(tree)
         if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "EntryMatcher"
+        and (
+            (isinstance(node.func, ast.Name) and node.func.id in names)
+            or (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "EntryMatcher"
+            )
+        )
     )
 
 
@@ -676,9 +772,15 @@ def test_only_the_entry_matcher_module_constructs_one() -> None:
 
 # --- no suppressions ---
 
+# A tripwire for the suppression comments a toolchain here reads: ruff/flake8
+# (noqa), mypy and pyright (type/pyright ignore, a `pyright: basic` or
+# `reportX=false` file override, `mypy: ignore-errors`), pylint, bandit, coverage,
+# ruff-format (`fmt: off|skip`) and shellcheck. Out of scope: a suppression in
+# pyproject.toml or a config file, and a tool this repo does not run.
 _SUPPRESSION = re.compile(
-    r"noqa|type:\s*ignore|pyright:\s*ignore|pylint:\s*disable|nosec"
-    r"|pragma:\s*no\s*cover",
+    r"noqa|type:\s*ignore|pyright:\s*(?:ignore|basic|standard|report)"
+    r"|mypy:\s*ignore-errors|pylint:\s*(?:disable|skip-file)|nosec"
+    r"|pragma:\s*no\s*cover|fmt:\s*(?:off|skip)|shellcheck\s+disable",
     re.IGNORECASE,
 )
 _SUPPRESSION_ROOTS = (_PACKAGE, _PLUGIN)
@@ -755,6 +857,9 @@ _MANAGED_FILES = frozenset(
         "settings.json",
     }
 )
+# ProjectInfo attributes that are paths of a managed file.
+_MANAGED_ATTRIBUTES = frozenset({"plugin_manifest", "plugin_manifests"})
+_SHUTIL_CALLS = frozenset({"copy", "copy2", "copyfile", "move", "copytree"})
 _IO_METHODS = frozenset(
     {"read_text", "write_text", "read_bytes", "write_bytes", "open", "readlines"}
 )
@@ -763,8 +868,15 @@ _FILE_WRAPPERS = frozenset({"text_file.py", "json_file.py"})
 
 
 def _managed_io_lines(source: str) -> list[int]:
+    # `git show` of a managed file stays legal: Phase 11 reads a file as of a
+    # commit that way. `git cat-file` is the raw-bytes read and is flagged.
     return FileAccess(
-        source, names=_MANAGED_FILES, methods=_IO_METHODS, include_git_show=False
+        source,
+        names=_MANAGED_FILES,
+        methods=_IO_METHODS,
+        git_verbs=frozenset({"cat-file"}),
+        attributes=_MANAGED_ATTRIBUTES,
+        shutil_calls=_SHUTIL_CALLS,
     ).lines()
 
 
@@ -813,3 +925,134 @@ def test_release_managed_files_are_touched_only_through_the_wrappers() -> None:
         if (lines := _managed_io_lines(path.read_text("utf-8")))
     }
     assert direct == {}
+
+
+# --- the forms the tripwires were widened to catch ---
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            'cmd = ["git", "show", f"{ref}:CHANGELOG.md"]\nops.run(cmd)',
+            id="show-argv-variable",
+        ),
+        pytest.param(
+            'cmd = ("git", "cat-file", "-p", "HEAD:CHANGELOG.md")\nops.run(cmd)',
+            id="cat-file-tuple-variable",
+        ),
+        pytest.param(
+            'ops.run(["git", "cat-file", "-p", "HEAD:CHANGELOG.md"])', id="cat-file"
+        ),
+    ],
+)
+def test_the_changelog_scan_follows_a_git_argv_held_in_a_variable(source: str) -> None:
+    assert FileAccess(source).lines()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('cmd = ["git", "log", "CHANGELOG.md"]\nops.run(cmd)', id="log"),
+        pytest.param('cmd = ["git", "show", "HEAD:x"]\nops.run(cmd)', id="other-file"),
+    ],
+)
+def test_the_changelog_scan_ignores_an_argv_that_does_not_read_it(source: str) -> None:
+    assert FileAccess(source).lines() == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("info.plugin_manifest.write_text(x)", id="attribute-write"),
+        pytest.param("self._info.plugin_manifest.read_text()", id="attribute-read"),
+        pytest.param("info.plugin_manifest.open()", id="attribute-open"),
+        pytest.param('shutil.copy(src, root / "README.md")', id="shutil-copy"),
+        pytest.param('shutil.move(root / "install.sh", dst)', id="shutil-move"),
+        pytest.param("shutil.copyfile(info.plugin_manifest, dst)", id="shutil-attr"),
+        pytest.param(
+            'ops.run(["git", "cat-file", "-p", "HEAD:install.sh"])', id="cat-file"
+        ),
+        pytest.param(
+            'cmd = ["git", "cat-file", "blob", "HEAD:README.md"]\nops.run(cmd)',
+            id="cat-file-variable",
+        ),
+    ],
+)
+def test_the_managed_file_scan_finds_the_attribute_shutil_and_cat_file_forms(
+    source: str,
+) -> None:
+    assert _managed_io_lines(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('ops.run(["git", "show", "HEAD:install.sh"])', id="show-is-legal"),
+        pytest.param("JsonFile(info.plugin_manifest).load()", id="wrapper"),
+        pytest.param("info.plugin_manifest.relative_to(root)", id="not-io"),
+        pytest.param('shutil.copy(src, root / "notes.txt")', id="unmanaged-copy"),
+    ],
+)
+def test_the_managed_file_scan_leaves_the_legal_forms_alone(source: str) -> None:
+    assert _managed_io_lines(source) == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('name = remote.removesuffix(".git")', id="removesuffix"),
+        pytest.param('remote.rsplit(":", 1)[-1]', id="rsplit-colon"),
+        pytest.param('origin.split(sep="/")', id="split-keyword"),
+        pytest.param('remote_url.partition(":")', id="partition-colon"),
+        pytest.param("slug_text.rpartition('/')", id="rpartition"),
+    ],
+)
+def test_the_slug_scan_finds_the_widened_forms(source: str) -> None:
+    assert SlugParsing(source).lines()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('name = filename.removesuffix(".py")', id="other-suffix"),
+        pytest.param('line.rsplit(":", 1)', id="neutral-receiver"),
+        pytest.param('text.split(sep="/")', id="neutral-keyword"),
+    ],
+)
+def test_the_slug_scan_ignores_neutral_receivers(source: str) -> None:
+    assert SlugParsing(source).lines() == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            "from x import EntryMatcher as EM\nm = EM(a, b, c)", id="import-alias"
+        ),
+        pytest.param("m = entry_matcher.EntryMatcher(a, b, c)", id="module-attribute"),
+        pytest.param(
+            "import x.entry_matcher as em\nm = em.EntryMatcher(a, b, c)",
+            id="module-alias",
+        ),
+    ],
+)
+def test_the_entry_matcher_scan_finds_an_aliased_construction(source: str) -> None:
+    assert _constructs_entry_matcher(source)
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "# shellcheck disable=SC2086",
+        "# mypy: ignore-errors",
+        "# pyright: basic",
+        "# pyright: reportUnknownMemberType=false",
+        "# fmt: off",
+        "# fmt: skip",
+        "# pylint: skip-file",
+    ],
+)
+def test_the_suppression_scan_finds_the_file_level_forms(comment: str) -> None:
+    assert _suppression_lines(f"{comment}\nx = 1\n", python=True) == [1]
+    assert _suppression_lines(f"{comment}\nx = 1\n", python=False) == [1]

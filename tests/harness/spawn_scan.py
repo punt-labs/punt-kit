@@ -4,8 +4,10 @@ It watches ``subprocess``, ``os``, ``pty``, ``asyncio``, ``multiprocessing`` and
 ``concurrent.futures.ProcessPoolExecutor``, plus string-based imports, ``getattr``
 and ``vars`` on those modules, and ``sys.modules`` lookups of them. It follows
 absolute imports inside the package and refuses a relative one rather than skip
-it. It does not see a process started by a program a module runs, or by code it
-cannot resolve statically.
+it. A tripwire for the plausible forms, not a proof: it does not see a process
+started by a program a module runs, or by code it cannot resolve statically,
+such as an alias made by assignment (``m = os``), tuple unpacking, a loop
+variable, a name passed through a helper's argument, or ``ctypes``.
 """
 
 from __future__ import annotations
