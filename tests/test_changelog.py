@@ -397,6 +397,46 @@ def test_a_bare_carriage_return_is_a_line_end() -> None:
     assert ChangelogDocument(cl).is_stamped("1.0.0")
 
 
+def _has_entries(body: str) -> bool:
+    unreleased = ChangelogDocument(f"## [Unreleased]\n\n{body}\n").section("Unreleased")
+    assert unreleased is not None
+    return unreleased.has_entries
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("<!-- c --> real", id="block-then-text"),
+        pytest.param("<!--\nc\n--> real text", id="multi-line-then-text"),
+        pytest.param("- <!-- c --> real", id="bullet-comment-then-text"),
+        pytest.param("- <!-- TODO --> Fixed the crash", id="bullet-todo-then-text"),
+        pytest.param("<!-- a --> <b>x</b>", id="comment-then-html"),
+    ],
+)
+def test_text_after_a_closing_comment_is_a_real_entry(body: str) -> None:
+    """CommonMark still renders what follows ``-->``, so it is not comment-only."""
+    assert _has_entries(body)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("<!-- a --><!-- b -->", id="adjacent"),
+        pytest.param("<!-- a -->\n<!-- b -->", id="two-blocks"),
+        pytest.param("- <!-- a --><!-- b -->", id="bullet-adjacent"),
+        pytest.param("<!--\nnothing\n-->", id="multi-line"),
+    ],
+)
+def test_comment_only_content_is_not_an_entry(body: str) -> None:
+    assert not _has_entries(body)
+
+
+@pytest.mark.parametrize("separator", ["---", "***", "___", "- - -"])
+def test_a_thematic_break_is_not_an_entry(separator: str) -> None:
+    """A separator line is layout, not a change."""
+    assert not _has_entries(separator)
+
+
 # --- Changelog (file access and the preflight gate) ---
 
 

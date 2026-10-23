@@ -19,7 +19,11 @@ _VERSION = re.compile(r"\[([^\]]*)\]")
 # Block tokens that open a list (descended into) and that are code (an entry).
 _LIST_OPENERS = frozenset({"bullet_list_open", "ordered_list_open"})
 _DESCENDED = _LIST_OPENERS | {"list_item_open"}
-_CODE_BLOCKS = frozenset({"fence", "code_block", "hr"})
+_CODE_BLOCKS = frozenset({"fence", "code_block"})
+
+# An HTML comment span; an unclosed one runs to the end of its block, as
+# CommonMark ends an HTML block only at the line holding ``-->``.
+_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
 
 
 @final
@@ -256,7 +260,8 @@ class ChangelogDocument:
 
     @staticmethod
     def _is_comment(token: Token) -> bool:
-        return token.content.lstrip().startswith("<!--")
+        """True when nothing but HTML comments (and blanks) is left in the token."""
+        return not _COMMENT.sub("", token.content).strip()
 
     @classmethod
     def _is_visible(cls, child: Token) -> bool:
