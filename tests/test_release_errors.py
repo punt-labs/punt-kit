@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit import release
+from punt_kit.phases.shared import pipeline as pipeline_mod
 from punt_kit.phases.shared.errors import OperationalFailure, ReleaseError
 from punt_kit.phases.shared.pipeline import ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.reporter import reporter
@@ -24,6 +25,7 @@ from tests.helpers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -541,3 +543,33 @@ def test_a_failed_command_line_joins_its_detail_with_a_dash_not_a_stray_colon() 
     line = OperationalFailure.one_line(_failed_command(stderr="no database"))
 
     assert (line.endswith(" — no database"), ".:" in line) == (True, False)
+
+
+def test_a_failure_already_done_is_printed_once_when_collection_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    seen: Future[None] = Future()
+    seen.set_exception(ReleaseError("seen-by-the-loop failed"))
+    unseen: Future[None] = Future()
+    unseen.set_exception(ReleaseError("never-reached-by-the-loop failed"))
+    running: Future[None] = Future()
+
+    def interrupted_after_one(
+        _futures: object,
+    ) -> Iterator[Future[None]]:
+        yield seen
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(pipeline_mod, "as_completed", interrupted_after_one)
+
+    with pytest.raises(KeyboardInterrupt):
+        ThreadedStep(ops=_ops()).collect(
+            {seen: "a", unseen: "b", running: "c"}, interrupted=threading.Event()
+        )
+
+    out = flat(capsys.readouterr().out)
+    assert (
+        out.count("a: seen-by-the-loop failed"),
+        out.count("b: never-reached-by-the-loop failed"),
+        "c:" in out,
+    ) == (1, 1, False)

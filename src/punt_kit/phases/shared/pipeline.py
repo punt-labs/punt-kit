@@ -94,27 +94,23 @@ class ThreadedStep:
         """
         errors: list[tuple[str, str]] = []
         reported: set[str] = set()  # tasks whose failure Reporter.fail printed
-        for f in as_completed(futures):
-            name = futures[f]
-            try:
-                f.result()
-            except ReleaseError as e:
-                errors.append((name, str(e)))
-                if isinstance(e, ReportedReleaseError):
-                    reported.add(name)
-            except SystemExit as e:
-                errors.append((name, self._describe_exit(name, e)))
-            except BaseException as e:
-                # Thread-pool boundary: whatever a task raised is collected so
-                # its siblings finish, then every error is re-raised together.
-                errors.append((name, OperationalFailure.report(e)))
+        collected: set[Future[None]] = set()
+        try:
+            for f in as_completed(futures):
+                collected.add(f)
+                self._collect_one(f, futures[f], errors, reported)
+        except KeyboardInterrupt:
+            # The interrupt skipped the futures the loop had not reached; any
+            # that already finished still hold a failure to show.
+            for f, name in futures.items():
+                if f.done() and f not in collected:
+                    self._collect_one(f, name, errors, reported)
+            self._print_unreported(errors, reported)
+            raise
         if interrupted.is_set():
             # The interrupt report replaces the failure summary below, so
             # what the tasks reported must be shown before it is lost.
-            for name, text in errors:
-                if name in reported:
-                    continue
-                _console.print(f"[red]Error:[/red] {escape(f'{name}: {text}')}")
+            self._print_unreported(errors, reported)
             raise KeyboardInterrupt
         if errors:
             # Carries each task's own error text, not just its name, and does
@@ -124,6 +120,34 @@ class ThreadedStep:
             details = "; ".join(f"{name}: {text}" for name, text in errors)
             msg = f"{len(errors)} task(s) failed: {details}"
             raise ReleaseError(msg)
+
+    def _collect_one(
+        self,
+        future: Future[None],
+        name: str,
+        errors: list[tuple[str, str]],
+        reported: set[str],
+    ) -> None:
+        """Record the failure ``future`` holds, if any, under ``name``."""
+        try:
+            future.result()
+        except ReleaseError as e:
+            errors.append((name, str(e)))
+            if isinstance(e, ReportedReleaseError):
+                reported.add(name)
+        except SystemExit as e:
+            errors.append((name, self._describe_exit(name, e)))
+        except BaseException as e:
+            # Thread-pool boundary: whatever a task raised is collected so
+            # its siblings finish, then every error is re-raised together.
+            errors.append((name, OperationalFailure.report(e)))
+
+    @staticmethod
+    def _print_unreported(errors: list[tuple[str, str]], reported: set[str]) -> None:
+        """Print each collected error that ``Reporter.fail`` did not already show."""
+        for name, text in errors:
+            if name not in reported:
+                _console.print(f"[red]Error:[/red] {escape(f'{name}: {text}')}")
 
     @staticmethod
     def _describe_exit(name: str, exc: SystemExit) -> str:
