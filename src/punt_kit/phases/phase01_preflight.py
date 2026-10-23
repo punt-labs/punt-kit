@@ -3,13 +3,14 @@ siblings, and (unless dry-run) quality gates."""
 
 from __future__ import annotations
 
-import json
 import shlex
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.siblings import PROPAGATION_SIBLINGS, SiblingRepo
 from punt_kit.phases.shared.timeouts import GIT_HOOK, QUALITY_GATE
 
@@ -340,10 +341,9 @@ class Phase1Preflight:
         if show.returncode != 0:
             return
         try:
-            data = cast(
-                "dict[str, object]", json.loads(show.stdout.removeprefix("\ufeff"))
-            )
-        except json.JSONDecodeError:
+            data = JsonFile.parse_object(show.stdout, source=f"{tag}:{manifest_rel}")
+        except ReleaseError as exc:
+            ops.warn(f"Prior tag {tag}'s manifest could not be checked: {exc}")
             return
 
         name = str(data.get("name", ""))

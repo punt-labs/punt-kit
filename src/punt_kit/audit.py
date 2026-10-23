@@ -331,12 +331,11 @@ def _check_changelog(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, st
 
     if fix:
         project_name = _get_project_name(info)
-        changelog.write_text(
+        TextFile(changelog).write(
             f"# Changelog\n\nAll notable changes to {project_name} "
             "will be documented in this file.\n\n"
             "The format is based on "
-            "[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n",
-            encoding="utf-8",
+            "[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n"
         )
         return [(FIXED, "CHANGELOG.md created", "")]
 
@@ -569,7 +568,7 @@ def _check_makefile(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
     results.append((PASS, "Makefile exists", ""))
 
-    content = makefile.read_text(encoding="utf-8")
+    content = TextFile(makefile).read()
 
     # Check required targets — look for "target:" at line start
     target_re = re.compile(r"^([a-zA-Z_-]+)\s*:", re.MULTILINE)
@@ -755,7 +754,7 @@ def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
     results.append((PASS, "install.sh exists", ""))
 
-    content = install_sh.read_text(encoding="utf-8")
+    content = TextFile(install_sh).read()
 
     if "set -eu" in content:
         results.append((PASS, "install.sh has strict mode", "set -eu"))

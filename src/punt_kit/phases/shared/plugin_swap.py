@@ -3,9 +3,9 @@
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
@@ -63,8 +63,8 @@ class PluginSwap:
             ["git", "show", f"HEAD:{self.manifest_path_rel()}"],
             cwd=str(self._info.root),
         )
-        return cast(
-            "dict[str, object]", json.loads(result.stdout.removeprefix("\ufeff"))
+        return JsonFile.parse_object(
+            result.stdout, source=f"HEAD:{self.manifest_path_rel()}"
         )
 
     def reset_to_head(self) -> None:

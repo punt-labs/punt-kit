@@ -46,10 +46,15 @@ class TextFile:
         ``source``.
         """
         try:
-            return raw.decode("utf-8").removeprefix(_BOM)
+            return TextFile.without_bom(raw.decode("utf-8"))
         except UnicodeDecodeError as exc:
             msg = f"{source} is not valid UTF-8: {exc}"
             raise ReleaseError(msg) from exc
+
+    @staticmethod
+    def without_bom(text: str) -> str:
+        """``text`` without a leading BOM, for text a command printed."""
+        return text.removeprefix(_BOM)
 
     def read(self) -> str:
         """The file's text with its line endings, without a leading BOM."""

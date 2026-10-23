@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast, final
+
+from punt_kit.phases.shared.json_file import JsonFile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -75,7 +76,10 @@ class MarketplacePinCheck:
         )
         if show.returncode != 0:
             return False, f"claude-plugins@{claude_plugins_sha} does not resolve"
-        data = cast("dict[str, object]", json.loads(show.stdout.removeprefix("\ufeff")))
+        data = JsonFile.parse_object(
+            show.stdout,
+            source=f"claude-plugins@{claude_plugins_sha}:.claude-plugin/marketplace.json",
+        )
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
         for p in plugins:
             if self._matcher.claims_plugin(p):

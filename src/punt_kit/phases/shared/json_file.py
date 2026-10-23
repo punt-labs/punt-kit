@@ -29,28 +29,42 @@ class JsonFile:
         self._has_final_newline = True
         return self
 
+    @staticmethod
+    def parse(text: str, *, source: str) -> object:
+        """Parse JSON text that did not come from a file, such as ``git show``.
+
+        A leading BOM is dropped, as it is when a file is read. Text that is
+        not JSON raises a :class:`ReleaseError` naming ``source``.
+        """
+        try:
+            # Wire boundary: json.loads yields object until the caller narrows it.
+            return json.loads(TextFile.without_bom(text))
+        except json.JSONDecodeError as exc:
+            msg = f"{source} is not valid JSON: {exc}"
+            raise ReleaseError(msg) from exc
+
+    @classmethod
+    def parse_object(cls, text: str, *, source: str) -> dict[str, object]:
+        """``parse`` for text that must hold a JSON object."""
+        data = cls.parse(text, source=source)
+        if not isinstance(data, dict):
+            msg = f"{source} must hold a JSON object, found {type(data).__name__}"
+            raise ReleaseError(msg)
+        return cast("dict[str, object]", data)
+
     def load(self) -> object:
         """Parse the file, remembering its line ending and final newline."""
         text = self._file.read()
         self._eol = "\r\n" if "\r\n" in text else "\n"
         self._has_final_newline = text.endswith("\n")
-        try:
-            # Wire boundary: json.loads yields object until the caller narrows it.
-            return json.loads(text)
-        except json.JSONDecodeError as exc:
-            msg = f"{self._file.path} is not valid JSON: {exc}"
-            raise ReleaseError(msg) from exc
+        return self.parse(text, source=str(self._file.path))
 
     def load_object(self) -> dict[str, object]:
         """Parse the file as a JSON object, or raise naming the file and why."""
-        data = self.load()
-        if not isinstance(data, dict):
-            msg = (
-                f"{self._file.path} must hold a JSON object,"
-                f" found {type(data).__name__}"
-            )
-            raise ReleaseError(msg)
-        return cast("dict[str, object]", data)
+        text = self._file.read()
+        self._eol = "\r\n" if "\r\n" in text else "\n"
+        self._has_final_newline = text.endswith("\n")
+        return self.parse_object(text, source=str(self._file.path))
 
     def save(self, data: object) -> None:
         """Write ``data`` indented by two, keeping non-ASCII text as written."""

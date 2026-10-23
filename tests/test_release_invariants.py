@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 from pathlib import Path
 from typing import Self, final
 
@@ -28,25 +30,40 @@ _CHANGELOG = "CHANGELOG.md"
 
 
 @final
-class ChangelogReads:
-    """The lines where a module reads CHANGELOG.md content itself.
+class FileAccess:
+    """The lines where a module reads or writes named files itself.
 
-    A read is a read method or ``open`` on a path that traces to
-    ``"CHANGELOG.md"``: directly, through a name it was assigned to, through
+    By default the file is CHANGELOG.md and the access is a read. An access
+    is a method in ``methods`` or ``open`` on a path that traces to one of
+    ``names``: directly, through a name it was assigned to, through
     a wrapper such as ``TextFile(p)`` (and a name bound to that wrapper), or
     through an imported constant that holds the file name. ``git show
     <ref>:CHANGELOG.md`` reads it too.
     """
 
-    __slots__ = ("_constants", "_tree")
+    __slots__ = ("_constants", "_include_git_show", "_methods", "_names", "_tree")
 
     _tree: ast.Module
     _constants: frozenset[str]
+    _names: frozenset[str]
+    _methods: frozenset[str]
+    _include_git_show: bool
 
-    def __new__(cls, source: str, *, constants: frozenset[str] = frozenset()) -> Self:
+    def __new__(
+        cls,
+        source: str,
+        *,
+        constants: frozenset[str] = frozenset(),
+        names: frozenset[str] = frozenset({_CHANGELOG}),
+        methods: frozenset[str] = _READ_METHODS,
+        include_git_show: bool = True,
+    ) -> Self:
         self = super().__new__(cls)
         self._tree = ast.parse(source)
         self._constants = constants
+        self._names = names
+        self._methods = methods
+        self._include_git_show = include_git_show
         return self
 
     @staticmethod
@@ -71,7 +88,10 @@ class ChangelogReads:
             node.lineno
             for node in ast.walk(self._tree)
             if isinstance(node, ast.Call)
-            and (self._reads(node, paths) or self._shows(node, paths))
+            and (
+                self._reads(node, paths)
+                or (self._include_git_show and self._shows(node, paths))
+            )
         )
 
     def _names_bound_to_the_changelog(self) -> set[str]:
@@ -101,7 +121,7 @@ class ChangelogReads:
             if (
                 isinstance(part, ast.Constant)
                 and isinstance(part.value, str)
-                and _CHANGELOG in part.value
+                and any(name in part.value for name in self._names)
             ):
                 return True
             if isinstance(part, ast.Name | ast.Attribute):
@@ -112,7 +132,7 @@ class ChangelogReads:
 
     def _reads(self, call: ast.Call, paths: set[str]) -> bool:
         func = call.func
-        if isinstance(func, ast.Attribute) and func.attr in _READ_METHODS:
+        if isinstance(func, ast.Attribute) and func.attr in self._methods:
             target: ast.AST = func.value
         elif isinstance(func, ast.Name) and func.id == "open" and call.args:
             target = call.args[0]
@@ -155,7 +175,7 @@ class ChangelogReads:
     ],
 )
 def test_the_scan_finds_a_module_reading_the_changelog(source: str) -> None:
-    assert ChangelogReads(source).lines()
+    assert FileAccess(source).lines()
 
 
 @pytest.mark.parametrize(
@@ -184,13 +204,13 @@ def test_the_scan_finds_a_module_reading_the_changelog(source: str) -> None:
     ],
 )
 def test_the_scan_finds_the_indirect_reads_of_the_changelog(source: str) -> None:
-    assert ChangelogReads(source, constants=frozenset({"CHANGELOG_NAME"})).lines()
+    assert FileAccess(source, constants=frozenset({"CHANGELOG_NAME"})).lines()
 
 
 def test_the_constants_that_hold_the_file_name_are_found_in_a_module() -> None:
     source = 'CHANGELOG_NAME = "CHANGELOG.md"\nOTHER = "README.md"\nx = 1\n'
 
-    assert ChangelogReads.constants_in(source) == {"CHANGELOG_NAME"}
+    assert FileAccess.constants_in(source) == {"CHANGELOG_NAME"}
 
 
 @pytest.mark.parametrize(
@@ -210,13 +230,13 @@ def test_the_constants_that_hold_the_file_name_are_found_in_a_module() -> None:
     ],
 )
 def test_the_scan_ignores_paths_that_are_not_read(source: str) -> None:
-    assert ChangelogReads(source).lines() == []
+    assert FileAccess(source).lines() == []
 
 
 def _changelog_constants() -> frozenset[str]:
     found: set[str] = set()
     for path in _PACKAGE.rglob("*.py"):
-        found.update(ChangelogReads.constants_in(path.read_text("utf-8")))
+        found.update(FileAccess.constants_in(path.read_text("utf-8")))
     return frozenset(found)
 
 
@@ -227,11 +247,7 @@ def test_only_the_changelog_modules_read_changelog_content() -> None:
         str(path.relative_to(_PACKAGE)): lines
         for path in sorted(_PACKAGE.rglob("*.py"))
         if path.name not in _CHANGELOG_MODULES
-        if (
-            lines := ChangelogReads(
-                path.read_text("utf-8"), constants=constants
-            ).lines()
-        )
+        if (lines := FileAccess(path.read_text("utf-8"), constants=constants).lines())
     }
     assert readers == {}
 
@@ -242,19 +258,76 @@ def _frontmatter(path: Path) -> str:
     return match.group(1)
 
 
+def _skill_names(skill: Path) -> set[str]:
+    """The names a skill answers to: its directory and its frontmatter ``name:``."""
+    names = {skill.parent.name}
+    named = re.search(r"^name:\s*(\S+)\s*$", _frontmatter(skill), re.MULTILINE)
+    if named:
+        names.add(named.group(1).strip("\"'"))
+    return names
+
+
+def _twinned_skills(plugin: Path) -> list[Path]:
+    """Skills a command of the same name loads, by directory name or ``name:``."""
+    return [
+        skill
+        for skill in sorted((plugin / "skills").glob("*/SKILL.md"))
+        if any((plugin / "commands" / f"{n}.md").exists() for n in _skill_names(skill))
+    ]
+
+
+def _listed_twice(plugin: Path) -> list[str]:
+    """Twinned skills that would also list themselves in the slash menu."""
+    return [
+        skill.parent.name
+        for skill in _twinned_skills(plugin)
+        if not re.search(
+            r"^user-invocable:\s*false\s*$", _frontmatter(skill), re.MULTILINE
+        )
+    ]
+
+
+def _write_skill(plugin: Path, directory: str, frontmatter: str) -> None:
+    skill = plugin / "skills" / directory / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(f"---\n{frontmatter}\n---\n\nBody\n")
+
+
+def test_a_skill_pairs_with_a_command_through_its_frontmatter_name(
+    tmp_path: Path,
+) -> None:
+    """The skill lives in ``tool/`` but is named ``run``: ``run.md`` is its twin."""
+    _write_skill(tmp_path, "tool", "name: run\ndescription: x")
+    (tmp_path / "commands").mkdir()
+    (tmp_path / "commands" / "run.md").write_text("---\n---\n")
+
+    assert _listed_twice(tmp_path) == ["tool"]
+
+
+def test_a_skill_pairs_with_a_command_through_its_directory_name(
+    tmp_path: Path,
+) -> None:
+    _write_skill(tmp_path, "run", "name: other\ndescription: x")
+    (tmp_path / "commands").mkdir()
+    (tmp_path / "commands" / "run.md").write_text("---\n---\n")
+
+    assert _listed_twice(tmp_path) == ["run"]
+
+
+def test_a_hidden_twin_is_not_listed_twice(tmp_path: Path) -> None:
+    _write_skill(tmp_path, "run", "name: run\nuser-invocable: false")
+    (tmp_path / "commands").mkdir()
+    (tmp_path / "commands" / "run.md").write_text("---\n---\n")
+
+    assert _listed_twice(tmp_path) == []
+
+
 def test_every_skill_with_a_command_is_hidden_from_the_slash_menu() -> None:
     """A skill the command of the same name loads must not list itself twice."""
-    skills = sorted((_PLUGIN / "skills").glob("*/SKILL.md"))
-    twinned = [
-        s for s in skills if (_PLUGIN / "commands" / f"{s.parent.name}.md").exists()
-    ]
-    assert twinned, "no skill has a command of the same name: the guard guards nothing"
-    visible = [
-        s.parent.name
-        for s in twinned
-        if not re.search(r"^user-invocable:\s*false\s*$", _frontmatter(s), re.MULTILINE)
-    ]
-    assert visible == []
+    assert _twinned_skills(_PLUGIN), (
+        "no skill has a command of the same name: the guard guards nothing"
+    )
+    assert _listed_twice(_PLUGIN) == []
 
 
 _README_PIN = "punt_kit.phases.shared.readme_sha"
@@ -599,3 +672,144 @@ def test_only_the_entry_matcher_module_constructs_one() -> None:
         if (lines := _constructs_entry_matcher(path.read_text("utf-8")))
     }
     assert builders == {}
+
+
+# --- no suppressions ---
+
+_SUPPRESSION = re.compile(
+    r"noqa|type:\s*ignore|pyright:\s*ignore|pylint:\s*disable|nosec"
+    r"|pragma:\s*no\s*cover",
+    re.IGNORECASE,
+)
+_SUPPRESSION_ROOTS = (_PACKAGE, _PLUGIN)
+_COMMENT_FILES = frozenset({".py", ".sh", ".yaml", ".yml"})
+
+
+def _suppression_lines(source: str, *, python: bool) -> list[int]:
+    """Lines whose comment suppresses a check; a string that says so does not."""
+    if python:
+        comments = [
+            (token.start[0], token.string)
+            for token in tokenize.generate_tokens(io.StringIO(source).readline)
+            if token.type == tokenize.COMMENT
+        ]
+    else:
+        comments = [
+            (number, line.partition("#")[2])
+            for number, line in enumerate(source.splitlines(), 1)
+            if "#" in line
+        ]
+    return [number for number, text in comments if _SUPPRESSION.search(text)]
+
+
+@pytest.mark.parametrize(
+    "comment",
+    [
+        "x = 1  # noqa: E501",
+        "x = 1  # NOQA",
+        "x = 1  # type: ignore[attr-defined]",
+        "x = 1  # pyright: ignore[reportPrivateUsage]",
+        "x = 1  # pylint: disable=too-many-arguments",
+        "x = 1  # nosec B101",
+        "if x:  # pragma: no cover",
+    ],
+)
+def test_the_suppression_scan_finds_every_suppression(comment: str) -> None:
+    assert _suppression_lines(comment, python=True) == [1]
+    assert _suppression_lines(comment, python=False) == [1]
+
+
+def test_the_suppression_scan_ignores_a_string_that_names_one() -> None:
+    assert _suppression_lines('msg = "add # noqa to silence it"', python=True) == []
+
+
+def test_no_source_or_plugin_file_suppresses_a_check() -> None:
+    """A suppression hides the finding a gate exists to surface."""
+    found = {
+        str(path): lines
+        for root in _SUPPRESSION_ROOTS
+        for path in sorted(root.rglob("*"))
+        if path.is_file() and path.suffix in _COMMENT_FILES
+        if (
+            lines := _suppression_lines(
+                path.read_text("utf-8"), python=path.suffix == ".py"
+            )
+        )
+    }
+    assert found == {}
+
+
+# --- release-managed files are read and written through TextFile / JsonFile ---
+
+_MANAGED_FILES = frozenset(
+    {
+        "CHANGELOG.md",
+        "pyproject.toml",
+        "__init__.py",
+        "install.sh",
+        "install-all.sh",
+        "plugin.json",
+        "README.md",
+        "marketplace.json",
+        "projects.json",
+        "settings.json",
+    }
+)
+_IO_METHODS = frozenset(
+    {"read_text", "write_text", "read_bytes", "write_bytes", "open", "readlines"}
+)
+# The two wrappers: they are where a managed file's bytes are actually touched.
+_FILE_WRAPPERS = frozenset({"text_file.py", "json_file.py"})
+
+
+def _managed_io_lines(source: str) -> list[int]:
+    return FileAccess(
+        source, names=_MANAGED_FILES, methods=_IO_METHODS, include_git_show=False
+    ).lines()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('(root / "pyproject.toml").read_text()', id="read-text"),
+        pytest.param('(root / "README.md").write_text(x)', id="write-text"),
+        pytest.param('p = root / "install.sh"\np.read_bytes()', id="bound-read"),
+        pytest.param('p = pkg / "__init__.py"\np.write_bytes(b)', id="bound-write"),
+        pytest.param('open(root / ".claude" / "settings.json")', id="open"),
+        pytest.param(
+            'init_py = pkg / "__init__.py"\ninit_py.write_text(t, encoding="utf-8")',
+            id="write-with-encoding",
+        ),
+        pytest.param('(d / "install-all.sh").read_text()', id="install-all"),
+        pytest.param('(d / "src" / "data" / "projects.json").open()', id="projects"),
+    ],
+)
+def test_the_file_io_scan_finds_a_managed_file_touched_directly(source: str) -> None:
+    assert _managed_io_lines(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('TextFile(root / "pyproject.toml").read()', id="text-file"),
+        pytest.param('JsonFile(root / "plugin.json").load()', id="json-file"),
+        pytest.param('(root / ".markdownlint.jsonc").write_text(x)', id="unmanaged"),
+        pytest.param('(root / "Makefile").read_text()', id="makefile"),
+        pytest.param('(root / "README.md").exists()', id="exists"),
+    ],
+)
+def test_the_file_io_scan_ignores_the_wrappers_and_unmanaged_files(
+    source: str,
+) -> None:
+    assert _managed_io_lines(source) == []
+
+
+def test_release_managed_files_are_touched_only_through_the_wrappers() -> None:
+    """A direct read or write drops the BOM, the line endings, or the final newline."""
+    direct = {
+        str(path.relative_to(_PACKAGE)): lines
+        for path in sorted(_PACKAGE.rglob("*.py"))
+        if path.name not in _FILE_WRAPPERS
+        if (lines := _managed_io_lines(path.read_text("utf-8")))
+    }
+    assert direct == {}

@@ -4018,6 +4018,29 @@ def test_preflight_warns_when_prior_tag_version_mismatches(
     assert "0.0.9" in out
 
 
+def test_preflight_warns_when_the_prior_tags_manifest_is_not_valid_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    good = plugin_json.read_text()
+    plugin_json.write_text("{broken")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "broken manifest"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    plugin_json.write_text(good)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "fix manifest"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    _phase1_preflight(detect(root), dry_run=True)
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "v0.1.0:.claude-plugin/plugin.json is not valid JSON" in out
+
+
 # --- pvb: verify finds pure-plugin entries in install-all.sh ---
 
 

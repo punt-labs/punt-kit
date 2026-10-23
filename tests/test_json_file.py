@@ -72,3 +72,17 @@ def test_a_text_file_with_non_utf8_bytes_names_the_file(tmp_path: Path) -> None:
 
 def test_from_bytes_drops_a_leading_bom() -> None:
     assert TextFile.from_bytes(b"\xef\xbb\xbf{}", source="git show") == "{}"
+
+
+def test_parse_drops_a_leading_bom_from_text_that_is_not_a_file() -> None:
+    assert JsonFile.parse('\ufeff{"a": 1}', source="git show") == {"a": 1}
+
+
+def test_parse_object_names_the_source_when_the_text_is_not_json() -> None:
+    with pytest.raises(ReleaseError, match=r"v1:plugin\.json is not valid JSON"):
+        JsonFile.parse_object("{broken", source="v1:plugin.json")
+
+
+def test_parse_object_rejects_a_json_array() -> None:
+    with pytest.raises(ReleaseError, match=r"v1:plugin\.json must hold a JSON object"):
+        JsonFile.parse_object("[1]", source="v1:plugin.json")
