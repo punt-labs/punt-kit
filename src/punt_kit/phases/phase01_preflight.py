@@ -4,7 +4,6 @@ siblings, and (unless dry-run) quality gates."""
 from __future__ import annotations
 
 import json
-import re
 import shlex
 from typing import TYPE_CHECKING, Self, cast, final
 
@@ -142,14 +141,10 @@ class Phase1Preflight:
             self._warn_stale_prior_tag(info)
 
         # 1c. Changelog check
-        changelog = Changelog(info.root, ops=ops).text()
-        if "## [Unreleased]" not in changelog:
+        changelog = Changelog(info.root, ops=ops)
+        if "## [Unreleased]" not in changelog.text():
             ops.fail("No [Unreleased] section in CHANGELOG.md")
-
-        unreleased_match = re.search(
-            r"## \[Unreleased\]\s*\n(.*?)(?=\n## \[|\Z)", changelog, re.DOTALL
-        )
-        if not unreleased_match or not unreleased_match.group(1).strip():
+        if not changelog.has_unreleased_entries():
             ops.fail("[Unreleased] section is empty — nothing to release")
         ops.ok("Changelog has unreleased entries")
 
