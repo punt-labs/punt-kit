@@ -33,6 +33,7 @@ from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared.changelog import extract_version_notes
 from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.pipeline import ReleasePipeline
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -1286,9 +1287,7 @@ def test_phase9_post_release_no_longer_bumps_readme(
     assert (root / "README.md").read_text() == stale_readme
 
 
-def test_land_readme_sha_pin_commit_excludes_untracked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_land_readme_sha_pin_commit_excludes_untracked(tmp_path: Path) -> None:
     """The README-SHA-pin commit stages only README.md, not stray files.
 
     Ports the untracked-file-exclusion invariant that used to guard phase 9's
@@ -1313,11 +1312,11 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     def fake_pr_merge(**_kwargs: object) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
-
-    info = detect(root)
-    release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
+    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+        "0.2.0",
+        dry_run=False,
+        merge=fake_pr_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
     )
 
     committed = _commit_files(root)
@@ -1374,14 +1373,13 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     assert f"{expected_sha}/install.sh" in readme_content
 
 
-def test_find_pinned_shas_never_drifts_from_bump(tmp_path: Path) -> None:
-    """find_pinned_shas() must find exactly the pin a real bump() writes.
+def test_recognizer_reads_back_exactly_the_pin_bump_writes(tmp_path: Path) -> None:
+    """The recognizer Phase 11 reads with must find the pin a real bump() writes.
 
-    Both derive from ``ReadmeShaPin._url_prefix()``/``_SHA_SHAPE`` rather
-    than hand-copied literals — this drives an actual bump() and reads the
-    result back through find_pinned_shas(), so a future edit to one and not
-    the other breaks this test instead of Phase 11 silently passing a stale
-    README because the read-back pattern quietly stopped matching.
+    bump() and Phase 11 share one ``InstallUrlRecognizer``; this drives an
+    actual bump() and reads the result back, so a divergence between what is
+    written and what is recognized fails here instead of Phase 11 passing a
+    stale README because the read-back quietly stopped matching.
     """
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -1402,8 +1400,11 @@ def test_find_pinned_shas_never_drifts_from_bump(tmp_path: Path) -> None:
     readme_content = (root / "README.md").read_text()
     expected_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
 
-    found = ReadmeShaPin.find_pinned_shas(readme_content, "punt-labs", "proj")
+    found, has_untrusted = InstallUrlRecognizer("punt-labs", "proj").classify(
+        readme_content
+    )
     assert found == [expected_sha]
+    assert has_untrusted is False
 
 
 def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
@@ -1447,6 +1448,26 @@ def _readme_with_install_url(slug: str) -> str:
     )
 
 
+def _readme_with_urls(*urls: str) -> str:
+    snippets = "".join(f"curl -fsSL {url} | sh\n" for url in urls)
+    return f"# proj\n\n```bash\n{snippets}```\n"
+
+
+def _pin_url(slug: str, segment: str = "abc1234", filename: str = "install.sh") -> str:
+    return f"https://raw.githubusercontent.com/{slug}/{segment}/{filename}"
+
+
+def _current_install_sha(root: Path) -> str:
+    return _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=str(root))
+
+
+def _bump_with_slug(root: Path, slug: str | None, *, dry_run: bool = False) -> bool:
+    """Run the live ``ReadmeShaPin.bump`` with a fixed repo slug."""
+    return ReadmeShaPin(detect(root), ops=_fault_ops()).bump(
+        "0.2.0", dry_run=dry_run, resolve_repo=lambda _root: slug
+    )
+
+
 def _flat(text: str) -> str:
     """Collapse rich's width-dependent line wrapping into single spaces."""
     return " ".join(text.split())
@@ -1458,13 +1479,124 @@ def test_bump_warns_when_repo_slug_unresolved(
     """An unresolvable remote falls back to the directory name — loudly."""
     root = _make_release_project(tmp_path)
     (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
-    ops = _fault_ops()
 
-    ReadmeShaPin(detect(root), ops=ops).bump(
-        "0.2.0", dry_run=True, resolve_repo=lambda _root: None
-    )
+    _bump_with_slug(root, None, dry_run=True)
 
     assert "falling back to punt-labs/proj" in _flat(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize(
+    ("readme_slug", "resolved_slug"),
+    [
+        pytest.param("punt-labs/PROJ", "punt-labs/proj", id="repo-case-differs"),
+        pytest.param("PUNT-LABS/proj", "punt-labs/proj", id="owner-case-differs"),
+        pytest.param("punt-labs/proj", "punt-labs/proj/", id="trailing-slash-slug"),
+        pytest.param("punt-labs/proj", "/punt-labs/proj", id="leading-slash-slug"),
+        pytest.param("punt-labs/proj", " punt-labs/proj/ ", id="padded-slug"),
+    ],
+)
+def test_bump_rewrites_pin_regardless_of_case_or_slug_slashes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    readme_slug: str,
+    resolved_slug: str,
+) -> None:
+    """GitHub routes owner/repo case-insensitively, so a differently-cased pin
+    is still this repo's pin: rewritten, and never reported as another owner."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url(readme_slug))
+
+    changed = _bump_with_slug(root, resolved_slug)
+
+    readme = (root / "README.md").read_text()
+    assert f"{readme_slug}/{_current_install_sha(root)}/install.sh" in readme
+    assert changed is True
+    assert "WARNING" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("old_segment", "filename"),
+    [
+        pytest.param("v1.2.3-rc.1", "install.sh", id="prerelease-tag"),
+        pytest.param("V0.1.0", "install.sh", id="uppercase-v-tag"),
+        pytest.param("abc1234", "install.SH", id="uppercase-filename"),
+    ],
+)
+def test_bump_rewrites_every_pin_shape_the_recognizer_trusts(
+    tmp_path: Path, old_segment: str, filename: str
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", old_segment, filename))
+    )
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    sha = _current_install_sha(root)
+    assert (root / "README.md").read_text() == _readme_with_urls(
+        _pin_url("punt-labs/proj", sha, filename)
+    )
+
+
+def test_bump_slug_without_owner_falls_back_with_warning(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A slug that is not owner/repo must not crash the split."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+
+    _bump_with_slug(root, "proj")
+
+    out = _flat(capsys.readouterr().out)
+    assert "falling back to punt-labs/proj" in out
+    assert _current_install_sha(root) in (root / "README.md").read_text()
+
+
+def test_bump_warns_naming_a_second_stale_pin_under_another_owner(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One matching pin must not silence the warning about a second, stale one."""
+    root = _make_release_project(tmp_path)
+    other = _pin_url("other-org/proj")
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj"), other)
+    )
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    readme = (root / "README.md").read_text()
+    assert other in readme
+    assert other in _flat(capsys.readouterr().out)
+
+
+def test_bump_warns_when_a_pin_only_resolves_after_percent_decoding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pin bump cannot rewrite in place is reported by its URL, not skipped."""
+    root = _make_release_project(tmp_path)
+    encoded = _pin_url("punt-labs/%70roj")
+    readme = _readme_with_urls(encoded)
+    (root / "README.md").write_text(readme)
+
+    changed = _bump_with_slug(root, "punt-labs/proj")
+
+    assert (root / "README.md").read_text() == readme
+    assert changed is False
+    assert "abc1234" in _flat(capsys.readouterr().out)
+
+
+def test_bump_warns_about_a_look_alike_host_and_leaves_it_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    evil = "https://evil.example/punt-labs/proj/abc1234/install.sh"
+    readme = _readme_with_urls(evil)
+    (root / "README.md").write_text(readme)
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    assert (root / "README.md").read_text() == readme
+    assert evil in _flat(capsys.readouterr().out)
 
 
 def test_bump_warns_when_no_install_url_matches_slug(
@@ -1474,13 +1606,10 @@ def test_bump_warns_when_no_install_url_matches_slug(
     root = _make_release_project(tmp_path)
     readme = _readme_with_install_url("other-org/proj")
     (root / "README.md").write_text(readme)
-    ops = _fault_ops()
 
-    ReadmeShaPin(detect(root), ops=ops).bump(
-        "0.2.0", dry_run=False, resolve_repo=lambda _root: "punt-labs/proj"
-    )
+    _bump_with_slug(root, "punt-labs/proj")
 
-    assert "different owner than punt-labs" in _flat(capsys.readouterr().out)
+    assert _pin_url("other-org/proj") in _flat(capsys.readouterr().out)
     assert (root / "README.md").read_text() == readme
 
 
@@ -1508,46 +1637,44 @@ def test_bump_does_not_warn_about_install_references_it_does_not_pin(
     root = _make_release_project(tmp_path)
     readme = f"# proj\n\n```bash\n{snippet}\n```\n"
     (root / "README.md").write_text(readme)
-    ops = _fault_ops()
 
-    ReadmeShaPin(detect(root), ops=ops).bump(
-        "0.2.0", dry_run=True, resolve_repo=lambda _root: "punt-labs/proj"
-    )
+    changed = _bump_with_slug(root, "punt-labs/proj", dry_run=True)
 
+    assert changed is False
     assert "WARNING" not in capsys.readouterr().out
     assert (root / "README.md").read_text() == readme
 
 
-def test_bump_does_not_warn_when_pin_matches(
+def test_bump_reports_no_change_when_the_pin_is_current(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A resolved slug whose URLs match produces no warning."""
+    """A README that already pins the current SHA is not rewritten or warned about."""
     root = _make_release_project(tmp_path)
-    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
-    ops = _fault_ops()
+    readme = _readme_with_urls(_pin_url("punt-labs/proj", _current_install_sha(root)))
+    (root / "README.md").write_text(readme)
 
-    ReadmeShaPin(detect(root), ops=ops).bump(
-        "0.2.0", dry_run=True, resolve_repo=lambda _root: "punt-labs/proj"
-    )
+    changed = _bump_with_slug(root, "punt-labs/proj")
 
+    assert changed is False
     assert "WARNING" not in capsys.readouterr().out
+    assert (root / "README.md").read_text() == readme
 
 
 def test_land_dry_run_previews_readme_rewrite_without_writing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """land(dry_run=True) reaches bump's dry branch and touches nothing."""
+    """land(dry_run=True) previews the rewrite and touches nothing."""
     root = _make_release_project(tmp_path)
     readme = _readme_with_install_url("punt-labs/proj")
     (root / "README.md").write_text(readme)
     _git(["add", "."], cwd=str(root))
     _git(["commit", "-m", "pinned readme"], cwd=str(root))
-    ops = _fault_ops()
+    branch_before = _git_out(["branch", "--show-current"], cwd=str(root))
 
     def _no_merge(**_kwargs: object) -> str:
         raise AssertionError("a dry run must not merge")
 
-    ReadmeShaPin(detect(root), ops=ops).land(
+    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
         "0.2.0",
         dry_run=True,
         merge=_no_merge,
@@ -1555,9 +1682,39 @@ def test_land_dry_run_previews_readme_rewrite_without_writing(
     )
 
     out = _flat(capsys.readouterr().out)
-    assert "README.md: install URLs → <SHA> (v0.2.0)" in out
+    assert f"README.md: install URLs → {_current_install_sha(root)} (v0.2.0)" in out
+    assert "git commit" in out
     assert (root / "README.md").read_text() == readme
     assert _git_out(["status", "--porcelain"], cwd=str(root)) == ""
+    assert _git_out(["branch", "--list", "release-readme-pin/*"], cwd=str(root)) == ""
+    assert _git_out(["branch", "--show-current"], cwd=str(root)) == branch_before
+
+
+def test_land_dry_run_says_so_when_the_readme_is_already_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run previews no commit or merge for a README that needs none."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", _current_install_sha(root)))
+    )
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "current readme"], cwd=str(root))
+
+    def _no_merge(**_kwargs: object) -> str:
+        raise AssertionError("a dry run must not merge")
+
+    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+        "0.2.0",
+        dry_run=True,
+        merge=_no_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" in out
+    assert "git commit" not in out
+    assert "merge(branch=" not in out
 
 
 def test_bump_readme_install_sha_dry_run_no_changes(
@@ -1582,7 +1739,8 @@ def test_bump_readme_install_sha_dry_run_no_changes(
     info = detect(root)
     _bump_readme_pin(info, "0.2.0", dry_run=True)
 
-    assert "README.md: install URLs → <SHA> (v0.2.0)" in _flat(capsys.readouterr().out)
+    sha = _current_install_sha(root)
+    assert f"README.md: install URLs → {sha} (v0.2.0)" in _flat(capsys.readouterr().out)
     assert (root / "README.md").read_text() == original
 
 
@@ -6238,7 +6396,7 @@ def test_phase4_release_pr_pins_readme_after_merge(
         r.stdout = ""
         r.stderr = ""
         if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "newsha1\n"
+            r.stdout = "1e3a5b7\n"
         elif cmd[:2] == ["git", "log"]:
             r.stdout = ""
         elif cmd[:2] == ["git", "rev-parse"]:
@@ -6298,166 +6456,91 @@ def test_phase4_release_pr_pins_readme_after_merge(
     merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
     assert len(merges) == 2
 
-    assert "newsha1" in (root / "README.md").read_text()
+    assert "1e3a5b7" in (root / "README.md").read_text()
+
+
+def _project_pinned_to_current_install_sha(tmp_path: Path) -> ProjectInfo:
+    """A committed project whose README already pins the current install.sh SHA."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", _current_install_sha(root)))
+    )
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "readme pins the current install SHA"], cwd=str(root))
+    return detect(root)
+
+
+def _land_pin_expecting_no_pr(info: ProjectInfo, ops: FaultInjectingOps) -> None:
+    """Run ``ReadmeShaPin.land``; a merge means a PR was opened for no change."""
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("README already current — no PR may be opened")
+
+    ReadmeShaPin(info, ops=ops).land(
+        "0.2.0",
+        dry_run=False,
+        merge=_unreachable_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
 
 
 def test_land_readme_sha_pin_noop_when_readme_already_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """No PR is created when the README already pins the current install SHA."""
+    info = _project_pinned_to_current_install_sha(tmp_path)
 
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
-    (root / "README.md").write_text(
-        "# proj\n\n```bash\n"
-        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
-        "currentsha/install.sh | sh\n"
-        "```\n"
-    )
+    _land_pin_expecting_no_pr(info, _fault_ops())
 
-    info = ProjectInfo(root=root, language="python")
-    issued: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        issued.append(list(cmd))
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
-        if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "currentsha\n"
-        elif cmd[:2] == ["git", "log"]:
-            r.stdout = ""
-        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
-            r.stdout = "main\n"
-        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
-            "git",
-            "status",
-        ]:
-            r.stdout = ""
-        return r
-
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/proj"
-
-    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release, "_run", fake_run)
-
-    release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
-    )
-
-    assert not any(c[:3] == ["gh", "pr", "create"] for c in issued)
+    root = str(info.root)
+    assert _git_out(["branch", "--list", "release-readme-pin/*"], cwd=root) == ""
+    assert _git_out(["branch", "--show-current"], cwd=root) == "main"
 
 
 def test_land_readme_sha_pin_cleanup_diagnoses_checkout_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A failing `git checkout main` in the no-changes-needed cleanup path
     (README already pins the current SHA) must diagnose, not leak a raw
-    CalledProcessError — the same cleanup pattern Phase 9 already
-    diagnoses, missed here in earlier sweep passes."""
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
-    (root / "README.md").write_text(
-        "# proj\n\n```bash\n"
-        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
-        "currentsha/install.sh | sh\n"
-        "```\n"
+    CalledProcessError — the same cleanup pattern Phase 9 diagnoses."""
+    info = _project_pinned_to_current_install_sha(tmp_path)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: pre-checkout hook rejected"
+                ),
+            )
+        ]
     )
 
-    info = ProjectInfo(root=root, language="python")
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
-        if cmd == ["git", "checkout", "main"]:
-            r.returncode = 1
-            r.stderr = "error: pre-checkout hook rejected"
-        elif cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "currentsha\n"
-        elif cmd[:2] == ["git", "log"]:
-            r.stdout = ""
-        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
-            r.stdout = "main\n"
-        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
-            "git",
-            "status",
-        ]:
-            r.stdout = ""
-        return r
-
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/proj"
-
-    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release, "_run", fake_run)
-
     with pytest.raises(ReleaseError, match="git checkout main failed"):
-        release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-            info, "0.2.0", dry_run=False
-        )
+        _land_pin_expecting_no_pr(info, ops)
 
 
 def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
     diagnose, not leak a raw CalledProcessError."""
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
-    (root / "README.md").write_text(
-        "# proj\n\n```bash\n"
-        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
-        "currentsha/install.sh | sh\n"
-        "```\n"
+    info = _project_pinned_to_current_install_sha(tmp_path)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["git", "branch", "-D"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: branch is checked out"
+                ),
+            )
+        ]
     )
 
-    info = ProjectInfo(root=root, language="python")
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
-        if cmd[:3] == ["git", "branch", "-D"]:
-            r.returncode = 1
-            r.stderr = "error: branch is checked out"
-        elif cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "currentsha\n"
-        elif cmd[:2] == ["git", "log"]:
-            r.stdout = ""
-        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
-            r.stdout = "main\n"
-        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
-            "git",
-            "status",
-        ]:
-            r.stdout = ""
-        return r
-
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/proj"
-
-    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release, "_run", fake_run)
-
     with pytest.raises(ReleaseError, match="git branch -D .* failed"):
-        release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-            info, "0.2.0", dry_run=False
-        )
+        _land_pin_expecting_no_pr(info, ops)
 
 
-def test_readme_sha_pin_survives_tag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
     """The README-pinned install.sh SHA is reachable from main after squash-merge.
 
     Written to catch the reachability defect Option A (pinning inside
@@ -6502,29 +6585,18 @@ def test_readme_sha_pin_survives_tag(
             check=True,
         ).stdout.strip()
 
-    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
-
-    # The reachability guard runs against the working tree's install.sh
-    # SHA and the README's install URL. Pin the URL owner/repo to what
-    # _make_release_project wrote ("test-pkg") — otherwise the real
-    # _get_github_repo (no remote configured in tmp) falls back to
-    # root.name ("proj"), the regex misses, and ReadmeShaPin.bump
-    # returns silently. That would make this whole test a no-op.
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/test-pkg"
-
-    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
-
     # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
-    # first _pr_merge call, for the release branch itself).
-    release._pr_merge(  # pyright: ignore[reportPrivateUsage]
-        cwd=root, branch=release_branch, title="chore: release v0.2.0"
-    )
+    # first merge call, for the release branch itself).
+    fake_pr_merge(cwd=root, branch=release_branch, title="chore: release v0.2.0")
 
-    # Step 2: land the README pin — the fix under test.
-    info = detect(root)
-    release._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
+    # Step 2: land the README pin — the fix under test. The slug names the
+    # repo _make_release_project wrote into the README ("test-pkg"); the
+    # fixture has no remote to resolve it from.
+    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+        "0.2.0",
+        dry_run=False,
+        merge=fake_pr_merge,
+        resolve_repo=lambda _root: "punt-labs/test-pkg",
     )
 
     # Read the SHA out of README.md itself — not out of git log — so the

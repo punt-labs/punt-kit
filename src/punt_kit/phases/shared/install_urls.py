@@ -1,0 +1,291 @@
+"""Recognizing a project's pinned install.sh URLs in free-form text."""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from typing import Self, final
+from urllib.parse import unquote, urlparse
+
+_SHA_SHAPE = re.compile(r"[0-9a-fA-F]{7,40}")
+_RELEASE_TAG_SHAPE = re.compile(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", re.IGNORECASE)
+
+_INSTALL_SH = "install.sh"
+
+
+@dataclass(frozen=True, slots=True)
+class InstallUrl:
+    """One install.sh URL reference found in text, already classified.
+
+    ``url`` is the percent-decoded URL. ``segment`` is the pinned path
+    segment (a commit SHA, a release tag, a branch) and is empty unless
+    the URL is trusted. ``segment_span`` locates that segment in the
+    scanned text so a caller can rewrite it; it is ``None`` when the
+    reference only appeared after percent-decoding (there is no plain
+    text to rewrite) or when the URL is untrusted.
+    """
+
+    url: str
+    is_trusted: bool
+    segment: str
+    segment_span: tuple[int, int] | None
+
+    @property
+    def is_sha_pin(self) -> bool:
+        """True for a trusted URL pinned to a commit SHA."""
+        return self.is_trusted and _SHA_SHAPE.fullmatch(self.segment) is not None
+
+    @property
+    def is_pin(self) -> bool:
+        """True for a trusted URL pinned to a commit SHA or a release tag."""
+        return self.is_sha_pin or (
+            self.is_trusted and _RELEASE_TAG_SHAPE.fullmatch(self.segment) is not None
+        )
+
+    def is_pinned_to(self, sha: str) -> bool:
+        """True when the segment names the same commit as ``sha``.
+
+        Abbreviations of different lengths compare by prefix, since a pin
+        may be a short or a full SHA of one commit.
+        """
+        pinned, wanted = self.segment.lower(), sha.lower()
+        return pinned.startswith(wanted) or wanted.startswith(pinned)
+
+
+@final
+class InstallUrlRecognizer:
+    """The single definition of "a pinned install URL for this repository".
+
+    Both ``ReadmeShaPin.bump`` (which rewrites pins and then verifies its
+    own output) and Phase 11 (which verifies the published README and the
+    website's ``installCommand``) recognize pins through this class, so
+    they cannot disagree about what a pin is.
+
+    In scope — a URL is TRUSTED when, after percent-decoding to a fixed
+    point, it is exactly ``https://raw.githubusercontent.com/<owner>/
+    <repo>/<segment>/install.sh``. Scheme, host, owner, repo and the
+    file name compare case-insensitively (GitHub routes them that way).
+    The segment is a *pin* when it is a 7-40 hex commit SHA or a release
+    tag ``vX.Y.Z[-prerelease]``; ``ReadmeShaPin.bump`` rewrites both. Any
+    other segment (``main``, a branch) is tolerated and never rewritten:
+    it is not a pin and has nothing to go stale.
+
+    In scope as UNTRUSTED — any other install.sh URL that references this
+    repository (the decoded path contains ``/<repo>/``): a different
+    owner, a different host, trailing garbage glued onto the URL, a
+    percent-encoding chain that never settles. The repo name alone is the
+    reference test because an attacker can register a same-named repo
+    under their own owner on the genuine host. ``all_urls_relevant``
+    drops that test for text already known to describe this project
+    (the website's ``installCommand``), where every install.sh URL counts.
+
+    Out of scope — install.sh URLs that do not reference this repository
+    (a README documents other tools too), and anything that is not an
+    ``http(s)`` URL ending in ``install.sh``: relative scripts
+    (``./install.sh``), ``git clone``, and other download hosts that do
+    not name the repo.
+    """
+
+    __slots__ = ("_owner", "_reference", "_repo", "_trusted")
+
+    # Every URL-shaped token in free-form text. http OR https,
+    # case-insensitively: curl fetches HTTPS://, Https://, and http:// as
+    # readily as https://, and a filter that misses them lets that URL
+    # evade classification entirely.
+    #
+    # Deliberately NOT anchored on a literal "install.sh" substring: an
+    # attacker who percent-encodes one character of it ("%69nstall.sh")
+    # produces a URL with no such substring in the raw text. Whether a
+    # token is an install.sh reference is decided after decoding.
+    #
+    # Bounded by whitespace, a quote, a pipe, or a command separator, so
+    # two invocations glued by a zero-whitespace shell trick (`${IFS}`)
+    # stay separate tokens: the `|` a real payload needs to pipe into a
+    # shell is a stop character.
+    _URL_TOKEN = re.compile(r"""https?://[^\s"'|;]+""", re.IGNORECASE)
+
+    # Where, in a decoded token, an install.sh reference ends: "install.sh"
+    # followed by a non-word character or the end of the string, never by
+    # another letter, digit, or underscore. Non-URL noise glued directly
+    # onto a real URL ("${IFS}") is dropped, because the "$" is itself a
+    # non-word character; "install.shellscript" is correctly not matched.
+    _INSTALL_SH_BOUNDARY = re.compile(r"install\.sh(?=$|\W)", re.IGNORECASE)
+
+    # Locates both ends of every install.sh reference in a fully decoded
+    # token: a scheme start (group 1) or an install.sh boundary (group 2,
+    # built from ``_INSTALL_SH_BOUNDARY`` so the two cannot diverge). One
+    # token can hide several references once decoded — ``%0A`` reveals a
+    # second "https://.../install.sh" glued to the first with no delimiter
+    # in the raw text — so every scheme/boundary pair is walked.
+    _SCHEME_OR_BOUNDARY = re.compile(
+        rf"(https?://)|({_INSTALL_SH_BOUNDARY.pattern})", re.IGNORECASE
+    )
+
+    # Depth cap for percent-decoding to a fixed point. ``unquote()`` never
+    # lengthens a string, so decoding always terminates; the cap only
+    # bounds the work against a pathological input.
+    _MAX_DECODE_DEPTH = 5
+
+    _owner: str
+    _repo: str
+    _trusted: re.Pattern[str]
+    _reference: re.Pattern[str]
+
+    def __new__(cls, owner: str, repo_name: str) -> Self:
+        self = super().__new__(cls)
+        self._owner = owner
+        self._repo = repo_name
+        esc_owner, esc_repo = re.escape(owner), re.escape(repo_name)
+        self._trusted = re.compile(
+            rf"/{esc_owner}/{esc_repo}/([^/]+)/install\.sh", re.IGNORECASE
+        )
+        self._reference = re.compile(rf"/{esc_repo}/", re.IGNORECASE)
+        return self
+
+    @property
+    def slug(self) -> str:
+        """The ``owner/repo`` this recognizer trusts."""
+        return f"{self._owner}/{self._repo}"
+
+    @classmethod
+    def for_slug(cls, slug: str) -> Self:
+        """Build a recognizer from an ``owner/repo`` slug.
+
+        Surrounding slashes and whitespace are stripped (a remote URL such
+        as ``https://github.com/owner/repo/`` resolves to ``owner/repo/``).
+        Raises ``ValueError`` unless exactly one non-empty owner and one
+        non-empty repo remain.
+        """
+        parts = slug.strip().strip("/").split("/")
+        if len(parts) != 2 or not all(parts):
+            msg = f"not an owner/repo slug: {slug!r}"
+            raise ValueError(msg)
+        return cls(parts[0], parts[1])
+
+    def scan(
+        self, content: str, *, all_urls_relevant: bool = False
+    ) -> list[InstallUrl]:
+        """Return every relevant install.sh reference in ``content``, in order.
+
+        Each URL-shaped token is percent-decoded to a fixed point BEFORE any
+        comparison; raw or partly decoded text is never compared. A token
+        still changing at the depth cap is reported untrusted
+        unconditionally: a legitimate committed install URL carries zero
+        encoding layers, and silently dropping the token would be the
+        zero-candidate evasion this class exists to close.
+
+        Every install.sh reference within a decoded token is classified
+        independently. A reference is trusted only when the whole span
+        matches ``https://raw.githubusercontent.com/<owner>/<repo>/
+        <segment>/install.sh``, parsed with ``urlparse`` and accepted only
+        when the hostname equals ``raw.githubusercontent.com`` exactly (not
+        ``endswith``, which would accept ``raw.githubusercontent.com.evil
+        .com``) and the PATH fully matches. A bare substring match is not
+        enough: ``https://evil.example/raw.githubusercontent.com/<owner>/
+        <repo>/<sha>/install.sh`` carries the trusted string in an attacker
+        host's path.
+        """
+        refs: list[InstallUrl] = []
+        for token_match in self._URL_TOKEN.finditer(content):
+            token = token_match.group()
+            decoded, settled = self._decode_to_fixed_point(token)
+            if not settled:
+                refs.append(InstallUrl(token, False, "", None))
+                continue
+            for start, end in self._install_sh_spans(decoded):
+                candidate = decoded[start:end]
+                parsed = urlparse(candidate)
+                trusted = (
+                    self._trusted.fullmatch(parsed.path)
+                    if parsed.scheme == "https"
+                    and parsed.hostname == "raw.githubusercontent.com"
+                    else None
+                )
+                if trusted is not None:
+                    segment = trusted.group(1)
+                    span = None
+                    if decoded == token:
+                        seg_end = token_match.start() + end - len(_INSTALL_SH) - 1
+                        span = (seg_end - len(segment), seg_end)
+                    refs.append(InstallUrl(candidate, True, segment, span))
+                elif all_urls_relevant or self._reference.search(parsed.path):
+                    refs.append(InstallUrl(candidate, False, "", None))
+        return refs
+
+    def classify(
+        self, content: str, *, all_urls_relevant: bool = False
+    ) -> tuple[list[str], bool]:
+        """Return ``(trusted_sha_pins, has_untrusted)`` for ``content``.
+
+        Trusted and untrusted references are reported independently: a text
+        can carry a current trusted pin AND an injected untrusted one, and
+        the latter must never be skipped because a trusted pin was found.
+        A trusted URL whose segment is not a SHA (a tag or branch) is
+        tolerated here; ``repinned`` is what handles tags.
+        """
+        refs = self.scan(content, all_urls_relevant=all_urls_relevant)
+        return (
+            [ref.segment for ref in refs if ref.is_sha_pin],
+            any(not ref.is_trusted for ref in refs),
+        )
+
+    def repinned(self, content: str, sha: str) -> str:
+        """Return ``content`` with every plain, trusted pin moved to ``sha``.
+
+        Only the pinned segment changes, so the surrounding text and the
+        original casing of owner, repo and file name are preserved. A pin
+        that already names ``sha`` is left alone, and a reference that is
+        untrusted, percent-encoded, or not a pin (``main``) is never
+        touched — callers verify the result with ``scan`` to find those.
+        """
+        spans = sorted(
+            (
+                ref.segment_span
+                for ref in self.scan(content)
+                if ref.is_pin
+                and ref.segment_span is not None
+                and not ref.is_pinned_to(sha)
+            ),
+            reverse=True,
+        )
+        for low, high in spans:
+            content = content[:low] + sha + content[high:]
+        return content
+
+    @classmethod
+    def _decode_to_fixed_point(cls, token: str) -> tuple[str, bool]:
+        """Percent-decode ``token`` until it stops changing.
+
+        Returns ``(decoded, reached_fixed_point)``. One ``unquote()`` pass
+        unwraps one encoding layer; a double-encoded ``%2569nstall.sh``
+        needs two. Decoding to a fixed point closes every depth uniformly
+        instead of hard-coding a pass count. ``reached_fixed_point`` is
+        ``False`` when the cap is hit while the string is still changing;
+        the caller must not trust that partial decode.
+        """
+        current = token
+        for _ in range(cls._MAX_DECODE_DEPTH):
+            nxt = unquote(current)
+            if nxt == current:
+                return current, True
+            current = nxt
+        return current, False
+
+    @classmethod
+    def _install_sh_spans(cls, decoded: str) -> list[tuple[int, int]]:
+        """Every ``(start, end)`` span of a complete install.sh URL in ``decoded``.
+
+        Pairs each install.sh boundary with the CLOSEST preceding scheme
+        start — not necessarily position 0, since only the first URL in a
+        token starts there. Walking the whole string and collecting every
+        span is what lets a second reference revealed only by decoding
+        (behind a decoded ``%0A``) still be classified.
+        """
+        spans: list[tuple[int, int]] = []
+        last_scheme_start: int | None = None
+        for match in cls._SCHEME_OR_BOUNDARY.finditer(decoded):
+            if match.group(1) is not None:
+                last_scheme_start = match.start()
+            elif last_scheme_start is not None:
+                spans.append((last_scheme_start, match.end()))
+        return spans

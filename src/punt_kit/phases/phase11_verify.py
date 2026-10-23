@@ -12,8 +12,8 @@ from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.gh import GithubRepo
+from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.project_info import ReleaseProject
-from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
 from punt_kit.phases.shared.timeouts import UV
 
@@ -614,17 +614,22 @@ class Phase11Verify:
 
         # 7. Product README (own repo's SHA-pinned install URLs) must match
         # the CURRENT install.sh commit — see matches_install_sha() for why
-        # ancestry alone would miss the realistic rot. Reuses the same URL
-        # pattern ReadmeShaPin.bump() writes, so it never drifts from the
-        # pin it is verifying. Only runs when a pin is present at all — a
-        # README that predates any SHA pin (still a bare version-tag URL, or
-        # no install snippet) is not this check's concern.
+        # ancestry alone would miss the realistic rot. Pins are recognized by
+        # the same InstallUrlRecognizer ReadmeShaPin.bump() rewrites and
+        # verifies with, so the two can never disagree about what a pin is.
+        # Only runs when a pin is present at all — a README that predates any
+        # SHA pin (still a bare version-tag URL, or no install snippet) is
+        # not this check's concern.
         if repo and install_sh.exists():
-            owner, repo_name = repo.split("/", 1)
             own_readme = info.root / "README.md"
-            if own_readme.exists():
-                trusted_shas, has_untrusted = ReadmeShaPin.classify_install_urls(
-                    own_readme.read_text(encoding="utf-8"), owner, repo_name
+            try:
+                recognizer = InstallUrlRecognizer.for_slug(repo)
+            except ValueError as exc:
+                checks.append(VerificationCheck("README pin", False, str(exc)))
+                recognizer = None
+            if recognizer is not None and own_readme.exists():
+                trusted_shas, has_untrusted = recognizer.classify(
+                    own_readme.read_text(encoding="utf-8")
                 )
                 # Trusted and untrusted pins are detected and reported
                 # independently — a README can carry one trusted current-SHA
@@ -645,7 +650,7 @@ class Phase11Verify:
                             "README pin",
                             False,
                             "SHA-pinned install URL is not on the trusted "
-                            f"raw.githubusercontent.com/{owner}/{repo_name}/ host",
+                            f"raw.githubusercontent.com/{recognizer.slug}/ host",
                         )
                     )
 
@@ -674,38 +679,30 @@ class Phase11Verify:
                             if install_sh.exists():
                                 install_cmd = str(entry.get("installCommand") or "")
                                 if install_cmd:
-                                    owner = repo.split("/", 1)[0]
-                                    # Same shared matcher the README check
-                                    # uses, so README and website validate
-                                    # identically — except this entry is
-                                    # ALREADY matched to this project (by
-                                    # id or githubUrl, above), so unlike a
-                                    # README (which legitimately documents
-                                    # other tools' install one-liners too),
-                                    # EVERY install.sh URL in this field is
-                                    # claimed to install this project.
-                                    # all_urls_relevant=True drops the
-                                    # repo-name reference filter so a URL
-                                    # pointing at a different repo — wrong
-                                    # owner, wrong name, untrusted host, or
-                                    # a stale entry left over from a rename
-                                    # — is flagged instead of silently
-                                    # ignored for not matching the pattern
-                                    # a wrong-repo URL never carries.
-                                    # Trusted and untrusted pins are still
-                                    # detected and reported independently —
-                                    # an installCommand can carry one
-                                    # trusted current-SHA pin AND one
-                                    # untrusted-host/owner pin, and the
-                                    # untrusted one must never be skipped
-                                    # just because a trusted pin was also
-                                    # found.
+                                    # Same shared recognizer the README
+                                    # check uses, so README and website
+                                    # validate identically — except this
+                                    # entry is ALREADY matched to this
+                                    # project (by id or githubUrl, above),
+                                    # so unlike a README (which legitimately
+                                    # documents other tools' install
+                                    # one-liners too), EVERY install.sh URL
+                                    # in this field is claimed to install
+                                    # this project. all_urls_relevant=True
+                                    # drops the repo-name reference filter
+                                    # so a URL pointing at a different repo
+                                    # — wrong owner, wrong name, untrusted
+                                    # host, or a stale entry left over from a
+                                    # rename — is flagged instead of
+                                    # silently ignored. Trusted and
+                                    # untrusted pins are still reported
+                                    # independently.
+                                    web_recognizer = InstallUrlRecognizer(
+                                        repo.split("/", 1)[0], project_name
+                                    )
                                     trusted_shas, has_untrusted = (
-                                        ReadmeShaPin.classify_install_urls(
-                                            install_cmd,
-                                            owner,
-                                            project_name,
-                                            all_urls_relevant=True,
+                                        web_recognizer.classify(
+                                            install_cmd, all_urls_relevant=True
                                         )
                                     )
                                     if trusted_shas:
@@ -728,7 +725,7 @@ class Phase11Verify:
                                                 "SHA-pinned install URL is not "
                                                 "on the trusted "
                                                 f"raw.githubusercontent.com/"
-                                                f"{owner}/{project_name}/ host",
+                                                f"{web_recognizer.slug}/ host",
                                             )
                                         )
                                     # If neither: no SHA-shaped install URL
