@@ -95,6 +95,9 @@ from tests.helpers import (
     commit_all as _commit_all,
 )
 from tests.helpers import (
+    fake_get_github_repo as _fake_get_github_repo,
+)
+from tests.helpers import (
     fake_which as _fake_which,
 )
 from tests.helpers import (
@@ -151,9 +154,9 @@ def isolate_interrupted_event() -> Iterator[None]:
     this same event on every poll iteration and would
     fail immediately with "Interrupted" on a leaked, already-set event.
     """
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.interrupt_event().clear()
     yield
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.interrupt_event().clear()
 
 
 def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
@@ -3980,10 +3983,6 @@ def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
 # --- _wait_for_required_checks ---
 
 
-def _fake_get_github_repo(_p: Path) -> str:
-    return "punt-labs/punt-kit"
-
-
 def _graphql_checks_response(
     check_nodes: list[dict[str, object]],
 ) -> dict[str, object]:
@@ -4834,12 +4833,12 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+    release.interrupt_event().set()
     try:
         with pytest.raises(ReleaseError, match="Interrupted while waiting"):
             _wait_for_required_checks("gh", "/tmp", 42)
     finally:
-        release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+        release.interrupt_event().clear()
 
 
 # --- _reset_propagation_siblings ---
@@ -11757,7 +11756,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     monkeypatch.setattr(shutil, "which", _fake_which)
 
     def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
-        release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        release.interrupt_event().set()
         raise KeyboardInterrupt()
 
     def _noop_reset(*_args: object, **_kwargs: object) -> None:
@@ -11996,7 +11995,7 @@ def _interrupted_poll_scenario(
         times=None,
         response=FaultRule.from_fixture("gh_graphql_required_checks_pending.json"),
     )
-    pending_forever.interrupt_after(release._interrupted)  # pyright: ignore[reportPrivateUsage]
+    pending_forever.interrupt_after(release.interrupt_event())
     ops = _fault_ops(
         rules=[
             # The sibling's origin is itself (non-bare), which refuses a push
@@ -12167,7 +12166,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
         match=["git", "status", "--porcelain", "--", "src/data/projects.json"],
         response=CompletedProcessSpec(stdout=" M src/data/projects.json\n"),
     )
-    status_rule.interrupt_after(release._interrupted)  # pyright: ignore[reportPrivateUsage]
+    status_rule.interrupt_after(release.interrupt_event())
     checkout_rule = FaultRule(
         match=["git", "checkout", "-b"],
         raises=subprocess.TimeoutExpired(cmd=["git", "checkout", "-b"], timeout=600),

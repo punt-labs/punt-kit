@@ -199,6 +199,11 @@ def fake_which(_name: str) -> str:
     return "/usr/bin/gh"
 
 
+def fake_get_github_repo(_path: Path) -> str:
+    """Stand in for the release's GitHub-slug lookup with a fixed slug."""
+    return "punt-labs/punt-kit"
+
+
 def bump(root: Path, version: str = "0.2.0") -> None:
     Phase2VersionBump(detect(root), version, dry_run=False, ops=fault_ops()).run()
 

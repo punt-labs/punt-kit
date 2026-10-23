@@ -40,18 +40,10 @@ import pytest
 from punt_kit import release
 from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.timeouts import DEFAULT_RUN
-from punt_kit.release import (
-    ReleaseError,
-    _run,  # pyright: ignore[reportPrivateUsage]
-    run_release,
-)
+from punt_kit.release import ReleaseError, run_release
 from tests import helpers
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
-
-# Reused from the main release-test module rather than duplicated.
-from tests.test_release import (
-    _fake_get_github_repo,  # pyright: ignore[reportPrivateUsage]
-)
+from tests.helpers import run_real
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -70,11 +62,11 @@ def isolate_release_state() -> Iterator[None]:
     interrupt event (or records skips), which must not leak into the next
     case — or into unrelated tests collected after this module.
     """
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.skip_recorder().clear()
+    release.interrupt_event().clear()
     yield
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.skip_recorder().clear()
+    release.interrupt_event().clear()
 
 
 @final
@@ -91,7 +83,7 @@ class _SignalInterrupt(KeyboardInterrupt):
     """
 
     def __new__(cls, *args: object) -> Self:
-        release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        release.interrupt_event().set()
         return super().__new__(cls, *args)
 
 
@@ -170,7 +162,7 @@ class _GithubSim:
     ) -> subprocess.CompletedProcess[str]:
         name = Path(cmd[0]).name
         if name == "git":
-            return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+            return run_real(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
         if cwd is None:
             raise AssertionError(f"emulated command needs a cwd: {cmd!r}")
         if name == "gh" and cmd[1:3] == ["pr", "list"]:
@@ -234,17 +226,17 @@ class _GithubSim:
         number = int(cmd[3])
         with self._lock:
             record = self._prs[number]
-        _run(["git", "checkout", "main"], cwd=cwd)
-        _run(["git", "merge", "--squash", record.branch], cwd=cwd)
+        run_real(["git", "checkout", "main"], cwd=cwd)
+        run_real(["git", "merge", "--squash", record.branch], cwd=cwd)
         # Matches real `gh pr merge --squash` (no --subject override): the
         # commit subject defaults to the PR title plus " (#<number>)".
-        _run(
+        run_real(
             ["git", "commit", "-m", f"{record.title} (#{number})"],
             cwd=cwd,
         )
-        merge_sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
+        merge_sha = run_real(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
         # --delete-branch: gh removes the head branch after the merge.
-        _run(["git", "branch", "-D", record.branch], cwd=cwd)
+        run_real(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
             record.state = "MERGED"
             record.merge_sha = merge_sha
@@ -252,7 +244,9 @@ class _GithubSim:
 
     def _run_list(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
         tag = self._flag(cmd, "--branch")
-        sha = _run(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=cwd).stdout.strip()
+        sha = run_real(
+            ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=cwd
+        ).stdout.strip()
         runs: list[dict[str, object]] = [
             {
                 "databaseId": 1,
@@ -408,7 +402,7 @@ def _sweep_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
 
     monkeypatch.setattr(shutil, "which", _which_gh_only)
-    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_get_github_repo", helpers.fake_get_github_repo)
     return root
 
 
@@ -593,7 +587,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
         run_release(str(root), version=_VERSION, dry_run=False)
 
     assert stop_exc.value.code == 1
-    assert anchor._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert anchor.consumed == 1
     fresh_out = " ".join(capsys.readouterr().out.split())
     assert "Release incomplete" in fresh_out
     assert f"stopped during phase {case.report_num} ({case.report_name})" in fresh_out
