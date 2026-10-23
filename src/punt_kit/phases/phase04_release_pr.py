@@ -47,11 +47,9 @@ class Phase4ReleasePr:
         land_readme_sha_pin: Callable[..., None],
     ) -> str:
         """``merge``/``land_readme_sha_pin`` are injected rather than
-        composing ``PrMerger``/``ReadmeShaPin`` directly —
-        ``test_phase4_release_pr...`` monkeypatches
-        ``punt_kit.release._pr_merge``/``_land_readme_sha_pin`` and calls
-        ``punt_kit.release._phase4_release_pr`` expecting both patches
-        observed.
+        composing ``PrMerger``/``ReadmeShaPin`` directly, so a caller that
+        rebinds ``punt_kit.release._pr_merge``/``_land_readme_sha_pin`` has
+        both observed by ``punt_kit.release._phase4_release_pr``.
 
         Returns the squash-merge commit SHA ``merge()`` produced — the
         actual release commit. Phase 5 tags this SHA directly rather than
@@ -90,7 +88,7 @@ class Phase4ReleasePr:
                         cwd=str(root),
                         capture=False,
                         check=False,
-                        # The script commits, and that commit now runs the
+                        # The script commits, and that commit runs the
                         # repo hooks — the bd pre-commit hook alone allows
                         # itself 300s against a networked Dolt server.
                         # Budgeting the script at the 60s metadata default
@@ -119,7 +117,7 @@ class Phase4ReleasePr:
             dry_run=dry_run,
         )
 
-        # 4c. Pin README's install-URL SHA now that the squash-merge has
+        # 4c. Pin README's install-URL SHA once the squash-merge has
         # landed on main — see ReadmeShaPin.land for why this must happen
         # here and not during phase 2's version bump on the (about to be
         # deleted) branch. This lands a further commit on main, which is

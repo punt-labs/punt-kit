@@ -202,7 +202,8 @@ class Phase5Tag:
 
         # A local write (disk full, permission, or a lock held by a
         # concurrent git process) — kept in the same diagnosed convention as
-        # the push two lines below rather than left as the odd one out
+        # the push two lines below rather than left as the odd one out.
+        #
         # Tags `release_sha` explicitly rather than bare
         # `git tag {tag}` (which would tag HEAD) — see the module docstring.
         tag_result = ops.run(

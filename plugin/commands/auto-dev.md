@@ -34,8 +34,9 @@ Read the skill file first, then execute the playbook.
 This selects the working tree's playbook and executor instructions. Each step
 runs the command written in its playbook; a `punt` step uses the installed CLI.
 
-IMPORTANT: `${CLAUDE_PLUGIN_ROOT}` is used ONLY for playbook discovery (finding
-the YAML file). All preconditions and steps execute in the user's current
-working directory — the project they invoked this command from, NOT punt-kit.
+IMPORTANT: `${CLAUDE_PLUGIN_ROOT}` is used ONLY to locate plugin files (the
+`auto` skill and the playbook YAML). All preconditions and steps execute in the
+user's current working directory — the project they invoked this command from,
+NOT punt-kit.
 
 Arguments: $ARGUMENTS

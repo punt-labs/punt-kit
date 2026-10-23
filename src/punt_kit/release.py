@@ -480,10 +480,9 @@ def _print_incomplete_release(current_phase_num: int) -> None:
     failure that Phase 11 still ran to confirm, or any other
     ``ReleaseError`` — so an operator staring at a failed release always
     gets the same three answers: where it stopped, what that leaves
-    unconfirmed, and the exact command to re-enter. Before this, only the
-    ``subprocess.TimeoutExpired`` path gave a resume hint; every other exit
-    (including the interrupt path, which is what let vox v5.0.4's Phase 10
-    hang go unresolved) printed nothing more actionable than the bare error.
+    unconfirmed, and the exact command to re-enter. Every exit gets it, not
+    only a ``subprocess.TimeoutExpired``: the interrupt path especially, where
+    a bare error would leave the operator with nothing to act on.
     """
     phase_label = _phase_name(current_phase_num)
     unlanded = _unlanded_phases(current_phase_num)
@@ -573,7 +572,7 @@ def run_release(
         # the interrupt path (cleanup, the incomplete-release report, the
         # exit-1 conversion), and _print_incomplete_release's contract is
         # "called from every stop-early path". With these blocks outside
-        # the try, a Ctrl-C during preflight escaped as a raw
+        # the try, a Ctrl-C during preflight would surface as a raw
         # KeyboardInterrupt with no report and no --resume-from hint.
         try:
             # Run preflight before version detection (need clean tree for

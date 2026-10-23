@@ -31,8 +31,9 @@ defined in the `auto` skill (`${CLAUDE_PLUGIN_ROOT}/skills/auto/SKILL.md`).
 
 Read the skill file first, then execute the playbook.
 
-IMPORTANT: `${CLAUDE_PLUGIN_ROOT}` is used ONLY for playbook discovery (finding
-the YAML file). All preconditions and steps execute in the user's current
-working directory — the project they invoked this command from, NOT punt-kit.
+IMPORTANT: `${CLAUDE_PLUGIN_ROOT}` is used ONLY to locate plugin files (the
+`auto` skill and the playbook YAML). All preconditions and steps execute in the
+user's current working directory — the project they invoked this command from,
+NOT punt-kit.
 
 Arguments: $ARGUMENTS

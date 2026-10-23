@@ -462,14 +462,13 @@ class Phase10Propagate:
     ) -> None:
         """Run the three propagators concurrently.
 
-        Every collaborator here is injected rather than composed directly:
-        ``test_phase10_propagate_runs_concurrently`` and
-        ``test_phase10_propagate_collects_errors`` monkeypatch
-        ``punt_kit.release._propagate_install_all``/``_propagate_marketplace``/
-        ``_propagate_website``/``_reset_propagation_siblings`` and call
-        ``punt_kit.release._phase10_propagate`` expecting every patch to be
-        observed. ``interrupted`` is release.py's own ``threading.Event``
-        (its signal handler sets it), so it is passed in.
+        Every collaborator here is injected rather than composed directly, so
+        a caller that rebinds ``punt_kit.release._propagate_install_all``/
+        ``_propagate_marketplace``/``_propagate_website``/
+        ``_reset_propagation_siblings`` has each observed by
+        ``punt_kit.release._phase10_propagate``. ``interrupted`` is release.py's
+        own ``threading.Event`` (its signal handler sets it), so it is passed
+        in.
         """
         info = self._info
         version = self._version

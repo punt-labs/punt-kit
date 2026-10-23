@@ -24,9 +24,9 @@ class InstallUrl:
     decoding never settles, the raw token. ``segment`` is the pinned path
     segment (a commit SHA, a release tag, a branch) and is empty unless the
     URL is trusted. ``segment_span`` locates that segment in the scanned
-    text so a caller can rewrite it; it is ``None`` when the reference only
-    appeared after percent-decoding (there is no plain text to rewrite) or
-    when the URL is untrusted.
+    text so a caller can rewrite it; it is ``None`` when the token carried
+    any percent-encoding (the decoded offsets do not map onto the raw text)
+    or when the URL is untrusted.
     """
 
     url: str
@@ -78,9 +78,10 @@ class InstallUrlRecognizer:
 
     In scope as UNTRUSTED — any other install.sh URL that references this
     repository (the decoded path contains ``/<repo>/``): a different
-    owner, a different host, userinfo or a port on the right host,
-    trailing garbage glued onto the URL, a percent-encoding chain that
-    never settles. A longer file name (``install.sh.bak``,
+    owner, a different host, userinfo or a port on the right host, a
+    percent-encoding chain that never settles. Non-URL noise glued directly
+    after ``install.sh`` (``${IFS}``) is dropped before classifying. A longer
+    file name (``install.sh.bak``,
     ``install.sh-old``) is not an install.sh reference at all. The repo
     name alone is the reference test because an attacker can register a
     same-named repo under their own owner on the genuine host.

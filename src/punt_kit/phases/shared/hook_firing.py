@@ -64,7 +64,7 @@ _GIT_VALUE_OPTIONS = frozenset(
     }
 )
 
-# gh options that sit before the command and take the next word as a value.
+# gh options that take the next word as a value, wherever they appear.
 _GH_VALUE_OPTIONS = frozenset({"-R", "--repo", "--hostname"})
 
 # gh runs local git for these, whatever else is on the line:

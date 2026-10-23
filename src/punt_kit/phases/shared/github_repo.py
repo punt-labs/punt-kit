@@ -103,9 +103,7 @@ class GithubRepo:
         protection: a repo can be fully governed (required status checks,
         required conversation resolution) by a ruleset while
         ``has_branch_protection`` reports "branch not protected", because
-        the legacy endpoint only ever sees the legacy feature. ``ethos``
-        governs ``main`` this way — 2 required status checks plus
-        conversation resolution, entirely via rulesets.
+        the legacy endpoint only ever sees the legacy feature.
 
         Fail-safe direction matches ``has_branch_protection``: any failure
         to positively confirm a ruleset (timeout, non-zero exit, unparsable

@@ -136,8 +136,7 @@ class Phase1Preflight:
             # A prior release cut outside this flow (a corrective/manual tag)
             # leaves the highest tag's plugin manifest in a shape this
             # release did not produce — warn loudly rather than fail, since
-            # the release under way is exactly how the situation gets fixed
-            # (ethos v4.16.0 is the precedent).
+            # the release under way is exactly how the situation gets fixed.
             self._warn_stale_prior_tag(info)
 
         # 1c. Changelog check
@@ -243,11 +242,11 @@ class Phase1Preflight:
         daemon-only case: ``ops.fail`` raises immediately, so a
         daemon-only-dirty message that omits an untracked file would send
         the operator through a stash only to hit a second, invisible
-        failure on the very next run. One failure now reports
-        the whole picture.
+        failure on the very next run. One failure reports the
+        whole picture.
 
-        This does not auto-stash — that touches the interrupt/resume
-        paths and is a separate change — and it recommends ``--index`` on
+        This does not auto-stash, because stashing would touch the
+        interrupt/resume paths, and it recommends ``--index`` on
         the pop, because a bare ``git stash pop`` restores file content
         but not staged status, silently turning a staged settings change
         into an unstaged one.
@@ -358,6 +357,5 @@ class Phase1Preflight:
             ops.warn(
                 f"Prior tag {tag}'s {manifest_rel} looks like it was cut "
                 f"outside the release flow: {'; '.join(problems)}. This "
-                "release will correct it (see ethos v4.16.0 for precedent) "
-                "— verify that is what you expect."
+                "release will correct it — verify that is what you expect."
             )

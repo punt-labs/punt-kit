@@ -26,13 +26,12 @@ class PrMerger:
 
     ``wait_for_checks`` and ``resolve_threads`` are required, injected
     callables rather than composed ``RequiredChecksWaiter``/``PrThreadResolver``
-    collaborators: ``tests/test_release.py`` monkeypatches
-    ``punt_kit.release._wait_for_required_checks`` and
-    ``punt_kit.release._resolve_pr_threads`` directly and calls
-    ``punt_kit.release._pr_merge`` — the wrapper this class backs — expecting
-    those patches to be observed. Composing the waiter/resolver classes
-    directly here would bypass that seam entirely (a patch only reaches call
-    sites that use the bare release.py name), so the caller
+    collaborators. A caller that rebinds
+    ``punt_kit.release._wait_for_required_checks`` or
+    ``punt_kit.release._resolve_pr_threads`` must see the patch observed by
+    ``punt_kit.release._pr_merge``, the wrapper this class backs. Composing the
+    waiter/resolver classes directly here would bypass that seam (a patch only
+    reaches call sites that use the bare release.py name), so the caller
     passes the bare name through instead, mirroring
     ``SiblingRegistry.reset_all``'s injected ``resolve`` collaborator.
     """

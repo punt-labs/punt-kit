@@ -80,9 +80,8 @@ class RequiredChecksWaiter:
         deadline. Worker threads never receive the SIGINT that sets the
         event directly — only the main thread does — so without this check a
         hung wait blocks ``ThreadPoolExecutor.__exit__``'s join for the
-        remainder of the deadline, which is what let interrupting a vox
-        v5.0.4-style hang leave the release silently unfinished instead of
-        failing fast.
+        remainder of the deadline, leaving an interrupted release silently
+        unfinished instead of failing fast.
         """
         try:
             remote = resolve_repo(Path(cwd))
