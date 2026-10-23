@@ -10780,7 +10780,7 @@ def test_phases_9_10_exception_propagates(
 
     monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(ReleaseError, match=r"P10: P10 exploded"):
+    with pytest.raises(ReleaseError, match=r"P10: RuntimeError: P10 exploded"):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10823,7 +10823,9 @@ def test_phases_9_10_both_fail_reports_both(
     monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
     with pytest.raises(
-        ReleaseError, match=r"2 task\(s\) failed: P9: P9 exploded; P10: P10 exploded"
+        ReleaseError,
+        match=r"2 task\(s\) failed: P9: RuntimeError: P9 exploded; "
+        r"P10: RuntimeError: P10 exploded",
     ):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 

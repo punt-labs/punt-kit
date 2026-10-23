@@ -146,3 +146,30 @@ def test_a_phase_11_failure_after_a_propagation_failure_names_phase_11(
     out = _flat(capsys.readouterr().out)
     assert "stopped during phase 11 (verify)" in out
     assert "--resume-from post-release" in out
+
+
+def test_a_bug_in_a_worker_thread_keeps_its_type_and_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A KeyError from a propagator is named in the recap and traced once."""
+
+    def phase11(*_a: object, **_k: object) -> None:
+        return None
+
+    root = _p9_p10_project(tmp_path, monkeypatch, phase11=phase11)
+
+    def bug(*_a: object, **_k: object) -> None:
+        raise KeyError("version")
+
+    monkeypatch.setattr(release, "_propagate_website", bug)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(str(root), version="0.2.0", resume_from="post-release")
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert "KeyError: " in _flat(captured.out)
+    assert captured.err.count("Traceback") == 1
+    assert "bug" in captured.err

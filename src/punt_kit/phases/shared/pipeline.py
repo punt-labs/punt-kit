@@ -3,6 +3,7 @@ describing one step, and the runner that iterates them."""
 
 from __future__ import annotations
 
+import traceback
 from concurrent.futures import as_completed
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
@@ -84,13 +85,13 @@ class ThreadedStep:
         ``KeyboardInterrupt`` so the caller's ``finally`` block handles
         cleanup (avoiding double-cleanup with ``run_release``).
         """
-        errors: list[tuple[str, BaseException]] = []
+        errors: list[tuple[str, str]] = []
         for f in as_completed(futures):
             name = futures[f]
             try:
                 f.result()
             except ReleaseError as e:
-                errors.append((name, RuntimeError(str(e))))
+                errors.append((name, str(e)))
             except SystemExit as e:
                 if isinstance(e.code, int):
                     msg = f"{name} failed (exit code {e.code})"
@@ -98,11 +99,14 @@ class ThreadedStep:
                     msg = e.code
                 else:
                     msg = f"{name} failed"
-                errors.append((name, RuntimeError(msg)))
+                errors.append((name, msg))
             except BaseException as e:
                 # Thread-pool boundary: whatever a task raised is collected so
                 # its siblings finish, then every error is re-raised together.
-                errors.append((name, e))
+                # A bug (not a ReleaseError) is the one case worth a traceback,
+                # and the type goes in the text: str(KeyError("x")) is just "'x'".
+                traceback.print_exception(e)
+                errors.append((name, f"{type(e).__name__}: {e}"))
         if interrupted.is_set():
             raise KeyboardInterrupt
         if errors:
@@ -110,7 +114,7 @@ class ThreadedStep:
             # not print it: the caller records the failure and the end-of-run
             # recap prints it once. "install-all.sh: boom" tells the operator
             # more than ".github" alone does.
-            details = "; ".join(f"{name}: {err}" for name, err in errors)
+            details = "; ".join(f"{name}: {text}" for name, text in errors)
             msg = f"{len(errors)} task(s) failed: {details}"
             raise ReleaseError(msg)
 
