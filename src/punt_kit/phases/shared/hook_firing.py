@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import PurePath
 from typing import TYPE_CHECKING, Self, final
 
+from punt_kit.phases.shared.git_listing import READ_ONLY_FORMS
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
@@ -24,7 +24,7 @@ if TYPE_CHECKING:
 # Left out on purpose: fetch, symbolic-ref (ref updates); add, status, diff,
 # ls-files (index, and fsmonitor); describe (`--dirty` refreshes the index);
 # grep and blame (read the working tree). branch, tag and remote are quiet
-# only in their listing forms, below. Everything else, including a verb
+# only in their listing forms (see ``git_listing``). Everything else, including a verb
 # nobody listed, is assumed to fire, so it gets the long budget; over-
 # approximating only lengthens a ceiling.
 _GIT_QUIET_VERBS = frozenset(
@@ -167,89 +167,6 @@ _SHELLS = frozenset({"ash", "bash", "dash", "fish", "ksh", "sh", "zsh"})
 _GIT_LIKE = frozenset({"git", "gh"}) | _SHELLS
 
 
-@dataclass(frozen=True, slots=True)
-class _ReadOnlyForm:
-    """The options of one git verb that only list, and never write a ref.
-
-    ``branch``, ``tag`` and ``remote`` update refs in one form and only read
-    them in another. The listing form runs no hook, so it keeps the short
-    budget. A word outside the listing options, or a positional that is not
-    the value of one, means the form may write: over-approximating costs only
-    a longer ceiling.
-    """
-
-    flags: frozenset[str]
-    value_flags: frozenset[str] = frozenset()
-    # A first word after which anything is read-only (``remote get-url ...``).
-    subcommands: frozenset[str] = frozenset()
-
-    def covers(self, words: Sequence[str]) -> bool:
-        """True when ``words`` are listing options, their values, and nothing else."""
-        if words and words[0] in self.subcommands:
-            return True
-        index = 0
-        while index < len(words):
-            word = words[index]
-            index += 1
-            name = word.split("=", 1)[0]
-            if name in self.value_flags:
-                has_next_value = (
-                    "=" not in word
-                    and index < len(words)
-                    and not words[index].startswith("-")
-                )
-                index += has_next_value
-            elif name not in self.flags and not self._is_flag_cluster(word):
-                return False
-        return True
-
-    def _is_flag_cluster(self, word: str) -> bool:
-        """True for a short-option cluster such as ``-vv`` or ``-av``."""
-        return (
-            word.startswith("-")
-            and not word.startswith("--")
-            and len(word) > 2
-            and all(f"-{letter}" in self.flags for letter in word[1:])
-        )
-
-
-_LISTING_VALUE_OPTIONS = frozenset(
-    {
-        "--contains",
-        "--format",
-        "--merged",
-        "--no-contains",
-        "--no-merged",
-        "--points-at",
-        "--sort",
-    }
-)
-_LISTING_FLAGS = frozenset(
-    {"--column", "--ignore-case", "--list", "--no-column", "-i", "-l"}
-)
-_READ_ONLY_FORMS: dict[str, _ReadOnlyForm] = {
-    "branch": _ReadOnlyForm(
-        _LISTING_FLAGS
-        | {
-            "--all",
-            "--color",
-            "--no-color",
-            "--remotes",
-            "--show-current",
-            "--verbose",
-            "-a",
-            "-r",
-            "-v",
-        },
-        _LISTING_VALUE_OPTIONS | {"--abbrev"},
-    ),
-    "tag": _ReadOnlyForm(_LISTING_FLAGS, _LISTING_VALUE_OPTIONS),
-    "remote": _ReadOnlyForm(
-        frozenset({"--verbose", "-v"}), subcommands=frozenset({"get-url"})
-    ),
-}
-
-
 @final
 class HookFiringCommand:
     """One concrete argv, classified by whether it may run a git hook.
@@ -307,7 +224,7 @@ class HookFiringCommand:
             elif word in _GIT_QUIET_VERBS:
                 return False
             else:
-                form = _READ_ONLY_FORMS.get(word)
+                form = READ_ONLY_FORMS.get(word)
                 return form is None or not form.covers(words[index + 1 :])
         return True
 

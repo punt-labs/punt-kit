@@ -83,16 +83,7 @@ class RequiredChecksWaiter:
         remainder of the deadline, leaving an interrupted release silently
         unfinished instead of failing fast.
         """
-        try:
-            remote = resolve_repo(Path(cwd))
-            if remote is None:
-                self._ops.fail(
-                    f"Cannot determine GitHub owner/repo in {cwd}: no github.com "
-                    "origin remote"
-                )
-            slug = RepoSlug.parse(remote)
-        except (ValueError, RemoteLookupError) as exc:
-            self._ops.fail(f"Cannot determine GitHub owner/repo in {cwd}: {exc}")
+        slug = self._slug_of(cwd, resolve_repo)
         owner, repo_name = slug.owner, slug.name
 
         branch_protected = self._repo.has_branch_protection(gh, owner, repo_name)
@@ -273,6 +264,21 @@ class RequiredChecksWaiter:
 
         label = "required" if governed else "all"
         self._ops.fail(f"Timed out waiting for {label} CI checks on PR #{pr_number}")
+
+    def _slug_of(
+        self, cwd: str, resolve_repo: Callable[[Path], str | None]
+    ) -> RepoSlug:
+        """The GitHub slug of ``cwd``'s origin; fail, saying why, when there is none."""
+        try:
+            remote = resolve_repo(Path(cwd))
+            if remote is None:
+                self._ops.fail(
+                    f"Cannot determine GitHub owner/repo in {cwd}: no github.com "
+                    "origin remote"
+                )
+            return RepoSlug.parse(remote)
+        except (ValueError, RemoteLookupError) as exc:
+            self._ops.fail(f"Cannot determine GitHub owner/repo in {cwd}: {exc}")
 
     @staticmethod
     def _checks_query(slug: RepoSlug, pr_number: int) -> str:

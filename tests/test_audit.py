@@ -978,6 +978,6 @@ def test_a_timeout_is_reported_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch, returncode=0, raises=subprocess.TimeoutExpired(["gh"], 10)
     )
 
-    assert out == [
-        (audit.INFO, "Dependabot vulnerability alerts", "could not check: timed out")
-    ]
+    ((status, label, detail),) = out
+    assert (status, label) == (audit.INFO, "Dependabot vulnerability alerts")
+    assert detail.startswith("could not check:") and "timed out" in detail

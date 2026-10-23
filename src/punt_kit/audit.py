@@ -406,12 +406,9 @@ def _check_dependabot(gh: str, repo: str) -> list[tuple[str, str, str]]:
             text=True,
             timeout=10,
         )
-    except subprocess.TimeoutExpired:
-        return [(INFO, label, "could not check: timed out")]
-    except OSError as exc:
+    except (subprocess.TimeoutExpired, OSError) as exc:
         return [(INFO, label, f"could not check: {exc}")]
-    status = _HTTP_STATUS.match(result.stdout)
-    code = status.group(1) if status else ""
+    code = status.group(1) if (status := _HTTP_STATUS.match(result.stdout)) else ""
     if code == "204":
         return [(PASS, label, "Enabled")]
     if code == "404":

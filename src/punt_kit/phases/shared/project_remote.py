@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 
     from punt_kit.phases.shared.ops import ReleaseOps
     from punt_kit.phases.shared.repo_slug import RepoSlug
-    from punt_kit.phases.shared.siblings import SkipRecorder
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 
 @final

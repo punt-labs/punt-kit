@@ -32,7 +32,7 @@ from punt_kit.phases.phase10_propagate import (
     MarketplacePropagator,
     WebsitePropagator,
 )
-from punt_kit.phases.phase11_checks import VerificationCheck
+from punt_kit.phases.phase11_checks import InstallShaCheck
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
@@ -48,7 +48,8 @@ from punt_kit.phases.shared.pr_threads import PrThreadResolver
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.repo_slug import RepoSlug
-from punt_kit.phases.shared.siblings import SiblingRepo, SkipRecorder
+from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.skips import SkipRecorder
 
 # Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
 # wrappers, `_pr_merge`, `_run`, `_wait_for_required_checks`, `_propagate_*`,
@@ -8624,10 +8625,10 @@ def test_phase11_verify_readme_pin_ignores_unrelated_tool_different_repo(
     assert "✗ README pin" not in out
 
 
-# --- Phase 11: matches_install_sha() commit-identity resolution ---
+# --- Phase 11: InstallShaCheck commit-identity resolution ---
 
 
-def test_matches_install_sha_fails_for_fabricated_hash(tmp_path: Path) -> None:
+def test_install_sha_check_fails_for_fabricated_hash(tmp_path: Path) -> None:
     """A fabricated hash that merely starts with the right prefix must fail.
 
     Regression for the correctness gap: a textual prefix match
@@ -8642,35 +8643,27 @@ def test_matches_install_sha_fails_for_fabricated_hash(tmp_path: Path) -> None:
     fabricated = install_sha + "deadbeef"  # extends the real prefix, but
     # the resulting string names no real commit object.
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        fabricated,
-        install_sha,
-        cwd=root,
-        ops=_fault_ops(),
+    check = InstallShaCheck(install_sha, cwd=root, ops=_fault_ops()).of(
+        "README pin", fabricated
     )
     assert check.passed is False
     assert "does not resolve" in check.detail
 
 
-def test_matches_install_sha_passes_for_full_length_pin(tmp_path: Path) -> None:
+def test_install_sha_check_passes_for_full_length_pin(tmp_path: Path) -> None:
     """A full 40-character pin of the current commit resolves and passes."""
     root = _make_release_project(tmp_path)
     d = str(root)
     short_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
     full_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        full_sha,
-        short_sha,
-        cwd=root,
-        ops=_fault_ops(),
+    check = InstallShaCheck(short_sha, cwd=root, ops=_fault_ops()).of(
+        "README pin", full_sha
     )
     assert check.passed is True
 
 
-def test_matches_install_sha_passes_for_short_pin(tmp_path: Path) -> None:
+def test_install_sha_check_passes_for_short_pin(tmp_path: Path) -> None:
     """A valid abbreviated pin of the current commit resolves and passes,
     even when it is a different length than the expected short SHA.
     """
@@ -8680,17 +8673,13 @@ def test_matches_install_sha_passes_for_short_pin(tmp_path: Path) -> None:
     full_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
     short_pin = full_sha[:8]
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        short_pin,
-        install_sha,
-        cwd=root,
-        ops=_fault_ops(),
+    check = InstallShaCheck(install_sha, cwd=root, ops=_fault_ops()).of(
+        "README pin", short_pin
     )
     assert check.passed is True
 
 
-def test_matches_install_sha_fails_for_real_different_commit(tmp_path: Path) -> None:
+def test_install_sha_check_fails_for_real_different_commit(tmp_path: Path) -> None:
     """A real, resolvable commit that is NOT the current install.sh commit
     fails — a real hash is not enough; it has to be the right commit.
     """
@@ -8699,12 +8688,8 @@ def test_matches_install_sha_fails_for_real_different_commit(tmp_path: Path) -> 
     install_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
     other_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        other_sha,
-        install_sha,
-        cwd=root,
-        ops=_fault_ops(),
+    check = InstallShaCheck(install_sha, cwd=root, ops=_fault_ops()).of(
+        "README pin", other_sha
     )
     assert check.passed is False
     assert "stale" in check.detail

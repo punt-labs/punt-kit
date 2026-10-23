@@ -40,7 +40,8 @@ from punt_kit.phases.shared.pr_threads import PrThreadResolver
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
-from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
+from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo
+from punt_kit.phases.shared.skips import SkipRecorder
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -95,7 +96,6 @@ _ok = reporter.ok
 _info = reporter.info
 _dry = reporter.dry
 _warn = reporter.warn
-_error = reporter.error
 
 
 @final
@@ -142,7 +142,7 @@ class _ReleaseOpsAdapter:
         _warn(msg)
 
     def error(self, msg: str) -> None:
-        _error(msg)
+        reporter.error(msg)
 
     def fail(self, msg: str) -> NoReturn:
         _fail(msg)

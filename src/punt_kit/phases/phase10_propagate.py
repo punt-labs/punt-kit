@@ -16,7 +16,8 @@ from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.project_remote import ProjectRemote
-from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
+from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 
 if TYPE_CHECKING:
     import threading
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
-    from punt_kit.phases.shared.siblings import SkipRecorder
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 _console = Console()
 
@@ -75,10 +76,9 @@ class InstallAllPropagator:
         if not (info.root / "install.sh").exists():
             return
 
-        remote = ProjectRemote(
+        slug = ProjectRemote(
             info.root, ops=ops, skips=self._skips, step="install-all.sh propagation"
-        )
-        slug = remote.slug()
+        ).slug()
         if slug is None:
             return
         project_name = slug.name
