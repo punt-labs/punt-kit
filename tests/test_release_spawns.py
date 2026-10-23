@@ -80,6 +80,54 @@ _PACKAGE = Path(punt_kit.__file__).parent
             ["multiprocessing.Process"],
             id="multiprocessing",
         ),
+        pytest.param(
+            "from asyncio import subprocess\nsubprocess.create_subprocess_exec(c)",
+            ["asyncio.create_subprocess_exec"],
+            id="asyncio-subprocess-module",
+        ),
+        pytest.param(
+            "from asyncio import subprocess as sp\nsp.create_subprocess_shell(c)",
+            ["asyncio.create_subprocess_shell"],
+            id="asyncio-subprocess-module-alias",
+        ),
+        pytest.param(
+            "from concurrent.futures import process\nprocess.ProcessPoolExecutor()",
+            ["concurrent.ProcessPoolExecutor"],
+            id="futures-process-module",
+        ),
+        pytest.param(
+            "from concurrent.futures import process as p\np.ProcessPoolExecutor()",
+            ["concurrent.ProcessPoolExecutor"],
+            id="futures-process-module-alias",
+        ),
+        pytest.param(
+            'import subprocess\nvars(subprocess)["run"](c)',
+            ["vars(subprocess)"],
+            id="vars-subprocess",
+        ),
+        pytest.param(
+            'import os as o\nvars(o)["system"](c)', ["vars(os)"], id="vars-os-alias"
+        ),
+        pytest.param(
+            'import sys\nsys.modules["subprocess"].run(c)',
+            ["sys.modules[subprocess]"],
+            id="sys-modules",
+        ),
+        pytest.param(
+            'import sys\nsys.modules["os.path"]',
+            ["sys.modules[os]"],
+            id="sys-modules-dotted",
+        ),
+        pytest.param(
+            'from sys import modules\nmodules["pty"].spawn(c)',
+            ["sys.modules[pty]"],
+            id="sys-modules-imported",
+        ),
+        pytest.param(
+            'import sys\nsys.modules.get("subprocess").run(c)',
+            ["sys.modules[subprocess]"],
+            id="sys-modules-get",
+        ),
     ],
 )
 def test_the_scan_catches_every_way_to_start_a_process(
@@ -98,6 +146,15 @@ def test_the_scan_catches_every_way_to_start_a_process(
         pytest.param("import os\nos.path.join(a, b)", id="os-path"),
         pytest.param("import asyncio\nasyncio.sleep(1)", id="asyncio-sleep"),
         pytest.param('getattr(thing, "run")', id="getattr-unwatched"),
+        pytest.param("vars(thing)", id="vars-unwatched"),
+        pytest.param('import sys\nsys.modules["json"]', id="sys-modules-unwatched"),
+        pytest.param(
+            "from asyncio import subprocess\nsubprocess.PIPE", id="asyncio-pipe"
+        ),
+        pytest.param(
+            "from concurrent.futures import process\nprocess.BrokenProcessPool",
+            id="futures-process-error",
+        ),
         pytest.param(
             "def import_module(n): ...\nimport_module('x')", id="own-function"
         ),

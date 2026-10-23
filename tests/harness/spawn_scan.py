@@ -1,10 +1,11 @@
 """Static scan for the ways a module can start a process through the APIs it watches.
 
 It watches ``subprocess``, ``os``, ``pty``, ``asyncio``, ``multiprocessing`` and
-``concurrent.futures.ProcessPoolExecutor``, plus string-based imports and
-``getattr`` on those modules. It follows absolute imports inside the package and
-refuses a relative one rather than skip it. It does not see a process started
-by a program a module runs, or by code it cannot resolve statically.
+``concurrent.futures.ProcessPoolExecutor``, plus string-based imports, ``getattr``
+and ``vars`` on those modules, and ``sys.modules`` lookups of them. It follows
+absolute imports inside the package and refuses a relative one rather than skip
+it. It does not see a process started by a program a module runs, or by code it
+cannot resolve statically.
 """
 
 from __future__ import annotations
@@ -25,6 +26,14 @@ _WATCHED = frozenset(
 _SUBPROCESS_TYPES = frozenset(
     {"TimeoutExpired", "CalledProcessError", "CompletedProcess"}
 )
+
+# ``from <module> import <name>`` binds a submodule whose names can start a
+# process; the value is the watched module its names are checked against.
+_SPAWNING_SUBMODULES = {
+    ("concurrent", "futures"): "concurrent",
+    ("concurrent.futures", "process"): "concurrent",
+    ("asyncio", "subprocess"): "asyncio",
+}
 
 _OS_SPAWNERS = frozenset({"system", "popen", "fork", "forkpty", "startfile"})
 _OS_SPAWN_PREFIXES = ("exec", "spawn", "posix_spawn")
@@ -91,8 +100,12 @@ class SpawnScan:
         """Sorted ``(name, enclosing function)`` for every use; ``<module>`` at top."""
         aliases = self._module_aliases()
         loaders = self._loader_names()
+        modules_names = self._sys_modules_names()
         found: set[tuple[str, str]] = set()
         for node, scope in self._scoped_nodes():
+            key = self._sys_modules_key(node, modules_names)
+            if key is not None:
+                found.add((f"sys.modules[{key}]", scope))
             if isinstance(node, ast.ImportFrom):
                 found.update((name, scope) for name in self._imported_spawners(node))
             elif isinstance(node, ast.Call):
@@ -143,7 +156,9 @@ class SpawnScan:
         """Local name -> watched module, for every way a watched module is bound.
 
         ``import x``, ``import x as y``, and ``from concurrent import futures``
-        (which binds a submodule of ``concurrent``).
+        (which binds a submodule of ``concurrent``). Also the submodules that
+        carry a spawner: ``from asyncio import subprocess`` and
+        ``from concurrent.futures import process``.
         """
         names: list[tuple[str, str]] = []
         for node in ast.walk(self._tree):
@@ -152,11 +167,11 @@ class SpawnScan:
                     (alias.asname or alias.name.split(".")[0], alias.name.split(".")[0])
                     for alias in node.names
                 )
-            elif isinstance(node, ast.ImportFrom) and node.module == "concurrent":
+            elif isinstance(node, ast.ImportFrom) and node.module:
                 names.extend(
-                    (alias.asname or alias.name, "concurrent")
+                    (alias.asname or alias.name, root)
                     for alias in node.names
-                    if alias.name == "futures"
+                    if (root := _SPAWNING_SUBMODULES.get((node.module, alias.name)))
                 )
         return {local: root for local, root in names if root in _WATCHED}
 
@@ -215,13 +230,60 @@ class SpawnScan:
             return []
         if func.id in loaders:
             return [func.id if func.id == "__import__" else "import_module"]
-        return cls._getattr_on_watched(node, aliases) if func.id == "getattr" else []
+        if func.id in {"getattr", "vars"}:
+            return cls._reach_into_watched(func.id, node, aliases)
+        return []
 
     @staticmethod
-    def _getattr_on_watched(node: ast.Call, aliases: dict[str, str]) -> list[str]:
+    def _reach_into_watched(
+        reacher: str, node: ast.Call, aliases: dict[str, str]
+    ) -> list[str]:
+        """``getattr(mod, ...)`` and ``vars(mod)`` reach any name of ``mod``."""
         target = node.args[0] if node.args else None
         module = aliases.get(target.id) if isinstance(target, ast.Name) else None
-        return [f"getattr({module})"] if module else []
+        return [f"{reacher}({module})"] if module else []
+
+    def _sys_modules_names(self) -> set[str]:
+        """Local names bound to ``sys.modules`` by ``from sys import modules``."""
+        return {
+            alias.asname or alias.name
+            for node in ast.walk(self._tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "sys"
+            for alias in node.names
+            if alias.name == "modules"
+        }
+
+    @classmethod
+    def _sys_modules_key(cls, node: ast.AST, names: set[str]) -> str | None:
+        """The watched module a ``sys.modules[...]`` or ``.get(...)`` names, if any."""
+        if isinstance(node, ast.Subscript):
+            table, key = node.value, node.slice
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+        ):
+            table, key = node.func.value, node.args[0]
+        else:
+            return None
+        if not cls._is_sys_modules(table, names):
+            return None
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return None
+        root = key.value.split(".")[0]
+        return root if root in _WATCHED else None
+
+    @staticmethod
+    def _is_sys_modules(node: ast.expr, names: set[str]) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in names
+        return (
+            isinstance(node, ast.Attribute)
+            and node.attr == "modules"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "sys"
+        )
 
     @staticmethod
     def _spawns(module: str, name: str) -> bool:
