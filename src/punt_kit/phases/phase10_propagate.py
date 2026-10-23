@@ -179,7 +179,15 @@ class InstallAllPropagator:
         """
         ops = self._ops
         readme = sibling / "profile" / "README.md"
+        tag = f"v{version}"
         if not readme.exists():
+            # Phase 11 fails an absent profile, so say so now, with the fix.
+            self._skips.record(
+                f"SKIPPED — manual action required: ../.github/profile/README.md "
+                f"not found, so the org profile's install-all.sh SHA pin was not "
+                f"propagated for {tag}. Restore the profile README and pin it to "
+                "the .github commit that last touched install-all.sh, manually."
+            )
             return
 
         log_result = ops.run(
@@ -211,9 +219,12 @@ class InstallAllPropagator:
             readme_content, github_sha, is_current=currency.is_current
         )
         if readme_count == 0:
-            ops.info(
-                "profile/README.md: no install-all.sh SHA reference found — "
-                "skipping update"
+            # Phase 11 fails a profile with no reference, so say so now.
+            self._skips.record(
+                f"SKIPPED — manual action required: ../.github/profile/README.md "
+                f"has no install-all.sh SHA reference, so its pin was not "
+                f"propagated for {tag}. Add the reference, pinned to "
+                f"{github_sha}, manually."
             )
             return
         if new_readme == readme_content:
