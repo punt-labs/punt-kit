@@ -9,6 +9,7 @@ import pytest
 
 from punt_kit.init import TEMPLATES, run_init
 from tests.helpers import (
+    fake_bd,
     no_bd,
     python_project,
 )
@@ -53,15 +54,6 @@ def test_init_does_not_report_a_bom_workflow_identical_to_the_template(
     assert "differs from template" not in capsys.readouterr().out
 
 
-def _fake_bd(directory: Path, script: str) -> str:
-    """Put a ``bd`` that is ``script`` on PATH and return the new PATH."""
-    directory.mkdir()
-    bd = directory / "bd"
-    bd.write_text(script)
-    bd.chmod(0o755)
-    return str(directory)
-
-
 @pytest.mark.parametrize(
     ("script", "reason"),
     [
@@ -81,7 +73,7 @@ def test_a_failed_bd_init_fails_the_run_after_the_other_steps(
     project = tmp_path / "project"
     project.mkdir()
     python_project(project)
-    bin_dir = _fake_bd(tmp_path / "bin", script)
+    bin_dir = fake_bd(tmp_path / "bin", script)
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
 
     with pytest.raises(SystemExit) as raised:

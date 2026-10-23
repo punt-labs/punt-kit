@@ -365,3 +365,12 @@ def refuse_run(
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     raise AssertionError(f"version checks read files only, not {cmd}")
+
+
+def fake_bd(directory: Path, script: str) -> str:
+    """Put a ``bd`` that is ``script`` on PATH and return the directory to prepend."""
+    directory.mkdir()
+    bd = directory / "bd"
+    bd.write_text(script)
+    bd.chmod(0o755)
+    return str(directory)
