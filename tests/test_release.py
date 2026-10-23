@@ -272,6 +272,15 @@ def test_suggest_version_patch_bump() -> None:
     assert _suggest_version(cl, "1.2.3") == "1.2.4"
 
 
+def test_suggest_version_ignores_the_next_release_after_an_empty_unreleased() -> None:
+    """An empty [Unreleased] must not borrow the previous release's ### Added."""
+    cl = (
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "## [1.2.3] - 2026-01-01\n\n### Added\n\n- x\n"
+    )
+    assert _suggest_version(cl, "1.2.3") == "1.2.4"
+
+
 def test_suggest_version_major_bump() -> None:
     """Suggests major bump for breaking changes."""
     cl = "## [Unreleased]\n\n### Changed\n\n- BREAKING: removed old API\n\n## [1.2.3]\n"
@@ -318,7 +327,7 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"Working tree is not clean"):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -523,7 +532,9 @@ def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Must be on main branch \(currently on 'feature'\)"
+    ):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -540,7 +551,7 @@ def test_preflight_fails_empty_unreleased(tmp_path: Path) -> None:
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"nothing to release"):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -2813,7 +2824,7 @@ def test_propagate_install_all_fails_when_install_all_missing(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"install-all\.sh not found in \.github"):
         _propagate_install_all(info, "0.2.0", dry_run=False)
 
 
@@ -3370,7 +3381,7 @@ def test_validate_sibling_called_during_preflight(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"Sibling \.github has uncommitted changes"):
         _phase1_preflight(info, dry_run=True)
 
 
@@ -3385,7 +3396,10 @@ def test_validate_sibling_wrong_branch_during_preflight(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError,
+        match=r"Sibling \.github is on branch 'propagate/v1\.0\.0-proj-github'",
+    ):
         _phase1_preflight(info, dry_run=True)
 
 
@@ -3684,7 +3698,9 @@ def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Missing release-plugin\.sh or restore-dev-plugin\.sh"
+    ):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -4037,7 +4053,9 @@ def test_wait_for_required_checks_fails_on_required_failure(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Required CI checks failed on PR #42: test"
+    ):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -4122,7 +4140,9 @@ def test_wait_for_required_checks_status_context_error(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Required CI checks failed on PR #42: deploy/preview"
+    ):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -4818,7 +4838,9 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
     monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
     monkeypatch.setattr(release, "_run", fake_run)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Could not return sibling claude-plugins to main"
+    ):
         _reset_propagation_siblings(info, fail_on_error=True)
 
 
@@ -5232,7 +5254,9 @@ def test_pr_merge_real_merge_failure_still_fails(
     waited: list[int] = []
     _patch_pr_merge_env(monkeypatch, fake_run, waited)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Failed to merge PR #42: GraphQL: Merge conflict detected"
+    ):
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
@@ -10182,7 +10206,10 @@ def test_phase10_propagate_collects_errors(
 
     monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError,
+        match=r"1 task\(s\) failed: \.github: \.github failed \(exit code 1\)",
+    ):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
     # All three should have been called despite the failure in install_all
@@ -10220,7 +10247,7 @@ def test_phase10_propagate_records_leg_failure_in_skips(
 
     monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"install-all\.sh: boom"):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
     notices = skips.drain()
@@ -10295,7 +10322,7 @@ def test_phases_9_10_exception_propagates(
 
     monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"P10: P10 exploded"):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10316,7 +10343,7 @@ def test_phases_9_10_p9_systemexit_propagates(
 
     monkeypatch.setattr(release, "_phase10_propagate", noop_p10)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"P9: P9 failed \(exit code 1\)"):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10337,7 +10364,9 @@ def test_phases_9_10_both_fail_reports_both(
 
     monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"2 task\(s\) failed: P9: P9 exploded; P10: P10 exploded"
+    ):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10611,7 +10640,9 @@ def test_phase6_lists_runs_filtered_to_the_tag(
 
     monkeypatch.setattr(release, "_run", fake_run)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"no release\.yml run found for v9\.9\.9 at abc1234"
+    ):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
 
     assert seen, "gh run list should have been invoked"
