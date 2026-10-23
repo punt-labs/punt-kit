@@ -354,16 +354,8 @@ def test_ci_run_watch_reports_the_conclusion_on_a_failed_run(tmp_path: Path) -> 
 
 
 # ---------------------------------------------------------------------------
-# PrMerger — read paths (_select_existing, _is_merged)
+# PrMerger — existing-PR selection and merged-state reads, via merge()
 # ---------------------------------------------------------------------------
-
-
-def _select_existing(
-    prs: list[dict[str, object]], local_head: str
-) -> tuple[int | None, bool]:
-    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]
-        prs, local_head
-    )
 
 
 def _pr_list_entry(fixture: str) -> dict[str, object]:
@@ -382,64 +374,157 @@ def _pr_list_entry(fixture: str) -> dict[str, object]:
     return prs[0]
 
 
-def test_select_existing_picks_the_open_pr() -> None:
+_MERGE_OID = "0123456789abcdef0123456789abcdef01234567"
+_OID_RESPONSE = CompletedProcessSpec(stdout=f"{_MERGE_OID}\n")
+_OK = CompletedProcessSpec(returncode=0)
+
+
+def _selection_ops(
+    pr_list_fixture: str, local_head: str, *rules: FaultRule
+) -> FaultInjectingOps:
+    """The calls ``PrMerger.merge`` makes up to and after PR selection.
+
+    Anything not scripted — notably ``gh pr create`` on a path that must
+    reuse an existing PR — is a deny-by-default failure, so which branch
+    ``merge()`` took is pinned by the rules a test supplies.
+    """
+    return _ops_with(
+        FaultRule(match=["git", "push"], response=_OK),
+        FaultRule(
+            match=["git", "rev-parse"], response=CompletedProcessSpec(stdout=local_head)
+        ),
+        _rule(["gh", "pr", "list"], pr_list_fixture),
+        *rules,
+        FaultRule(match=["git", "checkout"], response=_OK),
+        FaultRule(match=["git", "pull"], response=_OK),
+    )
+
+
+def _run_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ops: FaultInjectingOps
+) -> tuple[str, list[int]]:
+    """Drive ``PrMerger.merge``; return its oid and the PRs it waited on."""
+    monkeypatch.setattr("shutil.which", _fake_which)
+    waited: list[int] = []
+
+    def record_wait(_gh: str, _cwd: str, pr: int) -> None:
+        waited.append(pr)
+
+    oid = PrMerger(ops=ops).merge(
+        cwd=tmp_path,
+        branch="release/v1.2.3",
+        title="chore: release v1.2.3",
+        wait_for_checks=record_wait,
+        resolve_threads=_no_resolve_threads,
+    )
+    return oid, waited
+
+
+def test_merge_reuses_the_open_pr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     entry = _pr_list_entry("gh_pr_list_open.json")
     assert entry["state"] == "OPEN"
+    ops = _selection_ops(
+        "gh_pr_list_open.json",
+        "irrelevant",
+        FaultRule(
+            match=["gh", "pr", "view"],
+            responses=[FaultRule.from_fixture("gh_pr_view_open.json"), _OID_RESPONSE],
+        ),
+        FaultRule(match=["gh", "pr", "merge"], response=_OK),
+    )
 
-    assert _select_existing([entry], "irrelevant") == (entry["number"], False)
+    oid, waited = _run_merge(tmp_path, monkeypatch, ops)
+
+    assert (oid, waited) == (_MERGE_OID, [entry["number"]])
 
 
-def test_select_existing_matches_a_merged_pr_at_its_own_head() -> None:
+def test_merge_short_circuits_on_a_merged_pr_at_its_own_head(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     entry = _pr_list_entry("gh_pr_list_merged.json")
     assert entry["state"] == "MERGED"
-
-    result = _select_existing([entry], str(entry["headRefOid"]))
-
-    assert result == (entry["number"], True)
-
-
-def test_select_existing_ignores_a_merged_pr_at_a_stale_head() -> None:
-    entry = _pr_list_entry("gh_pr_list_merged.json")
-
-    assert _select_existing([entry], "0" * 40) == (None, False)
-
-
-def test_select_existing_ignores_a_closed_pr() -> None:
-    entry = _pr_list_entry("gh_pr_list_closed.json")
-    assert entry["state"] == "CLOSED"
-
-    assert _select_existing([entry], "irrelevant") == (None, False)
-
-
-def test_select_existing_finds_nothing_for_an_empty_list() -> None:
-    ops = _ops_with(_rule(["gh", "pr", "list"], "gh_pr_list_empty.json"))
-    prs = json.loads(ops.run(["gh", "pr", "list"]).stdout)
-
-    assert _select_existing(prs, "irrelevant") == (None, False)
-
-
-def test_is_merged_reads_open_state_as_false(tmp_path: Path) -> None:
-    ops = _ops_with(_rule(["gh", "pr", "view"], "gh_pr_view_open.json"))
-    merger = PrMerger(ops=ops)
-
-    assert (
-        merger._is_merged(  # pyright: ignore[reportPrivateUsage]
-            "gh", str(tmp_path), 349
-        )
-        is False
+    ops = _selection_ops(
+        "gh_pr_list_merged.json",
+        str(entry["headRefOid"]),
+        FaultRule(match=["gh", "pr", "view"], response=_OID_RESPONSE),
     )
 
+    oid, waited = _run_merge(tmp_path, monkeypatch, ops)
 
-def test_is_merged_reads_merged_state_as_true(tmp_path: Path) -> None:
-    ops = _ops_with(_rule(["gh", "pr", "view"], "gh_pr_view_merged.json"))
-    merger = PrMerger(ops=ops)
+    assert (oid, waited) == (_MERGE_OID, [])
 
-    assert (
-        merger._is_merged(  # pyright: ignore[reportPrivateUsage]
-            "gh", str(tmp_path), 355
-        )
-        is True
+
+@pytest.mark.parametrize(
+    ("fixture", "local_head"),
+    [
+        pytest.param("gh_pr_list_merged.json", "0" * 40, id="merged-at-stale-head"),
+        pytest.param("gh_pr_list_closed.json", "irrelevant", id="closed"),
+        pytest.param("gh_pr_list_empty.json", "irrelevant", id="empty"),
+    ],
+)
+def test_merge_creates_a_fresh_pr_when_none_is_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixture: str, local_head: str
+) -> None:
+    ops = _selection_ops(
+        fixture,
+        local_head,
+        _rule(["gh", "pr", "create"], "gh_pr_create_success.json"),
+        FaultRule(
+            match=["gh", "pr", "view"],
+            responses=[FaultRule.from_fixture("gh_pr_view_merged.json"), _OID_RESPONSE],
+        ),
     )
+
+    oid, waited = _run_merge(tmp_path, monkeypatch, ops)
+
+    # 123 is the number in gh_pr_create_success.json's URL: the existing PR
+    # (if any) was not the one waited on.
+    assert (oid, waited) == (_MERGE_OID, [123])
+
+
+def test_merge_treats_an_open_pr_state_as_not_merged_after_a_failed_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_is_merged`` reading OPEN means a non-zero ``gh pr merge`` is a failure."""
+    open_view = FaultRule.from_fixture("gh_pr_view_open.json")
+    ops = _selection_ops(
+        "gh_pr_list_empty.json",
+        "irrelevant",
+        _rule(["gh", "pr", "create"], "gh_pr_create_success.json"),
+        FaultRule(match=["gh", "pr", "view"], responses=[open_view, open_view]),
+        _rule(["gh", "pr", "merge"], "gh_pr_merge_real_failure.json"),
+    )
+
+    with pytest.raises(ReleaseError, match="Failed to merge PR #123"):
+        _run_merge(tmp_path, monkeypatch, ops)
+
+
+def test_merge_continues_when_a_failed_merge_left_the_pr_merged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``_is_merged`` reading MERGED means the failed ``gh pr merge`` (a branch
+    deletion error after the merge) still counts as a merge.
+    """
+    ops = _selection_ops(
+        "gh_pr_list_empty.json",
+        "irrelevant",
+        _rule(["gh", "pr", "create"], "gh_pr_create_success.json"),
+        FaultRule(
+            match=["gh", "pr", "view"],
+            responses=[
+                FaultRule.from_fixture("gh_pr_view_open.json"),
+                FaultRule.from_fixture("gh_pr_view_merged.json"),
+                _OID_RESPONSE,
+            ],
+        ),
+        _rule(["gh", "pr", "merge"], "gh_pr_merge_real_failure.json"),
+    )
+
+    oid, waited = _run_merge(tmp_path, monkeypatch, ops)
+
+    assert (oid, waited) == (_MERGE_OID, [123])
 
 
 # ---------------------------------------------------------------------------
