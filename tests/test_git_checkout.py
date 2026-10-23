@@ -120,3 +120,11 @@ def test_a_failed_remote_lookup_reports_git_s_own_complaint(
     monkeypatch.setattr(subprocess, "run", fake_run)
     with pytest.raises(ValueError, match="remote get-url origin failed: fatal: bad"):
         GitCheckout(root).github_slug()
+
+
+def test_an_unparseable_origin_is_never_echoed(tmp_path: Path) -> None:
+    remote = "https://u:t0k3n@[bad/x"
+    with pytest.raises(ValueError, match="not a GitHub owner/repo") as caught:
+        GitCheckout(_checkout(tmp_path, remote)).github_slug()
+    assert "t0k3n" not in str(caught.value)
+    assert str(caught.value).endswith(": <unparseable url>")

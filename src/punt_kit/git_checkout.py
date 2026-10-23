@@ -87,6 +87,9 @@ class GitCheckout:
     @staticmethod
     def _without_userinfo(url: str) -> str:
         """``url`` without a ``user:token@`` prefix on its host."""
-        parts = urlsplit(url)
+        try:
+            parts = urlsplit(url)
+        except ValueError:
+            return "<unparseable url>"  # never echo what could not be parsed
         host = parts.netloc.rpartition("@")[2]
         return parts._replace(netloc=host).geturl()
