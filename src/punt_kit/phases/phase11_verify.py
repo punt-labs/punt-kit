@@ -269,14 +269,7 @@ class Phase11Verify:
                 )
 
         # 3. Changelog stamped (must have date: ## [X.Y.Z] - YYYY-MM-DD)
-        changelog = Changelog(info.root, ops=ops).text()
-        stamped = bool(
-            re.search(
-                rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}",
-                changelog,
-                re.MULTILINE,
-            )
-        )
+        stamped = Changelog(info.root, ops=ops).is_stamped(version)
         checks.append(
             VerificationCheck(
                 "CHANGELOG", stamped, "stamped" if stamped else "not stamped"

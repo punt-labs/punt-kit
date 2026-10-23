@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
+from punt_kit.phases.shared.changelog_parser import ChangelogDocument
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.timeouts import UV
@@ -144,11 +145,7 @@ class Phase2VersionBump:
         if changelog_path.exists():
             today = datetime.date.today().isoformat()
             content = changelog_path.read_text(encoding="utf-8")
-            new_content = content.replace(
-                "## [Unreleased]",
-                f"## [Unreleased]\n\n## [{version}] - {today}",
-                1,
-            )
+            new_content = ChangelogDocument(content).stamped(version, today)
             if dry_run:
                 ops.dry(f"CHANGELOG.md: [Unreleased] → [{version}] - {today}")
             else:

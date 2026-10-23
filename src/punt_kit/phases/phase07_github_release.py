@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
-from punt_kit.phases.shared.changelog import Changelog, extract_version_notes
+from punt_kit.phases.shared.changelog import Changelog
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -64,8 +64,7 @@ class Phase7GithubRelease:
             ops.ok(f"GitHub release {tag} already exists (created by CI)")
             return
 
-        changelog = Changelog(info.root, ops=ops).text()
-        notes = extract_version_notes(changelog, version)
+        notes = Changelog(info.root, ops=ops).notes_for(version)
 
         result = ops.run(
             [gh, "release", "create", tag, "--title", tag, "--notes", notes],

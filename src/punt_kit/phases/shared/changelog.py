@@ -1,72 +1,24 @@
-"""CHANGELOG.md reading, notes extraction, and version-bump suggestion."""
+"""CHANGELOG.md file access: reading, the preflight gate, and version facts."""
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Self, final
+
+from punt_kit.phases.shared.changelog_parser import ChangelogDocument
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from punt_kit.phases.shared.ops import ReleaseOps
 
-# The body of the [Unreleased] section: everything up to the next version
-# heading. Anchored on line starts so an EMPTY section (heading, blank line,
-# next heading) captures nothing instead of swallowing the next release's notes.
-_UNRELEASED = re.compile(r"(?ms)^## \[Unreleased\][^\n]*(?:\n|\Z)(.*?)(?=^## \[|\Z)")
-
-
-def extract_version_notes(changelog: str, version: str) -> str:
-    """Extract release notes for a specific version from changelog text.
-
-    Pure string transform — legitimate PY-OO-7 exception: it shares no
-    vocabulary with ``Changelog``'s fields, only the text a caller already
-    has in hand (``Changelog.notes_for`` reads the file, then delegates
-    here; tests exercise this directly against fabricated text with no
-    file at all).
-    """
-    pattern = rf"## \[{re.escape(version)}\][^\n]*\n"
-    match = re.search(pattern, changelog)
-    if not match:
-        return f"Release v{version}"
-
-    start = match.end()
-    next_heading = re.search(r"\n## \[", changelog[start:])
-    end = start + next_heading.start() if next_heading else len(changelog)
-    return changelog[start:end].strip()
-
-
-def suggest_next_version(changelog: str, current: str) -> str:
-    """Suggest a version bump based on changelog content. Pure string transform."""
-    unreleased = _UNRELEASED.search(changelog)
-    # An empty [Unreleased] has nothing to release, so it suggests no bump.
-    if not unreleased or not unreleased.group(1).strip():
-        return current
-
-    content = unreleased.group(1)
-    parts = current.split(".")
-    if len(parts) != 3:
-        return current
-
-    major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
-
-    # Check for breaking changes only within the ### Changed subsection
-    changed_match = re.search(
-        r"### Changed[ \t]*\r?\n(.*?)(?=\r?\n### |\Z)", content, re.DOTALL
-    )
-    has_breaking = (
-        changed_match is not None and "breaking" in changed_match.group(1).lower()
-    )
-    if has_breaking:
-        return f"{major + 1}.0.0"
-    if "### Added" in content:
-        return f"{major}.{minor + 1}.0"
-    return f"{major}.{minor}.{patch + 1}"
-
 
 @final
 class Changelog:
-    """Reads and interprets a project's CHANGELOG.md."""
+    """Reads a project's CHANGELOG.md and answers questions about it.
+
+    Every answer comes from ``ChangelogDocument``, the one parser; this
+    class only owns locating and reading the file.
+    """
 
     __slots__ = ("_ops", "_root")
 
@@ -86,32 +38,33 @@ class Changelog:
             self._ops.fail("CHANGELOG.md not found")
         return changelog.read_text(encoding="utf-8")
 
+    def document(self) -> ChangelogDocument:
+        """Parse CHANGELOG.md; callers that ask several questions parse once."""
+        return ChangelogDocument(self.text())
+
     def require_unreleased_entries(self) -> None:
-        """Fail unless the changelog has an [Unreleased] section with content.
+        """Fail unless the changelog has an [Unreleased] section with entries.
 
         Reads CHANGELOG.md once. Fails with ``No [Unreleased] section in
-        CHANGELOG.md`` when no such heading starts a line, and with
-        ``[Unreleased] section is empty — nothing to release`` when the
-        section has nothing but whitespace before the next version heading.
+        CHANGELOG.md`` when no such heading starts a line outside a code
+        fence, and with ``[Unreleased] section is empty — nothing to
+        release`` when the section has no entry: headings and HTML comments
+        alone do not count.
         """
-        body = _UNRELEASED.search(self.text())
-        if body is None:
+        unreleased = self.document().section("Unreleased")
+        if unreleased is None:
             self._ops.fail("No [Unreleased] section in CHANGELOG.md")
-        if not body.group(1).strip():
+        if not unreleased.has_entries:
             self._ops.fail("[Unreleased] section is empty — nothing to release")
 
     def notes_for(self, version: str) -> str:
-        return extract_version_notes(self.text(), version)
+        """Release notes for ``version``, or ``Release v<version>`` when absent."""
+        return self.document().notes_for(version)
 
     def suggest_next_version(self, current: str) -> str:
-        return suggest_next_version(self.text(), current)
+        """Suggest the next version from the [Unreleased] entries."""
+        return self.document().suggest_next_version(current)
 
     def is_stamped(self, version: str) -> bool:
         """True if ``## [<version>] - YYYY-MM-DD`` appears in the changelog."""
-        return bool(
-            re.search(
-                rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}",
-                self.text(),
-                re.MULTILINE,
-            )
-        )
+        return self.document().is_stamped(version)

@@ -36,7 +36,6 @@ from punt_kit.phases.phase10_propagate import (
     WebsitePropagator,
 )
 from punt_kit.phases.phase11_verify import Phase11Verify
-from punt_kit.phases.shared import changelog as changelog_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.ci_run import TagRunSelector
@@ -182,11 +181,6 @@ def _get_github_repo(root: Path) -> str | None:
     return GithubRepo(root, ops=_ops).resolve()
 
 
-def _read_changelog(root: Path) -> str:
-    """Read CHANGELOG.md content."""
-    return Changelog(root, ops=_ops).text()
-
-
 def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     """Resolve all unresolved review threads on a PR."""
     PrThreadResolver(GithubRepo(Path(cwd), ops=_ops), ops=_ops).resolve(
@@ -202,11 +196,6 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
 def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     """Phase 1: Pre-flight checks."""
     Phase1Preflight(info, dry_run=dry_run, ops=_ops).run()
-
-
-def _suggest_version(changelog: str, current: str) -> str:
-    """Suggest a version bump based on changelog content."""
-    return changelog_mod.suggest_next_version(changelog, current)
 
 
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
@@ -623,8 +612,7 @@ def run_release(
                             "is not a Go project, and is not a plugin"
                         )
                     current = _get_project_version(info)
-                    changelog = _read_changelog(root)
-                    version = _suggest_version(changelog, current)
+                    version = Changelog(root, ops=_ops).suggest_next_version(current)
                     console.print(
                         f"\n  [bold]Suggested version:[/bold]"
                         f" {version} (current: {current})"

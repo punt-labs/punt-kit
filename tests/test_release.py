@@ -30,7 +30,6 @@ from punt_kit.phases.phase09_post_release import Phase9PostRelease
 from punt_kit.phases.phase10_propagate import InstallAllPropagator
 from punt_kit.phases.phase11_verify import VerificationCheck
 from punt_kit.phases.shared import gh as gh_mod
-from punt_kit.phases.shared.changelog import extract_version_notes
 from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
@@ -63,7 +62,6 @@ from punt_kit.release import (
     _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
     _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
-    _suggest_version,  # pyright: ignore[reportPrivateUsage]
     _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
@@ -256,87 +254,6 @@ def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
     _git(["fetch", "origin"], cwd=d)
 
     return root
-
-
-# --- suggest_version ---
-
-
-def test_suggest_version_minor_bump() -> None:
-    """Suggests minor bump when [Unreleased] has ### Added."""
-    cl = "## [Unreleased]\n\n### Added\n\n- Feature\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "1.3.0"
-
-
-def test_suggest_version_patch_bump() -> None:
-    """Suggests patch bump when [Unreleased] has only ### Fixed."""
-    cl = "## [Unreleased]\n\n### Fixed\n\n- Bug fix\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "1.2.4"
-
-
-def test_suggest_version_ignores_the_next_release_after_an_empty_unreleased() -> None:
-    """An empty [Unreleased] suggests no bump and ignores the next release's notes."""
-    cl = (
-        "# Changelog\n\n## [Unreleased]\n\n"
-        "## [1.2.3] - 2026-01-01\n\n### Added\n\n- x\n"
-    )
-    assert _suggest_version(cl, "1.2.3") == "1.2.3"
-
-
-def test_suggest_version_major_bump() -> None:
-    """Suggests major bump for breaking changes."""
-    cl = "## [Unreleased]\n\n### Changed\n\n- BREAKING: removed old API\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "2.0.0"
-
-
-def test_suggest_version_detects_breaking_change_in_crlf_changelog() -> None:
-    """A CRLF changelog's breaking ### Changed entry still bumps the major."""
-    cl = (
-        "# Changelog\r\n\r\n## [Unreleased]\r\n\r\n### Changed\r\n\r\n"
-        "- BREAKING: drop the old flag\r\n\r\n### Added\r\n\r\n- new flag\r\n"
-    )
-    assert _suggest_version(cl, "1.2.3") == "2.0.0"
-
-
-def test_suggest_version_empty_unreleased_at_eof_without_newline_suggests_no_bump() -> (
-    None
-):
-    """A changelog ending in a bare ``## [Unreleased]`` has nothing to release."""
-    assert _suggest_version("# Changelog\n\n## [Unreleased]", "1.2.3") == "1.2.3"
-
-
-def test_suggest_version_tolerates_trailing_whitespace_after_changed_heading() -> None:
-    """``### Changed`` followed by spaces is still the Changed heading."""
-    cl = "## [Unreleased]\n\n### Changed  \t\n\n- BREAKING: drop the old flag\n"
-    assert _suggest_version(cl, "1.2.3") == "2.0.0"
-
-
-def test_suggest_version_breaking_in_fixed_not_major() -> None:
-    """'breaking' in Fixed section does not trigger major bump."""
-    cl = "## [Unreleased]\n\n### Fixed\n\n- Fixed breaking regression\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "1.2.4"
-
-
-# --- extract_version_notes ---
-
-
-def test_extract_version_notes() -> None:
-    """Extracts notes for a specific version."""
-    changelog = (
-        "## [Unreleased]\n\n"
-        "## [0.2.0] - 2026-03-01\n\n"
-        "### Added\n\n- New feature\n\n"
-        "## [0.1.0] - 2026-01-01\n\n"
-        "### Added\n\n- Initial\n"
-    )
-    notes = extract_version_notes(changelog, "0.2.0")
-    assert "New feature" in notes
-    assert "Initial" not in notes
-
-
-def test_extract_version_notes_missing() -> None:
-    """Returns default when version not found."""
-    notes = extract_version_notes("## [Unreleased]\n", "9.9.9")
-    assert "v9.9.9" in notes
 
 
 # --- phase 1 preflight ---
@@ -576,6 +493,42 @@ def test_preflight_fails_empty_unreleased(tmp_path: Path) -> None:
 
     with pytest.raises(ReleaseError, match=r"nothing to release"):
         _phase1_preflight(info, dry_run=False)
+
+
+@pytest.mark.parametrize(
+    ("changelog", "message"),
+    [
+        pytest.param(
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n\n### Fixed\n\n"
+            "## [0.1.0] - 2026-01-01\n",
+            r"nothing to release",
+            id="headings-only",
+        ),
+        pytest.param(
+            "# Changelog\n\n## [Unreleased]\n\n<!-- nothing yet -->\n\n"
+            "## [0.1.0] - 2026-01-01\n",
+            r"nothing to release",
+            id="comment-only",
+        ),
+        pytest.param(
+            "# Changelog\n\n## [0.1.0] - 2026-01-01\n\n- Initial\n",
+            r"No \[Unreleased\] section in CHANGELOG\.md",
+            id="no-unreleased-section",
+        ),
+    ],
+)
+def test_preflight_rejects_a_changelog_with_nothing_to_release(
+    tmp_path: Path, changelog: str, message: str
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "CHANGELOG.md").write_text(changelog)
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "changelog without entries"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    with pytest.raises(ReleaseError, match=message):
+        _phase1_preflight(detect(root), dry_run=False)
 
 
 def test_preflight_passes_clean(tmp_path: Path) -> None:
