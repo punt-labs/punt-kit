@@ -1331,3 +1331,30 @@ def test_init_shows_a_removed_dead_rule_with_markup_literally(
     run_init(str(tmp_path))
 
     assert f"dead rule removed: {rule}" in flat(capsys.readouterr().out)
+
+
+def test_init_is_not_blocked_by_an_unrelated_unreadable_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "deploy.yml").write_bytes(b"\xff\xfe\x00 not utf-8")
+
+    run_init(str(tmp_path))
+
+    assert (workflows / "lint.yml").exists()
+
+
+def test_init_still_refuses_an_unreadable_workflow_it_would_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "lint.yml").write_bytes(b"\xff\xfe\x00 not utf-8")
+
+    with pytest.raises(SystemExit):
+        run_init(str(tmp_path))

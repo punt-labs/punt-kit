@@ -242,8 +242,14 @@ def _validate_inputs(info: ProjectInfo) -> None:
     # Every plugin manifest permissions will read, so a later malformed one
     # cannot fail the run after the earlier steps have written.
     _get_plugin_name(info)
-    workflows = sorted((root / ".github" / "workflows").glob("*.y*ml"))
-    for path in (*workflows, root / "CLAUDE.md", root / ".gitignore"):
+    workflows_dir = root / ".github" / "workflows"
+    merged = (
+        workflows_dir / target
+        for _template, target in _workflow_targets(
+            info, with_release=info.language == "python"
+        )
+    )
+    for path in (*merged, root / "CLAUDE.md", root / ".gitignore"):
         if path.exists():
             TextFile(path).read()
 
@@ -310,25 +316,37 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
     )
 
 
+def _workflow_targets(
+    info: ProjectInfo, *, with_release: bool
+) -> list[tuple[str, str]]:
+    """The ``(template, target file)`` pairs init may write under workflows/.
+
+    One list for the merge and for the validation that precedes it, so init
+    reads exactly the files it may touch and no others. Release needs package
+    metadata, so the caller says whether it has it.
+    """
+    pairs: list[tuple[str, str]] = []
+    if info.language == "python":
+        pairs.append(("lint-python.yml", "lint.yml"))
+        pairs.append(("test-python.yml", "test.yml"))
+    elif info.language == "node":
+        pairs.append(("lint-node.yml", "lint.yml"))
+    if with_release:
+        pairs.append(("release-python.yml.j2", "release.yml"))
+    # All repos get docs.yml for markdown linting
+    pairs.append(("docs.yml", "docs.yml"))
+    return pairs
+
+
 def _init_workflows(info: ProjectInfo) -> list[str]:
     """Generate CI workflow files based on project type."""
     changed: list[str] = []
     workflows_dir = info.root / ".github" / "workflows"
 
-    templates_to_install: list[tuple[str, str]] = []
-
-    if info.language == "python":
-        templates_to_install.append(("lint-python.yml", "lint.yml"))
-        templates_to_install.append(("test-python.yml", "test.yml"))
-    elif info.language == "node":
-        templates_to_install.append(("lint-node.yml", "lint.yml"))
-
-    # Release workflow requires package metadata (name + CLI entry point)
     if info.language == "python":
         template_vars = _get_template_vars(info)
-        if "package_name" in template_vars and "cli_command" in template_vars:
-            templates_to_install.append(("release-python.yml.j2", "release.yml"))
-        else:
+        has_release = "package_name" in template_vars and "cli_command" in template_vars
+        if not has_release:
             missing = [
                 k for k in ("package_name", "cli_command") if k not in template_vars
             ]
@@ -338,9 +356,9 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             )
     else:
         template_vars = {}
+        has_release = False
 
-    # All repos get docs.yml for markdown linting
-    templates_to_install.append(("docs.yml", "docs.yml"))
+    templates_to_install = _workflow_targets(info, with_release=has_release)
 
     for template_name, target_name in templates_to_install:
         template_ref = TEMPLATES / "workflows" / template_name
