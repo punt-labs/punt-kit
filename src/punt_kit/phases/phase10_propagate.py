@@ -119,7 +119,16 @@ class InstallAllPropagator:
         )
 
         if count == 0:
-            ops.info(f"install-all.sh: no entry for {project_name} — skipping")
+            # Phase 11 fails an absent entry, so say so now, with the fix. The
+            # profile pin is independent of this entry and is still refreshed.
+            self._skips.record(
+                f"SKIPPED — manual action required: ../.github/install-all.sh has no "
+                f"entry for {project_name}, so its install SHA was not propagated "
+                f"for {tag}. Add the entry, pinned to {install_sha}, manually."
+            )
+            if not dry_run:
+                github_sibling.validate()
+                self._sync_profile_readme(sibling, version, project_name, merge_sibling)
             return
 
         if dry_run:
@@ -359,13 +368,9 @@ class WebsitePropagator:
     ) -> None:
         info = self._info
         ops = self._ops
-        slug = ProjectRemote(
-            info.root, ops=ops, skips=self._skips, step="website propagation"
-        ).slug()
-        if slug is None:
-            return
-        project_name = slug.name
-
+        # The website is optional: look for its sibling before asking for the
+        # slug, so a missing sibling is not reported as a skipped step needing
+        # manual action.
         website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
         if website_sibling is None:
             ops.info("Sibling public-website not found — skipping website update")
@@ -376,6 +381,13 @@ class WebsitePropagator:
         if not projects_json.exists():
             ops.info("projects.json not found in public-website — skipping")
             return
+
+        slug = ProjectRemote(
+            info.root, ops=ops, skips=self._skips, step="website propagation"
+        ).slug()
+        if slug is None:
+            return
+        project_name = slug.name
 
         if dry_run:
             ops.dry(
@@ -405,7 +417,11 @@ class WebsitePropagator:
                 break
 
         if not found:
-            ops.info(f"No website entry for {project_name} — skipping")
+            self._skips.record(
+                "SKIPPED — manual action required: public-website projects.json has "
+                f"no entry for {project_name}, so its version was not propagated "
+                f"for v{version}. Add the entry manually."
+            )
             return
 
         projects_file.save(data)

@@ -12468,6 +12468,17 @@ def _website(
     return WebsitePropagator(info, ops=ops, skips=skips)
 
 
+def _with_website_sibling(tmp_path: Path) -> Path:
+    """A project plus a public-website sibling, so the optional step is in play."""
+    root = _make_release_project(tmp_path)
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "other", "version": "1"}])},
+    )
+    return root
+
+
 _PROPAGATORS = [
     pytest.param(_install_all, "install-all.sh propagation", id="install-all"),
     pytest.param(_marketplace, "marketplace propagation", id="marketplace"),
@@ -12484,7 +12495,7 @@ def test_propagator_without_a_github_remote_records_a_skip(
     ops = _fault_ops([_NO_ORIGIN])
     skips = SkipRecorder(ops=ops)
 
-    build(detect(_make_release_project(tmp_path)), ops, skips).run(
+    build(detect(_with_website_sibling(tmp_path)), ops, skips).run(
         "0.2.0", dry_run=False, merge_sibling=_never_merge
     )
 
@@ -12501,7 +12512,7 @@ def test_propagator_with_a_malformed_remote_fails_naming_it(
     ops = _fault_ops([_origin_rule(stdout="https://github.com/proj\n")])
 
     with pytest.raises(ReleaseError, match=rf"{label}: not an owner/repo slug"):
-        build(detect(_make_release_project(tmp_path)), ops, SkipRecorder(ops=ops)).run(
+        build(detect(_with_website_sibling(tmp_path)), ops, SkipRecorder(ops=ops)).run(
             "0.2.0", dry_run=False, merge_sibling=_never_merge
         )
 
@@ -12515,7 +12526,7 @@ def test_propagator_whose_remote_lookup_fails_fails_naming_it(
     ops = _fault_ops([_origin_timeout()])
 
     with pytest.raises(ReleaseError, match=rf"{label}: .*timed out"):
-        build(detect(_make_release_project(tmp_path)), ops, SkipRecorder(ops=ops)).run(
+        build(detect(_with_website_sibling(tmp_path)), ops, SkipRecorder(ops=ops)).run(
             "0.2.0", dry_run=False, merge_sibling=_never_merge
         )
 
@@ -13580,3 +13591,89 @@ def test_phase11_verify_fails_when_any_profile_pin_is_stale(
         _phase11_verify(detect(root), version, dry_run=False)
 
     _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "stale — lacks")
+
+
+# --- propagation skips are recorded, with the manual action ---
+
+
+def _project_with_origin(tmp_path: Path) -> ProjectInfo:
+    root = _make_release_project(tmp_path)
+    _git(["tag", "v0.2.0"], cwd=str(root))
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=str(root),
+    )
+    return detect(root)
+
+
+def test_install_all_without_an_entry_records_a_skip_and_still_refreshes_profile(
+    tmp_path: Path,
+) -> None:
+    info = _project_with_origin(tmp_path)
+    _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": "#!/bin/sh\necho nothing here\n",
+            "profile/README.md": (
+                "curl -fsSL https://raw.githubusercontent.com/"
+                "punt-labs/.github/aabb002/install-all.sh | sh\n"
+            ),
+        },
+    )
+    ops = _fault_ops()
+    skips = SkipRecorder(ops=ops)
+    merged: list[list[str]] = []
+
+    def merge(
+        _sibling: Path,
+        _branch: str,
+        files: list[str],
+        _message: str,
+        _label: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        merged.append(files)
+        return True
+
+    InstallAllPropagator(info, ops=ops, skips=skips).run(
+        "0.2.0", dry_run=False, merge_sibling=merge
+    )
+
+    (notice,) = skips.drain()
+    assert "no entry for proj" in notice
+    assert "manual action required" in notice
+    assert merged == [["profile/README.md"]]
+
+
+def test_website_without_an_entry_records_a_skip(tmp_path: Path) -> None:
+    info = _project_with_origin(tmp_path)
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "other", "version": "1"}])},
+    )
+    ops = _fault_ops()
+    skips = SkipRecorder(ops=ops)
+
+    WebsitePropagator(info, ops=ops, skips=skips).run(
+        "0.2.0", dry_run=False, merge_sibling=_never_merge
+    )
+
+    (notice,) = skips.drain()
+    assert "no entry for proj" in notice
+    assert "manual action required" in notice
+
+
+def test_website_without_a_sibling_is_skipped_quietly_even_without_a_remote(
+    tmp_path: Path,
+) -> None:
+    ops = _fault_ops([_NO_ORIGIN])
+    skips = SkipRecorder(ops=ops)
+
+    WebsitePropagator(
+        detect(_make_release_project(tmp_path)), ops=ops, skips=skips
+    ).run("0.2.0", dry_run=False, merge_sibling=_never_merge)
+
+    assert skips.drain() == ()
