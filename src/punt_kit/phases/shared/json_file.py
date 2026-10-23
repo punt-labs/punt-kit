@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.text_file import TextFile
@@ -40,6 +40,17 @@ class JsonFile:
         except json.JSONDecodeError as exc:
             msg = f"{self._file.path} is not valid JSON: {exc}"
             raise ReleaseError(msg) from exc
+
+    def load_object(self) -> dict[str, object]:
+        """Parse the file as a JSON object, or raise naming the file and why."""
+        data = self.load()
+        if not isinstance(data, dict):
+            msg = (
+                f"{self._file.path} must hold a JSON object,"
+                f" found {type(data).__name__}"
+            )
+            raise ReleaseError(msg)
+        return cast("dict[str, object]", data)
 
     def save(self, data: object) -> None:
         """Write ``data`` indented by two, keeping non-ASCII text as written."""

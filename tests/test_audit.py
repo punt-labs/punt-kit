@@ -869,3 +869,67 @@ def test_audit_plugin_version_sync_reads_a_pyproject_that_starts_with_a_bom(
     )
 
     assert check(info) == [(PASS, "Plugin version matches pyproject.toml", "v0.1.0")]
+
+
+def test_audit_reads_a_settings_json_that_starts_with_a_bom(tmp_path: Path) -> None:
+    _make_compliant_python(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_bytes(b"\xef\xbb\xbf" + settings.read_bytes())
+
+    run_audit(str(tmp_path))  # a BOM is not a parse error
+
+
+def test_audit_fails_naming_the_unparseable_settings_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.json").write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "settings.json is not valid JSON" in out
+
+
+def test_audit_fails_naming_an_unparseable_plugin_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir()
+    manifest.write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "plugin.json is not valid JSON" in out
+
+
+def test_audit_fails_on_an_unreadable_second_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = tmp_path / "plugin" / ".claude-plugin" / "plugin.json"
+    first.parent.mkdir(parents=True)
+    first.write_text('{"version": "1.0.0"}')
+    second = tmp_path / ".claude-plugin" / "plugin.json"
+    second.parent.mkdir()
+    second.write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "Plugin manifest is readable" in out
+    assert ".claude-plugin/plugin.json is not valid JSON" in out
+
+
+def test_audit_says_when_it_cannot_check_settings_local(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.local.json").write_text("{not json")
+
+    run_audit(str(tmp_path))
+
+    assert "settings.local.json could not be checked" in capsys.readouterr().out

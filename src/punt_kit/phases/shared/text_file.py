@@ -9,7 +9,7 @@ from punt_kit.phases.shared.errors import ReleaseError
 if TYPE_CHECKING:
     from pathlib import Path
 
-_BOM = "﻿"
+_BOM = "\ufeff"
 
 
 @final

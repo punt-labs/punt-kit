@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import re
 import tomllib
 from dataclasses import dataclass, field
@@ -95,7 +94,12 @@ class ProjectInfo:
 
 
 def detect(root: Path) -> ProjectInfo:
-    """Scan a directory and return detected project info."""
+    """Scan a directory and return detected project info.
+
+    Raises :class:`ReleaseError` when ``package.json`` or a plugin manifest is
+    not a readable JSON object: detection built on a file it could not read
+    would report a project it never saw.
+    """
     root = root.resolve()
 
     language: str | None = None
@@ -118,8 +122,7 @@ def detect(root: Path) -> ProjectInfo:
     # Check package.json
     package_json_path = root / "package.json"
     if package_json_path.exists():
-        with open(package_json_path) as pj:
-            package_json_data = json.load(pj)
+        package_json_data = JsonFile(package_json_path).load_object()
         if language is None:
             language = "node"
             project_type = "package"
@@ -197,13 +200,9 @@ def detect(root: Path) -> ProjectInfo:
     # Extract MCP server names from plugin.json
     plugin_mcp_servers: list[str] = []
     if manifests:
-        try:
-            pj_data = cast("dict[str, object]", JsonFile(manifests[0]).load())
-            servers = pj_data.get("mcpServers")
-            if isinstance(servers, dict):
-                plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
-        except (json.JSONDecodeError, OSError):
-            pass
+        servers = JsonFile(manifests[0]).load_object().get("mcpServers")
+        if isinstance(servers, dict):
+            plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
 
     # All projects get these standard refs
     standards_refs.append("github")

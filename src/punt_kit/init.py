@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.resources
-import json
 import shutil
 import subprocess
 import tomllib
@@ -14,9 +13,12 @@ from typing import cast
 import jinja2
 import tomli_w
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
@@ -147,7 +149,18 @@ def run_init(path: str, *, language: str | None = None) -> None:
 
     *language* overrides auto-detection. When detection returns no language
     and no override is given, prompts interactively (if stdin is a tty).
+    A file that cannot be read is reported and ends the run with exit 1; no
+    file is ever rewritten from a guess at what it held.
     """
+    try:
+        _init_project(path, language=language)
+    except ReleaseError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise SystemExit(1) from exc
+
+
+def _init_project(path: str, *, language: str | None) -> None:
+    """Run every init step against the project at *path*."""
     root = Path(path).resolve()
     if not root.is_dir():
         console.print(f"[red]Error:[/red] {root} is not a directory")
@@ -639,13 +652,15 @@ def build_standard_deny_rules() -> list[str]:
 
 
 def _get_plugin_name(info: ProjectInfo) -> str:
-    """Extract plugin name from plugin.json for MCP permission patterns."""
+    """Extract plugin name from plugin.json for MCP permission patterns.
+
+    A manifest that cannot be read raises :class:`ReleaseError`: falling back
+    to the directory name would seed permissions for a plugin that does not
+    exist. A manifest with no string ``name`` is a different case — absence is
+    what the directory-name fallback is for.
+    """
     for pj_path in info.plugin_manifests:
-        try:
-            data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        name = data.get("name")
+        name = JsonFile(pj_path).load_object().get("name")
         if isinstance(name, str):
             return name
     return info.root.name
@@ -656,15 +671,12 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
     settings_path = info.root / ".claude" / "settings.json"
     standard_perms = build_standard_permissions(info)
 
-    existing: dict[str, object]
-    if settings_path.exists():
-        try:
-            raw = json.loads(settings_path.read_text(encoding="utf-8"))
-            existing = cast("dict[str, object]", raw) if isinstance(raw, dict) else {}
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-    else:
-        existing = {}
+    # An unreadable settings.json raises: starting from {} would write back
+    # permissions only, destroying the user's hooks, env, and every other key.
+    settings = JsonFile(settings_path)
+    existing: dict[str, object] = (
+        settings.load_object() if settings_path.exists() else {}
+    )
 
     perms_raw = existing.get("permissions")
     permissions: dict[str, object] = (
@@ -710,7 +722,7 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
         return []
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    settings.save(existing)
 
     rel = _relpath(settings_path, info.root)
     is_new = len(added) == len(allow) and len(added_deny) == len(deny)
@@ -781,14 +793,18 @@ def _prune_settings_local(info: ProjectInfo) -> list[str]:
     if not settings_path.exists():
         return []
 
+    local = JsonFile(settings_path)
+    rel = _relpath(settings_path, info.root)
     try:
-        raw = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        data = local.load_object()
+    except ReleaseError as exc:
+        # A personal, gitignored file: init does not fail over it, but it does
+        # not pretend the file was clean either.
+        console.print(
+            f"  [yellow]![/yellow] {escape(str(exc))} — {rel} left as is, dead rules"
+            " in it are not pruned"
+        )
         return []
-    if not isinstance(raw, dict):
-        return []
-
-    data = cast("dict[str, object]", raw)
     perms_raw = data.get("permissions")
     if not isinstance(perms_raw, dict):
         return []
@@ -797,9 +813,8 @@ def _prune_settings_local(info: ProjectInfo) -> list[str]:
     if not removed:
         return []
 
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    local.save(data)
 
-    rel = _relpath(settings_path, info.root)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (-{len(removed)} dead)")
     for rule in removed:
         console.print(f"    [dim]dead rule removed:[/dim] {rule}")

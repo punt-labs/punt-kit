@@ -375,6 +375,40 @@ class TestRunSeed:
         data = json.loads(settings.read_text())
         assert "Bash(git:*)" in data["permissions"]["allow"]
 
+    def test_seed_settings_keeps_a_bom_and_other_keys(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
+        settings = tmp_path / ".claude" / "settings.json"
+        settings.parent.mkdir()
+        settings.write_bytes('\ufeff{"env": {"KEEP": "me"}}\n'.encode())
+
+        run_seed(str(tmp_path), target="settings")
+
+        raw = settings.read_bytes()
+        assert raw.startswith(b"\xef\xbb\xbf")
+        assert json.loads(raw.decode("utf-8-sig"))["env"] == {"KEEP": "me"}
+
+    def test_seed_settings_refuses_unparseable_json(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
+        settings = tmp_path / ".claude" / "settings.json"
+        settings.parent.mkdir()
+        settings.write_text("{broken")
+
+        with pytest.raises(SystemExit, match="1"):
+            run_seed(str(tmp_path), target="settings")
+
+        assert settings.read_text() == "{broken"
+        assert "settings.json is not valid JSON" in capsys.readouterr().out
+
+    def test_seed_fails_on_an_unparseable_plugin_manifest(self, tmp_path: Path) -> None:
+        manifest = tmp_path / ".claude-plugin" / "plugin.json"
+        manifest.parent.mkdir()
+        manifest.write_text("{broken")
+
+        with pytest.raises(SystemExit, match="1"):
+            run_seed(str(tmp_path), target="settings")
+
     def test_seed_invalid_target(self, tmp_path: Path) -> None:
         (tmp_path / "README.md").write_text("# Test\n")
 

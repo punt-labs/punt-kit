@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.resources
-import json
 import re
 import shutil
 import subprocess
@@ -12,12 +11,15 @@ from pathlib import Path
 from typing import cast
 
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.audit_github import GithubSettingsAudit
 from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
@@ -35,7 +37,13 @@ def run_audit(path: str, *, fix: bool = False) -> None:
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
-    info = detect(root)
+    try:
+        info = detect(root)
+    except ReleaseError as exc:
+        console.print(f"\n[bold]punt audit[/bold] — {root.name}")
+        console.print(f"  {FAIL} Project files are readable")
+        console.print(f"      [dim]{escape(str(exc))}[/dim]")
+        raise SystemExit(1) from exc
 
     mode = "[bold]punt audit --fix[/bold]" if fix else "[bold]punt audit[/bold]"
     console.print(f"\n{mode} — {root.name}")
@@ -373,16 +381,10 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
     results.append((PASS, ".claude/settings.json exists", ""))
 
     try:
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        results.append((FAIL, "settings.json is valid JSON", "Parse error"))
+        typed_data = JsonFile(settings_path).load_object()
+    except ReleaseError as exc:
+        results.append((FAIL, "settings.json is valid JSON", str(exc)))
         return results
-
-    if not isinstance(data, dict):
-        results.append((FAIL, "settings.json is valid JSON", "Expected object"))
-        return results
-
-    typed_data = cast("dict[str, object]", data)
 
     perms_raw = typed_data.get("permissions")
     if not isinstance(perms_raw, dict):
@@ -390,7 +392,7 @@ def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
         return results
 
     perms = cast("dict[str, object]", perms_raw)
-    results.append(_check_dead_permission_rules(info, perms))
+    results.extend(_check_dead_permission_rules(info, perms))
 
     allow_raw = perms.get("allow")
     if not isinstance(allow_raw, list):
@@ -484,20 +486,14 @@ def _dead_rules_in_settings_local(info: ProjectInfo) -> tuple[list[str], list[st
 
     Claude Code warns for this file exactly as it does for the checked-in one,
     so the audit has to read both or it reports clean while the developer sees
-    warnings every session.
+    warnings every session. Raises :class:`ReleaseError` when the file exists
+    but cannot be read as a JSON object.
     """
     settings_path = info.root / ".claude" / "settings.local.json"
     if not settings_path.exists():
         return ([], [])
 
-    try:
-        raw = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return ([], [])
-    if not isinstance(raw, dict):
-        return ([], [])
-
-    perms_raw = cast("dict[str, object]", raw).get("permissions")
+    perms_raw = JsonFile(settings_path).load_object().get("permissions")
     if not isinstance(perms_raw, dict):
         return ([], [])
 
@@ -518,24 +514,40 @@ def _dead_rule_remedy(fixable: list[str], manual: list[str]) -> str:
 
 def _check_dead_permission_rules(
     info: ProjectInfo, perms: dict[str, object]
-) -> tuple[str, str, str]:
-    """Flag path rules Claude Code never matches (permissions.md §1)."""
+) -> list[tuple[str, str, str]]:
+    """Flag path rules Claude Code never matches (permissions.md §1).
+
+    An unreadable ``settings.local.json`` is a personal file, so it does not
+    fail the audit; it is reported as INFO so the check is never silently
+    narrowed to the one file that parsed.
+    """
     settings_fixable, settings_manual = _dead_rules_in(perms)
-    local_fixable, local_manual = _dead_rules_in_settings_local(info)
+    notes: list[tuple[str, str, str]] = []
+    try:
+        local_fixable, local_manual = _dead_rules_in_settings_local(info)
+    except ReleaseError as exc:
+        local_fixable, local_manual = [], []
+        notes.append((INFO, "settings.local.json could not be checked", str(exc)))
     fixable = settings_fixable + local_fixable
     manual = settings_manual + local_manual
     dead = fixable + manual
 
     if not dead:
-        return (PASS, "No unmatched path rules", "Edit(path) / Read(path) only")
+        return [
+            (PASS, "No unmatched path rules", "Edit(path) / Read(path) only"),
+            *notes,
+        ]
 
-    return (
-        FAIL,
-        "No unmatched path rules",
-        f"{len(dead)} never match: {', '.join(dead[:5])}"
-        + ("..." if len(dead) > 5 else "")
-        + _dead_rule_remedy(fixable, manual),
-    )
+    return [
+        (
+            FAIL,
+            "No unmatched path rules",
+            f"{len(dead)} never match: {', '.join(dead[:5])}"
+            + ("..." if len(dead) > 5 else "")
+            + _dead_rule_remedy(fixable, manual),
+        ),
+        *notes,
+    ]
 
 
 _REQUIRED_MAKE_TARGETS = {"help", "test", "lint", "check", "format"}
@@ -632,7 +644,11 @@ def _check_plugin_dev_isolation(
         )
 
     # Check plugin name has -dev suffix
-    plugin_name = _read_plugin_field(info, "name")
+    try:
+        plugin_name = _read_plugin_field(info, "name")
+    except ReleaseError as exc:
+        results.append((FAIL, "Plugin manifest is readable", str(exc)))
+        plugin_name = None
     if plugin_name is not None:
         if plugin_name.endswith("-dev"):
             results.append((PASS, "Plugin name has -dev suffix", plugin_name))
@@ -810,7 +826,10 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not info.is_plugin:
         return []
 
-    plugin_version = _read_plugin_field(info, "version")
+    try:
+        plugin_version = _read_plugin_field(info, "version")
+    except ReleaseError as exc:
+        return [(FAIL, "Plugin manifest is readable", str(exc))]
     if plugin_version is None:
         return []
 
@@ -847,14 +866,12 @@ def _read_plugin_field(info: ProjectInfo, field: str) -> str | None:
 
     None when no manifest declares the field — the callers turn that into a
     skipped check, since a plugin that omits a field is a different finding
-    from one whose value is wrong.
+    from one whose value is wrong. A manifest that cannot be read raises
+    :class:`ReleaseError` instead of being skipped, so a broken file is never
+    mistaken for a field it did not declare.
     """
     for pj_path in info.plugin_manifests:
-        try:
-            data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        value = data.get(field)
+        value = JsonFile(pj_path).load_object().get(field)
         if isinstance(value, str):
             return value
     return None

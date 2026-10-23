@@ -1013,3 +1013,85 @@ def test_init_python_config_reads_a_pyproject_that_starts_with_a_bom(
 
     assert changes  # the missing tool sections were added, not a TOMLDecodeError
     assert "tool" in tomllib.loads((tmp_path / "pyproject.toml").read_text("utf-8-sig"))
+
+
+# --- settings.json is never replaced by a guess ---
+
+
+def _python_project(root: Path) -> None:
+    (root / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+
+def test_init_keeps_a_settings_json_that_starts_with_a_bom_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    original = {
+        "env": {"KEEP": "me"},
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]},
+    }
+    settings.write_bytes(("\ufeff" + json.dumps(original, indent=2) + "\n").encode())
+
+    run_init(str(tmp_path))
+
+    raw = settings.read_bytes()
+    assert raw.startswith("\ufeff".encode()), "the BOM the file had is kept"
+    data = json.loads(raw.decode("utf-8-sig"))
+    assert data["env"] == original["env"]
+    assert data["hooks"] == original["hooks"]
+    assert "mcp__github__*" in data["permissions"]["allow"]
+
+
+@pytest.mark.parametrize("body", ["{not json", "[1, 2]", "\xff\xfe"])
+def test_init_refuses_to_replace_a_settings_json_it_cannot_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_bytes(body.encode("latin-1"))
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert settings.read_bytes() == body.encode("latin-1"), "the file is untouched"
+    assert "settings.json" in capsys.readouterr().out
+
+
+def test_init_fails_on_an_unparseable_plugin_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    (tmp_path / ".claude-plugin").mkdir()
+    (tmp_path / ".claude-plugin" / "plugin.json").write_text("{broken")
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+def test_init_says_when_it_leaves_an_unreadable_settings_local_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    local = tmp_path / ".claude" / "settings.local.json"
+    local.parent.mkdir()
+    local.write_text("{not json")
+
+    run_init(str(tmp_path))
+
+    assert local.read_text() == "{not json"
+    assert "settings.local.json" in capsys.readouterr().out

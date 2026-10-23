@@ -176,6 +176,7 @@ def status(
     from dataclasses import asdict
     from pathlib import Path
 
+    from punt_kit.phases.shared.errors import ReleaseError
     from punt_kit.status import run_status
 
     resolved = Path(path).resolve()
@@ -187,7 +188,14 @@ def status(
             print(f"Error: {msg}", file=sys.stderr)
         raise typer.Exit(code=1)
 
-    info = run_status(path)
+    try:
+        info = run_status(path)
+    except ReleaseError as exc:
+        if _json_output:
+            print(json.dumps({"error": str(exc)}))
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        raise typer.Exit(code=1) from exc
     if _json_output:
         print(json.dumps(asdict(info), default=str))
     elif not _quiet:
