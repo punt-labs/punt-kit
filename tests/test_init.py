@@ -1095,3 +1095,69 @@ def test_init_says_when_it_leaves_an_unreadable_settings_local_alone(
 
     assert local.read_text() == "{not json"
     assert "settings.local.json" in capsys.readouterr().out
+
+
+# --- pyproject.toml is edited, not re-serialized ---
+
+
+def _run_python_config(root: Path) -> list[str]:
+    init_python_config = cast(
+        "Callable[[ProjectInfo], list[str]]", vars(init_mod)["_init_python_config"]
+    )
+    return init_python_config(detect(root))
+
+
+def test_init_keeps_comments_bom_and_line_endings_in_pyproject(tmp_path: Path) -> None:
+    body = (
+        "# the project\r\n"
+        "[project]\r\n"
+        'name = "test-pkg"  # keep this comment\r\n'
+        'version = "0.1.0"\r\n'
+        "\r\n"
+        "[tool.ruff]\r\n"
+        "line-length = 100  # not 88\r\n"
+    )
+    path = tmp_path / "pyproject.toml"
+    path.write_bytes(("\ufeff" + body).encode())
+
+    changes = _run_python_config(tmp_path)
+
+    raw = path.read_bytes().decode("utf-8")
+    assert changes == ["pyproject.toml"]
+    assert raw.startswith("\ufeff" + body), "the original text is untouched"
+    assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
+    data = tomllib.loads(raw.removeprefix("\ufeff"))
+    assert data["tool"]["ruff"]["line-length"] == 100
+    assert "lint" in data["tool"]["ruff"]
+    assert {"mypy", "pyright", "pytest"} <= set(data["tool"])
+
+
+def test_init_leaves_a_complete_pyproject_byte_identical(tmp_path: Path) -> None:
+    body = (
+        '[project]\nname = "t"  # c\n\n'
+        "[tool.ruff]\nline-length = 88\n[tool.ruff.lint]\nselect = ['E']\n"
+        "[tool.mypy]\nstrict = true\n"
+        '[tool.pyright]\ntypeCheckingMode = "strict"\n'
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+    )
+    path = tmp_path / "pyproject.toml"
+    path.write_text(body)
+
+    assert _run_python_config(tmp_path) == []
+    assert path.read_text() == body
+
+
+def test_init_refuses_to_rewrite_a_pyproject_it_cannot_extend_in_place(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``ruff`` as an inline table cannot take a ``[tool.ruff.lint]`` table."""
+    body = '[project]\nname = "t"\n\n[tool]\nruff = {line-length = 100}\n'
+    path = tmp_path / "pyproject.toml"
+    path.write_text(body)
+
+    assert _run_python_config(tmp_path) == []
+
+    assert path.read_text() == body
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Add these tables by hand" in out
+    assert "[tool.ruff.lint]" in out

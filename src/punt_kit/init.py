@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import cast
 
 import jinja2
-import tomli_w
 from rich.console import Console
 from rich.markup import escape
 
@@ -20,6 +19,7 @@ from punt_kit.permission_rules import RuleSet, Tier
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
+from punt_kit.tool_config import ToolConfigPatch
 
 console = Console()
 
@@ -372,7 +372,13 @@ def _get_template_vars(info: ProjectInfo) -> dict[str, str]:
 
 
 def _init_python_config(info: ProjectInfo) -> list[str]:
-    """Ensure standard tool configs exist in pyproject.toml."""
+    """Ensure standard tool configs exist in pyproject.toml.
+
+    Missing tables are appended to the file as written: nothing already in it
+    is re-serialized, so comments, line endings and a BOM survive. When the
+    tables cannot be appended safely the file is left alone and the tables to
+    add by hand are printed.
+    """
     if info.language != "python":
         return []
 
@@ -380,60 +386,23 @@ def _init_python_config(info: ProjectInfo) -> list[str]:
     if not pyproject_path.exists():
         return []
 
-    data = tomllib.loads(TextFile(pyproject_path).read())
-
-    original = _toml_dump(data)
-    changed = False
-
-    # Ensure [tool.ruff]
-    tool = data.setdefault("tool", {})
-    if "ruff" not in tool:
-        tool["ruff"] = {
-            "line-length": 88,
-            "target-version": "py313",
-        }
-        changed = True
-    ruff = tool["ruff"]
-    if "lint" not in ruff:
-        ruff["lint"] = {"select": ["E", "F", "I", "UP", "B", "SIM", "TCH"]}
-        changed = True
-
-    # Ensure [tool.mypy]
-    if "mypy" not in tool:
-        tool["mypy"] = {
-            "python_version": "3.13",
-            "strict": True,
-            "warn_return_any": True,
-            "warn_unused_configs": True,
-        }
-        changed = True
-
-    # Ensure [tool.pyright]
-    if "pyright" not in tool:
-        tool["pyright"] = {
-            "pythonVersion": "3.13",
-            "typeCheckingMode": "strict",
-        }
-        changed = True
-
-    # Ensure [tool.pytest.ini_options]
-    if "pytest" not in tool:
-        tool["pytest"] = {"ini_options": {"testpaths": ["tests"]}}
-        changed = True
-    elif "ini_options" not in tool["pytest"]:
-        tool["pytest"]["ini_options"] = {"testpaths": ["tests"]}
-        changed = True
-
-    if not changed:
+    pyproject = TextFile(pyproject_path)
+    text = pyproject.read()
+    data = tomllib.loads(text)
+    patch = ToolConfigPatch(data)
+    if patch.is_empty:
         return []
 
-    new_content = _toml_dump(data)
-    if new_content == original:
+    updated = patch.appended_to(text, data)
+    if updated is None:
+        console.print(
+            "  [yellow]![/yellow] pyproject.toml left as is: the tool tables cannot"
+            " be added without rewriting it. Add these tables by hand:"
+        )
+        console.print(escape(patch.fragment()), highlight=False)
         return []
 
-    with open(pyproject_path, "wb") as f:
-        tomli_w.dump(data, f)
-
+    pyproject.write(updated)
     console.print("  [yellow]↻[/yellow] Updated tool config in pyproject.toml")
     return ["pyproject.toml"]
 
@@ -927,12 +896,3 @@ def _relpath(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _toml_dump(data: dict[str, object]) -> str:
-    """Dump TOML data to string for comparison."""
-    import io
-
-    buf = io.BytesIO()
-    tomli_w.dump(data, buf)
-    return buf.getvalue().decode("utf-8")
