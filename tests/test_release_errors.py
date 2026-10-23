@@ -9,8 +9,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit import release
+from punt_kit.phases.shared.errors import OperationalFailure, ReleaseError
 from punt_kit.phases.shared.reporter import reporter
-from punt_kit.release import ReleaseError, run_release
+from punt_kit.release import run_release
 from tests.helpers import (
     fake_which,
     flat,
@@ -298,3 +299,61 @@ def test_an_interrupt_before_any_phase_says_it_was_an_interrupt(
     assert exc_info.value.code == 1
     assert "interrupted before any phase ran" in out
     assert "failed before any phase ran" not in out
+
+
+def _failed_command(*, stderr: str, output: str = "") -> subprocess.CalledProcessError:
+    return subprocess.CalledProcessError(
+        1, ["gh", "pr", "list"], output=output, stderr=stderr
+    )
+
+
+def test_a_failed_command_in_a_worker_thread_shows_its_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def phase11(*_a: object, **_k: object) -> None:
+        return None
+
+    root = _p9_p10_project(tmp_path, monkeypatch, phase11=phase11)
+
+    def fails(*_a: object, **_k: object) -> None:
+        raise _failed_command(stderr="HTTP 401: bad credentials\n")
+
+    monkeypatch.setattr(release, "_propagate_website", fails)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), version="0.2.0", resume_from="post-release")
+
+    assert "HTTP 401: bad credentials" in flat(capsys.readouterr().out)
+
+
+def test_a_failed_command_in_a_synchronous_phase_shows_its_stderr(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", fake_which)
+
+    def phase11(*_a: object, **_k: object) -> None:
+        raise _failed_command(stderr="HTTP 401: bad credentials\n")
+
+    monkeypatch.setattr(release, "_phase11_verify", phase11)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), version="0.2.0", resume_from="verify")
+
+    assert "HTTP 401: bad credentials" in flat(capsys.readouterr().out)
+
+
+def test_a_failed_command_with_no_stderr_shows_its_output() -> None:
+    line = OperationalFailure.one_line(_failed_command(stderr="", output="plain\n"))
+
+    assert line.endswith(": plain")
+
+
+def test_a_failed_command_with_long_stderr_is_truncated() -> None:
+    line = OperationalFailure.one_line(_failed_command(stderr="x" * 5000))
+
+    assert len(line) < 1000

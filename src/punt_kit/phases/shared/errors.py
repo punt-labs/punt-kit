@@ -28,10 +28,23 @@ class OperationalFailure:
         """True when ``exc`` is an environmental failure, not a bug."""
         return isinstance(exc, cls.TYPES)
 
-    @staticmethod
-    def one_line(exc: BaseException) -> str:
-        """Return ``Type: message``; ``str(KeyError("x"))`` alone is ``'x'``."""
-        return f"{type(exc).__name__}: {exc}"
+    DETAIL_LIMIT = 300
+
+    @classmethod
+    def one_line(cls, exc: BaseException) -> str:
+        """Return ``Type: message``; ``str(KeyError("x"))`` alone is ``'x'``.
+
+        A failed command also says why it failed: its stderr, or its output
+        when stderr is empty, stripped to one line and truncated.
+        """
+        line = f"{type(exc).__name__}: {exc}"
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = " ".join(str(exc.stderr or exc.output or "").split())
+            if len(detail) > cls.DETAIL_LIMIT:
+                detail = f"{detail[: cls.DETAIL_LIMIT]}..."
+            if detail:
+                line = f"{line}: {detail}"
+        return line
 
     @classmethod
     def report(cls, exc: BaseException) -> str:
