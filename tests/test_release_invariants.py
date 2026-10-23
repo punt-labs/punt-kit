@@ -93,9 +93,11 @@ class FileAccess:
         self._argvs = {
             ast.unparse(target): node.value
             for node in ast.walk(self._tree)
-            if isinstance(node, ast.Assign)
+            if isinstance(node, ast.Assign | ast.AnnAssign)
             and isinstance(node.value, ast.List | ast.Tuple)
-            for target in node.targets
+            for target in (
+                node.targets if isinstance(node, ast.Assign) else [node.target]
+            )
         }
         return self
 
@@ -943,6 +945,10 @@ def test_release_managed_files_are_touched_only_through_the_wrappers() -> None:
         ),
         pytest.param(
             'ops.run(["git", "cat-file", "-p", "HEAD:CHANGELOG.md"])', id="cat-file"
+        ),
+        pytest.param(
+            'cmd: list[str] = ["git", "show", "HEAD:CHANGELOG.md"]\nops.run(cmd)',
+            id="annotated-argv-variable",
         ),
     ],
 )
