@@ -27,6 +27,9 @@ FAIL = "[red]✗[/red]"
 FIXED = "[yellow]⚡[/yellow]"
 INFO = "[dim]○[/dim]"
 
+# The status line `gh api --include` prints first: ``HTTP/2.0 204 No Content``.
+_HTTP_STATUS = re.compile(r"HTTP/\S+\s+(\d{3})")
+
 
 def run_audit(path: str, *, fix: bool = False) -> None:
     """Check compliance against Punt Labs standards.
@@ -384,7 +387,18 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
     # Check branch protection via rulesets API (not legacy branch protection)
     results.extend(_check_rulesets(gh, repo))
 
-    # Check Dependabot / vulnerability alerts
+    results.extend(_check_dependabot(gh, repo))
+    return results
+
+
+def _check_dependabot(gh: str, repo: str) -> list[tuple[str, str, str]]:
+    """Check Dependabot / vulnerability alerts from the HTTP status ``gh`` prints.
+
+    ``gh api --include`` puts the status line first on stdout, even for an
+    error status: 204 is enabled, 404 is not enabled, and anything else (a
+    403, a 5xx, no status line at all) is a check that could not be made.
+    """
+    label = "Dependabot vulnerability alerts"
     try:
         result = subprocess.run(
             [gh, "api", f"repos/{repo}/vulnerability-alerts", "--include", "-X", "GET"],
@@ -392,14 +406,18 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
             text=True,
             timeout=10,
         )
-        # 204 means enabled, 404 means disabled
-        enabled = "204" in (result.stderr + result.stdout) or result.returncode == 0
-        status, detail = (PASS, "Enabled") if enabled else (FAIL, "Not enabled")
-        results.append((status, "Dependabot vulnerability alerts", detail))
-    except (subprocess.TimeoutExpired, OSError):
-        results.append((INFO, "Dependabot alerts (could not check)", ""))
-
-    return results
+    except subprocess.TimeoutExpired:
+        return [(INFO, label, "could not check: timed out")]
+    except OSError as exc:
+        return [(INFO, label, f"could not check: {exc}")]
+    status = _HTTP_STATUS.match(result.stdout)
+    code = status.group(1) if status else ""
+    if code == "204":
+        return [(PASS, label, "Enabled")]
+    if code == "404":
+        return [(FAIL, label, "Not enabled")]
+    reason = result.stderr.strip() or f"HTTP status {code or 'unknown'}"
+    return [(INFO, label, f"could not check: {reason}")]
 
 
 def _check_rulesets(gh: str, repo: str) -> list[tuple[str, str, str]]:

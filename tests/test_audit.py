@@ -896,3 +896,88 @@ def test_audit_reports_a_remote_that_is_not_a_github_owner_repo(
     assert _github_settings_labels(tmp_path, monkeypatch, remote) == [
         f"GitHub settings (origin remote is not a GitHub owner/repo: {remote})"
     ]
+
+
+def _dependabot(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    returncode: int,
+    stdout: str = "",
+    stderr: str = "",
+    raises: BaseException | None = None,
+) -> list[tuple[str, str, str]]:
+    """What ``_check_dependabot`` reports when ``gh api`` answers this way."""
+
+    def fake_run(
+        cmd: list[str], *, capture_output: bool, text: bool, timeout: int
+    ) -> subprocess.CompletedProcess[str]:
+        if raises is not None:
+            raise raises
+        return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    check = cast(
+        "Callable[[str, str], list[tuple[str, str, str]]]",
+        vars(audit)["_check_dependabot"],
+    )
+    return check("/usr/bin/gh", "o/r")
+
+
+def test_dependabot_alerts_are_enabled_on_http_204(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _dependabot(
+        monkeypatch, returncode=0, stdout="HTTP/2.0 204 No Content\nDate: x\n\n"
+    )
+
+    assert out == [(audit.PASS, "Dependabot vulnerability alerts", "Enabled")]
+
+
+def test_dependabot_alerts_are_not_enabled_on_http_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _dependabot(
+        monkeypatch,
+        returncode=1,
+        stdout='HTTP/2.0 404 Not Found\n\n{"message":"Not Found"}',
+        stderr="gh: Not Found (HTTP 404)",
+    )
+
+    assert out == [(audit.FAIL, "Dependabot vulnerability alerts", "Not enabled")]
+
+
+def test_a_204_elsewhere_in_the_response_is_not_a_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _dependabot(
+        monkeypatch,
+        returncode=1,
+        stdout="HTTP/2.0 403 Forbidden\nX-Request-Id: 204\n\n",
+        stderr="gh: Resource not accessible (HTTP 403)",
+    )
+
+    assert out == [
+        (
+            audit.INFO,
+            "Dependabot vulnerability alerts",
+            "could not check: gh: Resource not accessible (HTTP 403)",
+        )
+    ]
+
+
+def test_a_success_exit_without_a_status_line_is_not_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _dependabot(monkeypatch, returncode=0, stdout="", stderr="odd")
+
+    assert [status for status, _label, _detail in out] == [audit.INFO]
+
+
+def test_a_timeout_is_reported_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    out = _dependabot(
+        monkeypatch, returncode=0, raises=subprocess.TimeoutExpired(["gh"], 10)
+    )
+
+    assert out == [
+        (audit.INFO, "Dependabot vulnerability alerts", "could not check: timed out")
+    ]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from contextlib import suppress
@@ -48,20 +49,25 @@ class GitCheckout:
         return str(slug)
 
     def _require_toplevel(self) -> None:
+        if not self._root.is_dir():
+            msg = "no git repo at root"
+            raise ValueError(msg)
         result = self._git("rev-parse", "--show-toplevel")
-        if (
-            result is None
-            or result.returncode != 0
-            or Path(result.stdout.strip()).resolve() != self._root.resolve()
-        ):
+        if result.returncode != 0:
+            complaint = result.stderr.strip()
+            # git's wording is fixed by LC_ALL=C; any other refusal (dubious
+            # ownership, a broken config) is not "no repo" and says what it is.
+            if "not a git repository" not in complaint:
+                msg = f"git rev-parse --show-toplevel failed: {complaint}"
+                raise ValueError(msg)
+            msg = "no git repo at root"
+            raise ValueError(msg)
+        if Path(result.stdout.strip()).resolve() != self._root.resolve():
             msg = "no git repo at root"
             raise ValueError(msg)
 
     def _origin_url(self) -> str:
         result = self._git("remote", "get-url", "origin")
-        if result is None:
-            msg = "git remote get-url origin did not finish"
-            raise ValueError(msg)
         if result.returncode == 0:
             return result.stdout.strip()
         complaint = result.stderr.strip()
@@ -71,8 +77,13 @@ class GitCheckout:
             msg = f"git remote get-url origin failed: {complaint}"
         raise ValueError(msg)
 
-    def _git(self, *args: str) -> subprocess.CompletedProcess[str] | None:
-        """``git <args>`` run in ``root``; ``None`` if it timed out or cannot start."""
+    def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
+        """``git <args>`` run in ``root`` with git's messages in the C locale.
+
+        Raises ``ValueError`` when git cannot start or does not finish, so a
+        caller never mistakes that for an answer.
+        """
+        command = f"git {' '.join(args)}"
         try:
             return subprocess.run(
                 ["git", *args],
@@ -80,16 +91,28 @@ class GitCheckout:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                env={**os.environ, "LC_ALL": "C"},
             )
-        except (subprocess.TimeoutExpired, OSError):
-            return None
+        except subprocess.TimeoutExpired as exc:
+            msg = f"{command} did not finish"
+            raise ValueError(msg) from exc
+        except OSError as exc:
+            msg = f"git is not installed or cannot run ({exc})"
+            raise ValueError(msg) from exc
 
     @staticmethod
     def _without_userinfo(url: str) -> str:
-        """``url`` without a ``user:token@`` prefix on its host."""
+        """``url`` without credentials: no ``user[:token]@``, query, or fragment."""
+        if "://" not in url:
+            # scp-style ``[user@]host:path``: the user may itself be a token.
+            head, colon, path = url.partition(":")
+            user, at, host = head.partition("@")
+            if at and "/" not in user:
+                head = host
+            return f"{head}{colon}{path.split('?')[0].split('#')[0]}"
         try:
             parts = urlsplit(url)
         except ValueError:
             return "<unparseable url>"  # never echo what could not be parsed
         host = parts.netloc.rpartition("@")[2]
-        return parts._replace(netloc=host).geturl()
+        return parts._replace(netloc=host, query="", fragment="").geturl()
