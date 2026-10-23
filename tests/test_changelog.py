@@ -255,7 +255,16 @@ def test_a_malformed_date_is_not_stamped(heading: str) -> None:
     assert not ChangelogDocument(f"{heading}\n").is_stamped("1.0.0")
 
 
-# --- one scan state for fences and comments ---
+# --- CommonMark decides what is a fence, a comment, or a heading ---
+
+
+_CANDIDATES = ("Unreleased", "1.0.0", "0.9.0", "fake", "x")
+
+
+def _versions(text: str) -> list[str]:
+    """The candidate versions that parse as sections, in candidate order."""
+    doc = ChangelogDocument(text)
+    return [v for v in _CANDIDATES if doc.section(v) is not None]
 
 
 def test_commented_out_version_heading_is_not_a_section() -> None:
@@ -269,24 +278,122 @@ def test_commented_out_version_heading_is_not_a_section() -> None:
     assert doc.is_stamped("1.2.3")
 
 
-def test_unclosed_fence_is_text_and_does_not_swallow_later_releases() -> None:
-    """Choice: a fence with no closing line is not a fence, so later version
-    headings stay visible (a loud failure would block a release over a typo)."""
+def test_unclosed_fence_runs_to_the_end_and_hides_later_releases() -> None:
+    """CommonMark: an unclosed fence is a code block to the end of the document.
+
+    Later releases are hidden, so a reader that needs one (Phase 11) fails
+    loudly instead of reading a phantom section.
+    """
     cl = "## [Unreleased]\n\n```\n- x\n\n## [1.0.0] - 2026-01-01\n\n- y\n"
     doc = ChangelogDocument(cl)
-    assert doc.is_stamped("1.0.0")
+    assert not doc.is_stamped("1.0.0")
     unreleased = doc.section("Unreleased")
     assert unreleased is not None
     assert unreleased.has_entries
 
 
-def test_unclosed_comment_is_text_and_does_not_swallow_later_releases() -> None:
+def test_unclosed_comment_runs_to_the_end_and_hides_later_releases() -> None:
+    """CommonMark: an HTML comment block ends at the first line holding ``-->``."""
     cl = "## [Unreleased]\n\n<!-- todo\n- x\n\n## [1.0.0] - 2026-01-01\n\n- y\n"
-    assert ChangelogDocument(cl).is_stamped("1.0.0")
+    doc = ChangelogDocument(cl)
+    assert _versions(cl) == ["Unreleased"]
+    unreleased = doc.section("Unreleased")
+    assert unreleased is not None
+    assert not unreleased.has_entries
 
 
 def test_a_fence_inside_a_comment_does_not_open_a_fence() -> None:
     cl = "## [Unreleased]\n\n<!--\n```\n-->\n\n## [1.0.0] - 2026-01-01\n\n- y\n"
+    assert ChangelogDocument(cl).is_stamped("1.0.0")
+
+
+def test_a_stray_fence_does_not_pair_with_a_later_closer() -> None:
+    """The fence opened at the stray line closes at the next bare fence line.
+
+    The ``sh`` fence line carries an info string, so it cannot close; the last
+    bare fence does. Everything between, including both releases, is code.
+    """
+    cl = (
+        "## [Unreleased]\n- a\n```\n## [1.0.0] - 2026-01-01\n- b\n"
+        "## [0.9.0] - 2025-01-01\n- c\n```sh\nls\n```\n"
+    )
+    assert _versions(cl) == ["Unreleased"]
+
+
+def test_a_stray_arrow_in_prose_does_not_close_a_comment_early_or_late() -> None:
+    """The comment block ends at the first line containing ``-->``, prose or not.
+
+    Here that is the ``- use --> here`` line, so both releases above it are
+    inside the comment and hidden.
+    """
+    cl = (
+        "## [Unreleased]\n<!-- todo\n## [1.0.0] - 2026-01-01\n- b\n"
+        "## [0.9.0] - 2025-01-01\n- use --> here\n"
+    )
+    assert _versions(cl) == ["Unreleased"]
+
+
+def test_a_four_backtick_fence_is_not_closed_by_three_backticks() -> None:
+    """A four-backtick fence never closes, so ``## [fake]`` is code, not a section."""
+    cl = "## [Unreleased]\n- a\n````md\n## [fake]\n- x\n```\n- y\n"
+    assert _versions(cl) == ["Unreleased"]
+
+
+def test_a_fence_of_the_other_character_inside_a_fence_is_content() -> None:
+    cl = "## [Unreleased]\n- a\n```\n~~~\n## [x]\n```\n## [1.0.0] - 2026-01-01\n"
+    assert _versions(cl) == ["Unreleased", "1.0.0"]
+
+
+def test_an_indented_fence_marker_is_a_code_block_not_a_fence() -> None:
+    """Four spaces make an indented code block, so the marker opens nothing."""
+    cl = "## [Unreleased]\n    ```\n- a\n## [1.0.0] - 2026-01-01\n- b\n    ```\n"
+    assert _versions(cl) == ["Unreleased", "1.0.0"]
+
+
+def test_an_empty_fence_pair_is_an_entry_and_ends_cleanly() -> None:
+    cl = "## [Unreleased]\n```\n```\n## [1.0.0]\n"
+    assert _versions(cl) == ["Unreleased", "1.0.0"]
+
+
+def test_an_unclosed_inline_comment_opener_stays_text() -> None:
+    """``<!--`` mid-paragraph is not an HTML block; the next heading ends it."""
+    cl = "## [Unreleased]\n- a <!-- x\n## [1.0.0] - d\n- b\n"
+    assert _versions(cl) == ["Unreleased", "1.0.0"]
+
+
+def test_a_comment_after_the_version_does_not_change_the_version() -> None:
+    doc = ChangelogDocument("## [Unreleased] <!-- x -->\n- a\n")
+    unreleased = doc.section("Unreleased")
+    assert unreleased is not None
+    assert unreleased.has_entries
+
+
+def test_an_empty_bullet_holding_only_a_comment_is_not_an_entry() -> None:
+    cl = "## [Unreleased]\n\n- <!-- later -->\n"
+    assert _suggest(cl) == "1.2.3"
+
+
+def test_a_nested_breaking_bullet_bumps_the_major() -> None:
+    cl = "## [Unreleased]\n\n### Changed\n\n- The CLI\n  - Breaking: no flag\n"
+    assert _suggest(cl) == "2.0.0"
+
+
+def test_a_setext_underline_does_not_make_a_version_section() -> None:
+    """A setext heading cannot be stamped by a one-line insertion, so it is not one."""
+    assert _versions("## [Unreleased]\n- a\n\n[1.0.0]\n---\n- b\n") == ["Unreleased"]
+
+
+def test_line_breaks_commonmark_ignores_do_not_shift_the_sections() -> None:
+    """U+2028 and form feed are not line ends, so the line maps must not move."""
+    cl = "## [Unreleased]\n- a\u2028b\x0cc\n\n## [1.0.0] - 2026-01-01\n- d\n"
+    doc = ChangelogDocument(cl)
+    section = doc.section("1.0.0")
+    assert section is not None
+    assert section.notes == "- d"
+
+
+def test_a_bare_carriage_return_is_a_line_end() -> None:
+    cl = "## [Unreleased]\r- a\r\r## [1.0.0] - 2026-01-01\r- d\r"
     assert ChangelogDocument(cl).is_stamped("1.0.0")
 
 

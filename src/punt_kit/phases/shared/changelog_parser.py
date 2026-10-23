@@ -2,119 +2,65 @@
 
 from __future__ import annotations
 
+import io
 import re
-from dataclasses import dataclass
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 
-# A date after the version stamps the heading; whatever follows it ("  ",
-# " (yanked)") does not matter, so the check is a prefix match.
-_STAMPED_HEADING = re.compile(r"## \[[^\]]*\] - \d{4}-\d{2}-\d{2}(?!\d)")
+from markdown_it import MarkdownIt
 
-# How the fleet marks a breaking change (surveyed across the sibling repos'
-# CHANGELOG.md files): a bold ``**Breaking:**`` / ``**BREAKING —`` lead-in,
-# a bullet that opens with the word, or a ``### Changed (BREAKING)``
-# heading. The bare word elsewhere in prose ("Non-breaking tweak", "fixed a
-# breaking regression") is not a marker.
-_BREAKING_ENTRY = re.compile(r"(?:\*\*|^\s*[-*+]\s+)breaking\b", re.IGNORECASE)
-_BREAKING_HEADING = re.compile(r"\(breaking\)", re.IGNORECASE)
+from punt_kit.phases.shared.changelog_sections import Section, Subsection
 
+if TYPE_CHECKING:
+    from markdown_it.token import Token
 
-@dataclass(frozen=True, slots=True)
-class Subsection:
-    """One ``### Title`` block and the entry lines under it."""
+_MARKDOWN = MarkdownIt("commonmark")
+_VERSION = re.compile(r"\[([^\]]*)\]")
 
-    title: str
-    entries: tuple[str, ...]
-
-    def is_named(self, name: str) -> bool:
-        """True when the title starts with ``name`` (``Changed (BREAKING)``)."""
-        return self.title.lower().startswith(name.lower())
-
-    @property
-    def is_breaking(self) -> bool:
-        """True for a ``Changed`` block that marks a breaking change."""
-        return self.is_named("changed") and (
-            _BREAKING_HEADING.search(self.title) is not None
-            or any(_BREAKING_ENTRY.search(entry) for entry in self.entries)
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class Section:
-    """One ``## [version]`` block of a changelog."""
-
-    version: str
-    heading: str
-    notes: str
-    entries: tuple[str, ...]
-    subsections: tuple[Subsection, ...]
-    line_index: int
-
-    @property
-    def has_entries(self) -> bool:
-        """True when at least one line is a real entry.
-
-        Blank lines, headings, HTML comments, and link definitions are not
-        entries: a section of bare ``### Added`` headings has nothing to
-        release.
-        """
-        return bool(self.entries)
-
-    @property
-    def is_breaking(self) -> bool:
-        return any(sub.is_breaking for sub in self.subsections)
-
-    @property
-    def is_stamped(self) -> bool:
-        """True for a ``## [X.Y.Z] - YYYY-MM-DD`` heading, trailing text allowed."""
-        return _STAMPED_HEADING.match(self.heading) is not None
-
-    def has_entries_under(self, name: str) -> bool:
-        """True when a subsection titled ``name`` has at least one entry."""
-        return any(sub.is_named(name) and sub.entries for sub in self.subsections)
+# Block tokens that open a list (descended into) and that are code (an entry).
+_LIST_OPENERS = frozenset({"bullet_list_open", "ordered_list_open"})
+_DESCENDED = _LIST_OPENERS | {"list_item_open"}
+_CODE_BLOCKS = frozenset({"fence", "code_block", "hr"})
 
 
 @final
 class ChangelogDocument:
     """The one parser for CHANGELOG.md: every reader goes through it.
 
-    Splits text into ``## [version]`` sections and their ``###`` subsections
-    while honoring fenced code blocks (a ``## [`` inside a fence is content),
-    HTML comments, a leading UTF-8 BOM, and either line ending.
+    Structure comes from a CommonMark parse (markdown-it-py), not from
+    scanning lines: a ``## [version]`` heading, a ``###`` subsection, and an
+    entry are block tokens, so what counts as a fence or an HTML comment is
+    decided by the CommonMark spec. A fence or comment that is never closed
+    runs to the end of the document, hiding every later release; callers see
+    those releases as missing rather than as a phantom section. The text is
+    kept by line, so a leading UTF-8 BOM and either line ending survive the
+    Phase 2 stamp.
     """
 
-    __slots__ = ("_bom", "_lines", "_sections")
-
-    _VERSION_HEADING = re.compile(r"## \[([^\]]*)\]")
-    _SUBSECTION_HEADING = re.compile(r"###\s+(.*?)\s*$")
-    _ANY_HEADING = re.compile(r"#{1,6}(?:\s|$)")
-    _FENCE_OPEN = re.compile(r"\s*(`{3,}|~{3,})")
-    # A Markdown link reference definition ("[Unreleased]: https://..."), the
-    # footer Keep a Changelog files carry: bookkeeping, not an entry.
-    _LINK_DEFINITION = re.compile(r"\[[^\]]+\]:\s")
+    __slots__ = ("_bom", "_lines", "_sections", "_tokens")
 
     _bom: str
     _lines: tuple[str, ...]
     _sections: tuple[Section, ...]
+    _tokens: tuple[Token, ...]
 
     def __new__(cls, text: str) -> Self:
         self = super().__new__(cls)
         self._bom = "\ufeff" if text.startswith("\ufeff") else ""
-        self._lines = tuple(text.removeprefix("\ufeff").splitlines(keepends=True))
-        # One scan decides, for every line, whether it is code and what text
-        # is visible once comments are removed. Headings and entries are both
-        # read from it, so they cannot disagree about fences or comments.
-        scanned = cls._scan(self._lines)
+        body = text.removeprefix("\ufeff")
+        # markdown-it numbers lines by \n, \r\n and \r, which is exactly what
+        # newline="" iteration yields; str.splitlines() would also split on
+        # form feeds and U+2028 and drift from the token line maps.
+        self._lines = tuple(io.StringIO(body, newline=""))
+        self._tokens = tuple(_MARKDOWN.parse(body))
         heads = [
-            (index, match.group(1))
-            for index, (is_code, text) in enumerate(scanned)
-            if not is_code and (match := cls._VERSION_HEADING.match(text))
+            (index, version)
+            for index in range(len(self._tokens))
+            if (version := self._version_of(index)) is not None
         ]
-        starts = [index for index, _ in heads]
-        ends = [*starts[1:], len(self._lines)] if heads else []
+        bounds = [index for index, _ in heads] + [len(self._tokens)]
         self._sections = tuple(
-            cls._section(self._lines, scanned, version, start, end)
-            for (start, version), end in zip(heads, ends, strict=True)
+            self._section(start, stop, version)
+            for (start, version), stop in zip(heads, bounds[1:], strict=True)
         )
         return self
 
@@ -143,7 +89,7 @@ class ChangelogDocument:
             return self._bom + "".join(self._lines)
         index = unreleased.line_index
         heading = self._lines[index]
-        eol = "\r\n" if heading.endswith("\r\n") else "\n"
+        eol = heading[len(heading.rstrip("\r\n")) :] or "\n"
         return self._bom + "".join(
             (
                 *self._lines[:index],
@@ -172,57 +118,39 @@ class ChangelogDocument:
             return f"{major}.{minor + 1}.0"
         return f"{major}.{minor}.{patch + 1}"
 
-    @classmethod
-    def _scan(cls, lines: tuple[str, ...]) -> tuple[tuple[bool, str], ...]:
-        """Label every line ``(is_code, visible_text)`` in one pass.
+    def _version_of(self, index: int) -> str | None:
+        """The version in a top-level ``## [version]`` heading, else ``None``.
 
-        Code is a fenced block (delimiters included) and keeps its text
-        verbatim. Outside code, HTML comments — single- or multi-line — are
-        removed from the text. A fence or comment that is never closed is
-        plain text, not a state that runs to the end of the file: swallowing
-        every later release over one stray backtick fence would hide
-        published versions, so an opener only counts when a closer follows.
+        Only an ATX heading counts: a setext underline would make the stamp's
+        one-line insertion split the heading.
         """
-        closes_later = [False] * len(lines)
-        seen_close = False
-        for index in range(len(lines) - 1, -1, -1):
-            closes_later[index] = seen_close
-            seen_close = seen_close or "-->" in lines[index]
-        scanned: list[tuple[bool, str]] = []
-        fence: str | None = None
-        in_comment = False
-        for index, raw in enumerate(lines):
-            line = raw.rstrip("\r\n")
-            if fence is not None:
-                if cls._closes_fence(line, fence):
-                    fence = None
-                scanned.append((True, line))
-                continue
-            opened = None if in_comment else cls._FENCE_OPEN.match(line)
-            if opened and cls._fence_is_closed(lines, index, opened.group(1)):
-                fence = opened.group(1)
-                scanned.append((True, line))
-                continue
-            text, in_comment = cls._without_comments(
-                line, in_comment, closable=closes_later[index]
-            )
-            scanned.append((False, text))
-        return tuple(scanned)
+        token = self._tokens[index]
+        if (
+            token.type != "heading_open"
+            or token.tag != "h2"
+            or token.level != 0
+            or not token.markup.startswith("#")
+        ):
+            return None
+        match = _VERSION.match(self._tokens[index + 1].content)
+        return match.group(1) if match else None
 
-    @classmethod
-    def _section(
-        cls,
-        lines: tuple[str, ...],
-        scanned: tuple[tuple[bool, str], ...],
-        version: str,
-        start: int,
-        end: int,
-    ) -> Section:
-        body = lines[start + 1 : end]
+    def _section(self, first: int, stop: int, version: str) -> Section:
+        """Build the section whose tokens are ``tokens[first:stop]``.
+
+        Its notes end where the token at ``stop`` (the next version heading)
+        begins, or at the end of the text.
+        """
+        start, end = self._span(self._tokens[first])
+        last = (
+            self._span(self._tokens[stop])[0]
+            if stop < len(self._tokens)
+            else len(self._lines)
+        )
         entries: list[str] = []
         titles: list[str] = []
         grouped: list[list[str]] = []
-        for title, entry in cls._classify(scanned[start + 1 : end]):
+        for title, entry in self._classify(first + 3, stop):
             if title is not None:
                 titles.append(title)
                 grouped.append([])
@@ -232,8 +160,8 @@ class ChangelogDocument:
                     grouped[-1].append(entry)
         return Section(
             version=version,
-            heading=lines[start].rstrip("\r\n"),
-            notes="".join(body).strip(),
+            heading=self._lines[start].rstrip("\r\n"),
+            notes="".join(self._lines[end:last]).strip(),
             entries=tuple(entries),
             subsections=tuple(
                 Subsection(title, tuple(group))
@@ -242,71 +170,99 @@ class ChangelogDocument:
             line_index=start,
         )
 
-    @classmethod
-    def _classify(
-        cls, body: tuple[tuple[bool, str], ...]
-    ) -> list[tuple[str | None, str]]:
-        """Label each scanned line: ``(title, "")`` for a ``###`` heading, or
-        ``(None, text)`` for an entry; everything else is dropped.
+    def _classify(self, first: int, stop: int) -> list[tuple[str | None, str]]:
+        """Label the tokens ``[first, stop)``: ``(title, "")`` for a ``###``
+        heading, or ``(None, text)`` for an entry; everything else is dropped.
 
-        Dropped: blank lines, other headings, comments (already removed by
-        the scan), and link definitions. Everything inside a code fence is an
-        entry.
+        An entry is a list item (nested items count on their own), or any
+        other top-level block with visible content: a paragraph, a fence, a
+        quote. Other headings, comment-only blocks, and link definitions
+        (which CommonMark consumes without a token) are not entries.
         """
         labelled: list[tuple[str | None, str]] = []
-        for is_code, text in body:
-            if is_code:
-                labelled.append((None, text))
-                continue
-            if not text.strip():
-                continue
-            subsection = cls._SUBSECTION_HEADING.match(text)
-            if subsection and not text.startswith("####"):
-                labelled.append((subsection.group(1), ""))
-            elif not (cls._ANY_HEADING.match(text) or cls._LINK_DEFINITION.match(text)):
-                labelled.append((None, text))
+        index = first
+        while index < stop:
+            token = self._tokens[index]
+            close = self._close_of(index)
+            if token.type == "heading_open" and token.level == 0:
+                title = self._subsection_title(index)
+                if title is not None:
+                    labelled.append((title, ""))
+            elif self._is_entry_block(token) and self._has_content(index, close + 1):
+                labelled.append((None, self._text(token)))
+            # Lists are walked into: nested items are entries too.
+            index = index + 1 if token.type in _DESCENDED else close + 1
         return labelled
 
     @staticmethod
-    def _closes_fence(line: str, fence: str) -> bool:
-        """True when ``line`` closes ``fence``: same character, at least as long."""
-        stripped = line.strip()
-        return (
-            bool(stripped)
-            and set(stripped) == {fence[0]}
-            and len(stripped) >= len(fence)
-        )
-
-    @classmethod
-    def _fence_is_closed(cls, lines: tuple[str, ...], opener: int, fence: str) -> bool:
-        """True when some line after ``opener`` closes ``fence``."""
-        return any(cls._closes_fence(line, fence) for line in lines[opener + 1 :])
+    def _is_entry_block(token: Token) -> bool:
+        """True for a list item at any depth, or a top-level non-list block."""
+        if token.type == "list_item_open":
+            return True
+        return token.level == 0 and token.type not in _LIST_OPENERS
 
     @staticmethod
-    def _without_comments(
-        line: str, in_comment: bool, *, closable: bool
-    ) -> tuple[str, bool]:
-        """Strip HTML comment spans from ``line``, carrying multi-line state.
+    def _span(token: Token) -> tuple[int, int]:
+        """The ``[first, end)`` source lines of a block token."""
+        if token.map is None:
+            msg = f"block token {token.type!r} has no line map"
+            raise ValueError(msg)
+        first, end = token.map
+        return first, end
 
-        ``closable`` says whether a later line contains ``-->``; an opener
-        that nothing closes is left in the text.
+    def _text(self, token: Token) -> str:
+        """The source text of a block token, without its trailing line ending."""
+        first, end = self._span(token)
+        return "".join(self._lines[first:end]).rstrip("\r\n")
+
+    def _close_of(self, index: int) -> int:
+        """Index of the token closing ``tokens[index]``; itself for a leaf."""
+        token = self._tokens[index]
+        if token.nesting != 1:
+            return index
+        closer = token.type.removesuffix("_open") + "_close"
+        return next(
+            i
+            for i in range(index + 1, len(self._tokens))
+            if self._tokens[i].type == closer and self._tokens[i].level == token.level
+        )
+
+    def _subsection_title(self, index: int) -> str | None:
+        """The title of a ``###`` ATX heading at ``index`` (comments left out)."""
+        token = self._tokens[index]
+        if token.tag != "h3" or not token.markup.startswith("#"):
+            return None
+        return "".join(
+            child.content
+            for child in self._tokens[index + 1].children or []
+            if child.type != "html_inline"
+        ).strip()
+
+    def _has_content(self, first: int, end: int) -> bool:
+        """True when tokens ``[first, end)`` carry something a reader sees.
+
+        Comment-only blocks, empty list items, and blank text do not count.
         """
-        kept: list[str] = []
-        rest = line
-        while rest:
-            if in_comment:
-                end = rest.find("-->")
-                if end < 0:
-                    return "".join(kept), True
-                rest, in_comment = rest[end + 3 :], False
-            else:
-                start = rest.find("<!--")
-                if start < 0:
-                    kept.append(rest)
-                    break
-                if "-->" not in rest[start + 4 :] and not closable:
-                    kept.append(rest)
-                    break
-                kept.append(rest[:start])
-                rest, in_comment = rest[start + 4 :], True
-        return "".join(kept), in_comment
+        return any(self._shows(token) for token in self._tokens[first:end])
+
+    @classmethod
+    def _shows(cls, token: Token) -> bool:
+        """True when this one token renders something a reader sees."""
+        if token.type == "inline":
+            return any(cls._is_visible(child) for child in token.children or [])
+        if token.type == "html_block":
+            return not cls._is_comment(token)
+        return token.type in _CODE_BLOCKS
+
+    @staticmethod
+    def _is_comment(token: Token) -> bool:
+        return token.content.lstrip().startswith("<!--")
+
+    @classmethod
+    def _is_visible(cls, child: Token) -> bool:
+        """True for an inline token that renders: not a comment or whitespace."""
+        if child.type == "html_inline":
+            return not cls._is_comment(child)
+        if child.type in ("softbreak", "hardbreak"):
+            return False
+        return bool(child.content.strip()) if child.type == "text" else True
