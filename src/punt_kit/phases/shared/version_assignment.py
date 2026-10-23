@@ -18,8 +18,9 @@ _EXPANDS = re.compile(r"[$`]")
 # word, like ``"1.0"$SUFFIX`` and ``'1'"$x"``: the value is computed.
 _VALUE_END = re.compile(r"[ \t;\r\n]|\Z")
 # An unquoted shell word is a literal when it holds nothing the shell would
-# expand, split or glue onto: ``VERSION=0.0.9`` is as fixed as ``"0.0.9"``.
-_BARE_WORD = r"[^\s\"'`$;&|<>(){}\\#]+"
+# expand, split or glue onto: ``VERSION=0.0.9`` is as fixed as ``"0.0.9"``. An
+# empty word (``VERSION=``) is a literal too: the empty string.
+_BARE_WORD = r"[^\s\"'`$;&|<>(){}\\#]*"
 
 
 @final
@@ -67,7 +68,8 @@ class VersionAssignment:
         assignment that is a plain string is rewritten with it, so a re-pin in
         a branch cannot stay stale; one that is computed is left alone. An
         unquoted literal (``VERSION=0.0.9``) is a plain value like a quoted one
-        and is rewritten without quotes. An empty string (``VERSION=""``) is a
+        and is rewritten without quotes. An empty value (``VERSION=""``,
+        ``VERSION=''`` or a bare ``VERSION=``, also ``local VERSION=``) is a
         deliberate reset: it is neither rewritten nor checked. A value is
         computed, so assigned but not readable, when it is double-quoted and
         contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
@@ -174,8 +176,8 @@ class VersionAssignment:
 
     @staticmethod
     def _is_reset(match: re.Match[str]) -> bool:
-        """True for a quoted empty value: a deliberate reset, never rewritten."""
-        return bool(match.group(2)) and match.group(3) == ""
+        """True for an empty value, ``""`` or bare: a reset, never rewritten."""
+        return match.group(3) == ""
 
     # None: no plain literal supplies the value; the caller reports it unreadable.
     def _readable(self, text: str) -> re.Match[str] | None:
@@ -198,6 +200,14 @@ class VersionAssignment:
             return None
         if match.group(2) == '"' and _EXPANDS.search(match.group(3)):
             return None
-        if _VALUE_END.match(text, match.end()) is None:
-            return None
-        return match
+        end = match.end()
+        if _VALUE_END.match(text, end) is not None:
+            return match
+        # A bare ``VERSION= # note``: the hash follows whitespace, so it is a comment.
+        if (
+            self._is_reset(match)
+            and text[end : end + 1] == "#"
+            and text[end - 1] in " \t"
+        ):
+            return match
+        return None

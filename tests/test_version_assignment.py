@@ -117,7 +117,7 @@ def test_a_shell_value_never_spans_a_newline() -> None:
     text = 'VERSION=\n"0.1.0"\n'
 
     assert (assignment.read(text), assignment.rewritten(text, "2")) == (
-        None,
+        "",
         (text, 0),
     )
 
@@ -203,6 +203,31 @@ def test_every_assignment_is_described_with_what_becomes_of_it() -> None:
         '`local VERSION=""` (local, empty reset, left as is)',
         '`VERSION="$(f)"` (computed, left as is)',
         "`VERSION=''` (empty reset, left as is)",
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["VERSION=\n", "VERSION= \n", "VERSION=; export VERSION\n", "VERSION= # reset\n"],
+)
+def test_a_bare_valueless_shell_assignment_is_an_empty_reset(line: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = f'{line}VERSION="1.0"\n'
+
+    assert (
+        assignment.values(text),
+        assignment.rewritten(text, "2.0"),
+        assignment.is_pinned_to(text, "1.0"),
+    ) == (("1.0",), (text.replace("1.0", "2.0"), 1), True)
+
+
+def test_a_bare_valueless_assignment_is_labelled_an_empty_reset() -> None:
+    text = 'VERSION="1.0"\nf() {\n  local VERSION=\n}\nVERSION=#x\n'
+
+    assert VersionAssignment.in_shell("VERSION").described_lines(text) == (
+        '`VERSION="1.0"` (rewritten)',
+        "`local VERSION=` (local, empty reset, left as is)",
+        "`VERSION=#x` (computed, left as is)",
     )
 
 
