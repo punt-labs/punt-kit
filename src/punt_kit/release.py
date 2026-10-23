@@ -9,10 +9,9 @@ import threading
 import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, cast, final
+from typing import NoReturn, final
 
 from rich.console import Console
-from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.phases.phase01_preflight import Phase1Preflight
@@ -34,7 +33,6 @@ from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import hook_firing, timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
-from punt_kit.phases.shared.errors import ReportedReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.phase_order import PhaseOrder
@@ -46,9 +44,6 @@ from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo
 from punt_kit.phases.shared.skips import SkipRecorder
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 console = Console()
 
@@ -735,8 +730,7 @@ def run_release(
     except ReleaseError as exc:
         # Reporter.fail printed its own message; any other ReleaseError (an
         # unreadable file, a failed detection) reaches here unprinted.
-        if not isinstance(exc, ReportedReleaseError):
-            console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        ReleasePipeline.print_unreported(exc)
         _print_incomplete_release(current_phase_num, _resume_phase_num())
         raise SystemExit(1) from None
     except subprocess.TimeoutExpired as exc:
@@ -746,33 +740,7 @@ def run_release(
         # the operator the exact --resume-from string; a placeholder here is
         # advice that is not actionable, and resuming from the wrong phase
         # skips a gate.
-        raw_cmd = cast("object", exc.cmd)
-        if isinstance(raw_cmd, list | tuple):
-            parts = cast("Sequence[object]", raw_cmd)
-            cmd_str = " ".join(map(str, parts))
-        else:
-            cmd_str = str(raw_cmd)
-        phase_label = PhaseOrder.name_of(current_phase_num)
-        resume_label = PhaseOrder.name_of(_resume_phase_num())
-        if resume_label == "unknown":
-            resume_hint = (
-                "Investigate the command; a phase could not be identified, "
-                "so pick the earliest --resume-from that covers the failure."
-            )
-        else:
-            resume_hint = (
-                f"Investigate the command, then resume with "
-                f"punt release --resume-from {resume_label}."
-            )
-        if phase_label == "unknown":
-            location = "before the first phase started"
-        else:
-            location = f"in phase {current_phase_num} ({phase_label})"
-        console.print(
-            f"[red]Error:[/red] release aborted {location} — "
-            f"`{cmd_str}` did not return within {exc.timeout}s. "
-            f"{resume_hint}"
-        )
+        ReleasePipeline.print_timeout(exc, current_phase_num, _resume_phase_num())
         ReleasePipeline.print_manual_actions(_skips)
         raise SystemExit(1) from None
     except Exception:

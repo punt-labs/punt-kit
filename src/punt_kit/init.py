@@ -198,12 +198,7 @@ def _init_project(path: str, *, language: str | None) -> None:
 
     changed.extend(_init_workflows(info))
     changed.extend(_init_python_config(info))
-    beads_failure: BeadsInitError | None = None
-    try:
-        changed.extend(BeadsInit(info).run())
-    except BeadsInitError as exc:
-        # The other steps still run; the failure ends the run after them.
-        beads_failure = exc
+    beads_failure = _init_beads(info, changed)
     changed.extend(_init_claude_md(info))
     changed.extend(_init_permissions(info))
     changed.extend(_prune_settings_local(info))
@@ -219,6 +214,19 @@ def _init_project(path: str, *, language: str | None) -> None:
     _report_manual_steps(info)
     if beads_failure is not None:
         raise beads_failure
+
+
+def _init_beads(info: ProjectInfo, changed: list[str]) -> BeadsInitError | None:
+    """Run the beads step; return its failure so the other steps still run.
+
+    ``None`` is the documented success: the failure ends the run only after
+    every other step has been given its turn.
+    """
+    try:
+        changed.extend(BeadsInit(info).run())
+    except BeadsInitError as exc:
+        return exc
+    return None
 
 
 def _validate_inputs(info: ProjectInfo) -> None:

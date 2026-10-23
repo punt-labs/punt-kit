@@ -97,6 +97,25 @@ class Phase2VersionBump:
             TextFile(path).write(new_content)
             self._ops.ok(f'{path.name}: __version__ = "{self._version}"')
 
+    def _bump_install_sh(self, path: Path) -> None:
+        """Set ``VERSION``; fail when it is assigned but cannot be set."""
+        content = TextFile(path).read()
+        assignment = VersionAssignment.in_shell("VERSION")
+        new_content, count = assignment.rewritten(content, self._version)
+        if count == 0 and assignment.is_assigned(content):
+            self._ops.fail(
+                "install.sh: VERSION is assigned but not as a plain quoted "
+                f'string (VERSION="X.Y.Z"), so it cannot be bumped to '
+                f"{self._version}; set it by hand"
+            )
+        if new_content == content:
+            return
+        if self._dry_run:
+            self._ops.dry(f'install.sh: VERSION="{self._version}"')
+        else:
+            TextFile(path).write(new_content)
+            self._ops.ok(f'install.sh: VERSION="{self._version}"')
+
     def run(self) -> None:
         info = self._info
         version = self._version
@@ -153,21 +172,7 @@ class Phase2VersionBump:
         # Bump install.sh VERSION pin
         install_sh = root / "install.sh"
         if install_sh.exists():
-            content = TextFile(install_sh).read()
-            assignment = VersionAssignment.in_shell("VERSION")
-            new_content, count = assignment.rewritten(content, version)
-            if count == 0 and assignment.is_assigned(content):
-                ops.fail(
-                    "install.sh: VERSION is assigned but not as a plain quoted "
-                    f'string (VERSION="X.Y.Z"), so it cannot be bumped to '
-                    f"{version}; set it by hand"
-                )
-            if new_content != content:
-                if dry_run:
-                    ops.dry(f'install.sh: VERSION="{version}"')
-                else:
-                    TextFile(install_sh).write(new_content)
-                    ops.ok(f'install.sh: VERSION="{version}"')
+            self._bump_install_sh(install_sh)
 
         # 2c. Update CHANGELOG.md
         changelog_path = root / "CHANGELOG.md"

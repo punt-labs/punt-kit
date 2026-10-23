@@ -6,13 +6,16 @@ from __future__ import annotations
 import traceback
 from concurrent.futures import as_completed
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Self, cast, final, runtime_checkable
 
 from rich.console import Console
+from rich.markup import escape
 
-from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.errors import ReleaseError, ReportedReleaseError
+from punt_kit.phases.shared.phase_order import PhaseOrder
 
 if TYPE_CHECKING:
+    import subprocess
     import threading
     from collections.abc import Callable, Sequence
     from concurrent.futures import Future
@@ -158,6 +161,45 @@ class ReleasePipeline:
             for notice in skipped:
                 _console.print(f"  [yellow]•[/yellow] {notice}")
             _console.print()
+
+    @staticmethod
+    def print_unreported(exc: ReleaseError) -> None:
+        """Print ``exc`` unless ``Reporter.fail`` already printed it."""
+        if not isinstance(exc, ReportedReleaseError):
+            _console.print(f"[red]Error:[/red] {escape(str(exc))}")
+
+    @staticmethod
+    def print_timeout(
+        exc: subprocess.TimeoutExpired, current_phase_num: int, resume_phase_num: int
+    ) -> None:
+        """Report a command that did not return: where, and how to resume."""
+        raw_cmd = cast("object", exc.cmd)
+        if isinstance(raw_cmd, list | tuple):
+            parts = cast("Sequence[object]", raw_cmd)
+            cmd_str = " ".join(map(str, parts))
+        else:
+            cmd_str = str(raw_cmd)
+        phase_label = PhaseOrder.name_of(current_phase_num)
+        resume_label = PhaseOrder.name_of(resume_phase_num)
+        if resume_label == "unknown":
+            resume_hint = (
+                "Investigate the command; a phase could not be identified, "
+                "so pick the earliest --resume-from that covers the failure."
+            )
+        else:
+            resume_hint = (
+                f"Investigate the command, then resume with "
+                f"punt release --resume-from {resume_label}."
+            )
+        if phase_label == "unknown":
+            location = "before the first phase started"
+        else:
+            location = f"in phase {current_phase_num} ({phase_label})"
+        _console.print(
+            f"[red]Error:[/red] release aborted {location} — "
+            f"`{cmd_str}` did not return within {exc.timeout}s. "
+            f"{resume_hint}"
+        )
 
     def summarize(
         self,
