@@ -13427,3 +13427,62 @@ def test_install_all_and_profile_propagation_keep_crlf_and_the_bom(
     )
     _assert_crlf_bom(sibling / "install-all.sh", contains=install_sha)
     _assert_crlf_bom(sibling / "profile" / "README.md", contains=profile_sha)
+
+
+_ROLLUP_BAD = '{"data": {"repository": null}}'
+
+
+def _rollup_response(rollup: object) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "nodes": [{"commit": {"statusCheckRollup": rollup}}]
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+
+def test_a_null_rollup_poll_resets_the_structure_strike_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A null rollup parses into the expected shape, so it ends a strike run.
+
+    Four unexpected responses, a null rollup, four more: never five in a row.
+    """
+
+    def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("time.sleep", no_sleep)
+    passing = _rollup_response(
+        {
+            "contexts": {
+                "nodes": [
+                    {
+                        "name": "ci",
+                        "isRequired": True,
+                        "conclusion": "SUCCESS",
+                        "status": "COMPLETED",
+                    }
+                ]
+            }
+        }
+    )
+    answers = iter(
+        [_ROLLUP_BAD] * 4 + [_rollup_response(None)] + [_ROLLUP_BAD] * 4 + [passing]
+    )
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        body = next(answers) if "graphql" in cmd and "rulesets" not in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, body, "")
+
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+
+    _wait_for_required_checks("gh", "/tmp", 42)  # does not raise
