@@ -87,6 +87,12 @@ class PrThreadResolver:
                     "may fail"
                 )
                 break
+            except ValueError as exc:
+                self._ops.warn(
+                    f"Review threads on PR #{pr_number} not resolved: {exc} "
+                    "— merge may fail"
+                )
+                break
             unresolved.extend(page.unresolved)
             cursor = page.next_cursor
             if cursor is None or cursor in seen_cursors:
@@ -140,12 +146,22 @@ class PrThreadResolver:
     def _page_of(cls, data: object) -> _ThreadPage:
         """The unresolved ids and next cursor of a ``_threads_query`` response.
 
-        GitHub answers ``null`` for any level it cannot resolve (an inaccessible
-        repository, a deleted PR); each such level reads as an empty page.
+        Raises ``ValueError`` saying why when the response carries GraphQL
+        ``errors`` or has no ``reviewThreads`` object: that is a query that
+        failed, not a PR with nothing to resolve. A ``null`` ``nodes`` inside
+        a real ``reviewThreads`` object reads as an empty page.
         """
+        errors = cls._child(data, "errors")
+        if errors:
+            msg = f"GraphQL errors: {errors}"
+            raise ValueError(msg)
         threads: object = data
         for key in ("data", "repository", "pullRequest", "reviewThreads"):
             threads = cls._child(threads, key)
+        if not isinstance(threads, dict):
+            msg = "the response has no reviewThreads object"
+            raise ValueError(msg)
+        threads = cast("dict[str, object]", threads)
         nodes = cls._child(threads, "nodes")
         ids: list[str] = []
         if isinstance(nodes, list):

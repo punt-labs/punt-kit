@@ -31,6 +31,9 @@ _FAILURE_CONCLUSIONS = frozenset(
     }
 )
 
+# Consecutive failures of one kind before the wait gives up.
+_MAX_STRIKES = 5
+
 
 @final
 class RequiredChecksWaiter:
@@ -103,6 +106,7 @@ class RequiredChecksWaiter:
         deadline = time.time() + CI_WATCH
         no_checks_deadline = time.time() + NO_CHECKS_GRACE
         consecutive_errors = 0
+        structure_errors = 0
 
         query = self._checks_query(slug, pr_number)
 
@@ -133,47 +137,38 @@ class RequiredChecksWaiter:
                     stderr="gh api graphql timed out",
                 )
             if result.returncode != 0:
-                consecutive_errors += 1
-                self._ops.info(
-                    f"GraphQL query failed ({consecutive_errors}/5): "
-                    f"{(result.stderr or result.stdout).strip()}"
+                consecutive_errors = self._strike(
+                    consecutive_errors,
+                    "GraphQL query failed",
+                    (result.stderr or result.stdout).strip(),
+                    f"GraphQL query failed {_MAX_STRIKES} consecutive times on PR "
+                    f"#{pr_number} — check GitHub token and network connectivity",
                 )
-                if consecutive_errors >= 5:
-                    self._ops.fail(
-                        f"GraphQL query failed 5 consecutive times on PR "
-                        f"#{pr_number} — check GitHub token and network "
-                        "connectivity"
-                    )
                 time.sleep(15)
                 continue
 
             try:
                 raw = cast("dict[str, object]", json.loads(result.stdout))
             except json.JSONDecodeError as exc:
-                consecutive_errors += 1
-                self._ops.info(
-                    f"Could not parse GraphQL response ({consecutive_errors}/5): "
-                    f"{exc} — output: {result.stdout[:100]!r}"
+                consecutive_errors = self._strike(
+                    consecutive_errors,
+                    "Could not parse GraphQL response",
+                    f"{exc} — output: {result.stdout[:100]!r}",
+                    f"GraphQL query failed {_MAX_STRIKES} consecutive times on PR "
+                    f"#{pr_number} — unparseable responses",
                 )
-                if consecutive_errors >= 5:
-                    self._ops.fail(
-                        f"GraphQL query failed 5 consecutive times on PR "
-                        f"#{pr_number} — unparseable responses"
-                    )
                 time.sleep(15)
                 continue
 
             # Check for GraphQL-level errors
             if "errors" in raw:
-                consecutive_errors += 1
-                self._ops.info(
-                    f"GraphQL returned errors ({consecutive_errors}/5): {raw['errors']}"
+                consecutive_errors = self._strike(
+                    consecutive_errors,
+                    "GraphQL returned errors",
+                    str(raw["errors"]),
+                    f"GraphQL query failed {_MAX_STRIKES} consecutive times on PR "
+                    f"#{pr_number} — errors: {raw['errors']}",
                 )
-                if consecutive_errors >= 5:
-                    self._ops.fail(
-                        f"GraphQL query failed 5 consecutive times on PR "
-                        f"#{pr_number} — errors: {raw['errors']}"
-                    )
                 time.sleep(15)
                 continue
 
@@ -209,11 +204,17 @@ class RequiredChecksWaiter:
                 contexts = cast("dict[str, object]", rollup_obj["contexts"])
                 check_nodes = cast("list[dict[str, object]]", contexts["nodes"])
             except (KeyError, IndexError, TypeError) as exc:
-                self._ops.info(
-                    f"Unexpected GraphQL response structure (will retry): {exc}"
+                structure_errors = self._strike(
+                    structure_errors,
+                    "Unexpected GraphQL response structure",
+                    repr(exc),
+                    f"Unexpected GraphQL response structure {_MAX_STRIKES} "
+                    f"consecutive times on PR #{pr_number} — {exc!r}; "
+                    f"response shape: {self._shape_of(raw)}",
                 )
                 time.sleep(15)
                 continue
+            structure_errors = 0
 
             # Normalize CheckRun and StatusContext into a uniform format.
             # CheckRun has: name, isRequired, conclusion, status
@@ -279,6 +280,30 @@ class RequiredChecksWaiter:
             return RepoSlug.parse(remote)
         except (ValueError, RemoteLookupError) as exc:
             self._ops.fail(f"Cannot determine GitHub owner/repo in {cwd}: {exc}")
+
+    def _strike(self, strikes: int, label: str, detail: str, fatal: str) -> int:
+        """Count a consecutive failure of one kind; fail with ``fatal`` at the limit."""
+        strikes += 1
+        self._ops.info(f"{label} ({strikes}/{_MAX_STRIKES}): {detail}")
+        if strikes >= _MAX_STRIKES:
+            self._ops.fail(fatal)
+        return strikes
+
+    @staticmethod
+    def _shape_of(raw: object, depth: int = 4) -> str:
+        """The key skeleton of a JSON value, enough to see where it ran out."""
+        if depth <= 0:
+            return type(raw).__name__
+        if isinstance(raw, dict):
+            fields = cast("dict[str, object]", raw)
+            inner = ", ".join(
+                f"{key}: {RequiredChecksWaiter._shape_of(value, depth - 1)}"
+                for key, value in fields.items()
+            )
+            return "{" + inner + "}"
+        if isinstance(raw, list):
+            return f"list[{len(cast('list[object]', raw))}]"
+        return type(raw).__name__
 
     @staticmethod
     def _checks_query(slug: RepoSlug, pr_number: int) -> str:

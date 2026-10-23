@@ -50,13 +50,18 @@ class ChangelogReads:
         )
 
     def _names_bound_to_the_changelog(self) -> set[str]:
-        return {
-            target.id
-            for node in ast.walk(self._tree)
-            if isinstance(node, ast.Assign) and self._mentions_changelog(node.value)
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
+        """Source text of every name or attribute assigned a CHANGELOG.md path."""
+        bound: set[str] = set()
+        for node in ast.walk(self._tree):
+            if isinstance(node, ast.Assign) and self._mentions_changelog(node.value):
+                bound.update(ast.unparse(target) for target in node.targets)
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and node.value is not None
+                and self._mentions_changelog(node.value)
+            ):
+                bound.add(ast.unparse(node.target))
+        return bound
 
     @staticmethod
     def _mentions_changelog(node: ast.AST) -> bool:
@@ -73,9 +78,7 @@ class ChangelogReads:
             target = call.args[0]
         else:
             return False
-        return self._mentions_changelog(target) or (
-            isinstance(target, ast.Name) and target.id in paths
-        )
+        return self._mentions_changelog(target) or ast.unparse(target) in paths
 
 
 @pytest.mark.parametrize(
@@ -86,6 +89,17 @@ class ChangelogReads:
         pytest.param('p = root / "CHANGELOG.md"\np.read_bytes()', id="bytes"),
         pytest.param('open(root / "CHANGELOG.md")', id="open"),
         pytest.param('p = base / "CHANGELOG.md"\nopen(p)', id="open-bound"),
+        pytest.param(
+            'self._path = root / "CHANGELOG.md"\nself._path.read_text()',
+            id="attribute-target",
+        ),
+        pytest.param(
+            'p: Path = root / "CHANGELOG.md"\np.read_text()', id="annotated-target"
+        ),
+        pytest.param(
+            'self._p: Path = root / "CHANGELOG.md"\nopen(self._p)',
+            id="annotated-attribute",
+        ),
     ],
 )
 def test_the_scan_finds_a_module_reading_the_changelog(source: str) -> None:
@@ -139,12 +153,57 @@ def test_every_skill_with_a_command_is_hidden_from_the_slash_menu() -> None:
     assert visible == []
 
 
+_README_PIN = "punt_kit.phases.shared.readme_sha"
+
+
+def _imports_the_readme_pin(source: str) -> bool:
+    """True for any import form that binds the ``readme_sha`` module or its names."""
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.ImportFrom):
+            if node.module == _README_PIN:
+                return True
+            if node.module == _README_PIN.rpartition(".")[0] and any(
+                alias.name == "readme_sha" for alias in node.names
+            ):
+                return True
+        elif isinstance(node, ast.Import) and any(
+            alias.name == _README_PIN for alias in node.names
+        ):
+            return True
+    return False
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(f"from {_README_PIN} import ReadmeShaPin", id="from-module"),
+        pytest.param(
+            "from punt_kit.phases.shared import readme_sha", id="from-package"
+        ),
+        pytest.param(
+            "from punt_kit.phases.shared import git, readme_sha as rs", id="aliased"
+        ),
+        pytest.param(f"import {_README_PIN}", id="plain-import"),
+        pytest.param(f"import {_README_PIN} as rs", id="plain-import-as"),
+    ],
+)
+def test_the_readme_pin_import_guard_catches_every_form(source: str) -> None:
+    assert _imports_the_readme_pin(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("from punt_kit.phases.shared import git", id="sibling"),
+        pytest.param("import punt_kit.phases.shared.git", id="sibling-import"),
+        pytest.param("from punt_kit.phases.shared.git import GitWorkspace", id="names"),
+    ],
+)
+def test_the_readme_pin_import_guard_ignores_other_imports(source: str) -> None:
+    assert not _imports_the_readme_pin(source)
+
+
 def test_phase_9_does_not_import_the_readme_pin() -> None:
     """Phase 4 owns the README pin; Phase 9 is the dev restore only."""
-    tree = ast.parse(
-        (_PACKAGE / "phases" / "phase09_post_release.py").read_text("utf-8")
-    )
-    imported = {
-        node.module or "" for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)
-    }
-    assert "punt_kit.phases.shared.readme_sha" not in imported
+    source = (_PACKAGE / "phases" / "phase09_post_release.py").read_text("utf-8")
+    assert not _imports_the_readme_pin(source)

@@ -18,6 +18,7 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.project_remote import ProjectRemote
 from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
+from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
     import threading
@@ -111,7 +112,7 @@ class InstallAllPropagator:
         tag = f"v{version}"
         install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
 
-        content = install_all.read_text(encoding="utf-8")
+        content = TextFile(install_all).read()
         new_content, count = ShaPin.install_all_entry(project_name).repinned(
             content, install_sha
         )
@@ -134,7 +135,7 @@ class InstallAllPropagator:
         if new_content == content:
             ops.ok(f"install-all.sh: {project_name} SHA already current")
         else:
-            install_all.write_text(new_content, encoding="utf-8")
+            TextFile(install_all).write(new_content)
             branch = f"propagate/v{version}-{project_name}-github"
             if merge_sibling(
                 sibling,
@@ -195,7 +196,7 @@ class InstallAllPropagator:
             )
             return
 
-        readme_content = readme.read_text(encoding="utf-8")
+        readme_content = TextFile(readme).read()
         new_readme, readme_count = ShaPin.profile().repinned(readme_content, github_sha)
         if readme_count == 0:
             ops.info(
@@ -209,7 +210,7 @@ class InstallAllPropagator:
             )
             return
 
-        readme.write_text(new_readme, encoding="utf-8")
+        TextFile(readme).write(new_readme)
         branch = f"propagate/v{version}-{project_name}-github-profile"
         if merge_sibling(
             sibling,
@@ -293,9 +294,8 @@ class MarketplacePropagator:
         # project's own plugin.json (post -dev-strip). An entry's source.url
         # (keyless HTTPS, git-subdir) must name the same owner/repo.
         marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-        matcher = EntryMatcher(
-            slug.owner, frozenset(n for n in (marketplace_name, project_name) if n)
-        )
+        names = frozenset(n for n in (marketplace_name, project_name) if n)
+        matcher = EntryMatcher(slug.owner, project_name, names)
 
         found = False
         for plugin in plugins:
@@ -386,7 +386,7 @@ class WebsitePropagator:
 
         projects_file = JsonFile(projects_json)
         data = cast("list[dict[str, object]]", projects_file.load())
-        matcher = EntryMatcher(slug.owner, frozenset({project_name}))
+        matcher = EntryMatcher(slug.owner, project_name, frozenset({project_name}))
 
         found = False
         for project in data:

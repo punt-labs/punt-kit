@@ -12980,3 +12980,161 @@ def test_review_threads_are_paged_past_the_first_page(tmp_path: Path) -> None:
         True,
         True,
     )
+
+
+# --- GraphQL response failures ---
+
+
+def test_threads_response_with_errors_warns_with_the_error_text(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    body = json.dumps({"data": None, "errors": [{"message": "rate limited"}]})
+
+    seen = _resolve_threads(tmp_path, [body])
+
+    out = _flat(capsys.readouterr().out)
+    assert len(seen) == 1
+    assert "rate limited" in out
+    assert "Resolved" not in out
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param('{"data": {"repository": {"pullRequest": null}}}', id="no-pr"),
+        pytest.param(_threads_body("null"), id="null-threads"),
+        pytest.param(_threads_body("[]"), id="list-threads"),
+    ],
+)
+def test_threads_response_without_a_threads_object_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], body: str
+) -> None:
+    _resolve_threads(tmp_path, [body])
+
+    out = _flat(capsys.readouterr().out)
+    assert "reviewThreads" in out
+    assert "merge may fail" in out
+
+
+def test_unexpected_check_structure_fails_after_five_strikes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+
+    def record_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("time.sleep", record_sleep)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        body = '{"data": {"repository": null}}' if "graphql" in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, body, "")
+
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+
+    with pytest.raises(ReleaseError, match=r"structure 5 consecutive times.*shape"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+    assert len(sleeps) == 4
+
+
+def test_phase11_records_a_skip_when_a_bare_project_has_no_github_remote(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = tmp_path / "bare"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "bare"\nversion = "0.1.0"\n'
+    )
+    (root / "CHANGELOG.md").write_text("## [0.1.0] - 2026-01-01\n\n- x\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "bare"], cwd=str(root))
+    _git(["tag", "v0.1.0"], cwd=str(root))
+    ops = _fault_ops(
+        [
+            _NO_ORIGIN,
+            FaultRule(match=["uv", "pip", "install"], response=CompletedProcessSpec()),
+        ]
+    )
+
+    Phase11Verify(detect(root), "0.1.0", dry_run=False, ops=ops, skips=skips).run()
+
+    (notice,) = skips.drain()
+    assert "website" in notice and "no github.com origin" in notice
+
+
+def test_phase8_doctor_timeout_warns_and_does_not_abort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The doctor is informational: a hang after publishing must not abort."""
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[-1] == "doctor":
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", _fake_which_cli)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install"],
+                times=None,
+                response=CompletedProcessSpec(),
+            )
+        ],
+        real_run=run,
+        passthrough=[["test-cli", "doctor"]],
+    )
+    info = detect(_make_release_project(tmp_path))
+
+    Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+    out = _flat(capsys.readouterr().out)
+    assert "doctor did not finish" in out
+    assert "Editable install restored" in out
+
+
+# --- Phase 2 keeps each file's line endings and BOM ---
+
+
+def test_phase2_keeps_crlf_and_the_bom_in_every_file_it_rewrites(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli\n",
+    )
+    boms = {
+        "pyproject.toml": "",
+        "src/test_pkg/__init__.py": "\ufeff",
+        "install.sh": "",
+        ".claude-plugin/plugin.json": "",
+        "src/test_pkg/data/notify.yml": "\ufeff",
+    }
+    for rel, bom in boms.items():
+        path = root / rel
+        text = path.read_bytes().decode().replace("\r\n", "\n").replace("\n", "\r\n")
+        path.write_bytes((bom + text).encode())
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "crlf"], cwd=str(root))
+    _git(["fetch", "origin"], cwd=str(root))
+
+    _bump(root)
+
+    for rel, bom in boms.items():
+        data = (root / rel).read_bytes().decode()
+        assert "0.2.0" in data, rel
+        assert data.startswith(bom), rel
+        assert "\n" not in data.replace("\r\n", ""), rel

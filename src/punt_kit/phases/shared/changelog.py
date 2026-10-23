@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.phases.shared.changelog_parser import ChangelogDocument
+from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -36,8 +37,7 @@ class Changelog:
         changelog = self._root / "CHANGELOG.md"
         if not changelog.exists():
             self._ops.fail("CHANGELOG.md not found")
-        # Bytes, not read_text: universal newlines would turn CRLF into LF.
-        return changelog.read_bytes().decode("utf-8")
+        return TextFile(changelog).read()
 
     def document(self) -> ChangelogDocument:
         """Parse CHANGELOG.md; callers that ask several questions parse once."""
@@ -82,16 +82,21 @@ class Changelog:
         stamped and fails. The file's BOM and line endings are kept.
         """
         document = self.document()
-        if document.section(version) is not None:
+        if document.is_stamped(version):
             self._ops.ok(f"CHANGELOG.md already stamped [{version}]")
             return
+        if document.section(version) is not None:
+            self._ops.fail(
+                f"CHANGELOG.md [{version}] section has no date — date it "
+                f"(`## [{version}] - YYYY-MM-DD`) or remove it before releasing"
+            )
         if document.section("Unreleased") is None:
             self._ops.fail("No [Unreleased] section in CHANGELOG.md to stamp")
         if dry_run:
             self._ops.dry(f"CHANGELOG.md: [Unreleased] → [{version}] - {today}")
             return
         stamped = document.stamped(version, today)
-        (self._root / "CHANGELOG.md").write_bytes(stamped.encode("utf-8"))
+        TextFile(self._root / "CHANGELOG.md").write(stamped)
         self._ops.ok(f"CHANGELOG.md: [{version}] - {today}")
 
     def suggest_next_version(self, current: str) -> str:

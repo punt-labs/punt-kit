@@ -3,12 +3,12 @@ squash-merges."""
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.plugin_swap import PluginSwap
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
@@ -125,13 +125,11 @@ class Phase9PostRelease:
                 # the just-released version back before committing so main
                 # advertises the current release, not the previous one.
                 plugin_json = info.plugin_manifest
-                pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+                manifest = JsonFile(plugin_json)
+                pj_data = cast("dict[str, object]", manifest.load())
                 if pj_data.get("version") != version:
                     pj_data["version"] = version
-                    plugin_json.write_text(
-                        json.dumps(pj_data, indent=2) + "\n",
-                        encoding="utf-8",
-                    )
+                    manifest.save(pj_data)
                     ops.run(["git", "add", str(plugin_json)], cwd=str(root))
                 # No [skip ci] marker on this commit: the PR's required
                 # status checks (lint/test/docs) run per branch protection,

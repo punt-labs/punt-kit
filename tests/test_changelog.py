@@ -602,3 +602,27 @@ def test_notes_for_a_version_return_its_section(tmp_path: Path) -> None:
     text = "## [1.0.0] - 2026-01-01\n\n- new\n\n## [0.9.0] - 2025-01-01\n\n- old\n"
     notes = _changelog(tmp_path, text).notes_for("1.0.0")
     assert ("new" in notes, "old" in notes) == (True, False)
+
+
+def test_a_stamped_heading_may_have_extra_spaces_around_the_dash() -> None:
+    assert ChangelogDocument("## [1.0.0]  -  2026-01-01\n\n- x\n").is_stamped("1.0.0")
+
+
+def test_stamp_reports_already_stamped_only_for_a_dated_section(tmp_path: Path) -> None:
+    changelog = _changelog(
+        tmp_path, "## [Unreleased]\n\n- x\n\n## [0.2.0] - 2026-03-01\n\n- y\n"
+    )
+
+    changelog.stamp("0.2.0", "2026-04-01", dry_run=False)
+
+    assert (tmp_path / "CHANGELOG.md").read_text().count("## [0.2.0]") == 1
+
+
+def test_stamp_fails_on_an_undated_duplicate_section(tmp_path: Path) -> None:
+    text = "## [Unreleased]\n\n- x\n\n## [0.2.0]\n\n- y\n"
+    changelog = _changelog(tmp_path, text)
+
+    with pytest.raises(ReleaseError, match=r"\[0\.2\.0\] section has no date"):
+        changelog.stamp("0.2.0", "2026-04-01", dry_run=False)
+
+    assert (tmp_path / "CHANGELOG.md").read_text() == text

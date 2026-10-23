@@ -4,6 +4,7 @@ restore the editable dev install."""
 from __future__ import annotations
 
 import shutil
+import subprocess
 import time
 from typing import TYPE_CHECKING, Self, final
 
@@ -92,19 +93,7 @@ class Phase8VerifyPypi:
 
         ops.ok(f"Installed {package_name}=={version} from PyPI")
 
-        # Run doctor if available
-        if info.cli_commands:
-            cli_name = info.cli_commands[0]
-            cli_path = shutil.which(cli_name)
-            if cli_path:
-                doctor_result = ops.run(
-                    [cli_path, "doctor"],
-                    check=False,
-                    capture=False,
-                    timeout=CLI_DOCTOR,
-                )
-                if doctor_result.returncode == 0:
-                    ops.ok(f"{cli_name} doctor passed")
+        self._run_doctor()
 
         # Restore editable install. Same external-tool risk class as the
         # PyPI install retry loop above and `uv build` (Phase 3), both
@@ -120,3 +109,29 @@ class Phase8VerifyPypi:
         if restore_result.returncode != 0:
             ops.fail("uv tool install --editable . failed — see output above")
         ops.ok("Editable install restored")
+
+    def _run_doctor(self) -> None:
+        """Run the freshly installed CLI's ``doctor``, if it has one.
+
+        Informational only, and the release has already published: a hung
+        doctor is a warning, not an abort.
+        """
+        info = self._info
+        if not info.cli_commands:
+            return
+        cli_name = info.cli_commands[0]
+        cli_path = shutil.which(cli_name)
+        if not cli_path:
+            return
+        try:
+            result = self._ops.run(
+                [cli_path, "doctor"],
+                check=False,
+                capture=False,
+                timeout=CLI_DOCTOR,
+            )
+        except subprocess.TimeoutExpired:
+            self._ops.warn(f"{cli_name} doctor did not finish in {CLI_DOCTOR}s")
+            return
+        if result.returncode == 0:
+            self._ops.ok(f"{cli_name} doctor passed")

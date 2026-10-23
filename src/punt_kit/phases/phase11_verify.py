@@ -82,6 +82,12 @@ class Phase11Verify:
         checks = self._local_checks()
         repo, remote_checks = self._remote_slug()
         checks.extend(remote_checks)
+        if repo is None and not remote_checks:
+            self._skips.record(
+                "SKIPPED — manual action required: the install-all.sh, marketplace, "
+                "README and website checks did not run because the project has no "
+                "github.com origin remote."
+            )
         if repo is not None:
             checks.extend(self._install_all_checks(repo))
             checks.extend(self._marketplace_checks(repo))
@@ -226,7 +232,9 @@ class Phase11Verify:
         """Matches marketplace entries by the plugin's short name or its repo."""
         marketplace_name = ReleaseProject(self._info, ops=self._ops).marketplace_name()
         return EntryMatcher(
-            repo.owner, frozenset(n for n in (marketplace_name, repo.name) if n)
+            repo.owner,
+            repo.name,
+            frozenset(n for n in (marketplace_name, repo.name) if n),
         )
 
     def _install_all_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
@@ -454,7 +462,7 @@ class Phase11Verify:
         entries = cast(
             "list[dict[str, object]]", json.loads(projects.read_text(encoding="utf-8"))
         )
-        matcher = EntryMatcher(repo.owner, frozenset({repo.name}))
+        matcher = EntryMatcher(repo.owner, repo.name, frozenset({repo.name}))
         entry = next((e for e in entries if matcher.claims_website(e)), None)
         if entry is None:
             return [VerificationCheck("website", False, f"no entry for {repo.name}")]

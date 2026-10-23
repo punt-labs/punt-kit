@@ -15,17 +15,20 @@ if TYPE_CHECKING:
 class EntryMatcher:
     """Matches entries that name this project's repository under its owner.
 
-    ``names`` are the repository names the project goes by (its PyPI
-    distribution name and its marketplace short name). A source URL claims
-    the project only when it parses to ``owner/<name>`` for the same owner:
-    a same-named repository under someone else is not this project.
+    A source URL claims the project only when it parses to ``owner/repo`` for
+    this project's own owner and repository: a same-named repository under
+    someone else is not this project, and neither is another repository of
+    the owner. ``names`` are the entry names the project goes by (its PyPI
+    distribution name and its marketplace short name); they match an entry's
+    ``name`` or ``id`` field and never a repository.
     """
 
     owner: str
+    repo: str
     names: frozenset[str]
 
     def claims_url(self, url: str) -> bool:
-        """True when ``url`` is a github.com remote for ``owner/<one of names>``."""
+        """True when ``url`` is a github.com remote for ``owner/repo``."""
         try:
             slug = RepoSlug.from_remote_url(url)
         except ValueError:
@@ -33,7 +36,7 @@ class EntryMatcher:
         return (
             slug is not None
             and slug.owner.lower() == self.owner.lower()
-            and slug.name.lower() in {name.lower() for name in self.names}
+            and slug.name.lower() == self.repo.lower()
         )
 
     def claims_plugin(self, plugin: Mapping[str, object]) -> bool:

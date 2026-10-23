@@ -8,7 +8,7 @@ from dataclasses import dataclass
 # A date after the version stamps the heading; whatever follows it ("  ",
 # " (yanked)") does not matter, so the check is a prefix match. It runs on
 # the parsed heading text, which is whatever follows the ``##``.
-_STAMPED_HEADING = re.compile(r"\[[^\]]*\] - \d{4}-\d{2}-\d{2}(?!\d)")
+_STAMPED_HEADING = re.compile(r"\[[^\]]*\]\s+-\s+\d{4}-\d{2}-\d{2}(?!\d)")
 
 # How the fleet marks a breaking change (surveyed across the sibling repos'
 # CHANGELOG.md files). An entry is breaking when it OPENS with the word,

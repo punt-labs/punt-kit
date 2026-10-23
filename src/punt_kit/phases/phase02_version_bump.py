@@ -12,6 +12,7 @@ from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
 
 if TYPE_CHECKING:
@@ -70,7 +71,7 @@ class Phase2VersionBump:
         # 2b. Bump version in pyproject.toml
         pyproject_path = root / "pyproject.toml"
         if pyproject_path.exists():
-            content = pyproject_path.read_text(encoding="utf-8")
+            content = TextFile(pyproject_path).read()
             new_content = re.sub(
                 r'^(version\s*=\s*")[^"]*(")',
                 rf"\g<1>{version}\2",
@@ -81,7 +82,7 @@ class Phase2VersionBump:
             if dry_run:
                 ops.dry(f'pyproject.toml: version = "{version}"')
             else:
-                pyproject_path.write_text(new_content, encoding="utf-8")
+                TextFile(pyproject_path).write(new_content)
                 ops.ok(f'pyproject.toml: version = "{version}"')
 
         # Bump __init__.py __version__ (skip if version comes from
@@ -90,7 +91,7 @@ class Phase2VersionBump:
         if pkg_dir is not None:
             init_py = pkg_dir / "__init__.py"
             if init_py.exists():
-                content = init_py.read_text(encoding="utf-8")
+                content = TextFile(init_py).read()
                 uses_metadata = (
                     "importlib.metadata" in content or "importlib_metadata" in content
                 )
@@ -105,7 +106,7 @@ class Phase2VersionBump:
                     if dry_run:
                         ops.dry(f'{init_py.name}: __version__ = "{version}"')
                     else:
-                        init_py.write_text(new_content, encoding="utf-8")
+                        TextFile(init_py).write(new_content)
                         ops.ok(f'{init_py.name}: __version__ = "{version}"')
 
         # Bump plugin.json version. None for a non-plugin project — absence
@@ -124,7 +125,7 @@ class Phase2VersionBump:
         # Bump install.sh VERSION pin
         install_sh = root / "install.sh"
         if install_sh.exists():
-            content = install_sh.read_text(encoding="utf-8")
+            content = TextFile(install_sh).read()
             new_content = re.sub(
                 r'^(VERSION=")[^"]*(")',
                 rf"\g<1>{version}\2",
@@ -136,7 +137,7 @@ class Phase2VersionBump:
                 if dry_run:
                     ops.dry(f'install.sh: VERSION="{version}"')
                 else:
-                    install_sh.write_text(new_content, encoding="utf-8")
+                    TextFile(install_sh).write(new_content)
                     ops.ok(f'install.sh: VERSION="{version}"')
 
         # 2c. Update CHANGELOG.md

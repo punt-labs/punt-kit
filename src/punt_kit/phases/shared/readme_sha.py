@@ -11,6 +11,7 @@ from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
@@ -105,7 +106,7 @@ class ReadmeShaPin:
         # A read-only git query, so a dry run can tell a no-op from a rewrite.
         short_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
 
-        content = readme_path.read_text(encoding="utf-8")
+        content = TextFile(readme_path).read()
         new_content = recognizer.repinned(content, short_sha)
         stale = self._warn_about_unrewritten_urls(recognizer, new_content, short_sha)
 
@@ -116,7 +117,7 @@ class ReadmeShaPin:
             self._ops.dry(f"README.md: install URLs → {short_sha} ({tag})")
             return PinResult(changed=True, stale=stale)
 
-        readme_path.write_text(new_content, encoding="utf-8")
+        TextFile(readme_path).write(new_content)
         self._ops.ok(f"README.md: install URLs → {short_sha} ({tag})")
         return PinResult(changed=True, stale=stale)
 

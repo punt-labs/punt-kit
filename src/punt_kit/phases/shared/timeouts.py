@@ -44,9 +44,9 @@ GIT_HOOK = 600
 
 # The freshly installed CLI's own ``doctor``: an arbitrary program that may
 # probe the network (API keys, MCP servers) before it reports. It is
-# informational — its verdict never gates the release — so two minutes is
-# generous for a health probe and short enough that a hung one does not stall
-# a release that has already published.
+# informational — neither its verdict nor a timeout gates the release (a hang
+# is a warning) — so two minutes is generous for a health probe and short
+# enough that a hung one does not stall a release that has already published.
 CLI_DOCTOR = 120
 
 # Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The

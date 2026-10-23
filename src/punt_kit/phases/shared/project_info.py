@@ -13,6 +13,8 @@ import json
 import re
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_kit.phases.shared.text_file import TextFile
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -216,7 +218,7 @@ class ReleaseProject:
                 if path in seen or not path.is_file():
                     continue
                 seen.add(path)
-                content = path.read_text(encoding="utf-8")
+                content = TextFile(path).read()
                 new_content = pin_re.sub(_replace, content)
                 if new_content == content:
                     continue
@@ -224,7 +226,7 @@ class ReleaseProject:
                 if dry_run:
                     self._ops.dry(f"{rel}: uvx --from {own_pkg}=={version}")
                 else:
-                    path.write_text(new_content, encoding="utf-8")
+                    TextFile(path).write(new_content)
                     self._ops.ok(f"{rel}: uvx --from {own_pkg}=={version}")
                 changed.append(path)
         return changed
