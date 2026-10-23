@@ -567,7 +567,7 @@ def test_merge_continues_when_a_failed_merge_left_the_pr_merged(
 
 
 def _thread_resolver_ops(*rules: FaultRule) -> FaultInjectingOps:
-    """``PrThreadResolver.resolve`` opens with a real ``GithubRepo.resolve()``
+    """``PrThreadResolver.resolve`` opens with a real ``GithubRepo.resolve_slug()``
     git-remote lookup before ever touching ``gh`` — every scenario needs that
     one rule regardless of which threads fixture it drives.
     """

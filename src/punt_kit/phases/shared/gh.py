@@ -67,7 +67,7 @@ class RequiredChecksWaiter:
         every check instead of failing after the no-checks grace window.
 
         ``resolve_repo`` is injected rather than calling
-        ``self._repo.resolve()`` directly so callers that expose repo
+        ``self._repo.slug_text()`` directly so callers that expose repo
         resolution as a monkeypatchable seam
         (``punt_kit.release._get_github_repo``) can pass that seam through
         unchanged.

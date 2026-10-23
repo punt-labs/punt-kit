@@ -1301,7 +1301,7 @@ def _bump_readme_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     ReadmeShaPin(info, ops=ops).bump(
         version,
         dry_run=dry_run,
-        resolve_repo=lambda root: GithubRepo(root, ops=ops).resolve(),
+        resolve_repo=lambda root: GithubRepo(root, ops=ops).slug_text(),
     )
 
 
@@ -8748,10 +8748,10 @@ def test_phase11_verify_reports_an_unusable_slug_as_one_failed_check(
     )
 
 
-def _resolve_remote(tmp_path: _Path, url: str) -> str | None:
+def _remote_slug_text(tmp_path: _Path, url: str) -> str | None:
     root = _make_release_project(tmp_path)
     _git(["remote", "set-url", "origin", url], cwd=str(root))
-    return GithubRepo(root, ops=_fault_ops()).resolve()
+    return GithubRepo(root, ops=_fault_ops()).slug_text()
 
 
 @pytest.mark.parametrize(
@@ -8766,10 +8766,10 @@ def _resolve_remote(tmp_path: _Path, url: str) -> str | None:
         pytest.param("https://github.com/o/r.git/", "o/r", id="https-dot-git-slash"),
     ],
 )
-def test_resolve_returns_a_clean_owner_repo_slug(
+def test_slug_text_returns_a_clean_owner_repo_slug(
     tmp_path: _Path, url: str, slug: str
 ) -> None:
-    assert _resolve_remote(tmp_path, url) == slug
+    assert _remote_slug_text(tmp_path, url) == slug
 
 
 @pytest.mark.parametrize(
@@ -8777,14 +8777,26 @@ def test_resolve_returns_a_clean_owner_repo_slug(
     [
         pytest.param("https://github.com/proj", id="no-owner"),
         pytest.param("https://github.com/o/r/extra", id="three-parts"),
+    ],
+)
+def test_slug_text_raises_for_a_github_remote_that_is_not_owner_repo(
+    tmp_path: _Path, url: str
+) -> None:
+    with pytest.raises(ValueError, match="not an owner/repo slug"):
+        _remote_slug_text(tmp_path, url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
         pytest.param("https://github.com/", id="empty-path"),
         pytest.param("https://gitlab.com/o/r", id="other-host"),
     ],
 )
-def test_resolve_rejects_a_remote_that_is_not_owner_repo(
+def test_slug_text_is_none_for_a_remote_that_is_not_on_github(
     tmp_path: _Path, url: str
 ) -> None:
-    assert _resolve_remote(tmp_path, url) is None
+    assert _remote_slug_text(tmp_path, url) is None
 
 
 @pytest.mark.parametrize(

@@ -29,11 +29,6 @@ class GithubRepo:
         self._ops = ops
         return self
 
-    def resolve(self) -> str | None:
-        """The remote's clean ``owner/repo`` text; ``None`` if unresolvable."""
-        slug = self.resolve_slug()
-        return None if slug is None else str(slug)
-
     def slug_text(self) -> str | None:
         """``slug()`` as ``owner/repo`` text; raises ``ValueError`` if malformed."""
         slug = self.slug()

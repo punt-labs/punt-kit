@@ -382,7 +382,7 @@ def _sweep_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     plugin-swap scripts while still exercising the full PR-merge machinery
     twice — the release PR on the project and the propagation PR on the
     sibling. The origin is rewritten to a github.com URL *after* a final
-    local fetch, so ``GithubRepo.resolve`` yields ``punt-labs/proj`` (the
+    local fetch, so ``GithubRepo.slug_text`` yields ``punt-labs/proj`` (the
     propagators and thread resolver require a resolvable slug) while
     ``refs/remotes/origin/main`` already equals HEAD for preflight's
     up-to-date diff; every command that would then touch that remote for
