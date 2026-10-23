@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import ast
 import inspect
 import json
 import os
@@ -12,7 +11,6 @@ import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
 from pathlib import Path as _Path
 from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock
@@ -78,7 +76,6 @@ from tests.harness.fault_ops import (
     FaultRule,
     RunFn,
 )
-from tests.harness.run_calls import HOOK_FIRING_VERBS, RunCall
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -11488,165 +11485,81 @@ def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
     assert timeouts.GIT_HOOK > 300
 
 
-_PHASES_DIR = _Path(release.__file__).parent / "phases"
+def _spawned_timeout(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], requested: int
+) -> int:
+    """The timeout the release ops layer hands subprocess for ``argv``."""
+    seen: list[int] = []
+
+    def fake_spawn(cmd: list[str], **kwargs: int) -> subprocess.CompletedProcess[str]:
+        seen.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_spawn)
+    _run(argv, timeout=requested)
+    (timeout,) = seen
+    return timeout
 
 
-# `.run(` receivers that never run a process (a phase object, a pipeline step).
-# The set is closed on purpose: any other receiver whose call is not a process
-# run fails `test_every_run_receiver_is_classified`, so a renamed ops-typed
-# name cannot hide a hook-firing git call from the audits.
-_NON_PROCESS_RUN_RECEIVERS = frozenset({"step", "pipeline"})
-
-
-@dataclass(frozen=True, slots=True)
-class _Unaudited:
-    """Why a process run with an unreadable argv is safe to leave unaudited."""
-
-    reason: str
-    fires_hooks: bool
-
-
-# Process runs whose argv the audits cannot read (a variable, a call, or a
-# list with a `*` element that could splice in any verb), keyed by call
-# identity: file, enclosing function, argv expression, and ordinal among
-# identical calls in that function. A new unreadable call fails the audit
-# until someone adds it here; a stale entry fails it too; a second identical
-# call is a new identity. `fires_hooks` entries are held to GIT_HOOK anyway.
-_UNREADABLE_ARGV_ALLOWLIST = {
-    ("phase01_preflight.py", "Phase1Preflight.run", "gate", 0): _Unaudited(
-        "quality-gate command (make/uv/go), not git", fires_hooks=False
-    ),
-    ("phase01_preflight.py", "Phase1Preflight.run", "gate", 1): _Unaudited(
-        "quality-gate command (make/uv/go), not git", fires_hooks=False
-    ),
-    (
-        "phase03_build.py",
-        "Phase3Build.run",
-        "['uvx', 'twine', 'check', *[str(p) for p in artifacts]]",
-        0,
-    ): _Unaudited("uvx twine check, not git", fires_hooks=False),
-    ("phase06_ci_wait.py", "Phase6CiWait.run.list_runs", "list_cmd", 0): _Unaudited(
-        "gh run list, not git", fires_hooks=False
-    ),
-    ("git.py", "GitWorkspace.commit_if_staged", "['git', 'add', '--', *paths]", 0): (
-        _Unaudited("git add stages only; no hook fires", fires_hooks=False)
-    ),
-    (
-        "plugin_swap.py",
-        "PluginSwap.reset_to_head",
-        "['git', 'checkout', 'HEAD', '--', *self.swap_paths()]",
-        0,
-    ): _Unaudited("git checkout of paths fires post-checkout", fires_hooks=True),
-    # --head is given and the branch is already pushed, so gh pushes nothing
-    # and runs only read-only git (rev-parse, remote, status): no hook fires.
-    ("pr_merge.py", "PrMerger.merge", "create_cmd", 0): _Unaudited(
-        "gh pr create --head: read-only local git", fires_hooks=False
-    ),
-    # --delete-branch checks out the base, deletes the local head, and pulls.
-    ("pr_merge.py", "PrMerger.merge", "merge_cmd", 0): _Unaudited(
-        "gh pr merge --delete-branch: checkout and pull fire hooks", fires_hooks=True
-    ),
-    (
-        "pr_merge.py",
-        "PrMerger.merge_in_sibling",
-        "['git', 'status', '--porcelain', '--', *files]",
-        0,
-    ): _Unaudited("git status is read-only; no hook fires", fires_hooks=False),
-    (
-        "siblings.py",
-        "SiblingRepo.reset_owned_dirt",
-        "['git', 'checkout', 'HEAD', '--', *dirty_owned]",
-        0,
-    ): _Unaudited("git checkout of paths fires post-checkout", fires_hooks=True),
-    ("phase08_verify_pypi.py", "Phase8VerifyPypi.run", "[cli_path, 'doctor']", 0): (
-        _Unaudited("the installed punt CLI's doctor, not git", fires_hooks=False)
-    ),
-    ("release.py", "_run", "cmd", 0): _Unaudited(
-        "the ReleaseOps runner itself; each caller's argv is audited at its own site",
-        fires_hooks=False,
-    ),
-}
-
-
-def _release_source_files() -> list[_Path]:
-    """The phase classes live under ``phases/``; ``release.py`` only wires them.
-
-    Scanning both keeps the audits below from going vacuous if code moves.
-    """
-    return sorted([*_PHASES_DIR.rglob("*.py"), _Path(release.__file__)])
-
-
-def _process_runs() -> list[RunCall]:
-    """Every ``.run(`` call in the release code that runs a process."""
-    return [c for c in RunCall.collect(_release_source_files()) if c.is_runner]
-
-
-def test_every_run_receiver_is_classified() -> None:
-    """Every ``.run(`` is a process run or has a known non-process receiver.
-
-    Process runs are audited below. A ``.run(`` that is neither (a phase
-    object's ``.run()``) must sit on a receiver the audits know to ignore, so
-    a renamed ``self._ops`` cannot silently drop its git calls from them.
-    """
-    unclassified = sorted(
-        {
-            (call.file, ast.unparse(call.receiver))
-            for call in RunCall.collect(_release_source_files())
-            if not call.is_runner
-            and not call.is_phase_object
-            and ast.unparse(call.receiver) not in _NON_PROCESS_RUN_RECEIVERS
-        }
-    )
-    assert unclassified == []
-
-
-def test_every_process_run_argv_is_readable_or_allowlisted() -> None:
-    """An argv the audits cannot read must be allowlisted with a reason."""
-    unreadable = {call.identity for call in _process_runs() if not call.is_readable}
-    assert unreadable == set(_UNREADABLE_ARGV_ALLOWLIST)
-
-
-def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
-    """Every process run of a hook-firing git command must carry the hook budget.
-
-    checkout, commit, merge, push, pull, and the other history-moving verbs
-    fire bd hooks against the networked Dolt server; the 60s metadata default
-    is not enough. An audit-by-command-name that silently reclassified these
-    back to the default is exactly how the v0.14.0 defect was introduced —
-    this test pins the classification in code so the next audit cannot undo
-    it without a test failure to answer for.
-    """
-    inspected = [c for c in _process_runs() if c.fires_hooks]
-
-    assert inspected, "no hook-firing git call was inspected — the audit is vacuous"
-    # Presence of `timeout=` is not enough. The network budget is 300s,
-    # exactly the beads hook ceiling with no headroom, so a call site set to
-    # it would pass a presence check and still reintroduce the hang this
-    # test exists to prevent. Pin the identifier, not the keyword.
-    offenders = [
-        (c.file, c.line, c.timeout_budget)
-        for c in inspected
-        if c.timeout_budget != "GIT_HOOK"
-    ]
-    assert offenders == [], (
-        "hook-firing git commands must use timeout=timeouts.GIT_HOOK — a bare "
-        "`timeout=` or any other budget is not sufficient, because the hook's "
-        f"own ceiling is 300s: {offenders}"
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["git", "push", "origin", "main"], id="git-push"),
+        pytest.param(["gh", "pr", "merge", "1", "-sd"], id="gh-merge-clustered"),
+        pytest.param(["env", "git", "commit"], id="env-wrapper"),
+        pytest.param(["sh", "-c", "git push"], id="shell-wrapper"),
+    ],
+)
+def test_ops_run_floors_a_hook_firing_command_at_the_hook_budget(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str]
+) -> None:
+    """A caller that forgets the hook budget cannot put a hook on the 60s default."""
+    assert _spawned_timeout(monkeypatch, argv, timeouts.DEFAULT_RUN) == (
+        timeouts.GIT_HOOK
     )
 
 
-def test_unreadable_hook_firing_runs_carry_the_hook_budget() -> None:
-    """An allowlisted argv the audits cannot read is still held to GIT_HOOK.
+def test_ops_run_keeps_a_longer_timeout_on_a_hook_firing_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned = _spawned_timeout(monkeypatch, ["git", "push"], timeouts.QUALITY_GATE)
+    assert spawned == timeouts.QUALITY_GATE
 
-    ``gh pr merge --delete-branch`` is the case that motivated this: gh checks
-    out the base, deletes the local head, and pulls, so the bd hooks fire on
-    a call whose argv is a variable.
+
+def test_ops_run_keeps_the_timeout_of_a_command_that_fires_no_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned = _spawned_timeout(
+        monkeypatch, ["git", "status", "--porcelain"], timeouts.DEFAULT_RUN
+    )
+    assert spawned == timeouts.DEFAULT_RUN
+
+
+# Every way the standard library starts a process. The hook budget is applied
+# in `_run`, so a spawn anywhere else would run without it.
+_SPAWN = re.compile(
+    r"\b(?:subprocess\.(?:run|Popen|call|check_call|check_output|getoutput"
+    r"|getstatusoutput)|os\.(?:system|popen|exec\w*|spawn\w*|posix_spawn\w*)"
+    r"|asyncio\.create_subprocess_\w+)\("
+    r"|^\s*from\s+(?:subprocess|os)\s+import\b",
+    re.MULTILINE,
+)
+
+
+def test_only_run_spawns_a_release_process() -> None:
+    """No release module can start a process around the hook budget.
+
+    The release is `release.py` plus everything under `phases/`; each phase
+    reaches a process through `ReleaseOps.run`, which `_run` implements.
     """
-    held = {k for k, v in _UNREADABLE_ARGV_ALLOWLIST.items() if v.fires_hooks}
-    runs = {c.identity: c for c in _process_runs()}
-    offenders = [k for k in sorted(held) if runs[k].timeout_budget != "GIT_HOOK"]
-    assert held, "no allowlisted hook-firing run — the audit is vacuous"
-    assert offenders == []
+    release_dir = _Path(release.__file__).parent
+    sources = [release_dir / "release.py", *(release_dir / "phases").rglob("*.py")]
+    spawns = {
+        path.name: len(_SPAWN.findall(path.read_text("utf-8")))
+        for path in sources
+        if _SPAWN.search(path.read_text("utf-8"))
+    }
+    assert spawns == {"release.py": 1}
 
 
 def test_run_release_converts_timeout_expired_to_diagnosed_exit(
@@ -12025,57 +11938,6 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "Unexpected GraphQL response structure" in out
-
-
-def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> None:
-    """A script that runs hook-firing git commands needs the hook budget too.
-
-    The sibling audit inspects `_run(["git", ...])` calls directly, which
-    makes a script invisible to it: `_run(["bash", script])` runs git one
-    level down, so the call site inherits the 60s metadata default while
-    the work behind it fires the bd pre-commit and post-checkout hooks
-    that allow themselves 300s. That gap is how release-plugin.sh and
-    restore-dev-plugin.sh kept the short budget after the commits inside
-    them started running hooks.
-
-    The rule is deliberately broad — every `_run(["bash", ...])` must
-    carry the budget — because the script path arrives as a variable and
-    cannot be resolved statically. Over-budgeting a fast script costs
-    nothing: the timeout is a ceiling, not a wait. Under-budgeting one
-    aborts a release.
-    """
-    # Every shell script the release path invokes lives here and is checked
-    # for hook-firing git verbs, so the rule below is grounded in what the
-    # scripts actually do rather than assumed.
-    scripts_dir = _Path(release.__file__).parent.parent.parent / "scripts"
-    # The scripts call `git -C "$REPO_ROOT" commit`, so a literal "git commit"
-    # never matches — the verb is separated from `git` by the -C flag.
-    hook_verb_re = re.compile(
-        rf"\bgit\b[^\n]*\b({'|'.join(sorted(HOOK_FIRING_VERBS))})\b"
-    )
-    hook_firing_scripts = sorted(
-        p.name
-        for p in scripts_dir.glob("*.sh")
-        if hook_verb_re.search(p.read_text(encoding="utf-8"))
-    )
-    assert hook_firing_scripts, (
-        "expected at least one release script to run hook-firing git commands; "
-        "if that stops being true this audit needs revisiting, not deleting"
-    )
-
-    inspected = [c for c in _process_runs() if (c.words or [])[:1] == ["bash"]]
-
-    assert inspected, "no `bash` script invocation was inspected — vacuous audit"
-    offenders = [
-        (c.file, c.line, c.timeout_budget)
-        for c in inspected
-        if c.timeout_budget != "GIT_HOOK"
-    ]
-    assert offenders == [], (
-        "shell scripts invoked by the release path run hook-firing git "
-        f"commands ({', '.join(hook_firing_scripts)}) and must be given "
-        f"timeout=timeouts.GIT_HOOK: {offenders}"
-    )
 
 
 # --- SIGINT during Phase 10 with a worker live inside the check-wait poll ---

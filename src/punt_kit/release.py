@@ -36,7 +36,7 @@ from punt_kit.phases.phase10_propagate import (
     WebsitePropagator,
 )
 from punt_kit.phases.phase11_verify import Phase11Verify
-from punt_kit.phases.shared import timeouts
+from punt_kit.phases.shared import hook_firing, timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import PrThreadResolver, RequiredChecksWaiter
@@ -79,16 +79,16 @@ def _run(
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess with standard options.
 
-    ``timeout`` defaults to a short metadata budget. Call sites that
-    legitimately need longer — package installs, quality gates, network git,
-    ``gh run watch`` — must pass one of the named budgets defined above.
+    ``timeout`` defaults to a short metadata budget. Call sites that need longer
+    — installs, quality gates, network git, ``gh run watch`` — pass a named
+    ``timeouts`` budget; every hook-firing command is floored at ``GIT_HOOK`` here.
     """
     return subprocess.run(
         cmd,
         cwd=cwd,
         capture_output=capture,
         text=True,
-        timeout=timeout,
+        timeout=hook_firing.HookFiringCommand(cmd).timeout(timeout),
         check=check,
     )
 
