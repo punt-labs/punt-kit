@@ -162,7 +162,7 @@ def _init_project(path: str, *, language: str | None) -> None:
     """Run every init step against the project at *path*."""
     root = Path(path).resolve()
     if not root.is_dir():
-        console.print(f"[red]Error:[/red] {root} is not a directory")
+        console.print(f"[red]Error:[/red] {escape(str(root))} is not a directory")
         raise SystemExit(1)
 
     info = detect(root)
@@ -171,7 +171,7 @@ def _init_project(path: str, *, language: str | None) -> None:
     if language is not None:
         if language not in SUPPORTED_LANGUAGES:
             console.print(
-                f"[red]Error:[/red] unsupported language '{language}'"
+                f"[red]Error:[/red] unsupported language '{escape(language)}'"
                 f" — choose from: {', '.join(SUPPORTED_LANGUAGES)}"
             )
             raise SystemExit(1)
@@ -181,7 +181,7 @@ def _init_project(path: str, *, language: str | None) -> None:
         if prompted is not None:
             info = _with_language(info, prompted)
 
-    console.print(f"\n[bold]punt init[/bold] — {root.name}")
+    console.print(f"\n[bold]punt init[/bold] — {escape(root.name)}")
     console.print(f"  Language:     {info.language or 'none'}")
     console.print(f"  Project type: {info.project_type or 'unknown'}")
     console.print(f"  MCP server:   {info.is_mcp_server}")
@@ -277,7 +277,7 @@ def _prompt_language() -> str | None:
     except ValueError:
         pass
 
-    console.print(f"[red]Invalid choice:[/red] '{choice}'")
+    console.print(f"[red]Invalid choice:[/red] '{escape(choice)}'")
     return None
 
 
@@ -722,7 +722,7 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
         console.print(f"  [yellow]↻[/yellow] Updated {rel} ({', '.join(parts)})")
 
     for rule in dead:
-        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
+        console.print(f"    [dim]dead rule removed:[/dim] {escape(rule)}")
 
     return [rel]
 
@@ -797,7 +797,7 @@ def _prune_settings_local(info: ProjectInfo) -> list[str]:
 
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (-{len(removed)} dead)")
     for rule in removed:
-        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
+        console.print(f"    [dim]dead rule removed:[/dim] {escape(rule)}")
     return [rel]
 
 

@@ -7,6 +7,7 @@ import subprocess
 from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.command_runner import CommandRunner
@@ -69,7 +70,8 @@ class BeadsInit:
         except OSError as exc:
             msg = f"beads init failed: {exc}"
             raise BeadsInitError(self._with_partial(msg)) from exc
-        console.print(f"  [green]+[/green] Initialized beads (prefix: {prefix})")
+        shown = escape(prefix)
+        console.print(f"  [green]+[/green] Initialized beads (prefix: {shown})")
         return [".beads/"]
 
     def _with_partial(self, msg: str) -> str:

@@ -14,6 +14,9 @@ from punt_kit import init as init_mod
 from punt_kit.detect import detect
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
 from tests.helpers import (
+    flat,
+)
+from tests.helpers import (
     no_bd as _no_bd,
 )
 from tests.helpers import (
@@ -1251,3 +1254,80 @@ def test_init_edits_a_crlf_gitignore_with_a_bom_in_its_own_style(
     assert raw.startswith("\ufeffdist/\r\n")
     assert "!.claude/settings.json" in raw
     assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
+
+
+# --- caller- and file-derived text is shown literally, never read as markup ---
+
+_MARKUP = "[x][/dim]"
+
+
+def test_init_names_a_path_with_markup_that_is_not_a_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        run_init(str(tmp_path / _MARKUP))
+
+    out = flat(capsys.readouterr().out)
+    assert (caught.value.code, f"{_MARKUP} is not a directory" in out) == (1, True)
+
+
+def test_init_shows_a_project_name_with_markup_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    # A name cannot hold "/", so a closing tag is out; a style tag still vanishes.
+    root = tmp_path / "p[bold]x"
+    root.mkdir()
+    _python_project(root)
+
+    run_init(str(root))
+
+    assert "punt init — p[bold]x" in flat(capsys.readouterr().out)
+
+
+def test_init_shows_an_invalid_language_choice_with_markup_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def answer(_prompt: str = "") -> str:
+        return _MARKUP
+
+    monkeypatch.setattr("builtins.input", answer)
+
+    run_init(str(tmp_path))
+
+    assert f"'{_MARKUP}'" in flat(capsys.readouterr().out)
+
+
+def test_init_shows_an_unsupported_language_with_markup_literally(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        run_init(str(tmp_path), language=_MARKUP)
+
+    assert f"unsupported language '{_MARKUP}'" in flat(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize("name", ["settings.json", "settings.local.json"])
+def test_init_shows_a_removed_dead_rule_with_markup_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    settings = tmp_path / ".claude" / name
+    settings.parent.mkdir()
+    rule = f"Write(docs/{_MARKUP}/**)"
+    settings.write_text(json.dumps({"permissions": {"allow": [rule]}}))
+
+    run_init(str(tmp_path))
+
+    assert f"dead rule removed: {rule}" in flat(capsys.readouterr().out)

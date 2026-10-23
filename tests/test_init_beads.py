@@ -44,6 +44,20 @@ def test_a_successful_bd_init_reports_the_beads_directory(
     ]
 
 
+def test_a_prefix_with_markup_is_shown_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = tmp_path / "a[bold]b"
+    root.mkdir()
+    _with_bd(monkeypatch, tmp_path, _RECORDING_BD)
+
+    BeadsInit(detect(root)).run()
+
+    assert "prefix: a[bold]b" in capsys.readouterr().out
+
+
 def test_a_project_with_beads_never_runs_bd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
