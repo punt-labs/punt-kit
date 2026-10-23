@@ -30,8 +30,8 @@ from punt_kit.phases.phase09_post_release import Phase9PostRelease
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
-    WebsitePropagator,
 )
+from punt_kit.phases.phase10_website import WebsitePropagator
 from punt_kit.phases.phase11_checks import MarketplacePinCheck
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import gh as gh_mod
@@ -43,6 +43,7 @@ from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.pipeline import ReleasePipeline
 from punt_kit.phases.shared.pr_merge import PrMerger
@@ -61,7 +62,6 @@ from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
 # `_get_project_version` and `_phase_name` are pure helpers tested directly;
 # `_interrupted` is the module-level Event the signal handler owns.
 from punt_kit.release import (
-    PHASE_NAMES,
     ReleaseError,
     _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
@@ -71,7 +71,6 @@ from punt_kit.release import (
     _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _phase11_verify,  # pyright: ignore[reportPrivateUsage]
-    _phase_name,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
@@ -3594,7 +3593,7 @@ def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
     _propagate_website(info, "0.2.0", dry_run=False)
 
 
-# --- PHASE_NAMES ---
+# --- PhaseOrder.NUMBERS ---
 
 
 # --- Propagation sibling validation and branch recovery ---
@@ -3773,13 +3772,13 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
 
 def test_phase_names_cover_all_phases() -> None:
     """All 11 phases are mapped (plus aliases)."""
-    phase_numbers = set(PHASE_NAMES.values())
+    phase_numbers = set(PhaseOrder.NUMBERS.values())
     assert phase_numbers == set(range(1, 12))
 
 
 def test_phase_names_aliases() -> None:
     """Old name aliases resolve to correct phase numbers."""
-    assert PHASE_NAMES["release"] == 4  # alias for release-pr
+    assert PhaseOrder.NUMBERS["release"] == 4  # alias for release-pr
 
 
 # --- wy5: plugin script checks for pure plugin projects ---
@@ -11655,12 +11654,12 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     assert "phase 1 (preflight)" in normalized
     assert "--resume-from preflight" in normalized
 
-    # And the suggested value must be a real member of PHASE_NAMES — this is
+    # And the suggested value must be a real member of PhaseOrder.NUMBERS — this is
     # what stops the message drifting into naming a phase that does not
     # exist for --resume-from to accept.
     suggested = "preflight"
-    assert suggested in PHASE_NAMES
-    assert _phase_name(1) == suggested
+    assert suggested in PhaseOrder.NUMBERS
+    assert PhaseOrder.name_of(1) == suggested
 
 
 def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
@@ -11745,8 +11744,8 @@ def test_run_release_credits_propagate_when_resuming_from_it(
     assert "phase 10 (propagate)" in normalized
     assert "post-release" not in normalized
     assert "--resume-from propagate" in normalized
-    assert "propagate" in PHASE_NAMES
-    assert _phase_name(10) == "propagate"
+    assert "propagate" in PhaseOrder.NUMBERS
+    assert PhaseOrder.name_of(10) == "propagate"
 
 
 def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
@@ -11883,24 +11882,24 @@ def test_run_release_reports_incomplete_release_on_interrupt(
 
 
 def test_phase_name_round_trips_through_phase_names() -> None:
-    """Every phase number 1..N round-trips through PHASE_NAMES.
+    """Every phase number 1..N round-trips through PhaseOrder.NUMBERS.
 
     The TimeoutExpired diagnosis hands the operator ``--resume-from
     <phase_name>``; if _phase_name ever produced a string that is not a
-    key of PHASE_NAMES, that advice would fail at the very next command.
+    key of PhaseOrder.NUMBERS, that advice would fail at the very next command.
     Out-of-range numbers must fall through to 'unknown' rather than
     fabricating a name.
     """
     for phase_num in range(1, 12):
-        name = _phase_name(phase_num)
+        name = PhaseOrder.name_of(phase_num)
         assert name != "unknown"
-        assert name in PHASE_NAMES
-        assert PHASE_NAMES[name] == phase_num
+        assert name in PhaseOrder.NUMBERS
+        assert PhaseOrder.NUMBERS[name] == phase_num
 
     # 0 (nothing started yet) and out-of-range numbers must not fabricate.
-    assert _phase_name(0) == "unknown"
-    assert _phase_name(12) == "unknown"
-    assert _phase_name(-1) == "unknown"
+    assert PhaseOrder.name_of(0) == "unknown"
+    assert PhaseOrder.name_of(12) == "unknown"
+    assert PhaseOrder.name_of(-1) == "unknown"
 
 
 def _graphql_null_rollup_response() -> dict[str, object]:

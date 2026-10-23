@@ -27,14 +27,15 @@ from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
     Phase10Propagate,
-    WebsitePropagator,
 )
+from punt_kit.phases.phase10_website import WebsitePropagator
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import hook_firing, timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
+from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.pr_threads import PrThreadResolver
@@ -423,57 +424,6 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-# ---------------------------------------------------------------------------
-# Phase name → number mapping for --resume-from
-# ---------------------------------------------------------------------------
-
-# Canonical phase order. Index + 1 is the phase number; the name at that index
-# is the string the operator passes to --resume-from. Kept as the single source
-# of truth so PHASE_NAMES and _phase_name cannot drift out of sync.
-_PHASE_ORDER: tuple[str, ...] = (
-    "preflight",
-    "bump",
-    "build",
-    "release-pr",
-    "tag",
-    "ci",
-    "github-release",
-    "pypi",
-    "post-release",
-    "propagate",
-    "verify",
-)
-
-PHASE_NAMES: dict[str, int] = {name: i + 1 for i, name in enumerate(_PHASE_ORDER)}
-# Aliases for muscle-memory from old phase names.
-PHASE_NAMES["release"] = PHASE_NAMES["release-pr"]
-
-
-def _phase_name(number: int) -> str:
-    """Return the --resume-from name for a phase number, or 'unknown'.
-
-    Only in-range phase numbers map to a name; 0 (nothing running yet) and
-    anything outside 1..len(_PHASE_ORDER) fall through to 'unknown' so the
-    diagnosis path never fabricates a phase that would not round-trip
-    through --resume-from.
-    """
-    if 1 <= number <= len(_PHASE_ORDER):
-        return _PHASE_ORDER[number - 1]
-    return "unknown"
-
-
-def _unlanded_phases(current_phase_num: int) -> tuple[str, ...]:
-    """Phase names from ``current_phase_num`` through the end.
-
-    This is the portion of the pipeline that has not been confirmed to land
-    when a release stops early — the phase that was running when the stop
-    happened, plus everything after it that never got a chance to run.
-    """
-    if not 1 <= current_phase_num <= len(_PHASE_ORDER):
-        return _PHASE_ORDER
-    return _PHASE_ORDER[current_phase_num - 1 :]
-
-
 def _print_incomplete_release(current_phase_num: int) -> None:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
@@ -485,8 +435,8 @@ def _print_incomplete_release(current_phase_num: int) -> None:
     only a ``subprocess.TimeoutExpired``: the interrupt path especially, where
     a bare error would leave the operator with nothing to act on.
     """
-    phase_label = _phase_name(current_phase_num)
-    unlanded = _unlanded_phases(current_phase_num)
+    phase_label = PhaseOrder.name_of(current_phase_num)
+    unlanded = PhaseOrder.unlanded_from(current_phase_num)
     console.print(
         f"[red]Release incomplete[/red] — stopped during phase "
         f"{current_phase_num} ({phase_label})."
@@ -559,10 +509,10 @@ def run_release(
         # Determine start phase
         start = 1
         if resume_from:
-            if resume_from not in PHASE_NAMES:
-                valid = ", ".join(sorted(PHASE_NAMES.keys()))
+            if resume_from not in PhaseOrder.NUMBERS:
+                valid = ", ".join(sorted(PhaseOrder.NUMBERS.keys()))
                 _fail(f"Unknown phase '{resume_from}'. Valid: {valid}")
-            start = PHASE_NAMES[resume_from]
+            start = PhaseOrder.NUMBERS[resume_from]
 
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
         resume = f" (resuming from phase {start})" if start > 1 else ""
@@ -619,7 +569,7 @@ def run_release(
                     # from the version this run is meant to produce.
                     # Silently running the rest of the pipeline against
                     # that stale version is worse than asking; fail loud.
-                    if info.language == "go" and start <= PHASE_NAMES["tag"]:
+                    if info.language == "go" and start <= PhaseOrder.NUMBERS["tag"]:
                         _fail(
                             "Cannot detect the version to resume with — this "
                             "is a Go project resuming at or before the tag "
@@ -787,7 +737,7 @@ def run_release(
             cmd_str = " ".join(map(str, parts))
         else:
             cmd_str = str(raw_cmd)
-        phase_label = _phase_name(current_phase_num)
+        phase_label = PhaseOrder.name_of(current_phase_num)
         if phase_label == "unknown":
             resume_hint = (
                 "Investigate the command; a phase could not be identified, "

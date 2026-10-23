@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from rich.console import Console
 
 from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
+from punt_kit.phases.phase11_versions import VersionPinChecks
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
@@ -22,7 +23,6 @@ from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
-from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -120,7 +120,7 @@ class Phase11Verify:
         checks = [
             VerificationCheck("Git tag", tag_exists, tag if tag_exists else "not found")
         ]
-        checks.extend(self._version_pin_checks())
+        checks.extend(VersionPinChecks(info, self._version, ops=ops).checks())
         # Stamped means dated: ## [X.Y.Z] - YYYY-MM-DD
         stamped = Changelog(info.root, ops=ops).is_stamped(self._version)
         checks.append(
@@ -129,80 +129,6 @@ class Phase11Verify:
             )
         )
         return checks
-
-    def _version_pin_checks(self) -> list[VerificationCheck]:
-        """Version consistency, read fresh from disk (``info.pyproject`` is stale
-        after Phase 2 bumps the version)."""
-        return [
-            *self._pyproject_version_checks(),
-            *self._init_version_checks(),
-            *self._plugin_version_checks(),
-            *self._install_sh_version_checks(),
-        ]
-
-    def _pyproject_version_checks(self) -> list[VerificationCheck]:
-        path = self._info.root / "pyproject.toml"
-        if not path.exists():
-            return []
-        current = VersionAssignment("version").read(TextFile(path).read())
-        shown = current or "not found"
-        return [
-            VerificationCheck(
-                "pyproject.toml", shown == self._version, f"version={shown}"
-            )
-        ]
-
-    def _init_version_checks(self) -> list[VerificationCheck]:
-        pkg_dir = ReleaseProject(self._info, ops=self._ops).package_dir()
-        if pkg_dir is None or not (pkg_dir / "__init__.py").exists():
-            return []
-        content = TextFile(pkg_dir / "__init__.py").read()
-        uses_metadata = (
-            "importlib.metadata" in content or "importlib_metadata" in content
-        )
-        assignment = VersionAssignment("__version__")
-        if uses_metadata or not assignment.is_assigned(content):
-            return []
-        init_ver = assignment.read(content)
-        if init_ver is None:
-            return [
-                VerificationCheck(
-                    "__init__.py",
-                    False,
-                    "__version__ is assigned but not as a plain quoted string, "
-                    "so it cannot be verified",
-                )
-            ]
-        return [
-            VerificationCheck(
-                "__init__.py", init_ver == self._version, f"__version__={init_ver}"
-            )
-        ]
-
-    def _plugin_version_checks(self) -> list[VerificationCheck]:
-        if not self._info.is_plugin:
-            return []
-        pj_data = JsonFile(self._info.plugin_manifest).load_object()
-        pj_ver = pj_data.get("version", "not found")
-        return [
-            VerificationCheck(
-                "plugin.json", pj_ver == self._version, f"version={pj_ver}"
-            )
-        ]
-
-    def _install_sh_version_checks(self) -> list[VerificationCheck]:
-        install_sh = self._info.root / "install.sh"
-        if not install_sh.exists():
-            return []
-        match = re.search(r'VERSION="([^"]*)"', TextFile(install_sh).read())
-        if not match:
-            return []
-        install_ver = match.group(1)
-        return [
-            VerificationCheck(
-                "install.sh", install_ver == self._version, f"VERSION={install_ver}"
-            )
-        ]
 
     def _remote_slug(self) -> tuple[RepoSlug | None, list[VerificationCheck]]:
         """The project's GitHub slug (``None`` when there is nothing to verify),

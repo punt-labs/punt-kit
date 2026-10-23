@@ -217,16 +217,14 @@ def _init_project(path: str, *, language: str | None) -> None:
 
 def _validate_inputs(info: ProjectInfo) -> None:
     """Raise :class:`ReleaseError` if a file init will read or merge is unreadable."""
-    settings = info.root / ".claude" / "settings.json"
+    root = info.root
+    settings = root / ".claude" / "settings.json"
     if settings.exists():
         JsonFile(settings).load_object()
-    for name in ("CLAUDE.md", ".gitignore"):
-        if (info.root / name).exists():
-            TextFile(info.root / name).read()
-    workflows = info.root / ".github" / "workflows"
-    if workflows.is_dir():
-        for workflow in sorted(workflows.glob("*.y*ml")):
-            TextFile(workflow).read()
+    workflows = sorted((root / ".github" / "workflows").glob("*.y*ml"))
+    for path in (*workflows, root / "CLAUDE.md", root / ".gitignore"):
+        if path.exists():
+            TextFile(path).read()
 
 
 def _prompt_language() -> str | None:

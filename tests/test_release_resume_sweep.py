@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, ClassVar, cast, final
 import pytest
 
 from punt_kit import release
+from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.timeouts import DEFAULT_RUN
 from punt_kit.release import (
     ReleaseError,
@@ -552,14 +553,12 @@ def test_interrupt_during_resumed_version_detection_reports_resume_phase(
 def test_sweep_covers_every_resume_point_exactly_once() -> None:
     """Adding a 12th phase must force a 12th sweep case, and vice versa.
 
-    Compared against the canonical phase order (not ``PHASE_NAMES``, whose
+    Compared against the canonical phase order (not ``PhaseOrder.NUMBERS``, whose
     ``release`` alias maps to the same number as ``release-pr``), so the
     sweep's claim of exhaustiveness is enforced rather than asserted in
     prose.
     """
-    assert [c.resume_from for c in _CASES] == list(
-        release._PHASE_ORDER  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-    )
+    assert [c.resume_from for c in _CASES] == list(PhaseOrder.ORDER)
 
 
 @pytest.mark.parametrize("case", _CASES, ids=[c.resume_from for c in _CASES])
