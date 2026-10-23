@@ -15,10 +15,12 @@ from punt_kit.phases.shared.errors import OperationalFailure, ReleaseError
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.release import run_release
+from tests.harness.fault_ops import FaultInjectingOps
 from tests.helpers import (
     fake_which,
     flat,
     make_release_project,
+    refuse_run,
 )
 
 if TYPE_CHECKING:
@@ -304,6 +306,10 @@ def test_an_interrupt_before_any_phase_says_it_was_an_interrupt(
     assert "failed before any phase ran" not in out
 
 
+def _ops() -> FaultInjectingOps:
+    return FaultInjectingOps(real_run=refuse_run, rules=[], passthrough=[])
+
+
 def _failed_command(*, stderr: str, output: str = "") -> subprocess.CalledProcessError:
     return subprocess.CalledProcessError(
         1, ["gh", "pr", "list"], output=output, stderr=stderr
@@ -412,9 +418,7 @@ def test_errors_gathered_before_an_interrupt_are_printed(
     interrupted.set()
 
     with pytest.raises(KeyboardInterrupt):
-        ThreadedStep(ops=release._ops).collect(  # pyright: ignore[reportPrivateUsage]
-            {failed: "website"}, interrupted=interrupted
-        )
+        ThreadedStep(ops=_ops()).collect({failed: "website"}, interrupted=interrupted)
 
     assert "website: unique-xyz cannot be read" in flat(capsys.readouterr().out)
 
@@ -465,9 +469,7 @@ def test_a_reported_failure_is_not_repeated_on_interrupt(
     interrupted.set()
 
     with pytest.raises(KeyboardInterrupt):
-        ThreadedStep(ops=release._ops).collect(  # pyright: ignore[reportPrivateUsage]
-            {failed: "website"}, interrupted=interrupted
-        )
+        ThreadedStep(ops=_ops()).collect({failed: "website"}, interrupted=interrupted)
 
     assert flat(capsys.readouterr().out).count("sibling has uncommitted changes") == 1
 
@@ -487,3 +489,35 @@ def test_credentials_in_a_url_in_stderr_are_not_shown() -> None:
     )
 
     assert ("user:token" in line, "https://github.com/o/r.git" in line) == (False, True)
+
+
+def test_a_token_in_the_failed_commands_argv_is_not_shown() -> None:
+    exc = subprocess.CalledProcessError(
+        1, ["git", "clone", "https://u:tok@github.com/o/r"], stderr="fatal: nope"
+    )
+
+    line = OperationalFailure.one_line(exc)
+
+    assert ("tok" in line, "https://github.com/o/r" in line) == (False, True)
+
+
+def test_an_scp_style_user_in_stderr_is_not_shown() -> None:
+    line = OperationalFailure.one_line(
+        _failed_command(stderr="fatal: tok123@github.com:o/r.git denied")
+    )
+
+    assert ("tok123" in line, "github.com:o/r.git" in line) == (False, True)
+
+
+def test_a_credential_is_redacted_before_the_stderr_is_truncated() -> None:
+    line = OperationalFailure.one_line(
+        _failed_command(stderr="https://user:secrettoken@github.com/o/r " + "y" * 280)
+    )
+
+    assert ("secrettoken" in line, "oken@" in line) == (False, False)
+
+
+def test_a_malformed_url_leaves_no_userinfo_shaped_fragment() -> None:
+    line = OperationalFailure.one_line(_failed_command(stderr="bad http://[::1 bad:p@"))
+
+    assert "bad:p@" not in line

@@ -16,6 +16,13 @@ _PATH_COMPONENTS = frozenset({".", ".."})
 # account was given (``git``, ``org-123``); the host is case-insensitive.
 _SCP_GITHUB = re.compile(r"(?:[^@/:\s]+@)?github\.com:(?P<path>.*)", re.IGNORECASE)
 
+# Credentials in free text (a command line, a git error): a URL with a scheme,
+# an scp-style ``user@host:path``, and any ``word:word@`` left where a URL did
+# not parse.
+_URL_IN_TEXT = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
+_SCP_IN_TEXT = re.compile(r"(?<![\w.@-])([^\s@/:]+)@(?=[\w.-]+:[^\s:])")
+_USERINFO_IN_TEXT = re.compile(r"[\w.~%+-]+:[\w.~%+-]*@")
+
 
 @dataclass(frozen=True, slots=True)
 class RepoSlug:
@@ -77,3 +84,17 @@ class RepoSlug:
             return "<unparseable url>"  # never echo what could not be parsed
         host = parts.netloc.rpartition("@")[2]
         return parts._replace(netloc=host, query="", fragment="").geturl()
+
+    @classmethod
+    def redacted(cls, text: str) -> str:
+        """``text`` with the credentials of every URL in it removed.
+
+        Covers ``scheme://user:pass@host``, scp-style ``user@host:path`` (the
+        conventional ``git@`` stays) and a ``user:pass@`` fragment that
+        follows a URL which did not parse.
+        """
+        text = _URL_IN_TEXT.sub(lambda m: cls.without_userinfo(m.group()), text)
+        text = _SCP_IN_TEXT.sub(
+            lambda m: m.group() if m.group(1) == "git" else "", text
+        )
+        return _USERINFO_IN_TEXT.sub("", text)

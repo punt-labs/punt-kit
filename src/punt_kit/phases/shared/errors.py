@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import re
 import subprocess
 import traceback
 from typing import final
 
 from punt_kit.phases.shared.repo_slug import RepoSlug
-
-_URL = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*://\S+")
 
 
 @final
@@ -42,10 +39,11 @@ class OperationalFailure:
         A failed command also says why it failed: its stderr, or its output
         when stderr is empty: one line, URL credentials removed, cut to its tail.
         """
-        line = f"{type(exc).__name__}: {exc}"
+        # The argv of a failed command is in str(exc); redact the whole line.
+        line = RepoSlug.redacted(f"{type(exc).__name__}: {exc}")
         if isinstance(exc, subprocess.CalledProcessError):
             raw = " ".join(str(exc.stderr or exc.output or "").split())
-            detail = _URL.sub(lambda m: RepoSlug.without_userinfo(m.group()), raw)
+            detail = RepoSlug.redacted(raw)
             if len(detail) > cls.DETAIL_LIMIT:
                 # The tail: git's useful line is usually the last.
                 detail = f"...{detail[-cls.DETAIL_LIMIT :]}"
