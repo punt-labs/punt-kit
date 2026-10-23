@@ -16,7 +16,7 @@ def test_install_all_entry_reads_back_the_sha_it_writes(sha: str) -> None:
 
     rewritten, count = pin.repinned(content, sha)
 
-    assert (count, pin.first_sha(rewritten)) == (1, sha)
+    assert (count, pin.all_shas(rewritten)) == (1, [sha])
 
 
 def test_install_all_entry_ignores_other_projects() -> None:
@@ -28,23 +28,24 @@ def test_install_all_entry_ignores_other_projects() -> None:
     )
 
     assert pin.repinned(content, _SHA) == (content, 0)
-    assert pin.first_sha(content) is None
+    assert pin.all_shas(content) == []
 
 
 def test_install_all_entry_escapes_the_project_name() -> None:
     pin = ShaPin.install_all_entry("a.b")
 
-    assert pin.first_sha('"$GH/aXb/abc1234/install.sh"') is None
+    assert pin.all_shas('"$GH/aXb/abc1234/install.sh"') == []
 
 
-def test_has_pin_starting_with_accepts_a_longer_pin_of_the_same_commit() -> None:
+def test_all_shas_returns_every_pin_in_order_not_only_the_first() -> None:
     pin = ShaPin.install_all_entry("proj")
-    content = f'"$GH/proj/{_SHA}ffff/install.sh"'
+    content = (
+        'curl "$GH/proj/aaaaaaa/install.sh"\n'
+        'curl "$GH/other/bbbbbbb/install.sh"\n'
+        'curl "$GH/proj/ccccccc/install.sh"\n'
+    )
 
-    assert (
-        pin.has_pin_starting_with(content, _SHA),
-        pin.has_pin_starting_with(content, "9999999"),
-    ) == (True, False)
+    assert pin.all_shas(content) == ["aaaaaaa", "ccccccc"]
 
 
 def test_profile_pin_reads_back_the_sha_it_writes() -> None:
@@ -56,10 +57,10 @@ def test_profile_pin_reads_back_the_sha_it_writes() -> None:
 
     rewritten, count = pin.repinned(content, _SHA)
 
-    assert (count, pin.first_sha(rewritten)) == (1, _SHA)
+    assert (count, pin.all_shas(rewritten)) == (1, [_SHA])
 
 
 def test_profile_pin_ignores_other_repositories() -> None:
     content = "https://raw.githubusercontent.com/punt-labs/other/abc1234/install-all.sh"
 
-    assert ShaPin.profile().first_sha(content) is None
+    assert ShaPin.profile().all_shas(content) == []

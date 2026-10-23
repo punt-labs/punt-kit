@@ -8,17 +8,14 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
-from punt_kit.phases.phase11_checks import (
-    InstallShaCheck,
-    MarketplacePinCheck,
-    VerificationCheck,
-)
+from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.siblings import SiblingRepo
@@ -252,16 +249,23 @@ class Phase11Verify:
                 VerificationCheck("install-all.sh", False, "install-all.sh not found")
             ]
         content = TextFile(install_all).read()
-        sha = ShaPin.install_all_entry(repo.name).first_sha(content)
-        if sha is not None:
-            return [self._install_all_sha_check(sha)]
+        # Every pin line is verified, not the first: a second, stale line is
+        # exactly what a partial propagation leaves behind.
+        shas = self._distinct(ShaPin.install_all_entry(repo.name).all_shas(content))
+        if shas:
+            return [self._install_all_sha_check(sha) for sha in shas]
         if re.search(rf"for plugin in [^;]*\b{re.escape(repo.name)}\b", content):
             # Pure-plugin loop entry (no SHA to verify)
             return [VerificationCheck("install-all.sh", True, "in plugin loop")]
         return [VerificationCheck("install-all.sh", False, "entry not found")]
 
+    @staticmethod
+    def _distinct(shas: list[str]) -> list[str]:
+        """``shas`` without repeats, in first-seen order."""
+        return list(dict.fromkeys(shas))
+
     def _install_all_sha_check(self, sha: str) -> VerificationCheck:
-        """A pinned install-all.sh SHA must resolve and be part of this release."""
+        """A pinned install-all.sh SHA must be current and part of this release."""
         ops = self._ops
         root = str(self._info.root)
         shown = ops.run(["git", "show", f"{sha}:install.sh"], cwd=root, check=False)
@@ -293,6 +297,17 @@ class Phase11Verify:
                 False,
                 f"SHA={sha} (git error verifying ancestry: {ancestor.stderr.strip()})",
             )
+        # The same test the propagator rewrites with: the pin names the commit
+        # that last touched install.sh. Ancestry and VERSION below are
+        # necessary, not sufficient: a Go project has no VERSION pin, so an
+        # older install.sh commit on the tag's history would pass both.
+        currency = PinCurrency(
+            ReleaseProject(self._info, ops=ops).install_sh_sha(),
+            cwd=self._info.root,
+            ops=ops,
+        ).verdict(sha)
+        if not currency.is_current:
+            return VerificationCheck("install-all.sh", False, currency.detail)
         # Python/hybrid: the VERSION pin matches. Go/other: there is no VERSION
         # pin, and a SHA that resolves and is on the tag's history is enough.
         ok = f'VERSION="{self._version}"' in shown.stdout or 'VERSION="' not in (
@@ -346,13 +361,21 @@ class Phase11Verify:
             return [
                 VerificationCheck("profile SHA", False, "profile/README.md not found")
             ]
-        profile_sha = ShaPin.profile().first_sha(TextFile(readme).read())
-        if profile_sha is None:
+        profile_shas = self._distinct(
+            ShaPin.profile().all_shas(TextFile(readme).read())
+        )
+        if not profile_shas:
             return [
                 VerificationCheck(
                     "profile SHA", False, "no .github install-all.sh URL in profile"
                 )
             ]
+        return [self._profile_pin_check(repo, sibling, sha) for sha in profile_shas]
+
+    def _profile_pin_check(
+        self, repo: RepoSlug, sibling: Path, profile_sha: str
+    ) -> VerificationCheck:
+        """One profile pin: it resolves, is on main, and carries the current SHA."""
         # The pinned SHA must resolve AND its content must carry this
         # project's current install SHA — a resolvable pin that predates the
         # propagation merge is stale and serves the previous installer.
@@ -362,11 +385,9 @@ class Phase11Verify:
             check=False,
         )
         if shown.returncode != 0:
-            return [
-                VerificationCheck(
-                    "profile SHA", False, f"SHA={profile_sha} (does not resolve)"
-                )
-            ]
+            return VerificationCheck(
+                "profile SHA", False, f"SHA={profile_sha} (does not resolve)"
+            )
         ancestor = self._ops.run(
             ["git", "merge-base", "--is-ancestor", profile_sha, "main"],
             cwd=str(sibling),
@@ -388,18 +409,20 @@ class Phase11Verify:
                     f"ancestry: {ancestor.stderr.strip()})"
                 )
             )
-            return [VerificationCheck("profile SHA", False, detail)]
+            return VerificationCheck("profile SHA", False, detail)
         if (self._info.root / "install.sh").exists():
-            return [self._profile_entry_check(repo, profile_sha, shown.stdout)]
-        return [self._profile_marketplace_chain(repo, profile_sha, shown.stdout)]
+            return self._profile_entry_check(repo, profile_sha, shown.stdout)
+        return self._profile_marketplace_chain(repo, profile_sha, shown.stdout)
 
     def _profile_entry_check(
         self, repo: RepoSlug, profile_sha: str, install_all: str
     ) -> VerificationCheck:
         """The pinned install-all.sh must carry this project's current install SHA."""
         install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
-        is_current = ShaPin.install_all_entry(repo.name).has_pin_starting_with(
-            install_all, install_sha
+        currency = PinCurrency(install_sha, cwd=self._info.root, ops=self._ops)
+        is_current = any(
+            currency.is_current(pin)
+            for pin in ShaPin.install_all_entry(repo.name).all_shas(install_all)
         )
         detail = f"SHA={profile_sha}"
         if not is_current:
@@ -416,8 +439,10 @@ class Phase11Verify:
         names a claude-plugins SHA, and that commit's marketplace.json must
         carry this project's current version/ref.
         """
-        mp_pin = ShaPin.install_all_entry("claude-plugins").first_sha(install_all)
-        if mp_pin is None:
+        mp_pins = self._distinct(
+            ShaPin.install_all_entry("claude-plugins").all_shas(install_all)
+        )
+        if not mp_pins:
             return VerificationCheck(
                 "profile SHA",
                 False,
@@ -426,9 +451,13 @@ class Phase11Verify:
         cp_sibling = SiblingRepo.resolve(
             self._info.root, "claude-plugins", ops=self._ops
         )
-        ok, detail = MarketplacePinCheck(
+        check = MarketplacePinCheck(
             self._entry_matcher(repo), self._version, self._tag, ops=self._ops
-        ).run(cp_sibling.path if cp_sibling is not None else None, mp_pin)
+        )
+        cp_path = cp_sibling.path if cp_sibling is not None else None
+        # The first pin that fails is the verdict; all passing, the last one's.
+        results = [check.run(cp_path, mp_pin) for mp_pin in mp_pins]
+        ok, detail = next((r for r in results if not r[0]), results[-1])
         return VerificationCheck("profile SHA", ok, f"SHA={profile_sha} ({detail})")
 
     def _readme_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
@@ -555,21 +584,14 @@ class Phase11Verify:
         checks: list[VerificationCheck] = []
         if trusted_pins:
             install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
-            sha_check = InstallShaCheck(install_sha, cwd=self._info.root, ops=self._ops)
+            currency = PinCurrency(install_sha, cwd=self._info.root, ops=self._ops)
+            # A release tag is still a pin: the bump rewrites it to the install
+            # SHA, so currency calls one left behind stale.
             for pin in sorted(set(trusted_pins)):
-                if recognizer.is_sha_segment(pin):
-                    checks.append(sha_check.of(label, pin))
-                else:
-                    # A release tag is still a pin: the bump rewrites it to the
-                    # install SHA, so one left behind was never rewritten.
-                    checks.append(
-                        VerificationCheck(
-                            label,
-                            False,
-                            f"{pin} (a release-tag pin, stale — expected "
-                            f"{install_sha})",
-                        )
-                    )
+                verdict = currency.verdict(pin)
+                checks.append(
+                    VerificationCheck(label, verdict.is_current, verdict.detail)
+                )
         if has_untrusted:
             checks.append(
                 VerificationCheck(

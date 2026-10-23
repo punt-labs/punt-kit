@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import GIT_HOOK
@@ -106,9 +107,14 @@ class ReadmeShaPin:
         # A read-only git query, so a dry run can tell a no-op from a rewrite.
         short_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
 
+        currency = PinCurrency(short_sha, cwd=root, ops=self._ops)
         content = TextFile(readme_path).read()
-        new_content = recognizer.repinned(content, short_sha)
-        stale = self._warn_about_unrewritten_urls(recognizer, new_content, short_sha)
+        new_content = recognizer.repinned(
+            content, short_sha, is_current=currency.is_current
+        )
+        stale = self._warn_about_unrewritten_urls(
+            recognizer, new_content, short_sha, currency
+        )
 
         if new_content == content:
             return PinResult(changed=False, stale=stale)
@@ -122,7 +128,11 @@ class ReadmeShaPin:
         return PinResult(changed=True, stale=stale)
 
     def _warn_about_unrewritten_urls(
-        self, recognizer: InstallUrlRecognizer, content: str, short_sha: str
+        self,
+        recognizer: InstallUrlRecognizer,
+        content: str,
+        short_sha: str,
+        currency: PinCurrency,
     ) -> tuple[str, ...]:
         """Warn about, and return, every install URL ``content`` has that is stale."""
         slug = recognizer.slug
@@ -134,7 +144,7 @@ class ReadmeShaPin:
                     f"{slug} on raw.githubusercontent.com (different owner or host) "
                     "— the install SHA pin was not updated"
                 )
-            elif ref.is_pin and not ref.is_pinned_to(short_sha):
+            elif ref.is_pin and not currency.is_current(ref.segment):
                 stale.append(
                     f"README.md pins {ref.url}, which is not the current install SHA "
                     f"{short_sha} and could not be rewritten in place"

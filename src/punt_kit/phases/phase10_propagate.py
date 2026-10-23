@@ -12,6 +12,7 @@ from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -396,9 +397,10 @@ class WebsitePropagator:
                 install_cmd = str(project.get("installCommand") or "")
                 if install_cmd:
                     install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
+                    currency = PinCurrency(install_sha, cwd=info.root, ops=ops)
                     project["installCommand"] = InstallUrlRecognizer(
                         slug.owner, project_name
-                    ).repinned(install_cmd, install_sha)
+                    ).repinned(install_cmd, install_sha, is_current=currency.is_current)
                 found = True
                 break
 

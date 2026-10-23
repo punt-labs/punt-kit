@@ -32,7 +32,7 @@ from punt_kit.phases.phase10_propagate import (
     MarketplacePropagator,
     WebsitePropagator,
 )
-from punt_kit.phases.phase11_checks import InstallShaCheck, MarketplacePinCheck
+from punt_kit.phases.phase11_checks import MarketplacePinCheck
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
@@ -43,6 +43,7 @@ from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.pipeline import ReleasePipeline
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.pr_threads import PrThreadResolver
@@ -6403,7 +6404,9 @@ def test_phase4_release_pr_pins_readme_after_merge(
         elif cmd[:2] == ["git", "log"]:
             r.stdout = ""
         elif cmd[:2] == ["git", "rev-parse"]:
-            r.stdout = "deadbeefcafe\n"
+            # Each ref resolves to its own commit: the README's old pin is not
+            # the current install.sh commit.
+            r.stdout = f"{cmd[2]}-resolved\n"
         elif cmd[:2] == ["git", "status"]:
             r.stdout = " M README.md\n" if cmd[-1] == "README.md" else ""
         elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
@@ -8626,10 +8629,10 @@ def test_phase11_verify_readme_pin_ignores_unrelated_tool_different_repo(
     assert "✗ README pin" not in out
 
 
-# --- Phase 11: InstallShaCheck commit-identity resolution ---
+# --- Phase 11: PinCurrency commit-identity resolution ---
 
 
-def test_install_sha_check_fails_for_fabricated_hash(tmp_path: Path) -> None:
+def test_pin_currency_fails_for_fabricated_hash(tmp_path: Path) -> None:
     """A fabricated hash that merely starts with the right prefix must fail.
 
     Regression for the correctness gap: a textual prefix match
@@ -8644,27 +8647,23 @@ def test_install_sha_check_fails_for_fabricated_hash(tmp_path: Path) -> None:
     fabricated = install_sha + "deadbeef"  # extends the real prefix, but
     # the resulting string names no real commit object.
 
-    check = InstallShaCheck(install_sha, cwd=root, ops=_fault_ops()).of(
-        "README pin", fabricated
-    )
-    assert check.passed is False
+    check = PinCurrency(install_sha, cwd=root, ops=_fault_ops()).verdict(fabricated)
+    assert check.is_current is False
     assert "does not resolve" in check.detail
 
 
-def test_install_sha_check_passes_for_full_length_pin(tmp_path: Path) -> None:
+def test_pin_currency_passes_for_full_length_pin(tmp_path: Path) -> None:
     """A full 40-character pin of the current commit resolves and passes."""
     root = _make_release_project(tmp_path)
     d = str(root)
     short_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
     full_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
 
-    check = InstallShaCheck(short_sha, cwd=root, ops=_fault_ops()).of(
-        "README pin", full_sha
-    )
-    assert check.passed is True
+    check = PinCurrency(short_sha, cwd=root, ops=_fault_ops()).verdict(full_sha)
+    assert check.is_current is True
 
 
-def test_install_sha_check_passes_for_short_pin(tmp_path: Path) -> None:
+def test_pin_currency_passes_for_short_pin(tmp_path: Path) -> None:
     """A valid abbreviated pin of the current commit resolves and passes,
     even when it is a different length than the expected short SHA.
     """
@@ -8674,13 +8673,11 @@ def test_install_sha_check_passes_for_short_pin(tmp_path: Path) -> None:
     full_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
     short_pin = full_sha[:8]
 
-    check = InstallShaCheck(install_sha, cwd=root, ops=_fault_ops()).of(
-        "README pin", short_pin
-    )
-    assert check.passed is True
+    check = PinCurrency(install_sha, cwd=root, ops=_fault_ops()).verdict(short_pin)
+    assert check.is_current is True
 
 
-def test_install_sha_check_fails_for_real_different_commit(tmp_path: Path) -> None:
+def test_pin_currency_fails_for_real_different_commit(tmp_path: Path) -> None:
     """A real, resolvable commit that is NOT the current install.sh commit
     fails — a real hash is not enough; it has to be the right commit.
     """
@@ -8689,10 +8686,8 @@ def test_install_sha_check_fails_for_real_different_commit(tmp_path: Path) -> No
     install_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
     other_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
 
-    check = InstallShaCheck(install_sha, cwd=root, ops=_fault_ops()).of(
-        "README pin", other_sha
-    )
-    assert check.passed is False
+    check = PinCurrency(install_sha, cwd=root, ops=_fault_ops()).verdict(other_sha)
+    assert check.is_current is False
     assert "stale" in check.detail
 
 
@@ -13486,3 +13481,102 @@ def test_a_null_rollup_poll_resets_the_structure_strike_run(
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
 
     _wait_for_required_checks("gh", "/tmp", 42)  # does not raise
+
+
+# --- one currency predicate per pin kind ---
+
+
+def test_bump_rewrites_a_pin_that_only_shares_a_prefix_with_the_install_sha(
+    tmp_path: Path,
+) -> None:
+    """``<install sha>f00`` starts with the right characters and names no commit.
+
+    A textual prefix test called it current and left it in the README, where
+    Phase 11's rev-parse comparison then failed it. The writer must use the
+    same resolve-and-compare, so it repairs what the verifier flags.
+    """
+    root = _make_release_project(tmp_path)
+    sha = _current_install_sha(root)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", sha + "f00"))
+    )
+
+    changed = _bump_with_slug(root, "punt-labs/proj")
+
+    assert changed is True
+    assert _pin_url("punt-labs/proj", sha) in (root / "README.md").read_text()
+
+
+def test_bump_leaves_a_full_length_pin_of_the_current_commit_alone(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    full = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=str(root))
+    readme = _readme_with_urls(_pin_url("punt-labs/proj", full))
+    (root / "README.md").write_text(readme)
+
+    result = _readme_pin(detect(root)).bump(
+        "0.2.0", dry_run=False, resolve_repo=lambda _root: "punt-labs/proj"
+    )
+
+    assert (result.changed, result.stale) == (False, ())
+    assert (root / "README.md").read_text() == readme
+
+
+def test_phase11_verify_fails_on_a_second_stale_install_all_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    sibling = tmp_path / ".github"
+    first_commit = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=str(root))
+    install_all = sibling / "install-all.sh"
+    install_all.write_text(
+        install_all.read_text()
+        + f'curl -fsSL "$GH/proj/{first_commit}/install.sh" | sh\n'
+    )
+    _git(["add", "install-all.sh"], cwd=str(sibling))
+    _git(["commit", "-m", "second, stale line"], cwd=str(sibling))
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["install-all.sh"], first_commit[:7])
+
+
+def test_phase11_verify_fails_when_any_profile_pin_is_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    sibling = tmp_path / ".github"
+    sd = str(sibling)
+    current = _get_install_all_sha(sibling)
+    stale_content = (
+        '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+        'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+    )
+    current_content = (sibling / "install-all.sh").read_text()
+    (sibling / "install-all.sh").write_text(stale_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "stale entry"], cwd=sd)
+    stale_commit = _git_out(["rev-parse", "HEAD"], cwd=sd)
+    (sibling / "install-all.sh").write_text(current_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "current entry"], cwd=sd)
+    (sibling / "profile" / "README.md").write_text(
+        "# Punt Labs\n\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{current}/install-all.sh | sh\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{stale_commit}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "two profile pins"], cwd=sd)
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "stale — lacks")

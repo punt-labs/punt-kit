@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Self, final
+from typing import TYPE_CHECKING, Self, final
 from urllib.parse import unquote, urlparse
 
 from punt_kit.phases.shared.repo_slug import RepoSlug
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _SHA_SHAPE = re.compile(r"[0-9a-fA-F]{7,40}")
 _RELEASE_TAG_SHAPE = re.compile(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", re.IGNORECASE)
@@ -45,15 +48,6 @@ class InstallUrl:
         return self.is_sha_pin or (
             self.is_trusted and _RELEASE_TAG_SHAPE.fullmatch(self.segment) is not None
         )
-
-    def is_pinned_to(self, sha: str) -> bool:
-        """True when the segment names the same commit as ``sha``.
-
-        Abbreviations of different lengths compare by prefix, since a pin
-        may be a short or a full SHA of one commit.
-        """
-        pinned, wanted = self.segment.lower(), sha.lower()
-        return pinned.startswith(wanted) or wanted.startswith(pinned)
 
 
 @final
@@ -249,13 +243,17 @@ class InstallUrlRecognizer:
         """True when ``segment`` is shaped like a 7-40 hex commit SHA."""
         return _SHA_SHAPE.fullmatch(segment) is not None
 
-    def repinned(self, content: str, sha: str) -> str:
+    def repinned(
+        self, content: str, sha: str, *, is_current: Callable[[str], bool]
+    ) -> str:
         """Return ``content`` with every plain, trusted pin moved to ``sha``.
 
         Only the pinned segment changes, so the surrounding text and the
         original casing of owner, repo and file name are preserved. A pin
-        that already names ``sha`` is left alone, and a reference that is
-        untrusted, percent-encoded, or not a pin (``main``) is never
+        for which ``is_current`` is true is left alone: the caller supplies
+        the one test of currency, ``PinCurrency.is_current``, so this writer
+        rewrites exactly the pins that the verifier would flag. A reference
+        that is untrusted, percent-encoded, or not a pin (``main``) is never
         touched — callers verify the result with ``scan`` to find those.
         """
         spans = sorted(
@@ -264,7 +262,7 @@ class InstallUrlRecognizer:
                 for ref in self.scan(content)
                 if ref.is_pin
                 and ref.segment_span is not None
-                and not ref.is_pinned_to(sha)
+                and not is_current(ref.segment)
             ),
             reverse=True,
         )
