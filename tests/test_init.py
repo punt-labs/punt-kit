@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import tomllib
 from pathlib import Path
@@ -14,36 +13,20 @@ import pytest
 from punt_kit import init as init_mod
 from punt_kit.detect import detect
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
+from tests.helpers import (
+    no_bd as _no_bd,
+)
+from tests.helpers import (
+    python_project as _python_project,
+)
 
 _EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
-
-
-_real_which = shutil.which
 
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_kit.detect import ProjectInfo
-
-
-def _no_bd(
-    cmd: str, mode: int = os.F_OK | os.X_OK, path: str | None = None
-) -> str | None:
-    """A ``shutil.which`` stand-in reporting only ``bd`` as not installed.
-
-    Tests asserting exact post-``run_init`` file content must not depend on
-    whatever gitignore patterns the locally installed ``bd`` binary's own
-    ``init`` appends — that behavior belongs to bd, and drifts independently
-    of this repo's release. Every other lookup delegates to the real
-    ``shutil.which`` (signature mirrored exactly, not ``*args``/``**kwargs``,
-    so a call passing ``mode``/``path`` type-checks and behaves identically
-    to the unpatched function) — a blanket ``None`` for every command would
-    silently disable other ``which()`` lookups a future call site adds.
-    """
-    if cmd == "bd":
-        return None
-    return _real_which(cmd, mode, path)
 
 
 @pytest.fixture(autouse=True)
@@ -1022,10 +1005,6 @@ def test_init_python_config_reads_a_pyproject_that_starts_with_a_bom(
 
 
 # --- settings.json is never replaced by a guess ---
-
-
-def _python_project(root: Path) -> None:
-    (root / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
 
 
 def test_init_keeps_a_settings_json_that_starts_with_a_bom_intact(

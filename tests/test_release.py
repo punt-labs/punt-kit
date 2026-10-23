@@ -88,6 +88,39 @@ from tests.harness.fault_ops import (
     FaultRule,
     RunFn,
 )
+from tests.helpers import (
+    bump as _bump,
+)
+from tests.helpers import (
+    commit_all as _commit_all,
+)
+from tests.helpers import (
+    fake_which as _fake_which,
+)
+from tests.helpers import (
+    fault_ops as _fault_ops,
+)
+from tests.helpers import (
+    flat as _flat,
+)
+from tests.helpers import (
+    git as _git,
+)
+from tests.helpers import (
+    git_out as _git_out,
+)
+from tests.helpers import (
+    init_git_repo as _init_git_repo,
+)
+from tests.helpers import (
+    make_release_project as _make_release_project,
+)
+from tests.helpers import (
+    make_sibling as _make_sibling,
+)
+from tests.helpers import (
+    project_with_origin as _project_with_origin,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
@@ -123,21 +156,6 @@ def isolate_interrupted_event() -> Iterator[None]:
     release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
 
 
-def _fault_ops(
-    rules: Sequence[FaultRule] = (),
-    *,
-    real_run: RunFn = _run,
-    passthrough: Sequence[Sequence[str]] = (),
-) -> FaultInjectingOps:
-    """Build the ``ReleaseOps`` double every test shares.
-
-    Real ``git`` runs through ``real_run``; anything else must match a rule or
-    ``passthrough``, so a forgotten ``gh`` rule fails loudly instead of
-    reaching GitHub.
-    """
-    return FaultInjectingOps(real_run=real_run, rules=rules, passthrough=passthrough)
-
-
 def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
     """The real ``_run``, appending every command that starts with ``prefix``."""
 
@@ -154,18 +172,6 @@ def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
     return run
-
-
-def _git(args: list[str], cwd: str) -> None:
-    """Run a git command with standard options."""
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
-
-
-def _git_out(args: list[str], cwd: str) -> str:
-    """Run a git command and return its stripped stdout."""
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout.strip()
 
 
 def _init_git_repo_with_bare_remote(path: Path, remote: Path) -> None:
@@ -189,105 +195,6 @@ def _init_git_repo_with_bare_remote(path: Path, remote: Path) -> None:
     _git(["commit", "-m", "init"], cwd=d)
     _git(["remote", "add", "origin", str(remote)], cwd=d)
     _git(["push", "-u", "origin", "main"], cwd=d)
-
-
-def _init_git_repo(path: Path) -> None:
-    """Initialize a git repo with an initial commit and fake remote."""
-    d = str(path)
-    _git(["init", "-b", "main"], cwd=d)
-    _git(["config", "user.email", "test@test.com"], cwd=d)
-    _git(["config", "user.name", "Test"], cwd=d)
-    # Create initial commit so HEAD exists
-    (path / ".gitkeep").write_text("")
-    _git(["add", "."], cwd=d)
-    _git(["commit", "-m", "init"], cwd=d)
-    # Set origin to self so fetch/diff work
-    _git(["remote", "add", "origin", d], cwd=d)
-    _git(["fetch", "origin"], cwd=d)
-
-
-def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
-    """Create a minimal Python project ready for release testing.
-
-    ``subdir`` selects the DES-025 layout, where the plugin surface lives
-    under ``plugin/``.
-    """
-    root = tmp_path / "proj"
-    root.mkdir()
-
-    # Init git first with bare commit
-    _init_git_repo(root)
-
-    # Now write project files
-    (root / "pyproject.toml").write_text(
-        '[project]\nname = "test-pkg"\nversion = "0.1.0"\n\n'
-        "[project.scripts]\ntest-cli = 'test_pkg:main'\n"
-    )
-
-    src = root / "src" / "test_pkg"
-    src.mkdir(parents=True)
-    (src / "__init__.py").write_text('__version__ = "0.1.0"\n')
-    (src / "py.typed").write_text("")
-
-    plugin_dir = (root / "plugin" if subdir else root) / ".claude-plugin"
-    plugin_dir.mkdir(parents=True)
-    (plugin_dir / "plugin.json").write_text(
-        json.dumps(
-            {"name": "test-dev", "version": "0.1.0"},
-            indent=2,
-        )
-        + "\n"
-    )
-
-    scripts_dir = root / "scripts"
-    scripts_dir.mkdir()
-    (scripts_dir / "release-plugin.sh").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\n"
-        "git commit --allow-empty"
-        ' -m "chore: prepare plugin for release"\n'
-    )
-    (scripts_dir / "restore-dev-plugin.sh").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\n"
-        "git commit --allow-empty"
-        ' -m "chore: restore dev plugin state"\n'
-    )
-
-    # Placeholder so info.workflow_files includes "release.yml" — Phase 6
-    # (_phase6_ci_wait) fails fast when it's absent for a hybrid/non-plugin
-    # project. Content is irrelevant; only the filename matters
-    # to detect().
-    workflows_dir = root / ".github" / "workflows"
-    workflows_dir.mkdir(parents=True)
-    (workflows_dir / "release.yml").write_text("")
-
-    (root / "install.sh").write_text(
-        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
-        'uv tool install --force "$PACKAGE==$VERSION"\n'
-    )
-
-    install_url = (
-        "https://raw.githubusercontent.com/punt-labs/test-pkg/v0.1.0/install.sh"
-    )
-    (root / "README.md").write_text(
-        f"# test-pkg\n\n```bash\ncurl -fsSL {install_url} | sh\n```\n"
-    )
-
-    (root / "CHANGELOG.md").write_text(
-        "# Changelog\n\n"
-        "## [Unreleased]\n\n"
-        "### Added\n\n"
-        "- New feature\n\n"
-        "## [0.1.0] - 2026-01-01\n\n"
-        "### Added\n\n"
-        "- Initial release\n"
-    )
-
-    d = str(root)
-    _git(["add", "."], cwd=d)
-    _git(["commit", "-m", "scaffold"], cwd=d)
-    _git(["fetch", "origin"], cwd=d)
-
-    return root
 
 
 # --- phase 1 preflight ---
@@ -1453,11 +1360,6 @@ def _bump_with_slug(root: Path, slug: str | None, *, dry_run: bool = False) -> b
         .bump("0.2.0", dry_run=dry_run, resolve_repo=lambda _root: slug)
         .changed
     )
-
-
-def _flat(text: str) -> str:
-    """Collapse rich's width-dependent line wrapping into single spaces."""
-    return " ".join(text.split())
 
 
 def test_bump_with_an_unresolved_remote_skips_instead_of_guessing_a_slug(
@@ -2745,21 +2647,6 @@ def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
 
 
 # --- sibling helpers ---
-
-
-def _make_sibling(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
-    """Create a sibling git repo with given files."""
-    sibling = tmp_path / name
-    sibling.mkdir(parents=True, exist_ok=True)
-    _init_git_repo(sibling)
-    for filepath, content in files.items():
-        (sibling / filepath).parent.mkdir(parents=True, exist_ok=True)
-        (sibling / filepath).write_text(content)
-    if files:
-        _git(["add", "."], cwd=str(sibling))
-        _git(["commit", "-m", f"init {name}"], cwd=str(sibling))
-    _git(["fetch", "origin"], cwd=str(sibling))
-    return sibling
 
 
 def test_resolve_sibling_finds_existing(tmp_path: Path) -> None:
@@ -10994,11 +10881,6 @@ def test_phase6_error_names_the_tag_and_commit() -> None:
     assert COMMIT[:8] in message
 
 
-def _fake_which(_name: str) -> str:
-    """Stand in for a gh binary so phase 6 gets past its tool check."""
-    return "/usr/bin/gh"
-
-
 def test_phase6_fails_when_the_tag_cannot_be_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -12326,10 +12208,6 @@ def _commit_changelog(root: Path, raw: bytes) -> None:
     _git(["fetch", "origin"], cwd=str(root))
 
 
-def _bump(root: Path, version: str = "0.2.0") -> None:
-    Phase2VersionBump(detect(root), version, dry_run=False, ops=_fault_ops()).run()
-
-
 def test_phase2_stamp_keeps_crlf_and_the_bom_on_disk(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     original = "\ufeff# Changelog\r\n\r\n## [Unreleased]\r\n\r\n- New\r\n"
@@ -13629,16 +13507,6 @@ def test_phase11_verify_fails_when_any_profile_pin_is_stale(
 # --- propagation skips are recorded, with the manual action ---
 
 
-def _project_with_origin(tmp_path: Path) -> ProjectInfo:
-    root = _make_release_project(tmp_path)
-    _git(["tag", "v0.2.0"], cwd=str(root))
-    _git(
-        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
-        cwd=str(root),
-    )
-    return detect(root)
-
-
 def test_install_all_without_an_entry_records_a_skip_and_still_refreshes_profile(
     tmp_path: Path,
 ) -> None:
@@ -13713,11 +13581,6 @@ def test_website_without_a_sibling_is_skipped_quietly_even_without_a_remote(
 
 
 # --- version fields: a no-op bump is a failure, not an ok ---
-
-
-def _commit_all(root: Path, message: str) -> None:
-    _git(["add", "."], cwd=str(root))
-    _git(["commit", "-m", message], cwd=str(root))
 
 
 def _init_py(root: Path) -> Path:

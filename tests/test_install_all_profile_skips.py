@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 from punt_kit.detect import detect
 from punt_kit.phases.phase10_propagate import InstallAllPropagator
 from punt_kit.phases.shared.skips import SkipRecorder
-from tests.test_release import (
-    _fault_ops,  # pyright: ignore[reportPrivateUsage]
-    _git_out,  # pyright: ignore[reportPrivateUsage]
-    _make_sibling,  # pyright: ignore[reportPrivateUsage]
-    _project_with_origin,  # pyright: ignore[reportPrivateUsage]
+from tests.helpers import (
+    fault_ops,
+    git_out,
+    make_sibling,
+    project_with_origin,
 )
 
 if TYPE_CHECKING:
@@ -24,11 +24,11 @@ def _never_merge(*_args: object, **_kwargs: object) -> bool:
 
 def _install_all_sibling(tmp_path: Path, files: dict[str, str]) -> None:
     """A project whose .github sibling pins the project install.sh."""
-    info = _project_with_origin(tmp_path)
-    install_sha = _git_out(
+    info = project_with_origin(tmp_path)
+    install_sha = git_out(
         ["log", "-1", "--format=%h", "--", "install.sh"], cwd=str(info.root)
     )
-    _make_sibling(
+    make_sibling(
         tmp_path,
         ".github",
         {
@@ -42,7 +42,7 @@ def _install_all_sibling(tmp_path: Path, files: dict[str, str]) -> None:
 
 
 def _run(tmp_path: Path) -> tuple[str, ...]:
-    ops = _fault_ops()
+    ops = fault_ops()
     skips = SkipRecorder(ops=ops)
     InstallAllPropagator(detect(tmp_path / "proj"), ops=ops, skips=skips).run(
         "0.2.0", dry_run=False, merge_sibling=_never_merge

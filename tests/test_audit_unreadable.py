@@ -9,8 +9,8 @@ from rich.console import Console
 
 from punt_kit import audit
 from punt_kit.audit import run_audit
-from tests.test_audit import (
-    _make_compliant_hybrid,  # pyright: ignore[reportPrivateUsage]
+from tests.helpers import (
+    make_compliant_hybrid,
 )
 
 if TYPE_CHECKING:
@@ -29,7 +29,7 @@ def test_an_unreadable_file_fails_alone_and_the_rest_still_prints(
     """The unreadable file is named with its reason; unrelated checks still run."""
     # Wide enough that rich never wraps the path mid-word.
     monkeypatch.setattr(audit, "console", Console(width=1000))
-    _make_compliant_hybrid(tmp_path)
+    make_compliant_hybrid(tmp_path)
     (tmp_path / name).write_bytes(_NOT_UTF8)
 
     with pytest.raises(SystemExit) as exc_info:

@@ -13,71 +13,18 @@ from punt_kit.audit import run_audit
 from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
+from tests.helpers import (
+    make_compliant_hybrid as _make_compliant_hybrid,
+)
+from tests.helpers import (
+    make_compliant_python as _make_compliant_python,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
     from punt_kit.detect import ProjectInfo
-
-
-def _make_compliant_python(tmp_path: Path) -> None:
-    """Create a fully compliant Python project scaffold."""
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\n\n'
-        "[tool.ruff]\nline-length = 88\n\n"
-        "[tool.ruff.lint]\nselect = ['E']\n\n"
-        "[tool.mypy]\nstrict = true\n\n"
-        '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
-        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
-    )
-    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
-    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
-    (tmp_path / "Makefile").write_text(
-        ".PHONY: help test lint type check format\n\n"
-        "help: ## Show targets\n"
-        "\t@echo help\n\n"
-        "test: ## Run tests\n"
-        "\tuv run pytest\n\n"
-        "lint: ## Lint\n"
-        "\tuv run ruff check .\n"
-        "\tuv run ruff format --check .\n\n"
-        "type: ## Type check\n"
-        "\tuv run mypy src/ tests/\n"
-        "\tuv run pyright src/ tests/\n\n"
-        "check: lint type test ## All gates\n\n"
-        "format: ## Format\n"
-        "\tuv run ruff format .\n"
-        "\tuv run ruff check --fix .\n"
-    )
-    (tmp_path / ".beads").mkdir()
-    (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
-    (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
-    src_pkg = tmp_path / "src" / "test_pkg"
-    src_pkg.mkdir(parents=True)
-    (src_pkg / "__init__.py").write_text("")
-    (src_pkg / "py.typed").write_text("")
-    workflows = tmp_path / ".github" / "workflows"
-    workflows.mkdir(parents=True)
-    (workflows / "lint.yml").write_text("name: Lint\n")
-    (workflows / "test.yml").write_text("name: Test\n")
-    (workflows / "docs.yml").write_text("name: Docs\n")
-    # Standard permissions — use detect() to get the right set for this project
-    claude_dir = tmp_path / ".claude"
-    claude_dir.mkdir(exist_ok=True)
-    info = detect(tmp_path)
-    (claude_dir / "settings.json").write_text(
-        json.dumps(
-            {
-                "permissions": {
-                    "allow": build_standard_permissions(info),
-                    "deny": build_standard_deny_rules(),
-                }
-            },
-            indent=2,
-        )
-        + "\n"
-    )
 
 
 def test_audit_docs_project(tmp_path: Path) -> None:
@@ -435,82 +382,6 @@ def test_audit_plugin_non_plugin_skips_check(tmp_path: Path) -> None:
 
 
 # --- Hybrid install.sh tests ---
-
-
-def _make_compliant_hybrid(tmp_path: Path) -> None:
-    """Create a compliant hybrid project (CLI + plugin) scaffold."""
-    _make_compliant_python(tmp_path)
-
-    # Add CLI entry point and version to pyproject.toml
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\nversion = "1.0.0"\n\n'
-        "[project.scripts]\ntest-cli = 'test_pkg:main'\n\n"
-        "[tool.ruff]\nline-length = 88\n\n"
-        "[tool.ruff.lint]\nselect = ['E']\n\n"
-        "[tool.mypy]\nstrict = true\n\n"
-        '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
-        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
-    )
-
-    # Plugin structure (before detect so MCP servers are picked up)
-    plugin_dir = tmp_path / ".claude-plugin"
-    plugin_dir.mkdir(exist_ok=True)
-    (plugin_dir / "plugin.json").write_text(
-        json.dumps(
-            {
-                "name": "test-dev",
-                "description": "Test hybrid plugin",
-                "version": "1.0.0",
-                "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-
-    # Re-detect after pyproject.toml rewrite (now has CLI entry point + plugin)
-    info = detect(tmp_path)
-    (tmp_path / ".claude" / "settings.json").write_text(
-        json.dumps(
-            {
-                "permissions": {
-                    "allow": build_standard_permissions(info),
-                    "deny": build_standard_deny_rules(),
-                }
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-
-    # Commands with dev variants
-    commands_dir = tmp_path / "commands"
-    commands_dir.mkdir(exist_ok=True)
-    (commands_dir / "audit.md").write_text("---\ndescription: Audit\n---\n")
-    (commands_dir / "audit-dev.md").write_text("---\ndescription: Audit dev\n---\n")
-
-    # Release/restore scripts
-    scripts_dir = tmp_path / "scripts"
-    scripts_dir.mkdir(exist_ok=True)
-    (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
-    (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
-
-    # Compliant install.sh
-    (tmp_path / "install.sh").write_text(
-        "#!/bin/sh\nset -eu\n"
-        "# marketplace update\n"
-        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
-        "# SSH fallback\n"
-        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
-        "# verify\n"
-        '"$BINARY" doctor\n'
-    )
-
-    # README with SHA-pinned URLs
-    readme_url = "https://raw.githubusercontent.com/punt-labs/test/abc1234/install.sh"
-    (tmp_path / "README.md").write_text(
-        f"# Test\n\n```bash\ncurl -fsSL {readme_url} | sh\n```\n"
-    )
 
 
 def test_audit_hybrid_install_sh_passes(tmp_path: Path) -> None:

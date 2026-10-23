@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit.init import TEMPLATES, run_init
-from tests.test_init import (
-    _no_bd,  # pyright: ignore[reportPrivateUsage]
-    _python_project,  # pyright: ignore[reportPrivateUsage]
+from tests.helpers import (
+    no_bd,
+    python_project,
 )
 
 if TYPE_CHECKING:
@@ -21,8 +21,8 @@ def test_init_reads_every_plugin_manifest_before_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A nameless first manifest sends init on to a malformed second one."""
-    monkeypatch.setattr(shutil, "which", _no_bd)
-    _python_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", no_bd)
+    python_project(tmp_path)
     (tmp_path / "plugin" / ".claude-plugin").mkdir(parents=True)
     (tmp_path / "plugin" / ".claude-plugin" / "plugin.json").write_text("{}")
     (tmp_path / ".claude-plugin").mkdir()
@@ -41,7 +41,7 @@ def test_init_does_not_report_a_bom_workflow_identical_to_the_template(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    monkeypatch.setattr(shutil, "which", _no_bd)
+    monkeypatch.setattr(shutil, "which", no_bd)
     (tmp_path / "README.md").write_text("# Test")
     workflow = tmp_path / ".github" / "workflows" / "docs.yml"
     workflow.parent.mkdir(parents=True)
@@ -80,7 +80,7 @@ def test_a_failed_bd_init_fails_the_run_after_the_other_steps(
 ) -> None:
     project = tmp_path / "project"
     project.mkdir()
-    _python_project(project)
+    python_project(project)
     bin_dir = _fake_bd(tmp_path / "bin", script)
     monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
 

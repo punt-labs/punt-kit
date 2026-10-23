@@ -45,16 +45,12 @@ from punt_kit.release import (
     _run,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
+from tests import helpers
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
 
-# Shared scaffolding from the main release-test module — private there by
-# test-helper convention, deliberately reused here rather than duplicated.
+# Reused from the main release-test module rather than duplicated.
 from tests.test_release import (
     _fake_get_github_repo,  # pyright: ignore[reportPrivateUsage]
-    _git,  # pyright: ignore[reportPrivateUsage]
-    _git_out,  # pyright: ignore[reportPrivateUsage]
-    _make_release_project,  # pyright: ignore[reportPrivateUsage]
-    _make_sibling,  # pyright: ignore[reportPrivateUsage]
 )
 
 if TYPE_CHECKING:
@@ -389,15 +385,15 @@ def _sweep_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     up-to-date diff; every command that would then touch that remote for
     real is scripted in ``_scripted_release_rules``.
     """
-    root = _make_release_project(tmp_path)
+    root = helpers.make_release_project(tmp_path)
     shutil.rmtree(root / ".claude-plugin")
-    _git(["add", "-A"], cwd=str(root))
-    _git(["commit", "-m", "drop plugin surface"], cwd=str(root))
+    helpers.git(["add", "-A"], cwd=str(root))
+    helpers.git(["commit", "-m", "drop plugin surface"], cwd=str(root))
     # Origin still points at the repo itself here — this refresh pins
     # refs/remotes/origin/main to the commit above before the URL rewrite
     # makes real fetches impossible.
-    _git(["fetch", "origin"], cwd=str(root))
-    _git(
+    helpers.git(["fetch", "origin"], cwd=str(root))
+    helpers.git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
         cwd=str(root),
     )
@@ -405,7 +401,7 @@ def _sweep_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     projects: list[dict[str, str]] = [
         {"id": "proj", "version": "0.1.0", "githubUrl": ""}
     ]
-    _make_sibling(
+    helpers.make_sibling(
         tmp_path,
         "public-website",
         {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
@@ -605,7 +601,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
 
     # The stop landed where scripted: the tag is the run's first
     # irreversible artifact, so its presence cleanly splits the sweep.
-    tag_after_stop = _git_out(["tag", "--list", _TAG], cwd=str(root))
+    tag_after_stop = helpers.git_out(["tag", "--list", _TAG], cwd=str(root))
     assert tag_after_stop == ("" if case.stop_phase <= 5 else _TAG)
 
     _install_release_ops(monkeypatch, _scripted_release_rules())
@@ -624,7 +620,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
     # threading regression can't hide behind Phase5Tag's git-history
     # fallback landing on the right commit by the same means it's meant to
     # verify.
-    release_log = _git_out(["log", "--format=%H %s", "main"], cwd=str(root))
+    release_log = helpers.git_out(["log", "--format=%H %s", "main"], cwd=str(root))
     release_sha = next(
         sha
         for sha, _, subject in (
@@ -632,17 +628,22 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
         )
         if subject.startswith(f"chore: release v{_VERSION}")
     )
-    assert _git_out(["rev-parse", f"{_TAG}^{{commit}}"], cwd=str(root)) == release_sha
+    assert (
+        helpers.git_out(["rev-parse", f"{_TAG}^{{commit}}"], cwd=str(root))
+        == release_sha
+    )
 
     # End state: the release landed the same artifacts a fully clean run
     # produces, whichever phase the stop interrupted.
-    assert _git_out(["branch", "--show-current"], cwd=str(root)) == "main"
+    assert helpers.git_out(["branch", "--show-current"], cwd=str(root)) == "main"
     assert f'version = "{_VERSION}"' in (root / "pyproject.toml").read_text()
-    assert _git_out(["tag", "--list", _TAG], cwd=str(root)) == _TAG
+    assert helpers.git_out(["tag", "--list", _TAG], cwd=str(root)) == _TAG
     merged = cast(
         "list[dict[str, object]]",
-        json.loads(_git_out(["show", "main:src/data/projects.json"], cwd=str(sibling))),
+        json.loads(
+            helpers.git_out(["show", "main:src/data/projects.json"], cwd=str(sibling))
+        ),
     )
     assert merged[0]["version"] == _VERSION
-    assert _git_out(["branch", "--show-current"], cwd=str(sibling)) == "main"
-    assert _git_out(["status", "--porcelain"], cwd=str(sibling)) == ""
+    assert helpers.git_out(["branch", "--show-current"], cwd=str(sibling)) == "main"
+    assert helpers.git_out(["status", "--porcelain"], cwd=str(sibling)) == ""
