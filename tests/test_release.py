@@ -6748,8 +6748,19 @@ def test_phase11_verify_profile_sha_passes(
     _phase11_verify(info, version, dry_run=False)
 
 
+def _assert_failed_checks(out: str, names: list[str], detail: str) -> None:
+    """Assert Phase 11's printed output shows exactly these failed checks.
+
+    ``_phase11_verify`` raises one generic error for every cause; the verdict
+    lines it prints (``out``) say which check failed, and one of them carries
+    ``detail``.
+    """
+    assert re.findall(r"✗ ([^:\n]+):", out) == names
+    assert detail in _flat(out)
+
+
 def test_phase11_verify_profile_sha_fails_bad_sha(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Profile SHA check fails when README contains a non-resolvable SHA."""
     version = "0.1.0"
@@ -6772,12 +6783,13 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     info = detect(root)
 
     # Should raise ReleaseError — profile SHA does not resolve
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "does not resolve")
 
 
 def test_phase11_verify_profile_sha_fails_stale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Profile SHA check fails when the pin resolves but predates the merge.
 
@@ -6825,8 +6837,9 @@ def test_phase11_verify_profile_sha_fails_stale(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "stale — lacks")
 
 
 def test_phase11_verify_skips_when_github_absent(
@@ -6866,7 +6879,7 @@ def test_phase11_verify_skips_when_github_absent(
 
 
 def test_phase11_verify_fails_when_install_all_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Present .github sibling but no install-all.sh → still a hard failure.
 
@@ -6882,8 +6895,13 @@ def test_phase11_verify_fails_when_install_all_missing(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["install-all.sh", "profile SHA"],
+        "install-all.sh not found",
+    )
 
 
 # --- install SHA pins must be ancestors of the release, not just
@@ -6962,7 +6980,7 @@ def test_phase11_verify_install_all_sha_fails_when_not_ancestor_of_tag(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     # "ancestor" alone — Rich word-wraps the detail message at console width,
@@ -6970,6 +6988,9 @@ def test_phase11_verify_install_all_sha_fails_when_not_ancestor_of_tag(
     # a line break by the renderer even though the underlying string is one
     # contiguous sentence.
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out, ["install-all.sh", "profile SHA"], "not an ancestor of v0.1.0"
+    )
     assert "✗ install-all.sh" in out
     assert "ancestor" in out
 
@@ -7034,12 +7055,13 @@ def test_phase11_verify_profile_sha_fails_when_not_ancestor_of_main(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     # See the analogous comment above — check for the single word rather
     # than the full phrase, which Rich may word-wrap across a line break.
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["profile SHA"], "not an ancestor of .github main")
     assert "✗ profile SHA" in out
     assert "ancestor" in out
 
@@ -7153,7 +7175,7 @@ def test_phase11_verify_profile_sha_marketplace_chain_passes(tmp_path: Path) -> 
 
 
 def test_phase11_verify_profile_sha_marketplace_chain_stale_version(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A stale claude-plugins pin behind the current version fails loud."""
     version = "0.1.0"
@@ -7162,12 +7184,13 @@ def test_phase11_verify_profile_sha_marketplace_chain_stale_version(
     )
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "version=0.0.9")
 
 
 def test_phase11_verify_profile_sha_marketplace_chain_no_claude_plugins_pin(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """No claude-plugins pin in install-all.sh at all is a genuine failure."""
     version = "0.1.0"
@@ -7212,12 +7235,17 @@ def test_phase11_verify_profile_sha_marketplace_chain_no_claude_plugins_pin(
     _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
 
     info = detect(root)
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["profile SHA"],
+        "no claude-plugins pin in install-all.sh",
+    )
 
 
 def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A claude-plugins pin that cannot be checked (sibling absent) fails.
 
@@ -7232,8 +7260,13 @@ def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
     shutil.rmtree(cp_sibling)
 
     info = detect(root)
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["marketplace", "profile SHA"],
+        "claude-plugins sibling not found",
+    )
 
 
 def test_phase11_verify_profile_sha_direct_url_path_unaffected(
@@ -7377,10 +7410,11 @@ def test_phase11_verify_readme_pin_fails_when_pinned_to_previous_release(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["README pin"], "stale — expected")
     assert "✗ README pin" in out
     assert "stale" in out
 
@@ -7417,10 +7451,11 @@ def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["README pin"], "stale — expected")
     assert "✓ README pin" in out
     assert "✗ README pin" in out
 
@@ -7453,10 +7488,15 @@ def test_phase11_verify_readme_pin_rejects_evil_host_with_trusted_string_in_path
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7486,10 +7526,15 @@ def test_phase11_verify_readme_pin_rejects_lookalike_host_suffix(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7522,10 +7567,11 @@ def test_phase11_verify_readme_pin_fails_for_uppercase_scheme_stale_sha(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["README pin"], "stale — expected")
     assert "✗ README pin" in out
     assert "stale" in out
 
@@ -7562,10 +7608,15 @@ def test_phase11_verify_website_sha_fails_for_http_scheme(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -7598,10 +7649,15 @@ def test_phase11_verify_readme_pin_fails_for_non_sha_downgrade_on_untrusted_host
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7706,10 +7762,15 @@ def test_phase11_verify_website_sha_fails_for_ifs_glued_dual_url_payload(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -7744,10 +7805,15 @@ def test_phase11_verify_readme_pin_fails_for_wrong_owner_right_repo(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7781,10 +7847,15 @@ def test_phase11_verify_readme_pin_fails_for_percent_encoded_install_sh(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7826,10 +7897,15 @@ def test_phase11_verify_website_sha_fails_for_percent_encoded_repo_segment(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -7861,10 +7937,15 @@ def test_phase11_verify_readme_pin_fails_for_uppercase_repo_on_untrusted_host(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7941,10 +8022,15 @@ def test_phase11_verify_readme_pin_fails_for_double_encoded_install_sh(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7990,10 +8076,15 @@ def test_phase11_verify_website_sha_fails_for_dual_url_behind_encoded_newline(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✓ website SHA" in out
     assert "✗ website SHA" in out
     assert "trusted" in out
@@ -8043,10 +8134,15 @@ def test_phase11_verify_readme_pin_fails_for_over_encoded_reference(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8098,10 +8194,15 @@ def test_phase11_verify_readme_pin_fails_for_repo_encoded_six_layers_deep(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8140,10 +8241,15 @@ def test_phase11_verify_website_sha_fails_for_repo_encoded_ten_layers_deep(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8185,10 +8291,15 @@ def test_phase11_verify_readme_pin_fails_for_never_resolving_encoding_chain(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8285,10 +8396,15 @@ def test_phase11_verify_website_sha_fails_when_installcommand_points_at_wrong_re
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8492,10 +8608,11 @@ def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["website SHA"], "stale — expected")
     assert "✗ website SHA" in out
     assert "stale" in out
 
@@ -8596,10 +8713,15 @@ def test_phase11_verify_website_sha_fails_on_untrusted_host(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8636,10 +8758,15 @@ def test_phase11_verify_website_sha_fails_on_wrong_owner(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8681,10 +8808,15 @@ def test_phase11_verify_website_sha_rejects_evil_host_with_trusted_string_in_pat
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8720,10 +8852,15 @@ def test_phase11_verify_website_sha_rejects_lookalike_host_suffix(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8768,10 +8905,15 @@ def test_phase11_verify_website_sha_fails_when_untrusted_pin_alongside_trusted(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✓ website SHA" in out
     assert "✗ website SHA" in out
     assert "trusted" in out
@@ -8815,10 +8957,11 @@ def test_phase11_verify_website_sha_catches_stale_second_pin(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["website SHA"], "stale — expected")
     assert "✓ website SHA" in out
     assert "✗ website SHA" in out
 
@@ -8840,10 +8983,11 @@ def test_phase11_verify_website_fails_when_version_mismatch(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["website"], "version=0.0.9")
     assert "✗ website" in out
     assert "version=0.0.9" in out
     # The SHA check must be independent of the version check — a stale
@@ -8910,10 +9054,12 @@ def test_phase11_verify_pypi_absent_fails(
     calls = _patch_pypi_probe(monkeypatch, present=False)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    out = capsys.readouterr().out
+    _assert_failed_checks(out, ["PyPI"], "test-pkg==0.1.0")
 
-    assert "✗ PyPI" in capsys.readouterr().out
+    assert "✗ PyPI" in out
     assert len(calls) == 1
 
 
