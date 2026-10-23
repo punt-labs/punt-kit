@@ -601,6 +601,9 @@ _GITHUB_PREFIXES = (
     "ssh://git@github.com",
     "git@github.com:",
 )
+# The host as a whole word before a path or scp colon: at the start, after a
+# scheme or ``@``, or after whitespace.
+_GITHUB_HOST = re.compile(r"(?:^|[/@\s])github\.com[/:]")
 
 
 @final
@@ -686,8 +689,7 @@ class SlugParsing:
         return (
             text == "github.com"
             or text.startswith(_GITHUB_PREFIXES)
-            or "github.com:" in text
-            or "github.com/" in text
+            or _GITHUB_HOST.search(text) is not None
         )
 
 
