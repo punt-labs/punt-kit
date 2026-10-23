@@ -305,8 +305,7 @@ class MarketplacePropagator:
         # PyPI distribution name. An entry's source.url (keyless HTTPS,
         # git-subdir) must name the same owner/repo.
         marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-        names = frozenset(n for n in (marketplace_name, project_name) if n)
-        matcher = EntryMatcher(slug.owner, project_name, names)
+        matcher = EntryMatcher.for_marketplace(slug, marketplace_name)
 
         found = False
         for plugin in plugins:
@@ -400,7 +399,7 @@ class WebsitePropagator:
 
         projects_file = JsonFile(projects_json)
         data = cast("list[dict[str, object]]", projects_file.load())
-        matcher = EntryMatcher(slug.owner, project_name, frozenset({project_name}))
+        matcher = EntryMatcher.for_website(slug)
 
         found = False
         for project in data:

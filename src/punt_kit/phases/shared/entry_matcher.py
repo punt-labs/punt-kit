@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from punt_kit.phases.shared.repo_slug import RepoSlug
 
@@ -18,14 +18,37 @@ class EntryMatcher:
     A source URL claims the project only when it parses to ``owner/repo`` for
     this project's own owner and repository: a same-named repository under
     someone else is not this project, and neither is another repository of
-    the owner. ``names`` are the entry names the project goes by (its PyPI
-    distribution name and its marketplace short name); they match an entry's
-    ``name`` or ``id`` field and never a repository.
+    the owner. ``names`` are the entry names the project goes by (its repository
+    name and its marketplace short name); they match an entry's ``name`` or
+    ``id`` field and never a repository.
     """
 
     owner: str
     repo: str
     names: frozenset[str]
+
+    @classmethod
+    def for_marketplace(
+        cls,
+        slug: RepoSlug,
+        # Absent is a real answer: a project with no plugin manifest has no
+        # marketplace short name, only its repository name.
+        marketplace_name: str | None,
+    ) -> Self:
+        """The matcher for a project's marketplace entry.
+
+        Built from the repository (the origin slug) and the plugin's
+        marketplace short name, not the PyPI distribution name: entries key
+        on ``punt``, not ``punt-kit``. Phases 10 and 11 both build theirs
+        here, so the entry one writes is the entry the other verifies.
+        """
+        names = frozenset(n for n in (marketplace_name, slug.name) if n)
+        return cls(slug.owner, slug.name, names)
+
+    @classmethod
+    def for_website(cls, slug: RepoSlug) -> Self:
+        """The matcher for a project's website entry: its id is the repo name."""
+        return cls(slug.owner, slug.name, frozenset({slug.name}))
 
     def claims_url(self, url: str) -> bool:
         """True when ``url`` is a github.com remote for ``owner/repo``."""

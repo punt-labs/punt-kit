@@ -262,11 +262,7 @@ class Phase11Verify:
     def _entry_matcher(self, repo: RepoSlug) -> EntryMatcher:
         """Matches marketplace entries by the plugin's short name or its repo."""
         marketplace_name = ReleaseProject(self._info, ops=self._ops).marketplace_name()
-        return EntryMatcher(
-            repo.owner,
-            repo.name,
-            frozenset(n for n in (marketplace_name, repo.name) if n),
-        )
+        return EntryMatcher.for_marketplace(repo, marketplace_name)
 
     def _install_all_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
         """The install-all.sh entry: a curl SHA for CLI projects, a plugin loop
@@ -521,7 +517,7 @@ class Phase11Verify:
         if not projects.exists():
             return []
         entries = cast("list[dict[str, object]]", JsonFile(projects).load())
-        matcher = EntryMatcher(repo.owner, repo.name, frozenset({repo.name}))
+        matcher = EntryMatcher.for_website(repo)
         entry = next((e for e in entries if matcher.claims_website(e)), None)
         if entry is None:
             return [VerificationCheck("website", False, f"no entry for {repo.name}")]

@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
+from punt_kit.phases.shared.repo_slug import RepoSlug
 
 
 def _matcher(repo: str = "proj", *names: str) -> EntryMatcher:
@@ -83,3 +84,22 @@ def test_a_website_entry_matches_by_id_or_github_url() -> None:
         False,
         False,
     ]
+
+
+def test_the_marketplace_matcher_goes_by_the_short_name_and_the_repo_name() -> None:
+    matcher = EntryMatcher.for_marketplace(RepoSlug("punt-labs", "punt-kit"), "punt")
+
+    assert (matcher.owner, matcher.repo) == ("punt-labs", "punt-kit")
+    assert matcher.names == frozenset({"punt", "punt-kit"})
+
+
+def test_the_marketplace_matcher_drops_an_empty_short_name() -> None:
+    matcher = EntryMatcher.for_marketplace(RepoSlug("punt-labs", "proj"), "")
+
+    assert matcher.names == frozenset({"proj"})
+
+
+def test_the_website_matcher_goes_by_the_repo_name_alone() -> None:
+    matcher = EntryMatcher.for_website(RepoSlug("punt-labs", "proj"))
+
+    assert matcher.names == frozenset({"proj"})
