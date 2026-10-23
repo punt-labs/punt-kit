@@ -201,7 +201,12 @@ class InstallUrlRecognizer:
                 continue
             for start, end in self._install_sh_spans(decoded):
                 candidate = decoded[start:end]
-                parsed = urlparse(candidate)
+                try:
+                    parsed = urlparse(candidate)
+                except ValueError:
+                    # An unbalanced "[" in the authority: no client can fetch
+                    # this, so it is not an install URL to classify.
+                    continue
                 trusted = (
                     self._trusted.fullmatch(parsed.path)
                     if parsed.scheme == "https"
