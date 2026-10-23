@@ -11850,6 +11850,9 @@ def test_run_release_reports_any_unexpected_exception_with_the_recap(
     assert "marketplace: no entry for proj" in normalized.split("Release incomplete")[1]
     assert "--resume-from post-release" in normalized
     assert "JSONDecodeError" in captured.err, "the traceback is shown"
+    shown = normalized + " ".join(captured.err.split())
+    assert shown.count("Expecting value: line 1 column 1") == 1, "shown once"
+    assert shown.count("marketplace: no entry for proj") == 1
 
 
 def test_run_release_reports_incomplete_release_on_interrupt(
