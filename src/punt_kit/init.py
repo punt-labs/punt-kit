@@ -483,18 +483,22 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
     ).strip()
 
     if claude_md_path.exists():
-        existing = claude_md_path.read_text(encoding="utf-8")
+        claude_md = TextFile(claude_md_path)
+        existing = claude_md.read()
 
         # Check if standards references section already exists
         if "## Standards References" in existing:
             return []
 
-        # Append the references section
-        updated = existing.rstrip() + "\n\n" + references_block + "\n"
-        claude_md_path.write_text(updated, encoding="utf-8")
+        # Append the references section in the file's own line endings,
+        # ending with a newline only if the file already did.
+        eol = TextFile.line_ending(existing)
+        tail = eol if existing.endswith("\n") else ""
+        block = references_block.replace("\n", eol)
+        claude_md.write(existing.rstrip() + eol + eol + block + tail)
         console.print("  [yellow]↻[/yellow] Added standards references to CLAUDE.md")
     else:
-        claude_md_path.write_text(references_block + "\n", encoding="utf-8")
+        TextFile(claude_md_path).write(references_block + "\n")
         console.print("  [green]+[/green] Created CLAUDE.md")
 
     return ["CLAUDE.md"]
@@ -842,9 +846,10 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
 
     existing = ""
     if gitignore_path.exists():
-        existing = gitignore_path.read_text(encoding="utf-8")
+        existing = TextFile(gitignore_path).read()
 
-    lines = existing.split("\n")
+    eol = TextFile.line_ending(existing)
+    lines = existing.split(eol)
     stripped = [line.strip() for line in lines]
 
     missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in stripped]
@@ -860,7 +865,7 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
         for entry in missing:
             lines.insert(insert_idx, entry)
             insert_idx += 1
-        updated = "\n".join(lines)
+        updated = eol.join(lines)
     elif any(_names_claude_dir(s) for s in stripped):
         # A deliberate stanza this function did not write. Appending to it can
         # activate rules that have never been in effect, or broaden an anchored
@@ -879,12 +884,12 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
         )
         return []
     else:
-        block = "\n".join(_CLAUDE_GITIGNORE_LINES)
-        separator = "\n" if existing and not existing.endswith("\n") else ""
-        extra_newline = "\n" if existing else ""
-        updated = existing + separator + extra_newline + block + "\n"
+        block = eol.join(_CLAUDE_GITIGNORE_LINES)
+        separator = eol if existing and not existing.endswith("\n") else ""
+        extra_newline = eol if existing else ""
+        updated = existing + separator + extra_newline + block + eol
 
-    gitignore_path.write_text(updated, encoding="utf-8")
+    TextFile(gitignore_path).write(updated)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (.claude/ exceptions)")
     return [rel]
 

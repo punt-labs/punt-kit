@@ -53,6 +53,11 @@ class TextFile:
             raise ReleaseError(msg) from exc
 
     @staticmethod
+    def line_ending(text: str) -> str:
+        """``\\r\\n`` when ``text`` uses it anywhere, else ``\\n``."""
+        return "\r\n" if "\r\n" in text else "\n"
+
+    @staticmethod
     def without_bom(text: str) -> str:
         """``text`` without a leading BOM, for text a command printed."""
         return text.removeprefix(_BOM)

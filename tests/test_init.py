@@ -1217,3 +1217,51 @@ def test_init_fails_on_a_malformed_pyproject(
     assert "pyproject.toml is not valid TOML" in " ".join(
         capsys.readouterr().out.split()
     )
+
+
+# --- CLAUDE.md and .gitignore keep their line endings, BOM and final newline ---
+
+
+def test_init_appends_to_a_crlf_claude_md_with_a_bom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    original = "\ufeff# Project\r\n\r\nSome notes.\r\n"
+    (tmp_path / "CLAUDE.md").write_bytes(original.encode())
+
+    run_init(str(tmp_path))
+
+    raw = (tmp_path / "CLAUDE.md").read_bytes().decode()
+    assert raw.startswith(original.rstrip() + "\r\n\r\n")
+    assert "## Standards References" in raw
+    assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
+    assert raw.endswith("\r\n")
+
+
+def test_init_keeps_a_claude_md_without_a_final_newline_that_way(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    (tmp_path / "CLAUDE.md").write_bytes(b"# Project")
+
+    run_init(str(tmp_path))
+
+    assert not (tmp_path / "CLAUDE.md").read_bytes().endswith(b"\n")
+
+
+@pytest.mark.parametrize("existing", ["dist/\r\n.claude/\r\n", "dist/\r\n"])
+def test_init_edits_a_crlf_gitignore_with_a_bom_in_its_own_style(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: str
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    (tmp_path / ".gitignore").write_bytes(("\ufeff" + existing).encode())
+
+    run_init(str(tmp_path))
+
+    raw = (tmp_path / ".gitignore").read_bytes().decode()
+    assert raw.startswith("\ufeffdist/\r\n")
+    assert "!.claude/settings.json" in raw
+    assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
