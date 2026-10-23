@@ -59,7 +59,8 @@ from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
 # `_run_phases_9_10` and `_reset_propagation_siblings` are private on purpose:
 # tests rebind them on the module (`monkeypatch.setattr(release, ...)`) and the
 # phases reach them only by bare name, so a test must call the same objects.
-# `_get_project_version` and `_phase_name` are pure helpers tested directly;
+# `_get_project_version` is a pure helper tested directly (the phase names live
+# in `PhaseOrder`, imported above);
 # `_interrupted` is the module-level Event the signal handler owns.
 from punt_kit.release import (
     ReleaseError,
@@ -5651,7 +5652,11 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
 
 
 def _merge_env(
-    root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pr_number: int = 42,
+    url_suffix: str = "",
 ) -> tuple[FaultInjectingOps, str]:
     """A real git repo on a release branch plus a scripted gh double.
 
@@ -5678,7 +5683,10 @@ def _merge_env(
             FaultRule(
                 match=["gh", "pr", "create"],
                 response=CompletedProcessSpec(
-                    stdout=f"https://github.com/punt-labs/proj/pull/{pr_number}\n"
+                    stdout=(
+                        "https://github.com/punt-labs/proj/pull/"
+                        f"{pr_number}{url_suffix}\n"
+                    )
                 ),
             ),
             FaultRule(
@@ -14109,3 +14117,31 @@ def test_a_failure_recorded_directly_is_printed_once_in_the_recap(
 
     out = _flat(capsys.readouterr().out)
     assert out.count("marketplace: no entry for proj") == 1
+
+
+@pytest.mark.parametrize("suffix", ["?x=1", "#y"])
+def test_pr_merge_reads_the_pr_number_from_a_url_with_a_query_or_fragment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    def _noop(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch, pr_number=12, url_suffix=suffix)
+    ops.append_rule(
+        FaultRule(
+            match=["gh", "pr", "merge", "12", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(),
+        )
+    )
+
+    oid = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop,
+        resolve_threads=_noop,
+    )
+
+    assert oid == _MERGE_OID

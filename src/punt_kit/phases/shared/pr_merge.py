@@ -6,8 +6,9 @@ import json
 import shutil
 import subprocess
 import time
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Self, cast, final
+from urllib.parse import urlparse
 
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.git import GitWorkspace
@@ -15,7 +16,6 @@ from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from punt_kit.phases.shared.ops import ReleaseOps
     from punt_kit.phases.shared.skips import SkipRecorder
@@ -191,7 +191,7 @@ class PrMerger:
                 self._ops.fail(f"Failed to create PR: {result.stderr.strip()}")
             pr_url = result.stdout.strip()
             try:
-                pr_number = int(PurePosixPath(pr_url).name)
+                pr_number = int(PurePosixPath(urlparse(pr_url).path).name)
             except ValueError:
                 self._ops.fail(f"Failed to extract PR number from gh output: {pr_url}")
             self._ops.ok(f"Created PR #{pr_number}")
