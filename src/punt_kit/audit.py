@@ -564,7 +564,7 @@ def _check_plugin_dev_suffix(info: ProjectInfo) -> list[tuple[str, str, str]]:
     try:
         plugin_name = _read_plugin_field(info, "name")
     except ReleaseError as exc:
-        return [(FAIL, "Plugin manifest is readable", str(exc))]
+        return [(FAIL, "Plugin manifest is readable", escape(str(exc)))]
     if plugin_name is None:
         return []
     if plugin_name.endswith("-dev"):
@@ -682,7 +682,7 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     try:
         plugin_version = _read_plugin_field(info, "version")
     except ReleaseError as exc:
-        return [(FAIL, "Plugin manifest is readable", str(exc))]
+        return [(FAIL, "Plugin manifest is readable", escape(str(exc)))]
     if plugin_version is None:
         return []
 

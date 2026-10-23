@@ -884,3 +884,21 @@ def test_audit_fails_naming_a_malformed_pyproject(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "pyproject.toml is not valid TOML" in out
+
+
+def test_an_unreadable_manifest_in_a_path_with_markup_is_reported_in_full(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "[x][/dim]"
+    first = project / "plugin" / ".claude-plugin" / "plugin.json"
+    first.parent.mkdir(parents=True)
+    first.write_text('{"version": "1.0.0"}')
+    second = project / ".claude-plugin" / "plugin.json"
+    second.parent.mkdir()
+    second.write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(project))
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "[x][/dim]/.claude-plugin/plugin.json is not valid JSON" in out
