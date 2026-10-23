@@ -76,8 +76,47 @@ def test_a_bd_that_exits_non_zero_raises_with_its_stderr(
     root = _project(tmp_path)
     _with_bd(monkeypatch, tmp_path, "#!/bin/sh\necho no database >&2\nexit 3\n")
 
-    with pytest.raises(BeadsInitError, match="beads init failed: no database"):
+    with pytest.raises(BeadsInitError, match=r"beads init failed: .*: no database$"):
         BeadsInit(detect(root)).run()
+
+
+def test_a_bd_failure_redacts_credentials_in_its_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    script = (
+        "#!/bin/sh\n"
+        "echo 'fatal: https://user:ghp_SECRET@github.com/o/r.git denied' >&2\n"
+        "exit 3\n"
+    )
+    _with_bd(monkeypatch, tmp_path, script)
+
+    with pytest.raises(BeadsInitError) as caught:
+        BeadsInit(detect(root)).run()
+
+    assert "ghp_SECRET" not in str(caught.value)
+
+
+def test_a_bd_failure_is_one_line_and_keeps_the_tail_of_its_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    script = (
+        "#!/bin/sh\n"
+        "i=0\n"
+        'while [ "$i" -lt 200 ]; do echo "noise line $i padding padding" >&2;'
+        " i=$((i+1)); done\n"
+        "echo the real reason >&2\n"
+        "exit 3\n"
+    )
+    _with_bd(monkeypatch, tmp_path, script)
+
+    with pytest.raises(BeadsInitError) as caught:
+        BeadsInit(detect(root)).run()
+
+    message = str(caught.value)
+    assert ("\n" in message, message.endswith("the real reason")) == (False, True)
+    assert len(message) < 800
 
 
 def test_a_bd_that_cannot_run_raises(

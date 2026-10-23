@@ -36,20 +36,38 @@ class OperationalFailure:
     def one_line(cls, exc: BaseException) -> str:
         """Return ``Type: message``; ``str(KeyError("x"))`` alone is ``'x'``.
 
-        A failed command also says why it failed: its stderr, or its output
-        when stderr is empty: one line, URL credentials removed, cut to its tail.
+        A failed or timed-out command also says why: see :meth:`detail`.
         """
         # The argv of a failed command is in str(exc); redact the whole line.
         line = RepoSlug.redacted(f"{type(exc).__name__}: {exc}")
-        if isinstance(exc, subprocess.CalledProcessError):
-            raw = " ".join(str(exc.stderr or exc.output or "").split())
-            detail = RepoSlug.redacted(raw)
-            if len(detail) > cls.DETAIL_LIMIT:
-                # The tail: git's useful line is usually the last.
-                detail = f"...{detail[-cls.DETAIL_LIMIT :]}"
-            if detail:
-                line = f"{line}: {detail}"
+        if detail := cls.detail(exc):
+            line = f"{line}: {detail}"
         return line
+
+    @classmethod
+    def detail(cls, exc: BaseException) -> str:
+        """What a command said before it ended, or ``""`` when it said nothing.
+
+        Its stderr, or its output when stderr is empty: one line, URL
+        credentials removed, cut to its tail. Only a failed or timed-out
+        command has any.
+        """
+        if not isinstance(
+            exc, subprocess.CalledProcessError | subprocess.TimeoutExpired
+        ):
+            return ""
+        raw = cls._text(exc.stderr) or cls._text(exc.output)
+        detail = RepoSlug.redacted(raw)
+        if len(detail) > cls.DETAIL_LIMIT:
+            # The tail: git's useful line is usually the last.
+            detail = f"...{detail[-cls.DETAIL_LIMIT :]}"
+        return detail
+
+    @staticmethod
+    def _text(raw: str | bytes | None) -> str:
+        """``raw`` as one line of text: a timeout hands back bytes, not str."""
+        text = raw.decode(errors="replace") if isinstance(raw, bytes) else raw
+        return " ".join((text or "").split())
 
     @classmethod
     def report(cls, exc: BaseException) -> str:

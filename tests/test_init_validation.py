@@ -107,7 +107,9 @@ def test_a_failed_bd_init_is_reported_even_when_a_later_step_raises(
     with pytest.raises(OSError, match="No space left"):
         run_init(str(project))
 
-    assert "beads init failed: no database" in " ".join(capsys.readouterr().out.split())
+    out = " ".join(capsys.readouterr().out.split())
+    assert "beads init failed: CalledProcessError:" in out
+    assert out.endswith(": no database")
 
 
 def test_a_failed_bd_init_is_reported_once(

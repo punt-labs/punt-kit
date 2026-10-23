@@ -10,7 +10,7 @@ from rich.console import Console
 
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.command_runner import CommandRunner
-from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.errors import OperationalFailure, ReleaseError
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -60,9 +60,11 @@ class BeadsInit:
             )
         except subprocess.TimeoutExpired as exc:
             msg = f"beads init timed out after {timeouts.BD_INIT}s"
+            if detail := OperationalFailure.detail(exc):
+                msg = f"{msg}: {detail}"
             raise BeadsInitError(msg) from exc
         except subprocess.CalledProcessError as exc:
-            msg = f"beads init failed: {exc.stderr.strip() or exc}"
+            msg = f"beads init failed: {OperationalFailure.one_line(exc)}"
             raise BeadsInitError(msg) from exc
         except OSError as exc:
             msg = f"beads init failed: {exc}"
