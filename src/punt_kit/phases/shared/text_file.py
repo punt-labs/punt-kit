@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_kit.phases.shared.errors import ReleaseError
+
 if TYPE_CHECKING:
     from pathlib import Path
 
-_BOM = "\ufeff"
+_BOM = "﻿"
 
 
 @final
@@ -30,9 +32,28 @@ class TextFile:
         self._path = path
         return self
 
+    @property
+    def path(self) -> Path:
+        """The file this object reads and writes."""
+        return self._path
+
+    @staticmethod
+    def from_bytes(raw: bytes, *, source: str) -> str:
+        """Decode bytes that did not come from a file, such as ``git show`` output.
+
+        Applies the same rules as :meth:`read`: UTF-8, a leading BOM dropped,
+        and an undecodable byte reported as a :class:`ReleaseError` naming
+        ``source``.
+        """
+        try:
+            return raw.decode("utf-8").removeprefix(_BOM)
+        except UnicodeDecodeError as exc:
+            msg = f"{source} is not valid UTF-8: {exc}"
+            raise ReleaseError(msg) from exc
+
     def read(self) -> str:
         """The file's text with its line endings, without a leading BOM."""
-        return self._path.read_bytes().decode("utf-8").removeprefix(_BOM)
+        return self.from_bytes(self._path.read_bytes(), source=str(self._path))
 
     def write(self, text: str) -> None:
         """Replace the file's text, restoring the BOM the file already had."""

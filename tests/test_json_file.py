@@ -6,7 +6,9 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -40,3 +42,33 @@ def test_a_changed_value_is_written_in_the_files_own_style(tmp_path: Path) -> No
     file.save(data)
 
     assert path.read_bytes().decode() == '\ufeff{\r\n  "version": "0.2.0"\r\n}\r\n'
+
+
+def test_unparseable_json_raises_a_release_error_naming_the_file(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "plugin.json"
+    path.write_text("{not json")
+
+    with pytest.raises(ReleaseError, match=r"plugin\.json.*not valid JSON"):
+        JsonFile(path).load()
+
+
+def test_non_utf8_bytes_raise_a_release_error_naming_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "plugin.json"
+    path.write_bytes(b'{"name": "caf\xe9"}')
+
+    with pytest.raises(ReleaseError, match=r"plugin\.json.*not valid UTF-8"):
+        JsonFile(path).load()
+
+
+def test_a_text_file_with_non_utf8_bytes_names_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "CHANGELOG.md"
+    path.write_bytes(b"caf\xe9")
+
+    with pytest.raises(ReleaseError, match=r"CHANGELOG\.md.*not valid UTF-8"):
+        TextFile(path).read()
+
+
+def test_from_bytes_drops_a_leading_bom() -> None:
+    assert TextFile.from_bytes(b"\xef\xbb\xbf{}", source="git show") == "{}"

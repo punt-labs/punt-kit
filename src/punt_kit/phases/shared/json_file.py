@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Self, final
 
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
@@ -33,8 +34,12 @@ class JsonFile:
         text = self._file.read()
         self._eol = "\r\n" if "\r\n" in text else "\n"
         self._has_final_newline = text.endswith("\n")
-        # Wire boundary: json.loads yields object until the caller narrows it.
-        return json.loads(text)
+        try:
+            # Wire boundary: json.loads yields object until the caller narrows it.
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            msg = f"{self._file.path} is not valid JSON: {exc}"
+            raise ReleaseError(msg) from exc
 
     def save(self, data: object) -> None:
         """Write ``data`` indented by two, keeping non-ASCII text as written."""
