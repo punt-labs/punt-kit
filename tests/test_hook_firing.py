@@ -32,6 +32,18 @@ def _fires(*argv: str) -> bool:
         "restore",
         "submodule",
         "gc",
+        "fetch",
+        "tag",
+        "branch",
+        "add",
+        "status",
+        "diff",
+        "ls-files",
+        "symbolic-ref",
+        "remote",
+        "describe",
+        "grep",
+        "blame",
     ],
 )
 def test_git_verbs_that_run_hooks_fire_them(verb: str) -> None:
@@ -41,19 +53,22 @@ def test_git_verbs_that_run_hooks_fire_them(verb: str) -> None:
 @pytest.mark.parametrize(
     "verb",
     [
-        "status",
         "rev-parse",
         "log",
         "show",
-        "diff",
-        "tag",
-        "branch",
-        "add",
-        "fetch",
+        "cat-file",
         "ls-remote",
-        "ls-files",
-        "remote",
+        "rev-list",
+        "config",
+        "var",
+        "version",
+        "help",
         "merge-base",
+        "name-rev",
+        "show-ref",
+        "for-each-ref",
+        "ls-tree",
+        "shortlog",
     ],
 )
 def test_read_only_git_verbs_run_no_hook(verb: str) -> None:
@@ -94,9 +109,9 @@ def test_git_global_options_do_not_hide_the_verb(argv: list[str]) -> None:
 @pytest.mark.parametrize(
     "argv",
     [
-        pytest.param(["git", "-C", "push", "status"], id="dash-C-value-is-a-path"),
-        pytest.param(["git", "-c", "alias.x=push", "status"], id="dash-c-value"),
-        pytest.param(["git", "--git-dir", "commit", "log"], id="git-dir-value"),
+        pytest.param(["git", "-C", "push", "log"], id="dash-C-value-is-a-path"),
+        pytest.param(["git", "-c", "alias.x=push", "log"], id="dash-c-value"),
+        pytest.param(["git", "--git-dir", "commit", "show"], id="git-dir-value"),
     ],
 )
 def test_a_global_option_value_is_not_mistaken_for_the_verb(argv: list[str]) -> None:
@@ -127,6 +142,10 @@ def test_a_global_option_value_is_not_mistaken_for_the_verb(argv: list[str]) -> 
         pytest.param(["gh", "-R", "o/r", "pr", "checkout", "1"], id="dash-R"),
         pytest.param(["gh", "--repo", "o/r", "pr", "merge", "1", "-sd"], id="repo-opt"),
         pytest.param(["/usr/local/bin/gh", "pr", "co", "1"], id="absolute-path"),
+        pytest.param(["gh", "pr", "close", "1", "-d"], id="pr-close-d"),
+        pytest.param(["gh", "pr", "close", "1", "--delete-branch"], id="close-long"),
+        pytest.param(["gh", "repo", "fork", "--remote"], id="fork-remote"),
+        pytest.param(["gh", "repo", "fork", "--remote=true"], id="fork-remote-eq"),
         pytest.param(["gh", "frobnicate", "now"], id="unknown-command"),
         pytest.param(["gh"], id="bare-gh"),
     ],
@@ -145,6 +164,9 @@ def test_gh_commands_that_run_local_git_fire_hooks(argv: list[str]) -> None:
         pytest.param(["gh", "pr", "create", "--head", "b"], id="create-head"),
         pytest.param(["gh", "pr", "create", "-H", "b"], id="create-H"),
         pytest.param(["gh", "issue", "develop", "3", "-l"], id="develop-list"),
+        pytest.param(["gh", "pr", "close", "1"], id="pr-close-keeps-branch"),
+        pytest.param(["gh", "issue", "close", "3"], id="issue-close"),
+        pytest.param(["gh", "repo", "fork"], id="fork-plain"),
         pytest.param(["gh", "run", "watch", "9", "--exit-status"], id="run-watch"),
         pytest.param(["gh", "run", "view", "9"], id="run-view"),
         pytest.param(["gh", "release", "create", "v1"], id="release-create"),
@@ -164,6 +186,10 @@ def test_gh_commands_that_run_no_git_run_no_hook(argv: list[str]) -> None:
         pytest.param(["env", "-S", "git push"], id="env-S-string"),
         pytest.param(["env", "gh", "pr", "co", "1"], id="env-gh"),
         pytest.param(["env", "env", "git", "push"], id="nested-env"),
+        pytest.param(["env", "-Sgit push"], id="env-S-attached"),
+        pytest.param(["env", "--split-string=git push"], id="env-split-string-eq"),
+        pytest.param(["env", "--split-string", "git push"], id="env-split-string"),
+        pytest.param(["env", "-iSgit push"], id="env-S-in-cluster"),
         pytest.param(["timeout", "30", "git", "push"], id="timeout"),
         pytest.param(["nohup", "git", "commit"], id="nohup"),
         pytest.param(["xargs", "git", "checkout"], id="xargs"),
@@ -189,6 +215,7 @@ def test_wrappers_around_git_are_assumed_to_fire_hooks(argv: list[str]) -> None:
         pytest.param(["go", "test", "./..."], id="go"),
         pytest.param(["env", "FOO=1", "make", "check"], id="env-make"),
         pytest.param(["/usr/bin/punt", "doctor"], id="punt"),
+        pytest.param(["some-unlisted-tool", "git-like"], id="unknown-program"),
     ],
 )
 def test_other_programs_are_not_assumed_to_fire_hooks(argv: list[str]) -> None:
@@ -211,5 +238,5 @@ def test_the_hook_budget_itself_is_unchanged() -> None:
 
 
 def test_a_command_that_fires_no_hook_keeps_its_budget() -> None:
-    command = HookFiringCommand(["git", "status"])
+    command = HookFiringCommand(["git", "rev-parse", "HEAD"])
     assert command.timeout(timeouts.DEFAULT_RUN) == timeouts.DEFAULT_RUN

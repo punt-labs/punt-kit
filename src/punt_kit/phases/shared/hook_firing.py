@@ -10,41 +10,37 @@ from punt_kit.phases.shared.timeouts import GIT_HOOK
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-# git subcommands that provably run no hook: they read, or touch only the index,
-# tags, branches and remotes. Everything else is assumed to fire one, so a verb
-# nobody listed (a new git subcommand, a user alias) gets the long budget rather
-# than the short one. Over-approximating only lengthens a ceiling.
+# git subcommands that provably run no hook. Per githooks, a hook can fire when
+# git updates a ref (reference-transaction), writes or refreshes the index
+# (post-index-change), consults fsmonitor (fsmonitor-watchman), or runs
+# `gc --auto` (pre-auto-gc). So a quiet verb only reads the object database or
+# the refs, and never touches the index or the working tree:
+#   rev-parse, rev-list, merge-base, name-rev   read commits and refs
+#   log, show, shortlog, cat-file, ls-tree      read objects; no index, no tree
+#   show-ref, for-each-ref                      read refs
+#   ls-remote                                   reads the remote's refs; updates none
+#   config, var, version, help                  settings and static text
+# Left out on purpose: fetch, remote, tag, branch, symbolic-ref (ref updates);
+# add, status, diff, ls-files (index); describe (`--dirty` refreshes the index);
+# grep and blame (read the working tree). Everything else, including a verb
+# nobody listed, is assumed to fire, so it gets the long budget; over-
+# approximating only lengthens a ceiling.
 _GIT_QUIET_VERBS = frozenset(
     {
-        "add",
-        "blame",
-        "branch",
         "cat-file",
-        "check-ignore",
         "config",
-        "describe",
-        "diff",
-        "diff-index",
-        "diff-tree",
-        "fetch",
         "for-each-ref",
-        "grep",
         "help",
         "log",
-        "ls-files",
         "ls-remote",
         "ls-tree",
         "merge-base",
         "name-rev",
-        "remote",
         "rev-list",
         "rev-parse",
         "shortlog",
         "show",
         "show-ref",
-        "status",
-        "symbolic-ref",
-        "tag",
         "var",
         "version",
     }
@@ -81,12 +77,14 @@ _GH_ALWAYS = frozenset(
 # as ``-sd``.
 #   pr merge -d              after the API merge: checkout base, delete branch, pull
 #   issue develop -c         git fetch + git checkout of the new branch
-#   repo fork --clone        git clone of the fork
+#   repo fork --clone/--remote  git clone of the fork / adds the remote and fetches
+#   pr close -d              may check out the default branch before deleting
 #   repo create --push/-c    git push of the source / git clone of the new repo
 _GH_WITH_FLAG: dict[tuple[str, str], frozenset[str]] = {
     ("pr", "merge"): frozenset({"--delete-branch", "-d"}),
     ("issue", "develop"): frozenset({"--checkout", "-c"}),
-    ("repo", "fork"): frozenset({"--clone"}),
+    ("repo", "fork"): frozenset({"--clone", "--remote"}),
+    ("pr", "close"): frozenset({"--delete-branch", "-d"}),
     ("repo", "create"): frozenset({"--push", "--clone", "-c"}),
 }
 
@@ -116,10 +114,9 @@ _GH_QUIET_COMMANDS = frozenset(
         "workflow",
     }
 )
-_GH_QUIET_ACTIONS = frozenset(
+_GH_READ_AND_EDIT_ACTIONS = frozenset(
     {
         "checks",
-        "close",
         "comment",
         "diff",
         "edit",
@@ -133,7 +130,13 @@ _GH_QUIET_ACTIONS = frozenset(
         "view",
     }
 )
-_GH_QUIET_GROUPS = frozenset({"pr", "issue", "repo"})
+# ``pr close`` is not here: with ``--delete-branch`` it may check out the
+# default branch, so it is flag-gated above. ``issue close`` runs no git.
+_GH_QUIET_ACTIONS: dict[str, frozenset[str]] = {
+    "pr": _GH_READ_AND_EDIT_ACTIONS,
+    "issue": _GH_READ_AND_EDIT_ACTIONS | {"close"},
+    "repo": _GH_READ_AND_EDIT_ACTIONS,
+}
 
 # Programs that run another program given on their own command line. One is
 # hook-firing when any word of its line names git, gh or a shell.
@@ -169,7 +172,9 @@ class HookFiringCommand:
     metadata default. The argv is read as the runtime sees it, never guessed
     from source. When it cannot be read with confidence the answer is
     ``True``: a wrong ``True`` lengthens a ceiling, a wrong ``False`` aborts a
-    release.
+    release. That covers git, gh, shells and wrappers of them. A program that is
+    none of those (``make``, ``uv build``, ``go``) is quiet by design: it is not
+    assumed to run git, and a script that does must be run through a shell.
     """
 
     __slots__ = ("_argv",)
@@ -194,7 +199,7 @@ class HookFiringCommand:
         if binary in _SHELLS or binary.endswith(".sh"):
             return True
         if binary in _WRAPPERS:
-            return self._names_git(rest)
+            return self._splits_a_string(rest) or self._names_git(rest)
         return False
 
     def timeout(self, requested: int) -> int:
@@ -230,7 +235,7 @@ class HookFiringCommand:
             return bool(given & _GH_WITH_FLAG[command])
         if command in _GH_UNLESS_FLAG:
             return not given & _GH_UNLESS_FLAG[command]
-        return not (group in _GH_QUIET_GROUPS and action in _GH_QUIET_ACTIONS)
+        return action not in _GH_QUIET_ACTIONS.get(group, frozenset())
 
     @staticmethod
     def _gh_split(words: Sequence[str]) -> tuple[list[str], set[str]]:
@@ -250,6 +255,19 @@ class HookFiringCommand:
             else:
                 positional.append(word)
         return positional, given
+
+    @staticmethod
+    def _splits_a_string(words: Sequence[str]) -> bool:
+        """True for ``env -S`` / ``--split-string`` in any form, attached or not.
+
+        The string it carries is a command line, and any short-option cluster
+        holding ``S`` (``-iSgit``) may carry one, so these are over-approximated.
+        """
+        return any(
+            word.startswith("--split-string")
+            or (word.startswith("-") and not word.startswith("--") and "S" in word)
+            for word in words
+        )
 
     @staticmethod
     def _names_git(words: Sequence[str]) -> bool:

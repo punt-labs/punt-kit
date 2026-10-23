@@ -11542,7 +11542,7 @@ def test_ops_run_keeps_the_timeout_of_a_command_that_fires_no_hook(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     spawned = _spawned_timeout(
-        monkeypatch, ["git", "status", "--porcelain"], timeouts.DEFAULT_RUN
+        monkeypatch, ["git", "rev-parse", "HEAD"], timeouts.DEFAULT_RUN
     )
     assert spawned == timeouts.DEFAULT_RUN
 
