@@ -112,9 +112,11 @@ class ReadmeShaPin:
 
         ``raw.githubusercontent.com/<owner>/<repo>/`` — everything before the
         SHA-or-tag segment (an ``owner`` of ``None`` matches any owner). Used by
-        ``bump()``'s substitution and its stale-owner check, which
-        rewrite this project's OWN already-trusted README content, so a
-        plain regex prefix is sufficient there. ``classify_install_urls()``
+        ``bump()`` twice: to build the one substitution that rewrites this
+        project's OWN already-trusted README content, and, with ``owner`` of
+        ``None``, to detect the same repo pinned under another owner (a check
+        that rewrites nothing). A plain regex prefix is sufficient for both
+        because neither one verifies anything. ``classify_install_urls()``
         (the read-back used for verification) does NOT build from this
         prefix — a bare substring/regex match on the trusted host string
         can appear inside an attacker host's PATH (see its docstring), so
