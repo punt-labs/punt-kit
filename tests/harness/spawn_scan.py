@@ -63,23 +63,14 @@ class SpawnScan:
 
     def spawning_names(self) -> list[str]:
         """Sorted, canonical names such as ``subprocess.run`` or ``os.execvp``."""
-        aliases: dict[str, str] = {}
+        aliases = self._module_aliases()
         found: set[str] = set()
         for node in ast.walk(self._tree):
-            if isinstance(node, ast.Import):
-                aliases.update(
-                    {
-                        (a.asname or a.name.split(".")[0]): a.name.split(".")[0]
-                        for a in node.names
-                        if a.name.split(".")[0] in _WATCHED
-                    }
-                )
-            elif isinstance(node, ast.ImportFrom):
+            if isinstance(node, ast.ImportFrom):
                 found.update(self._imported_spawners(node))
             elif isinstance(node, ast.Call):
                 found.update(self._dynamic_import(node))
-        for node in ast.walk(self._tree):
-            if (
+            elif (
                 isinstance(node, ast.Attribute)
                 and isinstance(node.value, ast.Name)
                 and node.value.id in aliases
@@ -87,6 +78,16 @@ class SpawnScan:
             ):
                 found.add(f"{aliases[node.value.id]}.{node.attr}")
         return sorted(found)
+
+    def _module_aliases(self) -> dict[str, str]:
+        """Local name -> watched module, for every ``import x`` / ``import x as y``."""
+        names = (
+            (alias.asname or alias.name.split(".")[0], alias.name.split(".")[0])
+            for node in ast.walk(self._tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        )
+        return {local: root for local, root in names if root in _WATCHED}
 
     def internal_modules(self) -> list[str]:
         """Dotted names of the package modules this module imports."""
