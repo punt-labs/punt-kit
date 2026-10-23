@@ -1459,7 +1459,7 @@ def test_bump_warns_when_no_install_url_matches_slug(
 ) -> None:
     """Install URLs present but none rewritten means a stale pin — say so."""
     root = _make_release_project(tmp_path)
-    readme = _readme_with_install_url("punt-labs/renamed")
+    readme = _readme_with_install_url("other-org/proj")
     (root / "README.md").write_text(readme)
     ops = _fault_ops()
 
@@ -1467,7 +1467,41 @@ def test_bump_warns_when_no_install_url_matches_slug(
         "0.2.0", dry_run=False, resolve_repo=lambda _root: "punt-labs/proj"
     )
 
-    assert "none match punt-labs/proj" in _flat(capsys.readouterr().out)
+    assert "different owner than punt-labs" in _flat(capsys.readouterr().out)
+    assert (root / "README.md").read_text() == readme
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param("./install.sh", id="relative-script"),
+        pytest.param("bash scripts/install.sh", id="repo-script-path"),
+        pytest.param(
+            "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/main/"
+            "install.sh | sh",
+            id="unpinned-url",
+        ),
+        pytest.param(
+            "curl -fsSL https://raw.githubusercontent.com/other-org/other-tool/"
+            "abc1234/install.sh | sh",
+            id="other-repo-url",
+        ),
+    ],
+)
+def test_bump_does_not_warn_about_install_references_it_does_not_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], snippet: str
+) -> None:
+    """Only a pinned URL for this repo name under another owner is a stale pin."""
+    root = _make_release_project(tmp_path)
+    readme = f"# proj\n\n```bash\n{snippet}\n```\n"
+    (root / "README.md").write_text(readme)
+    ops = _fault_ops()
+
+    ReadmeShaPin(detect(root), ops=ops).bump(
+        "0.2.0", dry_run=True, resolve_repo=lambda _root: "punt-labs/proj"
+    )
+
+    assert "WARNING" not in capsys.readouterr().out
     assert (root / "README.md").read_text() == readme
 
 

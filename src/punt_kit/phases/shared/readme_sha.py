@@ -33,6 +33,10 @@ class ReadmeShaPin:
     # silently diverge.
     _SHA_SHAPE: str = r"[0-9a-fA-F]{7,40}"
 
+    # The pinned segment of an install URL that bump() rewrites: a commit SHA
+    # or a release tag.
+    _PINNED: str = rf"(?:{_SHA_SHAPE}|v[0-9]+\.[0-9]+\.[0-9]+)"
+
     # Every URL-shaped token in free-form text (a README, an installCommand
     # string). Matches http OR https, case-insensitively — curl fetches
     # HTTPS://, Https://, and http://, all just as readily as https://, and
@@ -103,11 +107,12 @@ class ReadmeShaPin:
         return self
 
     @staticmethod
-    def _url_prefix(owner: str, repo_name: str) -> str:
+    def _url_prefix(owner: str | None, repo_name: str) -> str:
         """The regex prefix common to every install URL for this repo.
 
         ``raw.githubusercontent.com/<owner>/<repo>/`` — everything before the
-        SHA-or-tag segment. Used by ``bump()``'s two substitutions, which
+        SHA-or-tag segment (an ``owner`` of ``None`` matches any owner). Used by
+        ``bump()``'s substitution and its stale-owner check, which
         rewrite this project's OWN already-trusted README content, so a
         plain regex prefix is sufficient there. ``classify_install_urls()``
         (the read-back used for verification) does NOT build from this
@@ -116,7 +121,7 @@ class ReadmeShaPin:
         verification parses each candidate URL with ``urlparse`` and checks
         its authority instead.
         """
-        esc_owner = re.escape(owner)
+        esc_owner = r"[^/\s]+" if owner is None else re.escape(owner)
         esc_repo = re.escape(repo_name)
         return rf"raw\.githubusercontent\.com/{esc_owner}/{esc_repo}/"
 
@@ -379,27 +384,19 @@ class ReadmeShaPin:
         )
 
         content = readme_path.read_text(encoding="utf-8")
+        # Replace pinned install URLs: <owner>/<repo>/<hex-sha or vX.Y.Z>/install.sh
         prefix = self._url_prefix(owner, repo_name)
-
-        # Replace SHA-pinned install URLs: <owner>/<repo>/<hex-sha>/install.sh
-        new_content, sha_count = re.subn(
-            rf"({prefix}){self._SHA_SHAPE}(/install\.sh)",
-            rf"\g<1>{short_sha}\2",
-            content,
+        new_content, count = re.subn(
+            rf"({prefix}){self._PINNED}(/install\.sh)", rf"\g<1>{short_sha}\2", content
         )
 
-        # Also replace version-tag install URLs: <owner>/<repo>/v1.2.3/install.sh
-        new_content, tag_count = re.subn(
-            rf"({prefix})v[0-9]+\.[0-9]+\.[0-9]+(/install\.sh)",
-            rf"\g<1>{short_sha}\2",
-            new_content,
-        )
-
-        if sha_count + tag_count == 0 and "/install.sh" in content:
-            # A wrong slug matches nothing, leaving the pin stale in silence.
+        elsewhere = rf"{self._url_prefix(None, repo_name)}{self._PINNED}/install\.sh"
+        if count == 0 and re.search(elsewhere, content):
+            # Same repo, other owner: a wrong slug matches nothing and would
+            # leave the pin stale in silence.
             self._ops.warn(
-                f"README.md has install.sh URLs but none match {owner}/{repo_name}"
-                " — the install SHA pin was not updated"
+                f"README.md pins {repo_name}'s install.sh under a different owner "
+                f"than {owner} — the install SHA pin was not updated"
             )
 
         if new_content == content:
