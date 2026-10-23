@@ -5,20 +5,15 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-from typing import TYPE_CHECKING, cast
+from pathlib import Path
 
 import pytest
 
-from punt_kit import audit
 from punt_kit.audit import run_audit
+from punt_kit.audit_github import GithubSettingsAudit
+from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-    from pathlib import Path
-
-    from punt_kit.detect import ProjectInfo
 
 
 def _make_compliant_python(tmp_path: Path) -> None:
@@ -844,7 +839,7 @@ _NOT_GITHUB_OWNER_REPO = [
 def _github_settings_labels(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote: str | None
 ) -> list[str]:
-    """The labels ``_check_github_settings`` reports for a repo with ``remote``."""
+    """The labels ``GithubSettingsAudit.findings`` reports for ``remote``."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
     if remote is not None:
         subprocess.run(
@@ -855,11 +850,8 @@ def _github_settings_labels(
         return "/usr/bin/gh"
 
     monkeypatch.setattr(shutil, "which", fake_which)
-    check = cast(
-        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
-        vars(audit)["_check_github_settings"],
-    )
-    return [label for _status, label, _detail in check(detect(tmp_path))]
+    findings = GithubSettingsAudit(detect(tmp_path).root).findings()
+    return [label for _status, label, _detail in findings]
 
 
 def test_audit_reports_no_git_repo_for_a_subdirectory_of_a_checkout(
@@ -873,11 +865,8 @@ def test_audit_reports_no_git_repo_for_a_subdirectory_of_a_checkout(
         return "/usr/bin/gh"
 
     monkeypatch.setattr(shutil, "which", fake_which)
-    check = cast(
-        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
-        vars(audit)["_check_github_settings"],
-    )
-    labels = [label for _status, label, _detail in check(detect(sub))]
+    findings = GithubSettingsAudit(detect(sub).root).findings()
+    labels = [label for _status, label, _detail in findings]
     assert labels == ["GitHub settings (no git repo at root)"]
 
 
@@ -906,7 +895,7 @@ def _dependabot(
     stderr: str = "",
     raises: BaseException | None = None,
 ) -> list[tuple[str, str, str]]:
-    """What ``_check_dependabot`` reports when ``gh api`` answers this way."""
+    """What ``dependabot_alerts`` reports when ``gh api`` answers this way."""
 
     def fake_run(
         cmd: list[str], *, capture_output: bool, text: bool, timeout: int
@@ -916,11 +905,7 @@ def _dependabot(
         return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    check = cast(
-        "Callable[[str, str], list[tuple[str, str, str]]]",
-        vars(audit)["_check_dependabot"],
-    )
-    return check("/usr/bin/gh", "o/r")
+    return GithubSettingsAudit(Path("/unused")).dependabot_alerts("/usr/bin/gh", "o/r")
 
 
 def test_dependabot_alerts_are_enabled_on_http_204(
@@ -930,7 +915,7 @@ def test_dependabot_alerts_are_enabled_on_http_204(
         monkeypatch, returncode=0, stdout="HTTP/2.0 204 No Content\nDate: x\n\n"
     )
 
-    assert out == [(audit.PASS, "Dependabot vulnerability alerts", "Enabled")]
+    assert out == [(PASS, "Dependabot vulnerability alerts", "Enabled")]
 
 
 def test_dependabot_alerts_are_not_enabled_on_http_404(
@@ -943,7 +928,7 @@ def test_dependabot_alerts_are_not_enabled_on_http_404(
         stderr="gh: Not Found (HTTP 404)",
     )
 
-    assert out == [(audit.FAIL, "Dependabot vulnerability alerts", "Not enabled")]
+    assert out == [(FAIL, "Dependabot vulnerability alerts", "Not enabled")]
 
 
 def test_a_204_elsewhere_in_the_response_is_not_a_status(
@@ -958,7 +943,7 @@ def test_a_204_elsewhere_in_the_response_is_not_a_status(
 
     assert out == [
         (
-            audit.INFO,
+            INFO,
             "Dependabot vulnerability alerts",
             "could not check: gh: Resource not accessible (HTTP 403)",
         )
@@ -970,7 +955,7 @@ def test_a_success_exit_without_a_status_line_is_not_enabled(
 ) -> None:
     out = _dependabot(monkeypatch, returncode=0, stdout="", stderr="odd")
 
-    assert [status for status, _label, _detail in out] == [audit.INFO]
+    assert [status for status, _label, _detail in out] == [INFO]
 
 
 def test_a_timeout_is_reported_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -979,5 +964,5 @@ def test_a_timeout_is_reported_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
     ((status, label, detail),) = out
-    assert (status, label) == (audit.INFO, "Dependabot vulnerability alerts")
+    assert (status, label) == (INFO, "Dependabot vulnerability alerts")
     assert detail.startswith("could not check:") and "timed out" in detail
