@@ -47,3 +47,54 @@ def test_rewriting_keeps_the_quote_style_and_reports_the_count() -> None:
 
     assert assignment.rewritten("version = '1'\n", "2") == ("version = '2'\n", 1)
     assert assignment.rewritten("version = f()\n", "2") == ("version = f()\n", 0)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'VERSION="1.0"$SUFFIX\n',
+        "VERSION='1'\"$x\"\n",
+        'VERSION="1.0"suffix\n',
+        'typeset VERSION="1.0"$S\n',
+    ],
+)
+def test_a_shell_value_continued_after_its_quote_is_assigned_but_not_plain(
+    text: str,
+) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'VERSION="1.0"\n',
+        'VERSION="1.0"',
+        'VERSION="1.0" # note\n',
+        'VERSION="1.0"; export VERSION\n',
+        'VERSION="1.0"#note\n',
+        'typeset -r VERSION="1.0"\n',
+    ],
+)
+def test_a_shell_value_ends_at_whitespace_a_semicolon_a_hash_or_the_end(
+    text: str,
+) -> None:
+    assert VersionAssignment.in_shell("VERSION").read(text) == "1.0"
+
+
+def test_a_later_computed_shell_assignment_is_named() -> None:
+    text = 'VERSION="1.0"\n  VERSION="$(git describe)"\nVERSION="2"\n'
+
+    assert (
+        VersionAssignment.in_shell("VERSION").later_computed_line(text)
+        == 'VERSION="$(git describe)"'
+    )
+
+
+@pytest.mark.parametrize(
+    "text",
+    ['VERSION="1.0"\n', 'VERSION="1.0"\nVERSION="2.0"\n', 'FOO="1"\nVERSION="1"\n'],
+)
+def test_no_later_computed_line_when_every_assignment_is_plain(text: str) -> None:
+    assert VersionAssignment.in_shell("VERSION").later_computed_line(text) == ""

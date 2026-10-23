@@ -108,6 +108,11 @@ class Phase2VersionBump:
                 f'quoted string (VERSION="X.Y.Z"), so VERSION cannot be bumped to '
                 f"{self._version}; set it by hand"
             )
+        if later := assignment.later_computed_line(content):
+            self._ops.warn(
+                f"install.sh: a later assignment `{later}` computes VERSION at run "
+                f"time; only the first assignment is bumped to {self._version}"
+            )
         if new_content == content:
             return
         if self._dry_run:

@@ -13,6 +13,7 @@ from tests.harness.fault_ops import FaultInjectingOps
 from tests.helpers import (
     bump,
     commit_all,
+    flat,
     make_release_project,
     refuse_run,
 )
@@ -37,6 +38,27 @@ _FORMS = [
         id="readonly-flag",
     ),
     pytest.param("VERSION='$0.1.0'\n", "VERSION='0.2.0'\n", id="single-quoted-dollar"),
+    pytest.param(
+        'typeset VERSION="0.1.0"\n', 'typeset VERSION="0.2.0"\n', id="typeset"
+    ),
+    pytest.param(
+        'typeset -r VERSION="0.1.0"\n',
+        'typeset -r VERSION="0.2.0"\n',
+        id="typeset-flag",
+    ),
+    pytest.param(
+        'VERSION="0.1.0"; export VERSION\n',
+        'VERSION="0.2.0"; export VERSION\n',
+        id="semicolon-after",
+    ),
+    pytest.param(
+        'VERSION="0.1.0" # pinned\n',
+        'VERSION="0.2.0" # pinned\n',
+        id="comment-after",
+    ),
+    pytest.param(
+        'VERSION="0.1.0"  \n', 'VERSION="0.2.0"  \n', id="trailing-whitespace"
+    ),
     pytest.param(
         'FOO_VERSION="9.9.9"\nVERSION="0.1.0"\n',
         'FOO_VERSION="9.9.9"\nVERSION="0.2.0"\n',
@@ -64,6 +86,9 @@ _DYNAMIC = [
     pytest.param('VERSION="$(git describe)"\n', id="quoted-command"),
     pytest.param('VERSION="`git describe`"\n', id="backtick"),
     pytest.param('local VERSION="$V"\n', id="local-variable"),
+    pytest.param('VERSION="1.0"$SUFFIX\n', id="quoted-then-variable"),
+    pytest.param("VERSION='1'\"$x\"\n", id="single-then-double-quoted"),
+    pytest.param('typeset VERSION="$(git describe)"\n', id="typeset-computed"),
 ]
 
 
@@ -82,6 +107,37 @@ def test_phase2_fails_when_the_install_sh_version_cannot_be_rewritten(
     assert (root / "install.sh").read_text() == f"#!/bin/sh\n{line}"
 
     assert "✓ install.sh" not in capsys.readouterr().out
+
+
+def test_phase2_warns_when_a_later_assignment_computes_the_version(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    (root / "install.sh").write_text(
+        '#!/bin/sh\nVERSION="0.1.0"\nVERSION="$(git describe)"\n'
+    )
+    commit_all(root, "later computed")
+
+    bump(root)
+
+    assert (root / "install.sh").read_text() == (
+        '#!/bin/sh\nVERSION="0.2.0"\nVERSION="$(git describe)"\n'
+    )
+    out = flat(capsys.readouterr().out)
+    assert 'VERSION="$(git describe)"' in out
+    assert "computes VERSION at run time" in out
+
+
+def test_phase2_does_not_warn_when_every_assignment_is_plain(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    (root / "install.sh").write_text('#!/bin/sh\nVERSION="0.1.0"\nVERSION="0.1.0"\n')
+    commit_all(root, "later plain")
+
+    bump(root)
+
+    assert "computes VERSION" not in flat(capsys.readouterr().out)
 
 
 def test_phase2_ignores_an_install_sh_without_a_version(tmp_path: Path) -> None:

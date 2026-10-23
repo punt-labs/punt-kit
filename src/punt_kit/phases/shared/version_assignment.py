@@ -6,10 +6,16 @@ import re
 from typing import Self, final
 
 # What may precede a shell assignment: indentation, and the declaration
-# builtins with their flags (``readonly -r``, ``declare -x``, ``local``).
-_SHELL_LEAD = r"[ \t]*(?:(?:readonly|export|local|declare)[ \t]+(?:-\w+[ \t]+)*)*"
+# builtins with their flags (``readonly -r``, ``declare -x``, ``typeset -r``).
+_SHELL_LEAD = (
+    r"[ \t]*(?:(?:readonly|export|local|declare|typeset)[ \t]+(?:-\w+[ \t]+)*)*"
+)
 # A double-quoted shell value that expands something is not a plain string.
 _EXPANDS = re.compile(r"[$`]")
+# What may follow the closing quote of a plain shell value: the end of the
+# line, whitespace, a command separator or a comment. Anything else
+# (``"1.0"$SUFFIX``, ``'1'"$x"``) continues the word, so the value is computed.
+_VALUE_END = re.compile(r"[ \t;#\r\n]|\Z")
 
 
 @final
@@ -46,10 +52,17 @@ class VersionAssignment:
 
         ``readonly``, ``export``, ``local`` and ``declare`` (with flags) may
         precede it: ``  readonly -r VERSION="1.0"``. The name is still
-        anchored, so ``FOO_VERSION=`` is not ``VERSION=``. The *first*
-        assignment decides, and a double-quoted value containing ``$`` or a
-        backtick (``"${VERSION:-1.0}"``, ``"$(git describe)"``) is computed,
-        so it is assigned but not readable.
+        anchored, so ``FOO_VERSION=`` is not ``VERSION=``. ``typeset`` is
+        recognised like ``declare``.
+
+        The *first* assignment decides what is read and what is rewritten: it
+        is the value a script has until something reassigns it. A value is
+        computed, so assigned but not readable, when it is double-quoted and
+        contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
+        ``"$(git describe)"``), or when the closing quote is followed by more
+        word (``"1.0"$SUFFIX``, ``'1'"$x"``). A *later* assignment can still
+        replace the first at run time; ``later_computed_line`` finds one that
+        is computed so the caller can warn that the bump does not set it.
         """
         return cls(name, lead=_SHELL_LEAD, is_shell=True)
 
@@ -82,6 +95,14 @@ class VersionAssignment:
         replacement = f"{match.group(1)}{quote}{value}{quote}"
         return text[: match.start()] + replacement + text[match.end() :], 1
 
+    def later_computed_line(self, text: str) -> str:
+        """The first assignment after the first that is not plain; empty when none."""
+        later = list(self._assigned.finditer(text))[1:]
+        for match in later:
+            if self._plain_shell_value(text, match.start()) is None:
+                return text[match.start() :].split("\n", 1)[0].strip()
+        return ""
+
     def _readable(self, text: str) -> re.Match[str] | None:
         """The match that supplies the value, or ``None`` when it is not plain."""
         if not self._is_shell:
@@ -89,7 +110,15 @@ class VersionAssignment:
         first = self._assigned.search(text)
         if first is None:
             return None
-        match = self._quoted.match(text, first.start())
-        if match and match.group(2) == '"' and _EXPANDS.search(match.group(3)):
+        return self._plain_shell_value(text, first.start())
+
+    def _plain_shell_value(self, text: str, start: int) -> re.Match[str] | None:
+        """The quoted value of the assignment at ``start``, if it is a plain string."""
+        match = self._quoted.match(text, start)
+        if match is None:
+            return None
+        if match.group(2) == '"' and _EXPANDS.search(match.group(3)):
+            return None
+        if _VALUE_END.match(text, match.end()) is None:
             return None
         return match
