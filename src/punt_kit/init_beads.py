@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
+from punt_kit.phases.shared import timeouts
+from punt_kit.phases.shared.command_runner import CommandRunner
 from punt_kit.phases.shared.errors import ReleaseError
 
 if TYPE_CHECKING:
@@ -51,13 +53,14 @@ class BeadsInit:
         # Derive prefix from directory name
         prefix = info.root.name.replace("-", "").replace("_", "")
         try:
-            subprocess.run(
+            CommandRunner.run(
                 [bd, "init", "--prefix", prefix],
                 cwd=str(info.root),
-                check=True,
-                capture_output=True,
-                text=True,
+                timeout=timeouts.BD_INIT,
             )
+        except subprocess.TimeoutExpired as exc:
+            msg = f"beads init timed out after {timeouts.BD_INIT}s"
+            raise BeadsInitError(msg) from exc
         except subprocess.CalledProcessError as exc:
             msg = f"beads init failed: {exc.stderr.strip() or exc}"
             raise BeadsInitError(msg) from exc

@@ -18,6 +18,11 @@ from __future__ import annotations
 # GIT_HOOK whatever it asks for (see ``HookFiringCommand``).
 DEFAULT_RUN = 60
 
+# ``punt init``'s ``bd init``: creates a local database and may contact a
+# shared Dolt server. Seconds when healthy; two minutes separates a slow
+# server from a hung one, so ``punt init`` never waits forever on it.
+BD_INIT = 120
+
 # uv resolves dependencies, downloads wheels, and may build native bindings.
 # A first-run resolve on a cold cache takes minutes; anything past ten is a
 # wedge, not a slow install.

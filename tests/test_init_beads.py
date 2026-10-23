@@ -8,6 +8,7 @@ import pytest
 
 from punt_kit.detect import detect
 from punt_kit.init_beads import BeadsInit, BeadsInitError
+from punt_kit.phases.shared import timeouts
 from tests.helpers import fake_bd
 
 if TYPE_CHECKING:
@@ -86,4 +87,15 @@ def test_a_bd_that_cannot_run_raises(
     _with_bd(monkeypatch, tmp_path, "#!/nonexistent/interpreter\n")
 
     with pytest.raises(BeadsInitError, match="beads init failed: .*No such file"):
+        BeadsInit(detect(root)).run()
+
+
+def test_a_bd_that_hangs_raises_naming_the_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path)
+    _with_bd(monkeypatch, tmp_path, "#!/bin/sh\nexec sleep 30\n")
+    monkeypatch.setattr(timeouts, "BD_INIT", 1)
+
+    with pytest.raises(BeadsInitError, match="beads init timed out after 1s"):
         BeadsInit(detect(root)).run()
