@@ -278,3 +278,18 @@ def test_staged_mode(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="1"):
         run_pii(str(tmp_path), staged=True)
+
+
+def test_load_config_reads_a_pyproject_and_standalone_file_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    section = '[tool.punt.pii]\nallow_emails = ["a@example.com"]\n'
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + section).encode())
+    assert load_config(tmp_path).allow_emails == ["a@example.com"]
+
+    standalone = tmp_path / "s"
+    standalone.mkdir()
+    (standalone / ".punt-pii.toml").write_bytes(
+        ("\ufeff" + 'allow_emails = ["b@example.com"]\n').encode()
+    )
+    assert load_config(standalone).allow_emails == ["b@example.com"]

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import cast
 
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
 
 # Where a plugin manifest can sit, most specific first.
 #
@@ -108,8 +109,7 @@ def detect(root: Path) -> ProjectInfo:
     # Check pyproject.toml
     pyproject_path = root / "pyproject.toml"
     if pyproject_path.exists():
-        with open(pyproject_path, "rb") as f:
-            pyproject_data = tomllib.load(f)
+        pyproject_data = tomllib.loads(TextFile(pyproject_path).read())
         if "project" in pyproject_data:
             language = "python"
             project_type = "package"

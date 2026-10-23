@@ -18,6 +18,7 @@ from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
 
@@ -153,8 +154,7 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append((FAIL, "pyproject.toml exists", "Missing"))
         return results
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
+    data = tomllib.loads(TextFile(pyproject_path).read())
 
     tool = data.get("tool", {})
 
@@ -819,8 +819,7 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not pyproject_path.exists():
         return []
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
+    data = tomllib.loads(TextFile(pyproject_path).read())
 
     project_raw = data.get("project")
     if not isinstance(project_raw, dict):

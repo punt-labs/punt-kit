@@ -12,6 +12,8 @@ from typing import cast
 
 from rich.console import Console
 
+from punt_kit.phases.shared.text_file import TextFile
+
 console = Console()
 
 # ---------------------------------------------------------------------------
@@ -96,8 +98,7 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
     # Try pyproject.toml first
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
-        with open(pyproject, "rb") as f:
-            data = tomllib.load(f)
+        data = tomllib.loads(TextFile(pyproject).read())
         pii_section = _drill(data, "tool", "punt", "pii")
         if pii_section is not None:
             return _config_from_dict(pii_section)
@@ -112,8 +113,7 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
 
 def _parse_toml_config(path: Path) -> PiiConfig:
     """Parse a standalone .punt-pii.toml file."""
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    data = tomllib.loads(TextFile(path).read())
     return _config_from_dict(data)
 
 

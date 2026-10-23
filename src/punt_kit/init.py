@@ -17,6 +17,7 @@ from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
 
@@ -366,8 +367,7 @@ def _init_python_config(info: ProjectInfo) -> list[str]:
     if not pyproject_path.exists():
         return []
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
+    data = tomllib.loads(TextFile(pyproject_path).read())
 
     original = _toml_dump(data)
     changed = False

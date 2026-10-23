@@ -233,3 +233,12 @@ def test_detect_reads_a_plugin_manifest_that_starts_with_a_bom(tmp_path: Path) -
     info = detect(tmp_path)
 
     assert info.plugin_mcp_servers == ["srv"]
+
+
+def test_detect_reads_a_pyproject_that_starts_with_a_bom(tmp_path: Path) -> None:
+    body = '[project]\r\nname = "test-pkg"\r\n[project.scripts]\r\ncli = "x:main"\r\n'
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + body).encode())
+
+    info = detect(tmp_path)
+
+    assert (info.language, info.cli_commands) == ("python", ["cli"])
