@@ -96,6 +96,7 @@ class VersionAssignment:
             for match in self._assigned.finditer(text)
         )
 
+    # None: absence is the contract; callers branch on "no plain value assigned".
     def read(self, text: str) -> str | None:
         """The first plain value assigned, or ``None`` when there is none."""
         match = self._readable(text)
@@ -129,6 +130,7 @@ class VersionAssignment:
         parts.append(text[end:])
         return "".join(parts), len(matches)
 
+    # None marks a computed value, which no literal can stand in for.
     def values(self, text: str) -> tuple[str | None, ...]:
         """The value of each assignment in order; ``None`` for a computed one.
 
@@ -175,6 +177,7 @@ class VersionAssignment:
         """True for a quoted empty value: a deliberate reset, never rewritten."""
         return bool(match.group(2)) and match.group(3) == ""
 
+    # None: no plain literal supplies the value; the caller reports it unreadable.
     def _readable(self, text: str) -> re.Match[str] | None:
         """The match that supplies the value, or ``None`` when it is not plain."""
         if not self._is_shell:
@@ -184,6 +187,7 @@ class VersionAssignment:
             return None
         return self._value_at(text, first.start())
 
+    # None: the assignment at ``start`` is computed, not a plain literal.
     def _value_at(self, text: str, start: int) -> re.Match[str] | None:
         """The value of the assignment at ``start``, if it is a plain literal."""
         match = self._quoted.match(text, start)

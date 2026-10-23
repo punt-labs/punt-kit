@@ -181,6 +181,7 @@ class ReleasePipeline:
         if not isinstance(exc, ReportedReleaseError):
             _console.print(f"[red]Error:[/red] {escape(str(exc))}")
 
+    # None: an interrupt can arrive with no error in flight to show.
     @classmethod
     def print_in_flight(cls, exc: BaseException | None) -> None:
         """Show the error an interrupt is about to replace, as its handler would."""

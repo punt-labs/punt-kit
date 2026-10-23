@@ -63,6 +63,7 @@ class OperationalFailure:
             detail = f"...{detail[-cls.DETAIL_LIMIT :]}"
         return detail
 
+    # None: a command that captured nothing leaves stderr and output unset.
     @staticmethod
     def _text(raw: str | bytes | None) -> str:
         """``raw`` as one line of text: a timeout hands back bytes, not str."""
