@@ -10,22 +10,17 @@ if TYPE_CHECKING:
 
     from punt_kit.phases.shared.ops import ReleaseOps
 
-# The body of the [Unreleased] section: everything up to the next version
-# heading. Anchored on line starts so an EMPTY section (heading, blank line,
-# next heading) captures nothing instead of swallowing the next release's notes.
-_UNRELEASED_BODY = re.compile(
-    r"^## \[Unreleased\][^\n]*\n(.*?)(?=^## \[|\Z)", re.DOTALL | re.MULTILINE
-)
+# The [Unreleased] body, line-anchored so an empty section captures nothing
+# instead of the next release's notes.
+_UNRELEASED = re.compile(r"(?ms)^## \[Unreleased\][^\n]*(?:\n|\Z)(.*?)(?=^## \[|\Z)")
 
 
 def extract_version_notes(changelog: str, version: str) -> str:
     """Extract release notes for a specific version from changelog text.
 
-    Pure string transform — legitimate PY-OO-7 exception: it shares no
-    vocabulary with ``Changelog``'s fields, only the text a caller already
-    has in hand (``Changelog.notes_for`` reads the file, then delegates
-    here; tests exercise this directly against fabricated text with no
-    file at all).
+    Pure string transform (a PY-OO-7 exception): it takes only text, so tests
+    drive it against fabricated text with no file; ``Changelog.notes_for``
+    reads the file and delegates here.
     """
     pattern = rf"## \[{re.escape(version)}\][^\n]*\n"
     match = re.search(pattern, changelog)
@@ -40,7 +35,7 @@ def extract_version_notes(changelog: str, version: str) -> str:
 
 def suggest_next_version(changelog: str, current: str) -> str:
     """Suggest a version bump based on changelog content. Pure string transform."""
-    unreleased = _UNRELEASED_BODY.search(changelog)
+    unreleased = _UNRELEASED.search(changelog)
     if not unreleased:
         return current
 
@@ -52,7 +47,9 @@ def suggest_next_version(changelog: str, current: str) -> str:
     major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
 
     # Check for breaking changes only within the ### Changed subsection
-    changed_match = re.search(r"### Changed\n(.*?)(?=\n### |\Z)", content, re.DOTALL)
+    changed_match = re.search(
+        r"### Changed\r?\n(.*?)(?=\r?\n### |\Z)", content, re.DOTALL
+    )
     has_breaking = (
         changed_match is not None and "breaking" in changed_match.group(1).lower()
     )
@@ -85,9 +82,12 @@ class Changelog:
             self._ops.fail("CHANGELOG.md not found")
         return changelog.read_text(encoding="utf-8")
 
-    def has_unreleased_entries(self) -> bool:
-        match = _UNRELEASED_BODY.search(self.text())
-        return bool(match and match.group(1).strip())
+    def require_unreleased_entries(self) -> None:
+        body = _UNRELEASED.search(self.text())
+        if body is None:
+            self._ops.fail("No [Unreleased] section in CHANGELOG.md")
+        if not body.group(1).strip():
+            self._ops.fail("[Unreleased] section is empty — nothing to release")
 
     def notes_for(self, version: str) -> str:
         return extract_version_notes(self.text(), version)

@@ -141,11 +141,7 @@ class Phase1Preflight:
             self._warn_stale_prior_tag(info)
 
         # 1c. Changelog check
-        changelog = Changelog(info.root, ops=ops)
-        if "## [Unreleased]" not in changelog.text():
-            ops.fail("No [Unreleased] section in CHANGELOG.md")
-        if not changelog.has_unreleased_entries():
-            ops.fail("[Unreleased] section is empty — nothing to release")
+        Changelog(info.root, ops=ops).require_unreleased_entries()
         ops.ok("Changelog has unreleased entries")
 
         # 1d. Sibling repos (propagation targets) must be clean and on main.

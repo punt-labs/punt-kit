@@ -287,6 +287,15 @@ def test_suggest_version_major_bump() -> None:
     assert _suggest_version(cl, "1.2.3") == "2.0.0"
 
 
+def test_suggest_version_detects_breaking_change_in_crlf_changelog() -> None:
+    """A CRLF changelog's breaking ### Changed entry still bumps the major."""
+    cl = (
+        "# Changelog\r\n\r\n## [Unreleased]\r\n\r\n### Changed\r\n\r\n"
+        "- BREAKING: drop the old flag\r\n\r\n### Added\r\n\r\n- new flag\r\n"
+    )
+    assert _suggest_version(cl, "1.2.3") == "2.0.0"
+
+
 def test_suggest_version_breaking_in_fixed_not_major() -> None:
     """'breaking' in Fixed section does not trigger major bump."""
     cl = "## [Unreleased]\n\n### Fixed\n\n- Fixed breaking regression\n\n## [1.2.3]\n"
