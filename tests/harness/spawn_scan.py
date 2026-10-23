@@ -19,9 +19,6 @@ _SUBPROCESS_TYPES = frozenset(
 _OS_SPAWNERS = frozenset({"system", "popen", "fork", "forkpty", "startfile"})
 _OS_SPAWN_PREFIXES = ("exec", "spawn", "posix_spawn")
 
-# Ways to reach a module by name at runtime, which a static scan cannot follow.
-_DYNAMIC_IMPORTS = frozenset({"__import__", "import_module"})
-
 _PACKAGE = "punt_kit"
 
 
@@ -64,12 +61,13 @@ class SpawnScan:
     def spawning_names(self) -> list[str]:
         """Sorted, canonical names such as ``subprocess.run`` or ``os.execvp``."""
         aliases = self._module_aliases()
+        loaders = self._loader_names()
         found: set[str] = set()
         for node in ast.walk(self._tree):
             if isinstance(node, ast.ImportFrom):
                 found.update(self._imported_spawners(node))
             elif isinstance(node, ast.Call):
-                found.update(self._dynamic_import(node))
+                found.update(self._dynamic_import(node, loaders, aliases))
             elif (
                 isinstance(node, ast.Attribute)
                 and isinstance(node.value, ast.Name)
@@ -125,11 +123,36 @@ class SpawnScan:
             if a.name == "*" or cls._spawns(root, a.name)
         ]
 
-    @staticmethod
-    def _dynamic_import(node: ast.Call) -> list[str]:
+    def _loader_names(self) -> set[str]:
+        """Local names that load a module by string: ``__import__`` and any
+        binding of ``importlib.import_module``, whatever it is aliased to."""
+        return {"__import__"} | {
+            alias.asname or alias.name
+            for node in ast.walk(self._tree)
+            if isinstance(node, ast.ImportFrom) and node.module == "importlib"
+            for alias in node.names
+            if alias.name in {"import_module", "*"}
+        }
+
+    @classmethod
+    def _dynamic_import(
+        cls, node: ast.Call, loaders: set[str], aliases: dict[str, str]
+    ) -> list[str]:
+        """Calls that load a module by string, or reach into a watched module."""
         func = node.func
-        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", "")
-        return [name] if name in _DYNAMIC_IMPORTS else []
+        if isinstance(func, ast.Attribute):
+            return ["import_module"] if func.attr == "import_module" else []
+        if not isinstance(func, ast.Name):
+            return []
+        if func.id in loaders:
+            return [func.id if func.id == "__import__" else "import_module"]
+        return cls._getattr_on_watched(node, aliases) if func.id == "getattr" else []
+
+    @staticmethod
+    def _getattr_on_watched(node: ast.Call, aliases: dict[str, str]) -> list[str]:
+        target = node.args[0] if node.args else None
+        module = aliases.get(target.id) if isinstance(target, ast.Name) else None
+        return [f"getattr({module})"] if module else []
 
     @staticmethod
     def _spawns(module: str, name: str) -> bool:

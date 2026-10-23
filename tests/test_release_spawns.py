@@ -39,6 +39,24 @@ _PACKAGE = Path(punt_kit.__file__).parent
         ),
         pytest.param("__import__(name)", ["__import__"], id="computed-import"),
         pytest.param("import os\nos.system(c)", ["os.system"], id="os-system"),
+        pytest.param(
+            'import os\ngetattr(os, "system")(c)', ["getattr(os)"], id="getattr-os"
+        ),
+        pytest.param(
+            'import subprocess as sp\ngetattr(sp, "run")(c)',
+            ["getattr(subprocess)"],
+            id="getattr-subprocess",
+        ),
+        pytest.param(
+            'from importlib import import_module as im\nim("os").system(c)',
+            ["import_module"],
+            id="import-module-alias",
+        ),
+        pytest.param(
+            'import importlib as il\nil.import_module("os")',
+            ["import_module"],
+            id="importlib-alias",
+        ),
         pytest.param("import os as o\no.execvp(a, b)", ["os.execvp"], id="os-exec"),
         pytest.param("from os import fork", ["os.fork"], id="os-fork"),
         pytest.param("import os\nos.spawnl(1, a)", ["os.spawnl"], id="os-spawn"),
@@ -70,6 +88,10 @@ def test_the_scan_catches_every_way_to_start_a_process(
         pytest.param("from subprocess import TimeoutExpired", id="from-timeout"),
         pytest.param("import os\nos.path.join(a, b)", id="os-path"),
         pytest.param("import asyncio\nasyncio.sleep(1)", id="asyncio-sleep"),
+        pytest.param('getattr(thing, "run")', id="getattr-unwatched"),
+        pytest.param(
+            "def import_module(n): ...\nimport_module('x')", id="own-function"
+        ),
     ],
 )
 def test_the_scan_allows_the_types_and_unrelated_calls(source: str) -> None:
@@ -89,3 +111,10 @@ def test_only_run_spawns_a_release_process() -> None:
         if SpawnScan.of_file(path).spawning_names()
     }
     assert spawners == {"release.py": ["subprocess.run"]}
+
+
+def test_every_phase_module_is_reached_so_none_goes_unscanned() -> None:
+    """A phase loaded dynamically would not be followed by imports, so pin them."""
+    reached = set(SpawnScan.reachable_from(_PACKAGE / "release.py"))
+    phases = set((_PACKAGE / "phases").rglob("*.py"))
+    assert phases - reached == set()
