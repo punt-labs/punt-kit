@@ -6,7 +6,7 @@ from typing import ClassVar, NoReturn, final
 
 from rich.console import Console
 
-from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.errors import ReportedReleaseError
 
 
 @final
@@ -60,7 +60,7 @@ class Reporter:
 
     def fail(self, msg: str) -> NoReturn:
         self._console.print(f"[red]Error:[/red] {msg}")
-        raise ReleaseError(msg)
+        raise ReportedReleaseError(msg)
 
 
 # Process-wide singleton — release.py aliases _ok/_info/_dry/_warn/_fail to

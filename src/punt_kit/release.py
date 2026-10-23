@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast, final
 
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.phases.phase01_preflight import Phase1Preflight
@@ -33,6 +34,7 @@ from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import hook_firing, timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
+from punt_kit.phases.shared.errors import ReportedReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.phase_order import PhaseOrder
@@ -424,7 +426,7 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-def _print_incomplete_release(current_phase_num: int) -> None:
+def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> None:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
     Called from every stop-early path — an interrupt, a propagation
@@ -434,22 +436,32 @@ def _print_incomplete_release(current_phase_num: int) -> None:
     unconfirmed, and the exact command to re-enter. Every exit gets it, not
     only a ``subprocess.TimeoutExpired``: the interrupt path especially, where
     a bare error would leave the operator with nothing to act on.
+
+    ``current_phase_num`` is where the release stopped; ``resume_phase_num`` is
+    where it must be re-entered, which is earlier when a recorded Phase 9/10
+    failure is still outstanding. Phase 0 means nothing had run yet.
     """
+    if current_phase_num == 0:
+        console.print("[red]Release incomplete[/red] — failed before any phase ran.")
+        console.print("  Fix the error above, then run punt release again.")
+        ReleasePipeline.print_manual_actions(_skips)
+        return
     phase_label = PhaseOrder.name_of(current_phase_num)
-    unlanded = PhaseOrder.unlanded_from(current_phase_num)
+    resume_label = PhaseOrder.name_of(resume_phase_num)
+    unlanded = PhaseOrder.unlanded_from(resume_phase_num)
     console.print(
         f"[red]Release incomplete[/red] — stopped during phase "
         f"{current_phase_num} ({phase_label})."
     )
     if unlanded:
         console.print(f"  Not confirmed landed: {', '.join(unlanded)}")
-    if phase_label == "unknown":
+    if resume_label == "unknown":
         console.print(
             "  A phase could not be identified — investigate the error "
             "above before choosing --resume-from."
         )
     else:
-        console.print(f"  Resume with: punt release --resume-from {phase_label}")
+        console.print(f"  Resume with: punt release --resume-from {resume_label}")
     ReleasePipeline.print_manual_actions(_skips)
 
 
@@ -482,6 +494,17 @@ def run_release(
     # run fails loudly. Declared before the outer try so the incomplete-release
     # report can recap them whichever exception ends the run.
     propagation_failures: list[tuple[int, str]] = []
+
+    def _resume_phase_num() -> int:
+        # A later phase can stop the run on top of a recorded Phase 9/10
+        # failure. The stop is reported where it happened, but --resume-from
+        # points back at the phase that needs re-running (post-release re-enters
+        # both P9 and P10): re-running verify alone would never retry the
+        # propagation that verify's own checks are reporting on.
+        if propagation_failures:
+            return min(n for n, _ in propagation_failures)
+        return current_phase_num
+
     try:
         if not root.is_dir():
             _fail(f"{root} is not a directory")
@@ -684,19 +707,7 @@ def run_release(
                 ),
                 ops=_ops,
             )
-            try:
-                pipeline.run(start=start)
-            except Exception:
-                # Phase 11 (or a later phase) raised on top of an already-
-                # recorded propagation failure — point --resume-from back at
-                # the phase that actually needs re-running (post-release,
-                # which re-enters both P9 and P10) rather than at whatever
-                # later phase's own current_phase_num happened to be set
-                # when it raised. Re-running verify alone would never retry
-                # the propagation that verify's own checks are reporting on.
-                if propagation_failures:
-                    current_phase_num = min(n for n, _ in propagation_failures)
-                raise
+            pipeline.run(start=start)
 
             if propagation_failures:
                 # Phase 11 ran and did not itself raise — the propagation
@@ -719,10 +730,14 @@ def run_release(
             if _interrupted.is_set():
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
-                _print_incomplete_release(current_phase_num)
+                _print_incomplete_release(current_phase_num, _resume_phase_num())
                 sys.exit(1)
-    except ReleaseError:
-        _print_incomplete_release(current_phase_num)
+    except ReleaseError as exc:
+        # Reporter.fail printed its own message; any other ReleaseError (an
+        # unreadable file, a failed detection) reaches here unprinted.
+        if not isinstance(exc, ReportedReleaseError):
+            console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        _print_incomplete_release(current_phase_num, _resume_phase_num())
         raise SystemExit(1) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
@@ -738,17 +753,20 @@ def run_release(
         else:
             cmd_str = str(raw_cmd)
         phase_label = PhaseOrder.name_of(current_phase_num)
-        if phase_label == "unknown":
+        resume_label = PhaseOrder.name_of(_resume_phase_num())
+        if resume_label == "unknown":
             resume_hint = (
                 "Investigate the command; a phase could not be identified, "
                 "so pick the earliest --resume-from that covers the failure."
             )
-            location = "before the first phase started"
         else:
             resume_hint = (
                 f"Investigate the command, then resume with "
-                f"punt release --resume-from {phase_label}."
+                f"punt release --resume-from {resume_label}."
             )
+        if phase_label == "unknown":
+            location = "before the first phase started"
+        else:
             location = f"in phase {current_phase_num} ({phase_label})"
         console.print(
             f"[red]Error:[/red] release aborted {location} — "
@@ -763,5 +781,5 @@ def run_release(
         # and no idea what landed. Show the traceback, then the same recap and
         # --resume-from hint every other stop-early path gives.
         traceback.print_exc()
-        _print_incomplete_release(current_phase_num)
+        _print_incomplete_release(current_phase_num, _resume_phase_num())
         raise SystemExit(1) from None

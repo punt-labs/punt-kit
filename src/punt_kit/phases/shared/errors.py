@@ -7,6 +7,16 @@ class ReleaseError(Exception):
     """Raised by release phases to indicate a failure with a message."""
 
 
+class ReportedReleaseError(ReleaseError):
+    """A :class:`ReleaseError` whose message was already printed to the operator.
+
+    ``Reporter.fail`` prints before it raises. Every other ``ReleaseError``
+    (an unreadable file, a failed detection) reaches ``run_release`` unprinted,
+    and the top-level handler uses this type to tell the two apart so that
+    each failure is shown exactly once.
+    """
+
+
 class RemoteLookupError(ReleaseError):
     """Raised when git cannot say what the ``origin`` remote is.
 
