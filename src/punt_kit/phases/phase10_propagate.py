@@ -3,14 +3,16 @@ marketplace.json, and public-website projects.json."""
 
 from __future__ import annotations
 
-import json
-import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.project_remote import ProjectRemote
@@ -110,9 +112,9 @@ class InstallAllPropagator:
         install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
 
         content = install_all.read_text(encoding="utf-8")
-        esc = re.escape(project_name)
-        pattern = rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)"
-        new_content, count = re.subn(pattern, rf"\g<1>{install_sha}\2", content)
+        new_content, count = ShaPin.install_all_entry(project_name).repinned(
+            content, install_sha
+        )
 
         if count == 0:
             ops.info(f"install-all.sh: no entry for {project_name} — skipping")
@@ -194,11 +196,7 @@ class InstallAllPropagator:
             return
 
         readme_content = readme.read_text(encoding="utf-8")
-        new_readme, readme_count = re.subn(
-            r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
-            rf"\g<1>{github_sha}\2",
-            readme_content,
-        )
+        new_readme, readme_count = ShaPin.profile().repinned(readme_content, github_sha)
         if readme_count == 0:
             ops.info(
                 "profile/README.md: no install-all.sh SHA reference found — "
@@ -286,28 +284,23 @@ class MarketplacePropagator:
 
         claude_plugins_sibling.validate()
 
-        raw = json.loads(marketplace_path.read_text(encoding="utf-8"))
-        data = cast("dict[str, object]", raw)
+        marketplace_file = JsonFile(marketplace_path)
+        data = cast("dict[str, object]", marketplace_file.load())
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
 
         # Marketplace entries key on the plugin's SHORT name (e.g. "punt"),
         # not the PyPI distribution name (e.g. "punt-kit") — read it from the
-        # project's own plugin.json (post -dev-strip).
+        # project's own plugin.json (post -dev-strip). An entry's source.url
+        # (keyless HTTPS, git-subdir) must name the same owner/repo.
         marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-        candidates = {n for n in (marketplace_name, project_name) if n}
+        matcher = EntryMatcher(
+            slug.owner, frozenset(n for n in (marketplace_name, project_name) if n)
+        )
 
         found = False
         for plugin in plugins:
-            src = cast("dict[str, str]", plugin.get("source", {}))
-            # marketplace.json uses "url" for keyless HTTPS installs (git-subdir
-            # and the earlier plain-url source) — "repo" was the pre-migration
-            # key that pulled the whole repo to disk, and no live entry uses it
-            # anymore.
-            source_url = str(src.get("url", "")).removesuffix(".git")
-            if (
-                any(source_url.endswith("/" + n) for n in candidates)
-                or plugin.get("name") in candidates
-            ):
+            if matcher.claims_plugin(plugin):
+                src = cast("dict[str, str]", plugin.get("source", {}))
                 plugin["version"] = version
                 if "source" not in plugin:
                     plugin["source"] = src
@@ -321,7 +314,7 @@ class MarketplacePropagator:
                 "— required for plugin/hybrid releases"
             )
 
-        marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        marketplace_file.save(data)
 
         branch = f"propagate/v{version}-{project_name}-claude-plugins"
         if merge_sibling(
@@ -391,25 +384,21 @@ class WebsitePropagator:
 
         website_sibling.validate()
 
-        data = json.loads(projects_json.read_text(encoding="utf-8"))
+        projects_file = JsonFile(projects_json)
+        data = cast("list[dict[str, object]]", projects_file.load())
+        matcher = EntryMatcher(slug.owner, frozenset({project_name}))
 
         found = False
         for project in data:
-            github_url = project.get("githubUrl") or ""
-            if project.get("id") == project_name or github_url.endswith(
-                "/" + project_name
-            ):
+            if matcher.claims_website(project):
                 project["version"] = version
-                # Update installCommand SHA if present
-                install_cmd = project.get("installCommand") or ""
-                if install_cmd and f"/{project_name}/" in install_cmd:
+                # The same recognizer Phase 11 verifies the installCommand with.
+                install_cmd = str(project.get("installCommand") or "")
+                if install_cmd:
                     install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
-                    project["installCommand"] = re.sub(
-                        rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
-                        r"(/install\.sh)",
-                        rf"\g<1>{install_sha}\2",
-                        install_cmd,
-                    )
+                    project["installCommand"] = InstallUrlRecognizer(
+                        slug.owner, project_name
+                    ).repinned(install_cmd, install_sha)
                 found = True
                 break
 
@@ -417,7 +406,7 @@ class WebsitePropagator:
             ops.info(f"No website entry for {project_name} — skipping")
             return
 
-        projects_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        projects_file.save(data)
 
         branch = f"propagate/v{version}-{project_name}-public-website"
         if merge_sibling(

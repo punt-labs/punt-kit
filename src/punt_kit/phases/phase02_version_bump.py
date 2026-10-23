@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import datetime
-import json
 import re
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.timeouts import UV
 
@@ -112,14 +112,13 @@ class Phase2VersionBump:
         # is the contract, and 2d below stages only the files that exist.
         plugin_json = info.plugin_manifest if info.is_plugin else None
         if plugin_json is not None:
-            data = json.loads(plugin_json.read_text(encoding="utf-8"))
+            manifest = JsonFile(plugin_json)
+            data = cast("dict[str, object]", manifest.load())
             data["version"] = version
             if dry_run:
                 ops.dry(f'plugin.json: version = "{version}"')
             else:
-                plugin_json.write_text(
-                    json.dumps(data, indent=2) + "\n", encoding="utf-8"
-                )
+                manifest.save(data)
                 ops.ok(f'plugin.json: version = "{version}"')
 
         # Bump install.sh VERSION pin

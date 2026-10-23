@@ -5,22 +5,22 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
 from punt_kit.phases.shared.timeouts import UV
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
     from punt_kit.phases.shared.repo_slug import RepoSlug
@@ -30,142 +30,6 @@ if TYPE_CHECKING:
 # lines use raw console.print() with rich markup, not the _ok/_info/_warn
 # vocabulary.
 _console = Console()
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationCheck:
-    """One named pass/fail verdict with a human-readable detail."""
-
-    name: str
-    passed: bool
-    detail: str
-
-    @classmethod
-    def matches_install_sha(
-        cls,
-        name: str,
-        pinned_sha: str,
-        install_sha: str,
-        *,
-        cwd: Path,
-        ops: ReleaseOps,
-    ) -> Self:
-        """Verify a pinned SHA resolves to the CURRENT install.sh commit.
-
-        Ancestry alone (is the pin reachable from the tag?) is not enough: a
-        previous release's install.sh commit is itself an ancestor of every
-        later tag, so an ancestor-only check would pass the exact rot this
-        exists to catch — Phase 9/10 left the pin one release behind.
-
-        A textual prefix match (``pinned_sha.startswith(install_sha)``) is
-        not enough either: it treats an unresolved string as commit
-        identity, so a fabricated or nonexistent hash that merely starts
-        with the right characters — or a real but unrelated commit that
-        happens to share the short prefix — would pass without ever being
-        resolved. Both ``install_sha`` and ``pinned_sha`` are resolved to
-        full commit object IDs via ``git rev-parse <sha>^{commit}`` and
-        compared for equality, so a valid abbreviated or full pin of the
-        right commit passes, and an arbitrary/nonexistent hash fails.
-        """
-        expected = ops.run(
-            ["git", "rev-parse", f"{install_sha}^{{commit}}"],
-            cwd=str(cwd),
-            check=False,
-        )
-        if expected.returncode != 0:
-            # install_sha comes from a fresh git log on the caller's own
-            # repo, so it always resolves — a failure here is a genuine git
-            # error, not a stale pin, and must not be misreported as one.
-            return cls(
-                name,
-                False,
-                f"SHA={pinned_sha} (git error resolving expected commit "
-                f"{install_sha}: {expected.stderr.strip()})",
-            )
-        resolved = ops.run(
-            ["git", "rev-parse", f"{pinned_sha}^{{commit}}"],
-            cwd=str(cwd),
-            check=False,
-        )
-        if resolved.returncode != 0:
-            return cls(name, False, f"SHA={pinned_sha} (does not resolve to a commit)")
-        current = resolved.stdout.strip() == expected.stdout.strip()
-        detail = (
-            f"SHA={pinned_sha}"
-            if current
-            else f"SHA={pinned_sha} (stale — expected {install_sha})"
-        )
-        return cls(name, current, detail)
-
-
-@final
-class MarketplacePinCheck:
-    """Verifies the marketplace-pin chain for marketplace-only plugins.
-
-    Used only when a project has no ``install.sh`` — the profile-SHA check
-    has no direct install URL to verify against, so the pin chain (profile
-    -> install-all.sh's claude-plugins SHA -> that commit's
-    marketplace.json) is the equivalent invariant.
-    """
-
-    __slots__ = ()
-
-    def run(
-        self,
-        cp_sibling: Path | None,
-        claude_plugins_sha: str,
-        candidates: frozenset[str],
-        version: str,
-        tag: str,
-        *,
-        ops: ReleaseOps,
-    ) -> tuple[bool, str]:
-        """Check a pinned claude-plugins commit's marketplace.json for this project.
-
-        ``candidates`` is the set of names to accept for the entry — the caller
-        supplies both the PyPI distribution name and the marketplace short
-        name (see ``ReleaseProject.marketplace_name``), since marketplace
-        entries key on the plugin's short name (``punt``) while the CLI knows
-        the project by the pyproject distribution name (``punt-kit``).
-
-        Returns ``(passed, detail)``.
-        """
-        if cp_sibling is None:
-            return False, "claude-plugins sibling not found"
-        show = ops.run(
-            ["git", "show", f"{claude_plugins_sha}:.claude-plugin/marketplace.json"],
-            cwd=str(cp_sibling),
-            check=False,
-        )
-        if show.returncode != 0:
-            return False, f"claude-plugins@{claude_plugins_sha} does not resolve"
-        data = cast("dict[str, object]", json.loads(show.stdout))
-        plugins = cast("list[dict[str, object]]", data.get("plugins", []))
-        for p in plugins:
-            src = cast("dict[str, str]", p.get("source", {}))
-            # marketplace.json uses "url" for keyless HTTPS installs
-            # (git-subdir and the earlier plain-url source). "repo" was the
-            # pre-migration key that cloned the whole repo to disk and no live
-            # entry uses it anymore.
-            source_url = str(src.get("url", "")).removesuffix(".git")
-            if (
-                any(source_url.endswith("/" + n) for n in candidates)
-                or str(p.get("name", "")) in candidates
-            ):
-                ok = (
-                    str(p.get("version", "")) == version
-                    and str(src.get("ref", "")) == tag
-                )
-                return (
-                    ok,
-                    f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, "
-                    f"ref={src.get('ref')}",
-                )
-        names = ",".join(sorted(candidates)) or "?"
-        return (
-            False,
-            f"claude-plugins@{claude_plugins_sha} has no entry for {names}",
-        )
 
 
 @final
@@ -308,13 +172,8 @@ class Phase11Verify:
                     )
                 else:
                     iac = install_all.read_text(encoding="utf-8")
-                    curl_match = re.search(
-                        rf"\$GH/{re.escape(project_name)}/"
-                        r"([0-9a-fA-F]{7,40})/install\.sh",
-                        iac,
-                    )
-                    if curl_match:
-                        sha = curl_match.group(1)
+                    sha = ShaPin.install_all_entry(project_name).first_sha(iac)
+                    if sha is not None:
                         vr = ops.run(
                             ["git", "show", f"{sha}:install.sh"],
                             cwd=str(info.root),
@@ -381,7 +240,10 @@ class Phase11Verify:
         if repo and (info.is_plugin or info.is_hybrid):
             project_name = repo.name
             marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-            candidates = frozenset(n for n in (marketplace_name, project_name) if n)
+            matcher = EntryMatcher(
+                repo.owner,
+                frozenset(n for n in (marketplace_name, project_name) if n),
+            )
             claude_plugins_sibling = SiblingRepo.resolve(
                 info.root, "claude-plugins", ops=ops
             )
@@ -407,14 +269,8 @@ class Phase11Verify:
                     plugins = cast("list[dict[str, object]]", data.get("plugins", []))
                     mp_found = False
                     for p in plugins:
-                        src = cast("dict[str, str]", p.get("source", {}))
-                        # marketplace.json uses source.url (keyless HTTPS,
-                        # git-subdir).
-                        source_url = str(src.get("url", "")).removesuffix(".git")
-                        if (
-                            any(source_url.endswith("/" + n) for n in candidates)
-                            or p.get("name") in candidates
-                        ):
+                        if matcher.claims_plugin(p):
+                            src = cast("dict[str, str]", p.get("source", {}))
                             mp_ver = str(p.get("version", ""))
                             mp_ref = str(src.get("ref", ""))
                             ok = mp_ver == version and mp_ref == tag
@@ -428,7 +284,7 @@ class Phase11Verify:
                             mp_found = True
                             break
                     if not mp_found:
-                        names = ",".join(sorted(candidates))
+                        names = ",".join(sorted(matcher.names))
                         checks.append(
                             VerificationCheck(
                                 "marketplace",
@@ -459,11 +315,8 @@ class Phase11Verify:
                     )
                 else:
                     content = readme.read_text(encoding="utf-8")
-                    sha_match = re.search(
-                        r"punt-labs/\.github/([0-9a-fA-F]{7,40})/install-all\.sh",
-                        content,
-                    )
-                    if not sha_match:
+                    profile_sha = ShaPin.profile().first_sha(content)
+                    if profile_sha is None:
                         checks.append(
                             VerificationCheck(
                                 "profile SHA",
@@ -472,7 +325,6 @@ class Phase11Verify:
                             )
                         )
                     else:
-                        profile_sha = sha_match.group(1)
                         # The pinned SHA must resolve AND its content must
                         # carry this project's current install SHA — a
                         # resolvable pin that predates the propagation merge
@@ -526,19 +378,17 @@ class Phase11Verify:
                         elif install_sh.exists():
                             project_name = repo.name
                             install_sha = project.install_sh_sha()
-                            current_entry = re.search(
-                                rf"\$GH/{re.escape(project_name)}/"
-                                rf"{re.escape(install_sha)}[0-9a-fA-F]*/install\.sh",
-                                show_result.stdout,
-                            )
+                            is_current = ShaPin.install_all_entry(
+                                project_name
+                            ).has_pin_starting_with(show_result.stdout, install_sha)
                             checks.append(
                                 VerificationCheck(
                                     "profile SHA",
-                                    current_entry is not None,
+                                    is_current,
                                     f"SHA={profile_sha}"
                                     + (
                                         ""
-                                        if current_entry
+                                        if is_current
                                         else (
                                             " (stale — lacks "
                                             f"{project_name}@{install_sha})"
@@ -555,10 +405,9 @@ class Phase11Verify:
                             # marketplace.json must carry this project's
                             # current version/ref.
                             project_name = repo.name
-                            mp_pin = re.search(
-                                r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh",
-                                show_result.stdout,
-                            )
+                            mp_pin = ShaPin.install_all_entry(
+                                "claude-plugins"
+                            ).first_sha(show_result.stdout)
                             if mp_pin is None:
                                 checks.append(
                                     VerificationCheck(
@@ -580,13 +429,16 @@ class Phase11Verify:
                                 marketplace_name = ReleaseProject(
                                     info, ops=ops
                                 ).marketplace_name()
-                                candidates = frozenset(
-                                    n for n in (marketplace_name, project_name) if n
+                                matcher = EntryMatcher(
+                                    repo.owner,
+                                    frozenset(
+                                        n for n in (marketplace_name, project_name) if n
+                                    ),
                                 )
                                 ok, detail = MarketplacePinCheck().run(
                                     cp_sibling,
-                                    mp_pin.group(1),
-                                    candidates,
+                                    mp_pin,
+                                    matcher,
                                     version,
                                     tag,
                                     ops=ops,
@@ -628,11 +480,9 @@ class Phase11Verify:
                 if pj.exists():
                     data = json.loads(pj.read_text(encoding="utf-8"))
                     web_found = False
+                    web_matcher = EntryMatcher(repo.owner, frozenset({project_name}))
                     for entry in data:
-                        github_url = entry.get("githubUrl") or ""
-                        if entry.get("id") == project_name or github_url.endswith(
-                            "/" + project_name
-                        ):
+                        if web_matcher.claims_website(entry):
                             web_ver = entry.get("version")
                             checks.append(
                                 VerificationCheck(
@@ -670,14 +520,8 @@ class Phase11Verify:
                                             all_urls_relevant=True,
                                         )
                                     )
-                                    # If neither: no SHA-shaped install URL
-                                    # at all (version-tag or branch pin, or
-                                    # no install.sh reference) — skip. That
-                                    # shape is not this check's concern; it
-                                    # matches WebsitePropagator's own
-                                    # tolerance, whose re.sub silently no-ops
-                                    # on a non-SHA-shaped install URL rather
-                                    # than treating it as an error.
+                                    # A branch pin or no install.sh reference
+                                    # has no pin to go stale: no check.
                             web_found = True
                             break
                     if not web_found:
@@ -778,18 +622,30 @@ class Phase11Verify:
         never be skipped just because a trusted pin was also found.
         """
         recognizer = InstallUrlRecognizer(slug.owner, slug.name)
-        trusted_shas, has_untrusted = recognizer.classify(
+        trusted_pins, has_untrusted = recognizer.classify(
             text, all_urls_relevant=all_urls_relevant
         )
         checks: list[VerificationCheck] = []
-        if trusted_shas:
+        if trusted_pins:
             install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
-            checks.extend(
-                VerificationCheck.matches_install_sha(
-                    label, sha, install_sha, cwd=self._info.root, ops=self._ops
-                )
-                for sha in sorted(set(trusted_shas))
-            )
+            for pin in sorted(set(trusted_pins)):
+                if recognizer.is_sha_segment(pin):
+                    checks.append(
+                        VerificationCheck.matches_install_sha(
+                            label, pin, install_sha, cwd=self._info.root, ops=self._ops
+                        )
+                    )
+                else:
+                    # A release tag is still a pin: the bump rewrites it to the
+                    # install SHA, so one left behind was never rewritten.
+                    checks.append(
+                        VerificationCheck(
+                            label,
+                            False,
+                            f"{pin} (a release-tag pin, stale — expected "
+                            f"{install_sha})",
+                        )
+                    )
         if has_untrusted:
             checks.append(
                 VerificationCheck(

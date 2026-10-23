@@ -13,18 +13,20 @@ _SHA_SHAPE = re.compile(r"[0-9a-fA-F]{7,40}")
 _RELEASE_TAG_SHAPE = re.compile(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", re.IGNORECASE)
 
 _INSTALL_SH = "install.sh"
+_TRUSTED_HOST = "raw.githubusercontent.com"
 
 
 @dataclass(frozen=True, slots=True)
 class InstallUrl:
     """One install.sh URL reference found in text, already classified.
 
-    ``url`` is the percent-decoded URL. ``segment`` is the pinned path
-    segment (a commit SHA, a release tag, a branch) and is empty unless
-    the URL is trusted. ``segment_span`` locates that segment in the
-    scanned text so a caller can rewrite it; it is ``None`` when the
-    reference only appeared after percent-decoding (there is no plain
-    text to rewrite) or when the URL is untrusted.
+    ``url`` is the percent-decoded URL of the reference — for a token whose
+    decoding never settles, the raw token. ``segment`` is the pinned path
+    segment (a commit SHA, a release tag, a branch) and is empty unless the
+    URL is trusted. ``segment_span`` locates that segment in the scanned
+    text so a caller can rewrite it; it is ``None`` when the reference only
+    appeared after percent-decoding (there is no plain text to rewrite) or
+    when the URL is untrusted.
     """
 
     url: str
@@ -35,7 +37,7 @@ class InstallUrl:
     @property
     def is_sha_pin(self) -> bool:
         """True for a trusted URL pinned to a commit SHA."""
-        return self.is_trusted and _SHA_SHAPE.fullmatch(self.segment) is not None
+        return self.is_trusted and InstallUrlRecognizer.is_sha_segment(self.segment)
 
     @property
     def is_pin(self) -> bool:
@@ -65,8 +67,10 @@ class InstallUrlRecognizer:
 
     In scope — a URL is TRUSTED when, after percent-decoding to a fixed
     point, it is exactly ``https://raw.githubusercontent.com/<owner>/
-    <repo>/<segment>/install.sh``. Scheme, host, owner, repo and the
-    file name compare case-insensitively (GitHub routes them that way).
+    <repo>/<segment>/install.sh``: no userinfo and no port, because a
+    trusted pin URL has neither and either one can hide the real host from
+    a reader. Scheme, host, owner, repo and the file name compare
+    case-insensitively (GitHub routes them that way).
     The segment is a *pin* when it is a 7-40 hex commit SHA or a release
     tag ``vX.Y.Z[-prerelease]``; ``ReadmeShaPin.bump`` rewrites both. Any
     other segment (``main``, a branch) is tolerated and never rewritten:
@@ -74,10 +78,13 @@ class InstallUrlRecognizer:
 
     In scope as UNTRUSTED — any other install.sh URL that references this
     repository (the decoded path contains ``/<repo>/``): a different
-    owner, a different host, trailing garbage glued onto the URL, a
-    percent-encoding chain that never settles. The repo name alone is the
-    reference test because an attacker can register a same-named repo
-    under their own owner on the genuine host. ``all_urls_relevant``
+    owner, a different host, userinfo or a port on the right host,
+    trailing garbage glued onto the URL, a percent-encoding chain that
+    never settles. A longer file name (``install.sh.bak``,
+    ``install.sh-old``) is not an install.sh reference at all. The repo
+    name alone is the reference test because an attacker can register a
+    same-named repo under their own owner on the genuine host.
+    ``all_urls_relevant``
     drops that test for text already known to describe this project
     (the website's ``installCommand``), where every install.sh URL counts.
 
@@ -107,11 +114,13 @@ class InstallUrlRecognizer:
     _URL_TOKEN = re.compile(r"""https?://[^\s"'|;]+""", re.IGNORECASE)
 
     # Where, in a decoded token, an install.sh reference ends: "install.sh"
-    # followed by a non-word character or the end of the string, never by
-    # another letter, digit, or underscore. Non-URL noise glued directly
-    # onto a real URL ("${IFS}") is dropped, because the "$" is itself a
-    # non-word character; "install.shellscript" is correctly not matched.
-    _INSTALL_SH_BOUNDARY = re.compile(r"install\.sh(?=$|\W)", re.IGNORECASE)
+    # followed by the end of the string or a non-word character, but never
+    # by a word character or by a dot or hyphen that continues the file name
+    # ("install.sh.bak", "install.sh-old"). Punctuation that merely ends a
+    # sentence ("install.sh.") still closes the reference. Non-URL noise
+    # glued directly onto a real URL ("${IFS}") is dropped, because the "$"
+    # is itself a non-word character; "install.shellscript" is not matched.
+    _INSTALL_SH_BOUNDARY = re.compile(r"install\.sh(?!\w|[.-]\w)", re.IGNORECASE)
 
     # Locates both ends of every install.sh reference in a fully decoded
     # token: a scheme start (group 1) or an install.sh boundary (group 2,
@@ -180,9 +189,10 @@ class InstallUrlRecognizer:
         independently. A reference is trusted only when the whole span
         matches ``https://raw.githubusercontent.com/<owner>/<repo>/
         <segment>/install.sh``, parsed with ``urlparse`` and accepted only
-        when the hostname equals ``raw.githubusercontent.com`` exactly (not
-        ``endswith``, which would accept ``raw.githubusercontent.com.evil
-        .com``) and the PATH fully matches. A bare substring match is not
+        when the network location equals ``raw.githubusercontent.com``
+        exactly (not ``endswith``, which would accept
+        ``raw.githubusercontent.com.evil.com``, and with no userinfo or
+        port) and the PATH fully matches. A bare substring match is not
         enough: ``https://evil.example/raw.githubusercontent.com/<owner>/
         <repo>/<sha>/install.sh`` carries the trusted string in an attacker
         host's path.
@@ -200,7 +210,7 @@ class InstallUrlRecognizer:
                 trusted = (
                     self._trusted.fullmatch(parsed.path)
                     if parsed.scheme == "https"
-                    and parsed.hostname == "raw.githubusercontent.com"
+                    and parsed.netloc.lower() == _TRUSTED_HOST
                     else None
                 )
                 if trusted is not None:
@@ -217,19 +227,26 @@ class InstallUrlRecognizer:
     def classify(
         self, content: str, *, all_urls_relevant: bool = False
     ) -> tuple[list[str], bool]:
-        """Return ``(trusted_sha_pins, has_untrusted)`` for ``content``.
+        """Return ``(trusted_pins, has_untrusted)`` for ``content``.
 
-        Trusted and untrusted references are reported independently: a text
-        can carry a current trusted pin AND an injected untrusted one, and
-        the latter must never be skipped because a trusted pin was found.
-        A trusted URL whose segment is not a SHA (a tag or branch) is
-        tolerated here; ``repinned`` is what handles tags.
+        A pin is a trusted URL pinned to a commit SHA or a release tag, the
+        same pins ``repinned`` rewrites, so a verifier sees every pin a
+        writer could leave behind. Trusted and untrusted references are
+        reported independently: a text can carry a current trusted pin AND
+        an injected untrusted one, and the latter must never be skipped
+        because a trusted pin was found. A trusted URL whose segment is a
+        branch (``main``) is not a pin and has nothing to go stale.
         """
         refs = self.scan(content, all_urls_relevant=all_urls_relevant)
         return (
-            [ref.segment for ref in refs if ref.is_sha_pin],
+            [ref.segment for ref in refs if ref.is_pin],
             any(not ref.is_trusted for ref in refs),
         )
+
+    @staticmethod
+    def is_sha_segment(segment: str) -> bool:
+        """True when ``segment`` is shaped like a 7-40 hex commit SHA."""
+        return _SHA_SHAPE.fullmatch(segment) is not None
 
     def repinned(self, content: str, sha: str) -> str:
         """Return ``content`` with every plain, trusted pin moved to ``sha``.

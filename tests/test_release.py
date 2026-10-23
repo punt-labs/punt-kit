@@ -32,7 +32,8 @@ from punt_kit.phases.phase10_propagate import (
     MarketplacePropagator,
     WebsitePropagator,
 )
-from punt_kit.phases.phase11_verify import Phase11Verify, VerificationCheck
+from punt_kit.phases.phase11_checks import VerificationCheck
+from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.ci_run import TagRunSelector
@@ -6811,7 +6812,7 @@ def test_phase11_verify_cli_only_project_runs_all_applicable_checks(
     )
     (root / "README.md").write_text(
         "# test-pkg\n\n```bash\ncurl -fsSL "
-        f"https://raw.githubusercontent.com/punt-labs/proj/v{version}/install.sh"
+        "https://raw.githubusercontent.com/punt-labs/proj/main/install.sh"
         " | sh\n```\n"
     )
     (root / "CHANGELOG.md").write_text(
@@ -7809,12 +7810,11 @@ def test_phase11_verify_readme_pin_fails_for_non_sha_downgrade_on_untrusted_host
     assert "trusted" in out
 
 
-def test_phase11_verify_readme_pin_skips_legit_trusted_version_tag(
+def test_phase11_verify_readme_pin_fails_a_trusted_version_tag_pin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A version-tag install URL on the genuinely trusted host/owner/repo
-    is skipped cleanly — it isn't a SHA pin, so there is nothing to check
-    for staleness, even though the host IS validated.
+    """A release-tag pin on the trusted host is a pin the bump should have
+    rewritten to the install SHA, so one left behind is stale.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -7826,15 +7826,38 @@ def test_phase11_verify_readme_pin_skips_legit_trusted_version_tag(
         "/install.sh | sh\n"
     )
     _git(["add", "README.md"], cwd=d)
-    _git(["commit", "-m", "pin readme to a legit trusted version-tag url"], cwd=d)
+    _git(["commit", "-m", "pin readme to a trusted version-tag url"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(info, version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["README pin"], "release-tag pin")
+
+
+def test_phase11_verify_readme_pin_skips_a_trusted_branch_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A branch URL on the trusted host is not a pin: nothing can go stale."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        "https://raw.githubusercontent.com/punt-labs/proj/main/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "readme tracks main"], cwd=d)
 
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
     _phase11_verify(info, version, dry_run=False)  # must not raise
 
-    out = capsys.readouterr().out
-    assert "README pin" not in out
+    assert "README pin" not in capsys.readouterr().out
 
 
 def test_phase11_verify_readme_pin_ignores_unrelated_tool_url(
@@ -8893,12 +8916,11 @@ def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
 def test_phase11_verify_website_sha_skips_when_not_sha_pinned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A version-tag (non-SHA) installCommand is skipped, not failed.
+    """A branch-pinned installCommand has no pin to go stale: skipped.
 
-    Matches WebsitePropagator's own tolerance: its re.sub silently no-ops
-    on a non-SHA-shaped install URL (a version-tag or branch pin) rather
-    than treating it as an error, so a website entry that legitimately
-    isn't SHA-pinned must not fail every release.
+    A branch (``main``) is not a pin, so the propagator never rewrites it and
+    the verifier has nothing to compare — a website entry that legitimately
+    is not pinned must not fail every release.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8910,7 +8932,7 @@ def test_phase11_verify_website_sha_skips_when_not_sha_pinned(
             "githubUrl": "https://github.com/punt-labs/proj",
             "installCommand": (
                 "curl -fsSL https://raw.githubusercontent.com/punt-labs/"
-                f"proj/v{version}/install.sh | sh"
+                "proj/main/install.sh | sh"
             ),
         }
     ]
@@ -12625,3 +12647,193 @@ def test_scp_style_remotes_parse_for_any_user_and_host_case(
 
     assert parsed is not None
     assert str(parsed) == slug
+
+
+# --- pins and entries: one rule, full slug ---
+
+
+def _github_project(tmp_path: Path) -> Path:
+    root = _make_release_project(tmp_path)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=str(root),
+    )
+    return root
+
+
+def test_marketplace_propagation_ignores_a_same_named_repo_of_another_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    foreign = {
+        "name": "foreign",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/someone-else/proj", "ref": "v0.1.0"},
+    }
+    ours = {
+        "name": "ours",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/punt-labs/proj.git", "ref": "v0.1.0"},
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(
+                {"plugins": [foreign, ours]}, indent=2
+            )
+            + "\n"
+        },
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_marketplace(detect(root), "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    plugins = json.loads(mp.read_text())["plugins"]
+    assert [p["version"] for p in plugins] == ["0.1.0", "0.2.0"]
+
+
+def test_marketplace_propagation_fails_when_only_another_owners_repo_matches(
+    tmp_path: Path,
+) -> None:
+    root = _github_project(tmp_path)
+    foreign = {
+        "name": "foreign",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/someone-else/proj", "ref": "v0.1.0"},
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {".claude-plugin/marketplace.json": json.dumps({"plugins": [foreign]})},
+    )
+
+    with pytest.raises(ReleaseError, match="No marketplace entry for proj"):
+        _propagate_marketplace(detect(root), "0.2.0", dry_run=False)
+
+
+def test_phase11_marketplace_check_ignores_a_same_named_repo_of_another_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _setup_fully_passing_verify(tmp_path, "0.1.0")
+    foreign = {
+        "name": "foreign",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/someone-else/proj", "ref": "v0.1.0"},
+    }
+    marketplace = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    marketplace.write_text(json.dumps({"plugins": [foreign]}))
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), "0.1.0", dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["marketplace"], "no entry for")
+
+
+def _website_with(tmp_path: Path, install_command: str) -> Path:
+    projects = [
+        {
+            "id": "proj",
+            "name": "Café",
+            "version": "0.1.0",
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": install_command,
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+    return tmp_path / "public-website" / "src" / "data" / "projects.json"
+
+
+def test_website_propagation_repins_a_release_tag_install_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    pj = _website_with(
+        tmp_path, f"curl -fsSL {_pin_url('punt-labs/proj', 'v0.1.0')} | sh"
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    command = json.loads(pj.read_text())[0]["installCommand"]
+    assert _pin_url("punt-labs/proj", _current_install_sha(root)) in command
+
+
+def test_website_propagation_leaves_another_owners_install_command_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    foreign = f"curl -fsSL {_pin_url('someone-else/proj', 'abc1234')} | sh"
+    pj = _website_with(tmp_path, foreign)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    assert json.loads(pj.read_text())[0]["installCommand"] == foreign
+
+
+@pytest.mark.parametrize("final_newline", [True, False])
+def test_propagation_writes_json_as_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, final_newline: bool
+) -> None:
+    root = _github_project(tmp_path)
+    pj = _website_with(tmp_path, "curl -fsSL https://example.test/x | sh")
+    text = pj.read_text()
+    pj.write_text(text if final_newline else text.rstrip("\n"))
+    _git(["add", "."], cwd=str(tmp_path / "public-website"))
+    _git(
+        ["commit", "--allow-empty", "-m", "newline"],
+        cwd=str(tmp_path / "public-website"),
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    written = pj.read_text()
+    assert ("Café" in written, written.endswith("\n")) == (True, final_newline)
+
+
+def test_marketplace_propagation_keeps_non_ascii_text_as_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    entry = {
+        "name": "proj",
+        "description": "naïve — café",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/punt-labs/proj", "ref": "v0.1.0"},
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {".claude-plugin/marketplace.json": json.dumps({"plugins": [entry]}, indent=2)},
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_marketplace(detect(root), "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    written = mp.read_text()
+    assert ("naïve — café" in written, written.endswith("\n")) == (True, False)
+
+
+def test_phase2_keeps_non_ascii_text_in_plugin_json(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    manifest = root / ".claude-plugin" / "plugin.json"
+    manifest.write_text(
+        json.dumps({"name": "t", "version": "0.1.0", "description": "naïve"}, indent=2)
+        + "\n"
+    )
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "describe"], cwd=str(root))
+    _git(["fetch", "origin"], cwd=str(root))
+
+    _bump(root)
+
+    assert "naïve" in manifest.read_text()
