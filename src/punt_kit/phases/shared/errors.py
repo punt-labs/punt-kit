@@ -41,7 +41,7 @@ class OperationalFailure:
         # The argv of a failed command is in str(exc); redact the whole line.
         line = RepoSlug.redacted(f"{type(exc).__name__}: {exc}")
         if detail := cls.detail(exc):
-            line = f"{line}: {detail}"
+            line = f"{line} — {detail}"
         return line
 
     @classmethod

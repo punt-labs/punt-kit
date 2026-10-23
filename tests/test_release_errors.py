@@ -359,7 +359,7 @@ def test_a_failed_command_in_a_synchronous_phase_shows_its_stderr(
 def test_a_failed_command_with_no_stderr_shows_its_output() -> None:
     line = OperationalFailure.one_line(_failed_command(stderr="", output="plain\n"))
 
-    assert line.endswith(": plain")
+    assert line.endswith(" — plain")
 
 
 def test_a_failed_command_with_long_stderr_is_truncated() -> None:
@@ -477,7 +477,7 @@ def test_a_reported_failure_is_not_repeated_on_interrupt(
 def test_the_tail_of_long_stderr_is_kept() -> None:
     line = OperationalFailure.one_line(_failed_command(stderr="x" * 5000 + " the end"))
 
-    assert (line.split(": ", 2)[2].startswith("..."), line.endswith("the end")) == (
+    assert (line.split(" — ", 1)[1].startswith("..."), line.endswith("the end")) == (
         True,
         True,
     )
@@ -535,3 +535,9 @@ def test_a_timeout_report_redacts_credentials_in_the_timed_out_command(
     out = flat(capsys.readouterr().out)
     assert "ghp_SECRET" not in out
     assert "did not return within 30s" in out
+
+
+def test_a_failed_command_line_joins_its_detail_with_a_dash_not_a_stray_colon() -> None:
+    line = OperationalFailure.one_line(_failed_command(stderr="no database"))
+
+    assert (line.endswith(" — no database"), ".:" in line) == (True, False)

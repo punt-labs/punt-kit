@@ -109,7 +109,7 @@ def test_a_failed_bd_init_is_reported_even_when_a_later_step_raises(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "beads init failed: CalledProcessError:" in out
-    assert out.endswith(": no database")
+    assert out.endswith(" — no database")
 
 
 def test_a_failed_bd_init_is_reported_once(

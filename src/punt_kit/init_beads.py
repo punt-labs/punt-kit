@@ -62,7 +62,7 @@ class BeadsInit:
         except subprocess.TimeoutExpired as exc:
             msg = f"beads init timed out after {timeouts.BD_INIT}s"
             if detail := OperationalFailure.detail(exc):
-                msg = f"{msg}: {detail}"
+                msg = f"{msg} — {detail}"
             raise BeadsInitError(self._with_partial(msg)) from exc
         except subprocess.CalledProcessError as exc:
             msg = f"beads init failed: {OperationalFailure.one_line(exc)}"

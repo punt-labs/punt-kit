@@ -90,7 +90,7 @@ def test_a_bd_that_exits_non_zero_raises_with_its_stderr(
     root = _project(tmp_path)
     _with_bd(monkeypatch, tmp_path, "#!/bin/sh\necho no database >&2\nexit 3\n")
 
-    with pytest.raises(BeadsInitError, match=r"beads init failed: .*: no database$"):
+    with pytest.raises(BeadsInitError, match=r"beads init failed: .* — no database$"):
         BeadsInit(detect(root)).run()
 
 
