@@ -46,6 +46,12 @@ def _no_bd(
     return _real_which(cmd, mode, path)
 
 
+@pytest.fixture(autouse=True)
+def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test here runs the host's `bd init`, which a failure now fails the run."""
+    monkeypatch.setattr(shutil, "which", _no_bd)
+
+
 def test_init_creates_docs_workflow(tmp_path: Path) -> None:
     """Init creates docs.yml for any project with markdown files."""
     (tmp_path / "README.md").write_text("# Test")
@@ -1198,9 +1204,10 @@ def test_init_validates_every_file_it_will_merge_before_writing(
     _python_project(tmp_path)
     (tmp_path / name).write_bytes(b"caf\xe9")
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as raised:
         run_init(str(tmp_path))
 
+    assert raised.value.code == 1
     assert not (tmp_path / ".github").exists()
     assert not (tmp_path / ".claude").exists()
 

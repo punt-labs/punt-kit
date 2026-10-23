@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import importlib.resources
-import shutil
-import subprocess
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -14,6 +12,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.init_beads import BeadsInit, BeadsInitError
 from punt_kit.permission_rules import RuleSet, Tier
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
@@ -199,7 +198,12 @@ def _init_project(path: str, *, language: str | None) -> None:
 
     changed.extend(_init_workflows(info))
     changed.extend(_init_python_config(info))
-    changed.extend(_init_beads(info))
+    beads_failure: BeadsInitError | None = None
+    try:
+        changed.extend(BeadsInit(info).run())
+    except BeadsInitError as exc:
+        # The other steps still run; the failure ends the run after them.
+        beads_failure = exc
     changed.extend(_init_claude_md(info))
     changed.extend(_init_permissions(info))
     changed.extend(_prune_settings_local(info))
@@ -213,6 +217,8 @@ def _init_project(path: str, *, language: str | None) -> None:
         console.print("\n[dim]No files needed updating.[/dim]")
 
     _report_manual_steps(info)
+    if beads_failure is not None:
+        raise beads_failure
 
 
 def _validate_inputs(info: ProjectInfo) -> None:
@@ -221,6 +227,9 @@ def _validate_inputs(info: ProjectInfo) -> None:
     settings = root / ".claude" / "settings.json"
     if settings.exists():
         JsonFile(settings).load_object()
+    # Every plugin manifest permissions will read, so a later malformed one
+    # cannot fail the run after the earlier steps have written.
+    _get_plugin_name(info)
     workflows = sorted((root / ".github" / "workflows").glob("*.y*ml"))
     for path in (*workflows, root / "CLAUDE.md", root / ".gitignore"):
         if path.exists():
@@ -341,7 +350,7 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
         target_path = workflows_dir / target_name
 
         if target_path.exists():
-            existing = target_path.read_text(encoding="utf-8")
+            existing = TextFile(target_path).read()
             if existing == rendered:
                 continue
             rel = _relpath(target_path, info.root)
@@ -420,33 +429,6 @@ def _init_python_config(info: ProjectInfo) -> list[str]:
     pyproject.write(updated)
     console.print("  [yellow]↻[/yellow] Updated tool config in pyproject.toml")
     return ["pyproject.toml"]
-
-
-def _init_beads(info: ProjectInfo) -> list[str]:
-    """Initialize beads if not present."""
-    if info.has_beads:
-        return []
-
-    bd = shutil.which("bd")
-    if bd is None:
-        console.print("  [yellow]⚠[/yellow] bd not found — skipping beads init")
-        return []
-
-    # Derive prefix from directory name
-    prefix = info.root.name.replace("-", "").replace("_", "")
-    try:
-        subprocess.run(
-            [bd, "init", "--prefix", prefix],
-            cwd=str(info.root),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        console.print(f"  [green]+[/green] Initialized beads (prefix: {prefix})")
-        return [".beads/"]
-    except subprocess.CalledProcessError as e:
-        console.print(f"  [red]✗[/red] beads init failed: {e.stderr.strip()}")
-        return []
 
 
 def _build_quality_gates(info: ProjectInfo) -> str:
