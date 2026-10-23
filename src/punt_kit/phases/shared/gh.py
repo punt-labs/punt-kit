@@ -76,6 +76,12 @@ class RequiredChecksWaiter:
         (``punt_kit.release._get_github_repo``) can pass that seam through
         unchanged.
 
+        Failures are counted by kind, five in a row ends the wait. A transport
+        or parse failure, or GraphQL ``errors``, counts toward its own run and
+        never resets the run of structurally unexpected responses: that run
+        counts consecutive structurally unexpected responses, and only a
+        response that parses into the expected shape resets it.
+
         ``interrupted`` is release.py's own ``threading.Event`` — checked at
         the top of every loop iteration so an operator's Ctrl-C reaches a
         worker thread blocked here (e.g. inside Phase 10's sibling PR merge)

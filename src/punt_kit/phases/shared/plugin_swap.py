@@ -63,7 +63,9 @@ class PluginSwap:
             ["git", "show", f"HEAD:{self.manifest_path_rel()}"],
             cwd=str(self._info.root),
         )
-        return cast("dict[str, object]", json.loads(result.stdout))
+        return cast(
+            "dict[str, object]", json.loads(result.stdout.removeprefix("\ufeff"))
+        )
 
     def reset_to_head(self) -> None:
         """Revert plugin.json and commands/ to their state at HEAD.

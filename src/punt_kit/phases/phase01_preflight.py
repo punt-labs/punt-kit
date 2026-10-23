@@ -340,7 +340,9 @@ class Phase1Preflight:
         if show.returncode != 0:
             return
         try:
-            data = cast("dict[str, object]", json.loads(show.stdout))
+            data = cast(
+                "dict[str, object]", json.loads(show.stdout.removeprefix("\ufeff"))
+            )
         except json.JSONDecodeError:
             return
 

@@ -32,11 +32,12 @@ from punt_kit.phases.phase10_propagate import (
     MarketplacePropagator,
     WebsitePropagator,
 )
-from punt_kit.phases.phase11_checks import InstallShaCheck
+from punt_kit.phases.phase11_checks import InstallShaCheck, MarketplacePinCheck
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.ci_run import TagRunSelector
+from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
@@ -9839,8 +9840,9 @@ def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("subdir", [False, True])
+@pytest.mark.parametrize("crlf_bom", [False, True])
 def test_phase9_dev_restore_single_commit_with_restamp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool, crlf_bom: bool
 ) -> None:
     """Phase 9 lands the dev restore and version re-stamp in one commit.
 
@@ -9874,6 +9876,9 @@ def test_phase9_dev_restore_single_commit_with_restamp(
         )
         + "\n"
     )
+    if crlf_bom:
+        dev_text = plugin_json.read_text().replace("\n", "\r\n")
+        plugin_json.write_bytes(("\ufeff" + dev_text).encode())
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "add dev command"], cwd=d)
 
@@ -9959,9 +9964,13 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     restore_files = _commit_files(root, ref="HEAD")
     assert plugin_json.relative_to(root).as_posix() in restore_files
 
-    restored = json.loads(plugin_json.read_text())
+    raw = plugin_json.read_bytes().decode()
+    restored = json.loads(raw.removeprefix("\ufeff"))
     assert restored["name"] == "test-dev"
     assert restored["version"] == "0.2.0"
+    if crlf_bom:
+        assert raw.startswith("\ufeff")
+        assert "\n" not in raw.replace("\r\n", "")
 
 
 def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
@@ -12553,6 +12562,7 @@ def test_phase11_fails_the_github_remote_check_when_origin_is_absent(
     _assert_failed_checks(
         capsys.readouterr().out, ["GitHub remote"], "no github.com origin"
     )
+    assert skips.drain() == ()
 
 
 def test_phase11_fails_the_github_remote_check_when_the_lookup_fails(
@@ -12562,6 +12572,7 @@ def test_phase11_fails_the_github_remote_check_when_the_lookup_fails(
         _verify_without_remote(tmp_path, _origin_timeout(), skips)
 
     _assert_failed_checks(capsys.readouterr().out, ["GitHub remote"], "timed out")
+    assert skips.drain() == ()
 
 
 def test_land_without_a_github_remote_does_not_claim_the_readme_is_current(
@@ -13120,7 +13131,7 @@ def test_phase2_keeps_crlf_and_the_bom_in_every_file_it_rewrites(
         "pyproject.toml": "",
         "src/test_pkg/__init__.py": "\ufeff",
         "install.sh": "",
-        ".claude-plugin/plugin.json": "",
+        ".claude-plugin/plugin.json": "\ufeff",
         "src/test_pkg/data/notify.yml": "\ufeff",
     }
     for rel, bom in boms.items():
@@ -13138,3 +13149,147 @@ def test_phase2_keeps_crlf_and_the_bom_in_every_file_it_rewrites(
         assert "0.2.0" in data, rel
         assert data.startswith(bom), rel
         assert "\n" not in data.replace("\r\n", ""), rel
+
+
+def test_phase11_reads_a_bom_plugin_manifest_and_release_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _setup_fully_passing_verify(tmp_path, "0.1.0")
+    manifest = root / ".claude-plugin" / "plugin.json"
+    body = manifest.read_text().replace("\n", "\r\n")
+    manifest.write_bytes(("\ufeff" + body).encode())
+    init = root / "src" / "test_pkg" / "__init__.py"
+    init.write_bytes(("\ufeff" + init.read_text()).encode())
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "bom files"], cwd=str(root))
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), "0.1.0", dry_run=False)  # must not raise
+
+
+def test_project_info_reads_a_bom_plugin_manifest(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    manifest = root / ".claude-plugin" / "plugin.json"
+    manifest.write_bytes(("\ufeff" + manifest.read_text()).encode())
+
+    project = ReleaseProject(detect(root), ops=_fault_ops())
+
+    assert (project.version(), project.marketplace_name()) == ("0.1.0", "test")
+
+
+def test_marketplace_pin_check_reads_a_bom_manifest_from_git(tmp_path: Path) -> None:
+    body = json.dumps(
+        {"plugins": [{"name": "proj", "version": "0.1.0", "source": {"ref": "v0.1.0"}}]}
+    )
+    ops = _fault_ops(
+        [
+            FaultRule(
+                match=["git", "show"],
+                response=CompletedProcessSpec(stdout="\ufeff" + body),
+            )
+        ]
+    )
+    matcher = EntryMatcher("punt-labs", "proj", frozenset({"proj"}))
+
+    passed, _detail = MarketplacePinCheck(matcher, "0.1.0", "v0.1.0", ops=ops).run(
+        tmp_path, "abc1234"
+    )
+
+    assert passed
+
+
+def _pending_checks() -> str:
+    node: dict[str, object] = {
+        "name": "ci",
+        "isRequired": True,
+        "conclusion": None,
+        "status": "IN_PROGRESS",
+    }
+    return json.dumps(_graphql_checks_response([node]))
+
+
+def _passed_checks() -> str:
+    node: dict[str, object] = {
+        "name": "ci",
+        "isRequired": True,
+        "conclusion": "success",
+        "status": "COMPLETED",
+    }
+    return json.dumps(_graphql_checks_response([node]))
+
+
+def test_a_valid_response_resets_the_structure_strike_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bad = '{"data": {"repository": null}}'
+    replies = iter([bad] * 4 + [_pending_checks()] + [bad] * 4 + [_passed_checks()])
+
+    def no_sleep(_seconds: float) -> None:
+        return None
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        body = next(replies) if "graphql" in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, body, "")
+
+    monkeypatch.setattr("time.sleep", no_sleep)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+
+    _wait_for_required_checks("gh", "/tmp", 42)  # must not abort
+
+    assert next(replies, None) is None  # every scripted reply was consumed
+
+
+# --- the other rewriters keep CRLF and the BOM ---
+
+
+def _crlf_bom(text: str) -> str:
+    return "\ufeff" + text.replace("\n", "\r\n")
+
+
+def _assert_crlf_bom(path: Path, *, contains: str) -> None:
+    data = path.read_bytes().decode()
+    assert data.startswith("\ufeff")
+    assert "\n" not in data.replace("\r\n", "")
+    assert contains in data
+
+
+def test_readme_pin_bump_keeps_crlf_and_the_bom(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    readme = root / "README.md"
+    readme.write_bytes(_crlf_bom(_readme_with_install_url("punt-labs/proj")).encode())
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    _assert_crlf_bom(readme, contains=_current_install_sha(root))
+
+
+def test_install_all_and_profile_propagation_keep_crlf_and_the_bom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": _crlf_bom(
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+            ),
+            "profile/README.md": _crlf_bom(
+                "# Org\n\n"
+                "curl https://raw.githubusercontent.com/punt-labs/.github/abc1234"
+                "/install-all.sh | sh\n"
+            ),
+        },
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_install_all(detect(root), "0.2.0", dry_run=False)
+
+    install_sha = _current_install_sha(root)
+    profile_sha = _git_out(
+        ["log", "-1", "--format=%h", "--", "install-all.sh"], cwd=str(sibling)
+    )
+    _assert_crlf_bom(sibling / "install-all.sh", contains=install_sha)
+    _assert_crlf_bom(sibling / "profile" / "README.md", contains=profile_sha)

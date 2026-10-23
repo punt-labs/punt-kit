@@ -3,7 +3,6 @@ propagation siblings."""
 
 from __future__ import annotations
 
-import json
 import re
 from typing import TYPE_CHECKING, Self, cast, final
 
@@ -19,10 +18,12 @@ from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
+from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
 
 if TYPE_CHECKING:
@@ -138,7 +139,7 @@ class Phase11Verify:
 
         pyproject_path = info.root / "pyproject.toml"
         if pyproject_path.exists():
-            content = pyproject_path.read_text(encoding="utf-8")
+            content = TextFile(pyproject_path).read()
             match = re.search(r'^version\s*=\s*"([^"]*)"', content, re.MULTILINE)
             current = match.group(1) if match else "not found"
             checks.append(
@@ -149,7 +150,7 @@ class Phase11Verify:
 
         pkg_dir = ReleaseProject(info, ops=self._ops).package_dir()
         if pkg_dir is not None and (pkg_dir / "__init__.py").exists():
-            content = (pkg_dir / "__init__.py").read_text(encoding="utf-8")
+            content = TextFile(pkg_dir / "__init__.py").read()
             uses_metadata = (
                 "importlib.metadata" in content or "importlib_metadata" in content
             )
@@ -163,7 +164,7 @@ class Phase11Verify:
                 )
 
         if info.is_plugin:
-            pj_data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+            pj_data = cast("dict[str, object]", JsonFile(info.plugin_manifest).load())
             pj_ver = pj_data.get("version", "not found")
             checks.append(
                 VerificationCheck("plugin.json", pj_ver == version, f"version={pj_ver}")
@@ -171,7 +172,7 @@ class Phase11Verify:
 
         install_sh = info.root / "install.sh"
         if install_sh.exists():
-            match = re.search(r'VERSION="([^"]*)"', install_sh.read_text("utf-8"))
+            match = re.search(r'VERSION="([^"]*)"', TextFile(install_sh).read())
             if match:
                 install_ver = match.group(1)
                 checks.append(
@@ -250,7 +251,7 @@ class Phase11Verify:
             return [
                 VerificationCheck("install-all.sh", False, "install-all.sh not found")
             ]
-        content = install_all.read_text(encoding="utf-8")
+        content = TextFile(install_all).read()
         sha = ShaPin.install_all_entry(repo.name).first_sha(content)
         if sha is not None:
             return [self._install_all_sha_check(sha)]
@@ -317,9 +318,7 @@ class Phase11Verify:
             return [
                 VerificationCheck("marketplace", False, "marketplace.json not found")
             ]
-        data = cast(
-            "dict[str, object]", json.loads(marketplace.read_text(encoding="utf-8"))
-        )
+        data = cast("dict[str, object]", JsonFile(marketplace).load())
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
         entry = next((p for p in plugins if matcher.claims_plugin(p)), None)
         if entry is None:
@@ -347,7 +346,7 @@ class Phase11Verify:
             return [
                 VerificationCheck("profile SHA", False, "profile/README.md not found")
             ]
-        profile_sha = ShaPin.profile().first_sha(readme.read_text(encoding="utf-8"))
+        profile_sha = ShaPin.profile().first_sha(TextFile(readme).read())
         if profile_sha is None:
             return [
                 VerificationCheck(
@@ -446,7 +445,7 @@ class Phase11Verify:
             return []
         return self._pin_checks(
             "README pin",
-            readme.read_text(encoding="utf-8"),
+            TextFile(readme).read(),
             repo,
             all_urls_relevant=False,
         )
@@ -459,9 +458,7 @@ class Phase11Verify:
         projects = sibling.path / "src" / "data" / "projects.json"
         if not projects.exists():
             return []
-        entries = cast(
-            "list[dict[str, object]]", json.loads(projects.read_text(encoding="utf-8"))
-        )
+        entries = cast("list[dict[str, object]]", JsonFile(projects).load())
         matcher = EntryMatcher(repo.owner, repo.name, frozenset({repo.name}))
         entry = next((e for e in entries if matcher.claims_website(e)), None)
         if entry is None:

@@ -222,3 +222,14 @@ def test_detect_all_standards_refs(tmp_path: Path) -> None:
 
     assert "github" in info.standards_refs
     assert "workflow" in info.standards_refs
+
+
+def test_detect_reads_a_plugin_manifest_that_starts_with_a_bom(tmp_path: Path) -> None:
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    body = '{"name": "x", "mcpServers": {"srv": {}}}\r\n'
+    manifest.write_bytes(("\ufeff" + body).encode())
+
+    info = detect(tmp_path)
+
+    assert info.plugin_mcp_servers == ["srv"]

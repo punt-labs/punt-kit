@@ -143,7 +143,7 @@ class MarketplacePinCheck:
         )
         if show.returncode != 0:
             return False, f"claude-plugins@{claude_plugins_sha} does not resolve"
-        data = cast("dict[str, object]", json.loads(show.stdout))
+        data = cast("dict[str, object]", json.loads(show.stdout.removeprefix("\ufeff")))
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
         for p in plugins:
             if self._matcher.claims_plugin(p):

@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
+from punt_kit.phases.shared.json_file import JsonFile
+
 # Where a plugin manifest can sit, most specific first.
 #
 # ``plugin/.claude-plugin/`` is the DES-025 layout: the shippable surface lives
@@ -196,7 +198,7 @@ def detect(root: Path) -> ProjectInfo:
     plugin_mcp_servers: list[str] = []
     if manifests:
         try:
-            pj_data = json.loads(manifests[0].read_text(encoding="utf-8"))
+            pj_data = cast("dict[str, object]", JsonFile(manifests[0]).load())
             servers = pj_data.get("mcpServers")
             if isinstance(servers, dict):
                 plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
