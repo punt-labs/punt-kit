@@ -95,9 +95,10 @@ class ProjectInfo:
 def detect(root: Path) -> ProjectInfo:
     """Scan a directory and return detected project info.
 
-    Raises :class:`ReleaseError` when ``package.json`` or a plugin manifest is
-    not a readable JSON object: detection built on a file it could not read
-    would report a project it never saw.
+    Raises :class:`ReleaseError` when ``pyproject.toml`` is not readable TOML,
+    or when ``package.json`` or the highest-precedence plugin manifest is not a
+    readable JSON object: detection built on a file it could not read would
+    report a project it never saw.
     """
     root = root.resolve()
 

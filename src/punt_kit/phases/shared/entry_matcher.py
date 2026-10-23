@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class EntryMatcher:
-    """Matches entries that name this project's repository under its owner.
+    """Matches entries named for this project, or sourced from its own owner/repo.
 
     A source URL claims the project only when it parses to ``owner/repo`` for
     this project's own owner and repository: a same-named repository under

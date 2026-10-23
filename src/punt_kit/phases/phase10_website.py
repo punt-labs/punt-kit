@@ -22,7 +22,8 @@ if TYPE_CHECKING:
 
 @final
 class WebsitePropagator:
-    """10d. Updates version in public-website projects.json."""
+    """10d. Updates the project's version and install-URL pin in public-website
+    projects.json."""
 
     __slots__ = ("_info", "_ops", "_skips")
 

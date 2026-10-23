@@ -117,8 +117,14 @@ class FileAccess:
         )
 
     def lines(self) -> list[int]:
-        """Line numbers of reads of a path built from ``"CHANGELOG.md"``."""
-        paths = self._names_bound_to_the_changelog()
+        """Line numbers of every access to a watched file, sorted.
+
+        An access is a call to one of ``methods`` (``read_text``) or to
+        ``open`` on the file's path, a ``shutil`` call in ``shutil_calls``
+        with it as an argument, or a ``git`` argv with a verb in
+        ``git_verbs`` (``show``, ``cat-file``) that names the file.
+        """
+        paths = self._names_bound_to_a_file()
         return sorted(
             node.lineno
             for node in ast.walk(self._tree)
@@ -130,8 +136,8 @@ class FileAccess:
             )
         )
 
-    def _names_bound_to_the_changelog(self) -> set[str]:
-        """Source text of every name or attribute assigned a CHANGELOG.md path.
+    def _names_bound_to_a_file(self) -> set[str]:
+        """Source text of every name or attribute assigned a watched file's path.
 
         Repeated to a fixed point so ``f = TextFile(p)`` binds ``f`` once ``p``
         is bound, whatever order the assignments appear in.
@@ -929,7 +935,7 @@ def test_release_managed_files_are_touched_only_through_the_wrappers() -> None:
     assert direct == {}
 
 
-# --- the forms the tripwires were widened to catch ---
+# --- further forms each tripwire catches ---
 
 
 @pytest.mark.parametrize(
@@ -1014,7 +1020,7 @@ def test_the_managed_file_scan_leaves_the_legal_forms_alone(source: str) -> None
         pytest.param("slug_text.rpartition('/')", id="rpartition"),
     ],
 )
-def test_the_slug_scan_finds_the_widened_forms(source: str) -> None:
+def test_the_slug_scan_finds_the_colon_keyword_and_suffix_forms(source: str) -> None:
     assert SlugParsing(source).lines()
 
 
