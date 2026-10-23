@@ -103,22 +103,11 @@ class ThreadedStep:
             except ReleaseError as e:
                 errors.append((name, str(e)))
             except SystemExit as e:
-                if isinstance(e.code, int):
-                    msg = f"{name} failed (exit code {e.code})"
-                elif isinstance(e.code, str) and e.code.strip():
-                    msg = e.code
-                else:
-                    msg = f"{name} failed"
-                errors.append((name, msg))
+                errors.append((name, self._describe_exit(name, e)))
             except BaseException as e:
                 # Thread-pool boundary: whatever a task raised is collected so
                 # its siblings finish, then every error is re-raised together.
-                # Only a bug is worth a traceback; a timeout or a missing tool is
-                # an expected failure the one-line entry already explains. The
-                # type goes in the text: str(KeyError("x")) is just "'x'".
-                if not isinstance(e, _OPERATIONAL):
-                    traceback.print_exception(e)
-                errors.append((name, f"{type(e).__name__}: {e}"))
+                errors.append((name, self._describe_crash(e)))
         if interrupted.is_set():
             raise KeyboardInterrupt
         if errors:
@@ -129,6 +118,27 @@ class ThreadedStep:
             details = "; ".join(f"{name}: {text}" for name, text in errors)
             msg = f"{len(errors)} task(s) failed: {details}"
             raise ReleaseError(msg)
+
+    @staticmethod
+    def _describe_exit(name: str, exc: SystemExit) -> str:
+        """Return the error text for a task that called ``sys.exit``."""
+        if isinstance(exc.code, int):
+            return f"{name} failed (exit code {exc.code})"
+        if isinstance(exc.code, str) and exc.code.strip():
+            return exc.code
+        return f"{name} failed"
+
+    @staticmethod
+    def _describe_crash(exc: BaseException) -> str:
+        """Return the one-line entry for ``exc``, printing a traceback for a bug.
+
+        Only a bug is worth a traceback; a timeout or a missing tool is an
+        expected failure the one-line entry already explains. The type goes in
+        the text: ``str(KeyError("x"))`` is just ``"'x'"``.
+        """
+        if not isinstance(exc, _OPERATIONAL):
+            traceback.print_exception(exc)
+        return f"{type(exc).__name__}: {exc}"
 
 
 @final
