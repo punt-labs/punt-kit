@@ -167,9 +167,10 @@ class SiblingRepo:
                 f"Sibling {self._name}: git status --porcelain failed:\n"
                 f"{status_result.stderr.strip()}"
             )
-        status = status_result.stdout.strip()
+        # No strip(): the first porcelain line starts with a significant
+        # space (" M path"), and stripping it shifts the path column.
         dirty_lines: list[str] = []
-        for ln in status.splitlines():
+        for ln in status_result.stdout.splitlines():
             if ln.startswith("?? "):
                 continue
             file_path = ln[3:] if len(ln) > 3 else ""

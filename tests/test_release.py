@@ -2698,6 +2698,15 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
         SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
+def test_validate_sibling_ignores_unstaged_beads_modification(tmp_path: Path) -> None:
+    """A tracked ``.beads/`` file modified in the worktree (`` M`` status, one
+    leading space) is harmless and must not block a release."""
+    sibling = _make_sibling(tmp_path, "sib", {".beads/issues.jsonl": "{}\n"})
+    (sibling / ".beads" / "issues.jsonl").write_text("{}\n{}\n")
+
+    SiblingRepo(sibling, "sib", ops=_fault_ops()).validate()
+
+
 # --- Phase 10a: install-all.sh ---
 
 
