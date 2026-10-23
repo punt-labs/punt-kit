@@ -83,9 +83,8 @@ class RequiredChecksWaiter:
         v5.0.4-style hang leave the release silently unfinished instead of
         failing fast.
         """
-        resolved = resolve_repo(Path(cwd))
         try:
-            slug = RepoSlug.parse(resolved or "")
+            slug = RepoSlug.parse(resolve_repo(Path(cwd)) or "")
         except ValueError:
             self._ops.fail(
                 f"Cannot determine GitHub owner/repo from git remote in {cwd}"

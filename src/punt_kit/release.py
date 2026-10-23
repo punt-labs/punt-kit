@@ -173,8 +173,13 @@ def _get_latest_tag_version(root: Path) -> str:
 
 
 def _get_github_repo(root: Path) -> str | None:
-    """Extract GitHub owner/repo from git remote."""
-    return GithubRepo(root, ops=_ops).resolve()
+    """Extract GitHub owner/repo from git remote.
+
+    Raises ``ValueError`` naming the remote's path when it is on github.com
+    but is not ``owner/repo``, so callers can say which slug is bad.
+    """
+    slug = GithubRepo(root, ops=_ops).slug()
+    return None if slug is None else str(slug)
 
 
 def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:

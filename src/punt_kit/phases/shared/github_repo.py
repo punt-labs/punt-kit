@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import subprocess
 from typing import TYPE_CHECKING, Self, cast, final
-from urllib.parse import urlparse
 
 from punt_kit.phases.shared.repo_slug import RepoSlug
 
@@ -64,16 +63,7 @@ class GithubRepo:
             return None
         if result.returncode != 0:
             return None
-        url = result.stdout.strip()
-        if url.startswith("git@github.com:"):
-            return RepoSlug.parse(
-                url.removeprefix("git@github.com:").removesuffix(".git")
-            )
-        parsed = urlparse(url)
-        if parsed.hostname != "github.com":
-            return None
-        path = parsed.path.strip("/").removesuffix(".git")
-        return RepoSlug.parse(path) if path else None
+        return RepoSlug.from_remote_url(result.stdout)
 
     def has_branch_protection(self, gh: str, owner: str, repo_name: str) -> bool:
         """True if ``main`` has a branch protection rule.

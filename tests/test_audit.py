@@ -3,15 +3,18 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+import subprocess
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit import audit
 from punt_kit.audit import run_audit
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -826,3 +829,39 @@ def test_audit_hint_covers_both_kinds(
     out = capsys.readouterr().out
     assert "run punt init" in out
     assert "hand" in out
+
+
+def _audit_slug(tmp_path: Path, remote: str) -> str | None:
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "remote", "add", "origin", remote], cwd=tmp_path, check=True)
+    resolve = cast("Callable[[Path], str | None]", vars(audit)["_get_github_repo"])
+    return resolve(tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("remote", "slug"),
+    [
+        pytest.param("https://github.com/o/r/", "o/r", id="trailing-slash"),
+        pytest.param("git@github.com:o/r.git/", "o/r", id="scp-dot-git-slash"),
+        pytest.param("https://github.com/o/r.git", "o/r", id="dot-git"),
+    ],
+)
+def test_audit_resolves_a_clean_github_slug(
+    tmp_path: Path, remote: str, slug: str
+) -> None:
+    """The audit builds ``repos/{slug}/...`` URLs, so the slug must be clean."""
+    assert _audit_slug(tmp_path, remote) == slug
+
+
+@pytest.mark.parametrize(
+    "remote",
+    [
+        pytest.param("https://github.com/proj", id="no-owner"),
+        pytest.param("https://github.com/o/r/extra", id="three-parts"),
+        pytest.param("https://gitlab.com/o/r", id="other-host"),
+    ],
+)
+def test_audit_rejects_a_remote_that_is_not_a_github_owner_repo(
+    tmp_path: Path, remote: str
+) -> None:
+    assert _audit_slug(tmp_path, remote) is None

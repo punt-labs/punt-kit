@@ -16,6 +16,7 @@ from rich.console import Console
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.phases.shared.repo_slug import RepoSlug
 
 console = Console()
 
@@ -1117,7 +1118,7 @@ def _relpath(path: Path, root: Path) -> str:
 
 
 def _get_github_repo(root: Path) -> str | None:
-    """Extract GitHub owner/repo from git remote."""
+    """The clean ``owner/repo`` of the origin remote, or ``None``."""
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
@@ -1128,16 +1129,7 @@ def _get_github_repo(root: Path) -> str | None:
         )
         if result.returncode != 0:
             return None
-
-        url = result.stdout.strip()
-        # Handle SSH format: git@github.com:owner/repo.git
-        if url.startswith("git@github.com:"):
-            repo = url.removeprefix("git@github.com:").removesuffix(".git")
-            return repo
-        # Handle HTTPS format: https://github.com/owner/repo.git
-        if "github.com/" in url:
-            parts = url.split("github.com/")[1].removesuffix(".git")
-            return parts
+        slug = RepoSlug.from_remote_url(result.stdout)
+    except (subprocess.TimeoutExpired, OSError, ValueError):
         return None
-    except (subprocess.TimeoutExpired, OSError):
-        return None
+    return None if slug is None else str(slug)

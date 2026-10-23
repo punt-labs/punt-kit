@@ -38,17 +38,14 @@ class ReadmeShaPin:
         self, resolve_repo: Callable[[Path], str | None]
     ) -> InstallUrlRecognizer:
         """Return the recognizer for this repo, warning when the slug is a guess."""
-        slug = resolve_repo(self._info.root)
         fallback = f"punt-labs/{self._info.root.name}"
-        if slug:
-            try:
+        try:
+            slug = resolve_repo(self._info.root)
+            if slug:
                 return InstallUrlRecognizer.for_slug(slug)
-            except ValueError:
-                self._ops.warn(
-                    f"repo slug {slug!r} is not owner/repo — falling back to {fallback}"
-                )
-        else:
             self._ops.warn(f"repo unresolved — falling back to {fallback}")
+        except ValueError as exc:
+            self._ops.warn(f"{exc} — falling back to {fallback}")
         return InstallUrlRecognizer.for_slug(fallback)
 
     def bump(

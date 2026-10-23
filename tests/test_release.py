@@ -1456,6 +1456,26 @@ def test_bump_warns_when_repo_slug_unresolved(
     assert "falling back to punt-labs/proj" in _flat(capsys.readouterr().out)
 
 
+def test_bump_warning_names_a_malformed_remote_slug(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The release's own resolver raises on a bad remote; the warning names it."""
+    root = _make_release_project(tmp_path)
+    _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    resolve_repo = cast(
+        "Callable[[Path], str | None]", vars(release)["_get_github_repo"]
+    )
+
+    ReadmeShaPin(detect(root), ops=_fault_ops()).bump(
+        "0.2.0", dry_run=True, resolve_repo=resolve_repo
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "not an owner/repo slug: 'proj'" in out
+    assert "falling back to punt-labs/proj" in out
+
+
 @pytest.mark.parametrize(
     ("readme_slug", "resolved_slug"),
     [
@@ -8745,6 +8765,8 @@ def _resolve_remote(tmp_path: _Path, url: str) -> str | None:
         pytest.param("git@github.com:o/r.git", "o/r", id="scp-style"),
         pytest.param("git@github.com:o/r/", "o/r", id="scp-trailing-slash"),
         pytest.param("https://github.com//o/r//", "o/r", id="extra-slashes"),
+        pytest.param("git@github.com:o/r.git/", "o/r", id="scp-dot-git-slash"),
+        pytest.param("https://github.com/o/r.git/", "o/r", id="https-dot-git-slash"),
     ],
 )
 def test_resolve_returns_a_clean_owner_repo_slug(
@@ -8775,6 +8797,7 @@ def test_resolve_rejects_a_remote_that_is_not_owner_repo(
         ("  o/r/ ", "o", "r"),
         ("punt-labs/punt-kit", "punt-labs", "punt-kit"),
         ("o/r.js", "o", "r.js"),
+        ("o/r.git/", "o", "r"),
     ],
 )
 def test_repo_slug_parse_normalizes(raw: str, owner: str, name: str) -> None:
