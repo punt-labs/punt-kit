@@ -1161,3 +1161,59 @@ def test_init_refuses_to_rewrite_a_pyproject_it_cannot_extend_in_place(
     out = " ".join(capsys.readouterr().out.split())
     assert "Add these tables by hand" in out
     assert "[tool.ruff.lint]" in out
+
+
+# --- a failing init leaves nothing half-initialised ---
+
+
+def test_init_validates_settings_json_before_writing_anything(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    before = (tmp_path / "pyproject.toml").read_bytes()
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text("{}")
+    settings.chmod(0)
+    try:
+        with pytest.raises(SystemExit) as raised:
+            run_init(str(tmp_path))
+    finally:
+        settings.chmod(0o600)
+
+    assert raised.value.code == 1
+    assert "settings.json cannot be read" in capsys.readouterr().out
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".claude", "pyproject.toml"]
+    assert (tmp_path / "pyproject.toml").read_bytes() == before
+
+
+@pytest.mark.parametrize("name", ["CLAUDE.md", ".gitignore"])
+def test_init_validates_every_file_it_will_merge_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    (tmp_path / name).write_bytes(b"caf\xe9")
+
+    with pytest.raises(SystemExit):
+        run_init(str(tmp_path))
+
+    assert not (tmp_path / ".github").exists()
+    assert not (tmp_path / ".claude").exists()
+
+
+def test_init_fails_on_a_malformed_pyproject(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert "pyproject.toml is not valid TOML" in " ".join(
+        capsys.readouterr().out.split()
+    )

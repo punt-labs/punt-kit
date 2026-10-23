@@ -86,3 +86,33 @@ def test_parse_object_names_the_source_when_the_text_is_not_json() -> None:
 def test_parse_object_rejects_a_json_array() -> None:
     with pytest.raises(ReleaseError, match=r"v1:plugin\.json must hold a JSON object"):
         JsonFile.parse_object("[1]", source="v1:plugin.json")
+
+
+def test_an_unreadable_file_raises_a_release_error_naming_the_path(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "plugin.json"
+    path.write_text("{}")
+    path.chmod(0)
+    try:
+        with pytest.raises(ReleaseError, match=r"plugin\.json cannot be read"):
+            JsonFile(path).load()
+        with pytest.raises(ReleaseError, match=r"plugin\.json cannot be read"):
+            TextFile(path).read()
+    finally:
+        path.chmod(0o600)
+
+
+def test_toml_names_the_file_and_the_parse_error(tmp_path: Path) -> None:
+    path = tmp_path / "pyproject.toml"
+    path.write_text("[project\nname=")
+
+    with pytest.raises(ReleaseError, match=r"pyproject\.toml is not valid TOML"):
+        TextFile(path).toml()
+
+
+def test_toml_reads_a_file_that_starts_with_a_bom(tmp_path: Path) -> None:
+    path = tmp_path / "pyproject.toml"
+    path.write_bytes("\ufeff[project]\nname = 'x'\n".encode())
+
+    assert TextFile(path).toml() == {"project": {"name": "x"}}

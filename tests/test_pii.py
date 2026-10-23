@@ -293,3 +293,17 @@ def test_load_config_reads_a_pyproject_and_standalone_file_with_a_bom(
         ("\ufeff" + 'allow_emails = ["b@example.com"]\n').encode()
     )
     assert load_config(standalone).allow_emails == ["b@example.com"]
+
+
+def test_pii_fails_naming_a_malformed_pyproject(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    with pytest.raises(SystemExit) as raised:
+        run_pii(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert "pyproject.toml is not valid TOML" in " ".join(
+        capsys.readouterr().out.split()
+    )

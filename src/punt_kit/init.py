@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.resources
 import shutil
 import subprocess
-import tomllib
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -192,6 +191,10 @@ def _init_project(path: str, *, language: str | None) -> None:
     console.print(f"  Beads:        {info.has_beads}")
     console.print()
 
+    # Read every file init will merge into BEFORE writing any, so a file it
+    # cannot read fails the run with nothing half-initialised.
+    _validate_inputs(info)
+
     changed: list[str] = []
 
     changed.extend(_init_workflows(info))
@@ -210,6 +213,20 @@ def _init_project(path: str, *, language: str | None) -> None:
         console.print("\n[dim]No files needed updating.[/dim]")
 
     _report_manual_steps(info)
+
+
+def _validate_inputs(info: ProjectInfo) -> None:
+    """Raise :class:`ReleaseError` if a file init will read or merge is unreadable."""
+    settings = info.root / ".claude" / "settings.json"
+    if settings.exists():
+        JsonFile(settings).load_object()
+    for name in ("CLAUDE.md", ".gitignore"):
+        if (info.root / name).exists():
+            TextFile(info.root / name).read()
+    workflows = info.root / ".github" / "workflows"
+    if workflows.is_dir():
+        for workflow in sorted(workflows.glob("*.y*ml")):
+            TextFile(workflow).read()
 
 
 def _prompt_language() -> str | None:
@@ -388,7 +405,7 @@ def _init_python_config(info: ProjectInfo) -> list[str]:
 
     pyproject = TextFile(pyproject_path)
     text = pyproject.read()
-    data = tomllib.loads(text)
+    data = TextFile.parse_toml(text, source=str(pyproject_path))
     patch = ToolConfigPatch(data)
     if patch.is_empty:
         return []

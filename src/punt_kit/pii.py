@@ -5,13 +5,14 @@ from __future__ import annotations
 import fnmatch
 import re
 import subprocess
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
 from rich.console import Console
+from rich.markup import escape
 
+from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
@@ -98,7 +99,7 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
     # Try pyproject.toml first
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
-        data = tomllib.loads(TextFile(pyproject).read())
+        data = TextFile(pyproject).toml()
         pii_section = _drill(data, "tool", "punt", "pii")
         if pii_section is not None:
             return _config_from_dict(pii_section)
@@ -113,7 +114,7 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
 
 def _parse_toml_config(path: Path) -> PiiConfig:
     """Parse a standalone .punt-pii.toml file."""
-    data = tomllib.loads(TextFile(path).read())
+    data = TextFile(path).toml()
     return _config_from_dict(data)
 
 
@@ -278,7 +279,11 @@ def run_pii(
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
-    cfg = load_config(root, config)
+    try:
+        cfg = load_config(root, config)
+    except ReleaseError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise SystemExit(1) from exc
     mode = "--staged" if staged else "all tracked"
     console.print(f"\n[bold]punt pii[/bold] — {root.name} ({mode})")
 

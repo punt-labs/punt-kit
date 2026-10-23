@@ -6,7 +6,6 @@ import importlib.resources
 import re
 import shutil
 import subprocess
-import tomllib
 from pathlib import Path
 from typing import cast
 
@@ -164,9 +163,10 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append((FAIL, "pyproject.toml exists", "Missing"))
         return results
 
-    data = tomllib.loads(TextFile(pyproject_path).read())
+    data = TextFile(pyproject_path).toml()
 
-    tool = data.get("tool", {})
+    tool_raw = data.get("tool")
+    tool = cast("dict[str, object]", tool_raw) if isinstance(tool_raw, dict) else {}
 
     ruff = tool.get("ruff")
     results.append(
@@ -197,7 +197,12 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
     )
 
-    pytest_cfg = tool.get("pytest", {}).get("ini_options")
+    pytest_raw = tool.get("pytest")
+    pytest_cfg = (
+        cast("dict[str, object]", pytest_raw).get("ini_options")
+        if isinstance(pytest_raw, dict)
+        else None
+    )
     results.append(
         (
             PASS if pytest_cfg else FAIL,
@@ -854,7 +859,7 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not pyproject_path.exists():
         return []
 
-    data = tomllib.loads(TextFile(pyproject_path).read())
+    data = TextFile(pyproject_path).toml()
 
     project_raw = data.get("project")
     if not isinstance(project_raw, dict):

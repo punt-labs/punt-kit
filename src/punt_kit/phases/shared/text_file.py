@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import tomllib
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.phases.shared.errors import ReleaseError
@@ -56,9 +57,31 @@ class TextFile:
         """``text`` without a leading BOM, for text a command printed."""
         return text.removeprefix(_BOM)
 
+    @staticmethod
+    def parse_toml(text: str, *, source: str) -> dict[str, object]:
+        """Parse TOML text, or raise a :class:`ReleaseError` naming ``source``."""
+        try:
+            return tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            msg = f"{source} is not valid TOML: {exc}"
+            raise ReleaseError(msg) from exc
+
     def read(self) -> str:
-        """The file's text with its line endings, without a leading BOM."""
-        return self.from_bytes(self._path.read_bytes(), source=str(self._path))
+        """The file's text with its line endings, without a leading BOM.
+
+        Raises :class:`ReleaseError` naming the file when it cannot be read
+        (permission denied, a directory, not UTF-8).
+        """
+        try:
+            raw = self._path.read_bytes()
+        except OSError as exc:
+            msg = f"{self._path} cannot be read: {exc.strerror or exc}"
+            raise ReleaseError(msg) from exc
+        return self.from_bytes(raw, source=str(self._path))
+
+    def toml(self) -> dict[str, object]:
+        """The file parsed as TOML, or a :class:`ReleaseError` naming it and why."""
+        return self.parse_toml(self.read(), source=str(self._path))
 
     def write(self, text: str) -> None:
         """Replace the file's text, restoring the BOM the file already had."""

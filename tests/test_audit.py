@@ -1001,3 +1001,15 @@ def test_audit_says_when_it_cannot_check_settings_local(
     run_audit(str(tmp_path))
 
     assert "settings.local.json could not be checked" in capsys.readouterr().out
+
+
+def test_audit_fails_naming_a_malformed_pyproject(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "pyproject.toml is not valid TOML" in out

@@ -156,3 +156,12 @@ def test_status_reports_an_unreadable_plugin_manifest_and_exits_1(
 
     assert result.exit_code == 1
     assert "plugin.json" in result.output
+
+
+def test_status_reports_a_malformed_pyproject_and_exits_1(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    result = runner.invoke(app, ["status", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "pyproject.toml is not valid TOML" in result.output

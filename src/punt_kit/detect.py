@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
@@ -113,7 +112,7 @@ def detect(root: Path) -> ProjectInfo:
     # Check pyproject.toml
     pyproject_path = root / "pyproject.toml"
     if pyproject_path.exists():
-        pyproject_data = tomllib.loads(TextFile(pyproject_path).read())
+        pyproject_data = TextFile(pyproject_path).toml()
         if "project" in pyproject_data:
             language = "python"
             project_type = "package"

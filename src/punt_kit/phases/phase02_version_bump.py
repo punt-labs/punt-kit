@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime
 import re
-import tomllib
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
@@ -50,7 +49,7 @@ class Phase2VersionBump:
     @staticmethod
     def _project_version(toml_text: str) -> object:
         """``[project] version`` of ``toml_text``; ``None`` when there is none."""
-        project = tomllib.loads(toml_text).get("project")
+        project = TextFile.parse_toml(toml_text, source="pyproject.toml").get("project")
         if isinstance(project, dict):
             return cast("dict[str, object]", project).get("version")
         return None
