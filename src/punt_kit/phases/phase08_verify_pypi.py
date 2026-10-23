@@ -105,8 +105,7 @@ class Phase8VerifyPypi:
 
         # Restore editable install. Same external-tool risk class as the
         # PyPI install retry loop above and `uv build` (Phase 3), both
-        # already diagnosed — missed here in earlier sweep passes
-        # (pkit-f85t.7).
+        # already diagnosed.
         ops.info("Restoring editable install...")
         restore_result = ops.run(
             ["uv", "tool", "install", "--force", "--editable", "."],

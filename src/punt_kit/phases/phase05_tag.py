@@ -161,7 +161,7 @@ class Phase5Tag:
             # docstring for why the filtered, explicit-ref form cannot be
             # used here. A network read, same risk class as `git fetch
             # origin` (Phase 1) and this phase's own tag push, both already
-            # diagnosed (pkit-f85t.7).
+            # diagnosed.
             ls_remote = ops.run(
                 ["git", "ls-remote", "--tags", "origin"],
                 cwd=str(root),
@@ -203,7 +203,7 @@ class Phase5Tag:
         # A local write (disk full, permission, or a lock held by a
         # concurrent git process) — kept in the same diagnosed convention as
         # the push two lines below rather than left as the odd one out
-        # (pkit-f85t.7). Tags `release_sha` explicitly rather than bare
+        # Tags `release_sha` explicitly rather than bare
         # `git tag {tag}` (which would tag HEAD) — see the module docstring.
         tag_result = ops.run(
             ["git", "tag", tag, release_sha], cwd=str(root), check=False

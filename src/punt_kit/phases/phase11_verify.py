@@ -144,8 +144,7 @@ class MarketplacePinCheck:
             # marketplace.json uses "url" for keyless HTTPS installs
             # (git-subdir and the earlier plain-url source). "repo" was the
             # pre-migration key that cloned the whole repo to disk and no live
-            # entry uses it anymore. See pkit-p328 and claude-plugins commit
-            # b77f1ed.
+            # entry uses it anymore.
             source_url = str(src.get("url", "")).removesuffix(".git")
             if (
                 any(source_url.endswith("/" + n) for n in candidates)
@@ -422,7 +421,7 @@ class Phase11Verify:
                         for p in plugins:
                             src = cast("dict[str, str]", p.get("source", {}))
                             # marketplace.json uses source.url (keyless HTTPS,
-                            # git-subdir). See pkit-p328.
+                            # git-subdir).
                             source_url = str(src.get("url", "")).removesuffix(".git")
                             if (
                                 any(source_url.endswith("/" + n) for n in candidates)

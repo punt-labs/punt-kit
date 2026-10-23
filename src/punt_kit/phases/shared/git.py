@@ -63,7 +63,7 @@ class GitWorkspace:
                 self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
         # A network call, structurally identical in risk to `git fetch
         # origin` (Phase 1) and `git push origin` (this class's own push) —
-        # both already diagnosed (pkit-f85t.7).
+        # both already diagnosed.
         pull = self._ops.run(
             ["git", "pull", "--ff-only", "origin", "main"],
             cwd=str(self._root),
@@ -117,7 +117,7 @@ class GitWorkspace:
         ).stdout.strip()
         if staged:
             # Hook-firing mutation, same class as the Phase 4 swap commit
-            # and Phase 9 restore commit already diagnosed (pkit-f85t.7) —
+            # and Phase 9 restore commit already diagnosed —
             # this one backs every phase's own release/propagation commit,
             # including Phase 2's release-version-bump commit.
             commit = self._ops.run(

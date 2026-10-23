@@ -140,7 +140,6 @@ class Phase9PostRelease:
                 # unmergeable. The squash-merge onto main uses the PR
                 # title (which never carried the marker), so removing it
                 # here also does not add a redundant CI run on main.
-                # See pkit-x5j8.
                 commit_result = ops.run(
                     [
                         "git",
@@ -177,8 +176,7 @@ class Phase9PostRelease:
                 has_changes = True
             else:
                 # Hook-firing checkout + local branch delete — same
-                # diagnosed convention as this phase's restore commit above
-                # (pkit-f85t.7).
+                # diagnosed convention as this phase's restore commit above.
                 checkout = ops.run(
                     ["git", "checkout", "main"],
                     cwd=str(root),

@@ -27,7 +27,7 @@ class ReleaseOps(Protocol):
     """Subprocess execution and console reporting, as an injectable seam.
 
     ``run``'s ``check`` default of ``True`` is deliberately caller-set, not
-    changed here — the pkit-f85t.7 sweep converts individual call sites to
+    changed here — the call-site sweep converts individual call sites to
     ``check=False`` plus a diagnosed ``fail(...)`` message, rather than
     flipping the shared default, because a silently-flipped default would
     hide which sites were actually reviewed. The sweep's boundary: a call

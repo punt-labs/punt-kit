@@ -182,7 +182,7 @@ class RequiredChecksWaiter:
         hung wait blocks ``ThreadPoolExecutor.__exit__``'s join for the
         remainder of the deadline, which is what let interrupting a vox
         v5.0.4-style hang leave the release silently unfinished instead of
-        failing fast (pkit-d7mz).
+        failing fast.
         """
         repo_slug = resolve_repo(Path(cwd))
         if not repo_slug or "/" not in repo_slug:

@@ -167,7 +167,7 @@ class Phase2VersionBump:
         lock_file = root / "uv.lock"
         if lock_file.exists():
             # A network resolver op — same class as `uv build` (Phase 3),
-            # already diagnosed (pkit-f85t.7). capture=False streams the
+            # already diagnosed. capture=False streams the
             # resolver's own output to the terminal as it runs, matching
             # Phase 3's `uv build` and Phase 1's quality gates — without
             # it, the "see output above" message pointed at output that

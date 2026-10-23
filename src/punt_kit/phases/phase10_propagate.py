@@ -296,7 +296,7 @@ class MarketplacePropagator:
             # marketplace.json uses "url" for keyless HTTPS installs (git-subdir
             # and the earlier plain-url source) — "repo" was the pre-migration
             # key that pulled the whole repo to disk, and no live entry uses it
-            # anymore. See pkit-p328 and claude-plugins commit b77f1ed.
+            # anymore.
             source_url = str(src.get("url", "")).removesuffix(".git")
             if (
                 any(source_url.endswith("/" + n) for n in candidates)
