@@ -4752,7 +4752,7 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
 ) -> None:
     """A commit that never registers a check fails loudly, not after 2 hours.
 
-    Models the ethos #496 shape: a post-release commit carrying [skip ci],
+    Models a post-release commit carrying [skip ci],
     so ``statusCheckRollup`` stays null on every poll. The fake clock
     crosses ``NO_CHECKS_GRACE`` in a few iterations; the failure names the
     likely causes an operator needs to check.
@@ -11738,7 +11738,7 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     """Phase 11 still runs and reports after a Phase 9/10 failure,
     and the release exits non-zero naming the phase to resume from.
 
-    Reproduces the vox v5.0.4 shape at the orchestration level: P10 fails
+    Models the orchestration case where P10 fails
     while running concurrently with P9. The pipeline must not silently stop
     there — Phase 11 verify has to run against the actual state, and the
     release has to fail loudly with --resume-from post-release (which
