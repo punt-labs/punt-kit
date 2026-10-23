@@ -11347,8 +11347,59 @@ def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
     assert _GIT_HOOK_TIMEOUT > 300
 
 
+_PHASES_DIR = _Path(release.__file__).parent / "phases"
+
+
+def _ops_run_calls() -> list[tuple[str, int, ast.Call]]:
+    """Every ``ops.run(...)`` / ``self._ops.run(...)`` call in the release code.
+
+    The phase classes live under ``phases/``; ``release.py`` only wires them.
+    Scanning both keeps the audits below from going vacuous if code moves
+    again. Returns ``(file name, line, call)``.
+    """
+    calls: list[tuple[str, int, ast.Call]] = []
+    for path in sorted([*_PHASES_DIR.rglob("*.py"), _Path(release.__file__)]):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ):
+                continue
+            receiver = node.func.value
+            is_ops = (isinstance(receiver, ast.Name) and receiver.id == "ops") or (
+                isinstance(receiver, ast.Attribute) and receiver.attr == "_ops"
+            )
+            if node.func.attr == "run" and is_ops:
+                calls.append((path.name, node.lineno, node))
+    return calls
+
+
+def _argv_prefix(call: ast.Call) -> tuple[str, ...]:
+    """The leading string constants of a literal argv list (``()`` if not one)."""
+    if not call.args or not isinstance(call.args[0], ast.List):
+        return ()
+    prefix: list[str] = []
+    for elt in call.args[0].elts:
+        if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
+            break
+        prefix.append(elt.value)
+    return tuple(prefix)
+
+
+def _timeout_budget(call: ast.Call) -> str | None:
+    """The identifier passed as ``timeout=`` (``timeouts.GIT_HOOK`` -> GIT_HOOK)."""
+    for kw in call.keywords:
+        if kw.arg != "timeout":
+            continue
+        if isinstance(kw.value, ast.Name):
+            return kw.value.id
+        if isinstance(kw.value, ast.Attribute):
+            return kw.value.attr
+        return "<non-name expression>"
+    return None
+
+
 def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
-    """Every _run call for a hook-firing git command must pass an explicit timeout.
+    """Every ops.run call for a hook-firing git command must carry the hook budget.
 
     checkout, commit, merge, push, and pull all fire bd hooks against the
     networked Dolt server; the 60s metadata default is not enough. An
@@ -11357,55 +11408,21 @@ def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
     pins the classification in code so the next audit cannot undo it
     without a test failure to answer for.
     """
-    src = _Path(release.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
     hook_firing = {"checkout", "commit", "merge", "push", "pull"}
+    inspected: list[tuple[str, int, str | None]] = []
+    for name, line, call in _ops_run_calls():
+        head = _argv_prefix(call)
+        if head[:1] == ("git",) and head[1:2] and head[1] in hook_firing:
+            inspected.append((name, line, _timeout_budget(call)))
 
-    def _first_git_verb(call: ast.Call) -> str | None:
-        if not call.args:
-            return None
-        first = call.args[0]
-        if not isinstance(first, ast.List) or len(first.elts) < 2:
-            return None
-        head, verb = first.elts[0], first.elts[1]
-        if not (isinstance(head, ast.Constant) and head.value == "git"):
-            return None
-        if not (isinstance(verb, ast.Constant) and isinstance(verb.value, str)):
-            return None
-        return verb.value
-
-    def _run_name(call: ast.Call) -> str | None:
-        f = call.func
-        if isinstance(f, ast.Name):
-            return f.id
-        if isinstance(f, ast.Attribute):
-            return f.attr
-        return None
-
-    offenders: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if _run_name(node) != "_run":
-            continue
-        verb = _first_git_verb(node)
-        if verb not in hook_firing:
-            continue
-        # Presence of `timeout=` is not enough. _GIT_NETWORK_TIMEOUT is 300s,
-        # exactly the beads hook ceiling with no headroom, so a call site set
-        # to it would pass a presence check and still reintroduce the hang
-        # this test exists to prevent. Pin the identifier, not the keyword.
-        budget: str | None = None
-        for kw in node.keywords:
-            if kw.arg == "timeout" and isinstance(kw.value, ast.Name):
-                budget = kw.value.id
-            elif kw.arg == "timeout":
-                budget = "<non-name expression>"
-        if budget != "_GIT_HOOK_TIMEOUT":
-            offenders.append((node.lineno, f"{verb} (timeout={budget})"))
-
+    assert inspected, "no hook-firing git call was inspected — the audit is vacuous"
+    # Presence of `timeout=` is not enough. The network budget is 300s,
+    # exactly the beads hook ceiling with no headroom, so a call site set to
+    # it would pass a presence check and still reintroduce the hang this
+    # test exists to prevent. Pin the identifier, not the keyword.
+    offenders = [(n, ln, b) for n, ln, b in inspected if b != "GIT_HOOK"]
     assert offenders == [], (
-        "hook-firing git commands must use timeout=_GIT_HOOK_TIMEOUT — a bare "
+        "hook-firing git commands must use timeout=timeouts.GIT_HOOK — a bare "
         "`timeout=` or any other budget is not sufficient, because the hook's "
         f"own ceiling is 300s: {offenders}"
     )
@@ -11806,9 +11823,6 @@ def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> Non
     nothing: the timeout is a ceiling, not a wait. Under-budgeting one
     aborts a release.
     """
-    src = _Path(release.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-
     # Every shell script the release path invokes lives here and is checked
     # for hook-firing git verbs, so the rule below is grounded in what the
     # scripts actually do rather than assumed.
@@ -11826,31 +11840,17 @@ def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> Non
         "if that is no longer true this audit needs revisiting, not deleting"
     )
 
-    offenders: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-        if name != "_run" or not node.args:
-            continue
-        first = node.args[0]
-        if not isinstance(first, ast.List) or not first.elts:
-            continue
-        head = first.elts[0]
-        if not (isinstance(head, ast.Constant) and head.value == "bash"):
-            continue
-        budget = None
-        for kw in node.keywords:
-            if kw.arg == "timeout":
-                budget = kw.value.id if isinstance(kw.value, ast.Name) else "<expr>"
-        if budget != "_GIT_HOOK_TIMEOUT":
-            offenders.append((node.lineno, f"timeout={budget}"))
+    inspected: list[tuple[str, int, str | None]] = []
+    for name, line, call in _ops_run_calls():
+        if _argv_prefix(call)[:1] == ("bash",):
+            inspected.append((name, line, _timeout_budget(call)))
 
+    assert inspected, "no `bash` script invocation was inspected — vacuous audit"
+    offenders = [(n, ln, b) for n, ln, b in inspected if b != "GIT_HOOK"]
     assert offenders == [], (
         "shell scripts invoked by the release path run hook-firing git "
         f"commands ({', '.join(hook_firing_scripts)}) and must be given "
-        f"timeout=_GIT_HOOK_TIMEOUT: {offenders}"
+        f"timeout=timeouts.GIT_HOOK: {offenders}"
     )
 
 
