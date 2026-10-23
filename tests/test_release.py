@@ -11405,39 +11405,95 @@ def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
 _PHASES_DIR = _Path(release.__file__).parent / "phases"
 
 
-def _ops_run_calls() -> list[tuple[str, int, ast.Call]]:
-    """Every ``ops.run(...)`` / ``self._ops.run(...)`` call in the release code.
+# `.run(` receivers that are not a ReleaseOps. The receiver set below is closed
+# on purpose: any other receiver fails `test_every_run_receiver_is_classified`,
+# so a new ops-typed name cannot hide a hook-firing git call from the audits.
+_NON_OPS_RUN_RECEIVERS = frozenset({"subprocess", "step", "pipeline"})
 
-    The phase classes live under ``phases/``; ``release.py`` only wires them.
-    Scanning both keeps the audits below from going vacuous if code moves
-    again. Returns ``(file name, line, call)``.
+# ops.run calls whose argv is a variable the audits cannot read, each with the
+# reason it is safe to leave unaudited. A new unreadable call fails the audit
+# until someone adds it here with a reason; a stale entry fails it too.
+_UNREADABLE_ARGV_ALLOWLIST = {
+    ("phase01_preflight.py", "gate"): "quality-gate command (make/uv/go), not git",
+    ("phase06_ci_wait.py", "list_cmd"): "gh run list, not git",
+    ("pr_merge.py", "create_cmd"): "gh pr create, not git",
+    ("pr_merge.py", "merge_cmd"): "gh pr merge, not git",
+}
+
+
+def _release_source_files() -> list[_Path]:
+    """The phase classes live under ``phases/``; ``release.py`` only wires them.
+
+    Scanning both keeps the audits below from going vacuous if code moves.
     """
-    calls: list[tuple[str, int, ast.Call]] = []
-    for path in sorted([*_PHASES_DIR.rglob("*.py"), _Path(release.__file__)]):
+    return sorted([*_PHASES_DIR.rglob("*.py"), _Path(release.__file__)])
+
+
+def _run_calls() -> list[tuple[str, ast.Call]]:
+    """Every ``<receiver>.run(...)`` call in the release code, as ``(file, call)``."""
+    calls: list[tuple[str, ast.Call]] = []
+    for path in _release_source_files():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not (
-                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "run"
             ):
-                continue
-            receiver = node.func.value
-            is_ops = (isinstance(receiver, ast.Name) and receiver.id == "ops") or (
-                isinstance(receiver, ast.Attribute) and receiver.attr == "_ops"
-            )
-            if node.func.attr == "run" and is_ops:
-                calls.append((path.name, node.lineno, node))
+                calls.append((path.name, node))
     return calls
 
 
-def _argv_prefix(call: ast.Call) -> tuple[str, ...]:
-    """The leading string constants of a literal argv list (``()`` if not one)."""
+def _is_ops_receiver(call: ast.Call) -> bool:
+    receiver = cast("ast.Attribute", call.func).value
+    return (isinstance(receiver, ast.Name) and receiver.id == "ops") or (
+        isinstance(receiver, ast.Attribute) and receiver.attr == "_ops"
+    )
+
+
+def _is_non_ops_receiver(call: ast.Call) -> bool:
+    receiver = cast("ast.Attribute", call.func).value
+    # `Phase1Preflight(...).run()` and friends: a constructed phase/check.
+    return isinstance(receiver, ast.Call) or (
+        isinstance(receiver, ast.Name) and receiver.id in _NON_OPS_RUN_RECEIVERS
+    )
+
+
+def _ops_run_calls() -> list[tuple[str, int, ast.Call]]:
+    """Every ``ops.run(...)`` / ``self._ops.run(...)`` as ``(file, line, call)``."""
+    return [
+        (name, call.lineno, call)
+        for name, call in _run_calls()
+        if _is_ops_receiver(call)
+    ]
+
+
+def _argv_words(call: ast.Call) -> list[str | None] | None:
+    """The argv list literal as words (``None`` for a non-constant element).
+
+    ``None`` overall means the argv is not a list literal the audits can
+    read (a variable, a call, a list that starts with ``*``).
+    """
     if not call.args or not isinstance(call.args[0], ast.List):
-        return ()
-    prefix: list[str] = []
-    for elt in call.args[0].elts:
-        if not (isinstance(elt, ast.Constant) and isinstance(elt.value, str)):
-            break
-        prefix.append(elt.value)
-    return tuple(prefix)
+        return None
+    elts = call.args[0].elts
+    if elts and isinstance(elts[0], ast.Starred):
+        return None
+    return [
+        elt.value
+        if isinstance(elt, ast.Constant) and isinstance(elt.value, str)
+        else None
+        for elt in elts
+    ]
+
+
+def _git_verb(words: list[str | None]) -> str | None:
+    """The git subcommand, skipping ``-C <dir>`` and ``-c <k=v>`` pairs."""
+    if words[:1] != ["git"]:
+        return None
+    index = 1
+    while index < len(words) and words[index] in ("-C", "-c"):
+        index += 2
+    return words[index] if index < len(words) else None
 
 
 def _timeout_budget(call: ast.Call) -> str | None:
@@ -11453,6 +11509,47 @@ def _timeout_budget(call: ast.Call) -> str | None:
     return None
 
 
+def test_every_run_receiver_is_classified() -> None:
+    """Every ``.run(`` receiver is either a ReleaseOps or a known non-ops.
+
+    The audits only look at ops receivers, so an unclassified one (say a
+    renamed ``self._ops``) would silently drop its git calls from them.
+    """
+    unclassified = sorted(
+        {
+            (name, ast.unparse(cast("ast.Attribute", call.func).value))
+            for name, call in _run_calls()
+            if not (_is_ops_receiver(call) or _is_non_ops_receiver(call))
+        }
+    )
+    assert unclassified == []
+
+
+def test_every_ops_run_argv_is_readable_or_allowlisted() -> None:
+    """An argv the audits cannot read must be allowlisted with a reason."""
+    unreadable = {
+        (name, ast.unparse(call.args[0]) if call.args else "<no argv>")
+        for name, _line, call in _ops_run_calls()
+        if _argv_words(call) is None
+    }
+    assert unreadable == set(_UNREADABLE_ARGV_ALLOWLIST)
+
+
+def test_git_verb_skips_directory_and_config_options() -> None:
+    def verb(source: str) -> str | None:
+        stmt = ast.parse(source).body[0]
+        assert isinstance(stmt, ast.Expr)
+        assert isinstance(stmt.value, ast.Call)
+        words = _argv_words(stmt.value)
+        assert words is not None
+        return _git_verb(words)
+
+    assert verb('ops.run(["git", "-C", d, "push"])') == "push"
+    assert verb('ops.run(["git", "-c", "k=v", "-C", d, "commit"])') == "commit"
+    assert verb('ops.run(["git", "status"])') == "status"
+    assert verb('ops.run(["gh", "pr"])') is None
+
+
 def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
     """Every ops.run call for a hook-firing git command must carry the hook budget.
 
@@ -11466,8 +11563,8 @@ def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
     hook_firing = {"checkout", "commit", "merge", "push", "pull"}
     inspected: list[tuple[str, int, str | None]] = []
     for name, line, call in _ops_run_calls():
-        head = _argv_prefix(call)
-        if head[:1] == ("git",) and head[1:2] and head[1] in hook_firing:
+        words = _argv_words(call)
+        if words is not None and _git_verb(words) in hook_firing:
             inspected.append((name, line, _timeout_budget(call)))
 
     assert inspected, "no hook-firing git call was inspected — the audit is vacuous"
@@ -11897,7 +11994,7 @@ def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> Non
 
     inspected: list[tuple[str, int, str | None]] = []
     for name, line, call in _ops_run_calls():
-        if _argv_prefix(call)[:1] == ("bash",):
+        if (words := _argv_words(call)) is not None and words[:1] == ["bash"]:
             inspected.append((name, line, _timeout_budget(call)))
 
     assert inspected, "no `bash` script invocation was inspected — vacuous audit"
