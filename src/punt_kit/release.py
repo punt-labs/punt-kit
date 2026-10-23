@@ -29,8 +29,9 @@ from punt_kit.phases.phase10_propagate import (
 )
 from punt_kit.phases.phase10_website import WebsitePropagator
 from punt_kit.phases.phase11_verify import Phase11Verify
-from punt_kit.phases.shared import hook_firing, timeouts
+from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.command_runner import CommandRunner
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
@@ -70,19 +71,9 @@ def _run(
     check: bool = True,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess with standard options.
-
-    ``timeout`` defaults to a short metadata budget. Call sites that need longer
-    — installs, quality gates, network git, ``gh run watch`` — pass a named
-    ``timeouts`` budget; every hook-firing command is floored at ``GIT_HOOK`` here.
-    """
-    return subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=capture,
-        text=True,
-        timeout=hook_firing.HookFiringCommand(cmd).timeout(timeout),
-        check=check,
+    """Run a subprocess through the shared ``CommandRunner``."""
+    return CommandRunner.run(
+        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
     )
 
 

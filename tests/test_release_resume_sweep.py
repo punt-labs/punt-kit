@@ -15,7 +15,7 @@ defect #7).
 Two stop mechanisms, per the design's corrected two-path interrupt model
 (§2c): phases that run synchronously on the main thread are stopped with
 a ``KeyboardInterrupt`` whose construction also sets
-``release._interrupted`` — exactly what ``run_release``'s signal handler
+``release.interrupt_event()`` — exactly what ``run_release``'s signal handler
 does atomically on a real Ctrl-C. Phases 9/10 run inside a
 ``ThreadPoolExecutor``, where a real signal's ``KeyboardInterrupt`` can
 never be delivered (signals reach the main thread only), so injecting one
@@ -38,12 +38,12 @@ from typing import TYPE_CHECKING, ClassVar, cast, final
 import pytest
 
 from punt_kit import release
+from punt_kit.phases.shared.command_runner import CommandRunner
 from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.timeouts import DEFAULT_RUN
 from punt_kit.release import ReleaseError, run_release
 from tests import helpers
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
-from tests.helpers import run_real
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -57,7 +57,7 @@ _TAG = "v0.2.0"
 def isolate_release_state() -> Iterator[None]:
     """Clear release.py's module-scoped state around every sweep case.
 
-    ``release._skips`` and ``release._interrupted`` persist for the
+    ``release.skip_recorder()`` and ``release.interrupt_event()`` persist for the
     process; the fresh-run half of every case deliberately sets the
     interrupt event (or records skips), which must not leak into the next
     case — or into unrelated tests collected after this module.
@@ -74,7 +74,7 @@ class _SignalInterrupt(KeyboardInterrupt):
     """A ``KeyboardInterrupt`` that models ``run_release``'s signal handler.
 
     The real SIGINT handler does two things atomically: it sets
-    ``release._interrupted`` and raises ``KeyboardInterrupt``. A
+    ``release.interrupt_event()`` and raises ``KeyboardInterrupt``. A
     ``FaultRule(raises=...)`` given this *type* (not an instance)
     reproduces both, because ``raise <class>`` instantiates the class at
     the raise site — ``__new__`` sets the event, then the raise proceeds
@@ -162,7 +162,9 @@ class _GithubSim:
     ) -> subprocess.CompletedProcess[str]:
         name = Path(cmd[0]).name
         if name == "git":
-            return run_real(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+            return CommandRunner.run(
+                cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+            )
         if cwd is None:
             raise AssertionError(f"emulated command needs a cwd: {cmd!r}")
         if name == "gh" and cmd[1:3] == ["pr", "list"]:
@@ -226,17 +228,19 @@ class _GithubSim:
         number = int(cmd[3])
         with self._lock:
             record = self._prs[number]
-        run_real(["git", "checkout", "main"], cwd=cwd)
-        run_real(["git", "merge", "--squash", record.branch], cwd=cwd)
+        CommandRunner.run(["git", "checkout", "main"], cwd=cwd)
+        CommandRunner.run(["git", "merge", "--squash", record.branch], cwd=cwd)
         # Matches real `gh pr merge --squash` (no --subject override): the
         # commit subject defaults to the PR title plus " (#<number>)".
-        run_real(
+        CommandRunner.run(
             ["git", "commit", "-m", f"{record.title} (#{number})"],
             cwd=cwd,
         )
-        merge_sha = run_real(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
+        merge_sha = CommandRunner.run(
+            ["git", "rev-parse", "HEAD"], cwd=cwd
+        ).stdout.strip()
         # --delete-branch: gh removes the head branch after the merge.
-        run_real(["git", "branch", "-D", record.branch], cwd=cwd)
+        CommandRunner.run(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
             record.state = "MERGED"
             record.merge_sha = merge_sha
@@ -244,7 +248,7 @@ class _GithubSim:
 
     def _run_list(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
         tag = self._flag(cmd, "--branch")
-        sha = run_real(
+        sha = CommandRunner.run(
             ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=cwd
         ).stdout.strip()
         runs: list[dict[str, object]] = [

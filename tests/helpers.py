@@ -11,8 +11,7 @@ from typing import TYPE_CHECKING
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.phases.phase02_version_bump import Phase2VersionBump
-from punt_kit.phases.shared.hook_firing import HookFiringCommand
-from punt_kit.phases.shared.timeouts import DEFAULT_RUN
+from punt_kit.phases.shared.command_runner import CommandRunner
 from tests.harness.fault_ops import FaultInjectingOps
 
 if TYPE_CHECKING:
@@ -23,29 +22,6 @@ if TYPE_CHECKING:
     from tests.harness.fault_ops import FaultRule, RunFn
 
 real_which = shutil.which
-
-
-def run_real(
-    cmd: list[str],
-    *,
-    cwd: str | None = None,
-    timeout: int = DEFAULT_RUN,
-    check: bool = True,
-    capture: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Run ``cmd`` for real, with release.py's own floor on hook-firing timeouts.
-
-    The runner a test hands ``FaultInjectingOps`` for the git it lets through.
-    It is independent of ``release._run``, which tests rebind on the module.
-    """
-    return subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=capture,
-        text=True,
-        timeout=HookFiringCommand(cmd).timeout(timeout),
-        check=check,
-    )
 
 
 def git(args: list[str], cwd: str) -> None:
@@ -177,7 +153,7 @@ def make_sibling(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
 def fault_ops(
     rules: Sequence[FaultRule] = (),
     *,
-    real_run: RunFn = run_real,
+    real_run: RunFn = CommandRunner.run,
     passthrough: Sequence[Sequence[str]] = (),
 ) -> FaultInjectingOps:
     """Build the ``ReleaseOps`` double every test shares.

@@ -1,12 +1,15 @@
-"""The modules the release runs start a process in exactly one place, ``_run``.
+"""The modules the release runs start a process in exactly one place.
+
+That place is ``CommandRunner.run`` in ``phases/shared/command_runner.py``;
+``release._run`` delegates to it.
 
 The scan is static: it watches the ``subprocess``, ``os``, ``pty``, ``asyncio``,
 ``multiprocessing`` and ``concurrent.futures`` process APIs and string-based
 imports of them, in the modules reachable by absolute imports from
 ``release.py`` and from the ``release`` command's entry in ``__main__.py``. A
 process started by a program those modules run, or by code the scan cannot
-resolve, is outside it; the hook floor ``_run`` applies covers everything
-that reaches ``_run``.
+resolve, is outside it; the hook floor ``CommandRunner.run`` applies covers
+everything that reaches it.
 """
 
 from __future__ import annotations
@@ -192,13 +195,13 @@ def test_the_release_command_does_not_pull_in_other_commands() -> None:
 
 
 def test_only_run_spawns_a_release_process() -> None:
-    """Across the release path, the one spawn site is ``release.py``'s ``_run``."""
+    """Across the release path, the one spawn site is ``CommandRunner.run``."""
     sites = {
         (str(path.relative_to(_PACKAGE)), function)
         for path in _release_modules()
         for _name, function in SpawnScan.of_file(path).spawn_sites()
     }
-    assert sites == {("release.py", "_run")}
+    assert sites == {("phases/shared/command_runner.py", "run")}
 
 
 def test_a_second_spawn_site_in_the_same_file_is_reported() -> None:
