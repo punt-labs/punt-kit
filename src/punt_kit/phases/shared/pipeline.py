@@ -105,6 +105,10 @@ class ThreadedStep:
                 # its siblings finish, then every error is re-raised together.
                 errors.append((name, OperationalFailure.report(e)))
         if interrupted.is_set():
+            # The interrupt report replaces the failure summary below, so
+            # what the tasks reported must be shown before it is lost.
+            for name, text in errors:
+                _console.print(f"[red]Error:[/red] {escape(f'{name}: {text}')}")
             raise KeyboardInterrupt
         if errors:
             # Carries each task's own error text, not just its name, and does
@@ -170,6 +174,14 @@ class ReleasePipeline:
         """Print ``exc`` unless ``Reporter.fail`` already printed it."""
         if not isinstance(exc, ReportedReleaseError):
             _console.print(f"[red]Error:[/red] {escape(str(exc))}")
+
+    @classmethod
+    def print_in_flight(cls, exc: BaseException | None) -> None:
+        """Show the error an interrupt is about to replace, as its handler would."""
+        if isinstance(exc, ReleaseError):
+            cls.print_unreported(exc)
+        elif isinstance(exc, Exception):
+            cls.print_crash(exc)
 
     @staticmethod
     def print_crash(exc: Exception) -> None:

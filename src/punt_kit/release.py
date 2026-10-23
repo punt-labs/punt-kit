@@ -731,6 +731,7 @@ def run_release(
             )
         finally:
             if _interrupted.is_set():
+                ReleasePipeline.print_in_flight(sys.exc_info()[1])
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
                 _print_incomplete_release(current_phase_num, _resume_phase_num())

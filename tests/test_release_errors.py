@@ -4,12 +4,15 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import threading
+from concurrent.futures import Future
 from typing import TYPE_CHECKING
 
 import pytest
 
 from punt_kit import release
 from punt_kit.phases.shared.errors import OperationalFailure, ReleaseError
+from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.release import run_release
 from tests.helpers import (
@@ -357,3 +360,60 @@ def test_a_failed_command_with_long_stderr_is_truncated() -> None:
     line = OperationalFailure.one_line(_failed_command(stderr="x" * 5000))
 
     assert len(line) < 1000
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ReleaseError("unique-xyz cannot be read"),
+        KeyError("unique-xyz"),
+        _failed_command(stderr="unique-xyz refused"),
+    ],
+    ids=["release-error", "bug", "operational"],
+)
+def test_an_error_in_flight_when_interrupted_is_still_shown_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    root = make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", fake_which)
+    interrupted = release.interrupt_event()
+
+    def phase11(*_a: object, **_k: object) -> None:
+        interrupted.set()
+        raise error
+
+    monkeypatch.setattr(release, "_phase11_verify", phase11)
+
+    def no_reset(*_a: object, **_k: object) -> None:
+        return None
+
+    monkeypatch.setattr(release, "_reset_propagation_siblings", no_reset)
+
+    try:
+        with pytest.raises(SystemExit) as exc_info:
+            run_release(str(root), version="0.2.0", resume_from="verify")
+    finally:
+        interrupted.clear()
+
+    captured = capsys.readouterr()
+    assert exc_info.value.code == 1
+    assert (flat(captured.out) + captured.err).count("unique-xyz") == 1
+
+
+def test_errors_gathered_before_an_interrupt_are_printed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    failed: Future[None] = Future()
+    failed.set_exception(ReleaseError("unique-xyz cannot be read"))
+    interrupted = threading.Event()
+    interrupted.set()
+
+    with pytest.raises(KeyboardInterrupt):
+        ThreadedStep(ops=release._ops).collect(  # pyright: ignore[reportPrivateUsage]
+            {failed: "website"}, interrupted=interrupted
+        )
+
+    assert "website: unique-xyz cannot be read" in flat(capsys.readouterr().out)
