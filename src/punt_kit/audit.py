@@ -14,9 +14,9 @@ from typing import cast
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.git_checkout import GitCheckout
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.permission_rules import RuleSet, Tier
-from punt_kit.phases.shared.repo_slug import RepoSlug
 
 console = Console()
 
@@ -376,26 +376,9 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
     # Detect repo from git remote — verify we're in a git repo rooted here
     try:
-        git_root = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(info.root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if (
-            git_root.returncode != 0
-            or Path(git_root.stdout.strip()).resolve() != info.root.resolve()
-        ):
-            results.append((INFO, "GitHub settings (no git repo at root)", ""))
-            return results
-    except (subprocess.TimeoutExpired, OSError):
-        results.append((INFO, "GitHub settings (no git repo at root)", ""))
-        return results
-
-    repo = _get_github_repo(info.root)
-    if repo is None:
-        results.append((INFO, "GitHub settings (no remote detected)", ""))
+        repo = GitCheckout(info.root).github_slug()
+    except ValueError as exc:
+        results.append((INFO, f"GitHub settings ({exc})", ""))
         return results
 
     # Check branch protection via rulesets API (not legacy branch protection)
@@ -411,13 +394,8 @@ def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
         # 204 means enabled, 404 means disabled
         enabled = "204" in (result.stderr + result.stdout) or result.returncode == 0
-        results.append(
-            (
-                PASS if enabled else FAIL,
-                "Dependabot vulnerability alerts",
-                "Enabled" if enabled else "Not enabled",
-            )
-        )
+        status, detail = (PASS, "Enabled") if enabled else (FAIL, "Not enabled")
+        results.append((status, "Dependabot vulnerability alerts", detail))
     except (subprocess.TimeoutExpired, OSError):
         results.append((INFO, "Dependabot alerts (could not check)", ""))
 
@@ -1115,21 +1093,3 @@ def _relpath(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _get_github_repo(root: Path) -> str | None:
-    """The clean ``owner/repo`` of the origin remote, or ``None``."""
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return None
-        slug = RepoSlug.from_remote_url(result.stdout)
-    except (subprocess.TimeoutExpired, OSError, ValueError):
-        return None
-    return None if slug is None else str(slug)

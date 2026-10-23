@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 from typing import TYPE_CHECKING, cast
 
@@ -16,6 +17,8 @@ from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+    from punt_kit.detect import ProjectInfo
 
 
 def _make_compliant_python(tmp_path: Path) -> None:
@@ -831,37 +834,65 @@ def test_audit_hint_covers_both_kinds(
     assert "hand" in out
 
 
-def _audit_slug(tmp_path: Path, remote: str) -> str | None:
+_NOT_GITHUB_OWNER_REPO = [
+    pytest.param("https://github.com/proj", id="no-owner"),
+    pytest.param("https://github.com/o/r/extra", id="three-parts"),
+    pytest.param("https://gitlab.com/o/r", id="other-host"),
+]
+
+
+def _github_settings_labels(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote: str | None
+) -> list[str]:
+    """The labels ``_check_github_settings`` reports for a repo with ``remote``."""
     subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
-    subprocess.run(["git", "remote", "add", "origin", remote], cwd=tmp_path, check=True)
-    resolve = cast("Callable[[Path], str | None]", vars(audit)["_get_github_repo"])
-    return resolve(tmp_path)
+    if remote is not None:
+        subprocess.run(
+            ["git", "remote", "add", "origin", remote], cwd=tmp_path, check=True
+        )
+
+    def fake_which(_name: str) -> str:
+        return "/usr/bin/gh"
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_github_settings"],
+    )
+    return [label for _status, label, _detail in check(detect(tmp_path))]
 
 
-@pytest.mark.parametrize(
-    ("remote", "slug"),
-    [
-        pytest.param("https://github.com/o/r/", "o/r", id="trailing-slash"),
-        pytest.param("git@github.com:o/r.git/", "o/r", id="scp-dot-git-slash"),
-        pytest.param("https://github.com/o/r.git", "o/r", id="dot-git"),
-    ],
-)
-def test_audit_resolves_a_clean_github_slug(
-    tmp_path: Path, remote: str, slug: str
+def test_audit_reports_no_git_repo_for_a_subdirectory_of_a_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The audit builds ``repos/{slug}/...`` URLs, so the slug must be clean."""
-    assert _audit_slug(tmp_path, remote) == slug
+    sub = tmp_path / "pkg"
+    sub.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+
+    def fake_which(_name: str) -> str:
+        return "/usr/bin/gh"
+
+    monkeypatch.setattr(shutil, "which", fake_which)
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_github_settings"],
+    )
+    labels = [label for _status, label, _detail in check(detect(sub))]
+    assert labels == ["GitHub settings (no git repo at root)"]
 
 
-@pytest.mark.parametrize(
-    "remote",
-    [
-        pytest.param("https://github.com/proj", id="no-owner"),
-        pytest.param("https://github.com/o/r/extra", id="three-parts"),
-        pytest.param("https://gitlab.com/o/r", id="other-host"),
-    ],
-)
-def test_audit_rejects_a_remote_that_is_not_a_github_owner_repo(
-    tmp_path: Path, remote: str
+def test_audit_reports_no_remote_when_origin_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert _audit_slug(tmp_path, remote) is None
+    assert _github_settings_labels(tmp_path, monkeypatch, None) == [
+        "GitHub settings (no remote detected)"
+    ]
+
+
+@pytest.mark.parametrize("remote", _NOT_GITHUB_OWNER_REPO)
+def test_audit_reports_a_remote_that_is_not_a_github_owner_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, remote: str
+) -> None:
+    assert _github_settings_labels(tmp_path, monkeypatch, remote) == [
+        f"GitHub settings (origin remote is not a GitHub owner/repo: {remote})"
+    ]
