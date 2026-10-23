@@ -10,17 +10,20 @@ if TYPE_CHECKING:
 
     from punt_kit.phases.shared.ops import ReleaseOps
 
-# The [Unreleased] body, line-anchored so an empty section captures nothing
-# instead of the next release's notes.
+# The body of the [Unreleased] section: everything up to the next version
+# heading. Anchored on line starts so an EMPTY section (heading, blank line,
+# next heading) captures nothing instead of swallowing the next release's notes.
 _UNRELEASED = re.compile(r"(?ms)^## \[Unreleased\][^\n]*(?:\n|\Z)(.*?)(?=^## \[|\Z)")
 
 
 def extract_version_notes(changelog: str, version: str) -> str:
     """Extract release notes for a specific version from changelog text.
 
-    Pure string transform (a PY-OO-7 exception): it takes only text, so tests
-    drive it against fabricated text with no file; ``Changelog.notes_for``
-    reads the file and delegates here.
+    Pure string transform — legitimate PY-OO-7 exception: it shares no
+    vocabulary with ``Changelog``'s fields, only the text a caller already
+    has in hand (``Changelog.notes_for`` reads the file, then delegates
+    here; tests exercise this directly against fabricated text with no
+    file at all).
     """
     pattern = rf"## \[{re.escape(version)}\][^\n]*\n"
     match = re.search(pattern, changelog)
@@ -83,6 +86,13 @@ class Changelog:
         return changelog.read_text(encoding="utf-8")
 
     def require_unreleased_entries(self) -> None:
+        """Fail unless the changelog has an [Unreleased] section with content.
+
+        Reads CHANGELOG.md once. Fails with ``No [Unreleased] section in
+        CHANGELOG.md`` when no such heading starts a line, and with
+        ``[Unreleased] section is empty — nothing to release`` when the
+        section has nothing but whitespace before the next version heading.
+        """
         body = _UNRELEASED.search(self.text())
         if body is None:
             self._ops.fail("No [Unreleased] section in CHANGELOG.md")
