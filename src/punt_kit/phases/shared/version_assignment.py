@@ -98,7 +98,12 @@ class VersionAssignment:
         return text[: match.start()] + replacement + text[match.end() :], 1
 
     def later_computed_line(self, text: str) -> str:
-        """The first assignment after the first that is not plain; empty when none."""
+        """The first assignment after the first that is not plain; empty when none.
+
+        Best effort, for a warning only: it sees assignments that start a
+        line. A compound form such as ``if ...; then VERSION=...; fi`` or an
+        appending ``VERSION+=...`` is not seen.
+        """
         later = list(self._assigned.finditer(text))[1:]
         for match in later:
             if self._plain_shell_value(text, match.start()) is None:
