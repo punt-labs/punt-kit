@@ -17,6 +17,9 @@ _EXPANDS = re.compile(r"[$`]")
 # beginning of a word, so one glued to the quote (``"1.0"#x``) continues the
 # word, like ``"1.0"$SUFFIX`` and ``'1'"$x"``: the value is computed.
 _VALUE_END = re.compile(r"[ \t;\r\n]|\Z")
+# An unquoted shell word is a literal when it holds nothing the shell would
+# expand, split or glue onto: ``VERSION=0.0.9`` is as fixed as ``"0.0.9"``.
+_BARE_WORD = r"[^\s\"'`$;&|<>(){}\\#]+"
 
 
 @final
@@ -33,9 +36,10 @@ class VersionAssignment:
     pass over it.
     """
 
-    __slots__ = ("_assigned", "_is_shell", "_quoted")
+    __slots__ = ("_assigned", "_bare", "_is_shell", "_quoted")
 
     _assigned: re.Pattern[str]
+    _bare: re.Pattern[str]
     _quoted: re.Pattern[str]
     _is_shell: bool
 
@@ -44,6 +48,8 @@ class VersionAssignment:
         head = rf"^{lead}{re.escape(name)}(?:[ \t]*:[^=\n]+)?[ \t]*="
         self._assigned = re.compile(head, re.MULTILINE)
         self._quoted = re.compile(rf"({head}[ \t]*)([\"'])([^\"'\n]*)\2", re.MULTILINE)
+        # Group 2 is empty so a bare word and a quoted one share one shape.
+        self._bare = re.compile(rf"({head}[ \t]*)()({_BARE_WORD})", re.MULTILINE)
         self._is_shell = is_shell
         return self
 
@@ -59,7 +65,9 @@ class VersionAssignment:
         The *first* assignment decides whether the script can be bumped: it
         is the value a script has until something reassigns it. Every later
         assignment that is a plain string is rewritten with it, so a re-pin in
-        a branch cannot stay stale; one that is computed is left alone. A value is
+        a branch cannot stay stale; one that is computed is left alone. An
+        unquoted literal (``VERSION=0.0.9``) is a plain value like a quoted one
+        and is rewritten without quotes. A value is
         computed, so assigned but not readable, when it is double-quoted and
         contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
         ``"$(git describe)"``), or when the closing quote is followed by more
@@ -88,7 +96,7 @@ class VersionAssignment:
         )
 
     def read(self, text: str) -> str | None:
-        """The first quoted value assigned, or ``None`` when there is none."""
+        """The first plain value assigned, or ``None`` when there is none."""
         match = self._readable(text)
         return match.group(3) if match else None
 
@@ -141,10 +149,13 @@ class VersionAssignment:
         return self._value_at(text, first.start())
 
     def _value_at(self, text: str, start: int) -> re.Match[str] | None:
-        """The quoted value of the assignment at ``start``, if it is a plain string."""
+        """The value of the assignment at ``start``, if it is a plain literal."""
         match = self._quoted.match(text, start)
-        if match is None or not self._is_shell:
+        if not self._is_shell:
             return match
+        match = match or self._bare.match(text, start)
+        if match is None:
+            return None
         if match.group(2) == '"' and _EXPANDS.search(match.group(3)):
             return None
         if _VALUE_END.match(text, match.end()) is None:

@@ -13466,6 +13466,45 @@ def test_phase11_verify_fails_on_a_second_stale_install_all_line(
     _assert_failed_checks(capsys.readouterr().out, ["install-all.sh"], first_commit[:7])
 
 
+def test_phase11_verify_fails_when_the_pinned_install_sh_has_a_stale_unquoted_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+    sibling = tmp_path / ".github"
+    sd = str(sibling)
+    install_sh = root / "install.sh"
+    install_sh.write_text(install_sh.read_text() + "VERSION=0.0.9\n")
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "stale unquoted re-pin"], cwd=d)
+    _git(["tag", "-f", f"v{version}"], cwd=d)
+    new_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    install_all = sibling / "install-all.sh"
+    install_all.write_text(
+        re.sub(r"/proj/[0-9a-f]{40}/", f"/proj/{new_sha}/", install_all.read_text())
+    )
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "pin the stale install.sh"], cwd=sd)
+    (sibling / "profile" / "README.md").write_text(
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{_get_install_all_sha(sibling)}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "repin the profile"], cwd=sd)
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["install.sh", "install-all.sh"],
+        f"SHA={new_sha[:7]}",
+        on="install-all.sh",
+    )
+
+
 def test_phase11_verify_fails_when_any_profile_pin_is_stale(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

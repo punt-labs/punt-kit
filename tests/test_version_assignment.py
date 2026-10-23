@@ -122,6 +122,49 @@ def test_a_shell_value_never_spans_a_newline() -> None:
     )
 
 
+def test_an_unquoted_shell_literal_is_a_readable_pin() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = "VERSION=0.0.9\n"
+
+    assert (assignment.read(text), assignment.values(text)) == ("0.0.9", ("0.0.9",))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "VERSION=0.1$SUFFIX\n",
+        'VERSION=0.1"x"\n',
+        "VERSION=0.1#x\n",
+        "VERSION=$(git describe)\n",
+        "VERSION=`git describe`\n",
+        "VERSION=0.1\\ 2\n",
+    ],
+)
+def test_a_computed_unquoted_shell_value_is_still_not_plain(text: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+
+
+def test_a_stale_unquoted_pin_after_a_current_quoted_one_is_not_pinned() -> None:
+    text = 'VERSION="0.1.0"\nVERSION=0.0.9\n'
+
+    assert VersionAssignment.in_shell("VERSION").is_pinned_to(text, "0.1.0") is False
+
+
+def test_an_unquoted_pin_is_rewritten_and_stays_unquoted() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'VERSION="0.1.0"\nVERSION=0.0.9 # old\n'
+
+    new, count = assignment.rewritten(text, "0.2.0")
+
+    assert (new, count, assignment.is_pinned_to(new, "0.2.0")) == (
+        'VERSION="0.2.0"\nVERSION=0.2.0 # old\n',
+        2,
+        True,
+    )
+
+
 def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
 

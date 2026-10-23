@@ -24,6 +24,12 @@ if TYPE_CHECKING:
 _FORMS = [
     pytest.param('VERSION="0.1.0"\n', 'VERSION="0.2.0"\n', id="double-quoted"),
     pytest.param("VERSION='0.1.0'\n", "VERSION='0.2.0'\n", id="single-quoted"),
+    pytest.param("VERSION=0.1.0\n", "VERSION=0.2.0\n", id="unquoted"),
+    pytest.param(
+        "VERSION=0.1.0; export VERSION\n",
+        "VERSION=0.2.0; export VERSION\n",
+        id="unquoted-semicolon",
+    ),
     pytest.param('  VERSION="0.1.0"\n', '  VERSION="0.2.0"\n', id="indented"),
     pytest.param(
         'readonly VERSION="0.1.0"\n', 'readonly VERSION="0.2.0"\n', id="readonly"
@@ -230,6 +236,28 @@ def test_phase11_fails_when_a_later_plain_assignment_is_stale(tmp_path: Path) ->
     passed, detail = _install_sh_checks(tmp_path)["install.sh"]
 
     assert (passed, "0.1.0" in detail) == (False, True)
+
+
+def test_phase2_rewrites_a_stale_unquoted_pin_after_a_quoted_one(
+    tmp_path: Path,
+) -> None:
+    root = make_release_project(tmp_path)
+    (root / "install.sh").write_text('#!/bin/sh\nVERSION="0.1.0"\nVERSION=0.0.9\n')
+    commit_all(root, "unquoted re-pin")
+
+    bump(root)
+
+    assert (root / "install.sh").read_text() == (
+        '#!/bin/sh\nVERSION="0.2.0"\nVERSION=0.2.0\n'
+    )
+
+
+def test_phase11_fails_when_a_later_unquoted_pin_is_stale(tmp_path: Path) -> None:
+    (tmp_path / "install.sh").write_text('#!/bin/sh\nVERSION="0.2.0"\nVERSION=0.0.9\n')
+
+    passed, detail = _install_sh_checks(tmp_path)["install.sh"]
+
+    assert (passed, "0.0.9" in detail) == (False, True)
 
 
 def test_phase11_passes_when_every_plain_assignment_matches(tmp_path: Path) -> None:
