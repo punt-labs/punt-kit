@@ -902,3 +902,13 @@ def test_an_unreadable_manifest_in_a_path_with_markup_is_reported_in_full(
 
     out = " ".join(capsys.readouterr().out.split())
     assert "[x][/dim]/.claude-plugin/plugin.json is not valid JSON" in out
+
+
+def test_audit_readme_sha_pins_flag_an_uppercase_host_and_file_on_a_branch(
+    tmp_path: Path,
+) -> None:
+    url = "HTTPS://RAW.GITHUBUSERCONTENT.COM/punt-labs/test/main/INSTALL.SH"
+
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {url}\n")
+
+    assert _statuses(findings) == [FAIL]

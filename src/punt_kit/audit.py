@@ -643,7 +643,9 @@ def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
         return []
 
     content = TextFile(readme).read()
-    if "install.sh" not in content and "raw.githubusercontent.com" not in content:
+    # The recognizer ignores case, so the cheap pre-filter must too.
+    lowered = content.lower()
+    if "install.sh" not in lowered and "raw.githubusercontent.com" not in lowered:
         return []
     try:
         slug = GitCheckout(info.root).github_slug()
