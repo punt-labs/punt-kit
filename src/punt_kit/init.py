@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
@@ -213,18 +214,21 @@ def _init_project(path: str, *, language: str | None) -> None:
 
     _report_manual_steps(info)
     if beads_failure is not None:
-        raise beads_failure
+        # Printed when it happened; run_init would only print it a second time.
+        raise SystemExit(1) from beads_failure
 
 
 def _init_beads(info: ProjectInfo, changed: list[str]) -> BeadsInitError | None:
     """Run the beads step; return its failure so the other steps still run.
 
     ``None`` is the documented success: the failure ends the run only after
-    every other step has been given its turn.
+    every other step has been given its turn. It is shown now, so a later
+    step that raises cannot hide it.
     """
     try:
         changed.extend(BeadsInit(info).run())
     except BeadsInitError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
         return exc
     return None
 
@@ -246,8 +250,6 @@ def _validate_inputs(info: ProjectInfo) -> None:
 
 def _prompt_language() -> str | None:
     """Prompt the user to choose a language if stdin is a tty."""
-    import sys
-
     if not sys.stdin.isatty():
         return None
 

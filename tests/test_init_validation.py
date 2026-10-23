@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from punt_kit import init as init_mod
 from punt_kit.init import TEMPLATES, run_init
 from tests.helpers import (
     fake_bd,
@@ -85,3 +86,42 @@ def test_a_failed_bd_init_fails_the_run_after_the_other_steps(
     assert reason in out
     assert (project / "CLAUDE.md").exists()
     assert (project / ".claude" / "settings.json").exists()
+
+
+def test_a_failed_bd_init_is_reported_even_when_a_later_step_raises(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    python_project(project)
+    bin_dir = fake_bd(tmp_path / "bin", "#!/bin/sh\necho no database >&2\nexit 3\n")
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+
+    def disk_full(_info: object) -> list[str]:
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(init_mod, "_init_claude_md", disk_full)
+
+    with pytest.raises(OSError, match="No space left"):
+        run_init(str(project))
+
+    assert "beads init failed: no database" in " ".join(capsys.readouterr().out.split())
+
+
+def test_a_failed_bd_init_is_reported_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    python_project(project)
+    bin_dir = fake_bd(tmp_path / "bin", "#!/bin/sh\necho no database >&2\nexit 3\n")
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+
+    with pytest.raises(SystemExit):
+        run_init(str(project))
+
+    assert " ".join(capsys.readouterr().out.split()).count("no database") == 1
