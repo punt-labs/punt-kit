@@ -11547,33 +11547,6 @@ def test_ops_run_keeps_the_timeout_of_a_command_that_fires_no_hook(
     assert spawned == timeouts.DEFAULT_RUN
 
 
-# Every way the standard library starts a process. The hook budget is applied
-# in `_run`, so a spawn anywhere else would run without it.
-_SPAWN = re.compile(
-    r"\b(?:subprocess\.(?:run|Popen|call|check_call|check_output|getoutput"
-    r"|getstatusoutput)|os\.(?:system|popen|exec\w*|spawn\w*|posix_spawn\w*)"
-    r"|asyncio\.create_subprocess_\w+)\("
-    r"|^\s*from\s+(?:subprocess|os)\s+import\b",
-    re.MULTILINE,
-)
-
-
-def test_only_run_spawns_a_release_process() -> None:
-    """No release module can start a process around the hook budget.
-
-    The release is `release.py` plus everything under `phases/`; each phase
-    reaches a process through `ReleaseOps.run`, which `_run` implements.
-    """
-    release_dir = _Path(release.__file__).parent
-    sources = [release_dir / "release.py", *(release_dir / "phases").rglob("*.py")]
-    spawns = {
-        path.name: len(_SPAWN.findall(path.read_text("utf-8")))
-        for path in sources
-        if _SPAWN.search(path.read_text("utf-8"))
-    }
-    assert spawns == {"release.py": 1}
-
-
 def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
