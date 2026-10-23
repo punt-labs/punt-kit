@@ -333,24 +333,24 @@ def run_seed(
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
+    changed: list[str] = []
     try:
         info = detect(root)
+        if target == "settings":
+            changed.extend(_seed_settings(info, dry_run=dry_run))
+        elif target in TARGETS:
+            file_type, sections = TARGETS[target]
+            changed += _seed_file(info, target, file_type, sections, dry_run=dry_run)
+        else:
+            valid = ", ".join([*TARGETS.keys(), "settings"])
+            console.print(
+                f"[red]Error:[/red] unknown target '{target}' — choose from: {valid}"
+            )
+            raise SystemExit(1)
     except ReleaseError as exc:
+        # An unreadable project file is reported by name, not as a traceback.
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise SystemExit(1) from exc
-    changed: list[str] = []
-
-    if target == "settings":
-        changed.extend(_seed_settings(info, dry_run=dry_run))
-    elif target in TARGETS:
-        file_type, sections = TARGETS[target]
-        changed.extend(_seed_file(info, target, file_type, sections, dry_run=dry_run))
-    else:
-        valid = ", ".join([*TARGETS.keys(), "settings"])
-        console.print(
-            f"[red]Error:[/red] unknown target '{target}' — choose from: {valid}"
-        )
-        raise SystemExit(1)
 
     if dry_run:
         console.print("\n[dim]Dry run — no files modified.[/dim]")

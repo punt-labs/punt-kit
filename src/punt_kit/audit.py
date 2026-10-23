@@ -6,8 +6,9 @@ import importlib.resources
 import re
 import shutil
 import subprocess
+from functools import partial
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from rich.console import Console
 from rich.markup import escape
@@ -22,7 +23,13 @@ from punt_kit.phases.shared.install_urls import InstallUrl, InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 console = Console()
+
+# One audit finding: (status, label, detail).
+type _Findings = list[tuple[str, str, str]]
 
 TEMPLATES = importlib.resources.files("punt_kit") / "templates"
 
@@ -51,23 +58,24 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     ptype = info.project_type or "unknown"
     console.print(f"  Language: {lang}  Type: {ptype}\n")
 
-    results: list[tuple[str, str, str]] = []
-
-    results.extend(_check_ci(info))
-    results.extend(_check_tool_config(info))
-    results.extend(_check_markdownlint(info, fix=fix))
-    results.extend(_check_markdownlint_content(info))
-    results.extend(_check_py_typed(info, fix=fix))
-    results.extend(_check_changelog(info, fix=fix))
-    results.extend(_check_beads(info))
-    results.extend(_check_claude_md(info))
-    results.extend(PermissionsAudit(info).findings())
-    results.extend(_check_makefile(info))
-    results.extend(_check_plugin_dev_isolation(info))
-    results.extend(_check_install_sh(info))
-    results.extend(_check_readme_sha_pins(info))
-    results.extend(_check_plugin_version_sync(info))
-    results.extend(GithubSettingsAudit(info.root).findings())
+    checks: tuple[Callable[[], _Findings], ...] = (
+        partial(_check_ci, info),
+        partial(_check_tool_config, info),
+        partial(_check_markdownlint, info, fix=fix),
+        partial(_check_markdownlint_content, info),
+        partial(_check_py_typed, info, fix=fix),
+        partial(_check_changelog, info, fix=fix),
+        partial(_check_beads, info),
+        partial(_check_claude_md, info),
+        PermissionsAudit(info).findings,
+        partial(_check_makefile, info),
+        partial(_check_plugin_dev_isolation, info),
+        partial(_check_install_sh, info),
+        partial(_check_readme_sha_pins, info),
+        partial(_check_plugin_version_sync, info),
+        GithubSettingsAudit(info.root).findings,
+    )
+    results = [finding for check in checks for finding in _guarded(check)]
 
     # Print results
     passes = 0
@@ -91,6 +99,18 @@ def run_audit(path: str, *, fix: bool = False) -> None:
 
     if failures > 0:
         raise SystemExit(1)
+
+
+def _guarded(check: Callable[[], _Findings]) -> _Findings:
+    """Run one check; a file it cannot read becomes a FAIL naming the file.
+
+    Without this one unreadable file would abort the audit and discard every
+    finding the other checks had already produced.
+    """
+    try:
+        return check()
+    except ReleaseError as exc:
+        return [(FAIL, "Project files are readable", escape(str(exc)))]
 
 
 def _check_ci(info: ProjectInfo) -> list[tuple[str, str, str]]:
