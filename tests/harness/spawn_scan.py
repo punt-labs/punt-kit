@@ -1,4 +1,11 @@
-"""Static scan for every way a module can start a process."""
+"""Static scan for the ways a module can start a process through the APIs it watches.
+
+It watches ``subprocess``, ``os``, ``pty``, ``asyncio``, ``multiprocessing`` and
+``concurrent.futures.ProcessPoolExecutor``, plus string-based imports and
+``getattr`` on those modules. It follows absolute imports inside the package and
+refuses a relative one rather than skip it. It does not see a process started
+by a program a module runs, or by code it cannot resolve statically.
+"""
 
 from __future__ import annotations
 
@@ -6,10 +13,13 @@ import ast
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 # Modules whose import can lead to a process being started.
-_WATCHED = frozenset({"subprocess", "os", "pty", "asyncio", "multiprocessing"})
+_WATCHED = frozenset(
+    {"subprocess", "os", "pty", "asyncio", "multiprocessing", "concurrent"}
+)
 
 # What a module may take from `subprocess` without being able to start one.
 _SUBPROCESS_TYPES = frozenset(
@@ -20,6 +30,7 @@ _OS_SPAWNERS = frozenset({"system", "popen", "fork", "forkpty", "startfile"})
 _OS_SPAWN_PREFIXES = ("exec", "spawn", "posix_spawn")
 
 _PACKAGE = "punt_kit"
+_MODULE_SCOPE = "<module>"
 
 
 @final
@@ -31,6 +42,13 @@ class SpawnScan:
     _tree: ast.Module
 
     def __new__(cls, tree: ast.Module) -> Self:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.level:
+                msg = (
+                    f"relative import at line {node.lineno}: the scan follows "
+                    "absolute imports only, so it would skip the module"
+                )
+                raise ValueError(msg)
         self = super().__new__(cls)
         self._tree = tree
         return self
@@ -44,59 +62,110 @@ class SpawnScan:
         return cls.of_source(path.read_text("utf-8"))
 
     @classmethod
-    def reachable_from(cls, entry: Path) -> list[Path]:
-        """``entry`` and every package module it imports, transitively."""
+    def reachable_from(
+        cls, entry: Path, *, entry_point: str | None = None
+    ) -> list[Path]:
+        """``entry`` and every package module it imports, transitively.
+
+        ``entry_point`` names a function: only the imports at module level and
+        inside that function count for ``entry``, so a CLI module's other
+        commands are not pulled in with the one being scanned.
+        """
         root = next(p for p in entry.parents if p.name == _PACKAGE)
         seen: set[Path] = set()
-        pending = [entry]
+        pending = [(entry, entry_point)]
         while pending:
-            path = pending.pop()
+            path, only = pending.pop()
             if path in seen:
                 continue
             seen.add(path)
-            for module in cls.of_file(path).internal_modules():
-                pending.extend(cls._files_of(root, module))
+            for module in cls.of_file(path).internal_modules(only):
+                pending.extend((file, None) for file in cls._files_of(root, module))
         return sorted(seen)
 
     def spawning_names(self) -> list[str]:
         """Sorted, canonical names such as ``subprocess.run`` or ``os.execvp``."""
+        return sorted({name for name, _scope in self.spawn_sites()})
+
+    def spawn_sites(self) -> list[tuple[str, str]]:
+        """Sorted ``(name, enclosing function)`` for every use; ``<module>`` at top."""
         aliases = self._module_aliases()
         loaders = self._loader_names()
-        found: set[str] = set()
-        for node in ast.walk(self._tree):
+        found: set[tuple[str, str]] = set()
+        for node, scope in self._scoped_nodes():
             if isinstance(node, ast.ImportFrom):
-                found.update(self._imported_spawners(node))
+                found.update((name, scope) for name in self._imported_spawners(node))
             elif isinstance(node, ast.Call):
-                found.update(self._dynamic_import(node, loaders, aliases))
-            elif (
-                isinstance(node, ast.Attribute)
-                and isinstance(node.value, ast.Name)
-                and node.value.id in aliases
-                and self._spawns(aliases[node.value.id], node.attr)
-            ):
-                found.add(f"{aliases[node.value.id]}.{node.attr}")
+                found.update(
+                    (name, scope)
+                    for name in self._dynamic_import(node, loaders, aliases)
+                )
+            elif isinstance(node, ast.Attribute):
+                base = self._base_name(node.value)
+                module = aliases.get(base, "")
+                if module and self._spawns(module, node.attr):
+                    found.add((f"{module}.{node.attr}", scope))
         return sorted(found)
 
-    def _module_aliases(self) -> dict[str, str]:
-        """Local name -> watched module, for every ``import x`` / ``import x as y``."""
-        names = (
-            (alias.asname or alias.name.split(".")[0], alias.name.split(".")[0])
-            for node in ast.walk(self._tree)
-            if isinstance(node, ast.Import)
-            for alias in node.names
-        )
-        return {local: root for local, root in names if root in _WATCHED}
+    def internal_modules(self, entry_point: str | None = None) -> list[str]:
+        """Dotted names of the package modules this module imports.
 
-    def internal_modules(self) -> list[str]:
-        """Dotted names of the package modules this module imports."""
+        With ``entry_point``, only imports at module level or inside that
+        function; otherwise every import in the file.
+        """
         names: list[str] = []
-        for node in ast.walk(self._tree):
+        for node, scope in self._scoped_nodes():
+            if entry_point is not None and scope not in {_MODULE_SCOPE, entry_point}:
+                continue
             if isinstance(node, ast.Import):
                 names.extend(a.name for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 names.append(node.module)
                 names.extend(f"{node.module}.{a.name}" for a in node.names)
         return [n for n in names if n.split(".")[0] == _PACKAGE]
+
+    def _scoped_nodes(self) -> Iterator[tuple[ast.AST, str]]:
+        """Every node with the name of the innermost function that holds it."""
+
+        def visit(node: ast.AST, scope: str) -> Iterator[tuple[ast.AST, str]]:
+            yield node, scope
+            for child in ast.iter_child_nodes(node):
+                inner = (
+                    child.name
+                    if isinstance(child, ast.FunctionDef | ast.AsyncFunctionDef)
+                    else scope
+                )
+                yield from visit(child, inner)
+
+        return visit(self._tree, _MODULE_SCOPE)
+
+    def _module_aliases(self) -> dict[str, str]:
+        """Local name -> watched module, for every way a watched module is bound.
+
+        ``import x``, ``import x as y``, and ``from concurrent import futures``
+        (which binds a submodule of ``concurrent``).
+        """
+        names: list[tuple[str, str]] = []
+        for node in ast.walk(self._tree):
+            if isinstance(node, ast.Import):
+                names.extend(
+                    (alias.asname or alias.name.split(".")[0], alias.name.split(".")[0])
+                    for alias in node.names
+                )
+            elif isinstance(node, ast.ImportFrom) and node.module == "concurrent":
+                names.extend(
+                    (alias.asname or alias.name, "concurrent")
+                    for alias in node.names
+                    if alias.name == "futures"
+                )
+        return {local: root for local, root in names if root in _WATCHED}
+
+    @staticmethod
+    def _base_name(node: ast.expr) -> str:
+        """The leftmost name of ``a.b.c`` (``a``); empty if it is not a name."""
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return node.id if isinstance(node, ast.Name) else ""
 
     @staticmethod
     def _files_of(root: Path, module: str) -> list[Path]:
@@ -115,7 +184,7 @@ class SpawnScan:
     @classmethod
     def _imported_spawners(cls, node: ast.ImportFrom) -> list[str]:
         root = (node.module or "").split(".")[0]
-        if node.level or root not in _WATCHED:
+        if root not in _WATCHED:
             return []
         return [
             f"{root}.{a.name}"
@@ -162,4 +231,6 @@ class SpawnScan:
             return name in _OS_SPAWNERS or name.startswith(_OS_SPAWN_PREFIXES)
         if module == "asyncio":
             return name.startswith("create_subprocess")
+        if module == "concurrent":
+            return name == "ProcessPoolExecutor"
         return True

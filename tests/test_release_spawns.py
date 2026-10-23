@@ -1,4 +1,13 @@
-"""The release spawns a process in exactly one place, so the hook floor is total."""
+"""The modules the release runs start a process in exactly one place, ``_run``.
+
+The scan is static: it watches the ``subprocess``, ``os``, ``pty``, ``asyncio``,
+``multiprocessing`` and ``concurrent.futures`` process APIs and string-based
+imports of them, in the modules reachable by absolute imports from
+``release.py`` and from the ``release`` command's entry in ``__main__.py``. A
+process started by a program those modules run, or by code the scan cannot
+resolve, is outside it; the hook floor ``_run`` applies covers everything
+that reaches ``_run``.
+"""
 
 from __future__ import annotations
 
@@ -103,14 +112,107 @@ def test_the_scan_follows_imports_inside_the_package() -> None:
     assert {"release.py", "pr_merge.py", "timeouts.py", "detect.py"} <= reached
 
 
-def test_only_run_spawns_a_release_process() -> None:
-    """Across release.py and every module it reaches, only ``_run`` spawns."""
-    spawners = {
-        path.name: SpawnScan.of_file(path).spawning_names()
-        for path in SpawnScan.reachable_from(_PACKAGE / "release.py")
-        if SpawnScan.of_file(path).spawning_names()
+def _release_modules() -> list[Path]:
+    """Every module on the release path: the CLI's ``release`` command and below."""
+    cli = SpawnScan.reachable_from(_PACKAGE / "__main__.py", entry_point="release")
+    return sorted({*cli, *SpawnScan.reachable_from(_PACKAGE / "release.py")})
+
+
+def test_the_release_command_reaches_release_py() -> None:
+    assert _PACKAGE / "release.py" in SpawnScan.reachable_from(
+        _PACKAGE / "__main__.py", entry_point="release"
+    )
+
+
+def test_the_release_command_does_not_pull_in_other_commands() -> None:
+    reached = {
+        p.name
+        for p in SpawnScan.reachable_from(
+            _PACKAGE / "__main__.py", entry_point="release"
+        )
     }
-    assert spawners == {"release.py": ["subprocess.run"]}
+    assert "audit.py" not in reached
+
+
+def test_only_run_spawns_a_release_process() -> None:
+    """Across the release path, the one spawn site is ``release.py``'s ``_run``."""
+    sites = {
+        (str(path.relative_to(_PACKAGE)), function)
+        for path in _release_modules()
+        for _name, function in SpawnScan.of_file(path).spawn_sites()
+    }
+    assert sites == {("release.py", "_run")}
+
+
+def test_a_second_spawn_site_in_the_same_file_is_reported() -> None:
+    source = (
+        "import subprocess\n"
+        "def _run(c):\n    return subprocess.run(c)\n"
+        "def sneaky(c):\n    return subprocess.Popen(c)\n"
+    )
+    assert SpawnScan.of_source(source).spawn_sites() == [
+        ("subprocess.Popen", "sneaky"),
+        ("subprocess.run", "_run"),
+    ]
+
+
+def test_a_spawn_at_module_level_is_reported_as_such() -> None:
+    sites = SpawnScan.of_source("import os\nos.system('x')").spawn_sites()
+    assert sites == [("os.system", "<module>")]
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param("from . import helper", id="dot-import"),
+        pytest.param("from .shared import gh", id="dot-module"),
+        pytest.param("from ..phases import x", id="two-dots"),
+    ],
+)
+def test_a_relative_import_fails_the_scan_instead_of_hiding_a_module(
+    source: str,
+) -> None:
+    with pytest.raises(ValueError, match="relative import"):
+        SpawnScan.of_source(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "found"),
+    [
+        pytest.param(
+            "from concurrent.futures import ProcessPoolExecutor",
+            ["concurrent.ProcessPoolExecutor"],
+            id="from-import",
+        ),
+        pytest.param(
+            "import concurrent.futures\nconcurrent.futures.ProcessPoolExecutor()",
+            ["concurrent.ProcessPoolExecutor"],
+            id="dotted",
+        ),
+        pytest.param(
+            "import concurrent.futures as cf\ncf.ProcessPoolExecutor()",
+            ["concurrent.ProcessPoolExecutor"],
+            id="alias",
+        ),
+        pytest.param(
+            "from concurrent import futures\nfutures.ProcessPoolExecutor()",
+            ["concurrent.ProcessPoolExecutor"],
+            id="from-concurrent",
+        ),
+        pytest.param(
+            "import multiprocessing as mp\nmp.Pool(2)",
+            ["multiprocessing.Pool"],
+            id="multiprocessing-pool",
+        ),
+    ],
+)
+def test_the_scan_catches_process_pools(source: str, found: list[str]) -> None:
+    assert SpawnScan.of_source(source).spawning_names() == found
+
+
+def test_a_thread_pool_is_not_a_process() -> None:
+    source = "from concurrent.futures import ThreadPoolExecutor, Future"
+    assert SpawnScan.of_source(source).spawning_names() == []
 
 
 def test_every_phase_module_is_reached_so_none_goes_unscanned() -> None:
