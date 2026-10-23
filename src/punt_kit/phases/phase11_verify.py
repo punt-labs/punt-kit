@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -731,7 +732,7 @@ class Phase11Verify:
             if check.passed:
                 ops.ok(f"{check.name}: {check.detail}")
             else:
-                _console.print(f"  [red]✗[/red] {check.name}: {check.detail}")
+                ops.error(f"{check.name}: {check.detail}")
                 all_pass = False
 
         if not all_pass:
@@ -741,14 +742,25 @@ class Phase11Verify:
         """The project's GitHub slug (``None`` when there is nothing to verify),
         and the failed checks resolving it produced.
 
-        A remote that names GitHub but is not ``owner/repo`` is one cause, so
-        it yields one failed check here and every slug-dependent check below
-        is skipped.
+        A remote that names GitHub but is not ``owner/repo``, a lookup git
+        could not answer, and a missing github.com origin on a project that
+        installs or publishes through GitHub are each one failed check here,
+        and every slug-dependent check below is skipped: they must not
+        vanish silently.
         """
+        info = self._info
         try:
-            return GithubRepo(self._info.root, ops=self._ops).slug(), []
-        except ValueError as exc:
+            slug = GithubRepo(info.root, ops=self._ops).slug()
+        except (ValueError, RemoteLookupError) as exc:
             return None, [VerificationCheck("GitHub remote", False, str(exc))]
+        needs_remote = (info.root / "install.sh").exists() or info.is_plugin
+        if slug is None and (needs_remote or info.is_hybrid):
+            detail = (
+                "no github.com origin remote — the install-all.sh, marketplace, "
+                "README, and website checks could not run"
+            )
+            return None, [VerificationCheck("GitHub remote", False, detail)]
+        return slug, []
 
     def _pin_checks(
         self,

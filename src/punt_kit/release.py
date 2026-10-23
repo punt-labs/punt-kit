@@ -101,6 +101,7 @@ _ok = reporter.ok
 _info = reporter.info
 _dry = reporter.dry
 _warn = reporter.warn
+_error = reporter.error
 
 
 @final
@@ -146,6 +147,9 @@ class _ReleaseOpsAdapter:
     def warn(self, msg: str) -> None:
         _warn(msg)
 
+    def error(self, msg: str) -> None:
+        _error(msg)
+
     def fail(self, msg: str) -> NoReturn:
         _fail(msg)
 
@@ -173,7 +177,11 @@ def _get_latest_tag_version(root: Path) -> str:
 
 
 def _get_github_repo(root: Path) -> str | None:
-    """Extract GitHub owner/repo from git remote; ``ValueError`` if malformed."""
+    """GitHub owner/repo of ``origin``; ``None`` when it is not on github.com.
+
+    ``ValueError`` if the remote is malformed, ``RemoteLookupError`` if git
+    could not be asked.
+    """
     return GithubRepo(root, ops=_ops).slug_text()
 
 
@@ -263,7 +271,7 @@ def _phase5_tag(
 
 def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Pin README's install-URL SHA via its own PR, right after the squash-merge."""
-    ReadmeShaPin(info, ops=_ops).land(
+    ReadmeShaPin(info, ops=_ops, skips=_skips).land(
         version, dry_run=dry_run, merge=_pr_merge, resolve_repo=_get_github_repo
     )
 
@@ -338,14 +346,14 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """10b. Update version and ref in claude-plugins marketplace.json."""
-    MarketplacePropagator(info, ops=_ops).run(
+    MarketplacePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """10d. Update version in public-website projects.json."""
-    WebsitePropagator(info, ops=_ops).run(
+    WebsitePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 

@@ -6,12 +6,17 @@ import json
 import subprocess
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.repo_slug import RepoSlug
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from punt_kit.phases.shared.ops import ReleaseOps
+
+# ``git remote get-url`` exits 2 for a remote that is not configured (git's
+# usage-error code), and 128 for every fatal error, in any locale.
+_NO_SUCH_REMOTE = 2
 
 
 @final
@@ -30,39 +35,34 @@ class GithubRepo:
         return self
 
     def slug_text(self) -> str | None:
-        """``slug()`` as ``owner/repo`` text; raises ``ValueError`` if malformed."""
+        """``slug()`` as ``owner/repo`` text; ``None`` without a github.com origin."""
         slug = self.slug()
         return None if slug is None else str(slug)
-
-    def resolve_slug(self) -> RepoSlug | None:
-        """The remote's parsed slug; ``None`` if unresolvable or malformed.
-
-        Every consumer that needs a slug comes through here (or ``slug``), so
-        none of them re-normalizes. Use ``slug`` to tell a malformed remote
-        from an absent one.
-        """
-        try:
-            return self.slug()
-        except ValueError:
-            return None
 
     def slug(self) -> RepoSlug | None:
         """The parsed slug of the ``origin`` remote.
 
-        ``None`` when the remote is absent or not on github.com. Raises
-        ``ValueError`` when the remote names github.com but its path is not
-        ``owner/repo``.
+        ``None`` only when there is no github.com origin to name: the remote
+        is absent or on another host. Raises ``ValueError`` when the remote
+        names github.com but its path is not ``owner/repo``, and
+        ``RemoteLookupError`` when git could not answer at all (timeout, not
+        runnable, or its own refusal such as dubious ownership), because a
+        failed lookup is not the same fact as "no GitHub remote".
         """
+        argv = ["git", "remote", "get-url", "origin"]
         try:
-            result = self._ops.run(
-                ["git", "remote", "get-url", "origin"],
-                cwd=str(self._root),
-                check=False,
-            )
-        except (subprocess.TimeoutExpired, OSError):
+            result = self._ops.run(argv, cwd=str(self._root), check=False)
+        except subprocess.TimeoutExpired as exc:
+            msg = f"{' '.join(argv)} timed out after {exc.timeout}s in {self._root}"
+            raise RemoteLookupError(msg) from exc
+        except OSError as exc:
+            msg = f"{' '.join(argv)} could not be run: {exc}"
+            raise RemoteLookupError(msg) from exc
+        if result.returncode == _NO_SUCH_REMOTE:
             return None
         if result.returncode != 0:
-            return None
+            msg = f"{' '.join(argv)} failed in {self._root}: {result.stderr.strip()}"
+            raise RemoteLookupError(msg)
         return RepoSlug.from_remote_url(result.stdout)
 
     def has_branch_protection(self, gh: str, owner: str, repo_name: str) -> bool:

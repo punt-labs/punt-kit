@@ -356,5 +356,8 @@ class FaultInjectingOps:
     def warn(self, msg: str) -> None:
         reporter.warn(msg)
 
+    def error(self, msg: str) -> None:
+        reporter.error(msg)
+
     def fail(self, msg: str) -> NoReturn:
         reporter.fail(msg)

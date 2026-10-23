@@ -13,7 +13,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from unittest.mock import MagicMock
 
 import pytest
@@ -27,11 +27,17 @@ from punt_kit.phases.phase05_tag import Phase5Tag
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
-from punt_kit.phases.phase10_propagate import InstallAllPropagator
-from punt_kit.phases.phase11_verify import VerificationCheck
+from punt_kit.phases.phase10_propagate import (
+    InstallAllPropagator,
+    MarketplacePropagator,
+    WebsitePropagator,
+)
+from punt_kit.phases.phase11_verify import Phase11Verify, VerificationCheck
 from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.ci_run import TagRunSelector
+from punt_kit.phases.shared.errors import RemoteLookupError
+from punt_kit.phases.shared.gh import PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
@@ -1281,7 +1287,7 @@ def test_land_readme_sha_pin_commit_excludes_untracked(tmp_path: Path) -> None:
     def fake_pr_merge(**_kwargs: object) -> str:
         return "abc1234"
 
-    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+    _readme_pin(detect(root)).land(
         "0.2.0",
         dry_run=False,
         merge=fake_pr_merge,
@@ -1296,13 +1302,18 @@ def test_land_readme_sha_pin_commit_excludes_untracked(tmp_path: Path) -> None:
 # --- README install SHA bump (ReadmeShaPin.bump, reached via Phase 4) ---
 
 
+def _readme_pin(
+    info: ProjectInfo, ops: FaultInjectingOps | None = None
+) -> ReadmeShaPin:
+    """A ``ReadmeShaPin`` whose skips go to its own recorder."""
+    ops = ops or _fault_ops()
+    return ReadmeShaPin(info, ops=ops, skips=SkipRecorder(ops=ops))
+
+
 def _bump_readme_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run the live ``ReadmeShaPin.bump`` that ``ReadmeShaPin.land`` calls."""
-    ops = _fault_ops()
-    ReadmeShaPin(info, ops=ops).bump(
-        version,
-        dry_run=dry_run,
-        resolve_repo=lambda root: GithubRepo(root, ops=ops).slug_text(),
+    _readme_pin(info).bump(
+        version, dry_run=dry_run, resolve_repo=lambda _root: "punt-labs/proj"
     )
 
 
@@ -1432,8 +1443,10 @@ def _current_install_sha(root: Path) -> str:
 
 def _bump_with_slug(root: Path, slug: str | None, *, dry_run: bool = False) -> bool:
     """Run the live ``ReadmeShaPin.bump`` with a fixed repo slug."""
-    return ReadmeShaPin(detect(root), ops=_fault_ops()).bump(
-        "0.2.0", dry_run=dry_run, resolve_repo=lambda _root: slug
+    return (
+        _readme_pin(detect(root))
+        .bump("0.2.0", dry_run=dry_run, resolve_repo=lambda _root: slug)
+        .changed
     )
 
 
@@ -1442,36 +1455,48 @@ def _flat(text: str) -> str:
     return " ".join(text.split())
 
 
-def test_bump_warns_when_repo_slug_unresolved(
+def test_bump_with_an_unresolved_remote_skips_instead_of_guessing_a_slug(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """An unresolvable remote falls back to the directory name — loudly."""
+    """No github.com remote: the README is left alone and the skip is recorded."""
     root = _make_release_project(tmp_path)
-    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
+    ops = _fault_ops()
+    skips = SkipRecorder(ops=ops)
 
-    _bump_with_slug(root, None, dry_run=True)
+    result = ReadmeShaPin(detect(root), ops=ops, skips=skips).bump(
+        "0.2.0", dry_run=False, resolve_repo=lambda _root: None
+    )
 
-    assert "falling back to punt-labs/proj" in _flat(capsys.readouterr().out)
+    assert (root / "README.md").read_text() == readme
+    assert (result.changed, len(result.stale)) == (False, 1)
+    assert "README pin not updated: no github.com origin" in _flat(
+        capsys.readouterr().out
+    )
+    assert any("README pin not updated" in notice for notice in skips.drain())
 
 
-def test_bump_warning_names_a_malformed_remote_slug(
+def test_bump_with_a_malformed_remote_names_it_and_skips(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The release's own resolver raises on a bad remote; the warning names it."""
+    """The release's own resolver raises on a bad remote; the skip names it."""
     root = _make_release_project(tmp_path)
     _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
-    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
     resolve_repo = cast(
         "Callable[[Path], str | None]", vars(release)["_get_github_repo"]
     )
 
-    ReadmeShaPin(detect(root), ops=_fault_ops()).bump(
+    result = _readme_pin(detect(root)).bump(
         "0.2.0", dry_run=True, resolve_repo=resolve_repo
     )
 
     out = _flat(capsys.readouterr().out)
-    assert "not an owner/repo slug: 'proj'" in out
-    assert "falling back to punt-labs/proj" in out
+    assert "README pin not updated: not an owner/repo slug: 'proj'" in out
+    assert (root / "README.md").read_text() == readme
+    assert result.stale
 
 
 @pytest.mark.parametrize(
@@ -1527,18 +1552,19 @@ def test_bump_rewrites_every_pin_shape_the_recognizer_trusts(
     )
 
 
-def test_bump_slug_without_owner_falls_back_with_warning(
+def test_bump_slug_without_owner_is_skipped_not_guessed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A slug that is not owner/repo must not crash the split."""
+    """A slug that is not owner/repo must not crash the split or be replaced."""
     root = _make_release_project(tmp_path)
-    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
 
     _bump_with_slug(root, "proj")
 
     out = _flat(capsys.readouterr().out)
-    assert "falling back to punt-labs/proj" in out
-    assert _current_install_sha(root) in (root / "README.md").read_text()
+    assert "README pin not updated: not an owner/repo slug: 'proj'" in out
+    assert (root / "README.md").read_text() == readme
 
 
 def test_bump_warns_naming_a_second_stale_pin_under_another_owner(
@@ -1663,7 +1689,7 @@ def test_land_dry_run_previews_readme_rewrite_without_writing(
     def _no_merge(**_kwargs: object) -> str:
         raise AssertionError("a dry run must not merge")
 
-    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+    _readme_pin(detect(root)).land(
         "0.2.0",
         dry_run=True,
         merge=_no_merge,
@@ -1693,7 +1719,7 @@ def test_land_dry_run_says_so_when_the_readme_is_already_current(
     def _no_merge(**_kwargs: object) -> str:
         raise AssertionError("a dry run must not merge")
 
-    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+    _readme_pin(detect(root)).land(
         "0.2.0",
         dry_run=True,
         merge=_no_merge,
@@ -6437,7 +6463,7 @@ def _land_pin_expecting_no_pr(info: ProjectInfo, ops: FaultInjectingOps) -> None
     def _unreachable_merge(**_kwargs: object) -> str:
         raise AssertionError("README already current — no PR may be opened")
 
-    ReadmeShaPin(info, ops=ops).land(
+    _readme_pin(info, ops).land(
         "0.2.0",
         dry_run=False,
         merge=_unreachable_merge,
@@ -6553,7 +6579,7 @@ def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
     # Step 2: land the README pin — the fix under test. The slug names the
     # repo _make_release_project wrote into the README ("test-pkg"); the
     # fixture has no remote to resolve it from.
-    ReadmeShaPin(detect(root), ops=_fault_ops()).land(
+    _readme_pin(detect(root)).land(
         "0.2.0",
         dry_run=False,
         merge=fake_pr_merge,
@@ -12282,3 +12308,320 @@ def test_phase7_fails_when_the_version_section_has_no_entries(
 
     with pytest.raises(ReleaseError, match=r"section has no entries"):
         Phase7GithubRelease(detect(root), "0.2.0", dry_run=False, ops=ops).run()
+
+
+# --- remote and slug policy ---
+
+
+def _origin_rule(
+    *, returncode: int = 0, stdout: str = "", stderr: str = ""
+) -> FaultRule:
+    return FaultRule(
+        match=["git", "remote", "get-url", "origin"],
+        times=None,
+        response=CompletedProcessSpec(
+            returncode=returncode, stdout=stdout, stderr=stderr
+        ),
+    )
+
+
+def _origin_raises(exc: BaseException) -> FaultRule:
+    return FaultRule(
+        match=["git", "remote", "get-url", "origin"], times=None, raises=exc
+    )
+
+
+_NO_ORIGIN = _origin_rule(returncode=2, stderr="error: No such remote 'origin'")
+
+
+def _origin_timeout() -> FaultRule:
+    return _origin_raises(subprocess.TimeoutExpired(["git", "remote"], 60))
+
+
+def test_slug_is_none_without_an_origin_remote(tmp_path: Path) -> None:
+    repo = GithubRepo(tmp_path, ops=_fault_ops([_NO_ORIGIN]))
+
+    assert repo.slug() is None
+
+
+def test_slug_is_none_for_an_origin_that_is_not_on_github(tmp_path: Path) -> None:
+    rule = _origin_rule(stdout="https://gitlab.com/o/r.git\n")
+
+    assert GithubRepo(tmp_path, ops=_fault_ops([rule])).slug() is None
+
+
+def test_slug_raises_when_the_lookup_times_out(tmp_path: Path) -> None:
+    repo = GithubRepo(tmp_path, ops=_fault_ops([_origin_timeout()]))
+
+    with pytest.raises(RemoteLookupError, match=r"timed out"):
+        repo.slug()
+
+
+def test_slug_raises_when_git_cannot_run(tmp_path: Path) -> None:
+    repo = GithubRepo(tmp_path, ops=_fault_ops([_origin_raises(OSError("no git"))]))
+
+    with pytest.raises(RemoteLookupError, match=r"could not be run: no git"):
+        repo.slug()
+
+
+def test_slug_raises_with_gits_own_refusal(tmp_path: Path) -> None:
+    rule = _origin_rule(returncode=128, stderr="fatal: detected dubious ownership")
+    repo = GithubRepo(tmp_path, ops=_fault_ops([rule]))
+
+    with pytest.raises(RemoteLookupError, match=r"dubious ownership"):
+        repo.slug()
+
+
+def test_github_repo_has_no_swallowing_resolver() -> None:
+    assert "resolve_slug" not in vars(GithubRepo)
+
+
+class _Propagates(Protocol):
+    def run(
+        self, version: str, *, dry_run: bool, merge_sibling: Callable[..., bool]
+    ) -> None: ...
+
+
+def _never_merge(*_args: object, **_kwargs: object) -> bool:
+    raise AssertionError("no propagation may reach a sibling PR")
+
+
+def _install_all(
+    info: ProjectInfo, ops: FaultInjectingOps, skips: SkipRecorder
+) -> _Propagates:
+    return InstallAllPropagator(info, ops=ops, skips=skips)
+
+
+def _marketplace(
+    info: ProjectInfo, ops: FaultInjectingOps, skips: SkipRecorder
+) -> _Propagates:
+    return MarketplacePropagator(info, ops=ops, skips=skips)
+
+
+def _website(
+    info: ProjectInfo, ops: FaultInjectingOps, skips: SkipRecorder
+) -> _Propagates:
+    return WebsitePropagator(info, ops=ops, skips=skips)
+
+
+_PROPAGATORS = [
+    pytest.param(_install_all, "install-all.sh propagation", id="install-all"),
+    pytest.param(_marketplace, "marketplace propagation", id="marketplace"),
+    pytest.param(_website, "website propagation", id="website"),
+]
+
+
+@pytest.mark.parametrize(("build", "label"), _PROPAGATORS)
+def test_propagator_without_a_github_remote_records_a_skip(
+    tmp_path: Path,
+    build: Callable[[ProjectInfo, FaultInjectingOps, SkipRecorder], _Propagates],
+    label: str,
+) -> None:
+    ops = _fault_ops([_NO_ORIGIN])
+    skips = SkipRecorder(ops=ops)
+
+    build(detect(_make_release_project(tmp_path)), ops, skips).run(
+        "0.2.0", dry_run=False, merge_sibling=_never_merge
+    )
+
+    (notice,) = skips.drain()
+    assert (label in notice, "no github.com origin" in notice) == (True, True)
+
+
+@pytest.mark.parametrize(("build", "label"), _PROPAGATORS)
+def test_propagator_with_a_malformed_remote_fails_naming_it(
+    tmp_path: Path,
+    build: Callable[[ProjectInfo, FaultInjectingOps, SkipRecorder], _Propagates],
+    label: str,
+) -> None:
+    ops = _fault_ops([_origin_rule(stdout="https://github.com/proj\n")])
+
+    with pytest.raises(ReleaseError, match=rf"{label}: not an owner/repo slug"):
+        build(detect(_make_release_project(tmp_path)), ops, SkipRecorder(ops=ops)).run(
+            "0.2.0", dry_run=False, merge_sibling=_never_merge
+        )
+
+
+@pytest.mark.parametrize(("build", "label"), _PROPAGATORS)
+def test_propagator_whose_remote_lookup_fails_fails_naming_it(
+    tmp_path: Path,
+    build: Callable[[ProjectInfo, FaultInjectingOps, SkipRecorder], _Propagates],
+    label: str,
+) -> None:
+    ops = _fault_ops([_origin_timeout()])
+
+    with pytest.raises(ReleaseError, match=rf"{label}: .*timed out"):
+        build(detect(_make_release_project(tmp_path)), ops, SkipRecorder(ops=ops)).run(
+            "0.2.0", dry_run=False, merge_sibling=_never_merge
+        )
+
+
+def test_thread_resolver_warns_when_there_is_no_github_remote(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ops = _fault_ops([_NO_ORIGIN])
+
+    PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops).resolve(
+        "gh", str(tmp_path), 7
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "Review threads on PR #7 not resolved: no github.com origin" in out
+
+
+def test_thread_resolver_warns_with_the_lookup_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ops = _fault_ops([_origin_timeout()])
+
+    PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops).resolve(
+        "gh", str(tmp_path), 7
+    )
+
+    assert "timed out" in _flat(capsys.readouterr().out)
+
+
+def _wait_with_repo(tmp_path: Path, resolve: Callable[[Path], str | None]) -> None:
+    ops = _fault_ops()
+    RequiredChecksWaiter(GithubRepo(tmp_path, ops=ops), ops=ops).wait(
+        "gh",
+        str(tmp_path),
+        5,
+        resolve_repo=resolve,
+        interrupted=threading.Event(),
+    )
+
+
+def test_ci_wait_reports_a_remote_lookup_timeout(tmp_path: Path) -> None:
+    def resolve(_root: Path) -> str | None:
+        raise RemoteLookupError("git remote get-url origin timed out after 60s")
+
+    with pytest.raises(ReleaseError, match=r"timed out after 60s"):
+        _wait_with_repo(tmp_path, resolve)
+
+
+def test_ci_wait_reports_an_absent_github_remote(tmp_path: Path) -> None:
+    with pytest.raises(ReleaseError, match=r"no github\.com origin"):
+        _wait_with_repo(tmp_path, lambda _root: None)
+
+
+def test_ci_wait_reports_a_malformed_remote_with_its_text(tmp_path: Path) -> None:
+    def resolve(_root: Path) -> str | None:
+        raise ValueError("not an owner/repo slug: 'proj'")
+
+    with pytest.raises(ReleaseError, match=r"not an owner/repo slug: 'proj'"):
+        _wait_with_repo(tmp_path, resolve)
+
+
+def _verify_without_remote(
+    tmp_path: Path, rule: FaultRule, skips: SkipRecorder
+) -> None:
+    root, _sibling = _setup_verify_project(tmp_path)
+    ops = _fault_ops(
+        [
+            rule,
+            FaultRule(match=["uv", "pip", "install"], response=CompletedProcessSpec()),
+        ]
+    )
+    Phase11Verify(detect(root), "0.1.0", dry_run=False, ops=ops, skips=skips).run()
+
+
+def test_phase11_fails_the_github_remote_check_when_origin_is_absent(
+    tmp_path: Path, skips: SkipRecorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _verify_without_remote(tmp_path, _NO_ORIGIN, skips)
+
+    _assert_failed_checks(
+        capsys.readouterr().out, ["GitHub remote"], "no github.com origin"
+    )
+
+
+def test_phase11_fails_the_github_remote_check_when_the_lookup_fails(
+    tmp_path: Path, skips: SkipRecorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _verify_without_remote(tmp_path, _origin_timeout(), skips)
+
+    _assert_failed_checks(capsys.readouterr().out, ["GitHub remote"], "timed out")
+
+
+def test_land_without_a_github_remote_does_not_claim_the_readme_is_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "stale readme"], cwd=str(root))
+
+    def _no_merge(**_kwargs: object) -> str:
+        raise AssertionError("nothing to land without a resolvable remote")
+
+    _readme_pin(detect(root)).land(
+        "0.2.0", dry_run=False, merge=_no_merge, resolve_repo=lambda _root: None
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" not in out
+    assert "README pin not updated" in out
+
+
+def test_land_dry_run_without_a_github_remote_does_not_claim_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=True,
+        merge=_never_merge_pr,
+        resolve_repo=lambda _root: None,
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" not in out
+    assert "README pin not updated" in out
+
+
+def _never_merge_pr(**_kwargs: object) -> str:
+    raise AssertionError("a dry run must not merge")
+
+
+def test_land_reports_stale_pins_it_could_not_rewrite(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    stale = _pin_url("other-org/proj")
+    (root / "README.md").write_text(_readme_with_urls(stale))
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "foreign pin"], cwd=str(root))
+
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=False,
+        merge=_never_merge_pr,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" not in out
+    assert "stale install pin" in out
+
+
+@pytest.mark.parametrize(
+    ("url", "slug"),
+    [
+        pytest.param("org-123@github.com:o/r.git", "o/r", id="any-ssh-user"),
+        pytest.param("git@GitHub.com:o/r.git", "o/r", id="mixed-case-host"),
+        pytest.param("GITHUB.COM:o/r", "o/r", id="no-user"),
+        pytest.param("ssh://git@GitHub.com/o/r.git", "o/r", id="ssh-url"),
+    ],
+)
+def test_scp_style_remotes_parse_for_any_user_and_host_case(
+    url: str, slug: str
+) -> None:
+    parsed = RepoSlug.from_remote_url(url)
+
+    assert parsed is not None
+    assert str(parsed) == slug

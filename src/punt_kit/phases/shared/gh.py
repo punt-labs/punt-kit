@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.repo_slug import RepoSlug
 from punt_kit.phases.shared.timeouts import CI_WATCH, NO_CHECKS_GRACE
 
@@ -84,11 +85,15 @@ class RequiredChecksWaiter:
         failing fast.
         """
         try:
-            slug = RepoSlug.parse(resolve_repo(Path(cwd)) or "")
-        except ValueError:
-            self._ops.fail(
-                f"Cannot determine GitHub owner/repo from git remote in {cwd}"
-            )
+            remote = resolve_repo(Path(cwd))
+            if remote is None:
+                self._ops.fail(
+                    f"Cannot determine GitHub owner/repo in {cwd}: no github.com "
+                    "origin remote"
+                )
+            slug = RepoSlug.parse(remote)
+        except (ValueError, RemoteLookupError) as exc:
+            self._ops.fail(f"Cannot determine GitHub owner/repo in {cwd}: {exc}")
         owner, repo_name = slug.owner, slug.name
 
         branch_protected = self._repo.has_branch_protection(gh, owner, repo_name)
@@ -405,8 +410,19 @@ class PrThreadResolver:
         required_review_thread_resolution=true, unresolved threads block
         merge.
         """
-        slug = self._repo.resolve_slug()
+        try:
+            slug = self._repo.slug()
+        except (ValueError, RemoteLookupError) as exc:
+            self._ops.warn(
+                f"Review threads on PR #{pr_number} not resolved: {exc} "
+                "— merge may fail"
+            )
+            return
         if slug is None:
+            self._ops.warn(
+                f"Review threads on PR #{pr_number} not resolved: no github.com "
+                "origin remote — merge may fail"
+            )
             return
         query = self._threads_query(slug, pr_number)
 

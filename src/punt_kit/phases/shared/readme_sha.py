@@ -4,8 +4,10 @@ squash-merge lands on main."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.project_info import ReleaseProject
@@ -17,36 +19,58 @@ if TYPE_CHECKING:
 
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
+    from punt_kit.phases.shared.siblings import SkipRecorder
+
+
+@dataclass(frozen=True, slots=True)
+class PinResult:
+    """What ``ReadmeShaPin.bump`` did, and what it could not fix."""
+
+    changed: bool
+    # One line per install pin (or reason) still not current after the bump.
+    stale: tuple[str, ...]
 
 
 @final
 class ReadmeShaPin:
     """Keeps README's SHA-pinned install URL current with install.sh's commit."""
 
-    __slots__ = ("_info", "_ops")
+    __slots__ = ("_info", "_ops", "_skips")
 
     _info: ProjectInfo
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
-    def __new__(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
+    def __new__(
+        cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
+    ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
+        self._skips = skips
         return self
+
+    def _skip(self, reason: str) -> PinResult:
+        """Record that the README pin was not updated, and why."""
+        message = f"README pin not updated: {reason}"
+        self._skips.record(message)
+        return PinResult(changed=False, stale=(message,))
 
     def _recognizer(
         self, resolve_repo: Callable[[Path], str | None]
-    ) -> InstallUrlRecognizer:
-        """Return the recognizer for this repo, warning when the slug is a guess."""
-        fallback = f"punt-labs/{self._info.root.name}"
+    ) -> InstallUrlRecognizer | PinResult:
+        """The recognizer for this repo, or the skip when its slug is unknown.
+
+        No slug is guessed from the directory name: a pin recognized under a
+        guessed owner would rewrite, or miss, the wrong URLs.
+        """
         try:
             slug = resolve_repo(self._info.root)
-            if slug:
-                return InstallUrlRecognizer.for_slug(slug)
-            self._ops.warn(f"repo unresolved — falling back to {fallback}")
-        except ValueError as exc:
-            self._ops.warn(f"{exc} — falling back to {fallback}")
-        return InstallUrlRecognizer.for_slug(fallback)
+            if not slug:
+                return self._skip("no github.com origin remote names this repository")
+            return InstallUrlRecognizer.for_slug(slug)
+        except (ValueError, RemoteLookupError) as exc:
+            return self._skip(str(exc))
 
     def bump(
         self,
@@ -54,15 +78,17 @@ class ReadmeShaPin:
         *,
         dry_run: bool,
         resolve_repo: Callable[[Path], str | None],
-    ) -> bool:
+    ) -> PinResult:
         """Move README's pinned install URLs to the install.sh commit.
 
-        Returns whether the README changed (or, for a dry run, would
-        change). Pins are recognized by ``InstallUrlRecognizer`` — the same
-        definition Phase 11 verifies with — and the result is verified with
-        it too: any pin it would trust whose SHA still differs from the new
-        one, and any install URL for this repo it does not trust, is
-        reported by URL rather than left stale in silence.
+        The result says whether the README changed (or, for a dry run, would
+        change) and which pins are still not current. Pins are recognized by
+        ``InstallUrlRecognizer`` — the same definition Phase 11 verifies with
+        — and the result is verified with it too: any pin it would trust
+        whose SHA still differs from the new one, and any install URL for
+        this repo it does not trust, is reported by URL rather than left
+        stale in silence. A repository that cannot be named is a skip, not a
+        guess.
 
         ``resolve_repo`` is injected rather than composing ``GithubRepo``
         directly, so a caller's patched resolver is observed here.
@@ -70,45 +96,51 @@ class ReadmeShaPin:
         root = self._info.root
         readme_path = root / "README.md"
         if not readme_path.exists() or not (root / "install.sh").exists():
-            return False
+            return PinResult(changed=False, stale=())
 
         tag = f"v{version}"
         recognizer = self._recognizer(resolve_repo)
+        if isinstance(recognizer, PinResult):
+            return recognizer
         # A read-only git query, so a dry run can tell a no-op from a rewrite.
         short_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
 
         content = readme_path.read_text(encoding="utf-8")
         new_content = recognizer.repinned(content, short_sha)
-        self._warn_about_unrewritten_urls(recognizer, new_content, short_sha)
+        stale = self._warn_about_unrewritten_urls(recognizer, new_content, short_sha)
 
         if new_content == content:
-            return False
+            return PinResult(changed=False, stale=stale)
 
         if dry_run:
             self._ops.dry(f"README.md: install URLs → {short_sha} ({tag})")
-            return True
+            return PinResult(changed=True, stale=stale)
 
         readme_path.write_text(new_content, encoding="utf-8")
         self._ops.ok(f"README.md: install URLs → {short_sha} ({tag})")
-        return True
+        return PinResult(changed=True, stale=stale)
 
     def _warn_about_unrewritten_urls(
         self, recognizer: InstallUrlRecognizer, content: str, short_sha: str
-    ) -> None:
-        """Warn about every install URL ``content`` still has that is not current."""
+    ) -> tuple[str, ...]:
+        """Warn about, and return, every install URL ``content`` has that is stale."""
         slug = recognizer.slug
+        stale: list[str] = []
         for ref in recognizer.scan(content):
             if not ref.is_trusted:
-                self._ops.warn(
+                stale.append(
                     f"README.md pins {slug}'s install.sh at {ref.url}, which is not "
                     f"{slug} on raw.githubusercontent.com (different owner or host) "
                     "— the install SHA pin was not updated"
                 )
             elif ref.is_pin and not ref.is_pinned_to(short_sha):
-                self._ops.warn(
+                stale.append(
                     f"README.md pins {ref.url}, which is not the current install SHA "
                     f"{short_sha} and could not be rewritten in place"
                 )
+        for line in stale:
+            self._ops.warn(line)
+        return tuple(stale)
 
     def land(
         self,
@@ -155,7 +187,7 @@ class ReadmeShaPin:
         if workspace.checkout_or_create(branch):
             self._ops.info(f"Checked out existing branch {branch}")
 
-        self.bump(version, dry_run=False, resolve_repo=resolve_repo)
+        result = self.bump(version, dry_run=False, resolve_repo=resolve_repo)
         status = self._ops.run(
             ["git", "status", "--porcelain", "--", "README.md"], cwd=str(root)
         ).stdout.strip()
@@ -168,7 +200,7 @@ class ReadmeShaPin:
             ).stdout.strip()
             if not ahead:
                 self._discard_branch(branch)
-                self._ops.ok("README already pins the current install SHA")
+                self._report_nothing_to_land(result)
                 return
         else:
             workspace.commit_if_staged(
@@ -182,6 +214,21 @@ class ReadmeShaPin:
             dry_run=False,
         )
         self._ops.ok("README SHA pin PR merged")
+        if result.stale:
+            self._warn_stale(result)
+
+    def _report_nothing_to_land(self, result: PinResult) -> None:
+        """Say the README is current only when the bump verified that."""
+        if result.stale:
+            self._warn_stale(result)
+        else:
+            self._ops.ok("README already pins the current install SHA")
+
+    def _warn_stale(self, result: PinResult) -> None:
+        self._ops.warn(
+            f"README still carries {len(result.stale)} stale install pin(s) "
+            "that were not updated"
+        )
 
     @staticmethod
     def _branch_name(version: str) -> str:
@@ -192,8 +239,9 @@ class ReadmeShaPin:
         self, version: str, resolve_repo: Callable[[Path], str | None]
     ) -> None:
         """Print what ``land`` would commit and merge, or say nothing is needed."""
-        if not self.bump(version, dry_run=True, resolve_repo=resolve_repo):
-            self._ops.ok("README already pins the current install SHA")
+        result = self.bump(version, dry_run=True, resolve_repo=resolve_repo)
+        if not result.changed:
+            self._report_nothing_to_land(result)
             return
         self._ops.dry(f'git commit -m "chore: update README install SHA to v{version}"')
         self._ops.dry(

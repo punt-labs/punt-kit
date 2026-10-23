@@ -11,9 +11,9 @@ from typing import TYPE_CHECKING, Self, cast, final
 from rich.console import Console
 
 from punt_kit.phases.shared.errors import ReleaseError
-from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.project_remote import ProjectRemote
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
 
 if TYPE_CHECKING:
@@ -73,7 +73,10 @@ class InstallAllPropagator:
         if not (info.root / "install.sh").exists():
             return
 
-        slug = GithubRepo(info.root, ops=ops).resolve_slug()
+        remote = ProjectRemote(
+            info.root, ops=ops, skips=self._skips, step="install-all.sh propagation"
+        )
+        slug = remote.slug()
         if slug is None:
             return
         project_name = slug.name
@@ -102,7 +105,6 @@ class InstallAllPropagator:
         install_all = sibling / "install-all.sh"
         if not install_all.exists():
             ops.fail("install-all.sh not found in .github — required for propagation")
-            return  # unreachable
 
         tag = f"v{version}"
         install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
@@ -226,15 +228,19 @@ class InstallAllPropagator:
 class MarketplacePropagator:
     """10b. Updates version and ref in claude-plugins marketplace.json."""
 
-    __slots__ = ("_info", "_ops")
+    __slots__ = ("_info", "_ops", "_skips")
 
     _info: ProjectInfo
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
-    def __new__(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
+    def __new__(
+        cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
+    ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
+        self._skips = skips
         return self
 
     def run(
@@ -249,7 +255,9 @@ class MarketplacePropagator:
         if not info.is_plugin and not info.is_hybrid:
             return
 
-        slug = GithubRepo(info.root, ops=ops).resolve_slug()
+        slug = ProjectRemote(
+            info.root, ops=ops, skips=self._skips, step="marketplace propagation"
+        ).slug()
         if slug is None:
             return
         project_name = slug.name
@@ -263,13 +271,11 @@ class MarketplacePropagator:
                 "Sibling claude-plugins not found — required for marketplace "
                 "propagation"
             )
-            return
 
         sibling = claude_plugins_sibling.path
         marketplace_path = sibling / ".claude-plugin" / "marketplace.json"
         if not marketplace_path.exists():
             ops.fail("marketplace.json not found in claude-plugins")
-            return
 
         if dry_run:
             ops.dry(
@@ -335,15 +341,19 @@ class MarketplacePropagator:
 class WebsitePropagator:
     """10d. Updates version in public-website projects.json."""
 
-    __slots__ = ("_info", "_ops")
+    __slots__ = ("_info", "_ops", "_skips")
 
     _info: ProjectInfo
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
-    def __new__(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
+    def __new__(
+        cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
+    ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
+        self._skips = skips
         return self
 
     def run(
@@ -355,7 +365,9 @@ class WebsitePropagator:
     ) -> None:
         info = self._info
         ops = self._ops
-        slug = GithubRepo(info.root, ops=ops).resolve_slug()
+        slug = ProjectRemote(
+            info.root, ops=ops, skips=self._skips, step="website propagation"
+        ).slug()
         if slug is None:
             return
         project_name = slug.name

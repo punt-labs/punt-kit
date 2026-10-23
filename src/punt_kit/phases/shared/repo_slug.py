@@ -12,6 +12,10 @@ from urllib.parse import urlparse
 _NAME = re.compile(r"[\w.-]+")
 _PATH_COMPONENTS = frozenset({".", ".."})
 
+# scp-style remotes: ``[user@]github.com:owner/repo``. The user is whatever the
+# account was given (``git``, ``org-123``); the host is case-insensitive.
+_SCP_GITHUB = re.compile(r"(?:[^@/:\s]+@)?github\.com:(?P<path>.*)", re.IGNORECASE)
+
 
 @dataclass(frozen=True, slots=True)
 class RepoSlug:
@@ -47,8 +51,8 @@ class RepoSlug:
         ``owner/repo``.
         """
         url = url.strip()
-        if url.startswith("git@github.com:"):
-            return cls.parse(url.removeprefix("git@github.com:"))
+        if scp := _SCP_GITHUB.fullmatch(url):
+            return cls.parse(scp.group("path"))
         parsed = urlparse(url)
         if parsed.hostname != "github.com" or not parsed.path.strip("/"):
             return None

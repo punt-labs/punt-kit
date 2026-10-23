@@ -13,7 +13,7 @@ from punt_kit.phases.shared.errors import ReleaseError
 class Reporter:
     """Prints colored status lines. Exactly one process-wide instance.
 
-    ``ok``/``info``/``dry``/``warn``/``fail`` share the console vocabulary
+    ``ok``/``info``/``dry``/``warn``/``error``/``fail`` share the console vocabulary
     and the same rendering surface — the canonical case where these would
     otherwise be free functions missing a class to live on (PY-OO-7).
     """
@@ -53,6 +53,10 @@ class Reporter:
         swallowed) so the skip does not read as routine progress.
         """
         self._console.print(f"  [yellow]⚠ WARNING:[/yellow] {msg}")
+
+    def error(self, msg: str) -> None:
+        """Report a failed check without aborting, so the rest can still run."""
+        self._console.print(f"  [red]✗[/red] {msg}")
 
     def fail(self, msg: str) -> NoReturn:
         self._console.print(f"[red]Error:[/red] {msg}")
