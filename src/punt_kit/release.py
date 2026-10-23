@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import threading
+import traceback
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast, final
@@ -473,7 +474,9 @@ def _unlanded_phases(current_phase_num: int) -> tuple[str, ...]:
     return _PHASE_ORDER[current_phase_num - 1 :]
 
 
-def _print_incomplete_release(current_phase_num: int) -> None:
+def _print_incomplete_release(
+    current_phase_num: int, failures: Sequence[tuple[int, str]] = ()
+) -> None:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
     Called from every stop-early path — an interrupt, a propagation
@@ -490,6 +493,8 @@ def _print_incomplete_release(current_phase_num: int) -> None:
         f"[red]Release incomplete[/red] — stopped during phase "
         f"{current_phase_num} ({phase_label})."
     )
+    for failed_phase, message in failures:
+        console.print(f"  Recorded failure in phase {failed_phase}: {message}")
     if unlanded:
         console.print(f"  Not confirmed landed: {', '.join(unlanded)}")
     if phase_label == "unknown":
@@ -525,6 +530,12 @@ def run_release(
     # handler can name the phase that was running and hand the operator the
     # exact --resume-from string, not a placeholder they have to figure out.
     current_phase_num = 0
+    # Phase 9/10 failures are recorded here (phase number, message) rather
+    # than raised immediately — the release still runs Phase 11 so the
+    # operator gets a real verify report of what actually landed before the
+    # run fails loudly. Declared before the outer try so the incomplete-release
+    # report can recap them whichever exception ends the run.
+    propagation_failures: list[tuple[int, str]] = []
     try:
         if not root.is_dir():
             _fail(f"{root} is not a directory")
@@ -560,13 +571,6 @@ def run_release(
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
         resume = f" (resuming from phase {start})" if start > 1 else ""
         console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
-
-        # Phase 9/10 failures are recorded here (phase number, message)
-        # rather than raised immediately — the release still runs Phase 11
-        # so the operator gets a real verify report of what actually landed
-        # before the run fails loudly. Empty on every path that never hits
-        # the propagation step, and reset per run since it is function-local.
-        propagation_failures: list[tuple[int, str]] = []
 
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the
@@ -733,7 +737,7 @@ def run_release(
             )
             try:
                 pipeline.run(start=start)
-            except ReleaseError:
+            except Exception:
                 # Phase 11 (or a later phase) raised on top of an already-
                 # recorded propagation failure — point --resume-from back at
                 # the phase that actually needs re-running (post-release,
@@ -767,10 +771,10 @@ def run_release(
             if _interrupted.is_set():
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
-                _print_incomplete_release(current_phase_num)
+                _print_incomplete_release(current_phase_num, propagation_failures)
                 sys.exit(1)
     except ReleaseError:
-        _print_incomplete_release(current_phase_num)
+        _print_incomplete_release(current_phase_num, propagation_failures)
         raise SystemExit(1) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
@@ -803,5 +807,15 @@ def run_release(
             f"`{cmd_str}` did not return within {exc.timeout}s. "
             f"{resume_hint}"
         )
+        for failed_phase, message in propagation_failures:
+            console.print(f"  Recorded failure in phase {failed_phase}: {message}")
         ReleasePipeline.print_manual_actions(_skips)
+        raise SystemExit(1) from None
+    except Exception:
+        # System boundary: whatever escaped a phase (a parse error in a file a
+        # check read, a bug) must not leave the operator with a bare traceback
+        # and no idea what landed. Show the traceback, then the same recap and
+        # --resume-from hint every other stop-early path gives.
+        traceback.print_exc()
+        _print_incomplete_release(current_phase_num, propagation_failures)
         raise SystemExit(1) from None

@@ -1980,7 +1980,7 @@ def test_run_release_go_resume_after_tag_without_version_still_works(
 
     root = _make_go_project(tmp_path, tag="v0.2.0")
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
@@ -2002,7 +2002,7 @@ def test_run_release_non_go_resume_from_tag_without_version_unaffected(
 
     root = _make_release_project(tmp_path)
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
@@ -2025,7 +2025,7 @@ def test_run_release_resume_plugin_only_no_version_flag(
 
     root = _make_language_none_plugin_project(tmp_path)
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
@@ -2049,7 +2049,7 @@ def test_run_release_fresh_plugin_only_no_version_flag(
 
     root = _make_language_none_plugin_project(tmp_path)
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
@@ -11789,6 +11789,48 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     assert "marketplace: no entry for proj" in normalized
     assert "Not confirmed landed: post-release, propagate, verify" in normalized
     assert "--resume-from post-release" in normalized
+
+
+def test_run_release_reports_any_unexpected_exception_with_the_recap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An exception that is not a ReleaseError still gets the recap and hint.
+
+    Phase 10 fails and is recorded; Phase 11 then dies on a JSONDecodeError
+    nobody anticipated. The operator must still see the recorded Phase 10
+    failure, what was not confirmed landed, and the exact --resume-from.
+    """
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def fake_phase9(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def fake_phase10(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("marketplace: no entry for proj")
+
+    def fake_phase11_verify(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    monkeypatch.setattr(release, "_phase9_post_release", fake_phase9)
+    monkeypatch.setattr(release, "_phase10_propagate", fake_phase10)
+    monkeypatch.setattr(release, "_phase11_verify", fake_phase11_verify)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    normalized = " ".join(captured.out.split())
+    assert "Release incomplete" in normalized
+    assert "marketplace: no entry for proj" in normalized.split("Release incomplete")[1]
+    assert "--resume-from post-release" in normalized
+    assert "JSONDecodeError" in captured.err, "the traceback is shown"
 
 
 def test_run_release_reports_incomplete_release_on_interrupt(
