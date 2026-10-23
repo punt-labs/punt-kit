@@ -3,6 +3,7 @@ describing one step, and the runner that iterates them."""
 
 from __future__ import annotations
 
+import subprocess
 import traceback
 from concurrent.futures import as_completed
 from dataclasses import dataclass
@@ -15,7 +16,6 @@ from punt_kit.phases.shared.errors import ReleaseError, ReportedReleaseError
 from punt_kit.phases.shared.phase_order import PhaseOrder
 
 if TYPE_CHECKING:
-    import subprocess
     import threading
     from collections.abc import Callable, Sequence
     from concurrent.futures import Future
@@ -30,6 +30,13 @@ if TYPE_CHECKING:
 # uses raw console.print() with rich markup rather than the _ok/_info/_warn
 # vocabulary.
 _console = Console()
+
+# Failures the environment causes, as opposed to bugs: no stack trace for these.
+_OPERATIONAL = (
+    OSError,
+    subprocess.TimeoutExpired,
+    subprocess.CalledProcessError,
+)
 
 
 @runtime_checkable
@@ -106,9 +113,11 @@ class ThreadedStep:
             except BaseException as e:
                 # Thread-pool boundary: whatever a task raised is collected so
                 # its siblings finish, then every error is re-raised together.
-                # A bug (not a ReleaseError) is the one case worth a traceback,
-                # and the type goes in the text: str(KeyError("x")) is just "'x'".
-                traceback.print_exception(e)
+                # Only a bug is worth a traceback; a timeout or a missing tool is
+                # an expected failure the one-line entry already explains. The
+                # type goes in the text: str(KeyError("x")) is just "'x'".
+                if not isinstance(e, _OPERATIONAL):
+                    traceback.print_exception(e)
                 errors.append((name, f"{type(e).__name__}: {e}"))
         if interrupted.is_set():
             raise KeyboardInterrupt

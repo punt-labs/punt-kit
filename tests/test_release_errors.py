@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -18,6 +18,7 @@ from tests.helpers import (
 )
 
 if TYPE_CHECKING:
+    import threading
     from pathlib import Path
 
 
@@ -174,3 +175,68 @@ def test_a_bug_in_a_worker_thread_keeps_its_type_and_traceback(
     assert "KeyError: " in flat(captured.out)
     assert captured.err.count("Traceback") == 1
     assert "bug" in captured.err
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        subprocess.TimeoutExpired(["gh", "run", "list"], 30),
+        FileNotFoundError(2, "No such file or directory", "gh"),
+        subprocess.CalledProcessError(1, ["gh", "pr", "list"]),
+    ],
+    ids=["timeout", "oserror", "called-process-error"],
+)
+def test_an_operational_failure_in_a_worker_thread_has_no_traceback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    error: Exception,
+) -> None:
+    """A timeout or a missing tool is a one-line recap entry, not a stack dump."""
+
+    def phase11(*_a: object, **_k: object) -> None:
+        return None
+
+    root = _p9_p10_project(tmp_path, monkeypatch, phase11=phase11)
+
+    def fails(*_a: object, **_k: object) -> None:
+        raise error
+
+    monkeypatch.setattr(release, "_propagate_website", fails)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), version="0.2.0", resume_from="post-release")
+
+    captured = capsys.readouterr()
+    assert f"{type(error).__name__}: " in flat(captured.out)
+    assert "Traceback" not in captured.err
+
+
+def test_an_interrupt_before_any_phase_says_it_was_an_interrupt(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = make_release_project(tmp_path)
+    interrupted = cast("threading.Event", vars(release)["_interrupted"])
+
+    class _InterruptedThenFails:
+        def clear(self) -> None:
+            interrupted.set()
+            raise ReleaseError("stopped by the operator")
+
+        def drain(self) -> tuple[str, ...]:
+            return ()
+
+    monkeypatch.setattr(release, "_skips", _InterruptedThenFails())
+
+    try:
+        with pytest.raises(SystemExit) as exc_info:
+            run_release(str(root), version="0.2.0")
+    finally:
+        interrupted.clear()
+
+    out = flat(capsys.readouterr().out)
+    assert exc_info.value.code == 1
+    assert "interrupted before any phase ran" in out
+    assert "failed before any phase ran" not in out

@@ -437,8 +437,16 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
     failure is still outstanding. Phase 0 means nothing had run yet.
     """
     if current_phase_num == 0:
-        console.print("[red]Release incomplete[/red] — failed before any phase ran.")
-        console.print("  Fix the error above, then run punt release again.")
+        if _interrupted.is_set():
+            console.print(
+                "[red]Release incomplete[/red] — interrupted before any phase ran."
+            )
+            console.print("  Nothing landed; run punt release again.")
+        else:
+            console.print(
+                "[red]Release incomplete[/red] — failed before any phase ran."
+            )
+            console.print("  Fix the error above, then run punt release again.")
         ReleasePipeline.print_manual_actions(_skips)
         return
     phase_label = PhaseOrder.name_of(current_phase_num)
