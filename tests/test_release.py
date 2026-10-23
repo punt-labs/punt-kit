@@ -12837,3 +12837,45 @@ def test_phase2_keeps_non_ascii_text_in_plugin_json(tmp_path: Path) -> None:
     _bump(root)
 
     assert "naïve" in manifest.read_text()
+
+
+# --- timeouts at call sites ---
+
+
+def _fake_which_cli(_name: str) -> str:
+    return "/opt/bin/test-cli"
+
+
+def test_phase8_runs_the_installed_cli_doctor_under_an_explicit_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budgets: dict[str, int] = {}
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        budgets[cmd[-1]] = timeout
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", _fake_which_cli)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install"],
+                times=None,
+                response=CompletedProcessSpec(),
+            )
+        ],
+        real_run=run,
+        passthrough=[["test-cli", "doctor"]],
+    )
+    info = detect(_make_release_project(tmp_path))
+
+    Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+    assert budgets["doctor"] == timeouts.CLI_DOCTOR

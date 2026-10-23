@@ -11,7 +11,7 @@ from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.siblings import PROPAGATION_SIBLINGS, SiblingRepo
-from punt_kit.phases.shared.timeouts import GIT_NETWORK, QUALITY_GATE
+from punt_kit.phases.shared.timeouts import GIT_HOOK, QUALITY_GATE
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -102,7 +102,7 @@ class Phase1Preflight:
             ["git", "fetch", "origin"],
             cwd=str(info.root),
             check=False,
-            timeout=GIT_NETWORK,
+            timeout=GIT_HOOK,
         )
         if fetch.returncode != 0:
             ops.fail(f"git fetch origin failed:\n{fetch.stderr.strip()}")

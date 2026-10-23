@@ -33,14 +33,11 @@ def _fires(*argv: str) -> bool:
         "submodule",
         "gc",
         "fetch",
-        "tag",
-        "branch",
         "add",
         "status",
         "diff",
         "ls-files",
         "symbolic-ref",
-        "remote",
         "describe",
         "grep",
         "blame",
@@ -240,3 +237,80 @@ def test_the_hook_budget_itself_is_unchanged() -> None:
 def test_a_command_that_fires_no_hook_keeps_its_budget() -> None:
     command = HookFiringCommand(["git", "rev-parse", "HEAD"])
     assert command.timeout(timeouts.DEFAULT_RUN) == timeouts.DEFAULT_RUN
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["git", "branch", "--show-current"], id="show-current"),
+        pytest.param(["git", "branch"], id="bare-branch"),
+        pytest.param(["git", "branch", "--list"], id="list"),
+        pytest.param(["git", "branch", "-l"], id="short-list"),
+        pytest.param(["git", "branch", "-a"], id="all"),
+        pytest.param(["git", "branch", "-r"], id="remotes"),
+        pytest.param(["git", "branch", "-vv"], id="verbose-cluster"),
+        pytest.param(["git", "branch", "--format=%(refname)"], id="format-equals"),
+        pytest.param(["git", "branch", "--contains", "abc1234"], id="contains"),
+        pytest.param(["git", "branch", "--merged", "main"], id="merged"),
+        pytest.param(["git", "-C", "/repo", "branch", "--show-current"], id="dash-C"),
+        pytest.param(["git", "tag"], id="bare-tag"),
+        pytest.param(["git", "tag", "-l"], id="tag-l"),
+        pytest.param(["git", "tag", "--list"], id="tag-list"),
+        pytest.param(["git", "tag", "--points-at", "HEAD"], id="points-at"),
+        pytest.param(["git", "tag", "--contains", "abc1234"], id="tag-contains"),
+        pytest.param(["git", "tag", "--format=%(tag)"], id="tag-format"),
+        pytest.param(["git", "tag", "--sort=-creatordate"], id="tag-sort"),
+        pytest.param(["git", "remote"], id="bare-remote"),
+        pytest.param(["git", "remote", "-v"], id="remote-v"),
+        pytest.param(["git", "remote", "get-url", "origin"], id="get-url"),
+        pytest.param(
+            ["git", "remote", "get-url", "--push", "origin"], id="get-url-push"
+        ),
+    ],
+)
+def test_read_only_forms_of_ref_commands_run_no_hook(argv: list[str]) -> None:
+    assert not HookFiringCommand(argv).fires_hooks()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["git", "branch", "newbranch"], id="create"),
+        pytest.param(["git", "branch", "-d", "old"], id="delete"),
+        pytest.param(["git", "branch", "-D", "old"], id="force-delete"),
+        pytest.param(["git", "branch", "-m", "a", "b"], id="rename"),
+        pytest.param(["git", "branch", "--list", "pattern"], id="list-with-positional"),
+        pytest.param(["git", "branch", "--set-upstream-to=origin/main"], id="upstream"),
+        pytest.param(["git", "branch", "--contains", "abc", "extra"], id="extra-word"),
+        pytest.param(["git", "tag", "v1"], id="tag-create"),
+        pytest.param(["git", "tag", "-a", "v1", "-m", "x"], id="annotated"),
+        pytest.param(["git", "tag", "-d", "v1"], id="tag-delete"),
+        pytest.param(["git", "tag", "-f", "v1"], id="tag-force"),
+        pytest.param(["git", "tag", "-l", "v*"], id="tag-list-with-pattern"),
+        pytest.param(["git", "remote", "add", "x", "url"], id="remote-add"),
+        pytest.param(["git", "remote", "remove", "x"], id="remote-remove"),
+        pytest.param(["git", "remote", "set-url", "origin", "u"], id="set-url"),
+        pytest.param(["git", "remote", "update"], id="remote-update"),
+        pytest.param(["git", "remote", "prune", "origin"], id="remote-prune"),
+        pytest.param(["git", "status"], id="status"),
+        pytest.param(["git", "diff"], id="diff"),
+        pytest.param(["git", "ls-files"], id="ls-files"),
+    ],
+)
+def test_writing_forms_and_index_readers_still_fire_hooks(argv: list[str]) -> None:
+    assert HookFiringCommand(argv).fires_hooks()
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["env", "FOO=1", "scripts/release-plugin.sh"], id="env-script"),
+        pytest.param(["timeout", "30", "./restore-dev-plugin.sh"], id="timeout-script"),
+        pytest.param(["uv", "run", "scripts/x.sh"], id="uv-run-script"),
+        pytest.param(["nohup", "/abs/path/x.sh", "arg"], id="nohup-script"),
+    ],
+)
+def test_a_wrapper_running_a_shell_script_is_assumed_to_fire_hooks(
+    argv: list[str],
+) -> None:
+    assert HookFiringCommand(argv).fires_hooks()

@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Self, final
 from rich.console import Console
 
 from punt_kit.phases.shared.project_info import ReleaseProject
-from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.timeouts import CLI_DOCTOR, UV
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -98,7 +98,10 @@ class Phase8VerifyPypi:
             cli_path = shutil.which(cli_name)
             if cli_path:
                 doctor_result = ops.run(
-                    [cli_path, "doctor"], check=False, capture=False
+                    [cli_path, "doctor"],
+                    check=False,
+                    capture=False,
+                    timeout=CLI_DOCTOR,
                 )
                 if doctor_result.returncode == 0:
                     ops.ok(f"{cli_name} doctor passed")

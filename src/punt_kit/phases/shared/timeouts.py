@@ -9,11 +9,13 @@ from __future__ import annotations
 # ---------------------------------------------------------------------------
 # _run's default budget and the named opt-ins for longer-running call sites.
 # ---------------------------------------------------------------------------
-# The default is short by design. Metadata calls — git rev-parse, gh api
-# graphql, gh pr view, git status — return promptly or not at all, so a call
-# that outlives this budget has hung, and the release surfaces that as a
-# diagnosis instead of a two-hour stall. Long-running call sites opt in
-# explicitly to one of the named budgets below.
+# The default is short by design. Metadata calls that run no git hook — git
+# rev-parse, log, ``branch --show-current``, ``tag --list``, ``remote get-url``,
+# gh api graphql, gh pr view — return promptly or not at all, so a call that
+# outlives this budget has hung, and the release surfaces that as a diagnosis
+# instead of a two-hour stall. Long-running call sites opt in explicitly to one
+# of the named budgets below; a command that may fire a hook is floored to
+# GIT_HOOK whatever it asks for (see ``HookFiringCommand``).
 DEFAULT_RUN = 60
 
 # uv resolves dependencies, downloads wheels, and may build native bindings.
@@ -21,9 +23,10 @@ DEFAULT_RUN = 60
 # wedge, not a slow install.
 UV = 600
 
-# git fetch/push/pull over the network. Usually finishes in a second; the
-# budget is wide enough to swallow a transient hiccup but narrower than a
-# wedge on a broken socket.
+# Hook-free git network reads (``git ls-remote``). Usually finishes in a
+# second; the budget is wide enough to swallow a transient hiccup but narrower
+# than a wedge on a broken socket. fetch, push and pull are not governed by
+# this: they fire hooks, so ``HookFiringCommand`` floors them to GIT_HOOK.
 GIT_NETWORK = 300
 
 # git commands that fire a repo hook — checkout, commit, merge, push, pull.
@@ -38,6 +41,13 @@ GIT_NETWORK = 300
 # default is the wrong lever: 60s is what turns a two-hour hang into a
 # one-minute diagnosis for genuine metadata calls, and must stay that way.
 GIT_HOOK = 600
+
+# The freshly installed CLI's own ``doctor``: an arbitrary program that may
+# probe the network (API keys, MCP servers) before it reports. It is
+# informational — its verdict never gates the release — so two minutes is
+# generous for a health probe and short enough that a hung one does not stall
+# a release that has already published.
+CLI_DOCTOR = 120
 
 # Quality gates — mypy, pyright, pytest, ruff, `make check`, `go test`. The
 # full test suite on a cold cache can take a few minutes; a release aborts if
@@ -73,9 +83,9 @@ CI_RUN_LIST = 60
 # commit, or every workflow's `paths:` filter excluding every changed file —
 # looks identical, from the poll loop's point of view, to a commit whose
 # checks just haven't started yet. Left unbounded, the loop waits out the
-# full CI_WATCH deadline (two hours) before failing, which is what let the
-# ethos #496 post-release PR (carrying [skip ci]) hang the release instead of
-# failing fast. Five minutes is long enough for GitHub to attach the first
+# full CI_WATCH deadline (two hours) before failing, so a PR carrying
+# [skip ci] would hang the release instead of failing fast. Five minutes is
+# long enough for GitHub to attach the first
 # CheckRun to a commit that has any workflows to run at all, and short
 # enough that a genuine zero-checks misconfiguration surfaces as a fast,
 # actionable failure instead of a silent multi-hour stall.
