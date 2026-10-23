@@ -89,6 +89,7 @@ _DYNAMIC = [
     pytest.param('VERSION="1.0"$SUFFIX\n', id="quoted-then-variable"),
     pytest.param("VERSION='1'\"$x\"\n", id="single-then-double-quoted"),
     pytest.param('typeset VERSION="$(git describe)"\n', id="typeset-computed"),
+    pytest.param('VERSION="1.0"#x\n', id="hash-glued-to-the-quote"),
 ]
 
 

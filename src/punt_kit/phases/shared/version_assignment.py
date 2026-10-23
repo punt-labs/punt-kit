@@ -13,9 +13,10 @@ _SHELL_LEAD = (
 # A double-quoted shell value that expands something is not a plain string.
 _EXPANDS = re.compile(r"[$`]")
 # What may follow the closing quote of a plain shell value: the end of the
-# line, whitespace, a command separator or a comment. Anything else
-# (``"1.0"$SUFFIX``, ``'1'"$x"``) continues the word, so the value is computed.
-_VALUE_END = re.compile(r"[ \t;#\r\n]|\Z")
+# line, whitespace or a command separator. A ``#`` starts a comment only at the
+# beginning of a word, so one glued to the quote (``"1.0"#x``) continues the
+# word, like ``"1.0"$SUFFIX`` and ``'1'"$x"``: the value is computed.
+_VALUE_END = re.compile(r"[ \t;\r\n]|\Z")
 
 
 @final
@@ -60,7 +61,8 @@ class VersionAssignment:
         computed, so assigned but not readable, when it is double-quoted and
         contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
         ``"$(git describe)"``), or when the closing quote is followed by more
-        word (``"1.0"$SUFFIX``, ``'1'"$x"``). A *later* assignment can still
+        word (``"1.0"$SUFFIX``, ``'1'"$x"``, ``"1.0"#x``; a ``#`` only starts
+        a comment after whitespace). A *later* assignment can still
         replace the first at run time; ``later_computed_line`` finds one that
         is computed so the caller can warn that the bump does not set it.
         """

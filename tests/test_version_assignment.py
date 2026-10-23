@@ -55,6 +55,7 @@ def test_rewriting_keeps_the_quote_style_and_reports_the_count() -> None:
         'VERSION="1.0"$SUFFIX\n',
         "VERSION='1'\"$x\"\n",
         'VERSION="1.0"suffix\n',
+        'VERSION="1.0"#x\n',
         'typeset VERSION="1.0"$S\n',
     ],
 )
@@ -73,11 +74,10 @@ def test_a_shell_value_continued_after_its_quote_is_assigned_but_not_plain(
         'VERSION="1.0"',
         'VERSION="1.0" # note\n',
         'VERSION="1.0"; export VERSION\n',
-        'VERSION="1.0"#note\n',
         'typeset -r VERSION="1.0"\n',
     ],
 )
-def test_a_shell_value_ends_at_whitespace_a_semicolon_a_hash_or_the_end(
+def test_a_shell_value_ends_at_whitespace_a_semicolon_a_spaced_hash_or_the_end(
     text: str,
 ) -> None:
     assert VersionAssignment.in_shell("VERSION").read(text) == "1.0"
