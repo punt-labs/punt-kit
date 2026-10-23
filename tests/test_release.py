@@ -1,5 +1,10 @@
 """Tests for release command."""
 
+# release.py's underscore names (the phase wrappers, _run, _interrupted) are the
+# module's deliberate monkeypatch seams: this file drives and patches them, so
+# the private-usage rule cannot apply here.
+# pyright: reportPrivateUsage=false
+
 from __future__ import annotations
 
 import ast
@@ -30,6 +35,8 @@ from punt_kit.phases.phase09_post_release import Phase9PostRelease
 from punt_kit.phases.phase10_propagate import InstallAllPropagator
 from punt_kit.phases.phase11_verify import VerificationCheck
 from punt_kit.phases.shared import gh as gh_mod
+from punt_kit.phases.shared import timeouts
+from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
@@ -39,31 +46,27 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.siblings import SiblingRepo, SkipRecorder
 from punt_kit.release import (
-    _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
-    _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
-    _QUALITY_GATE_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
     PHASE_NAMES,
     ReleaseError,
-    _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
-    _get_project_version,  # pyright: ignore[reportPrivateUsage]
-    _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
-    _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
-    _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
-    _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
-    _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
-    _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
-    _phase11_verify,  # pyright: ignore[reportPrivateUsage]
-    _phase_name,  # pyright: ignore[reportPrivateUsage]
-    _pr_merge,  # pyright: ignore[reportPrivateUsage]
-    _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
-    _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
-    _propagate_website,  # pyright: ignore[reportPrivateUsage]
-    _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
-    _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
-    _run,  # pyright: ignore[reportPrivateUsage]
-    _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
-    _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
-    _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
+    _get_latest_tag_version,
+    _get_project_version,
+    _phase1_preflight,
+    _phase2_version_bump,
+    _phase4_release_pr,
+    _phase6_ci_wait,
+    _phase9_post_release,
+    _phase10_propagate,
+    _phase11_verify,
+    _phase_name,
+    _pr_merge,
+    _propagate_install_all,
+    _propagate_marketplace,
+    _propagate_website,
+    _reset_propagation_siblings,
+    _resolve_sibling,
+    _run,
+    _run_phases_9_10,
+    _wait_for_required_checks,
     run_release,
 )
 from tests.harness.fault_ops import (
@@ -102,9 +105,9 @@ def isolate_interrupted_event() -> Iterator[None]:
     this same event on every poll iteration and would
     fail immediately with "Interrupted" on a leaked, already-set event.
     """
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release._interrupted.clear()
     yield
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release._interrupted.clear()
 
 
 def _fault_ops(
@@ -120,6 +123,24 @@ def _fault_ops(
     reaching GitHub.
     """
     return FaultInjectingOps(real_run=real_run, rules=rules, passthrough=passthrough)
+
+
+def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
+    """The real ``_run``, appending every command that starts with ``prefix``."""
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[: len(prefix)] == prefix:
+            recorded.append(cmd)
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+    return run
 
 
 def _git(args: list[str], cwd: str) -> None:
@@ -567,7 +588,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -599,7 +620,7 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -641,7 +662,7 @@ def test_preflight_python_make_check_failure_aborts_phase(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -673,7 +694,7 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -714,7 +735,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -730,7 +751,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
     assert exc_info.value.code == 1
     normalized = " ".join(capsys.readouterr().out.split())
     assert "make check" in normalized
-    assert f"{_QUALITY_GATE_TIMEOUT}s" in normalized
+    assert f"{timeouts.QUALITY_GATE}s" in normalized
     assert "phase 1 (preflight)" in normalized
     assert "--resume-from preflight" in normalized
 
@@ -769,7 +790,7 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -932,7 +953,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -2331,12 +2352,7 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
 
     push_calls: list[list[str]] = []
 
-    def spying_run(
-        cmd: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        if cmd[:2] == ["git", "push"]:
-            push_calls.append(cmd)
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    spying_run = _recording_run(push_calls, ["git", "push"])
 
     Phase5Tag(
         info,
@@ -2383,12 +2399,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
 
     push_calls: list[list[str]] = []
 
-    def spying_run(
-        cmd: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        if cmd[:2] == ["git", "push"]:
-            push_calls.append(cmd)
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    spying_run = _recording_run(push_calls, ["git", "push"])
 
     with pytest.raises(ReleaseError, match="exists on the remote but points to"):
         Phase5Tag(
@@ -2471,12 +2482,7 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
 
     push_calls: list[list[str]] = []
 
-    def spying_run(
-        cmd: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        if cmd[:2] == ["git", "push"]:
-            push_calls.append(cmd)
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    spying_run = _recording_run(push_calls, ["git", "push"])
 
     Phase5Tag(
         info,
@@ -3591,9 +3597,7 @@ def test_preflight_passes_with_clean_siblings(tmp_path: Path) -> None:
     _phase1_preflight(info, dry_run=True)
 
 
-def test_sibling_pr_merge_returns_to_main(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_sibling_pr_merge_returns_to_main(tmp_path: Path) -> None:
     """After _sibling_pr_merge, sibling is back on main (5b4/zay fix)."""
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
@@ -3614,10 +3618,14 @@ def test_sibling_pr_merge_returns_to_main(
         _git(["checkout", "main"], cwd=str(cwd))
         return "abc1234"
 
-    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
-
-    release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
-        sibling, "test-branch", ["file.txt"], "test commit", "sib", dry_run=False
+    PrMerger(ops=_fault_ops()).merge_in_sibling(
+        sibling,
+        "test-branch",
+        ["file.txt"],
+        "test commit",
+        "sib",
+        dry_run=False,
+        merge=fake_pr_merge,
     )
 
     # Verify we're back on main
@@ -3631,27 +3639,24 @@ def test_sibling_pr_merge_returns_to_main(
     assert branch == "main"
 
 
-def test_sibling_pr_merge_returns_to_main_on_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_sibling_pr_merge_returns_to_main_on_failure(tmp_path: Path) -> None:
     """Sibling returns to main even when _pr_merge fails (5b4/zay)."""
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
 
-    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+    def failing_pr_merge(**kwargs: object) -> str:
         raise SystemExit(1)
 
-    monkeypatch.setattr(release, "_pr_merge", failing_pr_merge)
-
     with pytest.raises(SystemExit):
-        release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        PrMerger(ops=_fault_ops()).merge_in_sibling(
             sibling,
             "test-branch",
             ["file.txt"],
             "test commit",
             "sib",
             dry_run=False,
+            merge=failing_pr_merge,
         )
 
     # The critical assertion: sibling is back on main despite the failure
@@ -3681,28 +3686,24 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
 
-    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+    def failing_pr_merge(**kwargs: object) -> str:
         raise ReleaseError("required checks never passed")
 
-    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        # Only the merge_in_sibling finally block's cleanup checkout uses
-        # this exact argv — checkout_or_create checks out the feature
-        # branch, not "main" — so this can't accidentally intercept an
-        # earlier, unrelated checkout in the same flow.
-        if cmd == ["git", "checkout", "main"]:
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=1,
-                stdout="",
-                stderr="local changes would be overwritten",
-            )
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    # Only the merge_in_sibling finally block's cleanup checkout uses this
+    # exact argv — checkout_or_create checks out the feature branch, not
+    # "main" — so the rule can't intercept an earlier, unrelated checkout.
+    checkout_main_fails = FaultRule(
+        match=["git", "checkout", "main"],
+        response=CompletedProcessSpec(
+            returncode=1, stderr="local changes would be overwritten"
+        ),
+    )
 
     monkeypatch.setattr(release, "_pr_merge", failing_pr_merge)
-    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", _fault_ops(rules=[checkout_main_fails]).run)
 
     with pytest.raises(ReleaseError, match="required checks never passed"):
-        release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        release._sibling_pr_merge(
             sibling,
             "test-branch",
             ["file.txt"],
@@ -4868,12 +4869,12 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+    release._interrupted.set()
     try:
         with pytest.raises(ReleaseError, match="Interrupted while waiting"):
             _wait_for_required_checks("gh", "/tmp", 42)
     finally:
-        release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+        release._interrupted.clear()
 
 
 # --- _reset_propagation_siblings ---
@@ -4902,7 +4903,7 @@ def test_reset_propagation_siblings_resets_propagation_branch(
         result.stderr = ""
         return result
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name
 
     monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
@@ -4931,7 +4932,7 @@ def test_reset_propagation_siblings_skips_feature_branches(
         result.stderr = ""
         return result
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name
 
     monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
@@ -4974,7 +4975,7 @@ def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
 
     sibling_names = ["punt-kit", "claude-plugins", ".github", "public-website"]
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name if name in sibling_names else None
 
     monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
@@ -5008,7 +5009,7 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
             result.stdout = ""
         return result
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name
 
     monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
@@ -5540,8 +5541,8 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
     # after a non-zero exit would leave second_attempt unconsumed and the
     # TimeoutExpired assertion above would still pass for the wrong
     # reason).
-    assert first_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    assert second_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert first_attempt.consumed == 1
+    assert second_attempt.consumed == 1
 
 
 def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
@@ -5650,7 +5651,7 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             response=CompletedProcessSpec(),
@@ -5659,7 +5660,7 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     # Inserted at the front: _merge_env's own mergeCommit rule (unlimited
     # `times`) would otherwise be consulted first and never let this one
     # match.
-    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.insert_rule(
         0,
         FaultRule(
             match=[
@@ -5709,13 +5710,13 @@ def test_pr_merge_merge_commit_oid_null_fails_loud(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             response=CompletedProcessSpec(),
         )
     )
-    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.insert_rule(
         0,
         FaultRule(
             match=[
@@ -5765,7 +5766,7 @@ def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
     transient = CompletedProcessSpec(
         returncode=1, stderr="required status check has not passed"
     )
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             responses=[transient, transient, CompletedProcessSpec()],
@@ -5820,7 +5821,7 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
         ),
         times=6,
     )
-    ops._rules.append(merge_rule)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(merge_rule)
 
     with pytest.raises(ReleaseError, match="Failed to merge PR #42"):
         PrMerger(ops=ops).merge(
@@ -5840,7 +5841,7 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
     # deny-by-default `AssertionError` instead of `ReleaseError` — so an
     # *unbounded* runaway is already caught, but an off-by-one that stops
     # one attempt early would not be, without this explicit count).
-    assert merge_rule._consumed == 6  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert merge_rule.consumed == 6
 
 
 def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
@@ -5865,7 +5866,7 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             responses=[
@@ -6391,9 +6392,7 @@ def test_phase4_release_pr_pins_readme_after_merge(
     monkeypatch.setattr(release, "_resolve_pr_threads", _no_threads)
     monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
 
-    release_sha = release._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
-    )
+    release_sha = release._phase4_release_pr(info, "0.2.0", dry_run=False)
 
     # The squash-merge sha, not whatever HEAD became after the README-pin
     # PR's own squash-merge landed on top of it.
@@ -6704,18 +6703,25 @@ def _patch_pypi_probe(
     can assert the probe ran exactly once and inspect its ``cwd``.
     """
 
-    original_run = release._run  # pyright: ignore[reportPrivateUsage]
     calls: list[tuple[list[str], dict[str, object]]] = []
 
-    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+    def patched_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         if len(cmd) == len(_PYPI_PROBE_CMD) + 1 and tuple(cmd[:-1]) == _PYPI_PROBE_CMD:
-            calls.append((list(cmd), dict(kwargs)))
-            result = MagicMock()
-            result.returncode = 0 if present else 1
-            result.stdout = ""
-            result.stderr = "" if present else "unsatisfiable"
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+            calls.append((list(cmd), {"cwd": cwd, "timeout": timeout}))
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0 if present else 1,
+                stdout="",
+                stderr="" if present else "unsatisfiable",
+            )
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
     monkeypatch.setattr(release, "_run", patched_run)
     return calls
@@ -8556,7 +8562,7 @@ def test_matches_install_sha_fails_for_fabricated_hash(tmp_path: Path) -> None:
         fabricated,
         install_sha,
         cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
+        ops=_fault_ops(),
     )
     assert check.passed is False
     assert "does not resolve" in check.detail
@@ -8574,7 +8580,7 @@ def test_matches_install_sha_passes_for_full_length_pin(tmp_path: Path) -> None:
         full_sha,
         short_sha,
         cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
+        ops=_fault_ops(),
     )
     assert check.passed is True
 
@@ -8594,7 +8600,7 @@ def test_matches_install_sha_passes_for_short_pin(tmp_path: Path) -> None:
         short_pin,
         install_sha,
         cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
+        ops=_fault_ops(),
     )
     assert check.passed is True
 
@@ -8613,7 +8619,7 @@ def test_matches_install_sha_fails_for_real_different_commit(tmp_path: Path) -> 
         other_sha,
         install_sha,
         cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
+        ops=_fault_ops(),
     )
     assert check.passed is False
     assert "stale" in check.detail
@@ -10642,8 +10648,8 @@ STALE_SUCCESS_RUN: dict[str, object] = {
 }
 
 
-def _selector() -> _TagRunSelector:
-    return _TagRunSelector(TAG, COMMIT)
+def _selector() -> TagRunSelector:
+    return TagRunSelector(TAG, COMMIT)
 
 
 def _never_sleep(_seconds: float) -> None:
@@ -10941,7 +10947,7 @@ def test_phase6_dry_run_prints_the_command_it_would_execute(
     _phase6_ci_wait(info, "9.9.9", dry_run=True)
 
     printed = capsys.readouterr().out
-    executed = " ".join(_TagRunSelector.list_command("gh", "v9.9.9"))
+    executed = " ".join(TagRunSelector.list_command("gh", "v9.9.9"))
     # Rich wraps long lines, so compare on the argument tokens.
     for token in executed.split():
         assert token in printed, f"dry run omitted {token!r}"
@@ -11331,8 +11337,8 @@ def test_run_default_timeout_is_short() -> None:
     """
     sig = inspect.signature(_run)
     default = sig.parameters["timeout"].default
-    assert default == _DEFAULT_RUN_TIMEOUT
-    assert _DEFAULT_RUN_TIMEOUT <= 60
+    assert default == timeouts.DEFAULT_RUN
+    assert timeouts.DEFAULT_RUN <= 60
 
 
 def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
@@ -11344,7 +11350,7 @@ def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
     headroom, and the release aborts the moment the hook uses its full
     tolerance. The v0.14.0 release lost two phases exactly this way.
     """
-    assert _GIT_HOOK_TIMEOUT > 300
+    assert timeouts.GIT_HOOK > 300
 
 
 _PHASES_DIR = _Path(release.__file__).parent / "phases"
@@ -11502,11 +11508,11 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        if cmd == hung_cmd and timeout == _DEFAULT_RUN_TIMEOUT:
+        if cmd == hung_cmd and timeout == timeouts.DEFAULT_RUN:
             raise subprocess.TimeoutExpired(cmd, timeout)
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
@@ -11518,7 +11524,7 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
     assert exc_info.value.code == 1
     normalized = " ".join(capsys.readouterr().out.split())
     assert "git branch --show-current" in normalized
-    assert f"{_DEFAULT_RUN_TIMEOUT}s" in normalized
+    assert f"{timeouts.DEFAULT_RUN}s" in normalized
     assert "phase 1 (preflight)" in normalized
     assert "--resume-from preflight" in normalized
 
@@ -11636,7 +11642,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     monkeypatch.setattr(shutil, "which", _fake_which)
 
     def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
-        release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        release._interrupted.set()
         raise KeyboardInterrupt()
 
     def _noop_reset(*_args: object, **_kwargs: object) -> None:
@@ -11923,9 +11929,7 @@ def _interrupted_poll_scenario(
         times=None,
         response=FaultRule.from_fixture("gh_graphql_required_checks_pending.json"),
     )
-    pending_forever.interrupt_after(
-        release._interrupted  # pyright: ignore[reportPrivateUsage]
-    )
+    pending_forever.interrupt_after(release._interrupted)
     ops = _fault_ops(
         rules=[
             # The sibling's origin is itself (non-bare), which refuses a push
@@ -12004,8 +12008,8 @@ def test_phase10_interrupt_with_worker_mid_poll_join_returns_promptly(
     # the armed rule fired, exactly one consumption after — the next
     # iteration's interrupt check stopped the loop before another poll, with
     # the fake still pending (it has no other state to serve).
-    assert warmup._consumed == 3  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-    assert pending_forever._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert warmup.consumed == 3
+    assert pending_forever.consumed == 1
 
 
 def test_run_release_interrupt_mid_poll_reports_incomplete_release(
@@ -12043,8 +12047,8 @@ def test_run_release_interrupt_mid_poll_reports_incomplete_release(
     assert "phase 10 (propagate)" in out
     assert "Not confirmed landed: propagate, verify" in out
     assert "--resume-from propagate" in out
-    assert warmup._consumed == 3  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-    assert pending_forever._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert warmup.consumed == 3
+    assert pending_forever.consumed == 1
 
 
 def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
@@ -12078,7 +12082,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
     projects_json = sibling / "src" / "data" / "projects.json"
     original = projects_json.read_text()
 
-    real_reset = release._reset_propagation_siblings  # pyright: ignore[reportPrivateUsage]
+    real_reset = release._reset_propagation_siblings
     reset_calls: list[tuple[bool, bool]] = []
 
     def spying_reset(info: ProjectInfo, *, fail_on_error: bool = True) -> None:
@@ -12096,9 +12100,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
         match=["git", "status", "--porcelain", "--", "src/data/projects.json"],
         response=CompletedProcessSpec(stdout=" M src/data/projects.json\n"),
     )
-    status_rule.interrupt_after(
-        release._interrupted  # pyright: ignore[reportPrivateUsage]
-    )
+    status_rule.interrupt_after(release._interrupted)
     checkout_rule = FaultRule(
         match=["git", "checkout", "-b"],
         raises=subprocess.TimeoutExpired(cmd=["git", "checkout", "-b"], timeout=600),

@@ -179,6 +179,11 @@ class FaultRule:
             else ()
         )
 
+    @property
+    def consumed(self) -> int:
+        """How many calls this rule has answered so far."""
+        return self._consumed
+
     def matches_argv(self, cmd: Sequence[str]) -> bool:
         """Pure argv-prefix check — mutates no state."""
         return _matches_argv_prefix(cmd, self.match)
@@ -318,6 +323,20 @@ class FaultInjectingOps:
             f"unmatched network command in a fault-injection test: {cmd!r} — "
             "add a FaultRule or an explicit passthrough prefix"
         )
+
+    def append_rule(self, rule: FaultRule) -> None:
+        """Consult ``rule`` after every rule already installed."""
+        with self._lock:
+            self._rules.append(rule)
+
+    def insert_rule(self, index: int, rule: FaultRule) -> None:
+        """Consult ``rule`` at ``index``; ``0`` puts it ahead of every other.
+
+        A rule with an unlimited ``times`` shadows every later rule that
+        matches the same argv, so a narrower rule must be inserted before it.
+        """
+        with self._lock:
+            self._rules.insert(index, rule)
 
     def _passthrough_match(self, cmd: Sequence[str]) -> bool:
         # A passthrough entry is an argv prefix with FaultRule.match's own

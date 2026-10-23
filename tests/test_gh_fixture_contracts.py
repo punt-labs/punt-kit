@@ -27,10 +27,13 @@ from punt_kit.phases.shared.ci_run import CiRunWatch, TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.timeouts import DEFAULT_RUN
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
 from tests.harness.gh_shapes import load_gh_fixture
 
 if TYPE_CHECKING:
+    import subprocess
+
     from tests.harness.fault_ops import RunFn
 
 _OWNER = "acme-org"
@@ -43,11 +46,17 @@ def _real_run_stub() -> RunFn:
     scenario to silently tolerate.
     """
 
-    def real_run(cmd: list[str], **_kwargs: object) -> object:
+    def real_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         raise AssertionError(f"unexpected real dispatch: {cmd!r}")
 
-    return real_run  # type: ignore[return-value]  # RunFn is Protocol-typed;
-    # the stub's signature matches structurally (PY-TS-14).
+    return real_run
 
 
 def _ops_with(*rules: FaultRule) -> FaultInjectingOps:

@@ -38,7 +38,6 @@ from punt_kit.phases.phase10_propagate import (
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
-from punt_kit.phases.shared.ci_run import TagRunSelector
 from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
 from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
 from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
@@ -57,14 +56,10 @@ console = Console()
 _interrupted = threading.Event()
 
 # ---------------------------------------------------------------------------
-# Timeout budgets — see phases/shared/timeouts.py for the source of truth and
-# the rationale behind each budget. Aliased here (not just imported) because
-# _CI_RUN_POLL_ATTEMPTS/_CI_RUN_POLL_INTERVAL are monkeypatched directly on
-# this module by tests/test_release.py, and the tests read the other three
-# through this module.
-_DEFAULT_RUN_TIMEOUT = timeouts.DEFAULT_RUN
-_GIT_HOOK_TIMEOUT = timeouts.GIT_HOOK
-_QUALITY_GATE_TIMEOUT = timeouts.QUALITY_GATE
+# Timeout budgets — phases/shared/timeouts.py is the source of truth and holds
+# the rationale for each. Only the two poll constants are re-bound here,
+# because tests monkeypatch them on this module and Phase 6 receives them from
+# `_phase6_ci_wait` at call time.
 _CI_RUN_POLL_INTERVAL = timeouts.CI_RUN_POLL_INTERVAL
 _CI_RUN_POLL_ATTEMPTS = timeouts.CI_RUN_POLL_ATTEMPTS
 
@@ -77,7 +72,7 @@ def _run(
     cmd: list[str],
     *,
     cwd: str | None = None,
-    timeout: int = _DEFAULT_RUN_TIMEOUT,
+    timeout: int = timeouts.DEFAULT_RUN,
     check: bool = True,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
@@ -132,7 +127,7 @@ class _ReleaseOpsAdapter:
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -271,11 +266,6 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     ReadmeShaPin(info, ops=_ops).land(
         version, dry_run=dry_run, merge=_pr_merge, resolve_repo=_get_github_repo
     )
-
-
-# Static alias — re-export of the relocated class. No test's monkeypatch
-# reassigns this name; every use is a direct call/import.
-_TagRunSelector = TagRunSelector
 
 
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
