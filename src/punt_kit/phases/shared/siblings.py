@@ -142,7 +142,7 @@ class SiblingRepo:
         )
         if branch_result.returncode != 0:
             # A sibling checkout is far less controlled than the project's
-            # own repo (§ pkit-f85t.7) — a git command failing here (a
+            # own repo — a git command failing here (a
             # corrupted checkout, a detached/unborn HEAD in some git
             # versions) must raise a diagnosed ReleaseError, not a raw
             # CalledProcessError with no indication which sibling or which

@@ -288,7 +288,7 @@ class PrMerger:
         Extracted from three near-identical inline blocks (existing-PR
         resume, mid-wait resume, and the normal post-merge path) that each
         hand-rolled the same checkout + pull sequence with an unqualified
-        ``check=True`` default (pkit-f85t.7).
+        ``check=True`` default.
         """
         checkout = self._ops.run(
             ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
@@ -366,7 +366,7 @@ class PrMerger:
         """
         cwd = str(path)
         # A sibling checkout is far less controlled than the project's own
-        # repo (pkit-f85t.7 sweep boundary) — same reasoning as
+        # repo — same reasoning as
         # SiblingRepo.validate's reads and _sync_profile_readme's git log,
         # both already diagnosed.
         status_result = self._ops.run(
