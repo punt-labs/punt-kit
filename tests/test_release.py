@@ -12955,8 +12955,13 @@ def _thread_page(ids: list[tuple[str, bool]], *, next_cursor: str | None = None)
     )
 
 
-def _resolve_threads(tmp_path: Path, replies: list[str]) -> list[list[str]]:
-    """Run the resolver against scripted ``gh api graphql`` replies, in order."""
+def _resolve_threads(
+    tmp_path: Path, replies: Sequence[str | tuple[int, str, str]]
+) -> list[list[str]]:
+    """Run the resolver against scripted ``gh api graphql`` replies, in order.
+
+    A reply is a stdout string (exit 0) or ``(returncode, stdout, stderr)``.
+    """
     seen: list[list[str]] = []
     answers = iter(replies)
 
@@ -12969,7 +12974,11 @@ def _resolve_threads(tmp_path: Path, replies: list[str]) -> list[list[str]]:
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
         seen.append(cmd)
-        return subprocess.CompletedProcess(cmd, 0, next(answers), "")
+        reply = next(answers)
+        if isinstance(reply, str):
+            return subprocess.CompletedProcess(cmd, 0, reply, "")
+        code, out, err = reply
+        return subprocess.CompletedProcess(cmd, code, out, err)
 
     origin = _origin_rule(stdout="git@github.com:o/r.git\n")
     ops = _fault_ops([origin], real_run=run, passthrough=[["gh", "api", "graphql"]])
@@ -12987,34 +12996,34 @@ def _threads_body(review_threads: str) -> str:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "warns"),
     [
-        pytest.param('{"data": null}', id="data"),
-        pytest.param('{"data": {"repository": null}}', id="repository"),
+        pytest.param('{"data": null}', True, id="data"),
+        pytest.param('{"data": {"repository": null}}', True, id="repository"),
         pytest.param(
-            '{"data": {"repository": {"pullRequest": null}}}', id="pull-request"
+            '{"data": {"repository": {"pullRequest": null}}}', True, id="pull-request"
         ),
         pytest.param(
             '{"data": {"repository": {"pullRequest": {"reviewThreads": null}}}}',
+            True,
             id="review-threads",
         ),
-        pytest.param(
-            _threads_body('{"nodes": null}'),
-            id="nodes",
-        ),
-        pytest.param(
-            _threads_body('{"nodes": [null, 3, {}]}'),
-            id="odd-elements",
-        ),
-        pytest.param("null", id="whole-body"),
+        pytest.param("null", True, id="whole-body"),
+        # A real reviewThreads object with nothing usable in it is a PR with
+        # nothing to resolve: silence is the right answer there.
+        pytest.param(_threads_body('{"nodes": null}'), False, id="nodes"),
+        pytest.param(_threads_body('{"nodes": [null, 3, {}]}'), False, id="odd"),
     ],
 )
 def test_a_null_anywhere_in_the_threads_response_resolves_nothing(
-    tmp_path: Path, body: str
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], body: str, warns: bool
 ) -> None:
     seen = _resolve_threads(tmp_path, [body])
 
+    out = _flat(capsys.readouterr().out)
     assert len(seen) == 1  # the listing only: no mutation was attempted
+    assert ("merge may fail" in out) is warns
+    assert out.count("WARNING") == (1 if warns else 0)
 
 
 def test_review_threads_are_paged_past_the_first_page(tmp_path: Path) -> None:
@@ -13038,17 +13047,100 @@ def test_review_threads_are_paged_past_the_first_page(tmp_path: Path) -> None:
 # --- GraphQL response failures ---
 
 
-def test_threads_response_with_errors_warns_with_the_error_text(
+def test_a_failing_gh_graphql_call_warns_with_the_pr_and_stderr(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """The real ``gh api graphql`` exits 1 on GraphQL errors.
+
+    Stdout holds the JSON body and stderr ``gh: <message>``; checked against
+    the installed gh with a query for a field that does not exist.
+    """
     body = json.dumps({"data": None, "errors": [{"message": "rate limited"}]})
 
-    seen = _resolve_threads(tmp_path, [body])
+    seen = _resolve_threads(tmp_path, [(1, body, "gh: rate limited\n")])
 
     out = _flat(capsys.readouterr().out)
     assert len(seen) == 1
-    assert "rate limited" in out
+    assert "WARNING" in out
+    assert "PR #7" in out
+    assert "gh: rate limited" in out
+    assert "merge may fail" in out
     assert "Resolved" not in out
+
+
+def test_an_unparseable_threads_response_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _resolve_threads(tmp_path, ["<html>502</html>"])
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "merge may fail" in out
+
+
+def test_a_partial_resolution_failure_warns_with_the_count_and_is_not_green(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replies: list[str | tuple[int, str, str]] = [
+        _thread_page([("T1", False), ("T2", False)]),
+        "{}",
+        (1, "", "gh: boom"),
+    ]
+
+    _resolve_threads(tmp_path, replies)
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "1/2" in out
+    assert "merge may fail" in out
+    assert "✓ Resolved" not in out
+
+
+def test_a_total_resolution_failure_warns_and_prints_no_ok(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replies: list[str | tuple[int, str, str]] = [
+        _thread_page([("T1", False)]),
+        (1, "", "gh: boom"),
+    ]
+
+    _resolve_threads(tmp_path, replies)
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "0/1" in out
+    assert "✓" not in out
+
+
+@pytest.mark.parametrize("repeat", [False, True])
+def test_a_next_page_without_a_usable_cursor_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], repeat: bool
+) -> None:
+    first = _thread_page([("T1", False)], next_cursor="CUR1")
+    second = (
+        _thread_page([("T2", False)], next_cursor="CUR1")
+        if repeat
+        else json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {"hasNextPage": True, "endCursor": None},
+                                "nodes": [],
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    )
+
+    _resolve_threads(tmp_path, [first, second, "{}", "{}"])
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "more review threads" in out
 
 
 @pytest.mark.parametrize(

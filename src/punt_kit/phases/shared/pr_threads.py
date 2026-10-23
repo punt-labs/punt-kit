@@ -19,7 +19,9 @@ class _ThreadPage:
     """One page of a PR's review threads: what is unresolved, and where next."""
 
     unresolved: tuple[str, ...]
-    # The cursor of the following page; ``None`` is the answer for "no more".
+    # ``hasNextPage`` as the server reported it, and the cursor to ask with. A
+    # next page the cursor cannot reach is a listing that stops short.
+    has_more: bool
     next_cursor: str | None
 
 
@@ -76,12 +78,17 @@ class PrThreadResolver:
                 check=False,
             )
             if result.returncode != 0:
-                self._ops.info("Could not fetch review threads — merge may fail")
+                # gh exits 1 on a GraphQL error, with the message on stderr.
+                reason = result.stderr.strip() or result.stdout[:200]
+                self._ops.warn(
+                    f"Could not fetch review threads on PR #{pr_number}: {reason} "
+                    "— merge may fail"
+                )
                 break
             try:
                 page = self._page_of(json.loads(result.stdout))
             except json.JSONDecodeError:
-                self._ops.info(
+                self._ops.warn(
                     f"Could not parse review thread response for PR #{pr_number} "
                     f"({result.stdout[:100]!r}) — thread resolution skipped, merge "
                     "may fail"
@@ -95,14 +102,22 @@ class PrThreadResolver:
                 break
             unresolved.extend(page.unresolved)
             cursor = page.next_cursor
+            if not page.has_more:
+                break
             if cursor is None or cursor in seen_cursors:
+                self._ops.warn(
+                    f"PR #{pr_number} has more review threads than could be "
+                    "listed (the next page has no new cursor) — merge may fail"
+                )
                 break
             seen_cursors.add(cursor)
 
-        self._resolve_all(gh, cwd, unresolved)
+        self._resolve_all(gh, cwd, pr_number, unresolved)
 
-    def _resolve_all(self, gh: str, cwd: str, unresolved: list[str]) -> None:
-        """Resolve each thread id, reporting how many succeeded."""
+    def _resolve_all(
+        self, gh: str, cwd: str, pr_number: int, unresolved: list[str]
+    ) -> None:
+        """Resolve each thread id; say so plainly when any of them was not."""
         if not unresolved:
             return
         resolved = 0
@@ -120,8 +135,13 @@ class PrThreadResolver:
                 resolved += 1
             else:
                 self._ops.info(f"Could not resolve thread {tid}: {res.stderr.strip()}")
-        if resolved:
+        if resolved == len(unresolved):
             self._ops.ok(f"Resolved {resolved}/{len(unresolved)} review thread(s)")
+        else:
+            self._ops.warn(
+                f"Resolved only {resolved}/{len(unresolved)} review thread(s) on "
+                f"PR #{pr_number} — merge may fail"
+            )
 
     @staticmethod
     def _threads_query(slug: RepoSlug, pr_number: int, cursor: str | None) -> str:
@@ -146,15 +166,12 @@ class PrThreadResolver:
     def _page_of(cls, data: object) -> _ThreadPage:
         """The unresolved ids and next cursor of a ``_threads_query`` response.
 
-        Raises ``ValueError`` saying why when the response carries GraphQL
-        ``errors`` or has no ``reviewThreads`` object: that is a query that
-        failed, not a PR with nothing to resolve. A ``null`` ``nodes`` inside
-        a real ``reviewThreads`` object reads as an empty page.
+        Raises ``ValueError`` saying why when the response has no
+        ``reviewThreads`` object: that is a query that failed, not a PR with
+        nothing to resolve. GraphQL ``errors`` never reach here: gh exits 1
+        for them, and ``resolve`` reports that exit. A ``null`` ``nodes``
+        inside a real ``reviewThreads`` object reads as an empty page.
         """
-        errors = cls._child(data, "errors")
-        if errors:
-            msg = f"GraphQL errors: {errors}"
-            raise ValueError(msg)
         threads: object = data
         for key in ("data", "repository", "pullRequest", "reviewThreads"):
             threads = cls._child(threads, key)
@@ -173,5 +190,5 @@ class PrThreadResolver:
         cursor = cls._child(page_info, "endCursor")
         has_more = cls._child(page_info, "hasNextPage") is True
         return _ThreadPage(
-            tuple(ids), cursor if has_more and isinstance(cursor, str) else None
+            tuple(ids), has_more, cursor if isinstance(cursor, str) else None
         )
