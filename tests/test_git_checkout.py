@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -67,3 +68,55 @@ def test_github_slug_names_an_origin_that_is_not_a_github_owner_repo(
 ) -> None:
     with pytest.raises(ValueError, match=f"^origin remote is not .*: {remote}$"):
         GitCheckout(_checkout(tmp_path, remote)).github_slug()
+
+
+@pytest.mark.parametrize(
+    ("remote", "shown"),
+    [
+        pytest.param(
+            "https://u:s3cret@gitlab.com/o/r", "https://gitlab.com/o/r", id="user"
+        ),
+        pytest.param(
+            "https://t0k@gitlab.com:8443/o/r", "https://gitlab.com:8443/o/r", id="port"
+        ),
+        pytest.param("https://gitlab.com/o/r", "https://gitlab.com/o/r", id="none"),
+    ],
+)
+def test_the_message_never_echoes_embedded_credentials(
+    tmp_path: Path, remote: str, shown: str
+) -> None:
+    with pytest.raises(ValueError, match="not a GitHub owner/repo") as caught:
+        GitCheckout(_checkout(tmp_path, remote)).github_slug()
+    assert str(caught.value).endswith(f": {shown}")
+
+
+def test_git_missing_from_the_path_is_said_plainly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+
+    def no_git(_name: str) -> None:
+        return None
+
+    monkeypatch.setattr(shutil, "which", no_git)
+    with pytest.raises(ValueError, match="^git is not installed$"):
+        GitCheckout(_checkout(tmp_path, None)).github_slug()
+
+
+def test_a_failed_remote_lookup_reports_git_s_own_complaint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _checkout(tmp_path, "https://github.com/o/r")
+    real_run = subprocess.run
+
+    def fake_run(
+        cmd: list[str], *, cwd: str, capture_output: bool, text: bool, timeout: int
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[1:3] == ["remote", "get-url"]:
+            return subprocess.CompletedProcess(cmd, 128, "", "fatal: bad config\n")
+        return real_run(
+            cmd, cwd=cwd, capture_output=capture_output, text=text, timeout=timeout
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(ValueError, match="remote get-url origin failed: fatal: bad"):
+        GitCheckout(root).github_slug()
