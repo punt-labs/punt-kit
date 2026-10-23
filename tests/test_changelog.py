@@ -177,22 +177,18 @@ def test_extract_version_notes() -> None:
         "## [0.1.0] - 2026-01-01\n\n"
         "### Added\n\n- Initial\n"
     )
-    notes = ChangelogDocument(changelog).notes_for("0.2.0")
-    assert "New feature" in notes
-    assert "Initial" not in notes
-
-
-def test_extract_version_notes_missing() -> None:
-    """Returns default when version not found."""
-    notes = ChangelogDocument("## [Unreleased]\n").notes_for("9.9.9")
-    assert "v9.9.9" in notes
+    section = ChangelogDocument(changelog).section("0.2.0")
+    assert section is not None
+    assert "New feature" in section.notes
+    assert "Initial" not in section.notes
 
 
 def test_notes_keep_a_fenced_version_heading() -> None:
     changelog = "## [0.2.0] - 2026-03-01\n\n```\n## [0.1.0]\n```\n\n- tail\n"
-    notes = ChangelogDocument(changelog).notes_for("0.2.0")
-    assert "## [0.1.0]" in notes
-    assert "- tail" in notes
+    section = ChangelogDocument(changelog).section("0.2.0")
+    assert section is not None
+    assert "## [0.1.0]" in section.notes
+    assert "- tail" in section.notes
 
 
 # --- stamped / is_stamped ---
@@ -493,3 +489,116 @@ def test_require_unreleased_entries_ignores_a_fenced_unreleased(tmp_path: Path) 
     text = "```\n## [Unreleased]\n\n- x\n```\n"
     with pytest.raises(ReleaseError, match=r"No \[Unreleased\] section"):
         _changelog(tmp_path, text).require_unreleased_entries()
+
+
+# --- review round: breaking markers, subsections, headings, versions ---
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        pytest.param("- Fix a **breaking** regression", id="bold-mid-sentence"),
+        pytest.param("- Fixed a breaking regression", id="plain-mid-sentence"),
+        pytest.param("- Fix: **Breaking** wording", id="not-lead"),
+    ],
+)
+def test_a_breaking_word_mid_entry_is_not_a_breaking_marker(entry: str) -> None:
+    cl = f"## [Unreleased]\n\n### Changed\n\n{entry}\n\n## [1.2.3]\n"
+    assert _suggest(cl) == "1.2.4"
+
+
+def test_an_ordered_list_breaking_lead_bumps_the_major() -> None:
+    cl = "## [Unreleased]\n\n### Changed\n\n1. **Breaking:** x\n\n## [1.2.3]\n"
+    assert _suggest(cl) == "2.0.0"
+
+
+def test_a_non_version_h2_heading_ends_the_subsection() -> None:
+    """Entries after ``## Migration notes`` do not belong to ``### Added``."""
+    cl = (
+        "## [Unreleased]\n\n### Fixed\n\n- a fix\n\n"
+        "### Added\n\n## Migration notes\n\n- an unrelated note\n\n## [1.2.3]\n"
+    )
+    assert _suggest(cl) == "1.2.4"
+
+
+def test_a_non_version_h2_heading_keeps_later_text_as_section_entries() -> None:
+    cl = "## [Unreleased]\n\n### Added\n\n## Migration notes\n\n- note\n"
+    unreleased = ChangelogDocument(cl).section("Unreleased")
+    assert unreleased is not None
+    assert unreleased.has_entries
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        pytest.param("   ## [1.0.0] - 2026-01-01", id="indented"),
+        pytest.param("##   [1.0.0] - 2026-01-01", id="wide-gap"),
+        pytest.param("## [1.0.0] - 2026-01-01 ##", id="closing-hashes"),
+    ],
+)
+def test_every_heading_the_parser_accepts_can_be_stamped(heading: str) -> None:
+    assert ChangelogDocument(f"{heading}\n\n- x\n").is_stamped("1.0.0")
+
+
+@pytest.mark.parametrize("current", ["1.2.3rc1", "1.2", "1.2.3.4", "x.y.z"])
+def test_suggesting_from_a_non_release_version_raises_release_error(
+    current: str,
+) -> None:
+    cl = "## [Unreleased]\n\n- x\n"
+    with pytest.raises(ReleaseError, match=r"cannot suggest a version from"):
+        ChangelogDocument(cl).suggest_next_version(current)
+
+
+@pytest.mark.parametrize(
+    ("text", "line"),
+    [
+        pytest.param("## [Unreleased]\n\n- x\n\n```\ncode\n", 5, id="fence"),
+        pytest.param("## [Unreleased]\n\n- x\n\n~~~~\ncode\n~~~\n", 5, id="short"),
+        pytest.param("## [Unreleased]\n\n- x\n\n<!-- later\n", 5, id="comment"),
+        pytest.param("## [Unreleased]\n\n- x\n\n<script>\nx\n", 5, id="script"),
+        pytest.param("## [Unreleased]\n\n- x\n\n```", 5, id="lone-opener-at-eof"),
+    ],
+)
+def test_unclosed_blocks_are_reported_with_their_opening_line(
+    text: str, line: int
+) -> None:
+    assert ChangelogDocument(text).unclosed_block_lines() == (line,)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("## [Unreleased]\n\n```\ncode\n```\n", id="fence"),
+        pytest.param("## [Unreleased]\n\n~~~~\ncode\n~~~~~\n", id="longer-closer"),
+        pytest.param("## [Unreleased]\n\n<!-- c -->\n- x\n", id="comment"),
+        pytest.param("## [Unreleased]\n\n- x\n\n> ```\n> c\n> ```\n", id="quoted"),
+        pytest.param("## [Unreleased]\n\n<div>\nx\n\n- y\n", id="div-ends-at-blank"),
+        pytest.param("## [Unreleased]\n\n```\r\ncode\r\n```\r\n", id="crlf"),
+    ],
+)
+def test_closed_blocks_are_not_reported(text: str) -> None:
+    assert ChangelogDocument(text).unclosed_block_lines() == ()
+
+
+def test_require_unreleased_entries_rejects_an_unclosed_fence(tmp_path: Path) -> None:
+    text = "## [Unreleased]\n\n- x\n\n```\n\n## [0.1.0] - 2026-01-01\n\n- old\n"
+    with pytest.raises(ReleaseError, match=r"line 5 .*never closes"):
+        _changelog(tmp_path, text).require_unreleased_entries()
+
+
+def test_notes_for_a_missing_version_fail_loudly(tmp_path: Path) -> None:
+    changelog = _changelog(tmp_path, "## [Unreleased]\n\n- x\n")
+    with pytest.raises(ReleaseError, match=r"no \[9\.9\.9\] section"):
+        changelog.notes_for("9.9.9")
+
+
+def test_notes_for_a_version_without_entries_fail_loudly(tmp_path: Path) -> None:
+    changelog = _changelog(tmp_path, "## [1.0.0] - 2026-01-01\n\n### Added\n")
+    with pytest.raises(ReleaseError, match=r"\[1\.0\.0\] section has no entries"):
+        changelog.notes_for("1.0.0")
+
+
+def test_notes_for_a_version_return_its_section(tmp_path: Path) -> None:
+    text = "## [1.0.0] - 2026-01-01\n\n- new\n\n## [0.9.0] - 2025-01-01\n\n- old\n"
+    notes = _changelog(tmp_path, text).notes_for("1.0.0")
+    assert ("new" in notes, "old" in notes) == (True, False)

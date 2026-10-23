@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import io
 import re
+from enum import Enum
 from typing import TYPE_CHECKING, Self, final
 
 from markdown_it import MarkdownIt
 
+from punt_kit.phases.shared.changelog_blocks import UnclosedBlockScan
 from punt_kit.phases.shared.changelog_sections import Section, Subsection
+from punt_kit.phases.shared.errors import ReleaseError
 
 if TYPE_CHECKING:
     from markdown_it.token import Token
 
 _MARKDOWN = MarkdownIt("commonmark")
 _VERSION = re.compile(r"\[([^\]]*)\]")
+_RELEASE_VERSION = re.compile(r"(\d+)\.(\d+)\.(\d+)")
 
 # Block tokens that open a list (descended into) and that are code (an entry).
 _LIST_OPENERS = frozenset({"bullet_list_open", "ordered_list_open"})
@@ -24,6 +28,14 @@ _CODE_BLOCKS = frozenset({"fence", "code_block"})
 # An HTML comment span; an unclosed one runs to the end of its block, as
 # CommonMark ends an HTML block only at the line holding ``-->``.
 _COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+
+
+class _Kind(Enum):
+    """What a top-level token inside a version section turned out to be."""
+
+    TITLE = "title"
+    BREAK = "break"
+    ENTRY = "entry"
 
 
 @final
@@ -72,10 +84,13 @@ class ChangelogDocument:
         """The first section for ``version``; ``None`` is a legitimate absence."""
         return next((s for s in self._sections if s.version == version), None)
 
-    def notes_for(self, version: str) -> str:
-        """Release notes for ``version``, or a stub naming it when absent."""
-        found = self.section(version)
-        return found.notes if found is not None else f"Release v{version}"
+    def unclosed_block_lines(self) -> tuple[int, ...]:
+        """The 1-based lines of fences and HTML blocks that never close.
+
+        Such a block runs to the end of the document and swallows every
+        later release, so a reader must not trust the sections after it.
+        """
+        return UnclosedBlockScan(self._tokens, self._lines).opening_lines()
 
     def is_stamped(self, version: str) -> bool:
         """True if a dated ``## [<version>] - YYYY-MM-DD`` heading exists."""
@@ -107,15 +122,20 @@ class ChangelogDocument:
     def suggest_next_version(self, current: str) -> str:
         """Suggest the next version from the [Unreleased] entries.
 
-        No entries means nothing to release, so no bump. A ``Changed`` entry
-        marked breaking is a major bump, entries under ``Added`` a minor
-        one, anything else a patch.
+        No entries means nothing to release, so no bump. A ``Changed``
+        subsection whose heading says ``(BREAKING)`` or that has an entry
+        opening with a breaking marker is a major bump, entries under
+        ``Added`` a minor one, anything else a patch. ``current`` must be a
+        plain ``MAJOR.MINOR.PATCH``; a pre-release has no defined next bump.
         """
         unreleased = self.section("Unreleased")
-        parts = current.split(".")
-        if unreleased is None or not unreleased.has_entries or len(parts) != 3:
+        if unreleased is None or not unreleased.has_entries:
             return current
-        major, minor, patch = (int(part) for part in parts)
+        parsed = _RELEASE_VERSION.fullmatch(current)
+        if parsed is None:
+            msg = f"cannot suggest a version from {current!r}: not MAJOR.MINOR.PATCH"
+            raise ReleaseError(msg)
+        major, minor, patch = (int(part) for part in parsed.groups())
         if unreleased.is_breaking:
             return f"{major + 1}.0.0"
         if unreleased.has_entries_under("added"):
@@ -154,17 +174,21 @@ class ChangelogDocument:
         entries: list[str] = []
         titles: list[str] = []
         grouped: list[list[str]] = []
-        for title, entry in self._classify(first + 3, stop):
-            if title is not None:
-                titles.append(title)
+        is_open = False
+        for kind, text in self._classify(first + 3, stop):
+            if kind is _Kind.TITLE:
+                titles.append(text)
                 grouped.append([])
+                is_open = True
+            elif kind is _Kind.BREAK:
+                is_open = False
             else:
-                entries.append(entry)
-                if grouped:
-                    grouped[-1].append(entry)
+                entries.append(text)
+                if is_open:
+                    grouped[-1].append(text)
         return Section(
             version=version,
-            heading=self._lines[start].rstrip("\r\n"),
+            heading=self._tokens[first + 1].content,
             notes="".join(self._lines[end:last]).strip(),
             entries=tuple(entries),
             subsections=tuple(
@@ -174,16 +198,19 @@ class ChangelogDocument:
             line_index=start,
         )
 
-    def _classify(self, first: int, stop: int) -> list[tuple[str | None, str]]:
-        """Label the tokens ``[first, stop)``: ``(title, "")`` for a ``###``
-        heading, or ``(None, text)`` for an entry; everything else is dropped.
+    def _classify(self, first: int, stop: int) -> list[tuple[_Kind, str]]:
+        """Label the tokens ``[first, stop)``.
+
+        ``(TITLE, title)`` is a ``###`` heading; ``(BREAK, "")`` is a ``#`` or
+        ``##`` heading, which ends the open subsection; ``(ENTRY, text)`` is
+        an entry. Everything else is dropped.
 
         An entry is a list item (nested items count on their own), or any
         other top-level block with visible content: a paragraph, a fence, a
-        quote. Other headings, comment-only blocks, and link definitions
+        quote. Deeper headings, comment-only blocks, and link definitions
         (which CommonMark consumes without a token) are not entries.
         """
-        labelled: list[tuple[str | None, str]] = []
+        labelled: list[tuple[_Kind, str]] = []
         index = first
         while index < stop:
             token = self._tokens[index]
@@ -191,9 +218,11 @@ class ChangelogDocument:
             if token.type == "heading_open" and token.level == 0:
                 title = self._subsection_title(index)
                 if title is not None:
-                    labelled.append((title, ""))
+                    labelled.append((_Kind.TITLE, title))
+                elif token.tag in ("h1", "h2"):
+                    labelled.append((_Kind.BREAK, ""))
             elif self._is_entry_block(token) and self._has_content(index, close + 1):
-                labelled.append((None, self._text(token)))
+                labelled.append((_Kind.ENTRY, self._text(token)))
             # Lists are walked into: nested items are entries too.
             index = index + 1 if token.type in _DESCENDED else close + 1
         return labelled

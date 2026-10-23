@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
-from punt_kit.phases.shared.changelog_parser import ChangelogDocument
+from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.timeouts import UV
@@ -143,14 +143,9 @@ class Phase2VersionBump:
         # 2c. Update CHANGELOG.md
         changelog_path = root / "CHANGELOG.md"
         if changelog_path.exists():
-            today = datetime.date.today().isoformat()
-            content = changelog_path.read_text(encoding="utf-8")
-            new_content = ChangelogDocument(content).stamped(version, today)
-            if dry_run:
-                ops.dry(f"CHANGELOG.md: [Unreleased] → [{version}] - {today}")
-            else:
-                changelog_path.write_text(new_content, encoding="utf-8")
-                ops.ok(f"CHANGELOG.md: [{version}] - {today}")
+            Changelog(root, ops=ops).stamp(
+                version, datetime.date.today().isoformat(), dry_run=dry_run
+            )
 
         # 2d. Rewrite self-referential template pins
         template_pins = project.rewrite_template_pins(version, dry_run=dry_run)

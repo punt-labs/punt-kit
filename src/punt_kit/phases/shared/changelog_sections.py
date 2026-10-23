@@ -6,15 +6,20 @@ import re
 from dataclasses import dataclass
 
 # A date after the version stamps the heading; whatever follows it ("  ",
-# " (yanked)") does not matter, so the check is a prefix match.
-_STAMPED_HEADING = re.compile(r"## \[[^\]]*\] - \d{4}-\d{2}-\d{2}(?!\d)")
+# " (yanked)") does not matter, so the check is a prefix match. It runs on
+# the parsed heading text, which is whatever follows the ``##``.
+_STAMPED_HEADING = re.compile(r"\[[^\]]*\] - \d{4}-\d{2}-\d{2}(?!\d)")
 
 # How the fleet marks a breaking change (surveyed across the sibling repos'
-# CHANGELOG.md files): a bold ``**Breaking:**`` / ``**BREAKING —`` lead-in,
-# a bullet that opens with the word, or a ``### Changed (BREAKING)``
-# heading. The bare word elsewhere in prose ("Non-breaking tweak", "fixed a
-# breaking regression") is not a marker.
-_BREAKING_ENTRY = re.compile(r"(?:\*\*|^\s*[-*+]\s+)breaking\b", re.IGNORECASE)
+# CHANGELOG.md files). An entry is breaking when it OPENS with the word,
+# after an optional list marker and optional bold: ``- **Breaking:** x``,
+# ``- BREAKING: x``, ``1. Breaking change: x``. The word later in the entry
+# ("Non-breaking tweak", "fixed a **breaking** regression") is not a marker.
+# Entry markers count only under ``### Changed``; a ``### Changed (BREAKING)``
+# heading is the other marker.
+_BREAKING_ENTRY = re.compile(
+    r"\s*(?:(?:[-*+]|\d+[.)])\s+)?(?:\*\*|__)?breaking\b", re.IGNORECASE
+)
 _BREAKING_HEADING = re.compile(r"\(breaking\)", re.IGNORECASE)
 
 
@@ -34,7 +39,7 @@ class Subsection:
         """True for a ``Changed`` block that marks a breaking change."""
         return self.is_named("changed") and (
             _BREAKING_HEADING.search(self.title) is not None
-            or any(_BREAKING_ENTRY.search(entry) for entry in self.entries)
+            or any(_BREAKING_ENTRY.match(entry) for entry in self.entries)
         )
 
 
@@ -43,7 +48,7 @@ class Section:
     """One ``## [version]`` block of a changelog."""
 
     version: str
-    heading: str
+    heading: str  # the heading text after the ``##``, as parsed
     notes: str
     entries: tuple[str, ...]
     subsections: tuple[Subsection, ...]
@@ -53,9 +58,9 @@ class Section:
     def has_entries(self) -> bool:
         """True when at least one line is a real entry.
 
-        Blank lines, headings, HTML comments, and link definitions are not
-        entries: a section of bare ``### Added`` headings has nothing to
-        release.
+        Blank lines, headings, HTML comments, link definitions, and thematic
+        breaks (``---``) are not entries: a section of bare ``### Added``
+        headings has nothing to release.
         """
         return bool(self.entries)
 

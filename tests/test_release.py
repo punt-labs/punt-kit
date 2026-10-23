@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import inspect
 import json
 import os
@@ -5478,6 +5479,7 @@ def test_phase7_github_release_create_failure_diagnoses(
     """
 
     root = _make_release_project(tmp_path)
+    (root / "CHANGELOG.md").write_text("## [0.2.0] - 2026-03-01\n\n- New feature\n")
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which_gh)
 
@@ -12195,3 +12197,88 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
     assert "Release incomplete" in out
     assert "phase 10 (propagate)" in out
     assert "--resume-from propagate" in out
+
+
+# --- changelog stamping and release notes ---
+
+
+def _commit_changelog(root: Path, raw: bytes) -> None:
+    (root / "CHANGELOG.md").write_bytes(raw)
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "changelog"], cwd=str(root))
+    _git(["fetch", "origin"], cwd=str(root))
+
+
+def _bump(root: Path, version: str = "0.2.0") -> None:
+    Phase2VersionBump(detect(root), version, dry_run=False, ops=_fault_ops()).run()
+
+
+def test_phase2_stamp_keeps_crlf_and_the_bom_on_disk(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    original = "\ufeff# Changelog\r\n\r\n## [Unreleased]\r\n\r\n- New\r\n"
+    _commit_changelog(root, original.encode())
+
+    _bump(root)
+
+    today = datetime.date.today().isoformat()
+    assert (root / "CHANGELOG.md").read_bytes().decode() == (
+        "\ufeff# Changelog\r\n\r\n## [Unreleased]\r\n\r\n"
+        f"## [0.2.0] - {today}\r\n\r\n- New\r\n"
+    )
+
+
+def test_phase2_rerun_does_not_stamp_the_version_twice(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+
+    _bump(root)
+    once = (root / "CHANGELOG.md").read_bytes()
+    _bump(root)
+
+    assert (root / "CHANGELOG.md").read_bytes() == once
+
+
+def test_phase2_fails_when_the_changelog_has_no_unreleased_section(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _commit_changelog(root, b"# Changelog\n\n## [0.1.0] - 2026-01-01\n\n- x\n")
+
+    with pytest.raises(ReleaseError, match=r"No \[Unreleased\] section"):
+        _bump(root)
+
+
+def test_phase7_fails_when_the_version_has_no_changelog_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which_gh)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["gh", "release", "view", "v0.2.0"],
+                response=CompletedProcessSpec(returncode=1),
+            )
+        ]
+    )
+
+    with pytest.raises(ReleaseError, match=r"no \[0\.2\.0\] section"):
+        Phase7GithubRelease(detect(root), "0.2.0", dry_run=False, ops=ops).run()
+
+
+def test_phase7_fails_when_the_version_section_has_no_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "CHANGELOG.md").write_text("## [0.2.0] - 2026-03-01\n\n### Added\n")
+    monkeypatch.setattr(shutil, "which", _fake_which_gh)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["gh", "release", "view", "v0.2.0"],
+                response=CompletedProcessSpec(returncode=1),
+            )
+        ]
+    )
+
+    with pytest.raises(ReleaseError, match=r"section has no entries"):
+        Phase7GithubRelease(detect(root), "0.2.0", dry_run=False, ops=ops).run()

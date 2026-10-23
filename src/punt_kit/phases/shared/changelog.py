@@ -36,7 +36,8 @@ class Changelog:
         changelog = self._root / "CHANGELOG.md"
         if not changelog.exists():
             self._ops.fail("CHANGELOG.md not found")
-        return changelog.read_text(encoding="utf-8")
+        # Bytes, not read_text: universal newlines would turn CRLF into LF.
+        return changelog.read_bytes().decode("utf-8")
 
     def document(self) -> ChangelogDocument:
         """Parse CHANGELOG.md; callers that ask several questions parse once."""
@@ -45,26 +46,58 @@ class Changelog:
     def require_unreleased_entries(self) -> None:
         """Fail unless the changelog has an [Unreleased] section with entries.
 
-        Reads CHANGELOG.md once. Fails with ``No [Unreleased] section in
-        CHANGELOG.md`` when no such heading starts a line outside a code
-        fence, and with ``[Unreleased] section is empty — nothing to
-        release`` when the section has no entry: headings and HTML comments
-        alone do not count.
+        Reads CHANGELOG.md once. Fails when a code fence or HTML block opens
+        and never closes (it would swallow every older release), with ``No
+        [Unreleased] section in CHANGELOG.md`` when no such heading starts a
+        line outside a code fence, and with ``[Unreleased] section is empty
+        — nothing to release`` when the section has no entry: headings and
+        HTML comments alone do not count.
         """
-        unreleased = self.document().section("Unreleased")
+        document = self.document()
+        for line in document.unclosed_block_lines():
+            self._ops.fail(
+                f"CHANGELOG.md line {line} opens a code fence or HTML block "
+                "that never closes"
+            )
+        unreleased = document.section("Unreleased")
         if unreleased is None:
             self._ops.fail("No [Unreleased] section in CHANGELOG.md")
         if not unreleased.has_entries:
             self._ops.fail("[Unreleased] section is empty — nothing to release")
 
     def notes_for(self, version: str) -> str:
-        """Release notes for ``version``, or ``Release v<version>`` when absent."""
-        return self.document().notes_for(version)
+        """Release notes for ``version``; fail when there is nothing to publish."""
+        section = self.document().section(version)
+        if section is None:
+            self._ops.fail(f"CHANGELOG.md has no [{version}] section to publish")
+        if not section.has_entries:
+            self._ops.fail(f"CHANGELOG.md [{version}] section has no entries")
+        return section.notes
+
+    def stamp(self, version: str, today: str, *, dry_run: bool) -> None:
+        """Stamp ``[Unreleased]`` as ``version``, unless it already is.
+
+        A resumed Phase 2 finds the version section already there and leaves
+        the file alone; a changelog with no ``[Unreleased]`` section cannot be
+        stamped and fails. The file's BOM and line endings are kept.
+        """
+        document = self.document()
+        if document.section(version) is not None:
+            self._ops.ok(f"CHANGELOG.md already stamped [{version}]")
+            return
+        if document.section("Unreleased") is None:
+            self._ops.fail("No [Unreleased] section in CHANGELOG.md to stamp")
+        if dry_run:
+            self._ops.dry(f"CHANGELOG.md: [Unreleased] → [{version}] - {today}")
+            return
+        stamped = document.stamped(version, today)
+        (self._root / "CHANGELOG.md").write_bytes(stamped.encode("utf-8"))
+        self._ops.ok(f"CHANGELOG.md: [{version}] - {today}")
 
     def suggest_next_version(self, current: str) -> str:
         """Suggest the next version from the [Unreleased] entries."""
         return self.document().suggest_next_version(current)
 
     def is_stamped(self, version: str) -> bool:
-        """True if ``## [<version>] - YYYY-MM-DD`` appears in the changelog."""
+        """True for a dated ``## [<version>] - YYYY-MM-DD`` heading; text may follow."""
         return self.document().is_stamped(version)
