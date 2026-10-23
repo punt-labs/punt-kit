@@ -1,10 +1,5 @@
 """Tests for release command."""
 
-# release.py's underscore names (the phase wrappers, _run, _interrupted) are the
-# module's deliberate monkeypatch seams: this file drives and patches them, so
-# the private-usage rule cannot apply here.
-# pyright: reportPrivateUsage=false
-
 from __future__ import annotations
 
 import ast
@@ -45,28 +40,34 @@ from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.siblings import SiblingRepo, SkipRecorder
+
+# Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
+# wrappers, `_pr_merge`, `_run`, `_wait_for_required_checks`, `_propagate_*`,
+# `_run_phases_9_10` and `_reset_propagation_siblings` are private on purpose:
+# tests rebind them on the module (`monkeypatch.setattr(release, ...)`) and the
+# phases reach them only by bare name, so a test must call the same objects.
+# `_get_project_version` and `_phase_name` are pure helpers tested directly;
+# `_interrupted` is the module-level Event the signal handler owns.
 from punt_kit.release import (
     PHASE_NAMES,
     ReleaseError,
-    _get_latest_tag_version,
-    _get_project_version,
-    _phase1_preflight,
-    _phase2_version_bump,
-    _phase4_release_pr,
-    _phase6_ci_wait,
-    _phase9_post_release,
-    _phase10_propagate,
-    _phase11_verify,
-    _phase_name,
-    _pr_merge,
-    _propagate_install_all,
-    _propagate_marketplace,
-    _propagate_website,
-    _reset_propagation_siblings,
-    _resolve_sibling,
-    _run,
-    _run_phases_9_10,
-    _wait_for_required_checks,
+    _get_project_version,  # pyright: ignore[reportPrivateUsage]
+    _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
+    _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
+    _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
+    _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
+    _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
+    _phase11_verify,  # pyright: ignore[reportPrivateUsage]
+    _phase_name,  # pyright: ignore[reportPrivateUsage]
+    _pr_merge,  # pyright: ignore[reportPrivateUsage]
+    _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
+    _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
+    _propagate_website,  # pyright: ignore[reportPrivateUsage]
+    _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
+    _run,  # pyright: ignore[reportPrivateUsage]
+    _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
+    _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
 from tests.harness.fault_ops import (
@@ -105,9 +106,9 @@ def isolate_interrupted_event() -> Iterator[None]:
     this same event on every poll iteration and would
     fail immediately with "Interrupted" on a leaked, already-set event.
     """
-    release._interrupted.clear()
+    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
     yield
-    release._interrupted.clear()
+    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 def _fault_ops(
@@ -1783,6 +1784,10 @@ def test_dry_run_no_side_effects(tmp_path: Path) -> None:
 # --- Go project support ---
 
 
+def _project(root: Path) -> ReleaseProject:
+    return ReleaseProject(ProjectInfo(root), ops=_fault_ops())
+
+
 def test_get_latest_tag_version(tmp_path: Path) -> None:
     """Reads latest semver tag from git."""
     root = tmp_path / "go-proj"
@@ -1793,7 +1798,7 @@ def test_get_latest_tag_version(tmp_path: Path) -> None:
     _git(["commit", "--allow-empty", "-m", "bump"], cwd=d)
     _git(["tag", "v0.2.0"], cwd=d)
 
-    assert _get_latest_tag_version(root) == "0.2.0"
+    assert _project(root).latest_tag_version() == "0.2.0"
 
 
 def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
@@ -1802,7 +1807,7 @@ def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
     root.mkdir()
     _init_git_repo(root)
 
-    assert _get_latest_tag_version(root) == "0.0.0"
+    assert _project(root).latest_tag_version() == "0.0.0"
 
 
 # --- _get_project_version ---
@@ -2713,9 +2718,9 @@ def test_resolve_sibling_finds_existing(tmp_path: Path) -> None:
 
     sibling = _make_sibling(tmp_path, "punt-kit", {})
 
-    result = _resolve_sibling(root, "punt-kit")
+    result = SiblingRepo.resolve(root, "punt-kit", ops=_fault_ops())
     assert result is not None
-    assert result == sibling
+    assert result.path == sibling
 
 
 def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
@@ -2724,7 +2729,7 @@ def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
     root.mkdir()
     _init_git_repo(root)
 
-    result = _resolve_sibling(root, "nonexistent")
+    result = SiblingRepo.resolve(root, "nonexistent", ops=_fault_ops())
     assert result is None
 
 
@@ -3690,7 +3695,7 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
     monkeypatch.setattr(release, "_run", _fault_ops(rules=[checkout_main_fails]).run)
 
     with pytest.raises(ReleaseError, match="required checks never passed"):
-        release._sibling_pr_merge(
+        release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
             sibling,
             "test-branch",
             ["file.txt"],
@@ -4856,12 +4861,12 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    release._interrupted.set()
+    release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
     try:
         with pytest.raises(ReleaseError, match="Interrupted while waiting"):
             _wait_for_required_checks("gh", "/tmp", 42)
     finally:
-        release._interrupted.clear()
+        release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
 
 
 # --- _reset_propagation_siblings ---
@@ -6374,7 +6379,7 @@ def test_phase4_release_pr_pins_readme_after_merge(
     monkeypatch.setattr(release, "_resolve_pr_threads", _no_threads)
     monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
 
-    release_sha = release._phase4_release_pr(info, "0.2.0", dry_run=False)
+    release_sha = release._phase4_release_pr(info, "0.2.0", dry_run=False)  # pyright: ignore[reportPrivateUsage]
 
     # The squash-merge sha, not whatever HEAD became after the README-pin
     # PR's own squash-merge landed on top of it.
@@ -11627,7 +11632,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     monkeypatch.setattr(shutil, "which", _fake_which)
 
     def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
-        release._interrupted.set()
+        release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
         raise KeyboardInterrupt()
 
     def _noop_reset(*_args: object, **_kwargs: object) -> None:
@@ -11914,7 +11919,7 @@ def _interrupted_poll_scenario(
         times=None,
         response=FaultRule.from_fixture("gh_graphql_required_checks_pending.json"),
     )
-    pending_forever.interrupt_after(release._interrupted)
+    pending_forever.interrupt_after(release._interrupted)  # pyright: ignore[reportPrivateUsage]
     ops = _fault_ops(
         rules=[
             # The sibling's origin is itself (non-bare), which refuses a push
@@ -12067,7 +12072,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
     projects_json = sibling / "src" / "data" / "projects.json"
     original = projects_json.read_text()
 
-    real_reset = release._reset_propagation_siblings
+    real_reset = release._reset_propagation_siblings  # pyright: ignore[reportPrivateUsage]
     reset_calls: list[tuple[bool, bool]] = []
 
     def spying_reset(info: ProjectInfo, *, fail_on_error: bool = True) -> None:
@@ -12085,7 +12090,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
         match=["git", "status", "--porcelain", "--", "src/data/projects.json"],
         response=CompletedProcessSpec(stdout=" M src/data/projects.json\n"),
     )
-    status_rule.interrupt_after(release._interrupted)
+    status_rule.interrupt_after(release._interrupted)  # pyright: ignore[reportPrivateUsage]
     checkout_rule = FaultRule(
         match=["git", "checkout", "-b"],
         raises=subprocess.TimeoutExpired(cmd=["git", "checkout", "-b"], timeout=600),
