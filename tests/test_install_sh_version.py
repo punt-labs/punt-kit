@@ -27,6 +27,16 @@ _FORMS = [
     pytest.param(
         'readonly VERSION="0.1.0"\n', 'readonly VERSION="0.2.0"\n', id="readonly"
     ),
+    pytest.param('local VERSION="0.1.0"\n', 'local VERSION="0.2.0"\n', id="local"),
+    pytest.param(
+        'declare VERSION="0.1.0"\n', 'declare VERSION="0.2.0"\n', id="declare"
+    ),
+    pytest.param(
+        'readonly -r VERSION="0.1.0"\n',
+        'readonly -r VERSION="0.2.0"\n',
+        id="readonly-flag",
+    ),
+    pytest.param("VERSION='$0.1.0'\n", "VERSION='0.2.0'\n", id="single-quoted-dollar"),
     pytest.param(
         'FOO_VERSION="9.9.9"\nVERSION="0.1.0"\n',
         'FOO_VERSION="9.9.9"\nVERSION="0.2.0"\n',
@@ -48,15 +58,28 @@ def test_phase2_rewrites_every_form_of_the_install_sh_pin(
     assert (root / "install.sh").read_text() == f"#!/bin/sh\n{after}"
 
 
+_DYNAMIC = [
+    pytest.param("VERSION=$(git describe)\n", id="unquoted-command"),
+    pytest.param('VERSION="${VERSION:-0.1.0}"\n', id="default-expansion"),
+    pytest.param('VERSION="$(git describe)"\n', id="quoted-command"),
+    pytest.param('VERSION="`git describe`"\n', id="backtick"),
+    pytest.param('local VERSION="$V"\n', id="local-variable"),
+]
+
+
+@pytest.mark.parametrize("line", _DYNAMIC)
 def test_phase2_fails_when_the_install_sh_version_cannot_be_rewritten(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], line: str
 ) -> None:
     root = make_release_project(tmp_path)
-    (root / "install.sh").write_text("#!/bin/sh\nVERSION=$(git describe)\n")
+    (root / "install.sh").write_text(f"#!/bin/sh\n{line}")
     commit_all(root, "computed install.sh version")
 
-    with pytest.raises(ReleaseError, match=r"install\.sh.*VERSION"):
+    with pytest.raises(ReleaseError, match=r"install\.sh.*VERSION") as caught:
         bump(root)
+
+    assert line.strip() in str(caught.value)
+    assert (root / "install.sh").read_text() == f"#!/bin/sh\n{line}"
 
     assert "✓ install.sh" not in capsys.readouterr().out
 
@@ -92,10 +115,11 @@ def test_phase11_does_not_mistake_a_look_alike_for_the_pin(tmp_path: Path) -> No
     assert _install_sh_checks(tmp_path) == {}
 
 
+@pytest.mark.parametrize("line", _DYNAMIC)
 def test_phase11_reports_an_unreadable_version_as_unverifiable(
-    tmp_path: Path,
+    tmp_path: Path, line: str
 ) -> None:
-    (tmp_path / "install.sh").write_text("#!/bin/sh\nVERSION=$(git describe)\n")
+    (tmp_path / "install.sh").write_text(f"#!/bin/sh\n{line}")
 
     passed, detail = _install_sh_checks(tmp_path)["install.sh"]
 

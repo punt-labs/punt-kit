@@ -104,8 +104,8 @@ class Phase2VersionBump:
         new_content, count = assignment.rewritten(content, self._version)
         if count == 0 and assignment.is_assigned(content):
             self._ops.fail(
-                "install.sh: VERSION is assigned but not as a plain quoted "
-                f'string (VERSION="X.Y.Z"), so it cannot be bumped to '
+                f"install.sh: `{assignment.assigned_line(content)}` is not a plain "
+                f'quoted string (VERSION="X.Y.Z"), so VERSION cannot be bumped to '
                 f"{self._version}; set it by hand"
             )
         if new_content == content:
