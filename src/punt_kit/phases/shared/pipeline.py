@@ -99,7 +99,9 @@ class ThreadedStep:
                 else:
                     msg = f"{name} failed"
                 errors.append((name, RuntimeError(msg)))
-            except BaseException as e:  # noqa: BLE001
+            except BaseException as e:
+                # Thread-pool boundary: whatever a task raised is collected so
+                # its siblings finish, then every error is re-raised together.
                 errors.append((name, e))
         if interrupted.is_set():
             raise KeyboardInterrupt

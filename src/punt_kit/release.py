@@ -6,13 +6,6 @@ import signal
 import subprocess
 import sys
 import threading
-
-# Unused directly in this module (the polling loops live in phases/shared/gh.py
-# and ci_run.py), but several tests monkeypatch "punt_kit.release.time.sleep" —
-# that dotted path resolves through this module's own `time` attribute, so
-# removing the import breaks the patch with an ImportError before the test
-# body even runs.
-import time  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn, cast, final
@@ -549,7 +542,7 @@ def run_release(
 
         if not dry_run:
 
-            def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
+            def _cleanup_handler(signum: int, _frame: object) -> None:
                 _info("\nInterrupted — finishing active operations before cleanup...")
                 _interrupted.set()
                 raise KeyboardInterrupt()

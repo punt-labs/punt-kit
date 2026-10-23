@@ -42,7 +42,7 @@ def main_callback(
     ] = False,
 ) -> None:
     """punt: standards, scaffolding, and compliance tooling for Punt Labs projects."""
-    global _json_output, _verbose, _quiet  # noqa: PLW0603
+    global _json_output, _verbose, _quiet
     _json_output = output_json
     _verbose = verbose
     _quiet = quiet

@@ -63,10 +63,10 @@ _BUILTIN_ALLOW_PATHS: tuple[str, ...] = (
 class PiiConfig:
     """User-configurable PII scanning settings."""
 
-    allow_emails: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    allow_patterns: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    deny: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    ignore_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    allow_emails: list[str] = field(default_factory=list[str])
+    allow_patterns: list[str] = field(default_factory=list[str])
+    deny: list[str] = field(default_factory=list[str])
+    ignore_files: list[str] = field(default_factory=list[str])
 
 
 @dataclass(frozen=True)
@@ -136,14 +136,13 @@ def _str_list(val: object) -> list[str]:
 
 def _drill(data: dict[str, object], *keys: str) -> dict[str, object] | None:
     """Walk nested dicts by key sequence, returning None if any key is missing."""
-    current: object = data
+    current = data
     for key in keys:
-        if not isinstance(current, dict):
+        child = current.get(key)
+        if not isinstance(child, dict):
             return None
-        current = current.get(key)  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-    if isinstance(current, dict):
-        return cast("dict[str, object]", current)
-    return None
+        current = cast("dict[str, object]", child)
+    return current
 
 
 # ---------------------------------------------------------------------------

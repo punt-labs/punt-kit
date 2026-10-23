@@ -6,10 +6,8 @@ import json
 import re
 import tomllib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from pathlib import Path
+from typing import cast
 
 # Where a plugin manifest can sit, most specific first.
 #
@@ -54,13 +52,13 @@ class ProjectInfo:
     is_plugin: bool = False
     pyproject: dict[str, object] | None = None
     package_json: dict[str, object] | None = None
-    workflow_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    standards_refs: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    cli_commands: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    plugin_mcp_servers: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    workflow_files: list[str] = field(default_factory=list[str])
+    standards_refs: list[str] = field(default_factory=list[str])
+    cli_commands: list[str] = field(default_factory=list[str])
+    plugin_mcp_servers: list[str] = field(default_factory=list[str])
     # Every manifest found, in precedence order. Empty for a non-plugin
     # project — absence is the contract there, not a failed lookup.
-    plugin_manifests: list[Path] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    plugin_manifests: list[Path] = field(default_factory=list[Path])
 
     @property
     def is_hybrid(self) -> bool:

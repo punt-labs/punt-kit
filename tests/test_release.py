@@ -4397,7 +4397,7 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     call_count = 0
 
@@ -4435,7 +4435,7 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         raise subprocess.TimeoutExpired(cmd, 60)
@@ -4575,8 +4575,8 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.time", _make_fake_clock())
     with pytest.raises(ReleaseError, match="No CI checks registered"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4773,8 +4773,8 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.time", _make_fake_clock())
 
     with pytest.raises(ReleaseError, match="No CI checks registered") as exc_info:
         _wait_for_required_checks("gh", "/tmp", 42)
@@ -4821,8 +4821,8 @@ def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.time", _make_fake_clock())
 
     with pytest.raises(ReleaseError) as exc_info:
         _wait_for_required_checks("gh", "/tmp", 42)
@@ -4875,10 +4875,10 @@ def test_wait_for_required_checks_late_arriving_checks_still_proceed(
 
     monkeypatch.setattr(release, "_run", fake_run)
     monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
     # A small step keeps every poll well inside NO_CHECKS_GRACE (300s) even
     # across several no-checks iterations, unlike the expiry test's clock.
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock(step=5.0))
+    monkeypatch.setattr("time.time", _make_fake_clock(step=5.0))
 
     # Should not raise — checks arrive on the third poll, inside the window.
     _wait_for_required_checks("gh", "/tmp", 42)
@@ -11891,7 +11891,7 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     calls = 0
 
@@ -11945,7 +11945,7 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     calls = 0
 
@@ -12042,7 +12042,7 @@ def _interrupted_poll_scenario(
     def _near_zero_sleep(_seconds: float) -> None:
         real_sleep(0.001)
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _near_zero_sleep)
+    monkeypatch.setattr("time.sleep", _near_zero_sleep)
     monkeypatch.setattr("punt_kit.phases.shared.gh.CI_WATCH", 30)
 
     warmup = FaultRule(
