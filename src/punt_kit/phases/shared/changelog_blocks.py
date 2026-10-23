@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 # never closes swallows every later line. Kinds 6 and 7 end at a blank line
 # and cannot run away. Each entry: (start of the block, its closing marker).
 _HTML_OPENERS = (
-    (re.compile(r" {0,3}<!--"), re.compile(r"-->")),
+    (re.compile(r" {0,3}<!--"), re.compile(r"--!?>")),
     (re.compile(r" {0,3}<\?"), re.compile(r"\?>")),
     (re.compile(r" {0,3}<!\[CDATA\["), re.compile(r"\]\]>")),
     (re.compile(r" {0,3}<![A-Za-z]"), re.compile(r">")),

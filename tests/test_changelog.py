@@ -403,6 +403,7 @@ def _has_entries(body: str) -> bool:
     "body",
     [
         pytest.param("<!-- c --> real", id="block-then-text"),
+        pytest.param("<!-- c --!> real", id="bang-close-then-text"),
         pytest.param("<!--\nc\n--> real text", id="multi-line-then-text"),
         pytest.param("- <!-- c --> real", id="bullet-comment-then-text"),
         pytest.param("- <!-- TODO --> Fixed the crash", id="bullet-todo-then-text"),

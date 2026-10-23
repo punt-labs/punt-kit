@@ -26,8 +26,9 @@ _DESCENDED = _LIST_OPENERS | {"list_item_open"}
 _CODE_BLOCKS = frozenset({"fence", "code_block"})
 
 # An HTML comment span; an unclosed one runs to the end of its block, as
-# CommonMark ends an HTML block only at the line holding ``-->``.
-_COMMENT = re.compile(r"<!--.*?(?:-->|\Z)", re.DOTALL)
+# CommonMark ends an HTML block only at the line holding ``-->``; browsers
+# also end a comment at ``--!>``, so text after either one renders.
+_COMMENT = re.compile(r"<!--.*?(?:--!?>|\Z)", re.DOTALL)
 
 
 class _Kind(Enum):
