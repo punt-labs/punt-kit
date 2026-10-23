@@ -19,6 +19,9 @@ if TYPE_CHECKING:
 # The status line `gh api --include` prints first: ``HTTP/2.0 204 No Content``.
 _HTTP_STATUS = re.compile(r"HTTP/\S+\s+(\d{3})")
 
+# gh reports a failed request on stderr as ``gh: Not Found (HTTP 404)``.
+_HTTP_NOT_FOUND = re.compile(r"\(HTTP 404\)")
+
 _RULESET = "Branch protection ruleset exists"
 
 
@@ -91,8 +94,8 @@ class GithubSettingsAudit:
         listing = self._gh_json(
             gh,
             f"repos/{repo}/rulesets",
-            refused=(FAIL, _RULESET, "No rulesets or no access"),
-            unreadable=(INFO, "Branch protection (could not check)", ""),
+            not_found=(FAIL, _RULESET, "No rulesets or no access"),
+            unreadable_label="Branch protection (could not check)",
         )
         if isinstance(listing, tuple):
             return [listing]
@@ -101,12 +104,11 @@ class GithubSettingsAudit:
         ruleset_id = self._ruleset_id(cast("list[object]", listing))
         if ruleset_id is None:
             return [(FAIL, _RULESET, "No ruleset found")]
-        could_not_read = (INFO, "Branch protection (could not read ruleset)", "")
         detail = self._gh_json(
             gh,
             f"repos/{repo}/rulesets/{ruleset_id}",
-            refused=could_not_read,
-            unreadable=could_not_read,
+            not_found=(INFO, "Branch protection (could not read ruleset)", ""),
+            unreadable_label="Branch protection (could not read ruleset)",
         )
         if isinstance(detail, tuple):
             return [detail]
@@ -119,23 +121,29 @@ class GithubSettingsAudit:
 
     @staticmethod
     def _gh_json(
-        gh: str, endpoint: str, *, refused: Finding, unreadable: Finding
+        gh: str, endpoint: str, *, not_found: Finding, unreadable_label: str
     ) -> object | Finding:
         """The parsed JSON of ``gh api <endpoint>``, or the finding saying why not.
 
-        ``refused`` answers a non-zero exit; ``unreadable`` a timeout, a
-        missing ``gh`` or a body that is not JSON. A tuple return is the
-        finding (JSON has no tuples); any other return is the response.
+        ``not_found`` answers a definite HTTP 404. Any other way the answer
+        could not be had (another status, a timeout, a missing ``gh``, a body
+        that is not JSON) is an INFO finding labelled ``unreadable_label``
+        that carries the reason: it says the check was not made, not that the
+        repository is misconfigured. A tuple return is the finding (JSON has no
+        tuples); any other return is the response.
         """
         try:
             result = subprocess.run(
                 [gh, "api", endpoint], capture_output=True, text=True, timeout=10
             )
-            if result.returncode != 0:
-                return refused
-            return cast("object", json.loads(result.stdout))
-        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-            return unreadable
+            if result.returncode == 0:
+                return cast("object", json.loads(result.stdout))
+        except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError) as exc:
+            return (INFO, unreadable_label, f"could not check: {exc}")
+        if _HTTP_NOT_FOUND.search(result.stderr):
+            return not_found
+        reason = result.stderr.strip() or f"gh exited {result.returncode}"
+        return (INFO, unreadable_label, f"could not check: {reason}")
 
     @staticmethod
     def _ruleset_id(rulesets: list[object]) -> int | None:

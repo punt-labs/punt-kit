@@ -149,3 +149,73 @@ def test_a_timeout_is_reported_as_one(monkeypatch: pytest.MonkeyPatch) -> None:
     ((status, label, detail),) = out
     assert (status, label) == (INFO, "Dependabot vulnerability alerts")
     assert detail.startswith("could not check:") and "timed out" in detail
+
+
+def _rulesets(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    returncode: int,
+    stdout: str = "",
+    stderr: str = "",
+    raises: BaseException | None = None,
+) -> list[tuple[str, str, str]]:
+    """What ``rulesets`` reports when ``gh api .../rulesets`` answers this way."""
+
+    def fake_run(
+        cmd: list[str], *, capture_output: bool, text: bool, timeout: int
+    ) -> subprocess.CompletedProcess[str]:
+        if raises is not None:
+            raise raises
+        return subprocess.CompletedProcess(cmd, returncode, stdout, stderr)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return GithubSettingsAudit(Path("/unused")).rulesets("/usr/bin/gh", "o/r")
+
+
+def test_a_rulesets_listing_that_is_not_found_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _rulesets(
+        monkeypatch, returncode=1, stdout="{}", stderr="gh: Not Found (HTTP 404)"
+    )
+
+    assert out == [
+        (FAIL, "Branch protection ruleset exists", "No rulesets or no access")
+    ]
+
+
+def test_a_rulesets_listing_with_no_rulesets_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _rulesets(monkeypatch, returncode=0, stdout="[]")
+
+    assert out == [(FAIL, "Branch protection ruleset exists", "No rulesets configured")]
+
+
+@pytest.mark.parametrize(
+    "stderr",
+    [
+        "gh: Resource not accessible by integration (HTTP 403)",
+        "gh: Bad credentials (HTTP 401)",
+        "gh: Server Error (HTTP 502)",
+        "error connecting to api.github.com",
+    ],
+)
+def test_a_rulesets_listing_gh_refused_is_a_check_that_could_not_be_made(
+    monkeypatch: pytest.MonkeyPatch, stderr: str
+) -> None:
+    out = _rulesets(monkeypatch, returncode=1, stderr=stderr)
+
+    assert out == [
+        (INFO, "Branch protection (could not check)", f"could not check: {stderr}")
+    ]
+
+
+def test_a_rulesets_timeout_names_the_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    out = _rulesets(
+        monkeypatch, returncode=0, raises=subprocess.TimeoutExpired(["gh"], 10)
+    )
+
+    ((status, label, detail),) = out
+    assert (status, label) == (INFO, "Branch protection (could not check)")
+    assert detail.startswith("could not check:") and "timed out" in detail
