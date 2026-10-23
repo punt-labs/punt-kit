@@ -1,14 +1,14 @@
 """A scriptable ``ReleaseOps`` double for release-engine failure-path tests.
 
 Wraps a real ``_run`` (so real git calls still hit a real git binary — see
-``docs/design-release-failure-harness.md`` §1b) plus a routing table of
+``docs/design-release-failure-harness.md``) plus a routing table of
 ``FaultRule``\\ s that say "the Nth command matching this argv prefix returns
 this scripted response / raises this exception, then let the rest through."
 
 ``gh`` is deny-by-default: an unmatched, non-``git`` command that isn't on the
 ``passthrough`` allowlist is a hard ``AssertionError``, not a silent fall
 through to the network — a test that forgot a later phase also calls ``gh``
-must not have that call quietly reach production GitHub (§2a).
+must not have that call quietly reach production GitHub.
 """
 
 from __future__ import annotations
@@ -27,9 +27,8 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Final, NoReturn, Self
 
-# tests/harness/fault_ops.py -> tests/ -> tests/fixtures/gh — Wave 1's
-# recorded-fixture library (§2b). Wave 0 depends only on this loader
-# mechanism, not on that library existing yet; its own unit test points
+# tests/harness/fault_ops.py -> tests/ -> tests/fixtures/gh — the
+# recorded-fixture library. The harness's own unit test points
 # ``from_fixture`` at a fixture file it creates inline instead.
 _DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "gh"
 
@@ -53,7 +52,7 @@ class RunFn(Protocol):
 
 
 class _FixtureEnvelope(TypedDict):
-    """The subset of a recorded ``gh`` fixture envelope (§2b) that a scripted
+    """The subset of a recorded ``gh`` fixture envelope that a scripted
     response needs — ``cmd`` and ``_meta`` are recording-time metadata, not
     part of what a ``FaultRule`` hands back to the release engine.
     """
@@ -195,7 +194,7 @@ class FaultRule:
         Anchored to a rule match rather than a raw call count — each phase
         issues a variable number of calls depending on preflight/retry
         state, and Phase 9/10 run concurrently, so no global call number
-        reliably means "this rule just matched" (§2c).
+        reliably means "this rule just matched".
         """
         self._interrupt_event = event
 
@@ -220,7 +219,7 @@ class FaultRule:
             return None
         self._consumed += 1
         if self.raises is not None:
-            # A raising match never "returns" — §2c fires the interrupt as a
+            # A raising match never "returns" — the interrupt fires as a
             # side effect of the matched call *returning*, so an anchored
             # rule that raises must not signal completion at all.
             raise self.raises
@@ -236,7 +235,7 @@ class FaultRule:
     def from_fixture(
         cls, name: str, *, fixtures_dir: Path = _DEFAULT_FIXTURES_DIR
     ) -> CompletedProcessSpec:
-        """Load a recorded ``gh`` fixture envelope (§2b) as a scripted
+        """Load a recorded ``gh`` fixture envelope as a scripted
         response — assign the result to ``response=`` instead of writing an
         inline dict literal.
 
@@ -260,11 +259,11 @@ class FaultInjectingOps:
     scripted faults.
 
     Unmatched ``git`` commands still delegate to the real ``_run`` (git
-    plumbing is cheap ground truth — §1b). An unmatched non-``git`` command
+    plumbing is cheap ground truth). An unmatched non-``git`` command
     not covered by ``passthrough`` is a hard ``AssertionError``: ``gh`` is
     the one command class that reaches the live network and a real GitHub
     org, so a forgotten rule must not let a later call reach production
-    unnoticed (§2a's deny-by-default posture).
+    unnoticed (deny-by-default).
     """
 
     __slots__ = ("_real_run", "_rules", "_passthrough", "_lock")
@@ -286,7 +285,7 @@ class FaultInjectingOps:
         self._rules = list(rules)
         self._passthrough = [list(prefix) for prefix in passthrough]
         for prefix in self._passthrough:
-            # Same class of bug as an empty FaultRule.match (§2a): a
+            # Same class of bug as an empty FaultRule.match: a
             # dead-on-arrival prefix that can never admit anything would
             # silently make a test's "this call is allowed through" claim
             # false, surfacing only as an unrelated deny-by-default failure.

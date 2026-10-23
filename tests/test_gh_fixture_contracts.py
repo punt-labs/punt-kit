@@ -1,6 +1,6 @@
 """Contract tests: the recorded ``gh`` fixture library vs. the real parsers.
 
-Per docs/design-release-failure-harness.md §2b step 2, every test here drives
+Every test here drives
 the *actual production collaborator* (``GithubRepo``, ``RequiredChecksWaiter``,
 ``TagRunSelector``, ``PrMerger``, ``PrThreadResolver``, ``CiRunWatch``) against
 a fixture's raw ``stdout`` via ``FaultInjectingOps`` and asserts on what that
@@ -8,7 +8,7 @@ real code extracts — never a hand-maintained mirror of ``gh``'s shapes. A
 parsing change with no matching fixture update, or a fixture that no longer
 matches what the parser expects, fails here; a live ``gh`` CLI shape change
 that this static, committed library has not yet observed is caught by
-``tools/record_gh_fixtures.py --check`` instead (§2b step 4), never by this
+``tools/record_gh_fixtures.py --check`` instead, never by this
 file — this file is offline and runs on every CI invocation.
 """
 
@@ -39,6 +39,12 @@ if TYPE_CHECKING:
 _OWNER = "acme-org"
 _REPO = "sample-repo"
 
+# Full argv prefixes, endpoint included, so a rule answers exactly the call it
+# was recorded for and nothing else that starts with ``gh api``.
+_PROTECTION_ARGV = ["gh", "api", f"repos/{_OWNER}/{_REPO}/branches/main/protection"]
+_RULESET_ARGV = ["gh", "api", f"repos/{_OWNER}/{_REPO}/rules/branches/main"]
+_GRAPHQL_ARGV = ["gh", "api", "graphql"]
+
 
 def _real_run_stub() -> RunFn:
     """No test in this file expects a real git/gh call to escape the
@@ -68,7 +74,7 @@ def _rule(prefix: list[str], fixture: str) -> FaultRule:
 
 
 def _noop_sleep(_seconds: float) -> None:
-    """Patched in for ``time.sleep`` — per §1d, every release-engine module
+    """Patched in for ``time.sleep`` — every release-engine module
     shares one ``import time``, so patching the bare module attribute
     reaches ``gh.py``'s poll loop with no dotted per-module path needed.
     """
@@ -102,14 +108,16 @@ def _no_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
 
 
 def test_has_branch_protection_false_on_the_documented_marker(tmp_path: Path) -> None:
-    ops = _ops_with(_rule(["gh", "api"], "gh_api_branch_protection_not_protected.json"))
+    ops = _ops_with(
+        _rule(_PROTECTION_ARGV, "gh_api_branch_protection_not_protected.json")
+    )
     repo = GithubRepo(tmp_path, ops=ops)
 
     assert repo.has_branch_protection("gh", _OWNER, _REPO) is False
 
 
 def test_has_branch_protection_true_when_configured(tmp_path: Path) -> None:
-    ops = _ops_with(_rule(["gh", "api"], "gh_api_branch_protection_protected.json"))
+    ops = _ops_with(_rule(_PROTECTION_ARGV, "gh_api_branch_protection_protected.json"))
     repo = GithubRepo(tmp_path, ops=ops)
 
     assert repo.has_branch_protection("gh", _OWNER, _REPO) is True
@@ -120,21 +128,23 @@ def test_has_branch_protection_fails_safe_on_an_ambiguous_404(tmp_path: Path) ->
     under-scoped token on a repo that IS protected) must not be read as
     unprotected — see GithubRepo.has_branch_protection's own docstring.
     """
-    ops = _ops_with(_rule(["gh", "api"], "gh_api_branch_protection_ambiguous_404.json"))
+    ops = _ops_with(
+        _rule(_PROTECTION_ARGV, "gh_api_branch_protection_ambiguous_404.json")
+    )
     repo = GithubRepo(tmp_path, ops=ops)
 
     assert repo.has_branch_protection("gh", _OWNER, _REPO) is True
 
 
 def test_has_ruleset_true_on_a_governed_repo(tmp_path: Path) -> None:
-    ops = _ops_with(_rule(["gh", "api"], "gh_api_rules_branches_governed.json"))
+    ops = _ops_with(_rule(_RULESET_ARGV, "gh_api_rules_branches_governed.json"))
     repo = GithubRepo(tmp_path, ops=ops)
 
     assert repo.has_ruleset("gh", _OWNER, _REPO) is True
 
 
 def test_has_ruleset_false_on_an_ungoverned_repo(tmp_path: Path) -> None:
-    ops = _ops_with(_rule(["gh", "api"], "gh_api_rules_branches_ungoverned.json"))
+    ops = _ops_with(_rule(_RULESET_ARGV, "gh_api_rules_branches_ungoverned.json"))
     repo = GithubRepo(tmp_path, ops=ops)
 
     assert repo.has_ruleset("gh", _OWNER, _REPO) is False
@@ -147,15 +157,13 @@ def test_has_ruleset_false_on_an_ungoverned_repo(tmp_path: Path) -> None:
 
 def _governed_rules(*graphql_rules: FaultRule) -> list[FaultRule]:
     """``RequiredChecksWaiter.wait`` always issues exactly these two ``gh
-    api`` calls, in this order, before ever touching GraphQL — so a shared
-    two-element ``["gh", "api"]`` prefix resolves correctly by *list order*
-    (each rule's default ``times=1`` claims exactly one call, in sequence)
-    even though the endpoint path is a single combined argv token these
-    prefixes could not otherwise distinguish.
+    api`` calls before ever touching GraphQL: the branch-protection read,
+    then the ruleset read. Each rule names its own endpoint, so the order
+    they appear in here does not matter.
     """
     return [
-        _rule(["gh", "api"], "gh_api_branch_protection_not_protected.json"),
-        _rule(["gh", "api"], "gh_api_rules_branches_governed.json"),
+        _rule(_PROTECTION_ARGV, "gh_api_branch_protection_not_protected.json"),
+        _rule(_RULESET_ARGV, "gh_api_rules_branches_governed.json"),
         *graphql_rules,
     ]
 
@@ -193,7 +201,9 @@ def test_wait_raises_naming_the_failed_required_check(tmp_path: Path) -> None:
     )
     waiter = RequiredChecksWaiter(GithubRepo(tmp_path, ops=ops), ops=ops)
 
-    with pytest.raises(ReleaseError, match="test"):
+    with pytest.raises(
+        ReleaseError, match=r"^Required CI checks failed on PR #42: test$"
+    ):
         waiter.wait(
             "gh",
             str(tmp_path),
@@ -290,9 +300,9 @@ def test_wait_treats_ungoverned_repo_as_waiting_on_every_check(
     ]
     assert non_required_names, "the fixture carries no non-required check to assert"
     ops = _ops_with(
-        _rule(["gh", "api"], "gh_api_branch_protection_not_protected.json"),
-        _rule(["gh", "api"], "gh_api_rules_branches_ungoverned.json"),
-        _rule(["gh", "api"], "gh_graphql_required_checks_mixed_conclusions.json"),
+        _rule(_PROTECTION_ARGV, "gh_api_branch_protection_not_protected.json"),
+        _rule(_RULESET_ARGV, "gh_api_rules_branches_ungoverned.json"),
+        _rule(_GRAPHQL_ARGV, "gh_graphql_required_checks_mixed_conclusions.json"),
     )
     waiter = RequiredChecksWaiter(GithubRepo(tmp_path, ops=ops), ops=ops)
 
@@ -466,16 +476,30 @@ def test_merge_short_circuits_on_a_merged_pr_at_its_own_head(
 
 
 @pytest.mark.parametrize(
-    ("fixture", "local_head"),
+    ("fixture", "state", "local_head"),
     [
-        pytest.param("gh_pr_list_merged.json", "0" * 40, id="merged-at-stale-head"),
-        pytest.param("gh_pr_list_closed.json", "irrelevant", id="closed"),
-        pytest.param("gh_pr_list_empty.json", "irrelevant", id="empty"),
+        pytest.param(
+            "gh_pr_list_merged.json", "MERGED", "0" * 40, id="merged-at-stale-head"
+        ),
+        pytest.param("gh_pr_list_closed.json", "CLOSED", "irrelevant", id="closed"),
+        pytest.param("gh_pr_list_empty.json", None, "irrelevant", id="empty"),
     ],
 )
 def test_merge_creates_a_fresh_pr_when_none_is_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fixture: str, local_head: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    fixture: str,
+    state: str | None,
+    local_head: str,
 ) -> None:
+    # The fixture must actually be in the state its id claims, or this test
+    # would pass for the wrong reason.
+    if state is None:
+        assert json.loads(load_gh_fixture(fixture)["stdout"]) == []
+    else:
+        entry = _pr_list_entry(fixture)
+        assert entry["state"] == state
+        assert entry["headRefOid"] != local_head
     ops = _selection_ops(
         fixture,
         local_head,
@@ -581,7 +605,7 @@ def test_pr_thread_resolver_resolves_the_recorded_unresolved_thread(
     # The listing fixture (recorded live) has exactly one unresolved thread,
     # so the resolver issues exactly one follow-up resolution mutation —
     # scripted here as a plain success, since a mutation's outcome is never
-    # something the read-only recorder can capture (§2b).
+    # something the read-only recorder can capture.
     # No ``skip`` needed: ``listing`` claims the first matching call itself
     # (its own ``times=1`` default), so this rule — later in the list —
     # only ever sees calls ``listing`` has already exhausted, i.e. the
@@ -601,8 +625,8 @@ def test_pr_thread_resolver_resolves_the_recorded_unresolved_thread(
 # ---------------------------------------------------------------------------
 # PrMerger.merge — the full push-through-squash-merge path, including the
 # is_transient retry classification the two gh_pr_merge_*.json fixtures
-# exist specifically to validate (§2b step 1: mutation-outcome shapes are
-# "not exempt from validation just because [they weren't] captured live").
+# exist specifically to validate (mutation-outcome shapes are not exempt from
+# validation just because they weren't captured live).
 # ---------------------------------------------------------------------------
 
 
@@ -746,7 +770,7 @@ def test_from_fixture_reads_the_real_fixture_library_by_default() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The CI-safe version-stamp gate (§2b step 4's offline half)
+# The CI-safe version-stamp gate (the offline half of the live --check)
 # ---------------------------------------------------------------------------
 
 
@@ -772,7 +796,7 @@ def test_every_fixture_carries_a_version_stamp(name: str) -> None:
 @pytest.mark.parametrize("name", _all_fixture_names())
 def test_recorded_fixtures_carry_a_replayable_command(name: str) -> None:
     """A fixture not marked hand-authored must carry the exact command
-    ``--check`` (§2b step 4) needs to replay it live — otherwise a live
+    ``--check`` needs to replay it live — otherwise a live
     upgrade could silently drift with nothing able to notice.
     """
     meta = load_gh_fixture(name)["_meta"]

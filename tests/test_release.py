@@ -332,8 +332,8 @@ def test_preflight_daemon_only_dirt_with_untracked_reports_both(
 
     ``ops.fail`` raises immediately — a daemon-only-dirty message that
     omitted the untracked file would send the operator through a stash
-    only to hit a second, previously invisible failure on the very next
-    run. Both problems must be visible from the first failure.
+    only to hit a second, invisible failure on the very next run. Both
+    problems must be visible from the first failure.
     """
     root = _make_release_project(tmp_path)
     vox_dir = root / ".punt-labs" / "vox"
@@ -683,8 +683,8 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
 ) -> None:
     """A non-zero `git fetch origin` (network failure) must abort with a diagnosis.
 
-    ``fetch.returncode != 0`` is already handled in code (phase01_preflight.py)
-    but nothing forced that branch before this test (matrix row 3).
+    ``fetch.returncode != 0`` is handled in phase01_preflight.py; this test
+    forces that branch.
     """
 
     root = _make_release_project(tmp_path)
@@ -717,9 +717,9 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
 ) -> None:
     """A hung `make check` (a wedge, not a failure) must diagnose, not traceback.
 
-    Phase 1's quality gate already opts into the QUALITY_GATE budget
-    (matrix row 5 covers a non-zero exit); nothing forced the TimeoutExpired
-    path at this specific call site before this test (matrix row 6).
+    Phase 1's quality gate opts into the QUALITY_GATE budget; a non-zero
+    exit is covered elsewhere, and this test forces the TimeoutExpired path
+    at this specific call site.
     """
 
     root = _make_release_project(tmp_path)
@@ -761,9 +761,8 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
 ) -> None:
     """A non-zero `go test -race` aborts the phase, parallel to the Python case.
 
-    Row 5's Python `make check` failure test has no Go-language sibling —
-    the Go branch (phase01_preflight.py) is unexercised on the failure path
-    (matrix row 55).
+    The Python `make check` failure test has no Go-language sibling, so
+    the Go branch (phase01_preflight.py) needs its own failure-path test.
     """
 
     root = tmp_path / "go-proj"
@@ -938,7 +937,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
 ) -> None:
     """A failing `uv lock` (network resolver op) must diagnose, not leak a
     raw CalledProcessError — the same risk class as `uv build` (Phase 3,
-    already diagnosed), missed by round 1's sweep."""
+    already diagnosed)."""
 
     root = _make_release_project(tmp_path)
     (root / "uv.lock").write_text("# lock\n")
@@ -977,11 +976,10 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     stdout/stderr directly, which the fake-`_run` version of this test
     above cannot prove (it never invokes a real subprocess at all).
 
-    Cursor and Copilot both flagged the same gap on PR #359: the `uv lock`
-    call defaulted to `capture=True` while its fail message said "see
-    output above," pointing at output that was silently captured and
-    never shown anywhere — fixed by adding `capture=False`, matching
-    `uv build` (Phase 3) and the Phase 1 quality gates. This test drives
+    The `uv lock` call must use `capture=False`: its fail message says "see
+    output above," which would point at output that was silently captured
+    and never shown anywhere. This matches `uv build` (Phase 3) and the
+    Phase 1 quality gates. This test drives
     a real subprocess (a fake `uv` script on `PATH` that fails `uv lock`
     specifically) so `capfd` — which captures at the OS file-descriptor
     level, unlike `capsys` — can observe what the terminal actually
@@ -1214,20 +1212,19 @@ def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
     assert changed == []
 
 
-def test_phase9_post_release_no_longer_bumps_readme(
+def test_phase9_post_release_does_not_bump_readme(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Phase 9 no longer touches README — that job moved to phase 4.
+    """Phase 9 leaves README alone — Phase 4 owns the README pin.
 
-    Regression guard: phase 4 now guarantees the README is already current
-    by the time phase 9 runs, so phase 9's job shrinks to dev-restore only.
+    Regression guard: phase 4 guarantees the README is already current by
+    the time phase 9 runs, so phase 9's job is the dev restore only.
     """
 
     root = _make_release_project(tmp_path)
     d = str(root)
 
-    # A stale SHA that ReadmeShaPin.bump would have rewritten under
-    # the old phase-9 behavior this fix removes.
+    # A stale SHA that ReadmeShaPin.bump would rewrite if Phase 9 called it.
     stale_readme = (
         "# proj\n\n```bash\n"
         "curl -fsSL https://raw.githubusercontent.com/"
@@ -1262,11 +1259,7 @@ def test_phase9_post_release_no_longer_bumps_readme(
 
 
 def test_land_readme_sha_pin_commit_excludes_untracked(tmp_path: Path) -> None:
-    """The README-SHA-pin commit stages only README.md, not stray files.
-
-    Ports the untracked-file-exclusion invariant that used to guard phase 9's
-    README commit to its new home.
-    """
+    """The README-SHA-pin commit stages only README.md, not stray files."""
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -1970,8 +1963,8 @@ def test_run_release_resume_plugin_only_no_version_flag(
 ) -> None:
     """Resuming a plugin-only release without --version must not hard-fail.
 
-    Regresses the bug this bead reports verbatim: "Error: No pyproject.toml
-    found" when resuming a marketplace-only plugin release past phase 1.
+    The failure mode is "Error: No pyproject.toml found" when resuming a
+    marketplace-only plugin release past phase 1.
     """
 
     root = _make_language_none_plugin_project(tmp_path)
@@ -2050,8 +2043,8 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
     diagnose, not leak a raw CalledProcessError.
 
     `GitWorkspace.ensure_on_main` is called unconditionally from Phase 2,
-    5, and 9's `run()` — a hook-firing checkout that defaulted to
-    check=True was missed by round 1's sweep.
+    5, and 9's `run()` — a hook-firing checkout must not default to
+    check=True.
     """
 
     root = tmp_path / "proj"
@@ -2078,7 +2071,7 @@ def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> 
     """A failing `git pull --ff-only origin main` must diagnose — a network
     call, structurally identical in risk to `git fetch origin` (Phase 1,
     already diagnosed) and `GitWorkspace.push` (Phase 5, already
-    diagnosed), but missed for `ensure_on_main` by round 1's sweep."""
+    diagnosed), so `ensure_on_main` diagnoses it too."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2156,8 +2149,7 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
     """A rejected `git commit` (pre-commit hook) must diagnose — the same
     hook-firing-mutation class as the Phase 4 swap commit and Phase 9
     restore commit, but this one backs *every* phase's own commit,
-    including Phase 2's release-version-bump commit, and was missed by
-    round 1's sweep."""
+    including Phase 2's release-version-bump commit."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2188,13 +2180,11 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     tmp_path: Path,
 ) -> None:
     """A non-zero `uv build` must diagnose as a ReleaseError, not leak a raw
-     CalledProcessError.
+    CalledProcessError.
 
-     Phase 3 had no isolated failure-path test at all before this (matrix row
-     12, design doc defect #5) — `uv build` also defaulted to check=True
-    , so a failure here previously escaped run_release's own
-     exception handling and surfaced as a bare traceback, not just a
-     lower-quality diagnosis.
+    `uv build` must not default to check=True: a raw failure would escape
+    run_release's own exception handling and surface as a bare traceback,
+    not just a lower-quality diagnosis.
     """
 
     root = _make_release_project(tmp_path)
@@ -2255,13 +2245,12 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
 
     Isolated from the resume scenario below (which forces the same failure
     mode but goes on to test retry-on-resume): this test covers the failure
-    moment itself (matrix row 20) — the tag lands locally at HEAD, the
-    remote gets nothing, and the phase raises a diagnosed ReleaseError
-    rather than a raw CalledProcessError. `GitWorkspace.push` defaulted to
-    check=True; a non-threaded phase like this one had no
-    handler that would catch a raw CalledProcessError, so it would have
-    escaped run_release's diagnosis path entirely and surfaced as a bare
-    traceback.
+    moment itself — the tag lands locally at HEAD, the remote gets
+    nothing, and the phase raises a diagnosed ReleaseError rather than a raw
+    CalledProcessError. `GitWorkspace.push` must not default to check=True:
+    a non-threaded phase like this one has no handler that would catch a raw
+    CalledProcessError, so it would escape run_release's diagnosis path
+    entirely and surface as a bare traceback.
     """
 
     root = tmp_path / "proj"
@@ -2369,7 +2358,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
 ) -> None:
     """A remote tag's mere presence is not proof it is the right commit.
 
-    Regression test for the SHA-mismatch gap flagged in round-2 review: an
+    Guards the SHA-mismatch gap: an
     operator recovering from a botched release by recreating the local tag
     at a corrected commit, while an older, wrong-commit tag of the same
     name still sits on the remote, must get a loud diagnosed failure — not
@@ -2420,10 +2409,9 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
 
 def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     """A failing `git ls-remote --tags origin` (network) in the existing-tag
-     resume path must diagnose, not leak a raw CalledProcessError — same
-     network risk class as `git fetch origin` (Phase 1) and this phase's own
-     tag push, both already diagnosed. Missed in earlier sweep passes
-    ."""
+    resume path must diagnose, not leak a raw CalledProcessError — same
+    network risk class as `git fetch origin` (Phase 1) and this phase's own
+    tag push, both already diagnosed."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2576,7 +2564,7 @@ def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_he
     """``--resume-from tag`` with no captured SHA must resolve the release
     commit from git history, not tag whatever main HEAD currently is.
 
-    Simulates the exact drift scenario from the bead: the release
+    Simulates the drift scenario: the release
     squash-merge commit (``chore: release vX.Y.Z``) lands, then a further
     commit (the README-SHA-pin) advances main HEAD past it, and only then
     does Phase 5 run with no ``release_sha`` in hand (a resume that skipped
@@ -3408,12 +3396,11 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
     tmp_path: Path,
 ) -> None:
     """A failing `git log` against the sibling checkout (install-all.sh's
-     last-touch commit) must diagnose, not leak a raw CalledProcessError.
+    last-touch commit) must diagnose, not leak a raw CalledProcessError.
 
-     `_sync_profile_readme`'s git log call is design doc defect #3's named
-     example — it defaulted to check=True with no surrounding message
-    , unlike a genuinely empty result (no commit has ever
-     touched install-all.sh), which is a distinct, already-handled case.
+    `_sync_profile_readme`'s git log call must not default to check=True
+    with no surrounding message; a genuinely empty result (no commit has
+    ever touched install-all.sh) is a distinct, already-handled case.
     """
 
     root = _make_release_project(tmp_path)
@@ -3543,7 +3530,7 @@ def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
 # --- PHASE_NAMES ---
 
 
-# --- Propagation bug fixes (punt-kit-91t, punt-kit-5b4, punt-kit-zay) ---
+# --- Propagation sibling validation and branch recovery ---
 
 
 def test_validate_sibling_called_during_preflight(
@@ -3570,7 +3557,7 @@ def test_validate_sibling_called_during_preflight(
 def test_validate_sibling_wrong_branch_during_preflight(
     tmp_path: Path,
 ) -> None:
-    """Preflight fails if sibling is on stale propagation branch (5b4/zay)."""
+    """Preflight fails if sibling is on stale propagation branch."""
     root = _make_release_project(tmp_path)
 
     sibling = _make_sibling(tmp_path, ".github", {"install-all.sh": "#!/bin/sh\n"})
@@ -3598,7 +3585,7 @@ def test_preflight_passes_with_clean_siblings(tmp_path: Path) -> None:
 
 
 def test_sibling_pr_merge_returns_to_main(tmp_path: Path) -> None:
-    """After _sibling_pr_merge, sibling is back on main (5b4/zay fix)."""
+    """After a sibling merge, the sibling is back on main."""
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
 
@@ -3640,7 +3627,7 @@ def test_sibling_pr_merge_returns_to_main(tmp_path: Path) -> None:
 
 
 def test_sibling_pr_merge_returns_to_main_on_failure(tmp_path: Path) -> None:
-    """Sibling returns to main even when _pr_merge fails (5b4/zay)."""
+    """Sibling returns to main even when the merge fails."""
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
@@ -5048,7 +5035,7 @@ def test_reset_propagation_siblings_restores_dirty_owned_file(
 ) -> None:
     """Sibling on main with only propagation-owned file dirty is reconciled.
 
-    This is the v0.14.0 residue: phase 10 wrote projects.json, then the
+    The scenario: phase 10 wrote projects.json, then the
     subsequent `git checkout -b propagate/...` timed out. The sibling
     was left on main with the write on disk, and the guarded retry
     refused to run. _reset_propagation_siblings must restore that file
@@ -5336,9 +5323,8 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
     """A failing `git checkout main` while fast-forwarding local main after
     an already-merged PR must diagnose, not leak a raw CalledProcessError.
 
-    One of three near-identical inline blocks `PrMerger.merge` hand-rolled
-    with an unqualified check=True default, missed by round 1's sweep and
-    now centralized into `_sync_local_main`."""
+    `PrMerger.merge` centralizes this checkout + pull in `_sync_local_main`,
+    which must not use an unqualified check=True default."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
@@ -5463,8 +5449,7 @@ def test_phase7_github_release_create_failure_diagnoses(
 ) -> None:
     """A `gh release create` failure (network/permission) must diagnose loudly.
 
-    Phase 7 had no isolated failure-path test at all before this (matrix
-    row 29).
+    Phase 7 needs an isolated failure-path test of its own.
     """
 
     root = _make_release_project(tmp_path)
@@ -5502,16 +5487,15 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
 
     Phase 8's 10-attempt retry loop (`uv tool install --force --refresh`)
     only special-cases a non-zero exit; nothing forced a genuine
-    `TimeoutExpired` at this call site before this test (matrix row 31,
-    design doc defect #6) — distinct from Phase 11's own, differently-
-    shaped PyPI resolve check. The loop's own `time.sleep(30)` between
+    `TimeoutExpired` at this call site — distinct from Phase 11's own,
+    differently-shaped PyPI resolve check. The loop's own `time.sleep(30)` between
     attempts is real wall-clock the harness has no seam for at the
     `ops.run` level, so `phase08_verify_pypi`'s own `time.sleep` is
     patched to a no-op here — the retry bookkeeping and the second
     attempt still run for real, just without the real 30s wait between
-    them (qodo round-1 review: the single-attempt version of this test
-    could not distinguish "nothing catches TimeoutExpired" from "nothing
-    catches TimeoutExpired on the first attempt specifically").
+    them. A single-attempt test could not distinguish "nothing catches
+    TimeoutExpired" from "nothing catches TimeoutExpired on the first
+    attempt specifically".
     """
 
     def _noop_sleep(_seconds: float) -> None:
@@ -5551,7 +5535,7 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
     """A failing `uv tool install --force --editable .` (restoring the dev
     install after the PyPI verify succeeds) must diagnose, not leak a raw
     CalledProcessError — same external-tool risk class as the install
-    retry loop above, missed in earlier sweep passes.
+    retry loop above.
     """
 
     root = _make_release_project(tmp_path)
@@ -6088,8 +6072,7 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
 ) -> None:
     """A hung cleanup checkout must not replace the primary merge failure.
 
-    Regression test for a review finding: the cleanup
-    checkout's ``ops.run(..., check=False)`` can still raise
+    The cleanup checkout's ``ops.run(..., check=False)`` can still raise
     ``TimeoutExpired`` (a hung git hook) even though ``check=False``
     suppresses non-zero-exit errors. An uncaught ``TimeoutExpired`` inside
     the ``finally`` block would replace the propagating primary exception
@@ -6182,11 +6165,11 @@ def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
 ) -> None:
     """A failed ``git branch --show-current`` is a secondary failure too.
 
-    Regression test for a review finding: when the primary merge fails
+    When the primary merge fails
     AND the cleanup's own branch lookup returns non-zero, ``current``
-    becomes ``None`` — that path used to fall straight to an info-only
-    message, unlike the checkout-failure path below it, leaving it out
-    of the ``SkipRecorder`` recap.
+    becomes ``None`` — that path must record into the ``SkipRecorder``
+    recap like the checkout-failure path below it, not fall straight to an
+    info-only message.
     """
 
     sibling = tmp_path / "sibling"
@@ -6274,10 +6257,9 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
 
 def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
     """A failing `git status --porcelain` on the sibling checkout must
-     diagnose, not leak a raw CalledProcessError — a cross-repo read, same
-     risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
-     git log, both already diagnosed. Missed in earlier sweep passes
-    ."""
+    diagnose, not leak a raw CalledProcessError — a cross-repo read, same
+    risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
+    git log, both already diagnosed."""
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
@@ -6495,9 +6477,9 @@ def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
 def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
     """The README-pinned install.sh SHA is reachable from main after squash-merge.
 
-    Written to catch the reachability defect Option A (pinning inside
-    _phase2_version_bump, before the squash-merge) has: that pins a commit
-    that lives only on the release branch, which the merge deletes.
+    Guards against pinning inside the version-bump phase, before the
+    squash-merge: that pins a commit that lives only on the release branch,
+    which the merge deletes.
     Byte-equality alone would not catch this — a dangling commit still
     resolves via ``git show`` for a while after deletion. Reachability from
     main is the property that matters once CI checks out the release tag.
@@ -6562,8 +6544,8 @@ def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
     assert match is not None, f"README.md has no SHA-pinned install URL: {readme!r}"
     pinned_sha = match.group(1)
 
-    # (a) The SHA must resolve in the local object DB. Option A's failure
-    # mode is exactly this — a dangling object that survives briefly and
+    # (a) The SHA must resolve in the local object DB. A pin taken before
+    # the merge fails exactly here — a dangling object that survives briefly and
     # then gets pruned; the resolve here is a proxy for "the release tag's
     # CI checkout will actually see this commit."
     show = subprocess.run(
@@ -6580,9 +6562,9 @@ def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
         ["git", "merge-base", "--is-ancestor", pinned_sha, "main"], cwd=d
     )
     assert ancestor.returncode == 0, (
-        f"pinned SHA {pinned_sha} is not reachable from main — Option A's "
-        "reachability defect. It resolves via git show only because the "
-        "object hasn't been pruned yet."
+        f"pinned SHA {pinned_sha} is not reachable from main — a dangling "
+        "commit. It resolves via git show only because the object hasn't "
+        "been pruned yet."
     )
 
 
@@ -6754,7 +6736,7 @@ def test_phase11_verify_cli_only_project_runs_all_applicable_checks(
     """Phase 11 must run cleanly against a CLI-only project — install.sh
     present, no plugin.json at all — exercising every applicable check
     without assuming the plugin/marketplace shape every other Phase 11
-    fixture carries (matrix row 52).
+    fixture carries.
     """
     version = "0.1.0"
     root = tmp_path / "proj"
@@ -6848,11 +6830,18 @@ def _assert_failed_checks(out: str, names: list[str], detail: str) -> None:
     """Assert Phase 11's printed output shows exactly these failed checks.
 
     ``_phase11_verify`` raises one generic error for every cause; the verdict
-    lines it prints (``out``) say which check failed, and one of them carries
-    ``detail``.
+    lines it prints (``out``) say which check failed, and the failed line
+    itself — not a passing line or surrounding output — carries ``detail``.
     """
-    assert re.findall(r"✗ ([^:\n]+):", out) == names
-    assert detail in _flat(out)
+    # rich wraps by terminal width, so flatten first, then cut into one
+    # segment per verdict line at each marker that starts a printed line.
+    verdicts = re.split(r"(?=[✓✗▶⚠] |Error: )", _flat(out))
+    failed = [line.strip() for line in verdicts if line.startswith("✗ ")]
+    failed_names = [
+        m.group(1) for line in failed if (m := re.match(r"✗ ([^:]+):", line))
+    ]
+    assert failed_names == names
+    assert any(detail in line for line in failed), failed
 
 
 def test_phase11_verify_profile_sha_fails_bad_sha(
@@ -7390,8 +7379,9 @@ def test_phase_summary_recaps_skipped_propagation(
 ) -> None:
     """End-of-run summary recaps recorded skips and drains them.
 
-    With Phase 11 no longer the backstop, a skip recorded mid-run must be
-    re-surfaced at the end so a scrolled-past warning is never the only notice.
+    A skip recorded mid-run must be re-surfaced at the end, because Phase 11
+    is not a backstop and a scrolled-past warning must never be the only
+    notice.
     """
 
     root = _make_release_project(tmp_path)
@@ -9218,9 +9208,8 @@ def test_release_path_never_bypasses_git_hooks() -> None:
     """No release-path file may pass ``--no-verify`` to git.
 
     The org CLAUDE.md bans ``--no-verify`` outright; the release path is
-    the historical repeat offender (Phases 4 and 9 previously carried
-    three uses across ``release.py``, ``release-plugin.sh``, and
-    ``restore-dev-plugin.sh``). This test greps the files themselves so
+    the repeat offender (``release.py``, ``release-plugin.sh``, and
+    ``restore-dev-plugin.sh`` each carried one). This test greps the files themselves so
     a reintroduction fails immediately, not on the next release. Comments
     describing the ban are stripped before scanning so this file's own
     prose does not trigger it.
@@ -9802,22 +9791,21 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     tmp_path: Path,
 ) -> None:
     """A rejected plugin-swap commit (a real pre-commit hook, exactly the
-     failure mode the module docstring documents) must diagnose, and a
-     clean retry from the same starting state must still land a
-     production-shaped commit and reach merge.
+    failure mode the module docstring documents) must diagnose, and a
+    clean retry from the same starting state must still land a
+    production-shaped commit and reach merge.
 
-     Uses the *real* release-plugin.sh with a real rejecting pre-commit
-     hook — not fault injection at the `ops.run` boundary — so the first
-     attempt genuinely leaves the tree mutated and staged but uncommitted
-     (the partial state this phase's HEAD-consult retry exists to recover
-     from), and the second attempt proves the retry produces the actual
-     production-shaped result: name swapped, dev command removed, merge
-     reached (qodo round-1 review: the fault-injection version of this
-     test intercepted the whole script call and so never reached that
-     partial state at all — this replaces it). `bash
-     scripts/release-plugin.sh` also defaulted to check=True
-    , so a rejected commit here previously leaked a raw
-     CalledProcessError instead of a diagnosed message (matrix row 13).
+    Uses the *real* release-plugin.sh with a real rejecting pre-commit
+    hook — not fault injection at the `ops.run` boundary — so the first
+    attempt genuinely leaves the tree mutated and staged but uncommitted
+    (the partial state this phase's HEAD-consult retry exists to recover
+    from), and the second attempt proves the retry produces the actual
+    production-shaped result: name swapped, dev command removed, merge
+    reached. A fault-injection test would intercept the whole script call
+    and never reach that partial state at all. `bash
+    scripts/release-plugin.sh` must not default to check=True: a rejected
+    commit would leak a raw CalledProcessError instead of a diagnosed
+    message.
     """
 
     root = _make_release_project(tmp_path)
@@ -10035,14 +10023,14 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
     tmp_path: Path,
 ) -> None:
     """A rejected restore commit must diagnose, and a clean retry from the
-     same starting state must still land the restore and reach merge.
+    same starting state must still land the restore and reach merge.
 
-     The restore script only stages (never commits — see restore-dev-
-     plugin.sh's CONTRACT); Phase 9's own explicit `git commit` is where a
-     hook rejection actually lands. That call defaulted to check=True
-    , so the failure previously leaked a raw
-     CalledProcessError instead of the diagnosed message this phase's
-     HEAD-consult idempotency check exists to recover from (matrix row 32).
+    The restore script only stages (never commits — see restore-dev-
+    plugin.sh's CONTRACT); Phase 9's own explicit `git commit` is where a
+    hook rejection actually lands. That call must not default to
+    check=True: the failure would leak a raw CalledProcessError instead of
+    the diagnosed message this phase's HEAD-consult idempotency check
+    exists to recover from.
     """
 
     root = _make_release_project(tmp_path)
@@ -10137,8 +10125,7 @@ def test_phase9_post_release_restore_script_itself_failing_diagnoses(
 ) -> None:
     """A failing `bash scripts/restore-dev-plugin.sh` itself — distinct
     from the follow-up commit failing, already covered above — must
-    diagnose too. Flagged by Copilot's round-1 PR review as an uncovered
-    branch of the same converted call site."""
+    diagnose too — it is a separate branch of the same call site."""
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -10169,8 +10156,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git checkout main` in the no-changes-needed cleanup path
-    must diagnose, not leak a raw CalledProcessError — missed by round 1's
-    sweep."""
+    must diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -10363,9 +10349,8 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
         .stdout.strip()
         .splitlines()
     )
-    # One commit — dev restore only. Phase 9 no longer bumps README;
-    # that moved to phase 4. The restore commit must land
-    # cleanly regardless of the prior mid-hook stage.
+    # One commit — dev restore only. Phase 9 leaves README to phase 4. The
+    # restore commit must land cleanly regardless of the prior mid-hook stage.
     assert log == [
         "chore: restore dev plugin state",
     ], log
@@ -10638,7 +10623,7 @@ MATCHING_RUN: dict[str, object] = {
 }
 
 # The previous release's run — succeeded, and sits at runs[0] until the new
-# run registers. This is the one the old code would have watched.
+# run registers. A selector that ignored the commit would watch this one.
 STALE_SUCCESS_RUN: dict[str, object] = {
     "databaseId": 31761285776,
     "headBranch": "v0.12.0",
@@ -11348,7 +11333,7 @@ def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
     (write index, resolve refs, network for push/pull) in addition to the
     hook. Setting the budget to 300s — the hook's own ceiling — leaves no
     headroom, and the release aborts the moment the hook uses its full
-    tolerance. The v0.14.0 release lost two phases exactly this way.
+    tolerance. A release lost two phases exactly this way.
     """
     assert timeouts.GIT_HOOK > 300
 
@@ -11498,7 +11483,7 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
     TimeoutExpired at an actual call site that passes no ``timeout=`` at
     all — Phase 1's very first command, `git branch --show-current` — so
     the diagnosis is pinned to the genuine DEFAULT_RUN fallback value, not
-    a named budget (matrix row 54).
+    a named budget.
     """
 
     root = _make_release_project(tmp_path)
@@ -11843,7 +11828,7 @@ def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> Non
     )
     assert hook_firing_scripts, (
         "expected at least one release script to run hook-firing git commands; "
-        "if that is no longer true this audit needs revisiting, not deleting"
+        "if that stops being true this audit needs revisiting, not deleting"
     )
 
     inspected: list[tuple[str, int, str | None]] = []

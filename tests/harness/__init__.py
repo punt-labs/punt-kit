@@ -1,9 +1,8 @@
 """Fault-injection test harness for the release engine.
 
-See ``docs/design-release-failure-harness.md`` §2 for the design this
-implements. Wave 0 ships the primitives only — ``FaultRule`` and
-``FaultInjectingOps`` — with zero migration of existing
-``tests/test_release.py`` scenarios.
+See ``docs/design-release-failure-harness.md`` for the design this
+implements. It ships the primitives — ``FaultRule`` and
+``FaultInjectingOps``.
 """
 
 from __future__ import annotations

@@ -1,4 +1,4 @@
-"""Fixture-authoring types for the recorded ``gh`` envelope library (§2b).
+"""Fixture-authoring types for the recorded ``gh`` envelope library.
 
 These ``TypedDict``\\ s exist for exactly two things: readability when writing
 a new hand-authored fixture, and mypy coverage of ``load_gh_fixture`` below.
