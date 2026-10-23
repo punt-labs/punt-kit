@@ -11416,8 +11416,12 @@ _NON_OPS_RUN_RECEIVERS = frozenset({"subprocess", "step", "pipeline"})
 _UNREADABLE_ARGV_ALLOWLIST = {
     ("phase01_preflight.py", "gate"): "quality-gate command (make/uv/go), not git",
     ("phase06_ci_wait.py", "list_cmd"): "gh run list, not git",
-    ("pr_merge.py", "create_cmd"): "gh pr create, not git",
-    ("pr_merge.py", "merge_cmd"): "gh pr merge, not git",
+    # --head is given and the branch is already pushed, so gh pushes nothing
+    # and runs only read-only git (rev-parse, remote, status): no hook fires.
+    ("pr_merge.py", "create_cmd"): "gh pr create --head: read-only local git",
+    # --delete-branch checks out the base, deletes the local head, and pulls:
+    # hook-firing, pinned to GIT_HOOK by test_gh_pr_merge_carries_the_hook_budget.
+    ("pr_merge.py", "merge_cmd"): "gh pr merge --delete-branch: hook-firing git",
 }
 
 
@@ -11578,6 +11582,25 @@ def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
         "`timeout=` or any other budget is not sufficient, because the hook's "
         f"own ceiling is 300s: {offenders}"
     )
+
+
+def test_gh_pr_merge_carries_the_hook_budget() -> None:
+    """``gh pr merge --delete-branch`` runs local git, so it needs GIT_HOOK.
+
+    After the API merge gh checks out the base branch, deletes the local head
+    branch and pulls — the checkout and the pull fire the bd hooks. The argv
+    is a variable, so the verb audit above cannot see it; pin it by name.
+    """
+    merge_calls = [
+        call
+        for name, _line, call in _ops_run_calls()
+        if name == "pr_merge.py"
+        and call.args
+        and isinstance(call.args[0], ast.Name)
+        and call.args[0].id == "merge_cmd"
+    ]
+    assert len(merge_calls) == 1
+    assert _timeout_budget(merge_calls[0]) == "GIT_HOOK"
 
 
 def test_run_release_converts_timeout_expired_to_diagnosed_exit(

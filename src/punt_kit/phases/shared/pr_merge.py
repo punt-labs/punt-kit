@@ -229,7 +229,9 @@ class PrMerger:
         # propagate.
         merge_cmd = [gh, "pr", "merge", str(pr_number), "--squash", "--delete-branch"]
         for merge_attempt in range(6):
-            result = self._ops.run(merge_cmd, cwd=root, check=False)
+            # --delete-branch makes gh check out the base, delete the local
+            # head and pull: local git, so the bd hooks fire.
+            result = self._ops.run(merge_cmd, cwd=root, check=False, timeout=GIT_HOOK)
             if result.returncode == 0:
                 break
             # gh exits non-zero when the post-merge branch deletion fails
