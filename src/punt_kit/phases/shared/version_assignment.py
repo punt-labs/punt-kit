@@ -41,9 +41,9 @@ class VersionAssignment:
 
     def __new__(cls, name: str, *, lead: str = "", is_shell: bool = False) -> Self:
         self = super().__new__(cls)
-        head = rf"^{lead}{re.escape(name)}(?:\s*:[^=\n]+)?\s*="
+        head = rf"^{lead}{re.escape(name)}(?:[ \t]*:[^=\n]+)?[ \t]*="
         self._assigned = re.compile(head, re.MULTILINE)
-        self._quoted = re.compile(rf"({head}\s*)([\"'])([^\"'\n]*)\2", re.MULTILINE)
+        self._quoted = re.compile(rf"({head}[ \t]*)([\"'])([^\"'\n]*)\2", re.MULTILINE)
         self._is_shell = is_shell
         return self
 
@@ -56,15 +56,18 @@ class VersionAssignment:
         anchored, so ``FOO_VERSION=`` is not ``VERSION=``. ``typeset`` is
         recognised like ``declare``.
 
-        The *first* assignment decides what is read and what is rewritten: it
-        is the value a script has until something reassigns it. A value is
+        The *first* assignment decides whether the script can be bumped: it
+        is the value a script has until something reassigns it. Every later
+        assignment that is a plain string is rewritten with it, so a re-pin in
+        a branch cannot stay stale; one that is computed is left alone. A value is
         computed, so assigned but not readable, when it is double-quoted and
         contains ``$`` or a backtick (``"${VERSION:-1.0}"``,
         ``"$(git describe)"``), or when the closing quote is followed by more
         word (``"1.0"$SUFFIX``, ``'1'"$x"``, ``"1.0"#x``; a ``#`` only starts
-        a comment after whitespace). A *later* assignment can still
-        replace the first at run time; ``later_computed_line`` finds one that
-        is computed so the caller can warn that the bump does not set it.
+        a comment after whitespace). A later assignment can still
+        replace an earlier one at run time, and a line inside a heredoc or an
+        untaken branch is not an assignment at all; ``assigned_lines`` lists
+        them all so the caller can warn that it cannot tell which take effect.
         """
         return cls(name, lead=_SHELL_LEAD, is_shell=True)
 
@@ -72,43 +75,61 @@ class VersionAssignment:
         """True when ``text`` assigns the name at the start of some line."""
         return self._assigned.search(text) is not None
 
-    def assigned_line(self, text: str) -> str:
-        """The first line that assigns the name, stripped; empty when none."""
-        match = self._assigned.search(text)
-        if match is None:
-            return ""
-        return text[match.start() :].split("\n", 1)[0].strip()
+    def assigned_lines(self, text: str) -> tuple[str, ...]:
+        """Every line that assigns the name, stripped, in order.
+
+        Best effort: it sees assignments that start a line. A compound form
+        such as ``if ...; then VERSION=...; fi`` or an appending
+        ``VERSION+=...`` is not seen.
+        """
+        return tuple(
+            text[match.start() :].split("\n", 1)[0].strip()
+            for match in self._assigned.finditer(text)
+        )
 
     def read(self, text: str) -> str | None:
         """The first quoted value assigned, or ``None`` when there is none."""
         match = self._readable(text)
         return match.group(3) if match else None
 
+    def is_pinned_to(self, text: str, value: str) -> bool:
+        """True when the first assignment is plain and every plain one is ``value``."""
+        if self.read(text) is None:
+            return False
+        return all(found in (None, value) for found in self.values(text))
+
     def rewritten(self, text: str, value: str) -> tuple[str, int]:
-        """``text`` with the first quoted assignment set to ``value``, and the count.
+        """``text`` with every plain quoted assignment set to ``value``, and the count.
 
-        The count is 0 when no assignment has the readable shape; the caller
-        decides whether that is a failure.
+        The count is 0 when the first assignment lacks the readable shape; the
+        caller decides whether that is a failure.
         """
-        match = self._readable(text)
-        if match is None:
-            return text, 0
-        quote = match.group(2)
-        replacement = f"{match.group(1)}{quote}{value}{quote}"
-        return text[: match.start()] + replacement + text[match.end() :], 1
+        matches = self._rewritable(text)
+        parts: list[str] = []
+        end = 0
+        for match in matches:
+            quote = match.group(2)
+            parts.append(text[end : match.start()])
+            parts.append(f"{match.group(1)}{quote}{value}{quote}")
+            end = match.end()
+        parts.append(text[end:])
+        return "".join(parts), len(matches)
 
-    def later_computed_line(self, text: str) -> str:
-        """The first assignment after the first that is not plain; empty when none.
+    def values(self, text: str) -> tuple[str | None, ...]:
+        """The value of each assignment in order; ``None`` for a computed one."""
+        found = (self._value_at(text, m.start()) for m in self._assigned.finditer(text))
+        return tuple(m.group(3) if m else None for m in found)
 
-        Best effort, for a warning only: it sees assignments that start a
-        line. A compound form such as ``if ...; then VERSION=...; fi`` or an
-        appending ``VERSION+=...`` is not seen.
-        """
-        later = list(self._assigned.finditer(text))[1:]
-        for match in later:
-            if self._plain_shell_value(text, match.start()) is None:
-                return text[match.start() :].split("\n", 1)[0].strip()
-        return ""
+    def _rewritable(self, text: str) -> list[re.Match[str]]:
+        """The matches to rewrite: all plain ones, when the first is plain."""
+        first = self._readable(text)
+        if first is None:
+            return []
+        if not self._is_shell:
+            return [first]
+        starts = (m.start() for m in self._assigned.finditer(text))
+        found = (self._value_at(text, start) for start in starts)
+        return [m for m in found if m is not None]
 
     def _readable(self, text: str) -> re.Match[str] | None:
         """The match that supplies the value, or ``None`` when it is not plain."""
@@ -117,13 +138,13 @@ class VersionAssignment:
         first = self._assigned.search(text)
         if first is None:
             return None
-        return self._plain_shell_value(text, first.start())
+        return self._value_at(text, first.start())
 
-    def _plain_shell_value(self, text: str, start: int) -> re.Match[str] | None:
+    def _value_at(self, text: str, start: int) -> re.Match[str] | None:
         """The quoted value of the assignment at ``start``, if it is a plain string."""
         match = self._quoted.match(text, start)
-        if match is None:
-            return None
+        if match is None or not self._is_shell:
+            return match
         if match.group(2) == '"' and _EXPANDS.search(match.group(3)):
             return None
         if _VALUE_END.match(text, match.end()) is None:

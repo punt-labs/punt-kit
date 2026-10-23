@@ -112,8 +112,11 @@ class VersionPinChecks:
                     "VERSION is assigned but unverifiable: not a plain quoted string",
                 )
             ]
+        pins = dict.fromkeys(v for v in assignment.values(content) if v is not None)
         return [
             VerificationCheck(
-                "install.sh", install_ver == self._version, f"VERSION={install_ver}"
+                "install.sh",
+                assignment.is_pinned_to(content, self._version),
+                f"VERSION={','.join(pins)}",
             )
         ]

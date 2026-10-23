@@ -110,7 +110,7 @@ def test_phase2_fails_when_the_install_sh_version_cannot_be_rewritten(
     assert "✓ install.sh" not in capsys.readouterr().out
 
 
-def test_phase2_warns_when_a_later_assignment_computes_the_version(
+def test_phase2_warns_naming_every_assignment_when_there_are_several(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = make_release_project(tmp_path)
@@ -125,20 +125,59 @@ def test_phase2_warns_when_a_later_assignment_computes_the_version(
         '#!/bin/sh\nVERSION="0.2.0"\nVERSION="$(git describe)"\n'
     )
     out = flat(capsys.readouterr().out)
+    assert 'VERSION="0.1.0"' in out
     assert 'VERSION="$(git describe)"' in out
-    assert "computes VERSION at run time" in out
+    assert "assigned on 2 lines" in out
 
 
-def test_phase2_does_not_warn_when_every_assignment_is_plain(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_phase2_rewrites_a_re_pin_in_an_if_block(tmp_path: Path) -> None:
     root = make_release_project(tmp_path)
-    (root / "install.sh").write_text('#!/bin/sh\nVERSION="0.1.0"\nVERSION="0.1.0"\n')
-    commit_all(root, "later plain")
+    script = '#!/bin/sh\nVERSION="0.1.0"\nif [ -n "$X" ]; then\n  VERSION="0.1.0"\nfi\n'
+    (root / "install.sh").write_text(script)
+    commit_all(root, "re-pin")
 
     bump(root)
 
-    assert "computes VERSION" not in flat(capsys.readouterr().out)
+    assert (root / "install.sh").read_text() == script.replace("0.1.0", "0.2.0")
+
+
+def test_phase2_rewrites_a_heredoc_line_and_the_real_pin_and_warns_of_both(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    script = '#!/bin/sh\ncat <<EOF\nVERSION="0.1.0"\nEOF\nVERSION="0.1.0"\n'
+    (root / "install.sh").write_text(script)
+    commit_all(root, "heredoc")
+
+    bump(root)
+
+    assert (root / "install.sh").read_text() == script.replace("0.1.0", "0.2.0")
+    assert flat(capsys.readouterr().out).count('VERSION="0.1.0"') == 2
+
+
+def test_phase2_does_not_warn_for_a_single_assignment(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    (root / "install.sh").write_text('#!/bin/sh\nVERSION="0.1.0"\n')
+    commit_all(root, "single")
+
+    bump(root)
+
+    assert "assigned on" not in flat(capsys.readouterr().out)
+
+
+def test_phase2_does_not_take_a_newline_split_value_for_the_pin(
+    tmp_path: Path,
+) -> None:
+    root = make_release_project(tmp_path)
+    (root / "install.sh").write_text('#!/bin/sh\nVERSION=\n"0.1.0"\n')
+    commit_all(root, "split")
+
+    with pytest.raises(ReleaseError, match=r"install\.sh.*VERSION"):
+        bump(root)
+
+    assert (root / "install.sh").read_text() == '#!/bin/sh\nVERSION=\n"0.1.0"\n'
 
 
 def test_phase2_ignores_an_install_sh_without_a_version(tmp_path: Path) -> None:
@@ -181,3 +220,21 @@ def test_phase11_reports_an_unreadable_version_as_unverifiable(
     passed, detail = _install_sh_checks(tmp_path)["install.sh"]
 
     assert (passed, "assigned but unverifiable" in detail) == (False, True)
+
+
+def test_phase11_fails_when_a_later_plain_assignment_is_stale(tmp_path: Path) -> None:
+    (tmp_path / "install.sh").write_text(
+        '#!/bin/sh\nVERSION="0.2.0"\nif x; then\n  VERSION="0.1.0"\nfi\n'
+    )
+
+    passed, detail = _install_sh_checks(tmp_path)["install.sh"]
+
+    assert (passed, "0.1.0" in detail) == (False, True)
+
+
+def test_phase11_passes_when_every_plain_assignment_matches(tmp_path: Path) -> None:
+    (tmp_path / "install.sh").write_text(
+        '#!/bin/sh\nVERSION="0.2.0"\nif x; then\n  VERSION="0.2.0"\nfi\n'
+    )
+
+    assert _install_sh_checks(tmp_path) == {"install.sh": (True, "VERSION=0.2.0")}

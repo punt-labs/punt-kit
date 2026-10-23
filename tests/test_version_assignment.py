@@ -83,18 +83,54 @@ def test_a_shell_value_ends_at_whitespace_a_semicolon_a_spaced_hash_or_the_end(
     assert VersionAssignment.in_shell("VERSION").read(text) == "1.0"
 
 
-def test_a_later_computed_shell_assignment_is_named() -> None:
-    text = 'VERSION="1.0"\n  VERSION="$(git describe)"\nVERSION="2"\n'
+def test_every_shell_assignment_is_listed_in_order() -> None:
+    text = 'VERSION="1.0"\n  VERSION="$(git describe)"\nFOO="1"\nVERSION="2"\n'
 
-    assert (
-        VersionAssignment.in_shell("VERSION").later_computed_line(text)
-        == 'VERSION="$(git describe)"'
+    assert VersionAssignment.in_shell("VERSION").assigned_lines(text) == (
+        'VERSION="1.0"',
+        'VERSION="$(git describe)"',
+        'VERSION="2"',
     )
 
 
-@pytest.mark.parametrize(
-    "text",
-    ['VERSION="1.0"\n', 'VERSION="1.0"\nVERSION="2.0"\n', 'FOO="1"\nVERSION="1"\n'],
-)
-def test_no_later_computed_line_when_every_assignment_is_plain(text: str) -> None:
-    assert VersionAssignment.in_shell("VERSION").later_computed_line(text) == ""
+def test_no_shell_assignment_lists_nothing() -> None:
+    assert VersionAssignment.in_shell("VERSION").assigned_lines('FOO="1"\n') == ()
+
+
+def test_every_plain_shell_assignment_is_rewritten() -> None:
+    text = 'VERSION="1"\nif x; then\n  VERSION=\'1\'\nfi\nVERSION="$(f)"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (
+        'VERSION="2"\nif x; then\n  VERSION=\'2\'\nfi\nVERSION="$(f)"\n',
+        2,
+    )
+
+
+def test_a_computed_first_shell_assignment_rewrites_nothing() -> None:
+    text = 'VERSION="$(f)"\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (text, 0)
+
+
+def test_a_shell_value_never_spans_a_newline() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'VERSION=\n"0.1.0"\n'
+
+    assert (assignment.read(text), assignment.rewritten(text, "2")) == (
+        None,
+        (text, 0),
+    )
+
+
+def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert [
+        assignment.is_pinned_to(text, "2")
+        for text in (
+            'VERSION="2"\nVERSION="2"\n',
+            'VERSION="2"\nVERSION="1"\n',
+            'VERSION="2"\nVERSION="$(f)"\n',
+            'VERSION="$(f)"\nVERSION="2"\n',
+        )
+    ] == [True, False, True, False]

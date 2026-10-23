@@ -104,14 +104,16 @@ class Phase2VersionBump:
         new_content, count = assignment.rewritten(content, self._version)
         if count == 0 and assignment.is_assigned(content):
             self._ops.fail(
-                f"install.sh: `{assignment.assigned_line(content)}` is not a plain "
+                f"install.sh: `{assignment.assigned_lines(content)[0]}` is not a plain "
                 f'quoted string (VERSION="X.Y.Z"), so VERSION cannot be bumped to '
                 f"{self._version}; set it by hand"
             )
-        if later := assignment.later_computed_line(content):
+        if len(lines := assignment.assigned_lines(content)) > 1:
+            shown = "; ".join(f"`{line}`" for line in lines)
             self._ops.warn(
-                f"install.sh: a later assignment `{later}` computes VERSION at run "
-                f"time; only the first assignment is bumped to {self._version}"
+                f"install.sh: VERSION is assigned on {len(lines)} lines ({shown}); "
+                f"every plain one is bumped to {self._version}, but a heredoc, a "
+                "branch or a computed value may change which takes effect"
             )
         if new_content == content:
             return

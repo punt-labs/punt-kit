@@ -280,7 +280,7 @@ class Phase11Verify:
         # An assignment the rule cannot read is not a pass: read() is None there.
         assignment = VersionAssignment.in_shell("VERSION")
         ok = not assignment.is_assigned(shown.stdout) or (
-            assignment.read(shown.stdout) == self._version
+            assignment.is_pinned_to(shown.stdout, self._version)
         )
         return VerificationCheck("install-all.sh", ok, f"SHA={sha}")
 
