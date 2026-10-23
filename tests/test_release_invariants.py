@@ -160,6 +160,11 @@ def _imports_the_readme_pin(source: str) -> bool:
     """True for any import form that binds the ``readme_sha`` module or its names."""
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.ImportFrom):
+            if node.level:
+                # Relative: ``from . import readme_sha``, ``from .readme_sha import X``.
+                names = [alias.name for alias in node.names]
+                if "readme_sha" in names or (node.module or "").endswith("readme_sha"):
+                    return True
             if node.module == _README_PIN:
                 return True
             if node.module == _README_PIN.rpartition(".")[0] and any(
@@ -185,6 +190,9 @@ def _imports_the_readme_pin(source: str) -> bool:
         ),
         pytest.param(f"import {_README_PIN}", id="plain-import"),
         pytest.param(f"import {_README_PIN} as rs", id="plain-import-as"),
+        pytest.param("from . import readme_sha", id="relative-package"),
+        pytest.param("from .readme_sha import ReadmeShaPin", id="relative-module"),
+        pytest.param("from .shared.readme_sha import ReadmeShaPin", id="relative-deep"),
     ],
 )
 def test_the_readme_pin_import_guard_catches_every_form(source: str) -> None:
@@ -196,6 +204,8 @@ def test_the_readme_pin_import_guard_catches_every_form(source: str) -> None:
     [
         pytest.param("from punt_kit.phases.shared import git", id="sibling"),
         pytest.param("import punt_kit.phases.shared.git", id="sibling-import"),
+        pytest.param("from . import git", id="relative-sibling"),
+        pytest.param("from .shared.git import GitWorkspace", id="relative-names"),
         pytest.param("from punt_kit.phases.shared.git import GitWorkspace", id="names"),
     ],
 )
