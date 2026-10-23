@@ -173,20 +173,14 @@ def _get_latest_tag_version(root: Path) -> str:
 
 
 def _get_github_repo(root: Path) -> str | None:
-    """Extract GitHub owner/repo from git remote.
-
-    Raises ``ValueError`` naming the remote's path when it is on github.com
-    but is not ``owner/repo``, so callers can say which slug is bad.
-    """
-    slug = GithubRepo(root, ops=_ops).slug()
-    return None if slug is None else str(slug)
+    """Extract GitHub owner/repo from git remote; ``ValueError`` if malformed."""
+    return GithubRepo(root, ops=_ops).slug_text()
 
 
 def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     """Resolve all unresolved review threads on a PR."""
-    PrThreadResolver(GithubRepo(Path(cwd), ops=_ops), ops=_ops).resolve(
-        gh, cwd, pr_number
-    )
+    repo = GithubRepo(Path(cwd), ops=_ops)
+    PrThreadResolver(repo, ops=_ops).resolve(gh, cwd, pr_number)
 
 
 # ---------------------------------------------------------------------------

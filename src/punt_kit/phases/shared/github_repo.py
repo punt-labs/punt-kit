@@ -34,6 +34,11 @@ class GithubRepo:
         slug = self.resolve_slug()
         return None if slug is None else str(slug)
 
+    def slug_text(self) -> str | None:
+        """``slug()`` as ``owner/repo`` text; raises ``ValueError`` if malformed."""
+        slug = self.slug()
+        return None if slug is None else str(slug)
+
     def resolve_slug(self) -> RepoSlug | None:
         """The remote's parsed slug; ``None`` if unresolvable or malformed.
 
