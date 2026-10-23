@@ -615,20 +615,15 @@ class Phase11Verify:
         # not this check's concern.
         if repo and install_sh.exists():
             own_readme = info.root / "README.md"
-            try:
-                readme_recognizer = InstallUrlRecognizer.for_slug(repo)
-            except ValueError as exc:
-                checks.append(VerificationCheck("README pin", False, str(exc)))
-            else:
-                if own_readme.exists():
-                    checks.extend(
-                        self._pin_checks(
-                            "README pin",
-                            own_readme.read_text(encoding="utf-8"),
-                            readme_recognizer,
-                            all_urls_relevant=False,
-                        )
+            if own_readme.exists():
+                checks.extend(
+                    self._pin_checks(
+                        "README pin",
+                        own_readme.read_text(encoding="utf-8"),
+                        repo,
+                        all_urls_relevant=False,
                     )
+                )
 
         # 8. Website (optional — sibling may not exist)
         if repo:
@@ -673,25 +668,14 @@ class Phase11Verify:
                                     # silently ignored. Trusted and
                                     # untrusted pins are still reported
                                     # independently.
-                                    try:
-                                        web_recognizer = InstallUrlRecognizer.for_slug(
-                                            repo
+                                    checks.extend(
+                                        self._pin_checks(
+                                            "website SHA",
+                                            install_cmd,
+                                            repo,
+                                            all_urls_relevant=True,
                                         )
-                                    except ValueError as exc:
-                                        checks.append(
-                                            VerificationCheck(
-                                                "website SHA", False, str(exc)
-                                            )
-                                        )
-                                    else:
-                                        checks.extend(
-                                            self._pin_checks(
-                                                "website SHA",
-                                                install_cmd,
-                                                web_recognizer,
-                                                all_urls_relevant=True,
-                                            )
-                                        )
+                                    )
                                     # If neither: no SHA-shaped install URL
                                     # at all (version-tag or branch pin, or
                                     # no install.sh reference) — skip. That
@@ -774,17 +758,23 @@ class Phase11Verify:
         self,
         label: str,
         text: str,
-        recognizer: InstallUrlRecognizer,
+        slug: str,
         *,
         all_urls_relevant: bool,
     ) -> list[VerificationCheck]:
-        """One verdict per pinned install URL ``recognizer`` finds in ``text``.
+        """One verdict per pinned install URL ``slug``'s recognizer finds in ``text``.
+
+        A slug that is not ``owner/repo`` is itself one failed check.
 
         Trusted and untrusted pins are detected and reported independently —
         a text can carry one trusted current-SHA pin AND one untrusted-host
         or owner pin (e.g. an injected line), and the untrusted one must
         never be skipped just because a trusted pin was also found.
         """
+        try:
+            recognizer = InstallUrlRecognizer.for_slug(slug)
+        except ValueError as exc:
+            return [VerificationCheck(label, False, str(exc))]
         trusted_shas, has_untrusted = recognizer.classify(
             text, all_urls_relevant=all_urls_relevant
         )
