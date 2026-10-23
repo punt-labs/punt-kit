@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Self, cast, final
 from rich.console import Console
 
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.pin_currency import PinCurrency
@@ -515,12 +514,4 @@ class Phase10Propagate:
                     propagate_website, info, version, dry_run=dry_run
                 ): "public-website",
             }
-            try:
-                ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)
-            except ReleaseError as exc:
-                # Recorded before re-raising: the incomplete-release report
-                # drains _skips even when the pipeline stops before a
-                # successful pipeline.summarize() call, so a thread failure
-                # reaches the end-of-run recap alongside the recorded skips.
-                self._skips.record(f"FAILED — Phase 10 propagation: {exc}")
-                raise
+            ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)

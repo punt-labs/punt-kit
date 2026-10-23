@@ -61,6 +61,16 @@ class SkipRecorder:
             self._notices.append(message)
         self._ops.warn(message)
 
+    def retain(self, message: str) -> None:
+        """Retain a notice for the recap without warning now.
+
+        For a failure that the end-of-run recap is the one place to print:
+        recording it with ``record`` as well would print it twice.
+        """
+        with self._lock:
+            if message not in self._notices:
+                self._notices.append(message)
+
     def drain(self) -> tuple[str, ...]:
         """Return every retained notice and clear the log."""
         with self._lock:

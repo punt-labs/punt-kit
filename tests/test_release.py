@@ -10675,15 +10675,12 @@ def test_phase10_propagate_collects_errors(
     assert sorted(calls) == ["install_all", "marketplace", "website"]
 
 
-def test_phase10_propagate_records_leg_failure_in_skips(
+def test_phase10_propagate_names_the_failing_leg_in_the_raised_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
-    """A leg failure lands in the shared SkipRecorder, not only the raised error.
+    """The error names the failing leg and prints nothing itself.
 
-    The end-of-run recap drains ``_skips`` even when the pipeline
-    stops before a successful ``pipeline.summarize()`` — so a Phase 10 leg
-    failure must be recorded there, not only surfaced as the exception that
-    ``ThreadedStep.collect`` raises and the caller sees.
+    ``run_release`` records the failure once, and the recap prints it once.
     """
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -10706,15 +10703,10 @@ def test_phase10_propagate_records_leg_failure_in_skips(
 
     monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
-    with pytest.raises(ReleaseError, match=r"install-all\.sh: boom"):
+    with pytest.raises(ReleaseError, match=r"\.github: install-all\.sh: boom"):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
-    notices = skips.drain()
-    assert len(notices) == 1
-    assert "FAILED" in notices[0]
-    assert "Phase 10 propagation" in notices[0]
-    # Names the failing leg (.github), not just "something failed".
-    assert ".github" in notices[0]
+    assert skips.drain() == ()
 
 
 # --- Phases 9+10 concurrent ---
@@ -11803,8 +11795,8 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
 
     normalized = " ".join(capsys.readouterr().out.split())
     assert "did not fully land" in normalized
-    assert "Phase 9 reported" in normalized
-    assert "marketplace: no entry for proj" in normalized
+    assert "Phase 9 did not fully land" in normalized
+    assert normalized.count("marketplace: no entry for proj") == 1
     assert "Not confirmed landed: post-release, propagate, verify" in normalized
     assert "--resume-from post-release" in normalized
 
@@ -14058,3 +14050,63 @@ def test_phase11_fails_when_a_second_profile_install_all_line_is_stale(
         first,
         on="profile SHA",
     )
+
+
+# --- a recorded Phase 9/10 failure is printed once, in the recap ---
+
+
+def test_a_phase10_failure_is_printed_once_in_the_recap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def boom(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("website: kaboom")
+
+    def quiet(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def quiet_reset(_info: object, *, fail_on_error: bool = True) -> None:
+        return None
+
+    monkeypatch.setattr(release, "_phase9_post_release", quiet)
+    monkeypatch.setattr(release, "_propagate_website", boom)
+    monkeypatch.setattr(release, "_propagate_install_all", quiet)
+    monkeypatch.setattr(release, "_propagate_marketplace", quiet)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", quiet_reset)
+    monkeypatch.setattr(release, "_phase11_verify", quiet)
+
+    with pytest.raises(SystemExit):
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    out = _flat(capsys.readouterr().out)
+    assert out.count("kaboom") == 1
+    assert out.index("kaboom") > out.index("Release incomplete")
+
+
+def test_a_failure_recorded_directly_is_printed_once_in_the_recap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def quiet(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def boom(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("marketplace: no entry for proj")
+
+    monkeypatch.setattr(release, "_phase9_post_release", quiet)
+    monkeypatch.setattr(release, "_phase10_propagate", boom)
+    monkeypatch.setattr(release, "_phase11_verify", quiet)
+
+    with pytest.raises(SystemExit):
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    out = _flat(capsys.readouterr().out)
+    assert out.count("marketplace: no entry for proj") == 1

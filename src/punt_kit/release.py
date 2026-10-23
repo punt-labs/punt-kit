@@ -701,9 +701,10 @@ def run_release(
                 except ReleaseError as exc:
                     propagation_failures.append((phase_num, str(exc)))
                     # Recorded so every stop-early path's recap carries it.
-                    _skips.record(f"FAILED — Phase {phase_num}: {exc}")
+                    _skips.retain(f"FAILED — Phase {phase_num}: {exc}")
                     console.print(
-                        f"[yellow]Phase {phase_num} did not fully land: {exc}[/yellow]"
+                        f"[yellow]Phase {phase_num} did not fully land "
+                        "(the failure is in the recap).[/yellow]"
                     )
                     console.print(
                         "[yellow]Continuing to Phase 11 verify to confirm "
@@ -750,12 +751,11 @@ def run_release(
             if propagation_failures:
                 # Phase 11 ran and did not itself raise — the propagation
                 # failure still must not read as a successful release.
-                details = "; ".join(msg for _, msg in propagation_failures)
                 worst_phase_num = min(n for n, _ in propagation_failures)
                 current_phase_num = worst_phase_num
                 _fail(
                     f"Release did not fully land — Phase {worst_phase_num} "
-                    f"reported: {details}"
+                    "failed; the recap below names the failure"
                 )
 
             pipeline.summarize(
