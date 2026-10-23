@@ -16,9 +16,11 @@ from rich.markup import escape
 from punt_kit.audit_github import GithubSettingsAudit
 from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.git_checkout import GitCheckout
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.permission_rules import RuleSet, Tier
 from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
@@ -788,37 +790,43 @@ def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
-_RAW_GH_URL_RE = re.compile(r"raw\.githubusercontent\.com/punt-labs/[^/]+/([^/]+)/")
-
-
 def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
-    """Check that README.md raw GitHub URLs use SHA pins, not branch names."""
+    """Check that README's install URLs for this repository are SHA pins.
+
+    Pins are recognized by ``InstallUrlRecognizer`` under the project's own
+    ``owner/repo`` (from its origin remote), the same definition the release
+    writes and verifies with: another tool's install one-liner is not this
+    project's pin, and a URL naming this repository on a different host is
+    reported rather than ignored.
+    """
     readme = info.root / "README.md"
     if not readme.exists():
         return []
 
-    content = readme.read_text(encoding="utf-8")
-    matches = _RAW_GH_URL_RE.findall(content)
-    if not matches:
+    content = TextFile(readme).read()
+    if "install.sh" not in content and "raw.githubusercontent.com" not in content:
         return []
+    try:
+        slug = GitCheckout(info.root).github_slug()
+    except ValueError as exc:
+        return [(INFO, "README install URL pins (not checked)", str(exc))]
 
-    bad_refs: list[str] = []
-    for ref in matches:
-        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
-            bad_refs.append(ref)
-
-    if bad_refs:
-        return [
-            (
-                FAIL,
-                "README raw GitHub URLs use SHA pins",
-                f"Branch refs found: {', '.join(sorted(set(bad_refs)))}",
-            )
-        ]
-
-    return [
-        (PASS, "README raw GitHub URLs use SHA pins", f"{len(matches)} URL(s) checked")
-    ]
+    refs = InstallUrlRecognizer.for_slug(slug).scan(content)
+    if not refs:
+        return []
+    label = "README raw GitHub URLs use SHA pins"
+    problems: list[str] = []
+    branches = sorted({r.segment for r in refs if r.is_trusted and not r.is_sha_pin})
+    if branches:
+        problems.append(f"Branch or tag refs found: {', '.join(branches)}")
+    untrusted = sorted({r.url for r in refs if not r.is_trusted})
+    if untrusted:
+        problems.append(
+            f"Not on raw.githubusercontent.com/{slug}: {', '.join(untrusted)}"
+        )
+    if problems:
+        return [(FAIL, label, "; ".join(problems))]
+    return [(PASS, label, f"{len(refs)} URL(s) checked")]
 
 
 def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:

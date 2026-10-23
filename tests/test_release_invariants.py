@@ -217,3 +217,129 @@ def test_phase_9_does_not_import_the_readme_pin() -> None:
     """Phase 4 owns the README pin; Phase 9 is the dev restore only."""
     source = (_PACKAGE / "phases" / "phase09_post_release.py").read_text("utf-8")
     assert not _imports_the_readme_pin(source)
+
+
+# --- one definition of a pin ---
+
+_PIN_RULE_MODULES = frozenset({"install_urls.py", "pin_rules.py"})
+_PIN_MARKERS = (
+    "raw.githubusercontent",
+    "raw\\.githubusercontent",
+    "install.sh",
+    "install\\.sh",
+    "install-all",
+)
+_RE_FUNCTIONS = frozenset(
+    {"compile", "search", "match", "fullmatch", "findall", "finditer", "sub", "subn"}
+)
+
+
+@final
+class PinRegexes:
+    """The lines where a module builds a regex for an install-URL or install-all pin."""
+
+    __slots__ = ("_tree",)
+
+    _tree: ast.Module
+
+    def __new__(cls, source: str) -> Self:
+        self = super().__new__(cls)
+        self._tree = ast.parse(source)
+        return self
+
+    def lines(self) -> list[int]:
+        """Line numbers of ``re.<fn>(...)`` calls whose pattern names a pin."""
+        marked = self._names_bound_to_pin_text()
+        return sorted(
+            node.lineno
+            for node in ast.walk(self._tree)
+            if isinstance(node, ast.Call)
+            and self._is_re_call(node)
+            and node.args
+            and self._names_a_pin(node.args[0], marked)
+        )
+
+    def _names_bound_to_pin_text(self) -> set[str]:
+        bound: set[str] = set()
+        for node in ast.walk(self._tree):
+            if isinstance(node, ast.Assign) and self._has_marker(node.value):
+                bound.update(ast.unparse(target) for target in node.targets)
+            elif (
+                isinstance(node, ast.AnnAssign)
+                and node.value is not None
+                and self._has_marker(node.value)
+            ):
+                bound.add(ast.unparse(node.target))
+        return bound
+
+    @staticmethod
+    def _is_re_call(call: ast.Call) -> bool:
+        func = call.func
+        return (
+            isinstance(func, ast.Attribute)
+            and func.attr in _RE_FUNCTIONS
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "re"
+        )
+
+    @staticmethod
+    def _has_marker(node: ast.AST) -> bool:
+        return any(
+            isinstance(part, ast.Constant)
+            and isinstance(part.value, str)
+            and any(marker in part.value for marker in _PIN_MARKERS)
+            for part in ast.walk(node)
+        )
+
+    def _names_a_pin(self, pattern: ast.AST, marked: set[str]) -> bool:
+        return self._has_marker(pattern) or ast.unparse(pattern) in marked
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            'import re\nre.compile(r"raw\\.githubusercontent\\.com/o/([^/]+)/")',
+            id="raw-url",
+        ),
+        pytest.param('import re\nre.search(r"/install\\.sh", text)', id="install-sh"),
+        pytest.param(
+            'import re\nre.compile(rf"\\$GH/{name}/([0-9a-f]+)/install\\.sh")',
+            id="fstring",
+        ),
+        pytest.param('import re\nre.findall("install-all", text)', id="install-all"),
+        pytest.param(
+            'import re\n_P = r"raw.githubusercontent.com/x"\nre.compile(_P)',
+            id="through-a-name",
+        ),
+        pytest.param(
+            'import re\nclass C:\n    _P = re.compile("install.sh")', id="class-body"
+        ),
+    ],
+)
+def test_the_pin_regex_scan_finds_a_regex_for_a_pin(source: str) -> None:
+    assert PinRegexes(source).lines()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param('import re\nre.compile(r"^version\\s*=")', id="other-regex"),
+        pytest.param('x = "raw.githubusercontent.com"', id="plain-string"),
+        pytest.param('import re\nre.search(r"VERSION=", text)', id="version-pin"),
+        pytest.param('p.install("install.sh")', id="not-re"),
+    ],
+)
+def test_the_pin_regex_scan_ignores_everything_else(source: str) -> None:
+    assert PinRegexes(source).lines() == []
+
+
+def test_only_the_pin_rule_modules_build_a_pin_regex() -> None:
+    """One definition of "a pin": nothing else invents its own pattern for one."""
+    builders = {
+        str(path.relative_to(_PACKAGE)): lines
+        for path in sorted(_PACKAGE.rglob("*.py"))
+        if path.name not in _PIN_RULE_MODULES
+        if (lines := PinRegexes(path.read_text("utf-8")).lines())
+    }
+    assert builders == {}

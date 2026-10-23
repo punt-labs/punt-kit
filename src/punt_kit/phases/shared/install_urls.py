@@ -54,10 +54,11 @@ class InstallUrl:
 class InstallUrlRecognizer:
     """The single definition of "a pinned install URL for this repository".
 
-    Both ``ReadmeShaPin.bump`` (which rewrites pins and then verifies its
-    own output) and Phase 11 (which verifies the published README and the
-    website's ``installCommand``) recognize pins through this class, so
-    they cannot disagree about what a pin is.
+    ``ReadmeShaPin.bump`` (which rewrites pins and then verifies its own
+    output), the website propagator, Phase 11 (which verifies the published
+    README and the website's ``installCommand``) and ``punt audit`` recognize
+    pins through this class, so they cannot disagree about what a pin is. A
+    test fails if any other module builds a regex for an install URL.
 
     In scope — a URL is TRUSTED when, after percent-decoding to a fixed
     point, it is exactly ``https://raw.githubusercontent.com/<owner>/

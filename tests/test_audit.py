@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from punt_kit import audit
 from punt_kit.audit import run_audit
-from punt_kit.audit_verdict import PASS
+from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
@@ -584,22 +585,89 @@ def test_audit_hybrid_install_sh_fails_no_doctor(tmp_path: Path) -> None:
 # --- README SHA pin tests ---
 
 
+def _readme_pin_findings(
+    tmp_path: Path,
+    readme: str,
+    *,
+    origin: str | None = "git@github.com:punt-labs/test.git",
+) -> list[tuple[str, str, str]]:
+    """What the README pin check reports for ``readme`` in a repo with ``origin``."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    if origin is not None:
+        subprocess.run(
+            ["git", "remote", "add", "origin", origin], cwd=tmp_path, check=True
+        )
+    (tmp_path / "README.md").write_text(readme)
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_readme_sha_pins"],
+    )
+    return check(detect(tmp_path))
+
+
+def _statuses(findings: list[tuple[str, str, str]]) -> list[str]:
+    return [status for status, _label, _detail in findings]
+
+
+_OWN = "https://raw.githubusercontent.com/punt-labs/test"
+
+
 def test_audit_readme_sha_pins_pass(tmp_path: Path) -> None:
-    """Audit passes when README has SHA-pinned raw GitHub URLs."""
-    _make_compliant_hybrid(tmp_path)
-    run_audit(str(tmp_path))
+    """A SHA-pinned install URL for this repository passes."""
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {_OWN}/abc1234/install.sh\n")
+
+    assert _statuses(findings) == [PASS]
 
 
 def test_audit_readme_sha_pins_fail_branch(tmp_path: Path) -> None:
-    """Audit fails when README has branch name instead of SHA in raw GitHub URL."""
-    _make_compliant_hybrid(tmp_path)
-    readme_url = "https://raw.githubusercontent.com/punt-labs/test/main/install.sh"
-    (tmp_path / "README.md").write_text(
-        f"# Test\n\n```bash\ncurl -fsSL {readme_url} | sh\n```\n"
+    """A branch name instead of a SHA in this repository's install URL fails."""
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {_OWN}/main/install.sh\n")
+
+    assert _statuses(findings) == [FAIL]
+    assert "main" in findings[0][2]
+
+
+def test_audit_readme_sha_pins_fail_release_tag(tmp_path: Path) -> None:
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {_OWN}/v1.2.3/install.sh\n")
+
+    assert _statuses(findings) == [FAIL]
+
+
+def test_audit_readme_sha_pins_ignore_other_repositories(tmp_path: Path) -> None:
+    """Another tool's install one-liner is that tool's pin, not this project's."""
+    other = "https://raw.githubusercontent.com/punt-labs/vox/main/install.sh"
+
+    assert _readme_pin_findings(tmp_path, f"curl -fsSL {other}\n") == []
+
+
+def test_audit_readme_sha_pins_fail_an_untrusted_host(tmp_path: Path) -> None:
+    findings = _readme_pin_findings(
+        tmp_path, "curl -fsSL https://evil.example/punt-labs/test/abc1234/install.sh\n"
     )
 
-    with pytest.raises(SystemExit, match="1"):
-        run_audit(str(tmp_path))
+    assert _statuses(findings) == [FAIL]
+
+
+def test_audit_readme_sha_pins_use_the_projects_own_slug(tmp_path: Path) -> None:
+    """The URL names ``someone/test``: it is only this project's under that slug."""
+    url = "https://raw.githubusercontent.com/someone/test/main/install.sh"
+
+    findings = _readme_pin_findings(
+        tmp_path, f"curl -fsSL {url}\n", origin="git@github.com:someone/test.git"
+    )
+
+    assert _statuses(findings) == [FAIL]
+
+
+def test_audit_readme_sha_pins_say_when_there_is_no_slug_to_check_against(
+    tmp_path: Path,
+) -> None:
+    findings = _readme_pin_findings(
+        tmp_path, f"curl -fsSL {_OWN}/main/install.sh\n", origin=None
+    )
+
+    assert _statuses(findings) == [INFO]
+    assert "no remote" in findings[0][2]
 
 
 # --- Plugin version sync tests ---
