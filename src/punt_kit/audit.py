@@ -20,7 +20,7 @@ from punt_kit.git_checkout import GitCheckout
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 from punt_kit.permission_rules import RuleSet, Tier
 from punt_kit.phases.shared.errors import ReleaseError
-from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.install_urls import InstallUrl, InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
@@ -644,23 +644,7 @@ def _check_plugin_dev_isolation(
             )
         )
 
-    # Check plugin name has -dev suffix
-    try:
-        plugin_name = _read_plugin_field(info, "name")
-    except ReleaseError as exc:
-        results.append((FAIL, "Plugin manifest is readable", str(exc)))
-        plugin_name = None
-    if plugin_name is not None:
-        if plugin_name.endswith("-dev"):
-            results.append((PASS, "Plugin name has -dev suffix", plugin_name))
-        else:
-            results.append(
-                (
-                    FAIL,
-                    "Plugin name has -dev suffix",
-                    f"'{plugin_name}' — should be '{plugin_name}-dev'",
-                )
-            )
+    results.extend(_check_plugin_dev_suffix(info))
 
     # Check release/restore scripts exist. Required of hybrid projects only:
     # plugins.md "Release flow for pure plugins" states a pure plugin may lack
@@ -736,6 +720,25 @@ def _check_plugin_dev_isolation(
         )
 
     return results
+
+
+def _check_plugin_dev_suffix(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check the working tree's plugin name carries the ``-dev`` suffix."""
+    try:
+        plugin_name = _read_plugin_field(info, "name")
+    except ReleaseError as exc:
+        return [(FAIL, "Plugin manifest is readable", str(exc))]
+    if plugin_name is None:
+        return []
+    if plugin_name.endswith("-dev"):
+        return [(PASS, "Plugin name has -dev suffix", plugin_name)]
+    return [
+        (
+            FAIL,
+            "Plugin name has -dev suffix",
+            f"'{plugin_name}' — should be '{plugin_name}-dev'",
+        )
+    ]
 
 
 def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
@@ -814,6 +817,14 @@ def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not refs:
         return []
     label = "README raw GitHub URLs use SHA pins"
+    problems = _readme_pin_problems(refs, slug)
+    if problems:
+        return [(FAIL, label, "; ".join(problems))]
+    return [(PASS, label, f"{len(refs)} URL(s) checked")]
+
+
+def _readme_pin_problems(refs: list[InstallUrl], slug: str) -> list[str]:
+    """What is wrong with the install URLs ``refs``, one phrase per kind of problem."""
     problems: list[str] = []
     branches = sorted({r.segment for r in refs if r.is_trusted and not r.is_sha_pin})
     if branches:
@@ -823,9 +834,7 @@ def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
         problems.append(
             f"Not on raw.githubusercontent.com/{slug}: {', '.join(untrusted)}"
         )
-    if problems:
-        return [(FAIL, label, "; ".join(problems))]
-    return [(PASS, label, f"{len(refs)} URL(s) checked")]
+    return problems
 
 
 def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import typer
 
@@ -18,6 +18,15 @@ app = typer.Typer(
 _json_output: bool = False
 _verbose: bool = False
 _quiet: bool = False
+
+
+def _die(msg: str) -> NoReturn:
+    """Report an error as JSON or on stderr, and exit 1."""
+    if _json_output:
+        print(json.dumps({"error": msg}))
+    else:
+        print(f"Error: {msg}", file=sys.stderr)
+    raise typer.Exit(code=1)
 
 
 def _emit(data: object, text: str) -> None:
@@ -47,12 +56,7 @@ def main_callback(
     _verbose = verbose
     _quiet = quiet
     if verbose and quiet:
-        msg = "--verbose and --quiet are mutually exclusive"
-        if _json_output:
-            print(json.dumps({"error": msg}))
-        else:
-            print(f"Error: {msg}", file=sys.stderr)
-        raise typer.Exit(code=1)
+        _die("--verbose and --quiet are mutually exclusive")
     if ctx.invoked_subcommand is None:
         print(ctx.get_help())
         raise typer.Exit(code=0)
@@ -181,21 +185,12 @@ def status(
 
     resolved = Path(path).resolve()
     if not resolved.is_dir():
-        msg = f"{resolved} is not a directory"
-        if _json_output:
-            print(json.dumps({"error": msg}))
-        else:
-            print(f"Error: {msg}", file=sys.stderr)
-        raise typer.Exit(code=1)
+        _die(f"{resolved} is not a directory")
 
     try:
         info = run_status(path)
     except ReleaseError as exc:
-        if _json_output:
-            print(json.dumps({"error": str(exc)}))
-        else:
-            print(f"Error: {exc}", file=sys.stderr)
-        raise typer.Exit(code=1) from exc
+        _die(str(exc))
     if _json_output:
         print(json.dumps(asdict(info), default=str))
     elif not _quiet:

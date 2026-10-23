@@ -474,9 +474,7 @@ def _unlanded_phases(current_phase_num: int) -> tuple[str, ...]:
     return _PHASE_ORDER[current_phase_num - 1 :]
 
 
-def _print_incomplete_release(
-    current_phase_num: int, failures: Sequence[tuple[int, str]] = ()
-) -> None:
+def _print_incomplete_release(current_phase_num: int) -> None:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
     Called from every stop-early path — an interrupt, a propagation
@@ -493,8 +491,6 @@ def _print_incomplete_release(
         f"[red]Release incomplete[/red] — stopped during phase "
         f"{current_phase_num} ({phase_label})."
     )
-    for failed_phase, message in failures:
-        console.print(f"  Recorded failure in phase {failed_phase}: {message}")
     if unlanded:
         console.print(f"  Not confirmed landed: {', '.join(unlanded)}")
     if phase_label == "unknown":
@@ -698,12 +694,14 @@ def run_release(
                 # it is re-raised as a hard failure once the pipeline
                 # finishes, so the release still exits non-zero.
                 nonlocal current_phase_num
-                phase_num = 9 if start <= 9 else 10
+                phase_num = max(start, 9)
                 current_phase_num = phase_num
                 try:
                     _run_phases_9_10(info, version, dry_run=dry_run, start=start)
                 except ReleaseError as exc:
                     propagation_failures.append((phase_num, str(exc)))
+                    # Recorded so every stop-early path's recap carries it.
+                    _skips.record(f"FAILED — Phase {phase_num}: {exc}")
                     console.print(
                         f"[yellow]Phase {phase_num} did not fully land: {exc}[/yellow]"
                     )
@@ -771,10 +769,10 @@ def run_release(
             if _interrupted.is_set():
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
-                _print_incomplete_release(current_phase_num, propagation_failures)
+                _print_incomplete_release(current_phase_num)
                 sys.exit(1)
     except ReleaseError:
-        _print_incomplete_release(current_phase_num, propagation_failures)
+        _print_incomplete_release(current_phase_num)
         raise SystemExit(1) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
@@ -786,7 +784,7 @@ def run_release(
         raw_cmd = cast("object", exc.cmd)
         if isinstance(raw_cmd, list | tuple):
             parts = cast("Sequence[object]", raw_cmd)
-            cmd_str = " ".join(str(part) for part in parts)
+            cmd_str = " ".join(map(str, parts))
         else:
             cmd_str = str(raw_cmd)
         phase_label = _phase_name(current_phase_num)
@@ -807,8 +805,6 @@ def run_release(
             f"`{cmd_str}` did not return within {exc.timeout}s. "
             f"{resume_hint}"
         )
-        for failed_phase, message in propagation_failures:
-            console.print(f"  Recorded failure in phase {failed_phase}: {message}")
         ReleasePipeline.print_manual_actions(_skips)
         raise SystemExit(1) from None
     except Exception:
@@ -817,5 +813,5 @@ def run_release(
         # and no idea what landed. Show the traceback, then the same recap and
         # --resume-from hint every other stop-early path gives.
         traceback.print_exc()
-        _print_incomplete_release(current_phase_num, propagation_failures)
+        _print_incomplete_release(current_phase_num)
         raise SystemExit(1) from None

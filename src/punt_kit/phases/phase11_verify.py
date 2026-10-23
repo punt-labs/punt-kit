@@ -133,65 +133,76 @@ class Phase11Verify:
     def _version_pin_checks(self) -> list[VerificationCheck]:
         """Version consistency, read fresh from disk (``info.pyproject`` is stale
         after Phase 2 bumps the version)."""
-        info = self._info
-        version = self._version
-        checks: list[VerificationCheck] = []
+        return [
+            *self._pyproject_version_checks(),
+            *self._init_version_checks(),
+            *self._plugin_version_checks(),
+            *self._install_sh_version_checks(),
+        ]
 
-        pyproject_path = info.root / "pyproject.toml"
-        if pyproject_path.exists():
-            content = TextFile(pyproject_path).read()
-            current = VersionAssignment("version").read(content) or "not found"
-            checks.append(
+    def _pyproject_version_checks(self) -> list[VerificationCheck]:
+        path = self._info.root / "pyproject.toml"
+        if not path.exists():
+            return []
+        current = VersionAssignment("version").read(TextFile(path).read())
+        shown = current or "not found"
+        return [
+            VerificationCheck(
+                "pyproject.toml", shown == self._version, f"version={shown}"
+            )
+        ]
+
+    def _init_version_checks(self) -> list[VerificationCheck]:
+        pkg_dir = ReleaseProject(self._info, ops=self._ops).package_dir()
+        if pkg_dir is None or not (pkg_dir / "__init__.py").exists():
+            return []
+        content = TextFile(pkg_dir / "__init__.py").read()
+        uses_metadata = (
+            "importlib.metadata" in content or "importlib_metadata" in content
+        )
+        assignment = VersionAssignment("__version__")
+        if uses_metadata or not assignment.is_assigned(content):
+            return []
+        init_ver = assignment.read(content)
+        if init_ver is None:
+            return [
                 VerificationCheck(
-                    "pyproject.toml", current == version, f"version={current}"
+                    "__init__.py",
+                    False,
+                    "__version__ is assigned but not as a plain quoted string, "
+                    "so it cannot be verified",
                 )
+            ]
+        return [
+            VerificationCheck(
+                "__init__.py", init_ver == self._version, f"__version__={init_ver}"
             )
+        ]
 
-        pkg_dir = ReleaseProject(info, ops=self._ops).package_dir()
-        if pkg_dir is not None and (pkg_dir / "__init__.py").exists():
-            content = TextFile(pkg_dir / "__init__.py").read()
-            uses_metadata = (
-                "importlib.metadata" in content or "importlib_metadata" in content
+    def _plugin_version_checks(self) -> list[VerificationCheck]:
+        if not self._info.is_plugin:
+            return []
+        pj_data = JsonFile(self._info.plugin_manifest).load_object()
+        pj_ver = pj_data.get("version", "not found")
+        return [
+            VerificationCheck(
+                "plugin.json", pj_ver == self._version, f"version={pj_ver}"
             )
-            assignment = VersionAssignment("__version__")
-            if assignment.is_assigned(content) and not uses_metadata:
-                init_ver = assignment.read(content)
-                if init_ver is None:
-                    checks.append(
-                        VerificationCheck(
-                            "__init__.py",
-                            False,
-                            "__version__ is assigned but not as a plain quoted "
-                            "string, so it cannot be verified",
-                        )
-                    )
-                else:
-                    checks.append(
-                        VerificationCheck(
-                            "__init__.py",
-                            init_ver == version,
-                            f"__version__={init_ver}",
-                        )
-                    )
+        ]
 
-        if info.is_plugin:
-            pj_data = cast("dict[str, object]", JsonFile(info.plugin_manifest).load())
-            pj_ver = pj_data.get("version", "not found")
-            checks.append(
-                VerificationCheck("plugin.json", pj_ver == version, f"version={pj_ver}")
+    def _install_sh_version_checks(self) -> list[VerificationCheck]:
+        install_sh = self._info.root / "install.sh"
+        if not install_sh.exists():
+            return []
+        match = re.search(r'VERSION="([^"]*)"', TextFile(install_sh).read())
+        if not match:
+            return []
+        install_ver = match.group(1)
+        return [
+            VerificationCheck(
+                "install.sh", install_ver == self._version, f"VERSION={install_ver}"
             )
-
-        install_sh = info.root / "install.sh"
-        if install_sh.exists():
-            match = re.search(r'VERSION="([^"]*)"', TextFile(install_sh).read())
-            if match:
-                install_ver = match.group(1)
-                checks.append(
-                    VerificationCheck(
-                        "install.sh", install_ver == version, f"VERSION={install_ver}"
-                    )
-                )
-        return checks
+        ]
 
     def _remote_slug(self) -> tuple[RepoSlug | None, list[VerificationCheck]]:
         """The project's GitHub slug (``None`` when there is nothing to verify),

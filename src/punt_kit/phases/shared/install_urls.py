@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
-from urllib.parse import unquote, urlparse
+from urllib.parse import ParseResult, unquote, urlparse
 
 from punt_kit.phases.shared.repo_slug import RepoSlug
 
@@ -208,12 +208,7 @@ class InstallUrlRecognizer:
                     # An unbalanced "[" in the authority: no client can fetch
                     # this, so it is not an install URL to classify.
                     continue
-                trusted = (
-                    self._trusted.fullmatch(parsed.path)
-                    if parsed.scheme == "https"
-                    and parsed.netloc.lower() == _TRUSTED_HOST
-                    else None
-                )
+                trusted = self._trusted_match(parsed)
                 if trusted is not None:
                     segment = trusted.group(1)
                     span = None
@@ -275,6 +270,12 @@ class InstallUrlRecognizer:
         for low, high in spans:
             content = content[:low] + sha + content[high:]
         return content
+
+    def _trusted_match(self, parsed: ParseResult) -> re.Match[str] | None:
+        """The path match when ``parsed`` is exactly this repo's trusted install URL."""
+        if parsed.scheme != "https" or parsed.netloc.lower() != _TRUSTED_HOST:
+            return None
+        return self._trusted.fullmatch(parsed.path)
 
     @classmethod
     def _decode_to_fixed_point(cls, token: str) -> tuple[str, bool]:

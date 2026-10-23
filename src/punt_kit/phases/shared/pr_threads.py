@@ -47,59 +47,14 @@ class PrThreadResolver:
         required_review_thread_resolution=true, unresolved threads block
         merge. Every page of threads is read, not only the first.
         """
-        try:
-            slug = self._repo.slug()
-        except (ValueError, RemoteLookupError) as exc:
-            self._ops.warn(
-                f"Review threads on PR #{pr_number} not resolved: {exc} "
-                "— merge may fail"
-            )
-            return
+        slug = self._slug_or_warn(pr_number)
         if slug is None:
-            self._ops.warn(
-                f"Review threads on PR #{pr_number} not resolved: no github.com "
-                "origin remote — merge may fail"
-            )
             return
 
         unresolved: list[str] = []
         cursor: str | None = None
         seen_cursors: set[str] = set()
-        while True:
-            result = self._ops.run(
-                [
-                    gh,
-                    "api",
-                    "graphql",
-                    "-f",
-                    f"query={self._threads_query(slug, pr_number, cursor)}",
-                ],
-                cwd=cwd,
-                check=False,
-            )
-            if result.returncode != 0:
-                # gh exits 1 on a GraphQL error, with the message on stderr.
-                reason = result.stderr.strip() or result.stdout[:200]
-                self._ops.warn(
-                    f"Could not fetch review threads on PR #{pr_number}: {reason} "
-                    "— merge may fail"
-                )
-                break
-            try:
-                page = self._page_of(json.loads(result.stdout))
-            except json.JSONDecodeError:
-                self._ops.warn(
-                    f"Could not parse review thread response for PR #{pr_number} "
-                    f"({result.stdout[:100]!r}) — thread resolution skipped, merge "
-                    "may fail"
-                )
-                break
-            except ValueError as exc:
-                self._ops.warn(
-                    f"Review threads on PR #{pr_number} not resolved: {exc} "
-                    "— merge may fail"
-                )
-                break
+        while (page := self._fetch_page(gh, cwd, slug, pr_number, cursor)) is not None:
             unresolved.extend(page.unresolved)
             cursor = page.next_cursor
             if not page.has_more:
@@ -113,6 +68,61 @@ class PrThreadResolver:
             seen_cursors.add(cursor)
 
         self._resolve_all(gh, cwd, pr_number, unresolved)
+
+    def _slug_or_warn(self, pr_number: int) -> RepoSlug | None:
+        """The repository's slug; ``None`` after warning that there is none."""
+        try:
+            slug = self._repo.slug()
+        except (ValueError, RemoteLookupError) as exc:
+            self._ops.warn(
+                f"Review threads on PR #{pr_number} not resolved: {exc} "
+                "— merge may fail"
+            )
+            return None
+        if slug is None:
+            self._ops.warn(
+                f"Review threads on PR #{pr_number} not resolved: no github.com "
+                "origin remote — merge may fail"
+            )
+        return slug
+
+    def _fetch_page(
+        self, gh: str, cwd: str, slug: RepoSlug, pr_number: int, cursor: str | None
+    ) -> _ThreadPage | None:
+        """One page of threads; ``None`` after warning that the listing failed."""
+        result = self._ops.run(
+            [
+                gh,
+                "api",
+                "graphql",
+                "-f",
+                f"query={self._threads_query(slug, pr_number, cursor)}",
+            ],
+            cwd=cwd,
+            check=False,
+        )
+        if result.returncode != 0:
+            # gh exits 1 on a GraphQL error, with the message on stderr.
+            reason = result.stderr.strip() or result.stdout[:200]
+            self._ops.warn(
+                f"Could not fetch review threads on PR #{pr_number}: {reason} "
+                "— merge may fail"
+            )
+            return None
+        try:
+            return self._page_of(json.loads(result.stdout))
+        except json.JSONDecodeError:
+            self._ops.warn(
+                f"Could not parse review thread response for PR #{pr_number} "
+                f"({result.stdout[:100]!r}) — thread resolution skipped, merge "
+                "may fail"
+            )
+        except ValueError as exc:
+            self._ops.warn(
+                f"Review threads on PR #{pr_number} not resolved: {exc} "
+                "— merge may fail"
+            )
+        return None
 
     def _resolve_all(
         self, gh: str, cwd: str, pr_number: int, unresolved: list[str]
