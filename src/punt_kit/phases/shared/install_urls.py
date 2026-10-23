@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from typing import Self, final
 from urllib.parse import unquote, urlparse
 
+from punt_kit.phases.shared.repo_slug import RepoSlug
+
 _SHA_SHAPE = re.compile(r"[0-9a-fA-F]{7,40}")
 _RELEASE_TAG_SHAPE = re.compile(r"v\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?", re.IGNORECASE)
 
@@ -150,16 +152,6 @@ class InstallUrlRecognizer:
         """The ``owner/repo`` this recognizer trusts."""
         return f"{self._owner}/{self._repo}"
 
-    @property
-    def repo_name(self) -> str:
-        """The repository half of the slug."""
-        return self._repo
-
-    @staticmethod
-    def normalize_slug(slug: str) -> str:
-        """Strip surrounding whitespace and slashes from a resolved slug."""
-        return slug.strip().strip("/")
-
     @classmethod
     def for_slug(cls, slug: str) -> Self:
         """Build a recognizer from an ``owner/repo`` slug.
@@ -169,11 +161,8 @@ class InstallUrlRecognizer:
         Raises ``ValueError`` unless exactly one non-empty owner and one
         non-empty repo remain.
         """
-        parts = cls.normalize_slug(slug).split("/")
-        if len(parts) != 2 or not all(parts):
-            msg = f"not an owner/repo slug: {slug!r}"
-            raise ValueError(msg)
-        return cls(parts[0], parts[1])
+        parsed = RepoSlug.parse(slug)
+        return cls(parsed.owner, parsed.name)
 
     def scan(
         self, content: str, *, all_urls_relevant: bool = False

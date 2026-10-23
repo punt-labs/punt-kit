@@ -1,4 +1,4 @@
-"""GitHub repo resolution, branch protection, and required-check polling."""
+"""Required-check polling and review-thread resolution for a GitHub PR."""
 
 from __future__ import annotations
 
@@ -7,14 +7,15 @@ import subprocess
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, cast, final
-from urllib.parse import urlparse
 
+from punt_kit.phases.shared.repo_slug import RepoSlug
 from punt_kit.phases.shared.timeouts import CI_WATCH, NO_CHECKS_GRACE
 
 if TYPE_CHECKING:
     import threading
     from collections.abc import Callable
 
+    from punt_kit.phases.shared.github_repo import GithubRepo
     from punt_kit.phases.shared.ops import ReleaseOps
 
 # A check has failed if it completed with a failure conclusion.
@@ -28,108 +29,6 @@ _FAILURE_CONCLUSIONS = frozenset(
         "error",
     }
 )
-
-
-@final
-class GithubRepo:
-    """A project's GitHub repository, resolved from its git remote."""
-
-    __slots__ = ("_ops", "_root")
-
-    _root: Path
-    _ops: ReleaseOps
-
-    def __new__(cls, root: Path, *, ops: ReleaseOps) -> Self:
-        self = super().__new__(cls)
-        self._root = root
-        self._ops = ops
-        return self
-
-    def resolve(self) -> str | None:
-        """Extract GitHub owner/repo from git remote. ``None`` if unresolvable."""
-        try:
-            result = self._ops.run(
-                ["git", "remote", "get-url", "origin"],
-                cwd=str(self._root),
-                check=False,
-            )
-            if result.returncode != 0:
-                return None
-            url = result.stdout.strip()
-            if url.startswith("git@github.com:"):
-                return url.removeprefix("git@github.com:").removesuffix(".git")
-            parsed = urlparse(url)
-            if parsed.hostname == "github.com":
-                repo = parsed.path.lstrip("/").removesuffix(".git")
-                if repo:
-                    return repo
-        except (subprocess.TimeoutExpired, OSError):
-            pass
-        return None
-
-    def has_branch_protection(self, gh: str, owner: str, repo_name: str) -> bool:
-        """True if ``main`` has a branch protection rule.
-
-        ``gh api .../branches/main/protection`` returns HTTP 404 with the
-        message body ``"Branch not protected"`` when no protection rule is
-        configured. The SAME endpoint also 404s when the token lacks
-        ``admin:repo`` permissions on a repo that DOES have protection —
-        with a different error message (typically ``"Not Found"`` or an
-        HTTP-401 that gh surfaces as 404). Distinguishing the two requires
-        the explicit ``"branch not protected"`` marker: any 404 without
-        that marker is ambiguous and falls through as protected=True, along
-        with every other failure mode (network, rate limit, timeout, wrong
-        scope). Fail-safe direction: the isRequired-only wait behavior is
-        preserved for anything we cannot confirm is genuinely unprotected.
-        """
-        try:
-            result = self._ops.run(
-                [gh, "api", f"repos/{owner}/{repo_name}/branches/main/protection"],
-                cwd=str(self._root),
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return True
-        if result.returncode == 0:
-            return True
-        combined = (result.stderr + result.stdout).lower()
-        return "branch not protected" not in combined
-
-    def has_ruleset(self, gh: str, owner: str, repo_name: str) -> bool:
-        """True if a GitHub ruleset (not the legacy branch-protection API)
-        governs ``main``.
-
-        ``gh api repos/{owner}/{repo}/rules/branches/main`` returns the list
-        of *active* rules for the branch — a JSON array, empty when no
-        ruleset targets it. This is a distinct mechanism from classic branch
-        protection: a repo can be fully governed (required status checks,
-        required conversation resolution) by a ruleset while
-        ``has_branch_protection`` reports "branch not protected", because
-        the legacy endpoint only ever sees the legacy feature. ``ethos``
-        governs ``main`` this way — 2 required status checks plus
-        conversation resolution, entirely via rulesets.
-
-        Fail-safe direction matches ``has_branch_protection``: any failure
-        to positively confirm a ruleset (timeout, non-zero exit, unparsable
-        body) reports ``False`` rather than risk suppressing the "no branch
-        protection" warning on a repo that turns out to be genuinely
-        unprotected.
-        """
-        try:
-            result = self._ops.run(
-                [gh, "api", f"repos/{owner}/{repo_name}/rules/branches/main"],
-                cwd=str(self._root),
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            return False
-        if result.returncode != 0:
-            return False
-        try:
-            rules = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            return False
-        return isinstance(rules, list) and len(cast("list[object]", rules)) > 0
 
 
 @final
@@ -184,12 +83,14 @@ class RequiredChecksWaiter:
         v5.0.4-style hang leave the release silently unfinished instead of
         failing fast.
         """
-        repo_slug = resolve_repo(Path(cwd))
-        if not repo_slug or "/" not in repo_slug:
+        resolved = resolve_repo(Path(cwd))
+        try:
+            slug = RepoSlug.parse(resolved or "")
+        except ValueError:
             self._ops.fail(
                 f"Cannot determine GitHub owner/repo from git remote in {cwd}"
             )
-        owner, repo_name = repo_slug.split("/", 1)
+        owner, repo_name = slug.owner, slug.name
 
         branch_protected = self._repo.has_branch_protection(gh, owner, repo_name)
         ruleset_governed = self._repo.has_ruleset(gh, owner, repo_name)
@@ -209,37 +110,7 @@ class RequiredChecksWaiter:
         no_checks_deadline = time.time() + NO_CHECKS_GRACE
         consecutive_errors = 0
 
-        query = (
-            "{"
-            f'  repository(owner: "{owner}", name: "{repo_name}") {{'
-            f"    pullRequest(number: {pr_number}) {{"
-            "      commits(last: 1) {"
-            "        nodes {"
-            "          commit {"
-            "            statusCheckRollup {"
-            "              contexts(first: 100) {"
-            "                nodes {"
-            "                  ... on CheckRun {"
-            "                    name"
-            f"                    isRequired(pullRequestNumber: {pr_number})"
-            "                    conclusion"
-            "                    status"
-            "                  }"
-            "                  ... on StatusContext {"
-            "                    context"
-            f"                    isRequired(pullRequestNumber: {pr_number})"
-            "                    state"
-            "                  }"
-            "                }"
-            "              }"
-            "            }"
-            "          }"
-            "        }"
-            "      }"
-            "    }"
-            "  }"
-            "}"
-        )
+        query = self._checks_query(slug, pr_number)
 
         while time.time() < deadline:
             if interrupted.is_set():
@@ -353,35 +224,7 @@ class RequiredChecksWaiter:
             # Normalize CheckRun and StatusContext into a uniform format.
             # CheckRun has: name, isRequired, conclusion, status
             # StatusContext has: context (not name), isRequired, state (not status)
-            checks: list[dict[str, object]] = []
-            for node in check_nodes:
-                if "name" in node:
-                    # CheckRun — conclusion is the terminal result, status is
-                    # the lifecycle state (QUEUED, IN_PROGRESS, COMPLETED)
-                    checks.append(
-                        {
-                            "name": node["name"],
-                            "isRequired": node.get("isRequired"),
-                            "conclusion": node.get("conclusion"),
-                            "status": node.get("status"),
-                        }
-                    )
-                elif "context" in node:
-                    # StatusContext — state is SUCCESS/FAILURE/PENDING/ERROR/EXPECTED
-                    # PENDING and EXPECTED mean the check hasn't completed
-                    state = str(node.get("state", "")).upper()
-                    checks.append(
-                        {
-                            "name": node["context"],
-                            "isRequired": node.get("isRequired"),
-                            "conclusion": state.lower() if state else None,
-                            "status": (
-                                "PENDING"
-                                if state in ("PENDING", "EXPECTED")
-                                else "COMPLETED"
-                            ),
-                        }
-                    )
+            checks = self._normalize(check_nodes)
 
             relevant = (
                 [c for c in checks if c.get("isRequired")] if governed else checks
@@ -427,6 +270,76 @@ class RequiredChecksWaiter:
 
         label = "required" if governed else "all"
         self._ops.fail(f"Timed out waiting for {label} CI checks on PR #{pr_number}")
+
+    @staticmethod
+    def _checks_query(slug: RepoSlug, pr_number: int) -> str:
+        """The GraphQL query for a PR's last-commit check contexts."""
+        owner, repo_name = slug.owner, slug.name
+        return (
+            "{"
+            f'  repository(owner: "{owner}", name: "{repo_name}") {{'
+            f"    pullRequest(number: {pr_number}) {{"
+            "      commits(last: 1) {"
+            "        nodes {"
+            "          commit {"
+            "            statusCheckRollup {"
+            "              contexts(first: 100) {"
+            "                nodes {"
+            "                  ... on CheckRun {"
+            "                    name"
+            f"                    isRequired(pullRequestNumber: {pr_number})"
+            "                    conclusion"
+            "                    status"
+            "                  }"
+            "                  ... on StatusContext {"
+            "                    context"
+            f"                    isRequired(pullRequestNumber: {pr_number})"
+            "                    state"
+            "                  }"
+            "                }"
+            "              }"
+            "            }"
+            "          }"
+            "        }"
+            "      }"
+            "    }"
+            "  }"
+            "}"
+        )
+
+    @staticmethod
+    def _normalize(check_nodes: list[dict[str, object]]) -> list[dict[str, object]]:
+        """Fold CheckRun and StatusContext nodes into one uniform check shape."""
+        checks: list[dict[str, object]] = []
+        for node in check_nodes:
+            if "name" in node:
+                # CheckRun — conclusion is the terminal result, status is
+                # the lifecycle state (QUEUED, IN_PROGRESS, COMPLETED)
+                checks.append(
+                    {
+                        "name": node["name"],
+                        "isRequired": node.get("isRequired"),
+                        "conclusion": node.get("conclusion"),
+                        "status": node.get("status"),
+                    }
+                )
+            elif "context" in node:
+                # StatusContext — state is SUCCESS/FAILURE/PENDING/ERROR/EXPECTED
+                # PENDING and EXPECTED mean the check hasn't completed
+                state = str(node.get("state", "")).upper()
+                checks.append(
+                    {
+                        "name": node["context"],
+                        "isRequired": node.get("isRequired"),
+                        "conclusion": state.lower() if state else None,
+                        "status": (
+                            "PENDING"
+                            if state in ("PENDING", "EXPECTED")
+                            else "COMPLETED"
+                        ),
+                    }
+                )
+        return checks
 
     def _no_checks_grace_check(
         self, no_checks_deadline: float, pr_number: int, *, checks_present: bool
@@ -493,17 +406,10 @@ class PrThreadResolver:
         required_review_thread_resolution=true, unresolved threads block
         merge.
         """
-        repo = self._repo.resolve()
-        if repo is None:
+        slug = self._repo.resolve_slug()
+        if slug is None:
             return
-        owner, name = repo.split("/", 1)
-
-        query = (
-            f'{{ repository(owner: "{owner}", name: "{name}") {{'
-            f" pullRequest(number: {pr_number}) {{"
-            " reviewThreads(first: 50) {"
-            " nodes { id isResolved } } } } }"
-        )
+        query = self._threads_query(slug, pr_number)
 
         result = self._ops.run(
             [gh, "api", "graphql", "-f", f"query={query}"],
@@ -524,15 +430,7 @@ class PrThreadResolver:
             )
             return
 
-        threads = (
-            data.get("data", {})
-            .get("repository", {})
-            .get("pullRequest", {})
-            .get("reviewThreads", {})
-            .get("nodes", [])
-        )
-
-        unresolved = [t["id"] for t in threads if not t.get("isResolved")]
+        unresolved = self._unresolved_ids(data)
         if not unresolved:
             return
 
@@ -553,3 +451,22 @@ class PrThreadResolver:
                 self._ops.info(f"Could not resolve thread {tid}: {res.stderr.strip()}")
         if resolved:
             self._ops.ok(f"Resolved {resolved}/{len(unresolved)} review thread(s)")
+
+    @staticmethod
+    def _threads_query(slug: RepoSlug, pr_number: int) -> str:
+        """The GraphQL query for a PR's first 50 review threads."""
+        return (
+            f'{{ repository(owner: "{slug.owner}", name: "{slug.name}") {{'
+            f" pullRequest(number: {pr_number}) {{"
+            " reviewThreads(first: 50) {"
+            " nodes { id isResolved } } } } }"
+        )
+
+    @staticmethod
+    def _unresolved_ids(data: object) -> list[str]:
+        """The ids of the threads in a ``_threads_query`` response not yet resolved."""
+        node: object = data
+        for key in ("data", "repository", "pullRequest", "reviewThreads", "nodes"):
+            node = cast("dict[str, object]", node).get(key, {})
+        threads = cast("list[dict[str, object]]", node or [])
+        return [str(t["id"]) for t in threads if not t.get("isResolved")]

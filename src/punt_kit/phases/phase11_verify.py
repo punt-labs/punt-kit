@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
-from punt_kit.phases.shared.gh import GithubRepo
+from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
+    from punt_kit.phases.shared.repo_slug import RepoSlug
     from punt_kit.phases.shared.siblings import SkipRecorder
 
 # Separate from Reporter's singleton — phase banners and per-check verdict
@@ -278,9 +279,10 @@ class Phase11Verify:
 
         # 4. install-all.sh entry (curl SHA for CLI projects, plugin loop for
         # pure plugins)
-        repo = self._repo_slug()
+        repo, remote_checks = self._remote_slug()
+        checks.extend(remote_checks)
         if repo and (install_sh.exists() or info.is_plugin):
-            project_name = repo.split("/")[-1]
+            project_name = repo.name
             github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
             if github_sibling is None:
                 # An absent .github sibling is not a verification failure:
@@ -375,75 +377,66 @@ class Phase11Verify:
                         )
 
         # 5. Marketplace
-        if info.is_plugin or info.is_hybrid:
-            repo = self._repo_slug()
-            if repo:
-                project_name = repo.split("/")[-1]
-                marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-                candidates = frozenset(n for n in (marketplace_name, project_name) if n)
-                claude_plugins_sibling = SiblingRepo.resolve(
-                    info.root, "claude-plugins", ops=ops
+        if repo and (info.is_plugin or info.is_hybrid):
+            project_name = repo.name
+            marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
+            candidates = frozenset(n for n in (marketplace_name, project_name) if n)
+            claude_plugins_sibling = SiblingRepo.resolve(
+                info.root, "claude-plugins", ops=ops
+            )
+            if claude_plugins_sibling is None:
+                checks.append(
+                    VerificationCheck(
+                        "marketplace", False, "sibling claude-plugins not found"
+                    )
                 )
-                if claude_plugins_sibling is None:
+            else:
+                mp = claude_plugins_sibling.path / ".claude-plugin" / "marketplace.json"
+                if not mp.exists():
                     checks.append(
                         VerificationCheck(
-                            "marketplace", False, "sibling claude-plugins not found"
+                            "marketplace", False, "marketplace.json not found"
                         )
                     )
                 else:
-                    mp = (
-                        claude_plugins_sibling.path
-                        / ".claude-plugin"
-                        / "marketplace.json"
+                    data = cast(
+                        "dict[str, object]",
+                        json.loads(mp.read_text(encoding="utf-8")),
                     )
-                    if not mp.exists():
-                        checks.append(
-                            VerificationCheck(
-                                "marketplace", False, "marketplace.json not found"
-                            )
-                        )
-                    else:
-                        data = cast(
-                            "dict[str, object]",
-                            json.loads(mp.read_text(encoding="utf-8")),
-                        )
-                        plugins = cast(
-                            "list[dict[str, object]]", data.get("plugins", [])
-                        )
-                        mp_found = False
-                        for p in plugins:
-                            src = cast("dict[str, str]", p.get("source", {}))
-                            # marketplace.json uses source.url (keyless HTTPS,
-                            # git-subdir).
-                            source_url = str(src.get("url", "")).removesuffix(".git")
-                            if (
-                                any(source_url.endswith("/" + n) for n in candidates)
-                                or p.get("name") in candidates
-                            ):
-                                mp_ver = str(p.get("version", ""))
-                                mp_ref = str(src.get("ref", ""))
-                                ok = mp_ver == version and mp_ref == tag
-                                checks.append(
-                                    VerificationCheck(
-                                        "marketplace",
-                                        ok,
-                                        f"version={mp_ver}, ref={mp_ref}",
-                                    )
-                                )
-                                mp_found = True
-                                break
-                        if not mp_found:
-                            names = ",".join(sorted(candidates))
+                    plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+                    mp_found = False
+                    for p in plugins:
+                        src = cast("dict[str, str]", p.get("source", {}))
+                        # marketplace.json uses source.url (keyless HTTPS,
+                        # git-subdir).
+                        source_url = str(src.get("url", "")).removesuffix(".git")
+                        if (
+                            any(source_url.endswith("/" + n) for n in candidates)
+                            or p.get("name") in candidates
+                        ):
+                            mp_ver = str(p.get("version", ""))
+                            mp_ref = str(src.get("ref", ""))
+                            ok = mp_ver == version and mp_ref == tag
                             checks.append(
                                 VerificationCheck(
                                     "marketplace",
-                                    False,
-                                    f"no entry for {names}",
+                                    ok,
+                                    f"version={mp_ver}, ref={mp_ref}",
                                 )
                             )
+                            mp_found = True
+                            break
+                    if not mp_found:
+                        names = ",".join(sorted(candidates))
+                        checks.append(
+                            VerificationCheck(
+                                "marketplace",
+                                False,
+                                f"no entry for {names}",
+                            )
+                        )
 
         # 6. Profile SHA (install-all.sh URL resolves)
-        repo = self._repo_slug()
         if repo and (install_sh.exists() or info.is_plugin):
             github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
             if github_sibling is None:
@@ -452,7 +445,7 @@ class Phase11Verify:
                 # the two checks collapse to one recap line rather than
                 # double-reporting.
                 self._skips.record(
-                    GITHUB_ABSENT_SKIP.format(name=repo.split("/")[-1], ver=version)
+                    GITHUB_ABSENT_SKIP.format(name=repo.name, ver=version)
                 )
             else:
                 sibling = github_sibling.path
@@ -530,7 +523,7 @@ class Phase11Verify:
                                 VerificationCheck("profile SHA", False, detail)
                             )
                         elif install_sh.exists():
-                            project_name = repo.split("/")[-1]
+                            project_name = repo.name
                             install_sha = project.install_sh_sha()
                             current_entry = re.search(
                                 rf"\$GH/{re.escape(project_name)}/"
@@ -560,7 +553,7 @@ class Phase11Verify:
                             # names a claude-plugins SHA, and that commit's
                             # marketplace.json must carry this project's
                             # current version/ref.
-                            project_name = repo.split("/")[-1]
+                            project_name = repo.name
                             mp_pin = re.search(
                                 r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh",
                                 show_result.stdout,
@@ -627,7 +620,7 @@ class Phase11Verify:
 
         # 8. Website (optional — sibling may not exist)
         if repo:
-            project_name = repo.split("/")[-1]
+            project_name = repo.name
             website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
             if website_sibling is not None:
                 pj = website_sibling.path / "src" / "data" / "projects.json"
@@ -744,37 +737,35 @@ class Phase11Verify:
         if not all_pass:
             ops.fail("Some verification checks failed — see above")
 
-    def _repo_slug(self) -> str | None:
-        """The GitHub ``owner/repo`` of this project, normalized, or ``None``.
+    def _remote_slug(self) -> tuple[RepoSlug | None, list[VerificationCheck]]:
+        """The project's GitHub slug (``None`` when there is nothing to verify),
+        and the failed checks resolving it produced.
 
-        A remote like ``https://github.com/o/r/`` resolves to ``o/r/``;
-        stripping the slashes here means every ``split("/")`` below sees the
-        same slug the recognizer does.
+        A remote that names GitHub but is not ``owner/repo`` is one cause, so
+        it yields one failed check here and every slug-dependent check below
+        is skipped.
         """
-        repo = GithubRepo(self._info.root, ops=self._ops).resolve()
-        return InstallUrlRecognizer.normalize_slug(repo) if repo else repo
+        try:
+            return GithubRepo(self._info.root, ops=self._ops).slug(), []
+        except ValueError as exc:
+            return None, [VerificationCheck("GitHub remote", False, str(exc))]
 
     def _pin_checks(
         self,
         label: str,
         text: str,
-        slug: str,
+        slug: RepoSlug,
         *,
         all_urls_relevant: bool,
     ) -> list[VerificationCheck]:
         """One verdict per pinned install URL ``slug``'s recognizer finds in ``text``.
-
-        A slug that is not ``owner/repo`` is itself one failed check.
 
         Trusted and untrusted pins are detected and reported independently —
         a text can carry one trusted current-SHA pin AND one untrusted-host
         or owner pin (e.g. an injected line), and the untrusted one must
         never be skipped just because a trusted pin was also found.
         """
-        try:
-            recognizer = InstallUrlRecognizer.for_slug(slug)
-        except ValueError as exc:
-            return [VerificationCheck(label, False, str(exc))]
+        recognizer = InstallUrlRecognizer(slug.owner, slug.name)
         trusted_shas, has_untrusted = recognizer.classify(
             text, all_urls_relevant=all_urls_relevant
         )

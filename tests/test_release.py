@@ -32,13 +32,14 @@ from punt_kit.phases.phase11_verify import VerificationCheck
 from punt_kit.phases.shared import gh as gh_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.ci_run import TagRunSelector
-from punt_kit.phases.shared.gh import GithubRepo
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.pipeline import ReleasePipeline
 from punt_kit.phases.shared.pr_merge import PrMerger
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
+from punt_kit.phases.shared.repo_slug import RepoSlug
 from punt_kit.phases.shared.siblings import SiblingRepo, SkipRecorder
 
 # Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
@@ -8707,9 +8708,10 @@ def test_phase11_verify_passes_with_a_trailing_slash_remote(
     assert "✗" not in capsys.readouterr().out
 
 
-def test_phase11_verify_reports_an_unusable_slug_as_a_failed_check(
+def test_phase11_verify_reports_an_unusable_slug_as_one_failed_check(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """One bad remote is one cause, so exactly one failed check names it."""
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
     _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
@@ -8722,7 +8724,66 @@ def test_phase11_verify_reports_an_unusable_slug_as_a_failed_check(
     with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(detect(root), version, dry_run=False)
 
-    assert "not an owner/repo slug" in _flat(capsys.readouterr().out)
+    _assert_failed_checks(
+        capsys.readouterr().out, ["GitHub remote"], "not an owner/repo slug: 'proj'"
+    )
+
+
+def _resolve_remote(tmp_path: _Path, url: str) -> str | None:
+    root = _make_release_project(tmp_path)
+    _git(["remote", "set-url", "origin", url], cwd=str(root))
+    return GithubRepo(root, ops=_fault_ops()).resolve()
+
+
+@pytest.mark.parametrize(
+    ("url", "slug"),
+    [
+        pytest.param("https://github.com/o/r/", "o/r", id="trailing-slash"),
+        pytest.param("https://github.com/o/r.git", "o/r", id="dot-git"),
+        pytest.param("git@github.com:o/r.git", "o/r", id="scp-style"),
+        pytest.param("git@github.com:o/r/", "o/r", id="scp-trailing-slash"),
+        pytest.param("https://github.com//o/r//", "o/r", id="extra-slashes"),
+    ],
+)
+def test_resolve_returns_a_clean_owner_repo_slug(
+    tmp_path: _Path, url: str, slug: str
+) -> None:
+    assert _resolve_remote(tmp_path, url) == slug
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://github.com/proj", id="no-owner"),
+        pytest.param("https://github.com/o/r/extra", id="three-parts"),
+        pytest.param("https://github.com/", id="empty-path"),
+        pytest.param("https://gitlab.com/o/r", id="other-host"),
+    ],
+)
+def test_resolve_rejects_a_remote_that_is_not_owner_repo(
+    tmp_path: _Path, url: str
+) -> None:
+    assert _resolve_remote(tmp_path, url) is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "owner", "name"),
+    [
+        ("o/r", "o", "r"),
+        ("  o/r/ ", "o", "r"),
+        ("punt-labs/punt-kit", "punt-labs", "punt-kit"),
+        ("o/r.js", "o", "r.js"),
+    ],
+)
+def test_repo_slug_parse_normalizes(raw: str, owner: str, name: str) -> None:
+    slug = RepoSlug.parse(raw)
+    assert (slug.owner, slug.name, str(slug)) == (owner, name, f"{owner}/{name}")
+
+
+@pytest.mark.parametrize("raw", ["", "r", "/r", "o/", "o/r/x", "o/ r", "o//r", "o/.."])
+def test_repo_slug_parse_rejects_malformed_text(raw: str) -> None:
+    with pytest.raises(ValueError, match="not an owner/repo slug"):
+        RepoSlug.parse(raw)
 
 
 @pytest.mark.parametrize(("owner", "repo"), [("", "r"), ("o", ""), ("", "")])

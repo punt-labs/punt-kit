@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from rich.console import Console
 
 from punt_kit.phases.shared.errors import ReleaseError
-from punt_kit.phases.shared.gh import GithubRepo
+from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
@@ -73,10 +73,10 @@ class InstallAllPropagator:
         if not (info.root / "install.sh").exists():
             return
 
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo is None:
+        slug = GithubRepo(info.root, ops=ops).resolve_slug()
+        if slug is None:
             return
-        project_name = repo.split("/")[-1]
+        project_name = slug.name
 
         github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
         if github_sibling is None:
@@ -249,10 +249,10 @@ class MarketplacePropagator:
         if not info.is_plugin and not info.is_hybrid:
             return
 
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo is None:
+        slug = GithubRepo(info.root, ops=ops).resolve_slug()
+        if slug is None:
             return
-        project_name = repo.split("/")[-1]
+        project_name = slug.name
         tag = f"v{version}"
 
         claude_plugins_sibling = SiblingRepo.resolve(
@@ -355,10 +355,10 @@ class WebsitePropagator:
     ) -> None:
         info = self._info
         ops = self._ops
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo is None:
+        slug = GithubRepo(info.root, ops=ops).resolve_slug()
+        if slug is None:
             return
-        project_name = repo.split("/")[-1]
+        project_name = slug.name
 
         website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
         if website_sibling is None:
