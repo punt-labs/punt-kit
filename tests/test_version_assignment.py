@@ -231,6 +231,28 @@ def test_a_bare_valueless_assignment_is_labelled_an_empty_reset() -> None:
     )
 
 
+def test_only_computed_lines_are_listed_as_computed() -> None:
+    text = 'VERSION=""\nVERSION="$2"\nVERSION="1"\nVERSION="$(f)"\n'
+
+    assert VersionAssignment.in_shell("VERSION").computed_lines(text) == (
+        'VERSION="$2"',
+        'VERSION="$(f)"',
+    )
+
+
+def test_a_file_of_only_resets_assigns_no_value() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert [
+        assignment.assigns_a_value(text)
+        for text in (
+            'VERSION=""\n',
+            "VERSION=\nVERSION=''\n",
+            'VERSION=""\nVERSION=1\n',
+        )
+    ] == [False, False, True]
+
+
 def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
 

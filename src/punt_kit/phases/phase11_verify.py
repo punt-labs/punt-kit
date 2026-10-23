@@ -277,9 +277,9 @@ class Phase11Verify:
             return VerificationCheck("install-all.sh", False, currency.detail)
         # Python/hybrid: the VERSION pin matches. Go/other: there is no VERSION
         # pin, and a SHA that resolves and is on the tag's history is enough.
-        # An assignment the rule cannot read is not a pass: read() is None there.
+        # A computed assignment is not a pass: is_pinned_to is False for it.
         assignment = VersionAssignment.in_shell("VERSION")
-        ok = not assignment.is_assigned(shown.stdout) or (
+        ok = not assignment.assigns_a_value(shown.stdout) or (
             assignment.is_pinned_to(shown.stdout, self._version)
         )
         return VerificationCheck("install-all.sh", ok, f"SHA={sha}")

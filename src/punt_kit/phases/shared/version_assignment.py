@@ -105,15 +105,19 @@ class VersionAssignment:
         return match.group(3) if match else None
 
     def is_pinned_to(self, text: str, value: str) -> bool:
-        """True when the first assignment is plain and every plain one is ``value``.
+        """True when the first value is plain and every plain one is ``value``.
 
-        An empty reset (``VERSION=""``) is not a pin, so it neither matches nor
-        spoils the others; a file with nothing but resets is not pinned.
+        An empty reset (``VERSION=""``) is not a value, so it neither matches
+        nor spoils the others; a file with nothing but resets is not pinned.
         """
-        if self.read(text) is None:
+        values = self.values(text)
+        if not values or values[0] is None:
             return False
-        plain = [found for found in self.values(text) if found is not None]
-        return bool(plain) and all(found == value for found in plain)
+        return all(found in (None, value) for found in values)
+
+    def assigns_a_value(self, text: str) -> bool:
+        """True when some assignment is a value: plain or computed, not a reset."""
+        return bool(self.values(text))
 
     def rewritten(self, text: str, value: str) -> tuple[str, int]:
         """``text`` with every plain quoted assignment set to ``value``, and the count.
@@ -141,6 +145,14 @@ class VersionAssignment:
         found = (self._value_at(text, m.start()) for m in self._assigned.finditer(text))
         return tuple(
             m.group(3) if m else None for m in found if not (m and self._is_reset(m))
+        )
+
+    def computed_lines(self, text: str) -> tuple[str, ...]:
+        """Each assigning line whose value is computed, stripped, in order."""
+        return tuple(
+            text[m.start() :].split("\n", 1)[0].strip()
+            for m in self._assigned.finditer(text)
+            if self._value_at(text, m.start()) is None
         )
 
     def described_lines(self, text: str) -> tuple[str, ...]:

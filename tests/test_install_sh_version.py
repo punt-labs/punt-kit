@@ -174,16 +174,17 @@ def test_phase2_does_not_warn_for_a_single_assignment(
 
 
 def test_phase2_does_not_take_a_newline_split_value_for_the_pin(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
+    """``VERSION=`` ends at the newline: an empty reset; the next line is no value."""
     root = make_release_project(tmp_path)
     (root / "install.sh").write_text('#!/bin/sh\nVERSION=\n"0.1.0"\n')
     commit_all(root, "split")
 
-    with pytest.raises(ReleaseError, match=r"install\.sh.*VERSION"):
-        bump(root)
+    bump(root)
 
     assert (root / "install.sh").read_text() == '#!/bin/sh\nVERSION=\n"0.1.0"\n'
+    assert "nothing to bump" in flat(capsys.readouterr().out)
 
 
 def test_phase2_ignores_an_install_sh_without_a_version(tmp_path: Path) -> None:
@@ -272,6 +273,57 @@ def test_phase11_ignores_an_empty_reset(tmp_path: Path) -> None:
     (tmp_path / "install.sh").write_text('#!/bin/sh\nVERSION="0.2.0"\nVERSION=""\n')
 
     assert _install_sh_checks(tmp_path) == {"install.sh": (True, "VERSION=0.2.0")}
+
+
+def test_phase2_warns_and_leaves_a_file_with_only_empty_resets(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = make_release_project(tmp_path)
+    script = '#!/bin/sh\nVERSION=""\nVERSION=\n'
+    (root / "install.sh").write_text(script)
+    commit_all(root, "only resets")
+
+    bump(root)
+
+    assert (root / "install.sh").read_text() == script
+    assert "nothing to bump" in flat(capsys.readouterr().out)
+
+
+def test_phase2_fails_naming_the_computed_line_not_the_leading_reset(
+    tmp_path: Path,
+) -> None:
+    root = make_release_project(tmp_path)
+    script = '#!/bin/sh\nVERSION=""\nVERSION="$2"\n'
+    (root / "install.sh").write_text(script)
+    commit_all(root, "reset then computed")
+
+    with pytest.raises(ReleaseError, match=r"install\.sh.*VERSION") as caught:
+        bump(root)
+
+    assert (
+        '`VERSION="$2"`' in str(caught.value),
+        'VERSION=""' in str(caught.value),
+    ) == (
+        True,
+        False,
+    )
+    assert (root / "install.sh").read_text() == script
+
+
+def test_phase11_skips_a_file_of_only_empty_resets(tmp_path: Path) -> None:
+    (tmp_path / "install.sh").write_text('#!/bin/sh\nVERSION=""\n')
+
+    assert _install_sh_checks(tmp_path) == {}
+
+
+def test_phase11_reports_a_reset_then_computed_version_as_unverifiable(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "install.sh").write_text('#!/bin/sh\nVERSION=""\nVERSION="$2"\n')
+
+    passed, detail = _install_sh_checks(tmp_path)["install.sh"]
+
+    assert (passed, "assigned but unverifiable" in detail) == (False, True)
 
 
 def test_phase2_rewrites_a_stale_unquoted_pin_after_a_quoted_one(

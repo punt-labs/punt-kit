@@ -102,11 +102,16 @@ class Phase2VersionBump:
         content = TextFile(path).read()
         assignment = VersionAssignment.in_shell("VERSION")
         new_content, count = assignment.rewritten(content, self._version)
-        if count == 0 and assignment.is_assigned(content):
+        if count == 0 and assignment.assigns_a_value(content):
             self._ops.fail(
-                f"install.sh: `{assignment.assigned_lines(content)[0]}` is not a plain "
+                f"install.sh: `{assignment.computed_lines(content)[0]}` is not a plain "
                 f'quoted string (VERSION="X.Y.Z"), so VERSION cannot be bumped to '
                 f"{self._version}; set it by hand"
+            )
+        if count == 0 and assignment.is_assigned(content):
+            self._ops.warn(
+                "install.sh: VERSION is only ever reset to empty, so there is "
+                f"nothing to bump to {self._version}"
             )
         if len(lines := assignment.assigned_lines(content)) > 1:
             shown = "; ".join(assignment.described_lines(content))

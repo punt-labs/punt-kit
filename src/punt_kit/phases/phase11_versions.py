@@ -101,10 +101,10 @@ class VersionPinChecks:
             return []
         content = TextFile(install_sh).read()
         assignment = VersionAssignment.in_shell("VERSION")
-        if not assignment.is_assigned(content):
+        # A file that only resets VERSION to empty pins nothing to check.
+        if not assignment.assigns_a_value(content):
             return []
-        install_ver = assignment.read(content)
-        if install_ver is None:
+        if assignment.values(content)[0] is None:
             return [
                 VerificationCheck(
                     "install.sh",
