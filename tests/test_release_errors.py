@@ -12,7 +12,7 @@ import pytest
 
 from punt_kit import release
 from punt_kit.phases.shared.errors import OperationalFailure, ReleaseError
-from punt_kit.phases.shared.pipeline import ThreadedStep
+from punt_kit.phases.shared.pipeline import ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.release import run_release
 from tests.harness.fault_ops import FaultInjectingOps
@@ -521,3 +521,17 @@ def test_a_malformed_url_leaves_no_userinfo_shaped_fragment() -> None:
     line = OperationalFailure.one_line(_failed_command(stderr="bad http://[::1 bad:p@"))
 
     assert "bad:p@" not in line
+
+
+def test_a_timeout_report_redacts_credentials_in_the_timed_out_command(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exc = subprocess.TimeoutExpired(
+        ["git", "push", "https://user:ghp_SECRET@github.com/o/r.git", "main"], 30
+    )
+
+    ReleasePipeline.print_timeout(exc, 4, 4)
+
+    out = flat(capsys.readouterr().out)
+    assert "ghp_SECRET" not in out
+    assert "did not return within 30s" in out

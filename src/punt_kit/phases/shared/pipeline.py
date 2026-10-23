@@ -16,6 +16,7 @@ from punt_kit.phases.shared.errors import (
     ReportedReleaseError,
 )
 from punt_kit.phases.shared.phase_order import PhaseOrder
+from punt_kit.phases.shared.repo_slug import RepoSlug
 
 if TYPE_CHECKING:
     import subprocess
@@ -224,8 +225,8 @@ class ReleasePipeline:
             location = f"in phase {current_phase_num} ({phase_label})"
         _console.print(
             f"[red]Error:[/red] release aborted {location} — "
-            f"`{escape(cmd_str)}` did not return within {exc.timeout}s. "
-            f"{resume_hint}"
+            f"`{escape(RepoSlug.redacted(cmd_str))}` did not return "
+            f"within {exc.timeout}s. {resume_hint}"
         )
 
     def summarize(
