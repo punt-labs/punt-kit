@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import ClassVar, NoReturn, final
 
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.phases.shared.errors import ReportedReleaseError
 
@@ -12,6 +13,9 @@ from punt_kit.phases.shared.errors import ReportedReleaseError
 @final
 class Reporter:
     """Prints colored status lines. Exactly one process-wide instance.
+
+    Messages carry caller text (stderr, paths), so every method escapes its
+    ``msg``: a bracketed ``[remote rejected]`` is shown, never read as markup.
 
     ``ok``/``info``/``dry``/``warn``/``error``/``fail`` share the console vocabulary
     and the same rendering surface — the canonical case where these would
@@ -36,13 +40,13 @@ class Reporter:
         return instance
 
     def ok(self, msg: str) -> None:
-        self._console.print(f"  [green]✓[/green] {msg}")
+        self._console.print(f"  [green]✓[/green] {escape(msg)}")
 
     def info(self, msg: str) -> None:
-        self._console.print(f"  [dim]▶[/dim] {msg}")
+        self._console.print(f"  [dim]▶[/dim] {escape(msg)}")
 
     def dry(self, msg: str) -> None:
-        self._console.print(f"  [yellow]DRY[/yellow] {msg}")
+        self._console.print(f"  [yellow]DRY[/yellow] {escape(msg)}")
 
     def warn(self, msg: str) -> None:
         """Emit a loud, unmistakable warning without aborting the release.
@@ -52,14 +56,14 @@ class Reporter:
         sibling is absent. Louder than ``info`` (dimmed and easily
         swallowed) so the skip does not read as routine progress.
         """
-        self._console.print(f"  [yellow]⚠ WARNING:[/yellow] {msg}")
+        self._console.print(f"  [yellow]⚠ WARNING:[/yellow] {escape(msg)}")
 
     def error(self, msg: str) -> None:
         """Report a failed check without aborting, so the rest can still run."""
-        self._console.print(f"  [red]✗[/red] {msg}")
+        self._console.print(f"  [red]✗[/red] {escape(msg)}")
 
     def fail(self, msg: str) -> NoReturn:
-        self._console.print(f"[red]Error:[/red] {msg}")
+        self._console.print(f"[red]Error:[/red] {escape(msg)}")
         raise ReportedReleaseError(msg)
 
 

@@ -92,12 +92,15 @@ class ThreadedStep:
         cleanup (avoiding double-cleanup with ``run_release``).
         """
         errors: list[tuple[str, str]] = []
+        reported: set[str] = set()  # tasks whose failure Reporter.fail printed
         for f in as_completed(futures):
             name = futures[f]
             try:
                 f.result()
             except ReleaseError as e:
                 errors.append((name, str(e)))
+                if isinstance(e, ReportedReleaseError):
+                    reported.add(name)
             except SystemExit as e:
                 errors.append((name, self._describe_exit(name, e)))
             except BaseException as e:
@@ -108,6 +111,8 @@ class ThreadedStep:
             # The interrupt report replaces the failure summary below, so
             # what the tasks reported must be shown before it is lost.
             for name, text in errors:
+                if name in reported:
+                    continue
                 _console.print(f"[red]Error:[/red] {escape(f'{name}: {text}')}")
             raise KeyboardInterrupt
         if errors:
@@ -166,7 +171,7 @@ class ReleasePipeline:
         if skipped:
             _console.print("[bold yellow]⚠ Manual action required[/bold yellow]")
             for notice in skipped:
-                _console.print(f"  [yellow]•[/yellow] {notice}")
+                _console.print(f"  [yellow]•[/yellow] {escape(notice)}")
             _console.print()
 
     @staticmethod
@@ -219,7 +224,7 @@ class ReleasePipeline:
             location = f"in phase {current_phase_num} ({phase_label})"
         _console.print(
             f"[red]Error:[/red] release aborted {location} — "
-            f"`{cmd_str}` did not return within {exc.timeout}s. "
+            f"`{escape(cmd_str)}` did not return within {exc.timeout}s. "
             f"{resume_hint}"
         )
 

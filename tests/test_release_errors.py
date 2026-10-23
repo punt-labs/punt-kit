@@ -417,3 +417,73 @@ def test_errors_gathered_before_an_interrupt_are_printed(
         )
 
     assert "website: unique-xyz cannot be read" in flat(capsys.readouterr().out)
+
+
+_REJECTED = "! [remote rejected] main -> main (protected branch hook declined)"
+
+
+def test_bracketed_stderr_survives_the_worker_thread_recap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def phase11(*_a: object, **_k: object) -> None:
+        return None
+
+    root = _p9_p10_project(tmp_path, monkeypatch, phase11=phase11)
+
+    def fails(*_a: object, **_k: object) -> None:
+        raise _failed_command(stderr=f" {_REJECTED}\n")
+
+    monkeypatch.setattr(release, "_propagate_website", fails)
+
+    with pytest.raises(SystemExit):
+        run_release(str(root), version="0.2.0", resume_from="post-release")
+
+    assert "[remote rejected]" in flat(capsys.readouterr().out)
+
+
+def test_reporter_fail_and_warn_print_bracketed_text_verbatim(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    reporter.warn(f"push said {_REJECTED}")
+    with pytest.raises(ReleaseError):
+        reporter.fail(f"push said {_REJECTED}")
+
+    assert flat(capsys.readouterr().out).count("[remote rejected]") == 2
+
+
+def test_a_reported_failure_is_not_repeated_on_interrupt(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    failed: Future[None] = Future()
+    try:
+        reporter.fail("sibling has uncommitted changes")
+    except ReleaseError as exc:
+        failed.set_exception(exc)
+    interrupted = threading.Event()
+    interrupted.set()
+
+    with pytest.raises(KeyboardInterrupt):
+        ThreadedStep(ops=release._ops).collect(  # pyright: ignore[reportPrivateUsage]
+            {failed: "website"}, interrupted=interrupted
+        )
+
+    assert flat(capsys.readouterr().out).count("sibling has uncommitted changes") == 1
+
+
+def test_the_tail_of_long_stderr_is_kept() -> None:
+    line = OperationalFailure.one_line(_failed_command(stderr="x" * 5000 + " the end"))
+
+    assert (line.split(": ", 2)[2].startswith("..."), line.endswith("the end")) == (
+        True,
+        True,
+    )
+
+
+def test_credentials_in_a_url_in_stderr_are_not_shown() -> None:
+    line = OperationalFailure.one_line(
+        _failed_command(stderr="fatal: https://user:token@github.com/o/r.git denied")
+    )
+
+    assert ("user:token" in line, "https://github.com/o/r.git" in line) == (False, True)
