@@ -199,10 +199,8 @@ class RequiredChecksWaiter:
                 # GitHub returns a null rollup until the first check run is
                 # attached to the commit, which on a freshly-opened PR is
                 # every poll for the first few seconds. That is the normal
-                # state, not a malformed response — reporting it as
-                # "unexpected" fired on every PR of every release and taught
-                # the operator to read warnings as noise. Say what is
-                # actually happening and keep waiting.
+                # state, not a malformed response: say what is happening and
+                # keep waiting, so a warning stays a signal.
                 if rollup is None:
                     self._no_checks_grace_check(
                         no_checks_deadline, pr_number, checks_present=False

@@ -366,9 +366,8 @@ class PrMerger:
         """
         cwd = str(path)
         # A sibling checkout is far less controlled than the project's own
-        # repo — same reasoning as
-        # SiblingRepo.validate's reads and _sync_profile_readme's git log,
-        # both already diagnosed.
+        # repo, so its git reads run with check=False and a non-zero exit
+        # becomes a diagnosed fail, as in SiblingRepo.validate.
         status_result = self._ops.run(
             ["git", "status", "--porcelain", "--", *files], cwd=cwd, check=False
         )
@@ -419,7 +418,7 @@ class PrMerger:
         set — it is folded into the same secondary-failure reporting as a
         non-zero checkout exit instead. When there is no primary exception
         in flight, a cleanup timeout is itself the only failure and
-        propagates exactly as it did before this method existed.
+        propagates unchanged.
         """
         try:
             branch_result = self._ops.run(

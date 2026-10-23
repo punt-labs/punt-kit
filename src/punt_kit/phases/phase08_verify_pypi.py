@@ -95,9 +95,8 @@ class Phase8VerifyPypi:
 
         self._run_doctor()
 
-        # Restore editable install. Same external-tool risk class as the
-        # PyPI install retry loop above and `uv build` (Phase 3), both
-        # already diagnosed.
+        # Restore editable install. Convention for external commands: run with
+        # check=False, and turn a non-zero exit into a diagnosed fail.
         ops.info("Restoring editable install...")
         restore_result = ops.run(
             ["uv", "tool", "install", "--force", "--editable", "."],

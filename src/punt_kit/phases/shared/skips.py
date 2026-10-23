@@ -28,9 +28,9 @@ class SkipRecorder:
     """Thread-safe log of propagation/verification steps skipped mid-release.
 
     Phase 10 propagates to siblings concurrently, so a warning printed from a
-    worker thread can scroll past among interleaved output; and Phase 11 no
-    longer hard-fails when a sibling is absent, so nothing downstream re-raises
-    the condition. Each recorded skip is surfaced immediately as a loud warning
+    worker thread can scroll past among interleaved output; and Phase 11 does
+    not fail on an absent sibling, so nothing downstream re-raises the
+    condition. Each recorded skip is surfaced immediately as a loud warning
     and retained so the pipeline's summary can recap every outstanding manual
     action at the end of the run, whichever phase skipped.
     """

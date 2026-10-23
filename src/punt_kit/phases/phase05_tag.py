@@ -159,9 +159,8 @@ class Phase5Tag:
 
             # Unfiltered (no ref argument) — see _remote_tag_commit_sha's
             # docstring for why the filtered, explicit-ref form cannot be
-            # used here. A network read, same risk class as `git fetch
-            # origin` (Phase 1) and this phase's own tag push, both already
-            # diagnosed.
+            # used here. A network read: check=False under a network budget,
+            # and a non-zero exit becomes a diagnosed fail.
             ls_remote = ops.run(
                 ["git", "ls-remote", "--tags", "origin"],
                 cwd=str(root),

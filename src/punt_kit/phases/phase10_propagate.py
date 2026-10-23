@@ -300,9 +300,10 @@ class MarketplacePropagator:
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
 
         # Marketplace entries key on the plugin's SHORT name (e.g. "punt"),
-        # not the PyPI distribution name (e.g. "punt-kit") — read it from the
-        # project's own plugin.json (post -dev-strip). An entry's source.url
-        # (keyless HTTPS, git-subdir) must name the same owner/repo.
+        # read from the project's own plugin.json (post -dev-strip), or on the
+        # repository name from the origin slug (e.g. "punt-kit") — never the
+        # PyPI distribution name. An entry's source.url (keyless HTTPS,
+        # git-subdir) must name the same owner/repo.
         marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
         names = frozenset(n for n in (marketplace_name, project_name) if n)
         matcher = EntryMatcher(slug.owner, project_name, names)
@@ -514,10 +515,9 @@ class Phase10Propagate:
             try:
                 ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)
             except ReleaseError as exc:
-                # Recorded before re-raising: the summary drains _skips even
-                # when the pipeline stops before reaching a successful
-                # pipeline.summarize() call, so a thread failure here still
-                # reaches the end-of-run recap — not only recorded skips
-                # (an absent sibling, etc.) as before.
+                # Recorded before re-raising: the incomplete-release report
+                # drains _skips even when the pipeline stops before a
+                # successful pipeline.summarize() call, so a thread failure
+                # reaches the end-of-run recap alongside the recorded skips.
                 self._skips.record(f"FAILED — Phase 10 propagation: {exc}")
                 raise

@@ -188,12 +188,11 @@ class Phase2VersionBump:
 
         lock_file = root / "uv.lock"
         if lock_file.exists():
-            # A network resolver op — same class as `uv build` (Phase 3),
-            # already diagnosed. capture=False streams the
-            # resolver's own output to the terminal as it runs, matching
-            # Phase 3's `uv build` and Phase 1's quality gates — without
-            # it, the "see output above" message would point at output that
-            # was silently captured and never shown.
+            # A network resolver op: check=False, and a non-zero exit becomes
+            # a diagnosed fail. capture=False streams the resolver's own
+            # output to the terminal as it runs, matching `uv build` and the
+            # quality gates, so the "see output above" message points at
+            # output that was actually shown.
             lock_result = ops.run(
                 ["uv", "lock"], cwd=str(root), capture=False, check=False, timeout=UV
             )
