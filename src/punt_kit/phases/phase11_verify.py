@@ -23,6 +23,7 @@ from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -276,8 +277,10 @@ class Phase11Verify:
             return VerificationCheck("install-all.sh", False, currency.detail)
         # Python/hybrid: the VERSION pin matches. Go/other: there is no VERSION
         # pin, and a SHA that resolves and is on the tag's history is enough.
-        ok = f'VERSION="{self._version}"' in shown.stdout or 'VERSION="' not in (
-            shown.stdout
+        # An assignment the rule cannot read is not a pass: read() is None there.
+        assignment = VersionAssignment.in_shell("VERSION")
+        ok = not assignment.is_assigned(shown.stdout) or (
+            assignment.read(shown.stdout) == self._version
         )
         return VerificationCheck("install-all.sh", ok, f"SHA={sha}")
 

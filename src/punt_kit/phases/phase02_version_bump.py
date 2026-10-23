@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import datetime
-import re
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
@@ -155,13 +154,14 @@ class Phase2VersionBump:
         install_sh = root / "install.sh"
         if install_sh.exists():
             content = TextFile(install_sh).read()
-            new_content = re.sub(
-                r'^(VERSION=")[^"]*(")',
-                rf"\g<1>{version}\2",
-                content,
-                count=1,
-                flags=re.MULTILINE,
-            )
+            assignment = VersionAssignment.in_shell("VERSION")
+            new_content, count = assignment.rewritten(content, version)
+            if count == 0 and assignment.is_assigned(content):
+                ops.fail(
+                    "install.sh: VERSION is assigned but not as a plain quoted "
+                    f'string (VERSION="X.Y.Z"), so it cannot be bumped to '
+                    f"{version}; set it by hand"
+                )
             if new_content != content:
                 if dry_run:
                     ops.dry(f'install.sh: VERSION="{version}"')

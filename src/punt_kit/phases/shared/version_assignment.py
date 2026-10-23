@@ -25,12 +25,21 @@ class VersionAssignment:
     _assigned: re.Pattern[str]
     _quoted: re.Pattern[str]
 
-    def __new__(cls, name: str) -> Self:
+    def __new__(cls, name: str, *, lead: str = "") -> Self:
         self = super().__new__(cls)
-        head = rf"^{re.escape(name)}(?:\s*:[^=\n]+)?\s*="
+        head = rf"^{lead}{re.escape(name)}(?:\s*:[^=\n]+)?\s*="
         self._assigned = re.compile(head, re.MULTILINE)
         self._quoted = re.compile(rf"({head}\s*)([\"'])([^\"'\n]*)\2", re.MULTILINE)
         return self
+
+    @classmethod
+    def in_shell(cls, name: str) -> Self:
+        """The rule for a shell script, where the assignment may be indented.
+
+        ``readonly`` and ``export`` may precede it: ``  readonly VERSION="1.0"``.
+        The name is still anchored, so ``FOO_VERSION=`` is not ``VERSION=``.
+        """
+        return cls(name, lead=r"[ \t]*(?:(?:readonly|export)[ \t]+)*")
 
     def is_assigned(self, text: str) -> bool:
         """True when ``text`` assigns the name at the start of some line."""

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.phases.phase11_checks import VerificationCheck
@@ -100,10 +99,19 @@ class VersionPinChecks:
         install_sh = self._info.root / "install.sh"
         if not install_sh.exists():
             return []
-        match = re.search(r'VERSION="([^"]*)"', TextFile(install_sh).read())
-        if not match:
+        content = TextFile(install_sh).read()
+        assignment = VersionAssignment.in_shell("VERSION")
+        if not assignment.is_assigned(content):
             return []
-        install_ver = match.group(1)
+        install_ver = assignment.read(content)
+        if install_ver is None:
+            return [
+                VerificationCheck(
+                    "install.sh",
+                    False,
+                    "VERSION is assigned but unverifiable: not a plain quoted string",
+                )
+            ]
         return [
             VerificationCheck(
                 "install.sh", install_ver == self._version, f"VERSION={install_ver}"
