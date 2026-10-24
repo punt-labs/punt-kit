@@ -334,3 +334,12 @@ def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
             'VERSION="$(f)"\nVERSION="2"\n',
         )
     ] == [True, False, True, False]
+
+
+def test_a_heredoc_on_an_explicit_descriptor_keeps_its_body_untouched() -> None:
+    text = 'cat 0<<\'EOF\'\nVERSION="9"\nEOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (
+        'cat 0<<\'EOF\'\nVERSION="9"\nEOF\nVERSION="2"\n',
+        1,
+    )

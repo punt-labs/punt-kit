@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 from typing import Self, final
 
-# ``<<EOF``, ``<<-EOF``, ``<< 'EOF'``, ``<<"EOF"``. Not ``<<<`` (a here-string)
-# and not a shift after a digit (``1<<k``).
+# ``<<EOF``, ``<<-EOF``, ``<< 'EOF'``, ``<<"EOF"``, with an optional descriptor
+# (``0<<EOF``, ``3<<-END``) that must start a word. Not ``<<<`` (a here-string)
+# and not a shift glued to a digit or word (``1<<k``, ``a1<<k``).
 _OPENER = re.compile(
-    r"(?<![<\d])<<(?!<)(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([A-Za-z_]\w*))"
+    r"(?:(?<!\S)\d+|(?<![<\d]))<<(?!<)(-?)[ \t]*"
+    r"(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([A-Za-z_]\w*))"
 )
 
 

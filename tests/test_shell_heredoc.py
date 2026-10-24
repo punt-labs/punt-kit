@@ -52,3 +52,17 @@ def test_here_strings_comments_and_shifts_open_nothing() -> None:
 
 def test_two_openers_on_one_line_are_read_in_order() -> None:
     assert _inside("cat <<A <<B\na\nA\nb\nB\nafter\n") == ["a", "A", "b", "B"]
+
+
+@pytest.mark.parametrize(
+    "opener", ["cat 0<<'EOF'", "cmd 3<<-EOF", "0<<EOF cat", "cat 12<<EOF"]
+)
+def test_an_explicit_file_descriptor_still_opens_a_body(opener: str) -> None:
+    assert _inside(f"{opener}\nbody\nEOF\nafter\n") == ["body", "EOF"]
+
+
+@pytest.mark.parametrize(
+    "line", ["n=$((1<<k))", "(( x << y ))", "n=$[1<<k]", "x=a1<<k"]
+)
+def test_a_shift_is_not_mistaken_for_a_descriptor_redirection(line: str) -> None:
+    assert _inside(f"{line}\nbody\n") == []
