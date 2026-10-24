@@ -14051,3 +14051,21 @@ def test_pr_merge_reads_the_pr_number_from_a_url_with_a_query_or_fragment(
     )
 
     assert oid == _MERGE_OID
+
+
+def test_website_propagation_without_an_install_sh_still_saves_the_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A marketplace-only plugin has an installCommand and no install.sh to pin."""
+    root = _github_project(tmp_path)
+    (root / "install.sh").unlink()
+    _git(["add", "-A"], cwd=str(root))
+    _git(["commit", "-m", "drop install.sh"], cwd=str(root))
+    command = f"curl -fsSL {_pin_url('punt-labs/proj', 'v0.1.0')} | sh"
+    pj = _website_with(tmp_path, command)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    entry = json.loads(pj.read_text())[0]
+    assert (entry["version"], entry["installCommand"]) == ("0.2.0", command)

@@ -88,7 +88,10 @@ class WebsitePropagator:
                 project["version"] = version
                 # The same recognizer Phase 11 verifies the installCommand with.
                 install_cmd = str(project.get("installCommand") or "")
-                if install_cmd:
+                # A marketplace-only plugin has an installCommand but no
+                # install.sh to pin; its version still goes out (the website
+                # verifier skips the pin on the same condition).
+                if install_cmd and (info.root / "install.sh").exists():
                     install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
                     currency = PinCurrency(install_sha, cwd=info.root, ops=ops)
                     project["installCommand"] = InstallUrlRecognizer(
