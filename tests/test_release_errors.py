@@ -573,3 +573,23 @@ def test_a_failure_already_done_is_printed_once_when_collection_is_interrupted(
         out.count("b: never-reached-by-the-loop failed"),
         "c:" in out,
     ) == (1, 1, False)
+
+
+@pytest.mark.parametrize("method", ["ok", "info", "dry", "warn", "error"])
+def test_reporter_redacts_url_credentials_in_every_message(
+    capsys: pytest.CaptureFixture[str], method: str
+) -> None:
+    getattr(reporter, method)("fatal: https://user:ghp_SECRET@github.com/o/r.git")
+
+    out = flat(capsys.readouterr().out)
+    assert ("ghp_SECRET" in out, "github.com/o/r.git" in out) == (False, True)
+
+
+def test_reporter_fail_redacts_credentials_in_output_and_exception(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(ReleaseError) as caught:
+        reporter.fail("fatal: https://user:ghp_SECRET@github.com/o/r.git denied")
+
+    assert "ghp_SECRET" not in flat(capsys.readouterr().out)
+    assert "ghp_SECRET" not in str(caught.value)
