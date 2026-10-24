@@ -558,6 +558,16 @@ def test_suggesting_from_a_non_release_version_raises_release_error(
         pytest.param("## [Unreleased]\n\n- x\n\n<!-- later\n", 5, id="comment"),
         pytest.param("## [Unreleased]\n\n- x\n\n<script>\nx\n", 5, id="script"),
         pytest.param("## [Unreleased]\n\n- x\n\n```", 5, id="lone-opener-at-eof"),
+        pytest.param(
+            "## [Unreleased]\n\n- x\n\n```\ncode\n    ```", 5, id="indented-4"
+        ),
+        pytest.param(
+            "## [Unreleased]\n\n- x\n\n```\ncode\n    ```\n", 5, id="indented-4-nl"
+        ),
+        pytest.param(
+            "## [Unreleased]\n\n- x\n\n```\ncode\n> ```\n", 5, id="quote-marker"
+        ),
+        pytest.param("## [Unreleased]\n\n- x\n\n```\ncode\n>```", 5, id="quote-at-eof"),
     ],
 )
 def test_unclosed_blocks_are_reported_with_their_opening_line(
@@ -575,6 +585,10 @@ def test_unclosed_blocks_are_reported_with_their_opening_line(
         pytest.param("## [Unreleased]\n\n- x\n\n> ```\n> c\n> ```\n", id="quoted"),
         pytest.param("## [Unreleased]\n\n<div>\nx\n\n- y\n", id="div-ends-at-blank"),
         pytest.param("## [Unreleased]\n\n```\r\ncode\r\n```\r\n", id="crlf"),
+        pytest.param("## [Unreleased]\n\n```\ncode\n   ```\n", id="indented-3"),
+        pytest.param("## [Unreleased]\n\n```\ncode\n```", id="closer-at-eof"),
+        pytest.param("## [Unreleased]\n\n```\n```\n", id="empty-fence"),
+        pytest.param("## [Unreleased]\n\n- a\n  ```\n  c\n  ```\n", id="in-list"),
     ],
 )
 def test_closed_blocks_are_not_reported(text: str) -> None:

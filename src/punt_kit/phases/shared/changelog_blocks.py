@@ -22,9 +22,6 @@ _HTML_OPENERS = (
     ),
 )
 
-# Container prefixes (block quote markers, list indentation) before a closer.
-_CONTAINER_PREFIX = re.compile(r"[ \t>]*")
-
 
 @final
 class UnclosedBlockScan:
@@ -68,14 +65,24 @@ class UnclosedBlockScan:
             return self._html_is_unclosed(token)
         return False
 
-    def _fence_is_unclosed(self, token: Token) -> bool:
-        """True unless the block's last line is a closer for its opener."""
+    @staticmethod
+    def _fence_is_unclosed(token: Token) -> bool:
+        """True unless the parser consumed a closing line after the content.
+
+        The token's ``map`` covers the opener, the content and a closer when
+        there is one, and ``content`` holds only the content lines: so the
+        block is closed exactly when the map has a line the content lacks
+        beyond the opener. The parser has already applied CommonMark's rules
+        for the closer (0-3 spaces, same container, long enough), so none of
+        them is re-scanned here.
+        """
         first, end = token.map or (0, 0)
-        if end - first < 2:
-            return True
-        last = _CONTAINER_PREFIX.sub("", self._lines[end - 1], count=1).rstrip()
-        fence = token.markup
-        return not (last.startswith(fence[0] * len(fence)) and set(last) == {fence[0]})
+        content = token.content
+        # A final line without a newline still counts as a line.
+        content_lines = content.count("\n") + (
+            1 if content and not content.endswith("\n") else 0
+        )
+        return end - first - 1 - content_lines < 1
 
     @staticmethod
     def _html_is_unclosed(token: Token) -> bool:
