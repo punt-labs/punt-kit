@@ -765,7 +765,7 @@ existing bar), **P2** (inconsistency/hardening, no known live incident yet).
    `test_phase_names_cover_all_phases` and
    `test_phase_name_round_trips_through_phase_names` (`tests/test_release.py`)
    already iterate the imported `PHASE_NAMES` mapping directly — not a `bd`
-   command; `PHASE_NAMES` is `release.py`'s own module-level dict — and a
+   command; it is now `PhaseOrder.NUMBERS` in `phases/shared/phase_order.py` — and a
    handful of individual phases have their own resume test. Nothing
    parametrizes "start the pipeline fresh,
    kill it after phase N completes, then run `--resume-from

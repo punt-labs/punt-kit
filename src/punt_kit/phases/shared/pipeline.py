@@ -5,13 +5,21 @@ from __future__ import annotations
 
 from concurrent.futures import as_completed
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Self, cast, final, runtime_checkable
 
 from rich.console import Console
+from rich.markup import escape
 
-from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.errors import (
+    OperationalFailure,
+    ReleaseError,
+    ReportedReleaseError,
+)
+from punt_kit.phases.shared.phase_order import PhaseOrder
+from punt_kit.phases.shared.repo_slug import RepoSlug
 
 if TYPE_CHECKING:
+    import subprocess
     import threading
     from collections.abc import Callable, Sequence
     from concurrent.futures import Future
@@ -19,7 +27,7 @@ if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
     from punt_kit.phases.shared.project_info import ReleaseProject
-    from punt_kit.phases.shared.siblings import SkipRecorder
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 # Separate from release.py's own `console` and Reporter's singleton — this
 # module's only user is the plain-formatted end-of-run summary banner, which
@@ -84,34 +92,71 @@ class ThreadedStep:
         ``KeyboardInterrupt`` so the caller's ``finally`` block handles
         cleanup (avoiding double-cleanup with ``run_release``).
         """
-        errors: list[tuple[str, BaseException]] = []
-        for f in as_completed(futures):
-            name = futures[f]
-            try:
-                f.result()
-            except ReleaseError as e:
-                errors.append((name, RuntimeError(str(e))))
-            except SystemExit as e:
-                if isinstance(e.code, int):
-                    msg = f"{name} failed (exit code {e.code})"
-                elif isinstance(e.code, str) and e.code.strip():
-                    msg = e.code
-                else:
-                    msg = f"{name} failed"
-                errors.append((name, RuntimeError(msg)))
-            except BaseException as e:  # noqa: BLE001
-                errors.append((name, e))
+        errors: list[tuple[str, str]] = []
+        reported: set[str] = set()  # tasks whose failure Reporter.fail printed
+        collected: set[Future[None]] = set()
+        try:
+            for f in as_completed(futures):
+                collected.add(f)
+                self._collect_one(f, futures[f], errors, reported)
+        except KeyboardInterrupt:
+            # The interrupt skipped the futures the loop had not reached; any
+            # that already finished still hold a failure to show.
+            for f, name in futures.items():
+                if f.done() and f not in collected:
+                    self._collect_one(f, name, errors, reported)
+            self._print_unreported(errors, reported)
+            raise
         if interrupted.is_set():
+            # The interrupt report replaces the failure summary below, so
+            # what the tasks reported must be shown before it is lost.
+            self._print_unreported(errors, reported)
             raise KeyboardInterrupt
         if errors:
-            for name, err in errors:
-                _console.print(f"  [red]✗[/red] {name}: {err}")
-            # Carries each task's own error text, not just its name — this
-            # message is what callers like Phase10Propagate record into
-            # SkipRecorder for the end-of-run recap, and "install-all.sh:
-            # boom" tells the operator more than ".github" alone does.
-            details = "; ".join(f"{name}: {err}" for name, err in errors)
-            self._ops.fail(f"{len(errors)} task(s) failed: {details}")
+            # Carries each task's own error text, not just its name, and does
+            # not print it: the caller records the failure and the end-of-run
+            # recap prints it once. "install-all.sh: boom" tells the operator
+            # more than ".github" alone does.
+            details = "; ".join(f"{name}: {text}" for name, text in errors)
+            msg = f"{len(errors)} task(s) failed: {details}"
+            raise ReleaseError(msg)
+
+    def _collect_one(
+        self,
+        future: Future[None],
+        name: str,
+        errors: list[tuple[str, str]],
+        reported: set[str],
+    ) -> None:
+        """Record the failure ``future`` holds, if any, under ``name``."""
+        try:
+            future.result()
+        except ReleaseError as e:
+            errors.append((name, str(e)))
+            if isinstance(e, ReportedReleaseError):
+                reported.add(name)
+        except SystemExit as e:
+            errors.append((name, self._describe_exit(name, e)))
+        except BaseException as e:
+            # Thread-pool boundary: whatever a task raised is collected so
+            # its siblings finish, then every error is re-raised together.
+            errors.append((name, OperationalFailure.report(e)))
+
+    @staticmethod
+    def _print_unreported(errors: list[tuple[str, str]], reported: set[str]) -> None:
+        """Print each collected error that ``Reporter.fail`` did not already show."""
+        for name, text in errors:
+            if name not in reported:
+                _console.print(f"[red]Error:[/red] {escape(f'{name}: {text}')}")
+
+    @staticmethod
+    def _describe_exit(name: str, exc: SystemExit) -> str:
+        """Return the error text for a task that called ``sys.exit``."""
+        if isinstance(exc.code, int):
+            return f"{name} failed (exit code {exc.code})"
+        if isinstance(exc.code, str) and exc.code.strip():
+            return exc.code
+        return f"{name} failed"
 
 
 @final
@@ -151,8 +196,63 @@ class ReleasePipeline:
         if skipped:
             _console.print("[bold yellow]⚠ Manual action required[/bold yellow]")
             for notice in skipped:
-                _console.print(f"  [yellow]•[/yellow] {notice}")
+                _console.print(f"  [yellow]•[/yellow] {escape(notice)}")
             _console.print()
+
+    @staticmethod
+    def print_unreported(exc: ReleaseError) -> None:
+        """Print ``exc`` unless ``Reporter.fail`` already printed it."""
+        if not isinstance(exc, ReportedReleaseError):
+            _console.print(f"[red]Error:[/red] {escape(str(exc))}")
+
+    # None: an interrupt can arrive with no error in flight to show.
+    @classmethod
+    def print_in_flight(cls, exc: BaseException | None) -> None:
+        """Show the error an interrupt is about to replace, as its handler would."""
+        if isinstance(exc, ReleaseError):
+            cls.print_unreported(exc)
+        elif isinstance(exc, Exception):
+            cls.print_crash(exc)
+
+    @staticmethod
+    def print_crash(exc: Exception) -> None:
+        """Report an unexpected exception: one line if operational, else a trace."""
+        line = OperationalFailure.report(exc)
+        if OperationalFailure.covers(exc):
+            _console.print(f"[red]Error:[/red] {escape(line)}")
+
+    @staticmethod
+    def print_timeout(
+        exc: subprocess.TimeoutExpired, current_phase_num: int, resume_phase_num: int
+    ) -> None:
+        """Report a command that did not return: where, and how to resume."""
+        raw_cmd = cast("object", exc.cmd)
+        if isinstance(raw_cmd, list | tuple):
+            parts = cast("Sequence[object]", raw_cmd)
+            cmd_str = " ".join(map(str, parts))
+        else:
+            cmd_str = str(raw_cmd)
+        phase_label = PhaseOrder.name_of(current_phase_num)
+        resume_label = PhaseOrder.name_of(resume_phase_num)
+        if resume_label == "unknown":
+            resume_hint = (
+                "Investigate the command; a phase could not be identified, "
+                "so pick the earliest --resume-from that covers the failure."
+            )
+        else:
+            resume_hint = (
+                f"Investigate the command, then resume with "
+                f"punt release --resume-from {resume_label}."
+            )
+        if phase_label == "unknown":
+            location = "before the first phase started"
+        else:
+            location = f"in phase {current_phase_num} ({phase_label})"
+        _console.print(
+            f"[red]Error:[/red] release aborted {location} — "
+            f"`{escape(RepoSlug.redacted(cmd_str))}` did not return "
+            f"within {exc.timeout}s. {resume_hint}"
+        )
 
     def summarize(
         self,

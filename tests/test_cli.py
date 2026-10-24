@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
 
 from punt_kit.__main__ import app
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 runner = CliRunner()
 
@@ -140,3 +144,24 @@ def test_auto_is_not_a_command() -> None:
     result = runner.invoke(app, ["auto", "makefile"])
     assert result.exit_code == 2
     assert "No such command 'auto'" in result.output
+
+
+def test_status_reports_an_unreadable_plugin_manifest_and_exits_1(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / ".claude-plugin").mkdir()
+    (tmp_path / ".claude-plugin" / "plugin.json").write_text("{broken")
+
+    result = runner.invoke(app, ["status", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "plugin.json" in result.output
+
+
+def test_status_reports_a_malformed_pyproject_and_exits_1(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    result = runner.invoke(app, ["status", str(tmp_path)])
+
+    assert result.exit_code == 1
+    assert "pyproject.toml is not valid TOML" in result.output

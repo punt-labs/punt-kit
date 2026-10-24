@@ -2,6 +2,7 @@
 name: auto
 description: Execute an automation playbook — deterministic scripts with LLM error recovery
 disable-model-invocation: true
+user-invocable: false
 ---
 
 # /punt:auto — Playbook Executor

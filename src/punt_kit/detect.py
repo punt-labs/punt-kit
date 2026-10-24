@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import re
-import tomllib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, cast
+from pathlib import Path
+from typing import cast
 
-if TYPE_CHECKING:
-    from pathlib import Path
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
 
 # Where a plugin manifest can sit, most specific first.
 #
@@ -54,13 +53,13 @@ class ProjectInfo:
     is_plugin: bool = False
     pyproject: dict[str, object] | None = None
     package_json: dict[str, object] | None = None
-    workflow_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    standards_refs: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    cli_commands: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    plugin_mcp_servers: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    workflow_files: list[str] = field(default_factory=list[str])
+    standards_refs: list[str] = field(default_factory=list[str])
+    cli_commands: list[str] = field(default_factory=list[str])
+    plugin_mcp_servers: list[str] = field(default_factory=list[str])
     # Every manifest found, in precedence order. Empty for a non-plugin
     # project — absence is the contract there, not a failed lookup.
-    plugin_manifests: list[Path] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    plugin_manifests: list[Path] = field(default_factory=list[Path])
 
     @property
     def is_hybrid(self) -> bool:
@@ -94,7 +93,13 @@ class ProjectInfo:
 
 
 def detect(root: Path) -> ProjectInfo:
-    """Scan a directory and return detected project info."""
+    """Scan a directory and return detected project info.
+
+    Raises :class:`ReleaseError` when ``pyproject.toml`` is not readable TOML,
+    or when ``package.json`` or the highest-precedence plugin manifest is not a
+    readable JSON object: detection built on a file it could not read would
+    report a project it never saw.
+    """
     root = root.resolve()
 
     language: str | None = None
@@ -108,8 +113,7 @@ def detect(root: Path) -> ProjectInfo:
     # Check pyproject.toml
     pyproject_path = root / "pyproject.toml"
     if pyproject_path.exists():
-        with open(pyproject_path, "rb") as f:
-            pyproject_data = tomllib.load(f)
+        pyproject_data = TextFile(pyproject_path).toml()
         if "project" in pyproject_data:
             language = "python"
             project_type = "package"
@@ -118,8 +122,7 @@ def detect(root: Path) -> ProjectInfo:
     # Check package.json
     package_json_path = root / "package.json"
     if package_json_path.exists():
-        with open(package_json_path) as pj:
-            package_json_data = json.load(pj)
+        package_json_data = JsonFile(package_json_path).load_object()
         if language is None:
             language = "node"
             project_type = "package"
@@ -197,13 +200,9 @@ def detect(root: Path) -> ProjectInfo:
     # Extract MCP server names from plugin.json
     plugin_mcp_servers: list[str] = []
     if manifests:
-        try:
-            pj_data = json.loads(manifests[0].read_text(encoding="utf-8"))
-            servers = pj_data.get("mcpServers")
-            if isinstance(servers, dict):
-                plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
-        except (json.JSONDecodeError, OSError):
-            pass
+        servers = JsonFile(manifests[0]).load_object().get("mcpServers")
+        if isinstance(servers, dict):
+            plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
 
     # All projects get these standard refs
     standards_refs.append("github")

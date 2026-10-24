@@ -1,8 +1,7 @@
-"""Unit tests for the Wave 0 fault-injection primitives themselves.
+"""Unit tests for the fault-injection primitives themselves.
 
 Exercises ``FaultRule``/``FaultInjectingOps`` in isolation — no release
-phase, no real git repo. Wave 0 is deliberately scoped to the primitives;
-migrating ``tests/test_release.py`` scenarios onto them is a later wave.
+phase, no real git repo.
 """
 
 from __future__ import annotations
@@ -83,7 +82,7 @@ def test_run_rejects_an_empty_argv() -> None:
 def test_passthrough_prefix_admits_only_the_declared_shape() -> None:
     """A passthrough entry is an argv PREFIX, never a bare binary name —
     sanctioning ``["gh", "--version"]`` must not sanction every other ``gh``
-    invocation. Required negative test per §2a's Wave 0 acceptance list.
+    invocation.
     """
     calls: list[list[str]] = []
     ops = FaultInjectingOps(
@@ -292,7 +291,7 @@ def test_interrupt_after_fires_exactly_on_the_anchor_matches_completion() -> Non
 
 
 def test_interrupt_after_does_not_fire_when_the_anchor_raises() -> None:
-    """A raising match never "returns" — §2c fires the interrupt as a side
+    """A raising match never "returns" — the interrupt fires as a side
     effect of the matched call *returning*, so an anchored rule that raises
     must leave the event unset rather than signaling completion first.
     """
@@ -309,9 +308,8 @@ def test_interrupt_after_does_not_fire_when_the_anchor_raises() -> None:
 
 def test_interrupt_after_is_not_a_phase_boundary_tool() -> None:
     """Setting the event has no effect on the harness's own dispatch — the
-    regression test for the "interrupt_after is not a general kill switch"
-    correction in §2c: a phase whose call sites never check the event runs
-    to completion unaffected.
+    guard that "interrupt_after is not a general kill switch": a phase whose
+    call sites never check the event runs to completion unaffected.
     """
     event = threading.Event()
     anchor = FaultRule(
@@ -442,12 +440,11 @@ def test_run_blocks_on_the_routing_table_lock_until_released() -> None:
 
     A ``ThreadPoolExecutor`` stress test alone cannot distinguish "the lock
     exists and works" from "the critical section is too short for the GIL
-    to ever preempt inside it in practice" — round 1's evaluation measured
-    zero failures across 1000 trials with the lock removed entirely. This
-    test instead holds the lock from the test thread and asserts a
-    concurrent ``run()`` call is genuinely blocked until it is released,
-    which fails immediately if a future refactor narrows or removes the
-    lock.
+    to ever preempt inside it in practice" — 1000 trials with the lock
+    removed entirely measured zero failures. This test instead holds the
+    lock from the test thread and asserts a concurrent ``run()`` call is
+    genuinely blocked until it is released, which fails immediately if a
+    future refactor narrows or removes the lock.
     """
     rule = FaultRule(
         match=["git", "fetch"], response=CompletedProcessSpec(stdout="scripted")
@@ -477,8 +474,7 @@ def test_run_blocks_on_the_routing_table_lock_until_released() -> None:
 def test_times_bounded_rule_is_consumed_exactly_once_under_concurrency() -> None:
     """Secondary sanity check alongside the deterministic lock test above —
     a real ``ThreadPoolExecutor`` stress run should also observe exactly one
-    winner, even though (per round 1's evaluation) this alone doesn't prove
-    the lock is what enforces it.
+    winner, even though this alone doesn't prove the lock is what enforces it.
     """
     n_workers = 16
     barrier = threading.Barrier(n_workers)
@@ -500,3 +496,35 @@ def test_times_bounded_rule_is_consumed_exactly_once_under_concurrency() -> None
     real = [r for r in results if r.stdout == "real"]
     assert len(scripted) == 1
     assert len(real) == n_workers - 1
+
+
+def test_insert_rule_puts_a_narrower_rule_ahead_of_an_unlimited_one() -> None:
+    """An unlimited rule shadows later matches, so the narrow one goes first."""
+    broad = FaultRule(
+        match=["gh", "pr"], times=None, response=CompletedProcessSpec(stdout="broad")
+    )
+    narrow = FaultRule(
+        match=["gh", "pr", "merge"], response=CompletedProcessSpec(stdout="narrow")
+    )
+    ops = FaultInjectingOps(real_run=_real_run_stub("never"), rules=[broad])
+
+    ops.insert_rule(0, narrow)
+
+    assert ops.run(["gh", "pr", "merge"]).stdout == "narrow"
+    assert ops.run(["gh", "pr", "merge"]).stdout == "broad"
+
+
+def test_append_rule_is_consulted_after_the_installed_rules() -> None:
+    first = FaultRule(
+        match=["gh", "pr"], times=1, response=CompletedProcessSpec(stdout="first")
+    )
+    second = FaultRule(match=["gh", "pr"], response=CompletedProcessSpec(stdout="2nd"))
+    ops = FaultInjectingOps(real_run=_real_run_stub("never"), rules=[first])
+
+    ops.append_rule(second)
+
+    assert [ops.run(["gh", "pr"]).stdout, ops.run(["gh", "pr"]).stdout] == [
+        "first",
+        "2nd",
+    ]
+    assert (first.consumed, second.consumed) == (1, 1)

@@ -3,12 +3,12 @@ squash-merges."""
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.plugin_swap import PluginSwap
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
@@ -46,7 +46,7 @@ class Phase9PostRelease:
         """``merge`` is injected rather than composing ``PrMerger`` directly —
         several tests monkeypatch ``punt_kit.release._pr_merge`` and call
         ``punt_kit.release._phase9_post_release`` expecting the patch to be
-        observed (§0's mechanism).
+        observed.
         """
         info = self._info
         version = self._version
@@ -125,22 +125,19 @@ class Phase9PostRelease:
                 # the just-released version back before committing so main
                 # advertises the current release, not the previous one.
                 plugin_json = info.plugin_manifest
-                pj_data = json.loads(plugin_json.read_text(encoding="utf-8"))
+                manifest = JsonFile(plugin_json)
+                pj_data = cast("dict[str, object]", manifest.load())
                 if pj_data.get("version") != version:
                     pj_data["version"] = version
-                    plugin_json.write_text(
-                        json.dumps(pj_data, indent=2) + "\n",
-                        encoding="utf-8",
-                    )
+                    manifest.save(pj_data)
                     ops.run(["git", "add", str(plugin_json)], cwd=str(root))
                 # No [skip ci] marker on this commit: the PR's required
                 # status checks (lint/test/docs) run per branch protection,
                 # and GitHub Actions honors [skip ci] on pull_request
-                # triggers too — so the marker used to make the PR
+                # triggers too — so the marker would make the PR
                 # unmergeable. The squash-merge onto main uses the PR
                 # title (which never carried the marker), so removing it
                 # here also does not add a redundant CI run on main.
-                # See pkit-x5j8.
                 commit_result = ops.run(
                     [
                         "git",
@@ -177,8 +174,7 @@ class Phase9PostRelease:
                 has_changes = True
             else:
                 # Hook-firing checkout + local branch delete — same
-                # diagnosed convention as this phase's restore commit above
-                # (pkit-f85t.7).
+                # diagnosed convention as this phase's restore commit above.
                 checkout = ops.run(
                     ["git", "checkout", "main"],
                     cwd=str(root),

@@ -3,18 +3,21 @@ marketplace.json, and public-website projects.json."""
 
 from __future__ import annotations
 
-import json
-import re
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
-from punt_kit.phases.shared.errors import ReleaseError
-from punt_kit.phases.shared.gh import GithubRepo
+from punt_kit.phases.shared.entry_matcher import EntryMatcher
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.pin_currency import PinCurrency
+from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.pipeline import ThreadedStep
 from punt_kit.phases.shared.project_info import ReleaseProject
-from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
+from punt_kit.phases.shared.project_remote import ProjectRemote
+from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
+from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
     import threading
@@ -24,7 +27,7 @@ if TYPE_CHECKING:
 
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
-    from punt_kit.phases.shared.siblings import SkipRecorder
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 _console = Console()
 
@@ -73,10 +76,12 @@ class InstallAllPropagator:
         if not (info.root / "install.sh").exists():
             return
 
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo is None:
+        slug = ProjectRemote(
+            info.root, ops=ops, skips=self._skips, step="install-all.sh propagation"
+        ).slug()
+        if slug is None:
             return
-        project_name = repo.split("/")[-1]
+        project_name = slug.name
 
         github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
         if github_sibling is None:
@@ -102,18 +107,27 @@ class InstallAllPropagator:
         install_all = sibling / "install-all.sh"
         if not install_all.exists():
             ops.fail("install-all.sh not found in .github — required for propagation")
-            return  # unreachable
 
         tag = f"v{version}"
         install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
 
-        content = install_all.read_text(encoding="utf-8")
-        esc = re.escape(project_name)
-        pattern = rf"(\$GH/{esc}/)[0-9a-fA-F]{{7,40}}(/install\.sh)"
-        new_content, count = re.subn(pattern, rf"\g<1>{install_sha}\2", content)
+        content = TextFile(install_all).read()
+        currency = PinCurrency(install_sha, cwd=info.root, ops=ops)
+        new_content, count = ShaPin.install_all_entry(project_name).repinned(
+            content, install_sha, is_current=currency.is_current
+        )
 
         if count == 0:
-            ops.info(f"install-all.sh: no entry for {project_name} — skipping")
+            # Phase 11 fails an absent entry, so say so now, with the fix. The
+            # profile pin is independent of this entry and is still refreshed.
+            self._skips.record(
+                f"SKIPPED — manual action required: ../.github/install-all.sh has no "
+                f"entry for {project_name}, so its install SHA was not propagated "
+                f"for {tag}. Add the entry, pinned to {install_sha}, manually."
+            )
+            if not dry_run:
+                github_sibling.validate()
+                self._sync_profile_readme(sibling, version, project_name, merge_sibling)
             return
 
         if dry_run:
@@ -130,7 +144,7 @@ class InstallAllPropagator:
         if new_content == content:
             ops.ok(f"install-all.sh: {project_name} SHA already current")
         else:
-            install_all.write_text(new_content, encoding="utf-8")
+            TextFile(install_all).write(new_content)
             branch = f"propagate/v{version}-{project_name}-github"
             if merge_sibling(
                 sibling,
@@ -165,7 +179,15 @@ class InstallAllPropagator:
         """
         ops = self._ops
         readme = sibling / "profile" / "README.md"
+        tag = f"v{version}"
         if not readme.exists():
+            # Phase 11 fails an absent profile, so say so now, with the fix.
+            self._skips.record(
+                f"SKIPPED — manual action required: ../.github/profile/README.md "
+                f"not found, so the org profile's install-all.sh SHA pin was not "
+                f"propagated for {tag}. Restore the profile README and pin it to "
+                "the .github commit that last touched install-all.sh, manually."
+            )
             return
 
         log_result = ops.run(
@@ -191,16 +213,18 @@ class InstallAllPropagator:
             )
             return
 
-        readme_content = readme.read_text(encoding="utf-8")
-        new_readme, readme_count = re.subn(
-            r"(punt-labs/\.github/)[0-9a-fA-F]{7,40}(/install-all\.sh)",
-            rf"\g<1>{github_sha}\2",
-            readme_content,
+        readme_content = TextFile(readme).read()
+        currency = PinCurrency(github_sha, cwd=sibling, ops=ops)
+        new_readme, readme_count = ShaPin.profile().repinned(
+            readme_content, github_sha, is_current=currency.is_current
         )
         if readme_count == 0:
-            ops.info(
-                "profile/README.md: no install-all.sh SHA reference found — "
-                "skipping update"
+            # Phase 11 fails a profile with no reference, so say so now.
+            self._skips.record(
+                f"SKIPPED — manual action required: ../.github/profile/README.md "
+                f"has no install-all.sh SHA reference, so its pin was not "
+                f"propagated for {tag}. Add the reference, pinned to "
+                f"{github_sha}, manually."
             )
             return
         if new_readme == readme_content:
@@ -209,7 +233,7 @@ class InstallAllPropagator:
             )
             return
 
-        readme.write_text(new_readme, encoding="utf-8")
+        TextFile(readme).write(new_readme)
         branch = f"propagate/v{version}-{project_name}-github-profile"
         if merge_sibling(
             sibling,
@@ -226,15 +250,19 @@ class InstallAllPropagator:
 class MarketplacePropagator:
     """10b. Updates version and ref in claude-plugins marketplace.json."""
 
-    __slots__ = ("_info", "_ops")
+    __slots__ = ("_info", "_ops", "_skips")
 
     _info: ProjectInfo
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
-    def __new__(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
+    def __new__(
+        cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
+    ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
+        self._skips = skips
         return self
 
     def run(
@@ -249,10 +277,12 @@ class MarketplacePropagator:
         if not info.is_plugin and not info.is_hybrid:
             return
 
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo is None:
+        slug = ProjectRemote(
+            info.root, ops=ops, skips=self._skips, step="marketplace propagation"
+        ).slug()
+        if slug is None:
             return
-        project_name = repo.split("/")[-1]
+        project_name = slug.name
         tag = f"v{version}"
 
         claude_plugins_sibling = SiblingRepo.resolve(
@@ -263,13 +293,11 @@ class MarketplacePropagator:
                 "Sibling claude-plugins not found — required for marketplace "
                 "propagation"
             )
-            return
 
         sibling = claude_plugins_sibling.path
         marketplace_path = sibling / ".claude-plugin" / "marketplace.json"
         if not marketplace_path.exists():
             ops.fail("marketplace.json not found in claude-plugins")
-            return
 
         if dry_run:
             ops.dry(
@@ -280,28 +308,22 @@ class MarketplacePropagator:
 
         claude_plugins_sibling.validate()
 
-        raw = json.loads(marketplace_path.read_text(encoding="utf-8"))
-        data = cast("dict[str, object]", raw)
+        marketplace_file = JsonFile(marketplace_path)
+        data = cast("dict[str, object]", marketplace_file.load())
         plugins = cast("list[dict[str, object]]", data.get("plugins", []))
 
         # Marketplace entries key on the plugin's SHORT name (e.g. "punt"),
-        # not the PyPI distribution name (e.g. "punt-kit") — read it from the
-        # project's own plugin.json (post -dev-strip).
+        # read from the project's own plugin.json (post -dev-strip), or on the
+        # repository name from the origin slug (e.g. "punt-kit") — never the
+        # PyPI distribution name. An entry's source.url (keyless HTTPS,
+        # git-subdir) must name the same owner/repo.
         marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-        candidates = {n for n in (marketplace_name, project_name) if n}
+        matcher = EntryMatcher.for_marketplace(slug, marketplace_name)
 
         found = False
         for plugin in plugins:
-            src = cast("dict[str, str]", plugin.get("source", {}))
-            # marketplace.json uses "url" for keyless HTTPS installs (git-subdir
-            # and the earlier plain-url source) — "repo" was the pre-migration
-            # key that pulled the whole repo to disk, and no live entry uses it
-            # anymore. See pkit-p328 and claude-plugins commit b77f1ed.
-            source_url = str(src.get("url", "")).removesuffix(".git")
-            if (
-                any(source_url.endswith("/" + n) for n in candidates)
-                or plugin.get("name") in candidates
-            ):
+            if matcher.claims_plugin(plugin):
+                src = cast("dict[str, str]", plugin.get("source", {}))
                 plugin["version"] = version
                 if "source" not in plugin:
                     plugin["source"] = src
@@ -315,7 +337,7 @@ class MarketplacePropagator:
                 "— required for plugin/hybrid releases"
             )
 
-        marketplace_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+        marketplace_file.save(data)
 
         branch = f"propagate/v{version}-{project_name}-claude-plugins"
         if merge_sibling(
@@ -329,96 +351,6 @@ class MarketplacePropagator:
             ops.ok(f"marketplace: {project_name} version={version}, ref={tag}")
         else:
             ops.ok(f"marketplace: {project_name} already current")
-
-
-@final
-class WebsitePropagator:
-    """10d. Updates version in public-website projects.json."""
-
-    __slots__ = ("_info", "_ops")
-
-    _info: ProjectInfo
-    _ops: ReleaseOps
-
-    def __new__(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
-        self = super().__new__(cls)
-        self._info = info
-        self._ops = ops
-        return self
-
-    def run(
-        self,
-        version: str,
-        *,
-        dry_run: bool,
-        merge_sibling: Callable[..., bool],
-    ) -> None:
-        info = self._info
-        ops = self._ops
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo is None:
-            return
-        project_name = repo.split("/")[-1]
-
-        website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
-        if website_sibling is None:
-            ops.info("Sibling public-website not found — skipping website update")
-            return
-
-        sibling = website_sibling.path
-        projects_json = sibling / "src" / "data" / "projects.json"
-        if not projects_json.exists():
-            ops.info("projects.json not found in public-website — skipping")
-            return
-
-        if dry_run:
-            ops.dry(
-                f"../public-website/projects.json: {project_name} version={version}"
-            )
-            return
-
-        website_sibling.validate()
-
-        data = json.loads(projects_json.read_text(encoding="utf-8"))
-
-        found = False
-        for project in data:
-            github_url = project.get("githubUrl") or ""
-            if project.get("id") == project_name or github_url.endswith(
-                "/" + project_name
-            ):
-                project["version"] = version
-                # Update installCommand SHA if present
-                install_cmd = project.get("installCommand") or ""
-                if install_cmd and f"/{project_name}/" in install_cmd:
-                    install_sha = ReleaseProject(info, ops=ops).install_sh_sha()
-                    project["installCommand"] = re.sub(
-                        rf"({re.escape(project_name)}/)[0-9a-fA-F]{{7,40}}"
-                        r"(/install\.sh)",
-                        rf"\g<1>{install_sha}\2",
-                        install_cmd,
-                    )
-                found = True
-                break
-
-        if not found:
-            ops.info(f"No website entry for {project_name} — skipping")
-            return
-
-        projects_json.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-        branch = f"propagate/v{version}-{project_name}-public-website"
-        if merge_sibling(
-            sibling,
-            branch,
-            ["src/data/projects.json"],
-            f"chore: bump {project_name} to v{version}",
-            "public-website",
-            dry_run=dry_run,
-        ):
-            ops.ok(f"website: {project_name} version={version}")
-        else:
-            ops.ok(f"website: {project_name} already current")
 
 
 @final
@@ -461,14 +393,13 @@ class Phase10Propagate:
     ) -> None:
         """Run the three propagators concurrently.
 
-        Every collaborator here is injected rather than composed directly:
-        ``test_phase10_propagate_runs_concurrently`` and
-        ``test_phase10_propagate_collects_errors`` monkeypatch
-        ``punt_kit.release._propagate_install_all``/``_propagate_marketplace``/
-        ``_propagate_website``/``_reset_propagation_siblings`` and call
-        ``punt_kit.release._phase10_propagate`` expecting every patch to be
-        observed. ``interrupted`` is release.py's own ``threading.Event``,
-        which stays unmoved in release.py per §1a and so must be passed in.
+        Every collaborator here is injected rather than composed directly, so
+        a caller that rebinds ``punt_kit.release._propagate_install_all``/
+        ``_propagate_marketplace``/``_propagate_website``/
+        ``_reset_propagation_siblings`` has each observed by
+        ``punt_kit.release._phase10_propagate``. ``interrupted`` is release.py's
+        own ``threading.Event`` (its signal handler sets it), so it is passed
+        in.
         """
         info = self._info
         version = self._version
@@ -493,13 +424,4 @@ class Phase10Propagate:
                     propagate_website, info, version, dry_run=dry_run
                 ): "public-website",
             }
-            try:
-                ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)
-            except ReleaseError as exc:
-                # Recorded before re-raising: the summary drains _skips even
-                # when the pipeline stops before reaching a successful
-                # pipeline.summarize() call, so a thread failure here still
-                # reaches the end-of-run recap — not only recorded skips
-                # (an absent sibling, etc.) as before.
-                self._skips.record(f"FAILED — Phase 10 propagation: {exc}")
-                raise
+            ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)

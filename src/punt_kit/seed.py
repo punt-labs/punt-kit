@@ -9,19 +9,22 @@ from __future__ import annotations
 
 import functools
 import importlib.resources
-import json
 import re
 from pathlib import Path
 from typing import cast
 
 import jinja2
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init import (
     build_standard_deny_rules,
     build_standard_permissions,
 )
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
 
@@ -330,20 +333,24 @@ def run_seed(
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
-    info = detect(root)
     changed: list[str] = []
-
-    if target == "settings":
-        changed.extend(_seed_settings(info, dry_run=dry_run))
-    elif target in TARGETS:
-        file_type, sections = TARGETS[target]
-        changed.extend(_seed_file(info, target, file_type, sections, dry_run=dry_run))
-    else:
-        valid = ", ".join([*TARGETS.keys(), "settings"])
-        console.print(
-            f"[red]Error:[/red] unknown target '{target}' — choose from: {valid}"
-        )
-        raise SystemExit(1)
+    try:
+        info = detect(root)
+        if target == "settings":
+            changed.extend(_seed_settings(info, dry_run=dry_run))
+        elif target in TARGETS:
+            file_type, sections = TARGETS[target]
+            changed += _seed_file(info, target, file_type, sections, dry_run=dry_run)
+        else:
+            valid = ", ".join([*TARGETS.keys(), "settings"])
+            console.print(
+                f"[red]Error:[/red] unknown target '{target}' — choose from: {valid}"
+            )
+            raise SystemExit(1)
+    except ReleaseError as exc:
+        # An unreadable project file is reported by name, not as a traceback.
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise SystemExit(1) from exc
 
     if dry_run:
         console.print("\n[dim]Dry run — no files modified.[/dim]")
@@ -384,7 +391,7 @@ def _seed_file(
     # Read existing or start empty
     original = ""
     if target_path.exists():
-        original = target_path.read_text(encoding="utf-8")
+        original = TextFile(target_path).read()
 
     rendered: dict[str, str] = {}
     for section_id, template_name in sections:
@@ -404,7 +411,7 @@ def _seed_file(
         _print_diff_summary(target_path, info.root, original, merged)
         return []
 
-    target_path.write_text(merged, encoding="utf-8")
+    TextFile(target_path).write(merged)
     rel = _relpath(target_path, info.root)
     return [rel]
 
@@ -416,26 +423,19 @@ def _seed_settings(
 ) -> list[str]:
     """Merge standard permissions into .claude/settings.json."""
     settings_path = info.root / ".claude" / "settings.json"
+    settings = JsonFile(settings_path)
 
     existing: dict[str, object]
     if settings_path.exists():
         rel = _relpath(settings_path, info.root)
         try:
-            raw = json.loads(settings_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as e:
+            existing = settings.load_object()
+        except ReleaseError as e:
             console.print(
-                f"[red]Error:[/red] {rel} has invalid JSON (line {e.lineno}): {e.msg}"
+                f"[red]Error:[/red] {escape(str(e))}"
+                f" — fix {rel} manually; seed will not replace it"
             )
             raise SystemExit(1) from e
-        if not isinstance(raw, dict):
-            console.print(
-                f"[red]Error:[/red] {rel} root is"
-                f" {type(raw).__name__}, expected JSON object"
-                " — fix the file manually or delete it"
-            )
-            raise SystemExit(1)
-        else:
-            existing = cast("dict[str, object]", raw)
     else:
         existing = {}
 
@@ -450,7 +450,7 @@ def _seed_settings(
         return []
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+    settings.save(merged)
     return [_relpath(settings_path, info.root)]
 
 

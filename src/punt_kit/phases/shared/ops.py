@@ -12,14 +12,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, NoReturn, Protocol, runtime_checkable
 
+from punt_kit.phases.shared.timeouts import DEFAULT_RUN
+
 if TYPE_CHECKING:
     import subprocess
-
-# The metadata-call default budget. Kept in sync with, but independent of,
-# release.py's own _DEFAULT_RUN_TIMEOUT — the Protocol needs a default so
-# `self._ops.run(cmd)` type-checks without an explicit timeout; the real
-# default resolution happens inside release.py's `_run`.
-_DEFAULT_RUN_TIMEOUT = 60
 
 
 @runtime_checkable
@@ -27,12 +23,12 @@ class ReleaseOps(Protocol):
     """Subprocess execution and console reporting, as an injectable seam.
 
     ``run``'s ``check`` default of ``True`` is deliberately caller-set, not
-    changed here — the pkit-f85t.7 sweep converts individual call sites to
-    ``check=False`` plus a diagnosed ``fail(...)`` message, rather than
-    flipping the shared default, because a silently-flipped default would
-    hide which sites were actually reviewed. The sweep's boundary: a call
-    site is converted when it can plausibly fail *operationally* — a
-    network op (fetch/push/pull/ls-remote), an external tool (uv, gh, a
+    changed here — individual call sites opt into ``check=False`` plus a
+    diagnosed ``fail(...)`` message, rather than flipping the shared
+    default, because a silently-flipped default would hide which sites were
+    actually reviewed. The convention's boundary: a call site opts in when
+    it can plausibly fail *operationally* — a network op
+    (fetch/push/pull/ls-remote), an external tool (uv, gh, a
     release/restore script), a hook-firing mutation (checkout, commit,
     branch delete), or a read against a sibling repo (a checkout this
     process does not fully control). A call site is left at ``check=True``
@@ -43,7 +39,7 @@ class ReleaseOps(Protocol):
     earlier phase (or, for a sibling, that sibling's own ``validate()``)
     already established — a failure there indicates the repo itself is
     corrupt beyond any single call's control, not an independent
-    operational failure mode this sweep's diagnosis convention targets.
+    operational failure mode the diagnosis convention targets.
     """
 
     def run(
@@ -51,7 +47,7 @@ class ReleaseOps(Protocol):
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]: ...
@@ -63,5 +59,7 @@ class ReleaseOps(Protocol):
     def dry(self, msg: str) -> None: ...
 
     def warn(self, msg: str) -> None: ...
+
+    def error(self, msg: str) -> None: ...
 
     def fail(self, msg: str) -> NoReturn: ...

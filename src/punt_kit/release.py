@@ -6,16 +6,9 @@ import signal
 import subprocess
 import sys
 import threading
-
-# Unused directly in this module since the polling loops moved to
-# phases/shared/gh.py and ci_run.py, but several tests monkeypatch
-# "punt_kit.release.time.sleep" — that dotted path resolves through this
-# module's own `time` attribute, so removing the import breaks the patch
-# with an ImportError before the test body even runs.
-import time  # noqa: F401  # pyright: ignore[reportUnusedImport]
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, NoReturn, cast, final
+from typing import NoReturn, final
 
 from rich.console import Console
 
@@ -33,52 +26,37 @@ from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
     Phase10Propagate,
-    WebsitePropagator,
 )
+from punt_kit.phases.phase10_website import WebsitePropagator
 from punt_kit.phases.phase11_verify import Phase11Verify
-from punt_kit.phases.shared import changelog as changelog_mod
-from punt_kit.phases.shared import project_info as project_info_mod
-from punt_kit.phases.shared import siblings as siblings_mod
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
-from punt_kit.phases.shared.ci_run import TagRunSelector
-from punt_kit.phases.shared.errors import ReleaseError as ReleaseError
-from punt_kit.phases.shared.gh import GithubRepo, PrThreadResolver, RequiredChecksWaiter
+from punt_kit.phases.shared.command_runner import CommandRunner
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.gh import RequiredChecksWaiter
+from punt_kit.phases.shared.github_repo import GithubRepo
+from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.pr_threads import PrThreadResolver
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
-from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo, SkipRecorder
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo
+from punt_kit.phases.shared.skips import SkipRecorder
 
 console = Console()
 
 # Set by the signal handler so threads can drain before cleanup runs.
 _interrupted = threading.Event()
 
-# Aliases — see phases/shared/siblings.py for the source of truth.
-PROPAGATION_SIBLINGS = siblings_mod.PROPAGATION_SIBLINGS
-_GITHUB_ABSENT_SKIP = siblings_mod.GITHUB_ABSENT_SKIP
-_PROPAGATION_OWNED_PATHS = siblings_mod.PROPAGATION_OWNED_PATHS
-
 # ---------------------------------------------------------------------------
-# Timeout budgets — see phases/shared/timeouts.py for the source of truth and
-# the rationale behind each budget. Aliased here (not just imported) because
-# _CI_RUN_POLL_ATTEMPTS/_CI_RUN_POLL_INTERVAL are monkeypatched directly on
-# this module by tests/test_release.py; every other name is a plain re-export.
-_DEFAULT_RUN_TIMEOUT = timeouts.DEFAULT_RUN
-_UV_TIMEOUT = timeouts.UV
-_GIT_NETWORK_TIMEOUT = timeouts.GIT_NETWORK
-_GIT_HOOK_TIMEOUT = timeouts.GIT_HOOK
-_QUALITY_GATE_TIMEOUT = timeouts.QUALITY_GATE
+# Timeout budgets — phases/shared/timeouts.py is the source of truth and holds
+# the rationale for each. Only the two poll constants are re-bound here,
+# because tests monkeypatch them on this module and Phase 6 receives them from
+# `_phase6_ci_wait` at call time.
 _CI_RUN_POLL_INTERVAL = timeouts.CI_RUN_POLL_INTERVAL
 _CI_RUN_POLL_ATTEMPTS = timeouts.CI_RUN_POLL_ATTEMPTS
-_CI_ADVERSE_CONCLUSIONS = timeouts.CI_ADVERSE_CONCLUSIONS
-_CI_WATCH_TIMEOUT = timeouts.CI_WATCH
-_CI_RUN_LIST_TIMEOUT = timeouts.CI_RUN_LIST
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -89,23 +67,13 @@ def _run(
     cmd: list[str],
     *,
     cwd: str | None = None,
-    timeout: int = _DEFAULT_RUN_TIMEOUT,
+    timeout: int = timeouts.DEFAULT_RUN,
     check: bool = True,
     capture: bool = True,
 ) -> subprocess.CompletedProcess[str]:
-    """Run a subprocess with standard options.
-
-    ``timeout`` defaults to a short metadata budget. Call sites that
-    legitimately need longer — package installs, quality gates, network git,
-    ``gh run watch`` — must pass one of the named budgets defined above.
-    """
-    return subprocess.run(
-        cmd,
-        cwd=cwd,
-        capture_output=capture,
-        text=True,
-        timeout=timeout,
-        check=check,
+    """Run a subprocess through the shared ``CommandRunner``."""
+    return CommandRunner.run(
+        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
     )
 
 
@@ -130,7 +98,7 @@ class _ReleaseOpsAdapter:
     exactly like every other function already in this file. That is what
     lets ``monkeypatch.setattr(release_mod, "_run", fake_run)`` reach a
     ``RequiredChecksWaiter`` or a ``Phase6CiWait`` that was constructed with
-    this adapter, with zero changes to ``tests/test_release.py``.
+    this adapter.
 
     Legitimate PY-OO-7 exception: a stateless Adapter whose entire purpose is
     to forward to module globals for this testability reason, not a data
@@ -144,7 +112,7 @@ class _ReleaseOpsAdapter:
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -162,6 +130,9 @@ class _ReleaseOpsAdapter:
     def warn(self, msg: str) -> None:
         _warn(msg)
 
+    def error(self, msg: str) -> None:
+        reporter.error(msg)
+
     def fail(self, msg: str) -> NoReturn:
         _fail(msg)
 
@@ -176,16 +147,14 @@ _ops = _ReleaseOpsAdapter()
 _skips = SkipRecorder(ops=_ops)
 
 
-def _get_install_sh_sha(  # pyright: ignore[reportUnusedFunction]
-    root: Path,
-) -> str:
-    """Get the short SHA of the commit that last modified install.sh.
+def interrupt_event() -> threading.Event:
+    """Return the event the signal handler sets and polling workers read."""
+    return _interrupted
 
-    No caller remains in this module — every former call site now
-    constructs ReleaseProject directly. Kept importable for public API
-    preservation.
-    """
-    return ReleaseProject(ProjectInfo(root), ops=_ops).install_sh_sha()
+
+def skip_recorder() -> SkipRecorder:
+    """Return the recorder every phase of the running release writes skips to."""
+    return _skips
 
 
 def _get_project_version(info: ProjectInfo) -> str:
@@ -200,70 +169,19 @@ def _get_latest_tag_version(root: Path) -> str:
     return ReleaseProject(ProjectInfo(root), ops=_ops).latest_tag_version()
 
 
-def _get_package_name(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo,
-) -> str:
-    """Extract package name from pyproject.toml.
-
-    No caller remains in this module — every former call site now
-    constructs ReleaseProject directly. Kept importable for public API
-    preservation.
-    """
-    return ReleaseProject(info, ops=_ops).package_name()
-
-
-def _self_package_name(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo,
-) -> str | None:
-    """Return the project's own PyPI package name for self-referential pins.
-
-    No caller remains in this module — _rewrite_template_pins now delegates
-    fully to ReleaseProject.rewrite_template_pins, which calls the class's
-    own self_package_name() rather than this bare name. Kept importable for
-    public API preservation (punt_kit.release.<name> stays reachable).
-    """
-    return ReleaseProject(info, ops=_ops).self_package_name()
-
-
-def _find_package_dir(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo,
-) -> Path | None:
-    """Find the Python package directory (src layout).
-
-    No caller remains in this module — every former call site now
-    constructs ReleaseProject directly. Kept importable for public API
-    preservation.
-    """
-    return ReleaseProject(info, ops=_ops).package_dir()
-
-
 def _get_github_repo(root: Path) -> str | None:
-    """Extract GitHub owner/repo from git remote."""
-    return GithubRepo(root, ops=_ops).resolve()
+    """GitHub owner/repo of ``origin``; ``None`` when it is not on github.com.
 
-
-def _read_changelog(root: Path) -> str:
-    """Read CHANGELOG.md content."""
-    return Changelog(root, ops=_ops).text()
-
-
-def _extract_version_notes(  # pyright: ignore[reportUnusedFunction]
-    changelog: str, version: str
-) -> str:
-    """Extract release notes for a specific version from changelog.
-
-    No caller remains in this module — Phase7GithubRelease calls
-    changelog_mod.extract_version_notes directly. Kept importable for
-    public API preservation (this name is also directly tested).
+    ``ValueError`` if the remote is malformed, ``RemoteLookupError`` if git
+    could not be asked.
     """
-    return changelog_mod.extract_version_notes(changelog, version)
+    return GithubRepo(root, ops=_ops).slug_text()
 
 
 def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     """Resolve all unresolved review threads on a PR."""
-    PrThreadResolver(GithubRepo(Path(cwd), ops=_ops), ops=_ops).resolve(
-        gh, cwd, pr_number
-    )
+    repo = GithubRepo(Path(cwd), ops=_ops)
+    PrThreadResolver(repo, ops=_ops).resolve(gh, cwd, pr_number)
 
 
 # ---------------------------------------------------------------------------
@@ -274,40 +192,6 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
 def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     """Phase 1: Pre-flight checks."""
     Phase1Preflight(info, dry_run=dry_run, ops=_ops).run()
-
-
-def _suggest_version(changelog: str, current: str) -> str:
-    """Suggest a version bump based on changelog content."""
-    return changelog_mod.suggest_next_version(changelog, current)
-
-
-def _branch_protection_exists(  # pyright: ignore[reportUnusedFunction]
-    gh: str, cwd: str, owner: str, repo_name: str
-) -> bool:
-    """True if ``main`` has a branch protection rule; False only on a confirmed
-    "branch not protected" response.
-
-    No caller remains in this module — RequiredChecksWaiter.wait calls
-    self._repo.has_branch_protection directly. Kept importable for public
-    API preservation.
-    """
-    return GithubRepo(Path(cwd), ops=_ops).has_branch_protection(gh, owner, repo_name)
-
-
-def _has_ruleset(  # pyright: ignore[reportUnusedFunction]
-    gh: str, cwd: str, owner: str, repo_name: str
-) -> bool:
-    """True if a GitHub ruleset (not the legacy branch-protection API)
-    governs ``main``.
-
-    No production caller in this module — RequiredChecksWaiter.wait calls
-    self._repo.has_ruleset directly. Kept as a bare module-level name
-    (mirroring ``_branch_protection_exists``) purely as a test seam:
-    ``monkeypatch.setattr(release_mod, "_run", ...)`` reaches
-    ``GithubRepo.has_ruleset`` through this wrapper the same way it reaches
-    every other collaborator built on the shared ``_ops`` adapter.
-    """
-    return GithubRepo(Path(cwd), ops=_ops).has_ruleset(gh, owner, repo_name)
 
 
 def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
@@ -322,34 +206,6 @@ def _wait_for_required_checks(gh: str, cwd: str, pr_number: int) -> None:
     """
     RequiredChecksWaiter(GithubRepo(Path(cwd), ops=_ops), ops=_ops).wait(
         gh, cwd, pr_number, resolve_repo=_get_github_repo, interrupted=_interrupted
-    )
-
-
-def _select_existing_pr(  # pyright: ignore[reportUnusedFunction]
-    prs: list[dict[str, object]], local_head: str
-) -> tuple[int | None, bool]:
-    """Pick which same-named PR, if any, represents the current release.
-
-    No caller remains in this module — PrMerger.merge calls
-    PrMerger._select_existing directly. Kept importable for public API
-    preservation.
-    """
-    return PrMerger._select_existing(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        prs, local_head
-    )
-
-
-def _pr_is_merged(  # pyright: ignore[reportUnusedFunction]
-    gh: str, cwd: str, pr_number: int
-) -> bool:
-    """Check whether a PR has reached the MERGED state.
-
-    No caller remains in this module — PrMerger.merge calls
-    PrMerger._is_merged directly. Kept importable for public API
-    preservation.
-    """
-    return PrMerger(ops=_ops)._is_merged(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-        gh, cwd, pr_number
     )
 
 
@@ -370,24 +226,6 @@ def _pr_merge(
         dry_run=dry_run,
         wait_for_checks=_wait_for_required_checks,
         resolve_threads=_resolve_pr_threads,
-    )
-
-
-# Static alias — pure string transform, no test monkeypatches this name.
-_normalize_package_name = project_info_mod.normalize_package_name
-
-
-def _rewrite_template_pins(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> list[Path]:
-    """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins.
-
-    No caller remains in this module — Phase2VersionBump calls
-    ReleaseProject.rewrite_template_pins directly. Kept importable for
-    public API preservation (this name is also directly tested).
-    """
-    return ReleaseProject(info, ops=_ops).rewrite_template_pins(
-        version, dry_run=dry_run
     )
 
 
@@ -424,29 +262,11 @@ def _phase5_tag(
     Phase5Tag(info, version, dry_run=dry_run, ops=_ops).run(release_sha=release_sha)
 
 
-def _bump_readme_install_sha(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> None:
-    """Update SHA-pinned install.sh URLs in README to the install.sh commit.
-
-    No caller remains in this module — ReadmeShaPin.land calls self.bump
-    directly. Kept importable for public API preservation.
-    """
-    ReadmeShaPin(info, ops=_ops).bump(
-        version, dry_run=dry_run, resolve_repo=_get_github_repo
-    )
-
-
 def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Pin README's install-URL SHA via its own PR, right after the squash-merge."""
-    ReadmeShaPin(info, ops=_ops).land(
+    ReadmeShaPin(info, ops=_ops, skips=_skips).land(
         version, dry_run=dry_run, merge=_pr_merge, resolve_repo=_get_github_repo
     )
-
-
-# Static alias — re-export of the relocated class. No test's monkeypatch
-# reassigns this name; every use is a direct call/import.
-_TagRunSelector = TagRunSelector
 
 
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
@@ -487,18 +307,6 @@ def _resolve_sibling(root: Path, name: str) -> Path | None:
     return repo.path if repo is not None else None
 
 
-def _validate_sibling(  # pyright: ignore[reportUnusedFunction]
-    path: Path, name: str
-) -> None:
-    """Validate a sibling repo is ready for propagation.
-
-    No caller remains in this module — every former call site now
-    constructs SiblingRepo directly. Kept importable for public API
-    preservation (this name is also directly tested).
-    """
-    SiblingRepo(path, name, ops=_ops).validate()
-
-
 def _sibling_pr_merge(
     path: Path,
     branch: str,
@@ -531,29 +339,15 @@ def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """10b. Update version and ref in claude-plugins marketplace.json."""
-    MarketplacePropagator(info, ops=_ops).run(
+    MarketplacePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """10d. Update version in public-website projects.json."""
-    WebsitePropagator(info, ops=_ops).run(
+    WebsitePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
-    )
-
-
-def _reset_sibling_owned_dirt(  # pyright: ignore[reportUnusedFunction]
-    sib_path: Path, sib_name: str, *, fail_on_error: bool
-) -> None:
-    """Restore propagation-owned files if a sibling on main is dirty in them.
-
-    No caller remains in this module — SiblingRegistry.reset_all constructs
-    a SiblingRepo and calls its own reset_owned_dirt() directly. Kept
-    importable for public API preservation.
-    """
-    SiblingRepo(sib_path, sib_name, ops=_ops).reset_owned_dirt(
-        fail_on_error=fail_on_error
     )
 
 
@@ -627,103 +421,50 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-def _phase_summary(  # pyright: ignore[reportUnusedFunction]
-    info: ProjectInfo, version: str, *, dry_run: bool
-) -> None:
-    """Print release summary.
-
-    No caller remains in this module — run_release calls
-    ReleasePipeline.summarize directly on the pipeline it already built.
-    Kept importable for public API preservation (this name is also
-    directly tested).
-    """
-    ReleasePipeline((), ops=_ops).summarize(
-        info,
-        version,
-        dry_run=dry_run,
-        project=ReleaseProject(info, ops=_ops),
-        skips=_skips,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Phase name → number mapping for --resume-from
-# ---------------------------------------------------------------------------
-
-# Canonical phase order. Index + 1 is the phase number; the name at that index
-# is the string the operator passes to --resume-from. Kept as the single source
-# of truth so PHASE_NAMES and _phase_name cannot drift out of sync.
-_PHASE_ORDER: tuple[str, ...] = (
-    "preflight",
-    "bump",
-    "build",
-    "release-pr",
-    "tag",
-    "ci",
-    "github-release",
-    "pypi",
-    "post-release",
-    "propagate",
-    "verify",
-)
-
-PHASE_NAMES: dict[str, int] = {name: i + 1 for i, name in enumerate(_PHASE_ORDER)}
-# Aliases for muscle-memory from old phase names.
-PHASE_NAMES["release"] = PHASE_NAMES["release-pr"]
-
-
-def _phase_name(number: int) -> str:
-    """Return the --resume-from name for a phase number, or 'unknown'.
-
-    Only in-range phase numbers map to a name; 0 (nothing running yet) and
-    anything outside 1..len(_PHASE_ORDER) fall through to 'unknown' so the
-    diagnosis path never fabricates a phase that would not round-trip
-    through --resume-from.
-    """
-    if 1 <= number <= len(_PHASE_ORDER):
-        return _PHASE_ORDER[number - 1]
-    return "unknown"
-
-
-def _unlanded_phases(current_phase_num: int) -> tuple[str, ...]:
-    """Phase names from ``current_phase_num`` through the end.
-
-    This is the portion of the pipeline that has not been confirmed to land
-    when a release stops early — the phase that was running when the stop
-    happened, plus everything after it that never got a chance to run.
-    """
-    if not 1 <= current_phase_num <= len(_PHASE_ORDER):
-        return _PHASE_ORDER
-    return _PHASE_ORDER[current_phase_num - 1 :]
-
-
-def _print_incomplete_release(current_phase_num: int) -> None:
+def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> None:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
     Called from every stop-early path — an interrupt, a propagation
     failure that Phase 11 still ran to confirm, or any other
     ``ReleaseError`` — so an operator staring at a failed release always
     gets the same three answers: where it stopped, what that leaves
-    unconfirmed, and the exact command to re-enter. Before this, only the
-    ``subprocess.TimeoutExpired`` path gave a resume hint; every other exit
-    (including the interrupt path, which is what let vox v5.0.4's Phase 10
-    hang go unresolved) printed nothing more actionable than the bare error.
+    unconfirmed, and the exact command to re-enter. Every exit gets it, not
+    only a ``subprocess.TimeoutExpired``: the interrupt path especially, where
+    a bare error would leave the operator with nothing to act on.
+
+    ``current_phase_num`` is where the release stopped; ``resume_phase_num`` is
+    where it must be re-entered, which is earlier when a recorded Phase 9/10
+    failure is still outstanding. Phase 0 means nothing had run yet.
     """
-    phase_label = _phase_name(current_phase_num)
-    unlanded = _unlanded_phases(current_phase_num)
+    if current_phase_num == 0:
+        if _interrupted.is_set():
+            console.print(
+                "[red]Release incomplete[/red] — interrupted before any phase ran."
+            )
+            console.print("  Nothing landed; run punt release again.")
+        else:
+            console.print(
+                "[red]Release incomplete[/red] — failed before any phase ran."
+            )
+            console.print("  Fix the error above, then run punt release again.")
+        ReleasePipeline.print_manual_actions(_skips)
+        return
+    phase_label = PhaseOrder.name_of(current_phase_num)
+    resume_label = PhaseOrder.name_of(resume_phase_num)
+    unlanded = PhaseOrder.unlanded_from(resume_phase_num)
     console.print(
         f"[red]Release incomplete[/red] — stopped during phase "
         f"{current_phase_num} ({phase_label})."
     )
     if unlanded:
         console.print(f"  Not confirmed landed: {', '.join(unlanded)}")
-    if phase_label == "unknown":
+    if resume_label == "unknown":
         console.print(
             "  A phase could not be identified — investigate the error "
             "above before choosing --resume-from."
         )
     else:
-        console.print(f"  Resume with: punt release --resume-from {phase_label}")
+        console.print(f"  Resume with: punt release --resume-from {resume_label}")
     ReleasePipeline.print_manual_actions(_skips)
 
 
@@ -750,6 +491,23 @@ def run_release(
     # handler can name the phase that was running and hand the operator the
     # exact --resume-from string, not a placeholder they have to figure out.
     current_phase_num = 0
+    # Phase 9/10 failures are recorded here (phase number, message) rather
+    # than raised immediately — the release still runs Phase 11 so the
+    # operator gets a real verify report of what actually landed before the
+    # run fails loudly. Declared before the outer try so the incomplete-release
+    # report can recap them whichever exception ends the run.
+    propagation_failures: list[tuple[int, str]] = []
+
+    def _resume_phase_num() -> int:
+        # A later phase can stop the run on top of a recorded Phase 9/10
+        # failure. The stop is reported where it happened, but --resume-from
+        # points back at the phase that needs re-running (post-release re-enters
+        # both P9 and P10): re-running verify alone would never retry the
+        # propagation that verify's own checks are reporting on.
+        if propagation_failures:
+            return min(n for n, _ in propagation_failures)
+        return current_phase_num
+
     try:
         if not root.is_dir():
             _fail(f"{root} is not a directory")
@@ -766,7 +524,7 @@ def run_release(
 
         if not dry_run:
 
-            def _cleanup_handler(signum: int, frame: object) -> None:  # noqa: ARG001
+            def _cleanup_handler(signum: int, _frame: object) -> None:
                 _info("\nInterrupted — finishing active operations before cleanup...")
                 _interrupted.set()
                 raise KeyboardInterrupt()
@@ -777,29 +535,21 @@ def run_release(
         # Determine start phase
         start = 1
         if resume_from:
-            if resume_from not in PHASE_NAMES:
-                valid = ", ".join(sorted(PHASE_NAMES.keys()))
+            if resume_from not in PhaseOrder.NUMBERS:
+                valid = ", ".join(sorted(PhaseOrder.NUMBERS.keys()))
                 _fail(f"Unknown phase '{resume_from}'. Valid: {valid}")
-            start = PHASE_NAMES[resume_from]
+            start = PhaseOrder.NUMBERS[resume_from]
 
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
         resume = f" (resuming from phase {start})" if start > 1 else ""
         console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
 
-        # Phase 9/10 failures are recorded here (phase number, message)
-        # rather than raised immediately — the release still runs Phase 11
-        # so the operator gets a real verify report of what actually landed
-        # before the run fails loudly. Empty on every path that never hits
-        # the propagation step, and reset per run since it is function-local.
-        propagation_failures: list[tuple[int, str]] = []
-
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the
         # exit-1 conversion), and _print_incomplete_release's contract is
         # "called from every stop-early path". With these blocks outside
-        # the try, a Ctrl-C during preflight escaped as a raw
-        # KeyboardInterrupt with no report and no --resume-from hint
-        # (pkit-f85t.11).
+        # the try, a Ctrl-C during preflight would surface as a raw
+        # KeyboardInterrupt with no report and no --resume-from hint.
         try:
             # Run preflight before version detection (need clean tree for
             # accurate reads)
@@ -829,8 +579,7 @@ def run_release(
                             "is not a Go project, and is not a plugin"
                         )
                     current = _get_project_version(info)
-                    changelog = _read_changelog(root)
-                    version = _suggest_version(changelog, current)
+                    version = Changelog(root, ops=_ops).suggest_next_version(current)
                     console.print(
                         f"\n  [bold]Suggested version:[/bold]"
                         f" {version} (current: {current})"
@@ -846,7 +595,7 @@ def run_release(
                     # from the version this run is meant to produce.
                     # Silently running the rest of the pipeline against
                     # that stale version is worse than asking; fail loud.
-                    if info.language == "go" and start <= PHASE_NAMES["tag"]:
+                    if info.language == "go" and start <= PhaseOrder.NUMBERS["tag"]:
                         _fail(
                             "Cannot detect the version to resume with — this "
                             "is a Go project resuming at or before the tag "
@@ -916,19 +665,22 @@ def run_release(
                 # A ReleaseError here is caught, not raised — Phase 11 still
                 # runs against the actual post-propagation state so its own
                 # checks report exactly what did and didn't land, instead of
-                # the pipeline stopping before verify ever sees the failure
-                # (pkit-d7mz). The failure is not swallowed: recorded here,
+                # the pipeline stopping before verify ever sees the failure.
+                # The failure is not swallowed: recorded here,
                 # it is re-raised as a hard failure once the pipeline
                 # finishes, so the release still exits non-zero.
                 nonlocal current_phase_num
-                phase_num = 9 if start <= 9 else 10
+                phase_num = max(start, 9)
                 current_phase_num = phase_num
                 try:
                     _run_phases_9_10(info, version, dry_run=dry_run, start=start)
                 except ReleaseError as exc:
                     propagation_failures.append((phase_num, str(exc)))
+                    # Recorded so every stop-early path's recap carries it.
+                    _skips.retain(f"FAILED — Phase {phase_num}: {exc}")
                     console.print(
-                        f"[yellow]Phase {phase_num} did not fully land: {exc}[/yellow]"
+                        f"[yellow]Phase {phase_num} did not fully land "
+                        "(the failure is in the recap).[/yellow]"
                     )
                     console.print(
                         "[yellow]Continuing to Phase 11 verify to confirm "
@@ -958,29 +710,16 @@ def run_release(
                 ),
                 ops=_ops,
             )
-            try:
-                pipeline.run(start=start)
-            except ReleaseError:
-                # Phase 11 (or a later phase) raised on top of an already-
-                # recorded propagation failure — point --resume-from back at
-                # the phase that actually needs re-running (post-release,
-                # which re-enters both P9 and P10) rather than at whatever
-                # later phase's own current_phase_num happened to be set
-                # when it raised. Re-running verify alone would never retry
-                # the propagation that verify's own checks are reporting on.
-                if propagation_failures:
-                    current_phase_num = min(n for n, _ in propagation_failures)
-                raise
+            pipeline.run(start=start)
 
             if propagation_failures:
                 # Phase 11 ran and did not itself raise — the propagation
                 # failure still must not read as a successful release.
-                details = "; ".join(msg for _, msg in propagation_failures)
                 worst_phase_num = min(n for n, _ in propagation_failures)
                 current_phase_num = worst_phase_num
                 _fail(
                     f"Release did not fully land — Phase {worst_phase_num} "
-                    f"reported: {details}"
+                    "failed; the recap below names the failure"
                 )
 
             pipeline.summarize(
@@ -992,12 +731,16 @@ def run_release(
             )
         finally:
             if _interrupted.is_set():
+                ReleasePipeline.print_in_flight(sys.exc_info()[1])
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
-                _print_incomplete_release(current_phase_num)
+                _print_incomplete_release(current_phase_num, _resume_phase_num())
                 sys.exit(1)
-    except ReleaseError:
-        _print_incomplete_release(current_phase_num)
+    except ReleaseError as exc:
+        # Reporter.fail printed its own message; any other ReleaseError (an
+        # unreadable file, a failed detection) reaches here unprinted.
+        ReleasePipeline.print_unreported(exc)
+        _print_incomplete_release(current_phase_num, _resume_phase_num())
         raise SystemExit(1) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
@@ -1006,29 +749,15 @@ def run_release(
         # the operator the exact --resume-from string; a placeholder here is
         # advice that is not actionable, and resuming from the wrong phase
         # skips a gate.
-        raw_cmd = cast("object", exc.cmd)
-        if isinstance(raw_cmd, list | tuple):
-            parts = cast("Sequence[object]", raw_cmd)
-            cmd_str = " ".join(str(part) for part in parts)
-        else:
-            cmd_str = str(raw_cmd)
-        phase_label = _phase_name(current_phase_num)
-        if phase_label == "unknown":
-            resume_hint = (
-                "Investigate the command; a phase could not be identified, "
-                "so pick the earliest --resume-from that covers the failure."
-            )
-            location = "before the first phase started"
-        else:
-            resume_hint = (
-                f"Investigate the command, then resume with "
-                f"punt release --resume-from {phase_label}."
-            )
-            location = f"in phase {current_phase_num} ({phase_label})"
-        console.print(
-            f"[red]Error:[/red] release aborted {location} — "
-            f"`{cmd_str}` did not return within {exc.timeout}s. "
-            f"{resume_hint}"
-        )
+        ReleasePipeline.print_timeout(exc, current_phase_num, _resume_phase_num())
         ReleasePipeline.print_manual_actions(_skips)
+        raise SystemExit(1) from None
+    except Exception as exc:
+        # System boundary: whatever escaped a phase (a missing tool, a parse
+        # error in a file a check read, a bug) must not leave the operator with
+        # a bare traceback and no idea what landed. Operational errors get one
+        # line, bugs a traceback, then the same recap and --resume-from hint
+        # every other stop-early path gives.
+        ReleasePipeline.print_crash(exc)
+        _print_incomplete_release(current_phase_num, _resume_phase_num())
         raise SystemExit(1) from None

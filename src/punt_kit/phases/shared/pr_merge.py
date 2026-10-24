@@ -6,7 +6,9 @@ import json
 import shutil
 import subprocess
 import time
+from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Self, cast, final
+from urllib.parse import urlparse
 
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.git import GitWorkspace
@@ -14,10 +16,9 @@ from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from punt_kit.phases.shared.ops import ReleaseOps
-    from punt_kit.phases.shared.siblings import SkipRecorder
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 
 @final
@@ -26,12 +27,11 @@ class PrMerger:
 
     ``wait_for_checks`` and ``resolve_threads`` are required, injected
     callables rather than composed ``RequiredChecksWaiter``/``PrThreadResolver``
-    collaborators: ``tests/test_release.py`` monkeypatches
-    ``punt_kit.release._wait_for_required_checks`` and
-    ``punt_kit.release._resolve_pr_threads`` directly and calls
-    ``punt_kit.release._pr_merge`` — the wrapper this class backs — expecting
-    those patches to be observed. Composing the waiter/resolver classes
-    directly here would bypass that seam entirely (§0's mechanism only
+    collaborators. A caller that rebinds
+    ``punt_kit.release._wait_for_required_checks`` or
+    ``punt_kit.release._resolve_pr_threads`` must see the patch observed by
+    ``punt_kit.release._pr_merge``, the wrapper this class backs. Composing the
+    waiter/resolver classes directly here would bypass that seam (a patch only
     reaches call sites that use the bare release.py name), so the caller
     passes the bare name through instead, mirroring
     ``SiblingRegistry.reset_all``'s injected ``resolve`` collaborator.
@@ -191,7 +191,7 @@ class PrMerger:
                 self._ops.fail(f"Failed to create PR: {result.stderr.strip()}")
             pr_url = result.stdout.strip()
             try:
-                pr_number = int(pr_url.rstrip("/").split("/")[-1])
+                pr_number = int(PurePosixPath(urlparse(pr_url).path).name)
             except ValueError:
                 self._ops.fail(f"Failed to extract PR number from gh output: {pr_url}")
             self._ops.ok(f"Created PR #{pr_number}")
@@ -229,7 +229,9 @@ class PrMerger:
         # propagate.
         merge_cmd = [gh, "pr", "merge", str(pr_number), "--squash", "--delete-branch"]
         for merge_attempt in range(6):
-            result = self._ops.run(merge_cmd, cwd=root, check=False)
+            # --delete-branch makes gh check out the base, delete the local
+            # head and pull: local git, so the bd hooks fire.
+            result = self._ops.run(merge_cmd, cwd=root, check=False, timeout=GIT_HOOK)
             if result.returncode == 0:
                 break
             # gh exits non-zero when the post-merge branch deletion fails
@@ -285,10 +287,9 @@ class PrMerger:
         LATER commit — the exact race class this method's caller exists to
         avoid.
 
-        Extracted from three near-identical inline blocks (existing-PR
-        resume, mid-wait resume, and the normal post-merge path) that each
-        hand-rolled the same checkout + pull sequence with an unqualified
-        ``check=True`` default (pkit-f85t.7).
+        Shared by the existing-PR resume, mid-wait resume, and normal
+        post-merge paths, so the checkout + pull sequence is diagnosed in
+        one place instead of failing as a bare ``CalledProcessError``.
         """
         checkout = self._ops.run(
             ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
@@ -366,9 +367,8 @@ class PrMerger:
         """
         cwd = str(path)
         # A sibling checkout is far less controlled than the project's own
-        # repo (pkit-f85t.7 sweep boundary) — same reasoning as
-        # SiblingRepo.validate's reads and _sync_profile_readme's git log,
-        # both already diagnosed.
+        # repo, so its git reads run with check=False and a non-zero exit
+        # becomes a diagnosed fail, as in SiblingRepo.validate.
         status_result = self._ops.run(
             ["git", "status", "--porcelain", "--", *files], cwd=cwd, check=False
         )
@@ -419,7 +419,7 @@ class PrMerger:
         set — it is folded into the same secondary-failure reporting as a
         non-zero checkout exit instead. When there is no primary exception
         in flight, a cleanup timeout is itself the only failure and
-        propagates exactly as it did before this method existed.
+        propagates unchanged.
         """
         try:
             branch_result = self._ops.run(

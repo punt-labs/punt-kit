@@ -3,20 +3,22 @@
 from __future__ import annotations
 
 import importlib.resources
-import json
-import shutil
-import subprocess
-import tomllib
+import sys
 from dataclasses import replace
 from pathlib import Path
 from typing import cast
 
 import jinja2
-import tomli_w
 from rich.console import Console
+from rich.markup import escape
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.init_beads import BeadsInit, BeadsInitError
 from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
+from punt_kit.tool_config import ToolConfigPatch
 
 console = Console()
 
@@ -146,10 +148,21 @@ def run_init(path: str, *, language: str | None = None) -> None:
 
     *language* overrides auto-detection. When detection returns no language
     and no override is given, prompts interactively (if stdin is a tty).
+    A file that cannot be read is reported and ends the run with exit 1; no
+    file is ever rewritten from a guess at what it held.
     """
+    try:
+        _init_project(path, language=language)
+    except ReleaseError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise SystemExit(1) from exc
+
+
+def _init_project(path: str, *, language: str | None) -> None:
+    """Run every init step against the project at *path*."""
     root = Path(path).resolve()
     if not root.is_dir():
-        console.print(f"[red]Error:[/red] {root} is not a directory")
+        console.print(f"[red]Error:[/red] {escape(str(root))} is not a directory")
         raise SystemExit(1)
 
     info = detect(root)
@@ -158,7 +171,7 @@ def run_init(path: str, *, language: str | None = None) -> None:
     if language is not None:
         if language not in SUPPORTED_LANGUAGES:
             console.print(
-                f"[red]Error:[/red] unsupported language '{language}'"
+                f"[red]Error:[/red] unsupported language '{escape(language)}'"
                 f" — choose from: {', '.join(SUPPORTED_LANGUAGES)}"
             )
             raise SystemExit(1)
@@ -168,7 +181,7 @@ def run_init(path: str, *, language: str | None = None) -> None:
         if prompted is not None:
             info = _with_language(info, prompted)
 
-    console.print(f"\n[bold]punt init[/bold] — {root.name}")
+    console.print(f"\n[bold]punt init[/bold] — {escape(root.name)}")
     console.print(f"  Language:     {info.language or 'none'}")
     console.print(f"  Project type: {info.project_type or 'unknown'}")
     console.print(f"  MCP server:   {info.is_mcp_server}")
@@ -178,11 +191,15 @@ def run_init(path: str, *, language: str | None = None) -> None:
     console.print(f"  Beads:        {info.has_beads}")
     console.print()
 
+    # Read every file init will merge into BEFORE writing any, so a file it
+    # cannot read fails the run with nothing half-initialised.
+    _validate_inputs(info)
+
     changed: list[str] = []
 
     changed.extend(_init_workflows(info))
     changed.extend(_init_python_config(info))
-    changed.extend(_init_beads(info))
+    beads_failure = _init_beads(info, changed)
     changed.extend(_init_claude_md(info))
     changed.extend(_init_permissions(info))
     changed.extend(_prune_settings_local(info))
@@ -196,12 +213,49 @@ def run_init(path: str, *, language: str | None = None) -> None:
         console.print("\n[dim]No files needed updating.[/dim]")
 
     _report_manual_steps(info)
+    if beads_failure is not None:
+        # Printed when it happened; run_init would only print it a second time.
+        raise SystemExit(1) from beads_failure
+
+
+def _init_beads(info: ProjectInfo, changed: list[str]) -> BeadsInitError | None:
+    """Run the beads step; return its failure so the other steps still run.
+
+    ``None`` is the documented success: the failure ends the run only after
+    every other step has been given its turn. It is shown now, so a later
+    step that raises cannot hide it.
+    """
+    try:
+        changed.extend(BeadsInit(info).run())
+    except BeadsInitError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        return exc
+    return None
+
+
+def _validate_inputs(info: ProjectInfo) -> None:
+    """Raise :class:`ReleaseError` if a file init will read or merge is unreadable."""
+    root = info.root
+    settings = root / ".claude" / "settings.json"
+    if settings.exists():
+        JsonFile(settings).load_object()
+    # Every plugin manifest permissions will read, so a later malformed one
+    # cannot fail the run after the earlier steps have written.
+    _get_plugin_name(info)
+    workflows_dir = root / ".github" / "workflows"
+    merged = (
+        workflows_dir / target
+        for _template, target in _workflow_targets(
+            info, with_release=info.language == "python"
+        )
+    )
+    for path in (*merged, root / "CLAUDE.md", root / ".gitignore"):
+        if path.exists():
+            TextFile(path).read()
 
 
 def _prompt_language() -> str | None:
     """Prompt the user to choose a language if stdin is a tty."""
-    import sys
-
     if not sys.stdin.isatty():
         return None
 
@@ -229,7 +283,7 @@ def _prompt_language() -> str | None:
     except ValueError:
         pass
 
-    console.print(f"[red]Invalid choice:[/red] '{choice}'")
+    console.print(f"[red]Invalid choice:[/red] '{escape(choice)}'")
     return None
 
 
@@ -262,25 +316,37 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
     )
 
 
+def _workflow_targets(
+    info: ProjectInfo, *, with_release: bool
+) -> list[tuple[str, str]]:
+    """The ``(template, target file)`` pairs init may write under workflows/.
+
+    One list for the merge and for the validation that precedes it, so init
+    reads exactly the files it may touch and no others. Release needs package
+    metadata, so the caller says whether it has it.
+    """
+    pairs: list[tuple[str, str]] = []
+    if info.language == "python":
+        pairs.append(("lint-python.yml", "lint.yml"))
+        pairs.append(("test-python.yml", "test.yml"))
+    elif info.language == "node":
+        pairs.append(("lint-node.yml", "lint.yml"))
+    if with_release:
+        pairs.append(("release-python.yml.j2", "release.yml"))
+    # All repos get docs.yml for markdown linting
+    pairs.append(("docs.yml", "docs.yml"))
+    return pairs
+
+
 def _init_workflows(info: ProjectInfo) -> list[str]:
     """Generate CI workflow files based on project type."""
     changed: list[str] = []
     workflows_dir = info.root / ".github" / "workflows"
 
-    templates_to_install: list[tuple[str, str]] = []
-
-    if info.language == "python":
-        templates_to_install.append(("lint-python.yml", "lint.yml"))
-        templates_to_install.append(("test-python.yml", "test.yml"))
-    elif info.language == "node":
-        templates_to_install.append(("lint-node.yml", "lint.yml"))
-
-    # Release workflow requires package metadata (name + CLI entry point)
     if info.language == "python":
         template_vars = _get_template_vars(info)
-        if "package_name" in template_vars and "cli_command" in template_vars:
-            templates_to_install.append(("release-python.yml.j2", "release.yml"))
-        else:
+        has_release = "package_name" in template_vars and "cli_command" in template_vars
+        if not has_release:
             missing = [
                 k for k in ("package_name", "cli_command") if k not in template_vars
             ]
@@ -290,9 +356,9 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
             )
     else:
         template_vars = {}
+        has_release = False
 
-    # All repos get docs.yml for markdown linting
-    templates_to_install.append(("docs.yml", "docs.yml"))
+    templates_to_install = _workflow_targets(info, with_release=has_release)
 
     for template_name, target_name in templates_to_install:
         template_ref = TEMPLATES / "workflows" / template_name
@@ -312,7 +378,7 @@ def _init_workflows(info: ProjectInfo) -> list[str]:
         target_path = workflows_dir / target_name
 
         if target_path.exists():
-            existing = target_path.read_text(encoding="utf-8")
+            existing = TextFile(target_path).read()
             if existing == rendered:
                 continue
             rel = _relpath(target_path, info.root)
@@ -358,7 +424,13 @@ def _get_template_vars(info: ProjectInfo) -> dict[str, str]:
 
 
 def _init_python_config(info: ProjectInfo) -> list[str]:
-    """Ensure standard tool configs exist in pyproject.toml."""
+    """Ensure standard tool configs exist in pyproject.toml.
+
+    Missing tables are appended to the file as written: nothing already in it
+    is re-serialized, so comments, line endings and a BOM survive. When the
+    tables cannot be appended safely the file is left alone and the tables to
+    add by hand are printed.
+    """
     if info.language != "python":
         return []
 
@@ -366,90 +438,25 @@ def _init_python_config(info: ProjectInfo) -> list[str]:
     if not pyproject_path.exists():
         return []
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
-
-    original = _toml_dump(data)
-    changed = False
-
-    # Ensure [tool.ruff]
-    tool = data.setdefault("tool", {})
-    if "ruff" not in tool:
-        tool["ruff"] = {
-            "line-length": 88,
-            "target-version": "py313",
-        }
-        changed = True
-    ruff = tool["ruff"]
-    if "lint" not in ruff:
-        ruff["lint"] = {"select": ["E", "F", "I", "UP", "B", "SIM", "TCH"]}
-        changed = True
-
-    # Ensure [tool.mypy]
-    if "mypy" not in tool:
-        tool["mypy"] = {
-            "python_version": "3.13",
-            "strict": True,
-            "warn_return_any": True,
-            "warn_unused_configs": True,
-        }
-        changed = True
-
-    # Ensure [tool.pyright]
-    if "pyright" not in tool:
-        tool["pyright"] = {
-            "pythonVersion": "3.13",
-            "typeCheckingMode": "strict",
-        }
-        changed = True
-
-    # Ensure [tool.pytest.ini_options]
-    if "pytest" not in tool:
-        tool["pytest"] = {"ini_options": {"testpaths": ["tests"]}}
-        changed = True
-    elif "ini_options" not in tool["pytest"]:
-        tool["pytest"]["ini_options"] = {"testpaths": ["tests"]}
-        changed = True
-
-    if not changed:
+    pyproject = TextFile(pyproject_path)
+    text = pyproject.read()
+    data = TextFile.parse_toml(text, source=str(pyproject_path))
+    patch = ToolConfigPatch(data)
+    if patch.is_empty:
         return []
 
-    new_content = _toml_dump(data)
-    if new_content == original:
+    updated = patch.appended_to(text, data)
+    if updated is None:
+        console.print(
+            "  [yellow]![/yellow] pyproject.toml left as is: the tool tables cannot"
+            " be added without rewriting it. Add these tables by hand:"
+        )
+        console.print(escape(patch.fragment()), highlight=False)
         return []
 
-    with open(pyproject_path, "wb") as f:
-        tomli_w.dump(data, f)
-
+    pyproject.write(updated)
     console.print("  [yellow]↻[/yellow] Updated tool config in pyproject.toml")
     return ["pyproject.toml"]
-
-
-def _init_beads(info: ProjectInfo) -> list[str]:
-    """Initialize beads if not present."""
-    if info.has_beads:
-        return []
-
-    bd = shutil.which("bd")
-    if bd is None:
-        console.print("  [yellow]⚠[/yellow] bd not found — skipping beads init")
-        return []
-
-    # Derive prefix from directory name
-    prefix = info.root.name.replace("-", "").replace("_", "")
-    try:
-        subprocess.run(
-            [bd, "init", "--prefix", prefix],
-            cwd=str(info.root),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        console.print(f"  [green]+[/green] Initialized beads (prefix: {prefix})")
-        return [".beads/"]
-    except subprocess.CalledProcessError as e:
-        console.print(f"  [red]✗[/red] beads init failed: {e.stderr.strip()}")
-        return []
 
 
 def _build_quality_gates(info: ProjectInfo) -> str:
@@ -484,18 +491,22 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
     ).strip()
 
     if claude_md_path.exists():
-        existing = claude_md_path.read_text(encoding="utf-8")
+        claude_md = TextFile(claude_md_path)
+        existing = claude_md.read()
 
         # Check if standards references section already exists
         if "## Standards References" in existing:
             return []
 
-        # Append the references section
-        updated = existing.rstrip() + "\n\n" + references_block + "\n"
-        claude_md_path.write_text(updated, encoding="utf-8")
+        # Append the references section in the file's own line endings,
+        # ending with a newline only if the file already did.
+        eol = TextFile.line_ending(existing)
+        tail = eol if existing.endswith("\n") else ""
+        block = references_block.replace("\n", eol)
+        claude_md.write(existing.rstrip() + eol + eol + block + tail)
         console.print("  [yellow]↻[/yellow] Added standards references to CLAUDE.md")
     else:
-        claude_md_path.write_text(references_block + "\n", encoding="utf-8")
+        TextFile(claude_md_path).write(references_block + "\n")
         console.print("  [green]+[/green] Created CLAUDE.md")
 
     return ["CLAUDE.md"]
@@ -639,13 +650,15 @@ def build_standard_deny_rules() -> list[str]:
 
 
 def _get_plugin_name(info: ProjectInfo) -> str:
-    """Extract plugin name from plugin.json for MCP permission patterns."""
+    """Extract plugin name from plugin.json for MCP permission patterns.
+
+    A manifest that cannot be read raises :class:`ReleaseError`: falling back
+    to the directory name would seed permissions for a plugin that does not
+    exist. A manifest with no string ``name`` is a different case — absence is
+    what the directory-name fallback is for.
+    """
     for pj_path in info.plugin_manifests:
-        try:
-            data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        name = data.get("name")
+        name = JsonFile(pj_path).load_object().get("name")
         if isinstance(name, str):
             return name
     return info.root.name
@@ -656,15 +669,12 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
     settings_path = info.root / ".claude" / "settings.json"
     standard_perms = build_standard_permissions(info)
 
-    existing: dict[str, object]
-    if settings_path.exists():
-        try:
-            raw = json.loads(settings_path.read_text(encoding="utf-8"))
-            existing = cast("dict[str, object]", raw) if isinstance(raw, dict) else {}
-        except (json.JSONDecodeError, OSError):
-            existing = {}
-    else:
-        existing = {}
+    # An unreadable settings.json raises: starting from {} would write back
+    # permissions only, destroying the user's hooks, env, and every other key.
+    settings = JsonFile(settings_path)
+    existing: dict[str, object] = (
+        settings.load_object() if settings_path.exists() else {}
+    )
 
     perms_raw = existing.get("permissions")
     permissions: dict[str, object] = (
@@ -710,7 +720,7 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
         return []
 
     settings_path.parent.mkdir(parents=True, exist_ok=True)
-    settings_path.write_text(json.dumps(existing, indent=2) + "\n", encoding="utf-8")
+    settings.save(existing)
 
     rel = _relpath(settings_path, info.root)
     is_new = len(added) == len(allow) and len(added_deny) == len(deny)
@@ -730,7 +740,7 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
         console.print(f"  [yellow]↻[/yellow] Updated {rel} ({', '.join(parts)})")
 
     for rule in dead:
-        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
+        console.print(f"    [dim]dead rule removed:[/dim] {escape(rule)}")
 
     return [rel]
 
@@ -781,14 +791,18 @@ def _prune_settings_local(info: ProjectInfo) -> list[str]:
     if not settings_path.exists():
         return []
 
+    local = JsonFile(settings_path)
+    rel = _relpath(settings_path, info.root)
     try:
-        raw = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        data = local.load_object()
+    except ReleaseError as exc:
+        # A personal, gitignored file: init does not fail over it, but it does
+        # not pretend the file was clean either.
+        console.print(
+            f"  [yellow]![/yellow] {escape(str(exc))} — {rel} left as is, dead rules"
+            " in it are not pruned"
+        )
         return []
-    if not isinstance(raw, dict):
-        return []
-
-    data = cast("dict[str, object]", raw)
     perms_raw = data.get("permissions")
     if not isinstance(perms_raw, dict):
         return []
@@ -797,12 +811,11 @@ def _prune_settings_local(info: ProjectInfo) -> list[str]:
     if not removed:
         return []
 
-    settings_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    local.save(data)
 
-    rel = _relpath(settings_path, info.root)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (-{len(removed)} dead)")
     for rule in removed:
-        console.print(f"    [dim]dead rule removed:[/dim] {rule}")
+        console.print(f"    [dim]dead rule removed:[/dim] {escape(rule)}")
     return [rel]
 
 
@@ -841,9 +854,10 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
 
     existing = ""
     if gitignore_path.exists():
-        existing = gitignore_path.read_text(encoding="utf-8")
+        existing = TextFile(gitignore_path).read()
 
-    lines = existing.split("\n")
+    eol = TextFile.line_ending(existing)
+    lines = existing.split(eol)
     stripped = [line.strip() for line in lines]
 
     missing = [line for line in _CLAUDE_GITIGNORE_LINES if line not in stripped]
@@ -859,7 +873,7 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
         for entry in missing:
             lines.insert(insert_idx, entry)
             insert_idx += 1
-        updated = "\n".join(lines)
+        updated = eol.join(lines)
     elif any(_names_claude_dir(s) for s in stripped):
         # A deliberate stanza this function did not write. Appending to it can
         # activate rules that have never been in effect, or broaden an anchored
@@ -878,12 +892,12 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
         )
         return []
     else:
-        block = "\n".join(_CLAUDE_GITIGNORE_LINES)
-        separator = "\n" if existing and not existing.endswith("\n") else ""
-        extra_newline = "\n" if existing else ""
-        updated = existing + separator + extra_newline + block + "\n"
+        block = eol.join(_CLAUDE_GITIGNORE_LINES)
+        separator = eol if existing and not existing.endswith("\n") else ""
+        extra_newline = eol if existing else ""
+        updated = existing + separator + extra_newline + block + eol
 
-    gitignore_path.write_text(updated, encoding="utf-8")
+    TextFile(gitignore_path).write(updated)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (.claude/ exceptions)")
     return [rel]
 
@@ -912,12 +926,3 @@ def _relpath(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _toml_dump(data: dict[str, object]) -> str:
-    """Dump TOML data to string for comparison."""
-    import io
-
-    buf = io.BytesIO()
-    tomli_w.dump(data, buf)
-    return buf.getvalue().decode("utf-8")

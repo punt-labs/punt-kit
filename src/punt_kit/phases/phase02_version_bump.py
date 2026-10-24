@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import datetime
-import json
-import re
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
 
@@ -41,6 +45,89 @@ class Phase2VersionBump:
         self._ops = ops
         return self
 
+    @staticmethod
+    def _project_version(toml_text: str) -> object:
+        """``[project] version`` of ``toml_text``; ``None`` when there is none."""
+        project = TextFile.parse_toml(toml_text, source="pyproject.toml").get("project")
+        if isinstance(project, dict):
+            return cast("dict[str, object]", project).get("version")
+        return None
+
+    def _bump_pyproject(self, path: Path) -> None:
+        """Set ``[project] version``; fail when it is there but cannot be set."""
+        content = TextFile(path).read()
+        if self._project_version(content) is None:
+            self._ops.info("pyproject.toml: no static version field — not bumped")
+            return
+        new_content, count = VersionAssignment("version").rewritten(
+            content, self._version
+        )
+        rewritten = self._project_version(new_content) if count else None
+        if rewritten != self._version:
+            self._ops.fail(
+                "pyproject.toml: [project] version is present but is not a line "
+                f'of the form version = "X.Y.Z", so it cannot be bumped to '
+                f"{self._version}; set it by hand"
+            )
+        if self._dry_run:
+            self._ops.dry(f'pyproject.toml: version = "{self._version}"')
+        else:
+            TextFile(path).write(new_content)
+            self._ops.ok(f'pyproject.toml: version = "{self._version}"')
+
+    def _bump_init(self, path: Path) -> None:
+        """Set ``__version__``; fail when it is assigned but cannot be set."""
+        content = TextFile(path).read()
+        uses_metadata = (
+            "importlib.metadata" in content or "importlib_metadata" in content
+        )
+        assignment = VersionAssignment("__version__")
+        if uses_metadata or not assignment.is_assigned(content):
+            return
+        new_content, count = assignment.rewritten(content, self._version)
+        if count == 0:
+            self._ops.fail(
+                f"{path.name}: __version__ is assigned but not as a plain quoted "
+                f'string (__version__ = "X.Y.Z"), so it cannot be bumped to '
+                f"{self._version}; set it by hand"
+            )
+        if self._dry_run:
+            self._ops.dry(f'{path.name}: __version__ = "{self._version}"')
+        else:
+            TextFile(path).write(new_content)
+            self._ops.ok(f'{path.name}: __version__ = "{self._version}"')
+
+    def _bump_install_sh(self, path: Path) -> None:
+        """Set ``VERSION``; fail when it is assigned but cannot be set."""
+        content = TextFile(path).read()
+        assignment = VersionAssignment.in_shell("VERSION")
+        new_content, count = assignment.rewritten(content, self._version)
+        if count == 0 and assignment.assigns_a_value(content):
+            self._ops.fail(
+                f"install.sh: `{assignment.computed_lines(content)[0]}` is not a plain "
+                f'quoted string (VERSION="X.Y.Z"), so VERSION cannot be bumped to '
+                f"{self._version}; set it by hand"
+            )
+        if count == 0 and assignment.is_assigned(content):
+            self._ops.warn(
+                "install.sh: VERSION is only ever reset to empty, so there is "
+                f"nothing to bump to {self._version}"
+            )
+        if len(lines := assignment.assigned_lines(content)) > 1:
+            shown = "; ".join(assignment.described_lines(content))
+            self._ops.warn(
+                f"install.sh: VERSION is assigned on {len(lines)} lines ({shown}); "
+                f"every plain one is bumped to {self._version}, but a "
+                "branch or a computed value may change which takes effect"
+            )
+        if new_content == content:
+            return
+        if self._dry_run:
+            self._ops.dry(f'install.sh: VERSION="{self._version}"')
+        else:
+            TextFile(path).write(new_content)
+            self._ops.ok(f'install.sh: VERSION="{self._version}"')
+
     def run(self) -> None:
         info = self._info
         version = self._version
@@ -66,22 +153,12 @@ class Phase2VersionBump:
             else:
                 ops.ok(f"Created branch {branch}")
 
-        # 2b. Bump version in pyproject.toml
+        # 2b. Bump version in pyproject.toml. A present version field that the
+        # rewrite does not change is a failure: printing ok for a no-op would
+        # tag a release whose pyproject still names the previous version.
         pyproject_path = root / "pyproject.toml"
         if pyproject_path.exists():
-            content = pyproject_path.read_text(encoding="utf-8")
-            new_content = re.sub(
-                r'^(version\s*=\s*")[^"]*(")',
-                rf"\g<1>{version}\2",
-                content,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            if dry_run:
-                ops.dry(f'pyproject.toml: version = "{version}"')
-            else:
-                pyproject_path.write_text(new_content, encoding="utf-8")
-                ops.ok(f'pyproject.toml: version = "{version}"')
+            self._bump_pyproject(pyproject_path)
 
         # Bump __init__.py __version__ (skip if version comes from
         # importlib.metadata)
@@ -89,71 +166,32 @@ class Phase2VersionBump:
         if pkg_dir is not None:
             init_py = pkg_dir / "__init__.py"
             if init_py.exists():
-                content = init_py.read_text(encoding="utf-8")
-                uses_metadata = (
-                    "importlib.metadata" in content or "importlib_metadata" in content
-                )
-                if "__version__" in content and not uses_metadata:
-                    new_content = re.sub(
-                        r'^(__version__\s*=\s*")[^"]*(")',
-                        rf"\g<1>{version}\2",
-                        content,
-                        count=1,
-                        flags=re.MULTILINE,
-                    )
-                    if dry_run:
-                        ops.dry(f'{init_py.name}: __version__ = "{version}"')
-                    else:
-                        init_py.write_text(new_content, encoding="utf-8")
-                        ops.ok(f'{init_py.name}: __version__ = "{version}"')
+                self._bump_init(init_py)
 
         # Bump plugin.json version. None for a non-plugin project — absence
         # is the contract, and 2d below stages only the files that exist.
         plugin_json = info.plugin_manifest if info.is_plugin else None
         if plugin_json is not None:
-            data = json.loads(plugin_json.read_text(encoding="utf-8"))
+            manifest = JsonFile(plugin_json)
+            data = cast("dict[str, object]", manifest.load())
             data["version"] = version
             if dry_run:
                 ops.dry(f'plugin.json: version = "{version}"')
             else:
-                plugin_json.write_text(
-                    json.dumps(data, indent=2) + "\n", encoding="utf-8"
-                )
+                manifest.save(data)
                 ops.ok(f'plugin.json: version = "{version}"')
 
         # Bump install.sh VERSION pin
         install_sh = root / "install.sh"
         if install_sh.exists():
-            content = install_sh.read_text(encoding="utf-8")
-            new_content = re.sub(
-                r'^(VERSION=")[^"]*(")',
-                rf"\g<1>{version}\2",
-                content,
-                count=1,
-                flags=re.MULTILINE,
-            )
-            if new_content != content:
-                if dry_run:
-                    ops.dry(f'install.sh: VERSION="{version}"')
-                else:
-                    install_sh.write_text(new_content, encoding="utf-8")
-                    ops.ok(f'install.sh: VERSION="{version}"')
+            self._bump_install_sh(install_sh)
 
         # 2c. Update CHANGELOG.md
         changelog_path = root / "CHANGELOG.md"
         if changelog_path.exists():
-            today = datetime.date.today().isoformat()
-            content = changelog_path.read_text(encoding="utf-8")
-            new_content = content.replace(
-                "## [Unreleased]",
-                f"## [Unreleased]\n\n## [{version}] - {today}",
-                1,
+            Changelog(root, ops=ops).stamp(
+                version, datetime.date.today().isoformat(), dry_run=dry_run
             )
-            if dry_run:
-                ops.dry(f"CHANGELOG.md: [Unreleased] → [{version}] - {today}")
-            else:
-                changelog_path.write_text(new_content, encoding="utf-8")
-                ops.ok(f"CHANGELOG.md: [{version}] - {today}")
 
         # 2d. Rewrite self-referential template pins
         template_pins = project.rewrite_template_pins(version, dry_run=dry_run)
@@ -166,13 +204,11 @@ class Phase2VersionBump:
 
         lock_file = root / "uv.lock"
         if lock_file.exists():
-            # A network resolver op — same class as `uv build` (Phase 3),
-            # already diagnosed (pkit-f85t.7). capture=False streams the
-            # resolver's own output to the terminal as it runs, matching
-            # Phase 3's `uv build` and Phase 1's quality gates — without
-            # it, the "see output above" message pointed at output that
-            # was silently captured and never shown (Cursor/Copilot,
-            # PRRT_kwDORSgPKM6hbflO / PRRT_kwDORSgPKM6hbk7y).
+            # A network resolver op: check=False, and a non-zero exit becomes
+            # a diagnosed fail. capture=False streams the resolver's own
+            # output to the terminal as it runs, matching `uv build` and the
+            # quality gates, so the "see output above" message points at
+            # output that was actually shown.
             lock_result = ops.run(
                 ["uv", "lock"], cwd=str(root), capture=False, check=False, timeout=UV
             )

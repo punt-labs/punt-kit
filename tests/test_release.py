@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import ast
+import datetime
 import inspect
 import json
 import os
@@ -13,68 +13,133 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path as _Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Protocol, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from punt_kit import release
-from punt_kit.detect import detect
-from punt_kit.phases.phase11_verify import VerificationCheck
+from punt_kit.detect import ProjectInfo, detect
+from punt_kit.phases.phase02_version_bump import Phase2VersionBump
+from punt_kit.phases.phase03_build import Phase3Build
+from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
+from punt_kit.phases.phase05_tag import Phase5Tag
+from punt_kit.phases.phase07_github_release import Phase7GithubRelease
+from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
+from punt_kit.phases.phase09_post_release import Phase9PostRelease
+from punt_kit.phases.phase10_propagate import (
+    InstallAllPropagator,
+    MarketplacePropagator,
+)
+from punt_kit.phases.phase10_website import WebsitePropagator
+from punt_kit.phases.phase11_checks import MarketplacePinCheck
+from punt_kit.phases.phase11_verify import Phase11Verify
+from punt_kit.phases.shared import gh as gh_mod
+from punt_kit.phases.shared import timeouts
+from punt_kit.phases.shared.ci_run import TagRunSelector
+from punt_kit.phases.shared.entry_matcher import EntryMatcher
+from punt_kit.phases.shared.errors import ReleaseError, RemoteLookupError
+from punt_kit.phases.shared.gh import RequiredChecksWaiter
+from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.github_repo import GithubRepo
+from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.phase_order import PhaseOrder
+from punt_kit.phases.shared.pin_currency import PinCurrency
+from punt_kit.phases.shared.pipeline import ReleasePipeline
+from punt_kit.phases.shared.pr_merge import PrMerger
+from punt_kit.phases.shared.pr_threads import PrThreadResolver
+from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
+from punt_kit.phases.shared.repo_slug import RepoSlug
+from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
+
+# Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
+# wrappers, `_pr_merge`, `_run`, `_wait_for_required_checks`, `_propagate_*`,
+# `_run_phases_9_10` and `_reset_propagation_siblings` are private on purpose:
+# tests rebind them on the module (`monkeypatch.setattr(release, ...)`) and the
+# phases reach them only by bare name, so a test must call the same objects.
+# `_get_project_version` is a pure helper tested directly (the phase names live
+# in `PhaseOrder`, imported above);
+# `_interrupted` is the module-level Event the signal handler owns.
 from punt_kit.release import (
-    _DEFAULT_RUN_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
-    _GIT_HOOK_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
-    _QUALITY_GATE_TIMEOUT,  # pyright: ignore[reportPrivateUsage]
-    PHASE_NAMES,
-    ReleaseError,
-    _bump_readme_install_sha,  # pyright: ignore[reportPrivateUsage]
-    _extract_version_notes,  # pyright: ignore[reportPrivateUsage]
-    _get_latest_tag_version,  # pyright: ignore[reportPrivateUsage]
     _get_project_version,  # pyright: ignore[reportPrivateUsage]
     _phase1_preflight,  # pyright: ignore[reportPrivateUsage]
     _phase2_version_bump,  # pyright: ignore[reportPrivateUsage]
+    _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
     _phase6_ci_wait,  # pyright: ignore[reportPrivateUsage]
     _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
     _phase10_propagate,  # pyright: ignore[reportPrivateUsage]
     _phase11_verify,  # pyright: ignore[reportPrivateUsage]
-    _phase_name,  # pyright: ignore[reportPrivateUsage]
-    _phase_summary,  # pyright: ignore[reportPrivateUsage]
     _pr_merge,  # pyright: ignore[reportPrivateUsage]
     _propagate_install_all,  # pyright: ignore[reportPrivateUsage]
     _propagate_marketplace,  # pyright: ignore[reportPrivateUsage]
     _propagate_website,  # pyright: ignore[reportPrivateUsage]
     _reset_propagation_siblings,  # pyright: ignore[reportPrivateUsage]
-    _resolve_sibling,  # pyright: ignore[reportPrivateUsage]
-    _rewrite_template_pins,  # pyright: ignore[reportPrivateUsage]
     _run,  # pyright: ignore[reportPrivateUsage]
     _run_phases_9_10,  # pyright: ignore[reportPrivateUsage]
-    _select_existing_pr,  # pyright: ignore[reportPrivateUsage]
-    _suggest_version,  # pyright: ignore[reportPrivateUsage]
-    _TagRunSelector,  # pyright: ignore[reportPrivateUsage]
-    _validate_sibling,  # pyright: ignore[reportPrivateUsage]
     _wait_for_required_checks,  # pyright: ignore[reportPrivateUsage]
     run_release,
 )
-from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
+from tests.harness.fault_ops import (
+    CompletedProcessSpec,
+    FaultInjectingOps,
+    FaultRule,
+    RunFn,
+)
+from tests.helpers import (
+    bump as _bump,
+)
+from tests.helpers import (
+    commit_all as _commit_all,
+)
+from tests.helpers import (
+    fake_get_github_repo as _fake_get_github_repo,
+)
+from tests.helpers import (
+    fake_which as _fake_which,
+)
+from tests.helpers import (
+    fault_ops as _fault_ops,
+)
+from tests.helpers import (
+    flat as _flat,
+)
+from tests.helpers import (
+    git as _git,
+)
+from tests.helpers import (
+    git_out as _git_out,
+)
+from tests.helpers import (
+    init_git_repo as _init_git_repo,
+)
+from tests.helpers import (
+    make_release_project as _make_release_project,
+)
+from tests.helpers import (
+    make_sibling as _make_sibling,
+)
+from tests.helpers import (
+    project_with_origin as _project_with_origin,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Sequence
     from pathlib import Path
-
-    from punt_kit.detect import ProjectInfo
 
 
 @pytest.fixture(autouse=True)
-def isolate_skip_recorder() -> Iterator[None]:
-    """Clear the module-scoped skip recorder around every test.
+def skips(monkeypatch: pytest.MonkeyPatch) -> SkipRecorder:
+    """Install a fresh skip recorder as the release module's own for each test.
 
-    ``release._skips`` persists for the process; a test that records a skip
-    would otherwise leak the notice into the next test's summary recap.
+    ``release`` keeps one recorder for the whole process; a test that records a
+    skip would otherwise leak the notice into the next test's summary recap.
+    Tests that assert on recorded skips take this fixture by name.
     """
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
-    yield
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
+    recorder = SkipRecorder(ops=_fault_ops())
+    monkeypatch.setattr(release, "_skips", recorder)
+    return recorder
 
 
 @pytest.fixture(autouse=True)
@@ -85,24 +150,30 @@ def isolate_interrupted_event() -> Iterator[None]:
     to exercise the interrupt path (directly, or via a mocked phase raising
     ``KeyboardInterrupt``) would otherwise leak it into every later test —
     including unrelated ``_wait_for_required_checks`` tests, which now check
-    this same event on every poll iteration (pkit-d7mz/pkit-plxh) and would
+    this same event on every poll iteration and would
     fail immediately with "Interrupted" on a leaked, already-set event.
     """
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.interrupt_event().clear()
     yield
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.interrupt_event().clear()
 
 
-def _git(args: list[str], cwd: str) -> None:
-    """Run a git command with standard options."""
-    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
+    """The real ``_run``, appending every command that starts with ``prefix``."""
 
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[: len(prefix)] == prefix:
+            recorded.append(cmd)
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-def _git_out(args: list[str], cwd: str) -> str:
-    """Run a git command and return its stripped stdout."""
-    return subprocess.run(
-        ["git", *args], cwd=cwd, check=True, capture_output=True, text=True
-    ).stdout.strip()
+    return run
 
 
 def _init_git_repo_with_bare_remote(path: Path, remote: Path) -> None:
@@ -128,155 +199,6 @@ def _init_git_repo_with_bare_remote(path: Path, remote: Path) -> None:
     _git(["push", "-u", "origin", "main"], cwd=d)
 
 
-def _init_git_repo(path: Path) -> None:
-    """Initialize a git repo with an initial commit and fake remote."""
-    d = str(path)
-    _git(["init", "-b", "main"], cwd=d)
-    _git(["config", "user.email", "test@test.com"], cwd=d)
-    _git(["config", "user.name", "Test"], cwd=d)
-    # Create initial commit so HEAD exists
-    (path / ".gitkeep").write_text("")
-    _git(["add", "."], cwd=d)
-    _git(["commit", "-m", "init"], cwd=d)
-    # Set origin to self so fetch/diff work
-    _git(["remote", "add", "origin", d], cwd=d)
-    _git(["fetch", "origin"], cwd=d)
-
-
-def _make_release_project(tmp_path: Path, *, subdir: bool = False) -> Path:
-    """Create a minimal Python project ready for release testing.
-
-    ``subdir`` selects the DES-025 layout, where the plugin surface lives
-    under ``plugin/``.
-    """
-    root = tmp_path / "proj"
-    root.mkdir()
-
-    # Init git first with bare commit
-    _init_git_repo(root)
-
-    # Now write project files
-    (root / "pyproject.toml").write_text(
-        '[project]\nname = "test-pkg"\nversion = "0.1.0"\n\n'
-        "[project.scripts]\ntest-cli = 'test_pkg:main'\n"
-    )
-
-    src = root / "src" / "test_pkg"
-    src.mkdir(parents=True)
-    (src / "__init__.py").write_text('__version__ = "0.1.0"\n')
-    (src / "py.typed").write_text("")
-
-    plugin_dir = (root / "plugin" if subdir else root) / ".claude-plugin"
-    plugin_dir.mkdir(parents=True)
-    (plugin_dir / "plugin.json").write_text(
-        json.dumps(
-            {"name": "test-dev", "version": "0.1.0"},
-            indent=2,
-        )
-        + "\n"
-    )
-
-    scripts_dir = root / "scripts"
-    scripts_dir.mkdir()
-    (scripts_dir / "release-plugin.sh").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\n"
-        "git commit --allow-empty"
-        ' -m "chore: prepare plugin for release"\n'
-    )
-    (scripts_dir / "restore-dev-plugin.sh").write_text(
-        "#!/usr/bin/env bash\nset -euo pipefail\n"
-        "git commit --allow-empty"
-        ' -m "chore: restore dev plugin state"\n'
-    )
-
-    # Placeholder so info.workflow_files includes "release.yml" — Phase 6
-    # (_phase6_ci_wait) fails fast when it's absent for a hybrid/non-plugin
-    # project (see f85t.2). Content is irrelevant; only the filename matters
-    # to detect().
-    workflows_dir = root / ".github" / "workflows"
-    workflows_dir.mkdir(parents=True)
-    (workflows_dir / "release.yml").write_text("")
-
-    (root / "install.sh").write_text(
-        '#!/bin/sh\nPACKAGE="test-pkg"\nVERSION="0.1.0"\n'
-        'uv tool install --force "$PACKAGE==$VERSION"\n'
-    )
-
-    install_url = (
-        "https://raw.githubusercontent.com/punt-labs/test-pkg/v0.1.0/install.sh"
-    )
-    (root / "README.md").write_text(
-        f"# test-pkg\n\n```bash\ncurl -fsSL {install_url} | sh\n```\n"
-    )
-
-    (root / "CHANGELOG.md").write_text(
-        "# Changelog\n\n"
-        "## [Unreleased]\n\n"
-        "### Added\n\n"
-        "- New feature\n\n"
-        "## [0.1.0] - 2026-01-01\n\n"
-        "### Added\n\n"
-        "- Initial release\n"
-    )
-
-    d = str(root)
-    _git(["add", "."], cwd=d)
-    _git(["commit", "-m", "scaffold"], cwd=d)
-    _git(["fetch", "origin"], cwd=d)
-
-    return root
-
-
-# --- suggest_version ---
-
-
-def test_suggest_version_minor_bump() -> None:
-    """Suggests minor bump when [Unreleased] has ### Added."""
-    cl = "## [Unreleased]\n\n### Added\n\n- Feature\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "1.3.0"
-
-
-def test_suggest_version_patch_bump() -> None:
-    """Suggests patch bump when [Unreleased] has only ### Fixed."""
-    cl = "## [Unreleased]\n\n### Fixed\n\n- Bug fix\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "1.2.4"
-
-
-def test_suggest_version_major_bump() -> None:
-    """Suggests major bump for breaking changes."""
-    cl = "## [Unreleased]\n\n### Changed\n\n- BREAKING: removed old API\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "2.0.0"
-
-
-def test_suggest_version_breaking_in_fixed_not_major() -> None:
-    """'breaking' in Fixed section does not trigger major bump."""
-    cl = "## [Unreleased]\n\n### Fixed\n\n- Fixed breaking regression\n\n## [1.2.3]\n"
-    assert _suggest_version(cl, "1.2.3") == "1.2.4"
-
-
-# --- extract_version_notes ---
-
-
-def test_extract_version_notes() -> None:
-    """Extracts notes for a specific version."""
-    changelog = (
-        "## [Unreleased]\n\n"
-        "## [0.2.0] - 2026-03-01\n\n"
-        "### Added\n\n- New feature\n\n"
-        "## [0.1.0] - 2026-01-01\n\n"
-        "### Added\n\n- Initial\n"
-    )
-    notes = _extract_version_notes(changelog, "0.2.0")
-    assert "New feature" in notes
-    assert "Initial" not in notes
-
-
-def test_extract_version_notes_missing() -> None:
-    """Returns default when version not found."""
-    notes = _extract_version_notes("## [Unreleased]\n", "9.9.9")
-    assert "v9.9.9" in notes
-
-
 # --- phase 1 preflight ---
 
 
@@ -286,11 +208,9 @@ def test_preflight_fails_dirty_tree(tmp_path: Path) -> None:
     (root / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(root))
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"Working tree is not clean"):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -315,8 +235,6 @@ def test_preflight_daemon_mutable_only_dirt_names_stash_command(
 
     (vox_dir / "vox.md").write_text("voice: nova\n")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError) as exc_info:
@@ -336,8 +254,8 @@ def test_preflight_daemon_only_dirt_with_untracked_reports_both(
 
     ``ops.fail`` raises immediately — a daemon-only-dirty message that
     omitted the untracked file would send the operator through a stash
-    only to hit a second, previously invisible failure on the very next
-    run. Both problems must be visible from the first failure.
+    only to hit a second, invisible failure on the very next run. Both
+    problems must be visible from the first failure.
     """
     root = _make_release_project(tmp_path)
     vox_dir = root / ".punt-labs" / "vox"
@@ -350,8 +268,6 @@ def test_preflight_daemon_only_dirt_with_untracked_reports_both(
 
     (vox_dir / "vox.md").write_text("voice: nova\n")
     (root / "stray.txt").write_text("stray")
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -385,8 +301,6 @@ def test_preflight_daemon_stash_pop_index_preserves_staged_state(
 
     (vox_dir / "vox.md").write_text("voice: nova\n")
     _git(["add", ".punt-labs/vox/vox.md"], cwd=d)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -426,8 +340,6 @@ def test_preflight_mixed_daemon_and_other_dirt_keeps_generic_shape(
     (vox_dir / "vox.md").write_text("voice: nova\n")
     (root / "README.md").write_text("# test-pkg\n\nunrelated edit\n")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError) as exc_info:
@@ -461,8 +373,6 @@ def test_preflight_clean_tree_with_daemon_file_unmodified_passes(
     _git(["commit", "-m", "add vox settings"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     # Should not raise — dry_run skips quality gates.
@@ -479,8 +389,6 @@ def test_preflight_fails_untracked_file(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     (root / "untracked.txt").write_text("untracked")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     with pytest.raises(ReleaseError, match="[Uu]ntracked"):
@@ -494,8 +402,6 @@ def test_preflight_ignores_untracked_beads(tmp_path: Path) -> None:
     beads.mkdir()
     (beads / "state.json").write_text("{}")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     # Should not raise
@@ -507,11 +413,11 @@ def test_preflight_fails_wrong_branch(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     _git(["checkout", "-b", "feature"], cwd=str(root))
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Must be on main branch \(currently on 'feature'\)"
+    ):
         _phase1_preflight(info, dry_run=False)
 
 
@@ -526,19 +432,51 @@ def test_preflight_fails_empty_unreleased(tmp_path: Path) -> None:
     _git(["commit", "-m", "empty changelog"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"nothing to release"):
         _phase1_preflight(info, dry_run=False)
+
+
+@pytest.mark.parametrize(
+    ("changelog", "message"),
+    [
+        pytest.param(
+            "# Changelog\n\n## [Unreleased]\n\n### Added\n\n### Fixed\n\n"
+            "## [0.1.0] - 2026-01-01\n",
+            r"nothing to release",
+            id="headings-only",
+        ),
+        pytest.param(
+            "# Changelog\n\n## [Unreleased]\n\n<!-- nothing yet -->\n\n"
+            "## [0.1.0] - 2026-01-01\n",
+            r"nothing to release",
+            id="comment-only",
+        ),
+        pytest.param(
+            "# Changelog\n\n## [0.1.0] - 2026-01-01\n\n- Initial\n",
+            r"No \[Unreleased\] section in CHANGELOG\.md",
+            id="no-unreleased-section",
+        ),
+    ],
+)
+def test_preflight_rejects_a_changelog_with_nothing_to_release(
+    tmp_path: Path, changelog: str, message: str
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "CHANGELOG.md").write_text(changelog)
+    d = str(root)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "changelog without entries"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    with pytest.raises(ReleaseError, match=message):
+        _phase1_preflight(detect(root), dry_run=False)
 
 
 def test_preflight_passes_clean(tmp_path: Path) -> None:
     """Pre-flight passes for clean project on main."""
     root = _make_release_project(tmp_path)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -551,12 +489,11 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
 ) -> None:
     """Python quality gate runs `make check` when the project has a Makefile.
 
-    Mirrors the Go branch's behavior (pkit-mjcb): a project with optional
+    Mirrors the Go branch's behavior: a project with optional
     heavy extras (e.g. a `[display]` extra) knows how to gate itself via its
     own Makefile, so the bare `uv run mypy`/`pyright` sequence — which reports
     false errors against the base wheel env — must not run.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "Makefile").write_text("check:\n\techo ok\n")
@@ -573,7 +510,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -582,7 +519,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     _phase1_preflight(info, dry_run=False)
 
@@ -593,7 +530,6 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Without a Makefile, the Python branch keeps running the hardcoded gates."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     assert not (root / "Makefile").exists()
@@ -606,7 +542,7 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -615,7 +551,7 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     _phase1_preflight(info, dry_run=False)
 
@@ -634,7 +570,6 @@ def test_preflight_python_make_check_failure_aborts_phase(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """A non-zero `make check` aborts the phase instead of reporting success."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "Makefile").write_text("check:\n\techo ok\n")
@@ -649,7 +584,7 @@ def test_preflight_python_make_check_failure_aborts_phase(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -657,7 +592,7 @@ def test_preflight_python_make_check_failure_aborts_phase(
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="lint failed")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="Quality gate failed: make check"):
         _phase1_preflight(info, dry_run=False)
@@ -670,10 +605,9 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
 ) -> None:
     """A non-zero `git fetch origin` (network failure) must abort with a diagnosis.
 
-    ``fetch.returncode != 0`` is already handled in code (phase01_preflight.py)
-    but nothing forced that branch before this test (matrix row 3).
+    ``fetch.returncode != 0`` is handled in phase01_preflight.py; this test
+    forces that branch.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -682,7 +616,7 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -692,7 +626,7 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
             )
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="git fetch origin failed"):
         _phase1_preflight(info, dry_run=False)
@@ -705,11 +639,10 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
 ) -> None:
     """A hung `make check` (a wedge, not a failure) must diagnose, not traceback.
 
-    Phase 1's quality gate already opts into the QUALITY_GATE budget
-    (matrix row 5 covers a non-zero exit); nothing forced the TimeoutExpired
-    path at this specific call site before this test (matrix row 6).
+    Phase 1's quality gate opts into the QUALITY_GATE budget; a non-zero
+    exit is covered elsewhere, and this test forces the TimeoutExpired path
+    at this specific call site.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     (root / "Makefile").write_text("check:\n\techo ok\n")
@@ -724,7 +657,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -732,7 +665,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
             raise subprocess.TimeoutExpired(cmd, timeout)
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False)
@@ -740,7 +673,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
     assert exc_info.value.code == 1
     normalized = " ".join(capsys.readouterr().out.split())
     assert "make check" in normalized
-    assert f"{_QUALITY_GATE_TIMEOUT}s" in normalized
+    assert f"{timeouts.QUALITY_GATE}s" in normalized
     assert "phase 1 (preflight)" in normalized
     assert "--resume-from preflight" in normalized
 
@@ -750,11 +683,9 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
 ) -> None:
     """A non-zero `go test -race` aborts the phase, parallel to the Python case.
 
-    Row 5's Python `make check` failure test has no Go-language sibling —
-    the Go branch (phase01_preflight.py) is unexercised on the failure path
-    (matrix row 55).
+    The Python `make check` failure test has no Go-language sibling, so
+    the Go branch (phase01_preflight.py) needs its own failure-path test.
     """
-    from punt_kit import release as release_mod
 
     root = tmp_path / "go-proj"
     root.mkdir()
@@ -780,7 +711,7 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -792,7 +723,7 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(
         ReleaseError, match=r"Quality gate failed: go test -race \./\.\.\."
@@ -816,8 +747,6 @@ def test_version_bump_updates_all_files(tmp_path: Path, *, subdir: bool) -> None
     """
     root = _make_release_project(tmp_path, subdir=subdir)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -840,8 +769,8 @@ def test_version_bump_updates_all_files(tmp_path: Path, *, subdir: bool) -> None
     assert 'VERSION="0.2.0"' in install_content
 
     # README install URLs are NOT updated in Phase 2 — they are updated
-    # in Phase 9 (_bump_readme_install_sha) after tagging, when the SHA
-    # is known.
+    # by ReadmeShaPin.bump once the release squash-merge has landed, when
+    # the SHA is known.
 
     # Check CHANGELOG.md
     cl = (root / "CHANGELOG.md").read_text()
@@ -862,8 +791,6 @@ def test_version_bump_install_sh_no_version_pin(tmp_path: Path) -> None:
     _git(["commit", "-m", "unpin install.sh"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -876,8 +803,6 @@ def test_version_bump_install_sh_no_version_pin(tmp_path: Path) -> None:
 def test_version_bump_dry_run_no_changes(tmp_path: Path) -> None:
     """Dry run does not modify any files."""
     root = _make_release_project(tmp_path)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
 
@@ -909,8 +834,6 @@ def test_version_bump_commit_excludes_untracked(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     (root / "stray-transcript.jsonl").write_text("{}\n")
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -936,8 +859,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
 ) -> None:
     """A failing `uv lock` (network resolver op) must diagnose, not leak a
     raw CalledProcessError — the same risk class as `uv build` (Phase 3,
-    already diagnosed), missed by round 1's sweep (pkit-f85t.7 round 2)."""
-    from punt_kit import release as release_mod
+    already diagnosed)."""
 
     root = _make_release_project(tmp_path)
     (root / "uv.lock").write_text("# lock\n")
@@ -952,7 +874,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
@@ -962,7 +884,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
             )
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="uv lock failed"):
         _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -976,17 +898,15 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     stdout/stderr directly, which the fake-`_run` version of this test
     above cannot prove (it never invokes a real subprocess at all).
 
-    Cursor and Copilot both flagged the same gap on PR #359: the `uv lock`
-    call defaulted to `capture=True` while its fail message said "see
-    output above," pointing at output that was silently captured and
-    never shown anywhere — fixed by adding `capture=False`, matching
-    `uv build` (Phase 3) and the Phase 1 quality gates. This test drives
+    The `uv lock` call must use `capture=False`: its fail message says "see
+    output above," which would point at output that was silently captured
+    and never shown anywhere. This matches `uv build` (Phase 3) and the
+    Phase 1 quality gates. This test drives
     a real subprocess (a fake `uv` script on `PATH` that fails `uv lock`
     specifically) so `capfd` — which captures at the OS file-descriptor
     level, unlike `capsys` — can observe what the terminal actually
     would.
     """
-    from punt_kit.phases.phase02_version_bump import Phase2VersionBump
 
     root = _make_release_project(tmp_path)
     (root / "uv.lock").write_text("# lock\n")
@@ -1010,7 +930,7 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     monkeypatch.setenv("PATH", f"{fake_bin}{os.pathsep}{os.environ['PATH']}")
 
     info = detect(root)
-    ops = FaultInjectingOps(real_run=_run, rules=[], passthrough=[["uv", "lock"]])
+    ops = _fault_ops(passthrough=[["uv", "lock"]])
 
     with pytest.raises(ReleaseError, match="uv lock failed"):
         Phase2VersionBump(info, "0.2.0", dry_run=False, ops=ops).run()
@@ -1019,7 +939,15 @@ def test_version_bump_uv_lock_failure_streams_real_output_to_terminal(
     assert "failed to resolve dependencies for punt-kit" in captured.err
 
 
-# --- phase 2 template pin rewrite (pkit-3zu8) ---
+# --- phase 2 template pin rewrite ---
+
+
+def _rewrite_pins(info: ProjectInfo, version: str, *, dry_run: bool) -> list[_Path]:
+    """Run the live ``ReleaseProject.rewrite_template_pins`` Phase 2 calls."""
+
+    ops = _fault_ops()
+    return ReleaseProject(info, ops=ops).rewrite_template_pins(version, dry_run=dry_run)
+
 
 # The pin regex only captures ``punt-*`` names (PL-PL-2: every PyPI package in
 # the fleet is punt-prefixed) — the shared fixture's "test-pkg" name predates
@@ -1057,8 +985,6 @@ def test_template_pin_rewritten(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -1080,13 +1006,11 @@ def test_template_pin_idempotent(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
     after_first = template.read_text()
 
-    changed = _rewrite_template_pins(info, "0.2.0", dry_run=False)
+    changed = _rewrite_pins(info, "0.2.0", dry_run=False)
 
     assert changed == []
     assert template.read_text() == after_first
@@ -1102,10 +1026,8 @@ def test_template_pin_dry_run_no_changes(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
-    changed = _rewrite_template_pins(info, "0.2.0", dry_run=True)
+    changed = _rewrite_pins(info, "0.2.0", dry_run=True)
 
     assert changed == [template]
     assert f"uvx --from {_OWN_PKG}==0.1.0" in template.read_text()
@@ -1122,8 +1044,6 @@ def test_template_pin_unrelated_package_untouched(tmp_path: Path) -> None:
         f"  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n"
         "  - run: uvx --from punt-other==9.9.9 other --do-thing\n",
     )
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -1148,8 +1068,6 @@ def test_template_pin_multiple_files_rewritten(tmp_path: Path) -> None:
         f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --deploy\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -1172,8 +1090,6 @@ def test_template_pin_normalizes_separator_and_case(tmp_path: Path) -> None:
         "src/test_pkg/data/notify.yml",
         f"steps:\n  - run: uvx --from {underscored}==0.1.0 test-cli --user wall\n",
     )
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
@@ -1201,8 +1117,6 @@ def test_template_pin_plugin_only_strips_dev_suffix(tmp_path: Path) -> None:
         "steps:\n  - run: uvx --from punt-widget==0.1.0 widget --user wall\n",
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
@@ -1213,30 +1127,26 @@ def test_template_pin_missing_template_dir_not_an_error(tmp_path: Path) -> None:
     """No src/**/data or plugin/**/*.yml files present is not an error."""
     root = _make_release_project(tmp_path)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
 
-    changed = _rewrite_template_pins(info, "0.2.0", dry_run=False)
+    changed = _rewrite_pins(info, "0.2.0", dry_run=False)
 
     assert changed == []
 
 
-def test_phase9_post_release_no_longer_bumps_readme(
+def test_phase9_post_release_does_not_bump_readme(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Phase 9 no longer touches README — that job moved to phase 4 (fwql).
+    """Phase 9 leaves README alone — Phase 4 owns the README pin.
 
-    Regression guard: phase 4 now guarantees the README is already current
-    by the time phase 9 runs, so phase 9's job shrinks to dev-restore only.
+    Regression guard: phase 4 guarantees the README is already current by
+    the time phase 9 runs, so phase 9's job is the dev restore only.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     d = str(root)
 
-    # A stale SHA that _bump_readme_install_sha would have rewritten under
-    # the old phase-9 behavior this fix removes.
+    # A stale SHA that ReadmeShaPin.bump would rewrite if Phase 9 called it.
     stale_readme = (
         "# proj\n\n```bash\n"
         "curl -fsSL https://raw.githubusercontent.com/"
@@ -1255,16 +1165,14 @@ def test_phase9_post_release_no_longer_bumps_readme(
     _git(["commit", "-m", "stale readme, dev/released HEAD"], cwd=d)
 
     def _unreachable(*_args: object, **_kwargs: object) -> None:
-        raise AssertionError("phase 9 must not call _bump_readme_install_sha")
+        raise AssertionError("phase 9 must not call ReadmeShaPin.bump")
 
-    monkeypatch.setattr(release_mod, "_bump_readme_install_sha", _unreachable)
+    monkeypatch.setattr(ReadmeShaPin, "bump", _unreachable)
 
     def fake_pr_merge(**_kwargs: object) -> str:
         raise AssertionError("phase 9 has nothing to land — _pr_merge must not run")
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
     _phase9_post_release(info, "0.2.0", dry_run=False)
@@ -1272,15 +1180,8 @@ def test_phase9_post_release_no_longer_bumps_readme(
     assert (root / "README.md").read_text() == stale_readme
 
 
-def test_land_readme_sha_pin_commit_excludes_untracked(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The README-SHA-pin commit stages only README.md, not stray files.
-
-    Ports the untracked-file-exclusion invariant that used to guard phase 9's
-    README commit (removed by fwql) to its new home.
-    """
-    from punt_kit import release as release_mod
+def test_land_readme_sha_pin_commit_excludes_untracked(tmp_path: Path) -> None:
+    """The README-SHA-pin commit stages only README.md, not stray files."""
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -1300,13 +1201,11 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     def fake_pr_merge(**_kwargs: object) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
-
-    from punt_kit.detect import detect
-
-    info = detect(root)
-    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=False,
+        merge=fake_pr_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
     )
 
     committed = _commit_files(root)
@@ -1314,7 +1213,22 @@ def test_land_readme_sha_pin_commit_excludes_untracked(
     assert (root / "stray-transcript.jsonl").exists()
 
 
-# --- README install SHA bump (used in Phase 9: post-release) ---
+# --- README install SHA bump (ReadmeShaPin.bump, reached via Phase 4) ---
+
+
+def _readme_pin(
+    info: ProjectInfo, ops: FaultInjectingOps | None = None
+) -> ReadmeShaPin:
+    """A ``ReadmeShaPin`` whose skips go to its own recorder."""
+    ops = ops or _fault_ops()
+    return ReadmeShaPin(info, ops=ops, skips=SkipRecorder(ops=ops))
+
+
+def _bump_readme_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """Run the live ``ReadmeShaPin.bump`` that ``ReadmeShaPin.land`` calls."""
+    _readme_pin(info).bump(
+        version, dry_run=dry_run, resolve_repo=lambda _root: "punt-labs/proj"
+    )
 
 
 def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
@@ -1335,10 +1249,8 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     # Create a tag so git rev-parse works
     _git(["tag", "v0.2.0"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     # Old SHA should be gone
@@ -1355,14 +1267,13 @@ def test_bump_readme_install_sha_replaces_sha(tmp_path: Path) -> None:
     assert f"{expected_sha}/install.sh" in readme_content
 
 
-def test_find_pinned_shas_never_drifts_from_bump(tmp_path: Path) -> None:
-    """find_pinned_shas() must find exactly the pin a real bump() writes.
+def test_recognizer_reads_back_exactly_the_pin_bump_writes(tmp_path: Path) -> None:
+    """The recognizer Phase 11 reads with must find the pin a real bump() writes.
 
-    Both derive from ``ReadmeShaPin._url_prefix()``/``_SHA_SHAPE`` rather
-    than hand-copied literals — this drives an actual bump() and reads the
-    result back through find_pinned_shas(), so a future edit to one and not
-    the other breaks this test instead of Phase 11 silently passing a stale
-    README because the read-back pattern quietly stopped matching.
+    bump() and Phase 11 share one ``InstallUrlRecognizer``; this drives an
+    actual bump() and reads the result back, so a divergence between what is
+    written and what is recognized fails here instead of Phase 11 passing a
+    stale README because the read-back quietly stopped matching.
     """
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -1378,13 +1289,16 @@ def test_find_pinned_shas_never_drifts_from_bump(tmp_path: Path) -> None:
     _git(["tag", "v0.2.0"], cwd=d)
 
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     expected_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
 
-    found = ReadmeShaPin.find_pinned_shas(readme_content, "punt-labs", "proj")
+    found, has_untrusted = InstallUrlRecognizer("punt-labs", "proj").classify(
+        readme_content
+    )
     assert found == [expected_sha]
+    assert has_untrusted is False
 
 
 def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
@@ -1403,10 +1317,8 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
     _git(["commit", "-m", "version-tag readme"], cwd=d)
     _git(["tag", "v0.2.0"], cwd=d)
 
-    from punt_kit.detect import detect
-
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     assert "v0.1.0" not in readme_content
@@ -1422,8 +1334,318 @@ def test_bump_readme_install_sha_replaces_version_tag(tmp_path: Path) -> None:
     assert f"{expected_sha}/install.sh" in readme_content
 
 
-def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
-    """Dry run does not modify README."""
+def _readme_with_install_url(slug: str) -> str:
+    return (
+        "# proj\n\n```bash\n"
+        f"curl -fsSL https://raw.githubusercontent.com/{slug}/abc1234/install.sh"
+        " | sh\n```\n"
+    )
+
+
+def _readme_with_urls(*urls: str) -> str:
+    snippets = "".join(f"curl -fsSL {url} | sh\n" for url in urls)
+    return f"# proj\n\n```bash\n{snippets}```\n"
+
+
+def _pin_url(slug: str, segment: str = "abc1234", filename: str = "install.sh") -> str:
+    return f"https://raw.githubusercontent.com/{slug}/{segment}/{filename}"
+
+
+def _current_install_sha(root: Path) -> str:
+    return _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=str(root))
+
+
+def _bump_with_slug(root: Path, slug: str | None, *, dry_run: bool = False) -> bool:
+    """Run the live ``ReadmeShaPin.bump`` with a fixed repo slug."""
+    return (
+        _readme_pin(detect(root))
+        .bump("0.2.0", dry_run=dry_run, resolve_repo=lambda _root: slug)
+        .changed
+    )
+
+
+def test_bump_with_an_unresolved_remote_skips_instead_of_guessing_a_slug(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """No github.com remote: the README is left alone and the skip is recorded."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
+    ops = _fault_ops()
+    skips = SkipRecorder(ops=ops)
+
+    result = ReadmeShaPin(detect(root), ops=ops, skips=skips).bump(
+        "0.2.0", dry_run=False, resolve_repo=lambda _root: None
+    )
+
+    assert (root / "README.md").read_text() == readme
+    assert (result.changed, len(result.stale)) == (False, 1)
+    assert "README pin not updated: no github.com origin" in _flat(
+        capsys.readouterr().out
+    )
+    assert any("README pin not updated" in notice for notice in skips.drain())
+
+
+def test_bump_with_a_malformed_remote_names_it_and_skips(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The release's own resolver raises on a bad remote; the skip names it."""
+    root = _make_release_project(tmp_path)
+    _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
+    ops = _fault_ops()
+
+    def resolve_repo(path: Path) -> str | None:
+        return GithubRepo(path, ops=ops).slug_text()
+
+    result = _readme_pin(detect(root)).bump(
+        "0.2.0", dry_run=True, resolve_repo=resolve_repo
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README pin not updated: not an owner/repo slug: 'proj'" in out
+    assert (root / "README.md").read_text() == readme
+    assert result.stale
+
+
+@pytest.mark.parametrize(
+    ("readme_slug", "resolved_slug"),
+    [
+        pytest.param("punt-labs/PROJ", "punt-labs/proj", id="repo-case-differs"),
+        pytest.param("PUNT-LABS/proj", "punt-labs/proj", id="owner-case-differs"),
+        pytest.param("punt-labs/proj", "punt-labs/proj/", id="trailing-slash-slug"),
+        pytest.param("punt-labs/proj", "/punt-labs/proj", id="leading-slash-slug"),
+        pytest.param("punt-labs/proj", " punt-labs/proj/ ", id="padded-slug"),
+    ],
+)
+def test_bump_rewrites_pin_regardless_of_case_or_slug_slashes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    readme_slug: str,
+    resolved_slug: str,
+) -> None:
+    """GitHub routes owner/repo case-insensitively, so a differently-cased pin
+    is still this repo's pin: rewritten, and never reported as another owner."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url(readme_slug))
+
+    changed = _bump_with_slug(root, resolved_slug)
+
+    readme = (root / "README.md").read_text()
+    assert f"{readme_slug}/{_current_install_sha(root)}/install.sh" in readme
+    assert changed is True
+    assert "WARNING" not in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("old_segment", "filename"),
+    [
+        pytest.param("v1.2.3-rc.1", "install.sh", id="prerelease-tag"),
+        pytest.param("V0.1.0", "install.sh", id="uppercase-v-tag"),
+        pytest.param("abc1234", "install.SH", id="uppercase-filename"),
+    ],
+)
+def test_bump_rewrites_every_pin_shape_the_recognizer_trusts(
+    tmp_path: Path, old_segment: str, filename: str
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", old_segment, filename))
+    )
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    sha = _current_install_sha(root)
+    assert (root / "README.md").read_text() == _readme_with_urls(
+        _pin_url("punt-labs/proj", sha, filename)
+    )
+
+
+def test_bump_slug_without_owner_is_skipped_not_guessed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A slug that is not owner/repo must not crash the split or be replaced."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
+
+    _bump_with_slug(root, "proj")
+
+    out = _flat(capsys.readouterr().out)
+    assert "README pin not updated: not an owner/repo slug: 'proj'" in out
+    assert (root / "README.md").read_text() == readme
+
+
+def test_bump_warns_naming_a_second_stale_pin_under_another_owner(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One matching pin must not silence the warning about a second, stale one."""
+    root = _make_release_project(tmp_path)
+    other = _pin_url("other-org/proj")
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj"), other)
+    )
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    readme = (root / "README.md").read_text()
+    assert other in readme
+    assert other in _flat(capsys.readouterr().out)
+
+
+def test_bump_warns_when_a_pin_only_resolves_after_percent_decoding(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A pin bump cannot rewrite in place is reported by its URL, not skipped."""
+    root = _make_release_project(tmp_path)
+    encoded = _pin_url("punt-labs/%70roj")
+    readme = _readme_with_urls(encoded)
+    (root / "README.md").write_text(readme)
+
+    changed = _bump_with_slug(root, "punt-labs/proj")
+
+    assert (root / "README.md").read_text() == readme
+    assert changed is False
+    assert "abc1234" in _flat(capsys.readouterr().out)
+
+
+def test_bump_warns_about_a_look_alike_host_and_leaves_it_alone(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    evil = "https://evil.example/punt-labs/proj/abc1234/install.sh"
+    readme = _readme_with_urls(evil)
+    (root / "README.md").write_text(readme)
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    assert (root / "README.md").read_text() == readme
+    assert evil in _flat(capsys.readouterr().out)
+
+
+def test_bump_warns_when_no_install_url_matches_slug(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Install URLs present but none rewritten means a stale pin — say so."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_install_url("other-org/proj")
+    (root / "README.md").write_text(readme)
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    assert _pin_url("other-org/proj") in _flat(capsys.readouterr().out)
+    assert (root / "README.md").read_text() == readme
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        pytest.param("./install.sh", id="relative-script"),
+        pytest.param("bash scripts/install.sh", id="repo-script-path"),
+        pytest.param(
+            "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/main/"
+            "install.sh | sh",
+            id="unpinned-url",
+        ),
+        pytest.param(
+            "curl -fsSL https://raw.githubusercontent.com/other-org/other-tool/"
+            "abc1234/install.sh | sh",
+            id="other-repo-url",
+        ),
+    ],
+)
+def test_bump_does_not_warn_about_install_references_it_does_not_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], snippet: str
+) -> None:
+    """Only a pinned URL for this repo name under another owner is a stale pin."""
+    root = _make_release_project(tmp_path)
+    readme = f"# proj\n\n```bash\n{snippet}\n```\n"
+    (root / "README.md").write_text(readme)
+
+    changed = _bump_with_slug(root, "punt-labs/proj", dry_run=True)
+
+    assert changed is False
+    assert "WARNING" not in capsys.readouterr().out
+    assert (root / "README.md").read_text() == readme
+
+
+def test_bump_reports_no_change_when_the_pin_is_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A README that already pins the current SHA is not rewritten or warned about."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_urls(_pin_url("punt-labs/proj", _current_install_sha(root)))
+    (root / "README.md").write_text(readme)
+
+    changed = _bump_with_slug(root, "punt-labs/proj")
+
+    assert changed is False
+    assert "WARNING" not in capsys.readouterr().out
+    assert (root / "README.md").read_text() == readme
+
+
+def test_land_dry_run_previews_readme_rewrite_without_writing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """land(dry_run=True) previews the rewrite and touches nothing."""
+    root = _make_release_project(tmp_path)
+    readme = _readme_with_install_url("punt-labs/proj")
+    (root / "README.md").write_text(readme)
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "pinned readme"], cwd=str(root))
+    branch_before = _git_out(["branch", "--show-current"], cwd=str(root))
+
+    def _no_merge(**_kwargs: object) -> str:
+        raise AssertionError("a dry run must not merge")
+
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=True,
+        merge=_no_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert f"README.md: install URLs → {_current_install_sha(root)} (v0.2.0)" in out
+    assert "git commit" in out
+    assert (root / "README.md").read_text() == readme
+    assert _git_out(["status", "--porcelain"], cwd=str(root)) == ""
+    assert _git_out(["branch", "--list", "release-readme-pin/*"], cwd=str(root)) == ""
+    assert _git_out(["branch", "--show-current"], cwd=str(root)) == branch_before
+
+
+def test_land_dry_run_says_so_when_the_readme_is_already_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A dry run previews no commit or merge for a README that needs none."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", _current_install_sha(root)))
+    )
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "current readme"], cwd=str(root))
+
+    def _no_merge(**_kwargs: object) -> str:
+        raise AssertionError("a dry run must not merge")
+
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=True,
+        merge=_no_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" in out
+    assert "git commit" not in out
+    assert "merge(branch=" not in out
+
+
+def test_bump_readme_install_sha_dry_run_no_changes(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Dry run reports the rewrite it would make and does not modify README."""
     root = _make_release_project(tmp_path)
     d = str(root)
 
@@ -1439,11 +1661,11 @@ def test_bump_readme_install_sha_dry_run_no_changes(tmp_path: Path) -> None:
 
     original = (root / "README.md").read_text()
 
-    from punt_kit.detect import detect
-
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=True)
+    _bump_readme_pin(info, "0.2.0", dry_run=True)
 
+    sha = _current_install_sha(root)
+    assert f"README.md: install URLs → {sha} (v0.2.0)" in _flat(capsys.readouterr().out)
     assert (root / "README.md").read_text() == original
 
 
@@ -1490,10 +1712,8 @@ def test_bump_readme_install_sha_tag_on_different_commit(tmp_path: Path) -> None
     tag_sha = tag_result.stdout.strip()
     assert tag_sha != install_sh_sha, "test setup: tag and install.sh SHAs must differ"
 
-    from punt_kit.detect import detect
-
     info = detect(root)
-    _bump_readme_install_sha(info, "0.2.0", dry_run=False)
+    _bump_readme_pin(info, "0.2.0", dry_run=False)
 
     readme_content = (root / "README.md").read_text()
     assert f"{install_sh_sha}/install.sh" in readme_content
@@ -1521,6 +1741,10 @@ def test_dry_run_no_side_effects(tmp_path: Path) -> None:
 # --- Go project support ---
 
 
+def _project(root: Path) -> ReleaseProject:
+    return ReleaseProject(ProjectInfo(root), ops=_fault_ops())
+
+
 def test_get_latest_tag_version(tmp_path: Path) -> None:
     """Reads latest semver tag from git."""
     root = tmp_path / "go-proj"
@@ -1531,7 +1755,7 @@ def test_get_latest_tag_version(tmp_path: Path) -> None:
     _git(["commit", "--allow-empty", "-m", "bump"], cwd=d)
     _git(["tag", "v0.2.0"], cwd=d)
 
-    assert _get_latest_tag_version(root) == "0.2.0"
+    assert _project(root).latest_tag_version() == "0.2.0"
 
 
 def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
@@ -1540,7 +1764,7 @@ def test_get_latest_tag_version_no_tags(tmp_path: Path) -> None:
     root.mkdir()
     _init_git_repo(root)
 
-    assert _get_latest_tag_version(root) == "0.0.0"
+    assert _project(root).latest_tag_version() == "0.0.0"
 
 
 # --- _get_project_version ---
@@ -1583,7 +1807,6 @@ def test_get_project_version_python_unaffected(tmp_path: Path) -> None:
 
 def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
     """The Go tag path is unchanged by the new plugin-only branch."""
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "go-proj"
     root.mkdir()
@@ -1594,7 +1817,7 @@ def test_get_project_version_go_unaffected(tmp_path: Path) -> None:
     assert _get_project_version(info) == "1.2.3"
 
 
-# --- pkit-wpe5: Go resume without --version, before the new tag exists ---
+# --- Go resume without --version, before the new tag exists ---
 
 
 def _make_go_project(tmp_path: Path, *, tag: str = "v0.1.0") -> Path:
@@ -1660,17 +1883,16 @@ def test_run_release_go_resume_after_tag_without_version_still_works(
     unaffected — the new tag already exists by then, so the latest git tag
     genuinely is the version this run is resuming, not the previous one.
     """
-    from punt_kit import release as release_mod
 
     root = _make_go_project(tmp_path, tag="v0.2.0")
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase6_ci_wait", _stop)
+    monkeypatch.setattr(release, "_phase6_ci_wait", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root), resume_from="ci")
@@ -1683,17 +1905,16 @@ def test_run_release_non_go_resume_from_tag_without_version_unaffected(
     pyproject.toml already carries the bumped version regardless of
     whether the tag exists yet, so there is no ambiguity to guard against.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase5_tag", _stop)
+    monkeypatch.setattr(release, "_phase5_tag", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root), resume_from="tag")
@@ -1704,20 +1925,19 @@ def test_run_release_resume_plugin_only_no_version_flag(
 ) -> None:
     """Resuming a plugin-only release without --version must not hard-fail.
 
-    Regresses the bug this bead reports verbatim: "Error: No pyproject.toml
-    found" when resuming a marketplace-only plugin release past phase 1.
+    The failure mode is "Error: No pyproject.toml found" when resuming a
+    marketplace-only plugin release past phase 1.
     """
-    from punt_kit import release as release_mod
 
     root = _make_language_none_plugin_project(tmp_path)
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase3_build", _stop)
+    monkeypatch.setattr(release, "_phase3_build", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root), resume_from="build")
@@ -1732,17 +1952,16 @@ def test_run_release_fresh_plugin_only_no_version_flag(
     project failed here even though the resume path (once fixed) could
     already resolve the same version from plugin.json.
     """
-    from punt_kit import release as release_mod
 
     root = _make_language_none_plugin_project(tmp_path)
 
-    class _StopAfterVersion(Exception):
+    class _StopAfterVersion(BaseException):
         """Sentinel raised once version resolution has succeeded."""
 
     def _stop(*_args: object, **_kwargs: object) -> None:
         raise _StopAfterVersion
 
-    monkeypatch.setattr(release_mod, "_phase2_version_bump", _stop)
+    monkeypatch.setattr(release, "_phase2_version_bump", _stop)
 
     with pytest.raises(_StopAfterVersion):
         run_release(str(root))
@@ -1776,7 +1995,7 @@ def test_go_dry_run_no_side_effects(tmp_path: Path) -> None:
     assert (root / "CHANGELOG.md").read_text() == original_changelog
 
 
-# --- GitWorkspace (pkit-f85t.7 round 2: sites the round-1 sweep missed) ---
+# --- GitWorkspace: git commands that must diagnose, not leak CalledProcessError ---
 
 
 def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
@@ -1786,18 +2005,16 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
     diagnose, not leak a raw CalledProcessError.
 
     `GitWorkspace.ensure_on_main` is called unconditionally from Phase 2,
-    5, and 9's `run()` — a hook-firing checkout that defaulted to
-    check=True was missed by round 1's sweep (pkit-f85t.7 round 2).
+    5, and 9's `run()` — a hook-firing checkout must not default to
+    check=True.
     """
-    from punt_kit.phases.shared.git import GitWorkspace
 
     root = tmp_path / "proj"
     root.mkdir()
     _init_git_repo(root)
     _git(["checkout", "-b", "feature"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -1805,7 +2022,7 @@ def test_git_workspace_ensure_on_main_diagnoses_checkout_failure(
                     returncode=1, stderr="error: pathspec 'main' did not match"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git checkout main failed"):
@@ -1816,15 +2033,13 @@ def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> 
     """A failing `git pull --ff-only origin main` must diagnose — a network
     call, structurally identical in risk to `git fetch origin` (Phase 1,
     already diagnosed) and `GitWorkspace.push` (Phase 5, already
-    diagnosed), but missed for `ensure_on_main` by round 1's sweep."""
-    from punt_kit.phases.shared.git import GitWorkspace
+    diagnosed), so `ensure_on_main` diagnoses it too."""
 
     root = tmp_path / "proj"
     root.mkdir()
     _init_git_repo(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "pull", "--ff-only", "origin", "main"],
@@ -1832,7 +2047,7 @@ def test_git_workspace_ensure_on_main_diagnoses_pull_failure(tmp_path: Path) -> 
                     returncode=1, stderr="fatal: unable to access origin"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git pull --ff-only origin main failed"):
@@ -1843,16 +2058,14 @@ def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git checkout <branch>` for an already-existing branch must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.git import GitWorkspace
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
     _init_git_repo(root)
     _git(["branch", "release/v1.0.0"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "release/v1.0.0"],
@@ -1860,7 +2073,7 @@ def test_git_workspace_checkout_or_create_diagnoses_existing_branch_failure(
                     returncode=1, stderr="error: pre-checkout hook rejected"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git checkout release/v1.0.0 failed"):
@@ -1871,15 +2084,13 @@ def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git checkout -b <branch>` for a genuinely new branch must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.git import GitWorkspace
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
     _init_git_repo(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "-b", "release/v1.0.0"],
@@ -1887,7 +2098,7 @@ def test_git_workspace_checkout_or_create_diagnoses_new_branch_failure(
                     returncode=1, stderr="fatal: a branch named ... already exists"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git checkout -b release/v1.0.0 failed"):
@@ -1900,17 +2111,14 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
     """A rejected `git commit` (pre-commit hook) must diagnose — the same
     hook-firing-mutation class as the Phase 4 swap commit and Phase 9
     restore commit, but this one backs *every* phase's own commit,
-    including Phase 2's release-version-bump commit, and was missed by
-    round 1's sweep (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.git import GitWorkspace
+    including Phase 2's release-version-bump commit."""
 
     root = tmp_path / "proj"
     root.mkdir()
     _init_git_repo(root)
     (root / "release-marker.txt").write_text("v1.0.0\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "commit", "-m", "chore: release v1.0.0"],
@@ -1918,7 +2126,7 @@ def test_git_workspace_commit_if_staged_diagnoses_commit_failure(
                     returncode=1, stderr="pre-commit hook rejected"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git commit failed"):
@@ -1936,19 +2144,15 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     """A non-zero `uv build` must diagnose as a ReleaseError, not leak a raw
     CalledProcessError.
 
-    Phase 3 had no isolated failure-path test at all before this (matrix row
-    12, design doc defect #5) — `uv build` also defaulted to check=True
-    (pkit-f85t.7), so a failure here previously escaped run_release's own
-    exception handling and surfaced as a bare traceback, not just a
-    lower-quality diagnosis.
+    `uv build` must not default to check=True: a raw failure would escape
+    run_release's own exception handling and surface as a bare traceback,
+    not just a lower-quality diagnosis.
     """
-    from punt_kit.phases.phase03_build import Phase3Build
 
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["uv", "build"],
@@ -1956,7 +2160,7 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
                     returncode=1, stderr="error: build backend failed"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="uv build failed"):
@@ -1968,12 +2172,10 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
 
 def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     """A failing `git tag {tag}` (disk full, permission, a lock held by a
-    concurrent git process) must diagnose, not leak a raw
-    CalledProcessError — kept in the same diagnosed convention as the push
-    two lines below in the source, rather than left as the odd one out
-    (pkit-f85t.7 round 2)."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
+     concurrent git process) must diagnose, not leak a raw
+     CalledProcessError — kept in the same diagnosed convention as the push
+     two lines below in the source, rather than left as the odd one out
+    ."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -1981,8 +2183,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "tag", "v1.0.0"],
@@ -1990,7 +2191,7 @@ def test_phase5_tag_creation_failure_diagnoses(tmp_path: Path) -> None:
                     returncode=128, stderr="fatal: cannot lock ref"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git tag v1.0.0 failed"):
@@ -2006,16 +2207,13 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
 
     Isolated from the resume scenario below (which forces the same failure
     mode but goes on to test retry-on-resume): this test covers the failure
-    moment itself (matrix row 20) — the tag lands locally at HEAD, the
-    remote gets nothing, and the phase raises a diagnosed ReleaseError
-    rather than a raw CalledProcessError. `GitWorkspace.push` defaulted to
-    check=True (pkit-f85t.7); a non-threaded phase like this one had no
-    handler that would catch a raw CalledProcessError, so it would have
-    escaped run_release's diagnosis path entirely and surfaced as a bare
-    traceback.
+    moment itself — the tag lands locally at HEAD, the remote gets
+    nothing, and the phase raises a diagnosed ReleaseError rather than a raw
+    CalledProcessError. `GitWorkspace.push` must not default to check=True:
+    a non-threaded phase like this one has no handler that would catch a raw
+    CalledProcessError, so it would escape run_release's diagnosis path
+    entirely and surface as a bare traceback.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2023,8 +2221,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
+    failing_ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "push", "origin", "v1.0.0"],
@@ -2032,7 +2229,7 @@ def test_phase5_tag_initial_push_failure_diagnoses_and_leaves_tag_unpushed(
                     returncode=1, stderr="fatal: unable to access remote"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git push origin v1.0.0 failed"):
@@ -2055,8 +2252,6 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     would treat that as success and never re-push — this is the exact
     defect the fix closes.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2064,14 +2259,13 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
+    failing_ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "push", "origin", "v1.0.0"],
                 raises=subprocess.CalledProcessError(1, ["git", "push"]),
             )
-        ],
+        ]
     )
     with pytest.raises(subprocess.CalledProcessError):
         Phase5Tag(info, "1.0.0", dry_run=False, ops=failing_ops).run(
@@ -2083,7 +2277,7 @@ def test_phase5_tag_resume_repushes_a_locally_created_but_unpushed_tag(
     assert _git_out(["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)) == ""
 
     # Resume with a clean ops double — the push must be retried, not skipped.
-    resumed_ops = FaultInjectingOps(real_run=_run, rules=[])
+    resumed_ops = _fault_ops()
     Phase5Tag(info, "1.0.0", dry_run=False, ops=resumed_ops).run(release_sha=head_sha)
 
     assert "v1.0.0" in _git_out(
@@ -2095,8 +2289,6 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     tmp_path: Path,
 ) -> None:
     """Resuming after a fully successful tag+push must not push again."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2104,27 +2296,20 @@ def test_phase5_tag_resume_noops_when_tag_already_reached_remote(
     info = ProjectInfo(root=root)
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    Phase5Tag(
-        info, "1.0.0", dry_run=False, ops=FaultInjectingOps(real_run=_run, rules=[])
-    ).run(release_sha=head_sha)
+    Phase5Tag(info, "1.0.0", dry_run=False, ops=_fault_ops()).run(release_sha=head_sha)
     assert "v1.0.0" in _git_out(
         ["ls-remote", "--tags", "origin", "v1.0.0"], cwd=str(root)
     )
 
     push_calls: list[list[str]] = []
 
-    def spying_run(
-        cmd: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        if cmd[:2] == ["git", "push"]:
-            push_calls.append(cmd)
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    spying_run = _recording_run(push_calls, ["git", "push"])
 
     Phase5Tag(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+        ops=_fault_ops(real_run=spying_run),
     ).run(release_sha=head_sha)
 
     assert push_calls == [], "tag genuinely on the remote must not be re-pushed"
@@ -2135,14 +2320,12 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
 ) -> None:
     """A remote tag's mere presence is not proof it is the right commit.
 
-    Regression test for the SHA-mismatch gap flagged in round-2 review: an
+    Guards the SHA-mismatch gap: an
     operator recovering from a botched release by recreating the local tag
     at a corrected commit, while an older, wrong-commit tag of the same
     name still sits on the remote, must get a loud diagnosed failure — not
     a silent "already exists" that leaves the wrong commit tagged upstream.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2167,19 +2350,14 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha(
 
     push_calls: list[list[str]] = []
 
-    def spying_run(
-        cmd: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        if cmd[:2] == ["git", "push"]:
-            push_calls.append(cmd)
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    spying_run = _recording_run(push_calls, ["git", "push"])
 
     with pytest.raises(ReleaseError, match="exists on the remote but points to"):
         Phase5Tag(
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+            ops=_fault_ops(real_run=spying_run),
         ).run(release_sha=corrected_sha)
 
     assert push_calls == [], "must fail loud, not silently push over the mismatch"
@@ -2195,10 +2373,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     """A failing `git ls-remote --tags origin` (network) in the existing-tag
     resume path must diagnose, not leak a raw CalledProcessError — same
     network risk class as `git fetch origin` (Phase 1) and this phase's own
-    tag push, both already diagnosed. Missed in earlier sweep passes
-    (pkit-f85t.7 round 2)."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
+    tag push, both already diagnosed."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2210,8 +2385,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
     _git(["tag", "v1.0.0"], cwd=str(root))
     head_sha = _git_out(["rev-parse", "HEAD"], cwd=str(root))
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "ls-remote", "--tags", "origin"],
@@ -2219,7 +2393,7 @@ def test_phase5_tag_resume_diagnoses_ls_remote_failure(tmp_path: Path) -> None:
                     returncode=1, stderr="fatal: unable to access origin"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git ls-remote --tags origin failed"):
@@ -2240,8 +2414,6 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
     commit SHA would treat every annotated remote tag as a mismatch, even
     one at the exact right commit.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2260,18 +2432,13 @@ def test_phase5_tag_resume_noops_when_remote_tag_is_annotated_at_the_same_commit
 
     push_calls: list[list[str]] = []
 
-    def spying_run(
-        cmd: list[str], **kwargs: object
-    ) -> subprocess.CompletedProcess[str]:
-        if cmd[:2] == ["git", "push"]:
-            push_calls.append(cmd)
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    spying_run = _recording_run(push_calls, ["git", "push"])
 
     Phase5Tag(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=spying_run, rules=[]),
+        ops=_fault_ops(real_run=spying_run),
     ).run(release_sha=head_sha)
 
     assert push_calls == [], "an annotated tag at the right commit must be a no-op"
@@ -2285,8 +2452,6 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
     Companion to the same-commit no-op test above — proves the peeled-SHA
     resolution is being compared, not merely tolerated as "present."
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2310,7 +2475,7 @@ def test_phase5_tag_resume_fails_loud_when_remote_tag_is_annotated_at_a_diff_com
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=_run, rules=[]),
+            ops=_fault_ops(),
         ).run(release_sha=corrected_sha)
 
 
@@ -2323,8 +2488,6 @@ def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
     Passing the captured ``release_sha`` through must tag that commit, not
     whatever HEAD has since become.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2347,7 +2510,7 @@ def test_phase5_tag_tags_the_captured_release_sha_not_advanced_main_head(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ops=_fault_ops(),
     ).run(release_sha=release_sha)
 
     assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
@@ -2363,14 +2526,12 @@ def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_he
     """``--resume-from tag`` with no captured SHA must resolve the release
     commit from git history, not tag whatever main HEAD currently is.
 
-    Simulates the exact drift scenario from the bead: the release
+    Simulates the drift scenario: the release
     squash-merge commit (``chore: release vX.Y.Z``) lands, then a further
     commit (the README-SHA-pin) advances main HEAD past it, and only then
     does Phase 5 run with no ``release_sha`` in hand (a resume that skipped
     Phase 4 in this process).
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2392,7 +2553,7 @@ def test_phase5_tag_resume_fallback_finds_the_release_commit_past_an_advanced_he
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ops=_fault_ops(),
     ).run()
 
     assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
@@ -2408,8 +2569,6 @@ def test_phase5_tag_resume_fallback_matches_squash_commit_with_pr_number_suffix(
     fallback search must match that shape, not only a bare, hand-committed
     ``chore: release vX.Y.Z`` message.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2432,7 +2591,7 @@ def test_phase5_tag_resume_fallback_matches_squash_commit_with_pr_number_suffix(
         info,
         "1.0.0",
         dry_run=False,
-        ops=FaultInjectingOps(real_run=_run, rules=[]),
+        ops=_fault_ops(),
     ).run()
 
     assert _git_out(["rev-parse", "v1.0.0"], cwd=str(root)) == release_sha
@@ -2444,8 +2603,6 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
     """No matching ``chore: release`` commit on main must raise, not
     silently fall back to tagging HEAD.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2457,7 +2614,7 @@ def test_phase5_tag_resume_fallback_fails_loud_when_no_release_commit_found(
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=_run, rules=[]),
+            ops=_fault_ops(),
         ).run()
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
@@ -2471,8 +2628,6 @@ def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
     does. A loose prefix check would accept any parenthesized suffix,
     including an unrelated commit that merely starts the same way.
     """
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.phases.phase05_tag import Phase5Tag
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -2488,28 +2643,13 @@ def test_phase5_tag_resume_fallback_rejects_a_manual_fix_suffix(
             info,
             "1.0.0",
             dry_run=False,
-            ops=FaultInjectingOps(real_run=_run, rules=[]),
+            ops=_fault_ops(),
         ).run()
 
     assert _git_out(["tag", "--list", "v1.0.0"], cwd=str(root)) == ""
 
 
 # --- sibling helpers ---
-
-
-def _make_sibling(tmp_path: Path, name: str, files: dict[str, str]) -> Path:
-    """Create a sibling git repo with given files."""
-    sibling = tmp_path / name
-    sibling.mkdir(parents=True, exist_ok=True)
-    _init_git_repo(sibling)
-    for filepath, content in files.items():
-        (sibling / filepath).parent.mkdir(parents=True, exist_ok=True)
-        (sibling / filepath).write_text(content)
-    if files:
-        _git(["add", "."], cwd=str(sibling))
-        _git(["commit", "-m", f"init {name}"], cwd=str(sibling))
-    _git(["fetch", "origin"], cwd=str(sibling))
-    return sibling
 
 
 def test_resolve_sibling_finds_existing(tmp_path: Path) -> None:
@@ -2520,9 +2660,9 @@ def test_resolve_sibling_finds_existing(tmp_path: Path) -> None:
 
     sibling = _make_sibling(tmp_path, "punt-kit", {})
 
-    result = _resolve_sibling(root, "punt-kit")
+    result = SiblingRepo.resolve(root, "punt-kit", ops=_fault_ops())
     assert result is not None
-    assert result == sibling
+    assert result.path == sibling
 
 
 def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
@@ -2531,27 +2671,41 @@ def test_resolve_sibling_returns_none_missing(tmp_path: Path) -> None:
     root.mkdir()
     _init_git_repo(root)
 
-    result = _resolve_sibling(root, "nonexistent")
+    result = SiblingRepo.resolve(root, "nonexistent", ops=_fault_ops())
     assert result is None
+
+
+def test_validate_sibling_names_a_detached_head(tmp_path: Path) -> None:
+    sibling = _make_sibling(tmp_path, "sib", {})
+    _git(["checkout", "--detach"], cwd=str(sibling))
+
+    with pytest.raises(ReleaseError, match="Sibling sib has a detached HEAD") as caught:
+        SiblingRepo(sibling, "sib", ops=_fault_ops()).validate()
+
+    assert "on branch" not in str(caught.value)
 
 
 def test_validate_sibling_fails_wrong_branch(tmp_path: Path) -> None:
     """Fails when sibling is on wrong branch."""
+
     sibling = _make_sibling(tmp_path, "sib", {})
     _git(["checkout", "-b", "feature"], cwd=str(sibling))
 
-    with pytest.raises(ReleaseError):
-        _validate_sibling(sibling, "sib")
+    ops = _fault_ops()
+    with pytest.raises(ReleaseError, match="Sibling sib is on branch 'feature'"):
+        SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
 def test_validate_sibling_fails_dirty(tmp_path: Path) -> None:
     """Fails when sibling has uncommitted changes."""
+
     sibling = _make_sibling(tmp_path, "sib", {})
     (sibling / "dirty.txt").write_text("dirty")
     _git(["add", "dirty.txt"], cwd=str(sibling))
 
-    with pytest.raises(ReleaseError):
-        _validate_sibling(sibling, "sib")
+    ops = _fault_ops()
+    with pytest.raises(ReleaseError, match="Sibling sib has uncommitted changes"):
+        SiblingRepo(sibling, "sib", ops=ops).validate()
 
 
 def test_validate_sibling_diagnoses_branch_read_command_failure(
@@ -2561,16 +2715,14 @@ def test_validate_sibling_diagnoses_branch_read_command_failure(
     must diagnose, not leak a raw CalledProcessError.
 
     Sibling checkouts are far less controlled than the project's own repo
-    (pkit-f85t.7) — this call defaulted to check=True, inconsistent with
+    — this call defaulted to check=True, inconsistent with
     the `git pull --ff-only` a few lines later in the same method, which
     already diagnosed its own failures.
     """
-    from punt_kit.phases.shared.siblings import SiblingRepo
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "--show-current"],
@@ -2578,7 +2730,7 @@ def test_validate_sibling_diagnoses_branch_read_command_failure(
                     returncode=128, stderr="fatal: not a git repository"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git branch --show-current failed"):
@@ -2589,13 +2741,11 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
     tmp_path: Path,
 ) -> None:
     """A `git status --porcelain` command failure on a sibling checkout must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7)."""
-    from punt_kit.phases.shared.siblings import SiblingRepo
+    diagnose, not leak a raw CalledProcessError."""
 
     sibling = _make_sibling(tmp_path, "sib", {})
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "status", "--porcelain"],
@@ -2603,11 +2753,20 @@ def test_validate_sibling_diagnoses_status_read_command_failure(
                     returncode=128, stderr="fatal: index file corrupt"
                 ),
             )
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="git status --porcelain failed"):
         SiblingRepo(sibling, "sib", ops=ops).validate()
+
+
+def test_validate_sibling_ignores_unstaged_beads_modification(tmp_path: Path) -> None:
+    """A tracked ``.beads/`` file modified in the worktree (`` M`` status, one
+    leading space) is harmless and must not block a release."""
+    sibling = _make_sibling(tmp_path, "sib", {".beads/issues.jsonl": "{}\n"})
+    (sibling / ".beads" / "issues.jsonl").write_text("{}\n{}\n")
+
+    SiblingRepo(sibling, "sib", ops=_fault_ops()).validate()
 
 
 # --- Phase 10a: install-all.sh ---
@@ -2642,7 +2801,6 @@ def test_propagate_install_all_updates_sha(
     )
 
     # Mock _sibling_pr_merge to avoid needing gh CLI
-    from punt_kit import release as release_mod
 
     calls: list[tuple[str, str, list[str]]] = []
 
@@ -2658,9 +2816,7 @@ def test_propagate_install_all_updates_sha(
         calls.append((name, message, files))
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -2714,7 +2870,6 @@ def test_propagate_install_all_idempotent(
     )
 
     # Mock _sibling_pr_merge
-    from punt_kit import release as release_mod
 
     calls: list[str] = []
 
@@ -2730,9 +2885,7 @@ def test_propagate_install_all_idempotent(
         calls.append(name)
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -2798,7 +2951,7 @@ def test_propagate_install_all_fails_when_install_all_missing(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"install-all\.sh not found in \.github"):
         _propagate_install_all(info, "0.2.0", dry_run=False)
 
 
@@ -2839,7 +2992,6 @@ def test_propagate_marketplace_updates_version(
     )
 
     # Mock _sibling_pr_merge
-    from punt_kit import release as release_mod
 
     calls: list[str] = []
 
@@ -2855,9 +3007,7 @@ def test_propagate_marketplace_updates_version(
         calls.append(name)
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_marketplace(info, "0.2.0", dry_run=False)
@@ -2895,7 +3045,7 @@ def test_propagate_marketplace_matches_by_marketplace_short_name(
     ``source.url`` points somewhere that does not end in the project's repo
     name — e.g. a renamed or forked upstream URL that predates a rename.
 
-    Regression coverage for pkit-p328/pkit-d8ij: marketplace entries key on
+    Regression coverage: marketplace entries key on
     the plugin's short name (``punt``), not the PyPI distribution name
     (``punt-kit``) or a URL that happens to match the repo. ``proj``'s
     manifest name (``test-dev`` in the base fixture) is overridden here so
@@ -2940,9 +3090,7 @@ def test_propagate_marketplace_matches_by_marketplace_short_name(
         },
     )
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
 
     info = detect(root)
     _propagate_marketplace(info, "0.2.0", dry_run=False)
@@ -2991,9 +3139,7 @@ def test_propagate_marketplace_matches_url_with_and_without_git_suffix(
         },
     )
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", _always_merges_sibling)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
 
     info = detect(root)
     _propagate_marketplace(info, "0.2.0", dry_run=False)
@@ -3009,7 +3155,7 @@ def test_propagate_marketplace_fails_when_no_entry_matches_any_candidate(
     """No matching name or url in marketplace.json — a hard failure.
 
     Plugin/hybrid releases require a marketplace entry; a silent no-op here
-    is exactly the pkit-d8ij failure mode (propagation runs, nothing lands).
+    is exactly the failure mode here (propagation runs, nothing lands).
     """
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -3059,8 +3205,6 @@ def test_propagate_marketplace_skipped_for_cli_only(tmp_path: Path) -> None:
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "init"], cwd=d)
     _git(["fetch", "origin"], cwd=d)
-
-    from punt_kit.detect import detect
 
     info = detect(root)
     assert not info.is_plugin
@@ -3135,14 +3279,8 @@ def test_propagate_install_all_pins_profile_to_merged_commit(
     # SHA of the last install-all.sh commit BEFORE propagation
     pre_merge_sha = _get_install_all_short_sha(sibling)
 
-    from punt_kit import release as release_mod
-
     calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr(
-        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
-    )
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", _merging_sibling_pr_merge(calls))
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -3198,14 +3336,8 @@ def test_propagate_install_all_repairs_stale_profile(
         },
     )
 
-    from punt_kit import release as release_mod
-
     calls: list[tuple[str, list[str]]] = []
-    monkeypatch.setattr(
-        release_mod, "_sibling_pr_merge", _merging_sibling_pr_merge(calls)
-    )
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", _merging_sibling_pr_merge(calls))
 
     info = detect(root)
     _propagate_install_all(info, "0.2.0", dry_run=False)
@@ -3223,13 +3355,10 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
     """A failing `git log` against the sibling checkout (install-all.sh's
     last-touch commit) must diagnose, not leak a raw CalledProcessError.
 
-    `_sync_profile_readme`'s git log call is design doc defect #3's named
-    example — it defaulted to check=True with no surrounding message
-    (pkit-f85t.7), unlike a genuinely empty result (no commit has ever
-    touched install-all.sh), which is a distinct, already-handled case.
+    `_sync_profile_readme`'s git log call must not default to check=True
+    with no surrounding message; a genuinely empty result (no commit has
+    ever touched install-all.sh) is a distinct, already-handled case.
     """
-    from punt_kit.phases.phase10_propagate import InstallAllPropagator
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -3254,8 +3383,7 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
 
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "log", "-1", "--format=%h", "--", "install-all.sh"],
@@ -3263,7 +3391,7 @@ def test_propagate_install_all_sync_profile_readme_git_log_failure_diagnoses(
                     returncode=128, stderr="fatal: bad revision 'HEAD'"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(*_args: object, **_kwargs: object) -> bool:
@@ -3316,7 +3444,6 @@ def test_propagate_website_updates_version(
     )
 
     # Mock _sibling_pr_merge
-    from punt_kit import release as release_mod
 
     calls: list[str] = []
 
@@ -3332,9 +3459,7 @@ def test_propagate_website_updates_version(
         calls.append(name)
         return True
 
-    monkeypatch.setattr(release_mod, "_sibling_pr_merge", mock_sibling_pr_merge)
-
-    from punt_kit.detect import detect
+    monkeypatch.setattr(release, "_sibling_pr_merge", mock_sibling_pr_merge)
 
     info = detect(root)
     _propagate_website(info, "0.2.0", dry_run=False)
@@ -3354,17 +3479,15 @@ def test_propagate_website_skipped_when_missing(tmp_path: Path) -> None:
         cwd=str(root),
     )
 
-    from punt_kit.detect import detect
-
     info = detect(root)
     # Should not raise
     _propagate_website(info, "0.2.0", dry_run=False)
 
 
-# --- PHASE_NAMES ---
+# --- PhaseOrder.NUMBERS ---
 
 
-# --- Propagation bug fixes (punt-kit-91t, punt-kit-5b4, punt-kit-zay) ---
+# --- Propagation sibling validation and branch recovery ---
 
 
 def test_validate_sibling_called_during_preflight(
@@ -3384,14 +3507,14 @@ def test_validate_sibling_called_during_preflight(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"Sibling \.github has uncommitted changes"):
         _phase1_preflight(info, dry_run=True)
 
 
 def test_validate_sibling_wrong_branch_during_preflight(
     tmp_path: Path,
 ) -> None:
-    """Preflight fails if sibling is on stale propagation branch (5b4/zay)."""
+    """Preflight fails if sibling is on stale propagation branch."""
     root = _make_release_project(tmp_path)
 
     sibling = _make_sibling(tmp_path, ".github", {"install-all.sh": "#!/bin/sh\n"})
@@ -3399,7 +3522,10 @@ def test_validate_sibling_wrong_branch_during_preflight(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError,
+        match=r"Sibling \.github is on branch 'propagate/v1\.0\.0-proj-github'",
+    ):
         _phase1_preflight(info, dry_run=True)
 
 
@@ -3415,11 +3541,8 @@ def test_preflight_passes_with_clean_siblings(tmp_path: Path) -> None:
     _phase1_preflight(info, dry_run=True)
 
 
-def test_sibling_pr_merge_returns_to_main(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """After _sibling_pr_merge, sibling is back on main (5b4/zay fix)."""
-    from punt_kit import release as release_mod
+def test_sibling_pr_merge_returns_to_main(tmp_path: Path) -> None:
+    """After a sibling merge, the sibling is back on main."""
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
 
@@ -3439,10 +3562,14 @@ def test_sibling_pr_merge_returns_to_main(
         _git(["checkout", "main"], cwd=str(cwd))
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
-
-    release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
-        sibling, "test-branch", ["file.txt"], "test commit", "sib", dry_run=False
+    PrMerger(ops=_fault_ops()).merge_in_sibling(
+        sibling,
+        "test-branch",
+        ["file.txt"],
+        "test commit",
+        "sib",
+        dry_run=False,
+        merge=fake_pr_merge,
     )
 
     # Verify we're back on main
@@ -3456,28 +3583,24 @@ def test_sibling_pr_merge_returns_to_main(
     assert branch == "main"
 
 
-def test_sibling_pr_merge_returns_to_main_on_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Sibling returns to main even when _pr_merge fails (5b4/zay)."""
-    from punt_kit import release as release_mod
+def test_sibling_pr_merge_returns_to_main_on_failure(tmp_path: Path) -> None:
+    """Sibling returns to main even when the merge fails."""
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
 
-    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+    def failing_pr_merge(**kwargs: object) -> str:
         raise SystemExit(1)
 
-    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
-
     with pytest.raises(SystemExit):
-        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        PrMerger(ops=_fault_ops()).merge_in_sibling(
             sibling,
             "test-branch",
             ["file.txt"],
             "test commit",
             "sib",
             dry_run=False,
+            merge=failing_pr_merge,
         )
 
     # The critical assertion: sibling is back on main despite the failure
@@ -3492,7 +3615,7 @@ def test_sibling_pr_merge_returns_to_main_on_failure(
 
 
 def test_sibling_pr_merge_wrapper_wires_skips_through(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
     """The real ``_sibling_pr_merge`` wrapper threads ``_skips`` through.
 
@@ -3503,33 +3626,28 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
     call site). A future change that dropped or misdirected that one
     argument would not be caught by anything else in the suite.
     """
-    from punt_kit import release as release_mod
 
     sibling = _make_sibling(tmp_path, "sib", {"file.txt": "v1"})
     (sibling / "file.txt").write_text("v2")
 
-    def failing_pr_merge(**kwargs: object) -> str:  # noqa: ARG001
+    def failing_pr_merge(**kwargs: object) -> str:
         raise ReleaseError("required checks never passed")
 
-    def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        # Only the merge_in_sibling finally block's cleanup checkout uses
-        # this exact argv — checkout_or_create checks out the feature
-        # branch, not "main" — so this can't accidentally intercept an
-        # earlier, unrelated checkout in the same flow.
-        if cmd == ["git", "checkout", "main"]:
-            return subprocess.CompletedProcess(
-                args=cmd,
-                returncode=1,
-                stdout="",
-                stderr="local changes would be overwritten",
-            )
-        return _run(cmd, **kwargs)  # type: ignore[arg-type]
+    # Only the merge_in_sibling finally block's cleanup checkout uses this
+    # exact argv — checkout_or_create checks out the feature branch, not
+    # "main" — so the rule can't intercept an earlier, unrelated checkout.
+    checkout_main_fails = FaultRule(
+        match=["git", "checkout", "main"],
+        response=CompletedProcessSpec(
+            returncode=1, stderr="local changes would be overwritten"
+        ),
+    )
 
-    monkeypatch.setattr(release_mod, "_pr_merge", failing_pr_merge)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_pr_merge", failing_pr_merge)
+    monkeypatch.setattr(release, "_run", _fault_ops(rules=[checkout_main_fails]).run)
 
     with pytest.raises(ReleaseError, match="required checks never passed"):
-        release_mod._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
+        release._sibling_pr_merge(  # pyright: ignore[reportPrivateUsage]
             sibling,
             "test-branch",
             ["file.txt"],
@@ -3538,20 +3656,20 @@ def test_sibling_pr_merge_wrapper_wires_skips_through(
             dry_run=False,
         )
 
-    (notice,) = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
+    (notice,) = skips.drain()
     assert "required checks never passed" in notice
     assert "local changes would be overwritten" in notice
 
 
 def test_phase_names_cover_all_phases() -> None:
     """All 11 phases are mapped (plus aliases)."""
-    phase_numbers = set(PHASE_NAMES.values())
+    phase_numbers = set(PhaseOrder.NUMBERS.values())
     assert phase_numbers == set(range(1, 12))
 
 
 def test_phase_names_aliases() -> None:
     """Old name aliases resolve to correct phase numbers."""
-    assert PHASE_NAMES["release"] == 4  # alias for release-pr
+    assert PhaseOrder.NUMBERS["release"] == 4  # alias for release-pr
 
 
 # --- wy5: plugin script checks for pure plugin projects ---
@@ -3616,7 +3734,7 @@ def _make_language_none_plugin_project(tmp_path: Path) -> Path:
     Unlike ``_make_pure_plugin_project`` (which still writes a
     ``pyproject.toml`` without ``[project.scripts]``, so ``info.language ==
     "python"`` and ``info.pyproject is not None``), this fixture leaves
-    ``language`` and ``pyproject`` both unset — the precondition f85t.1's
+    ``language`` and ``pyproject`` both unset — the precondition the
     plugin-only branch of ``_get_project_version`` actually guards on.
     """
     root = tmp_path / "proj"
@@ -3701,11 +3819,13 @@ def test_preflight_fails_missing_scripts_for_pure_plugin(tmp_path: Path) -> None
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Missing release-plugin\.sh or restore-dev-plugin\.sh"
+    ):
         _phase1_preflight(info, dry_run=False)
 
 
-# --- pkit-dlv6: preflight out-of-band tag detection ---
+# --- preflight out-of-band tag detection ---
 
 
 def test_preflight_silent_with_no_prior_tags(
@@ -3788,12 +3908,34 @@ def test_preflight_warns_when_prior_tag_version_mismatches(
     assert "0.0.9" in out
 
 
+def test_preflight_warns_when_the_prior_tags_manifest_is_not_valid_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_pure_plugin_project(tmp_path)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    good = plugin_json.read_text()
+    plugin_json.write_text("{broken")
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "broken manifest"], cwd=d)
+    _git(["tag", "v0.1.0"], cwd=d)
+    plugin_json.write_text(good)
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "fix manifest"], cwd=d)
+    _git(["fetch", "origin"], cwd=d)
+
+    _phase1_preflight(detect(root), dry_run=True)
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "v0.1.0:.claude-plugin/plugin.json is not valid JSON" in out
+
+
 # --- pvb: verify finds pure-plugin entries in install-all.sh ---
 
 
 def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
     """Verify phase finds projects in the 'for plugin in ...' loop."""
-    import re
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -3840,10 +3982,6 @@ def test_verify_finds_pure_plugin_in_install_all(tmp_path: Path) -> None:
 # --- _wait_for_required_checks ---
 
 
-def _fake_get_github_repo(_p: Path) -> str:
-    return "punt-labs/punt-kit"
-
-
 def _graphql_checks_response(
     check_nodes: list[dict[str, object]],
 ) -> dict[str, object]:
@@ -3882,31 +4020,54 @@ def _graphql_no_required_checks_response() -> dict[str, object]:
     return _graphql_checks_response([])
 
 
-def _protection_response(*, protected: bool) -> MagicMock:
-    """Build the ``MagicMock`` for a ``gh api .../branches/main/protection`` call."""
-    result = MagicMock()
+def _protection_argv(owner: str = "punt-labs", repo: str = "punt-kit") -> list[str]:
+    """The full ``gh api`` argv of the legacy branch-protection check."""
+    return ["gh", "api", f"repos/{owner}/{repo}/branches/main/protection"]
+
+
+def _ruleset_argv(owner: str = "punt-labs", repo: str = "punt-kit") -> list[str]:
+    """The full ``gh api`` argv of the ruleset check."""
+    return ["gh", "api", f"repos/{owner}/{repo}/rules/branches/main"]
+
+
+def _protection_spec(*, protected: bool) -> CompletedProcessSpec:
+    """What ``gh api .../branches/main/protection`` returns for each state."""
     if protected:
-        result.returncode = 0
-        result.stdout = json.dumps({"required_status_checks": {"contexts": []}})
-        result.stderr = ""
-    else:
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: Branch not protected (HTTP 404)"
-    return result
+        return CompletedProcessSpec(
+            stdout=json.dumps({"required_status_checks": {"contexts": []}})
+        )
+    return CompletedProcessSpec(
+        returncode=1, stderr="gh: Branch not protected (HTTP 404)"
+    )
 
 
-def _ruleset_response(*, governed: bool) -> MagicMock:
-    """Build the ``MagicMock`` for a ``gh api .../rules/branches/main`` call.
+def _ruleset_spec(*, governed: bool) -> CompletedProcessSpec:
+    """What ``gh api .../rules/branches/main`` returns for each state.
 
     The endpoint returns a JSON array of active rules — non-empty when a
     ruleset governs the branch, empty (never a non-zero exit) when none do.
     """
+    rules = [{"type": "required_status_checks"}] if governed else []
+    return CompletedProcessSpec(stdout=json.dumps(rules))
+
+
+def _as_mock(spec: CompletedProcessSpec) -> MagicMock:
+    """Render a scripted response as the ``MagicMock`` a fake ``_run`` returns."""
     result = MagicMock()
-    result.returncode = 0
-    result.stderr = ""
-    result.stdout = json.dumps([{"type": "required_status_checks"}] if governed else [])
+    result.returncode = spec.returncode
+    result.stdout = spec.stdout
+    result.stderr = spec.stderr
     return result
+
+
+def _protection_response(*, protected: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../branches/main/protection`` call."""
+    return _as_mock(_protection_spec(protected=protected))
+
+
+def _ruleset_response(*, governed: bool) -> MagicMock:
+    """Build the ``MagicMock`` for a ``gh api .../rules/branches/main`` call."""
+    return _as_mock(_ruleset_spec(governed=governed))
 
 
 def _is_protection_call(cmd: list[str]) -> bool:
@@ -3970,7 +4131,6 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Returns immediately when all required checks succeed."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4002,8 +4162,8 @@ def test_wait_for_required_checks_passes_when_all_required_succeed(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
     # One graphql poll — the pre-loop branch-protection and ruleset checks
     # are intercepted separately and are not counted here.
@@ -4014,7 +4174,6 @@ def test_wait_for_required_checks_fails_on_required_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Calls _fail when a required check fails."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4032,9 +4191,11 @@ def test_wait_for_required_checks_fails_on_required_failure(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    with pytest.raises(ReleaseError):
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    with pytest.raises(
+        ReleaseError, match=r"Required CI checks failed on PR #42: test"
+    ):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -4042,7 +4203,6 @@ def test_wait_for_required_checks_ignores_non_required(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Does not fail when only non-required checks fail."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4066,8 +4226,8 @@ def test_wait_for_required_checks_ignores_non_required(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise
     _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4076,7 +4236,6 @@ def test_wait_for_required_checks_status_context_success(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """StatusContext nodes with state=SUCCESS are treated as passed."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4093,8 +4252,8 @@ def test_wait_for_required_checks_status_context_success(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise — SUCCESS StatusContext is a pass
     _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4103,7 +4262,6 @@ def test_wait_for_required_checks_status_context_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """StatusContext nodes with state=ERROR are treated as failures."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4120,9 +4278,11 @@ def test_wait_for_required_checks_status_context_error(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    with pytest.raises(ReleaseError):
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    with pytest.raises(
+        ReleaseError, match=r"Required CI checks failed on PR #42: deploy/preview"
+    ):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
@@ -4136,7 +4296,6 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
     counter — the release still has most of its polling window left —
     rather than escape as a traceback and abort the whole run.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4150,7 +4309,7 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     call_count = 0
 
@@ -4169,8 +4328,8 @@ def test_wait_for_required_checks_survives_a_slow_graphql_query(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
     assert call_count == 2
 
@@ -4184,100 +4343,74 @@ def test_wait_for_required_checks_fails_after_five_consecutive_timeouts(
     infinite retry — routing into consecutive_errors means the existing
     five-strikes ceiling still trips.
     """
-    from punt_kit import release as release_mod
 
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         raise subprocess.TimeoutExpired(cmd, 60)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     with pytest.raises(ReleaseError, match="5 consecutive times"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
-# --- f85t.4: branch-protection fallback ---
+# --- branch-protection fallback ---
 
 
-def test_branch_protection_exists_true_on_200(monkeypatch: pytest.MonkeyPatch) -> None:
+def _repo_answering(root: Path, rule: FaultRule) -> GithubRepo:
+    """A ``GithubRepo`` whose ``gh api`` call is answered by ``rule``."""
+    return GithubRepo(root, ops=_fault_ops(rules=[rule]))
+
+
+def test_branch_protection_exists_true_on_200(tmp_path: Path) -> None:
     """A 200 from the protection endpoint means the branch is protected."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _protection_response(protected=True)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(match=_protection_argv(), response=_protection_spec(protected=True)),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
-def test_branch_protection_exists_false_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_branch_protection_exists_false_on_404(tmp_path: Path) -> None:
     """A confirmed 404 means the branch has no protection configured."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _protection_response(protected=False)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is False
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(match=_protection_argv(), response=_protection_spec(protected=False)),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is False
 
 
-def test_branch_protection_exists_true_on_unrelated_error(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_branch_protection_exists_true_on_unrelated_error(tmp_path: Path) -> None:
     """An unrelated failure (rate limit, auth) does not widen the check set."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: API rate limit exceeded"
-        return result
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=_protection_argv(),
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: API rate limit exceeded"
+            ),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
-def test_branch_protection_exists_true_on_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_branch_protection_exists_true_on_timeout(tmp_path: Path) -> None:
     """A hung protection check fails open rather than aborting the release."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        raise subprocess.TimeoutExpired(cmd, 60)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=_protection_argv(),
+            raises=subprocess.TimeoutExpired(_protection_argv(), 60),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
-def test_branch_protection_exists_true_on_permission_404(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_branch_protection_exists_true_on_permission_404(tmp_path: Path) -> None:
     """A 404 without the "branch not protected" marker is treated as protected.
 
     GitHub's branch-protection REST endpoint 404s when the token lacks
@@ -4285,29 +4418,22 @@ def test_branch_protection_exists_true_on_permission_404(
     to protected=True in that case rather than silently widening the
     check set to include informational-only checks the repo excluded.
     """
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: Not Found (HTTP 404)"
-        return result
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._branch_protection_exists(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=_protection_argv(),
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: Not Found (HTTP 404)"
+            ),
+        ),
     )
+    assert repo.has_branch_protection("gh", "punt-labs", "punt-kit") is True
 
 
 def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """No branch protection means every check is waited on, not just isRequired."""
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4327,8 +4453,8 @@ def test_wait_for_required_checks_falls_back_to_all_checks_when_unprotected(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise — the non-required "lint" check is treated as the
     # pass condition because the repo has no branch protection configured.
     _wait_for_required_checks("gh", "/tmp", 42)
@@ -4344,7 +4470,6 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
     clock crosses it in a handful of iterations instead of the test
     sleeping for ``NO_CHECKS_GRACE`` real seconds.
     """
-    from punt_kit import release as release_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4360,10 +4485,10 @@ def test_wait_for_required_checks_still_requires_only_required_when_protected(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.time", _make_fake_clock())
     with pytest.raises(ReleaseError, match="No CI checks registered"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -4376,7 +4501,6 @@ def test_wait_for_required_checks_warns_once_on_fallback(
     Branch protection is resolved once before the loop starts, so this is a
     proof of function structure rather than a distinct behavior.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4398,8 +4522,8 @@ def test_wait_for_required_checks_warns_once_on_fallback(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     _wait_for_required_checks("gh", "/tmp", 42)
 
     printed = capsys.readouterr().out
@@ -4413,7 +4537,6 @@ def test_gh_module_has_no_hardcoded_7200_literal() -> None:
     drift the moment CI_WATCH changes — this asserts the import, not just
     the current numeric coincidence.
     """
-    from punt_kit.phases.shared import gh as gh_mod
 
     source = inspect.getsource(gh_mod)
     assert "7200" not in source
@@ -4428,8 +4551,6 @@ def test_wait_for_required_checks_deadline_tracks_ci_watch(
     Proves the deadline is read from the module attribute at call time
     (patchable), not baked in as a literal at import time.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.phases.shared import gh as gh_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4438,67 +4559,59 @@ def test_wait_for_required_checks_deadline_tracks_ci_watch(
             return _ruleset_response(governed=False)
         raise AssertionError("should time out before ever polling checks")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     monkeypatch.setattr(gh_mod, "CI_WATCH", -1)
 
     with pytest.raises(ReleaseError, match="Timed out waiting for"):
         _wait_for_required_checks("gh", "/tmp", 42)
 
 
-# --- pkit-plxh: ruleset awareness + no-checks grace window ---
+# --- ruleset awareness + no-checks grace window ---
 
 
-def test_has_ruleset_true_when_rules_present(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_ruleset_true_when_rules_present(tmp_path: Path) -> None:
     """A non-empty rules array means the branch is ruleset-governed."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _ruleset_response(governed=True)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "ethos"
-        )
-        is True
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=_ruleset_argv(repo="ethos"), response=_ruleset_spec(governed=True)
+        ),
     )
+    assert repo.has_ruleset("gh", "punt-labs", "ethos") is True
 
 
-def test_has_ruleset_false_when_rules_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_ruleset_false_when_rules_empty(tmp_path: Path) -> None:
     """An empty rules array means no ruleset governs the branch."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        return _ruleset_response(governed=False)
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is False
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(match=_ruleset_argv(), response=_ruleset_spec(governed=False)),
     )
+    assert repo.has_ruleset("gh", "punt-labs", "punt-kit") is False
 
 
-def test_has_ruleset_false_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_has_ruleset_false_on_error(tmp_path: Path) -> None:
     """A non-zero exit fails safe to "no ruleset", same direction as a timeout."""
-    from punt_kit import release as release_mod
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        result = MagicMock()
-        result.returncode = 1
-        result.stdout = ""
-        result.stderr = "gh: API rate limit exceeded"
-        return result
-
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    assert (
-        release_mod._has_ruleset(  # pyright: ignore[reportPrivateUsage]
-            "gh", "/tmp", "punt-labs", "punt-kit"
-        )
-        is False
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(
+            match=_ruleset_argv(),
+            response=CompletedProcessSpec(
+                returncode=1, stderr="gh: API rate limit exceeded"
+            ),
+        ),
     )
+    assert repo.has_ruleset("gh", "punt-labs", "punt-kit") is False
+
+
+def test_ruleset_check_does_not_hit_the_protection_endpoint(tmp_path: Path) -> None:
+    """A rule scripted for the protection endpoint cannot answer the ruleset call."""
+    repo = _repo_answering(
+        tmp_path,
+        FaultRule(match=_protection_argv(), response=_protection_spec(protected=True)),
+    )
+    with pytest.raises(AssertionError, match="unmatched network command"):
+        repo.has_ruleset("gh", "punt-labs", "punt-kit")
 
 
 def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
@@ -4507,7 +4620,6 @@ def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
     """A ruleset-governed repo with no legacy branch protection is not warned
     about, and required checks are still honored (the ethos main shape).
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4535,8 +4647,8 @@ def test_wait_for_required_checks_ruleset_governed_no_legacy_warning(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
     # Should not raise — the ruleset governs, so isRequired narrows to
     # "lint" alone, and the in-progress non-required review is ignored.
     _wait_for_required_checks("gh", "/tmp", 42)
@@ -4551,12 +4663,11 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
 ) -> None:
     """A commit that never registers a check fails loudly, not after 2 hours.
 
-    Models the ethos #496 shape: a post-release commit carrying [skip ci],
+    Models a post-release commit carrying [skip ci],
     so ``statusCheckRollup`` stays null on every poll. The fake clock
     crosses ``NO_CHECKS_GRACE`` in a few iterations; the failure names the
     likely causes an operator needs to check.
     """
-    from punt_kit import release as release_mod
 
     def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
         if _is_protection_call(cmd):
@@ -4572,10 +4683,10 @@ def test_wait_for_required_checks_null_rollup_grace_expiry_names_likely_causes(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.time", _make_fake_clock())
 
     with pytest.raises(ReleaseError, match="No CI checks registered") as exc_info:
         _wait_for_required_checks("gh", "/tmp", 42)
@@ -4596,7 +4707,6 @@ def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
     grace-expiry failure must say so, not repeat the "no CI checks
     registered at all" wording that fits the null-rollup case.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4621,10 +4731,10 @@ def test_wait_for_required_checks_governed_no_required_checks_grace_expiry(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock())
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.time", _make_fake_clock())
 
     with pytest.raises(ReleaseError) as exc_info:
         _wait_for_required_checks("gh", "/tmp", 42)
@@ -4644,7 +4754,6 @@ def test_wait_for_required_checks_late_arriving_checks_still_proceed(
     the check appears — the grace window must not trip on a commit whose
     checks are merely slow to attach, only on one that never gets any.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4676,12 +4785,12 @@ def test_wait_for_required_checks_late_arriving_checks_still_proceed(
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
     # A small step keeps every poll well inside NO_CHECKS_GRACE (300s) even
     # across several no-checks iterations, unlike the expiry test's clock.
-    monkeypatch.setattr("punt_kit.release.time.time", _make_fake_clock(step=5.0))
+    monkeypatch.setattr("time.time", _make_fake_clock(step=5.0))
 
     # Should not raise — checks arrive on the third poll, inside the window.
     _wait_for_required_checks("gh", "/tmp", 42)
@@ -4694,13 +4803,12 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
     """An interrupt raised while a worker thread is blocked in the poll loop
     is observed within one iteration, not only after the two-hour deadline.
 
-    This is the direct regression guard for pkit-d7mz: without checking
+    This is the direct regression guard for the interrupt path: without checking
     ``interrupted`` inside the loop, a worker thread polling here has no way
     to learn that the main thread's signal handler fired — only the main
     thread receives SIGINT — so it would keep polling for up to two hours,
     blocking ``ThreadPoolExecutor.__exit__``'s join for the same span.
     """
-    from punt_kit import release as release_mod
 
     check_nodes: list[dict[str, object]] = [
         {
@@ -4722,14 +4830,14 @@ def test_wait_for_required_checks_stops_promptly_when_interrupted(
         result.stderr = ""
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
-    release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    release.interrupt_event().set()
     try:
         with pytest.raises(ReleaseError, match="Interrupted while waiting"):
             _wait_for_required_checks("gh", "/tmp", 42)
     finally:
-        release_mod._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+        release.interrupt_event().clear()
 
 
 # --- _reset_propagation_siblings ---
@@ -4739,7 +4847,6 @@ def test_reset_propagation_siblings_resets_propagation_branch(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Resets siblings on propagate/v* branches to main."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4759,11 +4866,11 @@ def test_reset_propagation_siblings_resets_propagation_branch(
         result.stderr = ""
         return result
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
     _reset_propagation_siblings(info)
     assert any("main" in c for c in checkout_calls)
 
@@ -4772,7 +4879,6 @@ def test_reset_propagation_siblings_skips_feature_branches(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Does not touch siblings on non-propagation branches."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4789,11 +4895,11 @@ def test_reset_propagation_siblings_skips_feature_branches(
         result.stderr = ""
         return result
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
     _reset_propagation_siblings(info)
     assert not checkout_calls  # Should not have attempted any checkout
 
@@ -4802,7 +4908,6 @@ def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With fail_on_error=False, a checkout failure does not abort remaining ones."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4833,11 +4938,11 @@ def test_reset_propagation_siblings_continues_on_error_when_fail_on_error_false(
 
     sibling_names = ["punt-kit", "claude-plugins", ".github", "public-website"]
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name if name in sibling_names else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     # Should not raise even though first checkout fails
     _reset_propagation_siblings(info, fail_on_error=False)
@@ -4849,7 +4954,6 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With fail_on_error=True (default), a checkout failure raises ReleaseError."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4868,13 +4972,15 @@ def test_reset_propagation_siblings_fails_on_error_when_fail_on_error_true(
             result.stdout = ""
         return result
 
-    def fake_resolve(r: object, name: str) -> object:  # noqa: ARG001
+    def fake_resolve(r: object, name: str) -> object:
         return tmp_path / name
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_run", fake_run)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Could not return sibling claude-plugins to main"
+    ):
         _reset_propagation_siblings(info, fail_on_error=True)
 
 
@@ -4905,13 +5011,12 @@ def test_reset_propagation_siblings_restores_dirty_owned_file(
 ) -> None:
     """Sibling on main with only propagation-owned file dirty is reconciled.
 
-    This is the v0.14.0 residue: phase 10 wrote projects.json, then the
+    The scenario: phase 10 wrote projects.json, then the
     subsequent `git checkout -b propagate/...` timed out. The sibling
     was left on main with the write on disk, and the guarded retry
     refused to run. _reset_propagation_siblings must restore that file
     so --resume-from propagate can retry the same idempotent write.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4929,7 +5034,7 @@ def test_reset_propagation_siblings_restores_dirty_owned_file(
     def fake_resolve(_root: object, name: str) -> Path | None:
         return sib if name == "public-website" else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
 
     _reset_propagation_siblings(info)
 
@@ -4956,9 +5061,8 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
     hand, because the reset cannot tell the two apart. What it can
     promise is that nothing outside the owned set is touched — a sibling
     with only unrelated modifications is left entirely alone for the
-    existing _validate_sibling guard to trip on, as it does today.
+    existing SiblingRepo.validate guard to trip on, as it does today.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -4978,7 +5082,7 @@ def test_reset_propagation_siblings_leaves_unrelated_dirty_untouched(
     def fake_resolve(_root: object, name: str) -> Path | None:
         return sib if name == "public-website" else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
 
     _reset_propagation_siblings(info)
 
@@ -5006,7 +5110,6 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     on — losing operator work is unrecoverable, letting the guard fail
     once is not.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -5029,7 +5132,7 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     def fake_resolve(_root: object, name: str) -> Path | None:
         return sib if name == "public-website" else None
 
-    monkeypatch.setattr(release_mod, "_resolve_sibling", fake_resolve)
+    monkeypatch.setattr(release, "_resolve_sibling", fake_resolve)
 
     _reset_propagation_siblings(info)
 
@@ -5037,49 +5140,11 @@ def test_reset_propagation_siblings_mixed_dirt_preserves_unrelated(
     assert (sib / "docs" / "notes.md").read_text() == "operator edited this\n"
 
 
-# --- _select_existing_pr / _pr_merge: stale same-named PRs ---
+# --- PrMerger.merge: stale same-named PRs ---
 
 _LOCAL_HEAD = "a" * 40
 _STALE_HEAD = "b" * 40
 _MERGE_OID = "c" * 40
-
-
-def test_select_existing_pr_prefers_open() -> None:
-    """An OPEN PR is always the current release."""
-    prs: list[dict[str, object]] = [
-        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
-        {"number": 7, "state": "OPEN", "headRefOid": _LOCAL_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (7, False)
-
-
-def test_select_existing_pr_ignores_closed() -> None:
-    """A CLOSED PR is never reused — its CI is dead."""
-    prs: list[dict[str, object]] = [
-        {"number": 7, "state": "CLOSED", "headRefOid": _LOCAL_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
-
-
-def test_select_existing_pr_ignores_stale_merged() -> None:
-    """A MERGED PR at a different head is a stale earlier attempt."""
-    prs: list[dict[str, object]] = [
-        {"number": 5, "state": "MERGED", "headRefOid": _STALE_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (None, False)
-
-
-def test_select_existing_pr_accepts_matching_merged() -> None:
-    """A MERGED PR at the local branch head is the completed release."""
-    prs: list[dict[str, object]] = [
-        {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
-    ]
-    assert _select_existing_pr(prs, _LOCAL_HEAD) == (5, True)
-
-
-def test_select_existing_pr_empty() -> None:
-    """No PRs means create a fresh one."""
-    assert _select_existing_pr([], _LOCAL_HEAD) == (None, False)
 
 
 def _fake_gh_run(
@@ -5129,9 +5194,6 @@ def _patch_pr_merge_env(
     waited_prs: list[int],
 ) -> None:
     """Wire _pr_merge to the fake gh environment."""
-    import shutil
-
-    from punt_kit import release as release_mod
 
     def fake_which(_name: str) -> str:
         return "gh"
@@ -5143,9 +5205,9 @@ def _patch_pr_merge_env(
         return None
 
     monkeypatch.setattr(shutil, "which", fake_which)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_wait_for_required_checks", fake_wait)
-    monkeypatch.setattr(release_mod, "_resolve_pr_threads", fake_resolve_threads)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_wait_for_required_checks", fake_wait)
+    monkeypatch.setattr(release, "_resolve_pr_threads", fake_resolve_threads)
 
 
 def test_pr_merge_ignores_closed_pr_creates_fresh(
@@ -5211,15 +5273,34 @@ def test_pr_merge_matching_merged_pr_short_circuits(
     assert waited == []
 
 
+def test_pr_merge_resumes_open_pr_over_a_merged_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An OPEN PR is the current release even beside a MERGED one at the same head."""
+    fake_run, issued = _fake_gh_run(
+        [
+            {"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD},
+            {"number": 7, "state": "OPEN", "headRefOid": _LOCAL_HEAD},
+        ],
+        view_states=["OPEN", "MERGED"],
+    )
+    waited: list[int] = []
+    _patch_pr_merge_env(monkeypatch, fake_run, waited)
+
+    _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+    assert waited == [7]
+    assert not [c for c in issued if c[:3] == ["gh", "pr", "create"]]
+
+
 def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A failing `git checkout main` while fast-forwarding local main after
     an already-merged PR must diagnose, not leak a raw CalledProcessError.
 
-    One of three near-identical inline blocks `PrMerger.merge` hand-rolled
-    with an unqualified check=True default, missed by round 1's sweep and
-    now centralized into `_sync_local_main` (pkit-f85t.7 round 2)."""
+    `PrMerger.merge` centralizes this checkout + pull in `_sync_local_main`,
+    which must not use an unqualified check=True default."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
@@ -5247,7 +5328,7 @@ def test_pr_merge_sync_local_main_diagnoses_pull_failure(
     """A failing `git pull --ff-only` while fast-forwarding local main — a
     network call, structurally identical in risk to `git fetch origin`
     (Phase 1) and `GitWorkspace.push` (Phase 5), both already diagnosed —
-    must diagnose too (pkit-f85t.7 round 2)."""
+    must diagnose too."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
@@ -5312,7 +5393,9 @@ def test_pr_merge_real_merge_failure_still_fails(
     waited: list[int] = []
     _patch_pr_merge_env(monkeypatch, fake_run, waited)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"Failed to merge PR #42: GraphQL: Merge conflict detected"
+    ):
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
@@ -5342,17 +5425,15 @@ def test_phase7_github_release_create_failure_diagnoses(
 ) -> None:
     """A `gh release create` failure (network/permission) must diagnose loudly.
 
-    Phase 7 had no isolated failure-path test at all before this (matrix
-    row 29).
+    Phase 7 needs an isolated failure-path test of its own.
     """
-    from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 
     root = _make_release_project(tmp_path)
+    (root / "CHANGELOG.md").write_text("## [0.2.0] - 2026-03-01\n\n- New feature\n")
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which_gh)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["gh", "release", "view", "v0.2.0"],
@@ -5364,7 +5445,7 @@ def test_phase7_github_release_create_failure_diagnoses(
                     returncode=1, stderr="HTTP 403: Forbidden"
                 ),
             ),
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="Failed to create release"):
@@ -5383,18 +5464,16 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
 
     Phase 8's 10-attempt retry loop (`uv tool install --force --refresh`)
     only special-cases a non-zero exit; nothing forced a genuine
-    `TimeoutExpired` at this call site before this test (matrix row 31,
-    design doc defect #6) — distinct from Phase 11's own, differently-
-    shaped PyPI resolve check. The loop's own `time.sleep(30)` between
+    `TimeoutExpired` at this call site — distinct from Phase 11's own,
+    differently-shaped PyPI resolve check. The loop's own `time.sleep(30)` between
     attempts is real wall-clock the harness has no seam for at the
     `ops.run` level, so `phase08_verify_pypi`'s own `time.sleep` is
     patched to a no-op here — the retry bookkeeping and the second
     attempt still run for real, just without the real 30s wait between
-    them (qodo round-1 review: the single-attempt version of this test
-    could not distinguish "nothing catches TimeoutExpired" from "nothing
-    catches TimeoutExpired on the first attempt specifically").
+    them. A single-attempt test could not distinguish "nothing catches
+    TimeoutExpired" from "nothing catches TimeoutExpired on the first
+    attempt specifically".
     """
-    from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5413,7 +5492,7 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
         match=install_cmd,
         raises=subprocess.TimeoutExpired(install_cmd, 600),
     )
-    ops = FaultInjectingOps(real_run=_run, rules=[first_attempt, second_attempt])
+    ops = _fault_ops(rules=[first_attempt, second_attempt])
 
     with pytest.raises(subprocess.TimeoutExpired):
         Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
@@ -5423,8 +5502,8 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
     # after a non-zero exit would leave second_attempt unconsumed and the
     # TimeoutExpired assertion above would still pass for the wrong
     # reason).
-    assert first_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
-    assert second_attempt._consumed == 1  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
+    assert first_attempt.consumed == 1
+    assert second_attempt.consumed == 1
 
 
 def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
@@ -5433,15 +5512,13 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
     """A failing `uv tool install --force --editable .` (restoring the dev
     install after the PyPI verify succeeds) must diagnose, not leak a raw
     CalledProcessError — same external-tool risk class as the install
-    retry loop above, missed in earlier sweep passes (pkit-f85t.7 round 2).
+    retry loop above.
     """
-    from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["uv", "tool", "install", "--force", "--refresh"],
@@ -5453,7 +5530,7 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
                     returncode=1, stderr="error: no pyproject.toml found"
                 ),
             ),
-        ],
+        ]
     )
 
     with pytest.raises(ReleaseError, match="uv tool install --editable . failed"):
@@ -5461,7 +5538,11 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
 
 
 def _merge_env(
-    root: Path, monkeypatch: pytest.MonkeyPatch, *, pr_number: int = 42
+    root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pr_number: int = 42,
+    url_suffix: str = "",
 ) -> tuple[FaultInjectingOps, str]:
     """A real git repo on a release branch plus a scripted gh double.
 
@@ -5480,8 +5561,7 @@ def _merge_env(
     # explicitly and needs no tracking branch at all.
     _git(["push", "-u", "origin", "main"], cwd=str(root))
     _git(["checkout", "-b", branch], cwd=str(root))
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["gh", "pr", "list"], response=CompletedProcessSpec(stdout="[]")
@@ -5489,7 +5569,10 @@ def _merge_env(
             FaultRule(
                 match=["gh", "pr", "create"],
                 response=CompletedProcessSpec(
-                    stdout=f"https://github.com/punt-labs/proj/pull/{pr_number}\n"
+                    stdout=(
+                        "https://github.com/punt-labs/proj/pull/"
+                        f"{pr_number}{url_suffix}\n"
+                    )
                 ),
             ),
             FaultRule(
@@ -5511,7 +5594,7 @@ def _merge_env(
                 times=None,
                 response=CompletedProcessSpec(stdout=f"{_MERGE_OID}\n"),
             ),
-        ],
+        ]
     )
     return ops, branch
 
@@ -5522,11 +5605,10 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     """A non-zero `gh pr view --json mergeCommit` (network/auth blip) AFTER
     the squash-merge already landed must diagnose, not leak a raw
     CalledProcessError — same diagnosed-failure convention as every other
-    gh/git call in merge() (pkit-f85t.7); run_release only catches
+    gh/git call in merge(); run_release only catches
     ReleaseError/TimeoutExpired, so an undiagnosed CalledProcessError here
     would escape as a bare traceback.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
         return None
@@ -5537,7 +5619,7 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             response=CompletedProcessSpec(),
@@ -5546,7 +5628,7 @@ def test_pr_merge_merge_commit_oid_lookup_failure_diagnoses(
     # Inserted at the front: _merge_env's own mergeCommit rule (unlimited
     # `times`) would otherwise be consulted first and never let this one
     # match.
-    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.insert_rule(
         0,
         FaultRule(
             match=[
@@ -5586,7 +5668,6 @@ def test_pr_merge_merge_commit_oid_null_fails_loud(
     never returns in that case, Phase 5 (the only consumer of this return
     value) can never receive "null" to hand to `git tag`.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_wait_for_checks(_gh: str, _cwd: str, _pr: int) -> None:
         return None
@@ -5597,13 +5678,13 @@ def test_pr_merge_merge_commit_oid_null_fails_loud(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             response=CompletedProcessSpec(),
         )
     )
-    ops._rules.insert(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.insert_rule(
         0,
         FaultRule(
             match=[
@@ -5638,7 +5719,6 @@ def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
     Attempts 1 and 2 are blocked by a transient policy check; attempt 3
     succeeds. Before this test, nothing drove ``merge_attempt`` past 0.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5654,7 +5734,7 @@ def test_pr_merge_retries_transient_block_and_succeeds_before_exhaustion(
     transient = CompletedProcessSpec(
         returncode=1, stderr="required status check has not passed"
     )
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             responses=[transient, transient, CompletedProcessSpec()],
@@ -5687,7 +5767,6 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
     proved the loop gives up after attempt 6 instead of retrying forever
     or silently succeeding.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5710,7 +5789,7 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
         ),
         times=6,
     )
-    ops._rules.append(merge_rule)  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(merge_rule)
 
     with pytest.raises(ReleaseError, match="Failed to merge PR #42"):
         PrMerger(ops=ops).merge(
@@ -5730,7 +5809,7 @@ def test_pr_merge_retry_exhausts_all_six_attempts_then_fails(
     # deny-by-default `AssertionError` instead of `ReleaseError` — so an
     # *unbounded* runaway is already caught, but an off-by-one that stops
     # one attempt early would not be, without this explicit count).
-    assert merge_rule._consumed == 6  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert merge_rule.consumed == 6
 
 
 def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
@@ -5743,7 +5822,6 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     blocked, the subsequent re-resolve raises, and the loop must still
     proceed to attempt 2 instead of propagating that exception.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     def _noop_sleep(_seconds: float) -> None:
         return None
@@ -5756,7 +5834,7 @@ def test_pr_merge_retry_swallows_a_failed_thread_re_resolve(
     root = tmp_path / "proj"
     root.mkdir()
     ops, branch = _merge_env(root, monkeypatch)
-    ops._rules.append(  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    ops.append_rule(
         FaultRule(
             match=["gh", "pr", "merge", "42", "--squash", "--delete-branch"],
             responses=[
@@ -5804,7 +5882,6 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     then tag the wrong commit even with the SHA-threading fix in place,
     since it trusts whatever ``merge()`` returns.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     monkeypatch.setattr("shutil.which", _fake_which_gh)
     root = tmp_path / "proj"
@@ -5855,9 +5932,8 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     def _noop_resolve_threads(_gh: str, _cwd: str, _pr: int) -> None:
         return None
 
-    ops = FaultInjectingOps(
+    ops = _fault_ops(
         real_run=fake_run,
-        rules=[],
         passthrough=[
             ("gh", "pr", "list"),
             ("gh", "pr", "create"),
@@ -5894,16 +5970,13 @@ def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
     ``finally`` block only reached ``ops.info`` — invisible in the
     end-of-run "Manual action required" recap that ``SkipRecorder`` drives.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -5911,7 +5984,7 @@ def test_merge_in_sibling_secondary_cleanup_failure_reaches_skip_recorder(
                     returncode=1, stderr="local changes would be overwritten"
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -5942,15 +6015,13 @@ def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
     original info-only behavior — the routing is additive, not a
     replacement for every caller.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -5958,7 +6029,7 @@ def test_merge_in_sibling_solo_cleanup_failure_still_only_infos(
                     returncode=1, stderr="local changes would be overwritten"
                 ),
             ),
-        ],
+        ]
     )
 
     def failing_merge(**_kwargs: object) -> str:
@@ -5985,23 +6056,19 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
 ) -> None:
     """A hung cleanup checkout must not replace the primary merge failure.
 
-    Regression test for a review finding on pkit-f85t.6: the cleanup
-    checkout's ``ops.run(..., check=False)`` can still raise
+    The cleanup checkout's ``ops.run(..., check=False)`` can still raise
     ``TimeoutExpired`` (a hung git hook) even though ``check=False``
     suppresses non-zero-exit errors. An uncaught ``TimeoutExpired`` inside
     the ``finally`` block would replace the propagating primary exception
     instead of merely accompanying it in the recap.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -6009,7 +6076,7 @@ def test_merge_in_sibling_cleanup_timeout_does_not_mask_the_primary_failure(
                     cmd=["git", "checkout", "main"], timeout=600
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -6044,15 +6111,13 @@ def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
     be swallowed into a quiet info line), matching pre-fix behavior where
     nothing caught this exception at all.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -6060,7 +6125,7 @@ def test_merge_in_sibling_cleanup_timeout_alone_still_propagates(
                     cmd=["git", "checkout", "main"], timeout=600
                 ),
             ),
-        ],
+        ]
     )
 
     def successful_merge(**_kwargs: object) -> str:
@@ -6084,22 +6149,19 @@ def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
 ) -> None:
     """A failed ``git branch --show-current`` is a secondary failure too.
 
-    Regression test for a review finding: when the primary merge fails
+    When the primary merge fails
     AND the cleanup's own branch lookup returns non-zero, ``current``
-    becomes ``None`` — that path used to fall straight to an info-only
-    message, unlike the checkout-failure path below it, leaving it out
-    of the ``SkipRecorder`` recap.
+    becomes ``None`` — that path must record into the ``SkipRecorder``
+    recap like the checkout-failure path below it, not fall straight to an
+    info-only message.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "--show-current"],
@@ -6107,7 +6169,7 @@ def test_merge_in_sibling_branch_lookup_failure_also_reaches_skip_recorder(
                     returncode=1, stderr="fatal: not a git repository"
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -6140,16 +6202,13 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
     for the branch-lookup path specifically — the routing only escalates
     when there is a primary failure for the secondary one to accompany.
     """
-    from punt_kit.phases.shared.pr_merge import PrMerger
-    from punt_kit.phases.shared.siblings import SkipRecorder
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
     (sibling / ".gitkeep").write_text("changed\n")
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "--show-current"],
@@ -6157,7 +6216,7 @@ def test_merge_in_sibling_branch_lookup_failure_alone_still_only_infos(
                     returncode=1, stderr="fatal: not a git repository"
                 ),
             ),
-        ],
+        ]
     )
     skips = SkipRecorder(ops=ops)
 
@@ -6184,16 +6243,13 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
     """A failing `git status --porcelain` on the sibling checkout must
     diagnose, not leak a raw CalledProcessError — a cross-repo read, same
     risk class as `SiblingRepo.validate`'s reads and `_sync_profile_readme`'s
-    git log, both already diagnosed. Missed in earlier sweep passes
-    (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.shared.pr_merge import PrMerger
+    git log, both already diagnosed."""
 
     sibling = tmp_path / "sibling"
     sibling.mkdir()
     _init_git_repo(sibling)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "status", "--porcelain", "--", ".gitkeep"],
@@ -6201,7 +6257,7 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
                     returncode=128, stderr="fatal: index file corrupt"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -6220,15 +6276,13 @@ def test_merge_in_sibling_status_read_failure_diagnoses(tmp_path: Path) -> None:
         )
 
 
-# --- fwql: README SHA pin lands after the release PR's squash-merge ---
+# --- README SHA pin lands after the release PR's squash-merge ---
 
 
 def test_phase4_release_pr_pins_readme_after_merge(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Phase 4 lands a second, README-only PR right after the release PR merges."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -6262,11 +6316,13 @@ def test_phase4_release_pr_pins_readme_after_merge(
         r.stdout = ""
         r.stderr = ""
         if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "newsha1\n"
+            r.stdout = "1e3a5b7\n"
         elif cmd[:2] == ["git", "log"]:
             r.stdout = ""
         elif cmd[:2] == ["git", "rev-parse"]:
-            r.stdout = "deadbeefcafe\n"
+            # Each ref resolves to its own commit: the README's old pin is not
+            # the current install.sh commit.
+            r.stdout = f"{cmd[2]}-resolved\n"
         elif cmd[:2] == ["git", "status"]:
             r.stdout = " M README.md\n" if cmd[-1] == "README.md" else ""
         elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
@@ -6299,14 +6355,12 @@ def test_phase4_release_pr_pins_readme_after_merge(
         return "punt-labs/proj"
 
     monkeypatch.setattr(shutil, "which", _which_gh)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_wait_for_required_checks", _no_wait)
-    monkeypatch.setattr(release_mod, "_resolve_pr_threads", _no_threads)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_wait_for_required_checks", _no_wait)
+    monkeypatch.setattr(release, "_resolve_pr_threads", _no_threads)
+    monkeypatch.setattr(release, "_get_github_repo", _repo_slug)
 
-    release_sha = release_mod._phase4_release_pr(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
-    )
+    release_sha = release._phase4_release_pr(info, "0.2.0", dry_run=False)  # pyright: ignore[reportPrivateUsage]
 
     # The squash-merge sha, not whatever HEAD became after the README-pin
     # PR's own squash-merge landed on top of it.
@@ -6322,183 +6376,100 @@ def test_phase4_release_pr_pins_readme_after_merge(
     merges = [c for c in issued if c[:3] == ["gh", "pr", "merge"]]
     assert len(merges) == 2
 
-    assert "newsha1" in (root / "README.md").read_text()
+    assert "1e3a5b7" in (root / "README.md").read_text()
+
+
+def _project_pinned_to_current_install_sha(tmp_path: Path) -> ProjectInfo:
+    """A committed project whose README already pins the current install.sh SHA."""
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", _current_install_sha(root)))
+    )
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "readme pins the current install SHA"], cwd=str(root))
+    return detect(root)
+
+
+def _land_pin_expecting_no_pr(info: ProjectInfo, ops: FaultInjectingOps) -> None:
+    """Run ``ReadmeShaPin.land``; a merge means a PR was opened for no change."""
+
+    def _unreachable_merge(**_kwargs: object) -> str:
+        raise AssertionError("README already current — no PR may be opened")
+
+    _readme_pin(info, ops).land(
+        "0.2.0",
+        dry_run=False,
+        merge=_unreachable_merge,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
 
 
 def test_land_readme_sha_pin_noop_when_readme_already_current(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """No PR is created when the README already pins the current install SHA."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
+    info = _project_pinned_to_current_install_sha(tmp_path)
 
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
-    (root / "README.md").write_text(
-        "# proj\n\n```bash\n"
-        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
-        "currentsha/install.sh | sh\n"
-        "```\n"
-    )
+    _land_pin_expecting_no_pr(info, _fault_ops())
 
-    info = ProjectInfo(root=root, language="python")
-    issued: list[list[str]] = []
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        issued.append(list(cmd))
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
-        if cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "currentsha\n"
-        elif cmd[:2] == ["git", "log"]:
-            r.stdout = ""
-        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
-            r.stdout = "main\n"
-        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
-            "git",
-            "status",
-        ]:
-            r.stdout = ""
-        return r
-
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/proj"
-
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-
-    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
-    )
-
-    assert not any(c[:3] == ["gh", "pr", "create"] for c in issued)
+    root = str(info.root)
+    assert _git_out(["branch", "--list", "release-readme-pin/*"], cwd=root) == ""
+    assert _git_out(["branch", "--show-current"], cwd=root) == "main"
 
 
 def test_land_readme_sha_pin_cleanup_diagnoses_checkout_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A failing `git checkout main` in the no-changes-needed cleanup path
     (README already pins the current SHA) must diagnose, not leak a raw
-    CalledProcessError — the same cleanup pattern Phase 9 already
-    diagnoses, missed here in earlier sweep passes (pkit-f85t.7 round 2)."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
-    (root / "README.md").write_text(
-        "# proj\n\n```bash\n"
-        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
-        "currentsha/install.sh | sh\n"
-        "```\n"
+    CalledProcessError — the same cleanup pattern Phase 9 diagnoses."""
+    info = _project_pinned_to_current_install_sha(tmp_path)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["git", "checkout", "main"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: pre-checkout hook rejected"
+                ),
+            )
+        ]
     )
 
-    info = ProjectInfo(root=root, language="python")
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
-        if cmd == ["git", "checkout", "main"]:
-            r.returncode = 1
-            r.stderr = "error: pre-checkout hook rejected"
-        elif cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "currentsha\n"
-        elif cmd[:2] == ["git", "log"]:
-            r.stdout = ""
-        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
-            r.stdout = "main\n"
-        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
-            "git",
-            "status",
-        ]:
-            r.stdout = ""
-        return r
-
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/proj"
-
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-
     with pytest.raises(ReleaseError, match="git checkout main failed"):
-        release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-            info, "0.2.0", dry_run=False
-        )
+        _land_pin_expecting_no_pr(info, ops)
 
 
 def test_land_readme_sha_pin_cleanup_diagnoses_branch_delete_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
-
-    root = tmp_path / "proj"
-    root.mkdir()
-    (root / "install.sh").write_text("#!/bin/sh\necho hi\n")
-    (root / "README.md").write_text(
-        "# proj\n\n```bash\n"
-        "curl -fsSL https://raw.githubusercontent.com/punt-labs/proj/"
-        "currentsha/install.sh | sh\n"
-        "```\n"
+    diagnose, not leak a raw CalledProcessError."""
+    info = _project_pinned_to_current_install_sha(tmp_path)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["git", "branch", "-D"],
+                response=CompletedProcessSpec(
+                    returncode=1, stderr="error: branch is checked out"
+                ),
+            )
+        ]
     )
 
-    info = ProjectInfo(root=root, language="python")
-
-    def fake_run(cmd: list[str], **_kwargs: object) -> MagicMock:
-        r = MagicMock()
-        r.returncode = 0
-        r.stdout = ""
-        r.stderr = ""
-        if cmd[:3] == ["git", "branch", "-D"]:
-            r.returncode = 1
-            r.stderr = "error: branch is checked out"
-        elif cmd[:2] == ["git", "log"] and "--format=%h" in cmd:
-            r.stdout = "currentsha\n"
-        elif cmd[:2] == ["git", "log"]:
-            r.stdout = ""
-        elif cmd[:2] == ["git", "branch"] and "--show-current" in cmd:
-            r.stdout = "main\n"
-        elif (cmd[:2] == ["git", "branch"] and "--list" in cmd) or cmd[:2] == [
-            "git",
-            "status",
-        ]:
-            r.stdout = ""
-        return r
-
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/proj"
-
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-
     with pytest.raises(ReleaseError, match="git branch -D .* failed"):
-        release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-            info, "0.2.0", dry_run=False
-        )
+        _land_pin_expecting_no_pr(info, ops)
 
 
-def test_readme_sha_pin_survives_tag(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_readme_sha_pin_survives_tag(tmp_path: Path) -> None:
     """The README-pinned install.sh SHA is reachable from main after squash-merge.
 
-    Written to catch the reachability defect Option A (pinning inside
-    _phase2_version_bump, before the squash-merge) has: that pins a commit
-    that lives only on the release branch, which the merge deletes.
+    Guards against pinning inside the version-bump phase, before the
+    squash-merge: that pins a commit that lives only on the release branch,
+    which the merge deletes.
     Byte-equality alone would not catch this — a dangling commit still
     resolves via ``git show`` for a while after deletion. Reachability from
     main is the property that matters once CI checks out the release tag.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.detect import detect
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -6534,29 +6505,18 @@ def test_readme_sha_pin_survives_tag(
             check=True,
         ).stdout.strip()
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
-
-    # The reachability guard runs against the working tree's install.sh
-    # SHA and the README's install URL. Pin the URL owner/repo to what
-    # _make_release_project wrote ("test-pkg") — otherwise the real
-    # _get_github_repo (no remote configured in tmp) falls back to
-    # root.name ("proj"), the regex misses, and _bump_readme_install_sha
-    # returns silently. That would make this whole test a no-op.
-    def _repo_slug(_root: Path) -> str:
-        return "punt-labs/test-pkg"
-
-    monkeypatch.setattr(release_mod, "_get_github_repo", _repo_slug)
-
     # Step 1: the release PR's own squash-merge (mirrors _phase4_release_pr's
-    # first _pr_merge call, for the release branch itself).
-    release_mod._pr_merge(  # pyright: ignore[reportPrivateUsage]
-        cwd=root, branch=release_branch, title="chore: release v0.2.0"
-    )
+    # first merge call, for the release branch itself).
+    fake_pr_merge(cwd=root, branch=release_branch, title="chore: release v0.2.0")
 
-    # Step 2: land the README pin — the fix under test.
-    info = detect(root)
-    release_mod._land_readme_sha_pin(  # pyright: ignore[reportPrivateUsage]
-        info, "0.2.0", dry_run=False
+    # Step 2: land the README pin — the fix under test. The slug names the
+    # repo _make_release_project wrote into the README ("test-pkg"); the
+    # fixture has no remote to resolve it from.
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=False,
+        merge=fake_pr_merge,
+        resolve_repo=lambda _root: "punt-labs/test-pkg",
     )
 
     # Read the SHA out of README.md itself — not out of git log — so the
@@ -6570,8 +6530,8 @@ def test_readme_sha_pin_survives_tag(
     assert match is not None, f"README.md has no SHA-pinned install URL: {readme!r}"
     pinned_sha = match.group(1)
 
-    # (a) The SHA must resolve in the local object DB. Option A's failure
-    # mode is exactly this — a dangling object that survives briefly and
+    # (a) The SHA must resolve in the local object DB. A pin taken before
+    # the merge fails exactly here — a dangling object that survives briefly and
     # then gets pruned; the resolve here is a proxy for "the release tag's
     # CI checkout will actually see this commit."
     show = subprocess.run(
@@ -6588,9 +6548,9 @@ def test_readme_sha_pin_survives_tag(
         ["git", "merge-base", "--is-ancestor", pinned_sha, "main"], cwd=d
     )
     assert ancestor.returncode == 0, (
-        f"pinned SHA {pinned_sha} is not reachable from main — Option A's "
-        "reachability defect. It resolves via git show only because the "
-        "object hasn't been pruned yet."
+        f"pinned SHA {pinned_sha} is not reachable from main — a dangling "
+        "commit. It resolves via git show only because the object hasn't "
+        "been pruned yet."
     )
 
 
@@ -6710,22 +6670,28 @@ def _patch_pypi_probe(
     involved. Returns the list of intercepted ``(cmd, kwargs)`` pairs so callers
     can assert the probe ran exactly once and inspect its ``cwd``.
     """
-    from punt_kit import release as release_mod
 
-    original_run = release_mod._run  # pyright: ignore[reportPrivateUsage]
     calls: list[tuple[list[str], dict[str, object]]] = []
 
-    def patched_run(cmd: list[str], **kwargs: object) -> MagicMock:
+    def patched_run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
         if len(cmd) == len(_PYPI_PROBE_CMD) + 1 and tuple(cmd[:-1]) == _PYPI_PROBE_CMD:
-            calls.append((list(cmd), dict(kwargs)))
-            result = MagicMock()
-            result.returncode = 0 if present else 1
-            result.stdout = ""
-            result.stderr = "" if present else "unsatisfiable"
-            return result
-        return original_run(cmd, **kwargs)  # type: ignore[arg-type,return-value]
+            calls.append((list(cmd), {"cwd": cwd, "timeout": timeout}))
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=0 if present else 1,
+                stdout="",
+                stderr="" if present else "unsatisfiable",
+            )
+        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", patched_run)
+    monkeypatch.setattr(release, "_run", patched_run)
     return calls
 
 
@@ -6756,7 +6722,7 @@ def test_phase11_verify_cli_only_project_runs_all_applicable_checks(
     """Phase 11 must run cleanly against a CLI-only project — install.sh
     present, no plugin.json at all — exercising every applicable check
     without assuming the plugin/marketplace shape every other Phase 11
-    fixture carries (matrix row 52).
+    fixture carries.
     """
     version = "0.1.0"
     root = tmp_path / "proj"
@@ -6778,7 +6744,7 @@ def test_phase11_verify_cli_only_project_runs_all_applicable_checks(
     )
     (root / "README.md").write_text(
         "# test-pkg\n\n```bash\ncurl -fsSL "
-        f"https://raw.githubusercontent.com/punt-labs/proj/v{version}/install.sh"
+        "https://raw.githubusercontent.com/punt-labs/proj/main/install.sh"
         " | sh\n```\n"
     )
     (root / "CHANGELOG.md").write_text(
@@ -6846,8 +6812,33 @@ def test_phase11_verify_profile_sha_passes(
     _phase11_verify(info, version, dry_run=False)
 
 
+def _assert_failed_checks(
+    out: str, names: list[str], detail: str, *, on: str | None = None
+) -> None:
+    """Assert Phase 11's printed output shows exactly these failed checks.
+
+    ``_phase11_verify`` raises one generic error for every cause; the verdict
+    lines it prints (``out``) say which check failed. ``detail`` must appear
+    on the failed line of the check named ``on`` (default: the first name) —
+    not on another check's line, a passing line, or surrounding output.
+    """
+    # rich wraps by terminal width, so flatten first, then cut into one
+    # segment per verdict line at each marker that starts a printed line.
+    verdicts = re.split(r"(?=[✓✗▶⚠] |Error: )", _flat(out))
+    failed = [line.strip() for line in verdicts if line.startswith("✗ ")]
+    failed_names = [
+        m.group(1) for line in failed if (m := re.match(r"✗ ([^:]+):", line))
+    ]
+    assert failed_names == names
+    owner = on or names[0]
+    owned = [
+        line for name, line in zip(failed_names, failed, strict=True) if name == owner
+    ]
+    assert any(detail in line for line in owned), (owner, owned)
+
+
 def test_phase11_verify_profile_sha_fails_bad_sha(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Profile SHA check fails when README contains a non-resolvable SHA."""
     version = "0.1.0"
@@ -6870,12 +6861,13 @@ def test_phase11_verify_profile_sha_fails_bad_sha(
     info = detect(root)
 
     # Should raise ReleaseError — profile SHA does not resolve
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "does not resolve")
 
 
 def test_phase11_verify_profile_sha_fails_stale(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Profile SHA check fails when the pin resolves but predates the merge.
 
@@ -6923,14 +6915,16 @@ def test_phase11_verify_profile_sha_fails_stale(
 
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "stale — lacks")
 
 
 def test_phase11_verify_skips_when_github_absent(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
+    skips: SkipRecorder,
 ) -> None:
     """Absent .github sibling → Phase 11 skips its two checks, does not fail.
 
@@ -6959,11 +6953,11 @@ def test_phase11_verify_skips_when_github_absent(
     assert "✗ install-all.sh" not in out
     assert "✗ profile SHA" not in out
     # Recorded (once, deduplicated) for the end-of-run recap.
-    assert len(release._skips.drain()) == 1  # pyright: ignore[reportPrivateUsage]
+    assert len(skips.drain()) == 1
 
 
 def test_phase11_verify_fails_when_install_all_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Present .github sibling but no install-all.sh → still a hard failure.
 
@@ -6979,11 +6973,16 @@ def test_phase11_verify_fails_when_install_all_missing(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["install-all.sh", "profile SHA"],
+        "install-all.sh not found",
+    )
 
 
-# --- pkit-9n6q: install SHA pins must be ancestors of the release, not just
+# --- install SHA pins must be ancestors of the release, not just
 # resolvable objects with matching content ---
 
 
@@ -7059,7 +7058,7 @@ def test_phase11_verify_install_all_sha_fails_when_not_ancestor_of_tag(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     # "ancestor" alone — Rich word-wraps the detail message at console width,
@@ -7067,6 +7066,9 @@ def test_phase11_verify_install_all_sha_fails_when_not_ancestor_of_tag(
     # a line break by the renderer even though the underlying string is one
     # contiguous sentence.
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out, ["install-all.sh", "profile SHA"], "not an ancestor of v0.1.0"
+    )
     assert "✗ install-all.sh" in out
     assert "ancestor" in out
 
@@ -7131,17 +7133,18 @@ def test_phase11_verify_profile_sha_fails_when_not_ancestor_of_main(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     # See the analogous comment above — check for the single word rather
     # than the full phrase, which Rich may word-wrap across a line break.
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["profile SHA"], "not an ancestor of .github main")
     assert "✗ profile SHA" in out
     assert "ancestor" in out
 
 
-# --- f85t.3: profile SHA marketplace-pin chain for marketplace-only plugins ---
+# --- profile SHA marketplace-pin chain for marketplace-only plugins ---
 
 
 def _marketplace_json(project_version: str) -> str:
@@ -7164,7 +7167,7 @@ def _marketplace_json(project_version: str) -> str:
 def _setup_marketplace_only_verify_project(
     tmp_path: Path, version: str, *, pinned_marketplace_version: str
 ) -> tuple[Path, Path, Path]:
-    """Build a marketplace-only plugin project for f85t.3 profile-SHA tests.
+    """Build a marketplace-only plugin project for profile-SHA tests.
 
     Returns ``(root, github_sibling, claude_plugins_sibling)``. The
     claude-plugins sibling's HEAD always carries ``version`` (so check 5,
@@ -7250,7 +7253,7 @@ def test_phase11_verify_profile_sha_marketplace_chain_passes(tmp_path: Path) -> 
 
 
 def test_phase11_verify_profile_sha_marketplace_chain_stale_version(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A stale claude-plugins pin behind the current version fails loud."""
     version = "0.1.0"
@@ -7259,12 +7262,13 @@ def test_phase11_verify_profile_sha_marketplace_chain_stale_version(
     )
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "version=0.0.9")
 
 
 def test_phase11_verify_profile_sha_marketplace_chain_no_claude_plugins_pin(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """No claude-plugins pin in install-all.sh at all is a genuine failure."""
     version = "0.1.0"
@@ -7309,12 +7313,17 @@ def test_phase11_verify_profile_sha_marketplace_chain_no_claude_plugins_pin(
     _git(["commit", "-m", "add profile"], cwd=str(github_sibling))
 
     info = detect(root)
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["profile SHA"],
+        "no claude-plugins pin in install-all.sh",
+    )
 
 
 def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
-    tmp_path: Path,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A claude-plugins pin that cannot be checked (sibling absent) fails.
 
@@ -7329,8 +7338,14 @@ def test_phase11_verify_profile_sha_marketplace_chain_missing_sibling(
     shutil.rmtree(cp_sibling)
 
     info = detect(root)
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["marketplace", "profile SHA"],
+        "claude-plugins sibling not found",
+        on="profile SHA",
+    )
 
 
 def test_phase11_verify_profile_sha_direct_url_path_unaffected(
@@ -7354,32 +7369,39 @@ def test_phase11_verify_profile_sha_direct_url_path_unaffected(
 
 
 def test_phase_summary_recaps_skipped_propagation(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], skips: SkipRecorder
 ) -> None:
     """End-of-run summary recaps recorded skips and drains them.
 
-    With Phase 11 no longer the backstop, a skip recorded mid-run must be
-    re-surfaced at the end so a scrolled-past warning is never the only notice.
+    A skip recorded mid-run must be re-surfaced at the end, because Phase 11
+    is not a backstop and a scrolled-past warning must never be the only
+    notice.
     """
+
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    release._skips.record(  # pyright: ignore[reportPrivateUsage]
-        "SKIPPED — manual action required: verify ../.github by hand"
-    )
+    skips.record("SKIPPED — manual action required: verify ../.github by hand")
     capsys.readouterr()  # discard the inline warning emitted by record()
 
-    _phase_summary(info, "0.2.0", dry_run=False)
+    ops = _fault_ops()
+    ReleasePipeline((), ops=ops).summarize(
+        info,
+        "0.2.0",
+        dry_run=False,
+        project=ReleaseProject(info, ops=ops),
+        skips=skips,
+    )
 
     out = capsys.readouterr().out
     assert "Manual action required" in out
     assert "verify ../.github by hand" in out
     # drain() inside the summary consumed the notice — nothing left to recap.
-    assert release._skips.drain() == ()  # pyright: ignore[reportPrivateUsage]
+    assert skips.drain() == ()
 
 
 def test_absent_github_dedups_to_single_recap_across_phases(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
     """`.github` absent for a whole run → exactly ONE recap bullet.
 
@@ -7402,9 +7424,9 @@ def test_absent_github_dedups_to_single_recap_across_phases(
     _propagate_install_all(info, version, dry_run=False)
     _phase11_verify(info, version, dry_run=False)
 
-    # All three collapse to a single deduplicated recap line.
-    notices = release._skips.drain()  # pyright: ignore[reportPrivateUsage]
-    assert len(notices) == 1
+    # All three collapse to a single deduplicated recap line: the shared
+    # template, filled in for this project and release.
+    assert skips.drain() == (GITHUB_ABSENT_SKIP.format(name="proj", ver=version),)
 
 
 # --- Phase 11: README pin check ---
@@ -7468,10 +7490,11 @@ def test_phase11_verify_readme_pin_fails_when_pinned_to_previous_release(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["README pin"], "stale — expected")
     assert "✗ README pin" in out
     assert "stale" in out
 
@@ -7508,10 +7531,11 @@ def test_phase11_verify_readme_pin_catches_stale_pin_among_multiple(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["README pin"], "stale — expected")
     assert "✓ README pin" in out
     assert "✗ README pin" in out
 
@@ -7544,10 +7568,15 @@ def test_phase11_verify_readme_pin_rejects_evil_host_with_trusted_string_in_path
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7577,10 +7606,15 @@ def test_phase11_verify_readme_pin_rejects_lookalike_host_suffix(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7613,10 +7647,11 @@ def test_phase11_verify_readme_pin_fails_for_uppercase_scheme_stale_sha(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["README pin"], "stale — expected")
     assert "✗ README pin" in out
     assert "stale" in out
 
@@ -7653,10 +7688,15 @@ def test_phase11_verify_website_sha_fails_for_http_scheme(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -7689,20 +7729,24 @@ def test_phase11_verify_readme_pin_fails_for_non_sha_downgrade_on_untrusted_host
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
 
-def test_phase11_verify_readme_pin_skips_legit_trusted_version_tag(
+def test_phase11_verify_readme_pin_fails_a_trusted_version_tag_pin(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A version-tag install URL on the genuinely trusted host/owner/repo
-    is skipped cleanly — it isn't a SHA pin, so there is nothing to check
-    for staleness, even though the host IS validated.
+    """A release-tag pin on the trusted host is a pin the bump should have
+    rewritten to the install SHA, so one left behind is stale.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -7714,15 +7758,38 @@ def test_phase11_verify_readme_pin_skips_legit_trusted_version_tag(
         "/install.sh | sh\n"
     )
     _git(["add", "README.md"], cwd=d)
-    _git(["commit", "-m", "pin readme to a legit trusted version-tag url"], cwd=d)
+    _git(["commit", "-m", "pin readme to a trusted version-tag url"], cwd=d)
+
+    _patch_pypi_probe(monkeypatch)
+    info = detect(root)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(info, version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["README pin"], "release-tag pin")
+
+
+def test_phase11_verify_readme_pin_skips_a_trusted_branch_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A branch URL on the trusted host is not a pin: nothing can go stale."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        "https://raw.githubusercontent.com/punt-labs/proj/main/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "readme tracks main"], cwd=d)
 
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
     _phase11_verify(info, version, dry_run=False)  # must not raise
 
-    out = capsys.readouterr().out
-    assert "README pin" not in out
+    assert "README pin" not in capsys.readouterr().out
 
 
 def test_phase11_verify_readme_pin_ignores_unrelated_tool_url(
@@ -7797,10 +7864,15 @@ def test_phase11_verify_website_sha_fails_for_ifs_glued_dual_url_payload(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -7835,10 +7907,15 @@ def test_phase11_verify_readme_pin_fails_for_wrong_owner_right_repo(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7872,10 +7949,15 @@ def test_phase11_verify_readme_pin_fails_for_percent_encoded_install_sh(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -7917,10 +7999,15 @@ def test_phase11_verify_website_sha_fails_for_percent_encoded_repo_segment(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -7952,10 +8039,15 @@ def test_phase11_verify_readme_pin_fails_for_uppercase_repo_on_untrusted_host(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8032,10 +8124,15 @@ def test_phase11_verify_readme_pin_fails_for_double_encoded_install_sh(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8081,10 +8178,15 @@ def test_phase11_verify_website_sha_fails_for_dual_url_behind_encoded_newline(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✓ website SHA" in out
     assert "✗ website SHA" in out
     assert "trusted" in out
@@ -8134,10 +8236,15 @@ def test_phase11_verify_readme_pin_fails_for_over_encoded_reference(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8189,10 +8296,15 @@ def test_phase11_verify_readme_pin_fails_for_repo_encoded_six_layers_deep(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8231,10 +8343,15 @@ def test_phase11_verify_website_sha_fails_for_repo_encoded_ten_layers_deep(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8276,10 +8393,15 @@ def test_phase11_verify_readme_pin_fails_for_never_resolving_encoding_chain(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["README pin"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ README pin" in out
     assert "trusted" in out
 
@@ -8376,10 +8498,15 @@ def test_phase11_verify_website_sha_fails_when_installcommand_points_at_wrong_re
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8418,10 +8545,10 @@ def test_phase11_verify_readme_pin_ignores_unrelated_tool_different_repo(
     assert "✗ README pin" not in out
 
 
-# --- Phase 11: matches_install_sha() commit-identity resolution ---
+# --- Phase 11: PinCurrency commit-identity resolution ---
 
 
-def test_matches_install_sha_fails_for_fabricated_hash(tmp_path: Path) -> None:
+def test_pin_currency_fails_for_fabricated_hash(tmp_path: Path) -> None:
     """A fabricated hash that merely starts with the right prefix must fail.
 
     Regression for the correctness gap: a textual prefix match
@@ -8436,35 +8563,23 @@ def test_matches_install_sha_fails_for_fabricated_hash(tmp_path: Path) -> None:
     fabricated = install_sha + "deadbeef"  # extends the real prefix, but
     # the resulting string names no real commit object.
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        fabricated,
-        install_sha,
-        cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
-    )
-    assert check.passed is False
+    check = PinCurrency(install_sha, cwd=root, ops=_fault_ops()).verdict(fabricated)
+    assert check.is_current is False
     assert "does not resolve" in check.detail
 
 
-def test_matches_install_sha_passes_for_full_length_pin(tmp_path: Path) -> None:
+def test_pin_currency_passes_for_full_length_pin(tmp_path: Path) -> None:
     """A full 40-character pin of the current commit resolves and passes."""
     root = _make_release_project(tmp_path)
     d = str(root)
     short_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
     full_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        full_sha,
-        short_sha,
-        cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
-    )
-    assert check.passed is True
+    check = PinCurrency(short_sha, cwd=root, ops=_fault_ops()).verdict(full_sha)
+    assert check.is_current is True
 
 
-def test_matches_install_sha_passes_for_short_pin(tmp_path: Path) -> None:
+def test_pin_currency_passes_for_short_pin(tmp_path: Path) -> None:
     """A valid abbreviated pin of the current commit resolves and passes,
     even when it is a different length than the expected short SHA.
     """
@@ -8474,17 +8589,11 @@ def test_matches_install_sha_passes_for_short_pin(tmp_path: Path) -> None:
     full_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
     short_pin = full_sha[:8]
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        short_pin,
-        install_sha,
-        cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
-    )
-    assert check.passed is True
+    check = PinCurrency(install_sha, cwd=root, ops=_fault_ops()).verdict(short_pin)
+    assert check.is_current is True
 
 
-def test_matches_install_sha_fails_for_real_different_commit(tmp_path: Path) -> None:
+def test_pin_currency_fails_for_real_different_commit(tmp_path: Path) -> None:
     """A real, resolvable commit that is NOT the current install.sh commit
     fails — a real hash is not enough; it has to be the right commit.
     """
@@ -8493,14 +8602,8 @@ def test_matches_install_sha_fails_for_real_different_commit(tmp_path: Path) -> 
     install_sha = _git_out(["log", "-1", "--format=%h", "--", "install.sh"], cwd=d)
     other_sha = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=d)
 
-    check = VerificationCheck.matches_install_sha(
-        "README pin",
-        other_sha,
-        install_sha,
-        cwd=root,
-        ops=release._ops,  # pyright: ignore[reportPrivateUsage]
-    )
-    assert check.passed is False
+    check = PinCurrency(install_sha, cwd=root, ops=_fault_ops()).verdict(other_sha)
+    assert check.is_current is False
     assert "stale" in check.detail
 
 
@@ -8558,6 +8661,132 @@ def test_phase11_verify_readme_and_website_pins_pass_when_current(
     assert "✗ website" not in out
 
 
+def test_phase11_verify_passes_with_a_trailing_slash_remote(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A remote like ``https://github.com/o/r/`` resolves to ``o/r/``; every
+    Phase 11 check, the website one included, must use the normalized slug."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+    _git(["remote", "set-url", "origin", "https://github.com/punt-labs/proj/"], cwd=d)
+    install_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    (root / "README.md").write_text(
+        "# proj\n\ncurl -fsSL "
+        f"https://raw.githubusercontent.com/punt-labs/proj/{install_sha}"
+        "/install.sh | sh\n"
+    )
+    _git(["add", "README.md"], cwd=d)
+    _git(["commit", "-m", "pin readme sha"], cwd=d)
+    _add_website_sibling(tmp_path, "proj", version, install_sha)
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), version, dry_run=False)  # must not raise
+
+    assert "✗" not in capsys.readouterr().out
+
+
+def test_phase11_verify_reports_an_unusable_slug_as_one_failed_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One bad remote is one cause, so exactly one failed check names it."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _git(["remote", "set-url", "origin", "https://github.com/proj"], cwd=str(root))
+    install_sha = _git_out(
+        ["log", "-1", "--format=%H", "--", "install.sh"], cwd=str(root)
+    )
+    _add_website_sibling(tmp_path, "proj", version, install_sha)
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(
+        capsys.readouterr().out, ["GitHub remote"], "not an owner/repo slug: 'proj'"
+    )
+
+
+def _remote_slug_text(tmp_path: _Path, url: str) -> str | None:
+    root = _make_release_project(tmp_path)
+    _git(["remote", "set-url", "origin", url], cwd=str(root))
+    return GithubRepo(root, ops=_fault_ops()).slug_text()
+
+
+@pytest.mark.parametrize(
+    ("url", "slug"),
+    [
+        pytest.param("https://github.com/o/r/", "o/r", id="trailing-slash"),
+        pytest.param("https://github.com/o/r.git", "o/r", id="dot-git"),
+        pytest.param("git@github.com:o/r.git", "o/r", id="scp-style"),
+        pytest.param("git@github.com:o/r/", "o/r", id="scp-trailing-slash"),
+        pytest.param("https://github.com//o/r//", "o/r", id="extra-slashes"),
+        pytest.param("git@github.com:o/r.git/", "o/r", id="scp-dot-git-slash"),
+        pytest.param("https://github.com/o/r.git/", "o/r", id="https-dot-git-slash"),
+    ],
+)
+def test_slug_text_returns_a_clean_owner_repo_slug(
+    tmp_path: _Path, url: str, slug: str
+) -> None:
+    assert _remote_slug_text(tmp_path, url) == slug
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://github.com/proj", id="no-owner"),
+        pytest.param("https://github.com/o/r/extra", id="three-parts"),
+    ],
+)
+def test_slug_text_raises_for_a_github_remote_that_is_not_owner_repo(
+    tmp_path: _Path, url: str
+) -> None:
+    with pytest.raises(ValueError, match="not an owner/repo slug"):
+        _remote_slug_text(tmp_path, url)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        pytest.param("https://github.com/", id="empty-path"),
+        pytest.param("https://gitlab.com/o/r", id="other-host"),
+    ],
+)
+def test_slug_text_is_none_for_a_remote_that_is_not_on_github(
+    tmp_path: _Path, url: str
+) -> None:
+    assert _remote_slug_text(tmp_path, url) is None
+
+
+@pytest.mark.parametrize(
+    ("raw", "owner", "name"),
+    [
+        ("o/r", "o", "r"),
+        ("  o/r/ ", "o", "r"),
+        ("punt-labs/punt-kit", "punt-labs", "punt-kit"),
+        ("o/r.js", "o", "r.js"),
+        ("o/r.git/", "o", "r"),
+    ],
+)
+def test_repo_slug_parse_normalizes(raw: str, owner: str, name: str) -> None:
+    slug = RepoSlug.parse(raw)
+    assert (slug.owner, slug.name, str(slug)) == (owner, name, f"{owner}/{name}")
+
+
+@pytest.mark.parametrize("raw", ["", "r", "/r", "o/", "o/r/x", "o/ r", "o//r", "o/.."])
+def test_repo_slug_parse_rejects_malformed_text(raw: str) -> None:
+    with pytest.raises(ValueError, match="not an owner/repo slug"):
+        RepoSlug.parse(raw)
+
+
+@pytest.mark.parametrize(("owner", "repo"), [("", "r"), ("o", ""), ("", "")])
+def test_recognizer_cannot_be_built_with_an_empty_owner_or_repo(
+    owner: str, repo: str
+) -> None:
+    with pytest.raises(ValueError, match="owner and repo"):
+        InstallUrlRecognizer(owner, repo)
+
+
 def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -8583,10 +8812,11 @@ def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["website SHA"], "stale — expected")
     assert "✗ website SHA" in out
     assert "stale" in out
 
@@ -8594,12 +8824,11 @@ def test_phase11_verify_website_sha_fails_when_pinned_to_previous_release(
 def test_phase11_verify_website_sha_skips_when_not_sha_pinned(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A version-tag (non-SHA) installCommand is skipped, not failed.
+    """A branch-pinned installCommand has no pin to go stale: skipped.
 
-    Matches WebsitePropagator's own tolerance: its re.sub silently no-ops
-    on a non-SHA-shaped install URL (a version-tag or branch pin) rather
-    than treating it as an error, so a website entry that legitimately
-    isn't SHA-pinned must not fail every release.
+    A branch (``main``) is not a pin, so the propagator never rewrites it and
+    the verifier has nothing to compare — a website entry that legitimately
+    is not pinned must not fail every release.
     """
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
@@ -8611,7 +8840,7 @@ def test_phase11_verify_website_sha_skips_when_not_sha_pinned(
             "githubUrl": "https://github.com/punt-labs/proj",
             "installCommand": (
                 "curl -fsSL https://raw.githubusercontent.com/punt-labs/"
-                f"proj/v{version}/install.sh | sh"
+                "proj/main/install.sh | sh"
             ),
         }
     ]
@@ -8687,10 +8916,15 @@ def test_phase11_verify_website_sha_fails_on_untrusted_host(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8727,10 +8961,15 @@ def test_phase11_verify_website_sha_fails_on_wrong_owner(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8772,10 +9011,15 @@ def test_phase11_verify_website_sha_rejects_evil_host_with_trusted_string_in_pat
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8811,10 +9055,15 @@ def test_phase11_verify_website_sha_rejects_lookalike_host_suffix(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✗ website SHA" in out
     assert "trusted" in out
 
@@ -8859,10 +9108,15 @@ def test_phase11_verify_website_sha_fails_when_untrusted_pin_alongside_trusted(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(
+        out,
+        ["website SHA"],
+        "is not on the trusted raw.githubusercontent.com/punt-labs/proj/ host",
+    )
     assert "✓ website SHA" in out
     assert "✗ website SHA" in out
     assert "trusted" in out
@@ -8906,10 +9160,11 @@ def test_phase11_verify_website_sha_catches_stale_second_pin(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["website SHA"], "stale — expected")
     assert "✓ website SHA" in out
     assert "✗ website SHA" in out
 
@@ -8931,10 +9186,11 @@ def test_phase11_verify_website_fails_when_version_mismatch(
     _patch_pypi_probe(monkeypatch)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
 
     out = capsys.readouterr().out
+    _assert_failed_checks(out, ["website"], "version=0.0.9")
     assert "✗ website" in out
     assert "version=0.0.9" in out
     # The SHA check must be independent of the version check — a stale
@@ -9001,10 +9257,12 @@ def test_phase11_verify_pypi_absent_fails(
     calls = _patch_pypi_probe(monkeypatch, present=False)
     info = detect(root)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(info, version, dry_run=False)
+    out = capsys.readouterr().out
+    _assert_failed_checks(out, ["PyPI"], "test-pkg==0.1.0")
 
-    assert "✗ PyPI" in capsys.readouterr().out
+    assert "✗ PyPI" in out
     assert len(calls) == 1
 
 
@@ -9067,9 +9325,8 @@ def test_release_path_never_bypasses_git_hooks() -> None:
     """No release-path file may pass ``--no-verify`` to git.
 
     The org CLAUDE.md bans ``--no-verify`` outright; the release path is
-    the historical repeat offender (Phases 4 and 9 previously carried
-    three uses across ``release.py``, ``release-plugin.sh``, and
-    ``restore-dev-plugin.sh``). This test greps the files themselves so
+    the repeat offender (``release.py``, ``release-plugin.sh``, and
+    ``restore-dev-plugin.sh`` each carried one). This test greps the files themselves so
     a reintroduction fails immediately, not on the next release. Comments
     describing the ban are stripped before scanning so this file's own
     prose does not trigger it.
@@ -9494,8 +9751,9 @@ def test_restore_dev_plugin_errors_when_no_dev_commit(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("subdir", [False, True])
+@pytest.mark.parametrize("crlf_bom", [False, True])
 def test_phase9_dev_restore_single_commit_with_restamp(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, subdir: bool, crlf_bom: bool
 ) -> None:
     """Phase 9 lands the dev restore and version re-stamp in one commit.
 
@@ -9508,10 +9766,6 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     a single new commit (not an amend of one, not a commit-plus-amend
     pair), and it carries both the name flip and the correct version.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
-    )
 
     root = _make_release_project(tmp_path, subdir=subdir)
     d = str(root)
@@ -9533,6 +9787,9 @@ def test_phase9_dev_restore_single_commit_with_restamp(
         )
         + "\n"
     )
+    if crlf_bom:
+        dev_text = plugin_json.read_text().replace("\n", "\r\n")
+        plugin_json.write_bytes(("\ufeff" + dev_text).encode())
     _git(["add", "."], cwd=d)
     _git(["commit", "-m", "add dev command"], cwd=d)
 
@@ -9587,7 +9844,7 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     ) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
     _phase9_post_release(info, "0.2.0", dry_run=False)
@@ -9618,9 +9875,13 @@ def test_phase9_dev_restore_single_commit_with_restamp(
     restore_files = _commit_files(root, ref="HEAD")
     assert plugin_json.relative_to(root).as_posix() in restore_files
 
-    restored = json.loads(plugin_json.read_text())
+    raw = plugin_json.read_bytes().decode()
+    restored = json.loads(raw.removeprefix("\ufeff"))
     assert restored["name"] == "test-dev"
     assert restored["version"] == "0.2.0"
+    if crlf_bom:
+        assert raw.startswith("\ufeff")
+        assert "\n" not in raw.replace("\r\n", "")
 
 
 def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
@@ -9630,7 +9891,6 @@ def test_phase09_post_release_commit_never_marks_skip_ci() -> None:
     marked commit skips the branch-protected lint/test/docs workflows —
     and the PR becomes unmergeable because the required checks never
     ran. Guard against reintroduction by scanning the phase 9 module.
-    See pkit-x5j8.
     """
     phase9 = (
         _Path(__file__).parent.parent
@@ -9666,14 +9926,12 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     (the partial state this phase's HEAD-consult retry exists to recover
     from), and the second attempt proves the retry produces the actual
     production-shaped result: name swapped, dev command removed, merge
-    reached (qodo round-1 review: the fault-injection version of this
-    test intercepted the whole script call and so never reached that
-    partial state at all — this replaces it). `bash
-    scripts/release-plugin.sh` also defaulted to check=True
-    (pkit-f85t.7), so a rejected commit here previously leaked a raw
-    CalledProcessError instead of a diagnosed message (matrix row 13).
+    reached. A fault-injection test would intercept the whole script call
+    and never reach that partial state at all. `bash
+    scripts/release-plugin.sh` must not default to check=True: a rejected
+    commit would leak a raw CalledProcessError instead of a diagnosed
+    message.
     """
-    from punt_kit.phases.phase04_release_pr import Phase4ReleasePr
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -9703,9 +9961,7 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     pre_commit_hook.write_text("#!/bin/sh\nexit 1\n")
     pre_commit_hook.chmod(0o755)
 
-    ops = FaultInjectingOps(
-        real_run=_run, rules=[], passthrough=[["bash", str(release_script)]]
-    )
+    ops = _fault_ops(passthrough=[["bash", str(release_script)]])
 
     def _unreachable_merge(**_kwargs: object) -> str:
         raise AssertionError("merge must not run when the swap script fails")
@@ -9741,9 +9997,7 @@ def test_phase4_release_pr_swap_script_failure_retries_cleanly(
     def _capture_pin(*_args: object, **_kwargs: object) -> None:
         return None
 
-    resumed_ops = FaultInjectingOps(
-        real_run=_run, rules=[], passthrough=[["bash", str(release_script)]]
-    )
+    resumed_ops = _fault_ops(passthrough=[["bash", str(release_script)]])
     Phase4ReleasePr(info, "0.2.0", dry_run=False, ops=resumed_ops).run(
         merge=_capture_merge, land_readme_sha_pin=_capture_pin
     )
@@ -9761,7 +10015,7 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
 ) -> None:
     """Phase 4 must NOT skip the swap when a prior run failed mid-commit.
 
-    Removing --no-verify (pkit-sliw) let pre-commit hooks abort
+    Removing --no-verify let pre-commit hooks abort
     release-plugin.sh AFTER it mutated the working tree and staged the
     changes. A working-tree read of plugin.json then reports the swap
     complete, phase 4 falls through to _pr_merge, and the release tag
@@ -9779,10 +10033,6 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
     HEAD:<path>`` and a path that does not exist at HEAD makes the phase
     raise rather than answer.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase4_release_pr,  # pyright: ignore[reportPrivateUsage]
-    )
 
     root = _make_release_project(tmp_path, subdir=subdir)
     d = str(root)
@@ -9874,15 +10124,15 @@ def test_phase4_resumes_when_prior_swap_staged_but_uncommitted(
         )["name"]
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
-    # The fwql pin step runs against a real remote in production; this
+    # The README pin step runs against a real remote in production; this
     # test has none. Stub it out — the assertions here are about the
     # swap behavior, not the pin.
     def _skip_pin(*_a: object, **_k: object) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_land_readme_sha_pin", _skip_pin)
+    monkeypatch.setattr(release, "_land_readme_sha_pin", _skip_pin)
 
     info = detect(root)
     _phase4_release_pr(info, "0.2.0", dry_run=False)
@@ -9902,12 +10152,11 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
 
     The restore script only stages (never commits — see restore-dev-
     plugin.sh's CONTRACT); Phase 9's own explicit `git commit` is where a
-    hook rejection actually lands. That call defaulted to check=True
-    (pkit-f85t.7), so the failure previously leaked a raw
-    CalledProcessError instead of the diagnosed message this phase's
-    HEAD-consult idempotency check exists to recover from (matrix row 32).
+    hook rejection actually lands. That call must not default to
+    check=True: the failure would leak a raw CalledProcessError instead of
+    the diagnosed message this phase's HEAD-consult idempotency check
+    exists to recover from.
     """
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -9955,8 +10204,7 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
     pre_head = _git_out(["rev-parse", "HEAD"], cwd=d)
     restore_script = root / "scripts" / "restore-dev-plugin.sh"
 
-    failing_ops = FaultInjectingOps(
-        real_run=_run,
+    failing_ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "commit", "-m", "chore: restore dev plugin state"],
@@ -9988,9 +10236,7 @@ def test_phase9_post_release_restore_commit_failure_retries_cleanly(
         merged.update(kwargs)
         return "abc1234"
 
-    resumed_ops = FaultInjectingOps(
-        real_run=_run, rules=[], passthrough=[["bash", str(restore_script)]]
-    )
+    resumed_ops = _fault_ops(passthrough=[["bash", str(restore_script)]])
     Phase9PostRelease(info, "0.2.0", dry_run=False, ops=resumed_ops).run(
         merge=_capture_merge
     )
@@ -10004,16 +10250,13 @@ def test_phase9_post_release_restore_script_itself_failing_diagnoses(
 ) -> None:
     """A failing `bash scripts/restore-dev-plugin.sh` itself — distinct
     from the follow-up commit failing, already covered above — must
-    diagnose too. Flagged by Copilot's round-1 PR review as an uncovered
-    branch of the same converted call site."""
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+    diagnose too — it is a separate branch of the same call site."""
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     restore_script = root / "scripts" / "restore-dev-plugin.sh"
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["bash", str(restore_script)],
@@ -10022,7 +10265,7 @@ def test_phase9_post_release_restore_script_itself_failing_diagnoses(
                     stderr="ERROR: No commit found with dev plugin name",
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -10038,9 +10281,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git checkout main` in the no-changes-needed cleanup path
-    must diagnose, not leak a raw CalledProcessError — missed by round 1's
-    sweep (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+    must diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -10056,8 +10297,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
     info = detect(root)
     assert not info.is_plugin
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "checkout", "main"],
@@ -10065,7 +10305,7 @@ def test_phase9_post_release_cleanup_diagnoses_checkout_failure(
                     returncode=1, stderr="error: pre-checkout hook rejected"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -10081,8 +10321,7 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
     tmp_path: Path,
 ) -> None:
     """A failing `git branch -D` in the no-changes-needed cleanup path must
-    diagnose, not leak a raw CalledProcessError (pkit-f85t.7 round 2)."""
-    from punt_kit.phases.phase09_post_release import Phase9PostRelease
+    diagnose, not leak a raw CalledProcessError."""
 
     root = tmp_path / "proj"
     root.mkdir()
@@ -10097,8 +10336,7 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
 
     info = detect(root)
 
-    ops = FaultInjectingOps(
-        real_run=_run,
+    ops = _fault_ops(
         rules=[
             FaultRule(
                 match=["git", "branch", "-D", "post-release/v0.2.0"],
@@ -10106,7 +10344,7 @@ def test_phase9_post_release_cleanup_diagnoses_branch_delete_failure(
                     returncode=1, stderr="error: branch is checked out"
                 ),
             )
-        ],
+        ]
     )
 
     def _unreachable_merge(**_kwargs: object) -> str:
@@ -10133,10 +10371,6 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     commit. Consulting HEAD (name AND version) forces the retry to
     complete and land a properly-labelled restore commit.
     """
-    from punt_kit import release as release_mod
-    from punt_kit.release import (
-        _phase9_post_release,  # pyright: ignore[reportPrivateUsage]
-    )
 
     root = _make_release_project(tmp_path)
     d = str(root)
@@ -10224,7 +10458,7 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
     ) -> str:
         return "abc1234"
 
-    monkeypatch.setattr(release_mod, "_pr_merge", fake_pr_merge)
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
 
     info = detect(root)
     _phase9_post_release(info, "0.2.0", dry_run=False)
@@ -10240,9 +10474,8 @@ def test_phase9_resumes_when_prior_restore_staged_but_uncommitted(
         .stdout.strip()
         .splitlines()
     )
-    # One commit — dev restore only. Phase 9 no longer bumps README;
-    # that moved to phase 4 (fwql). The restore commit must land
-    # cleanly regardless of the prior mid-hook stage.
+    # One commit — dev restore only. Phase 9 leaves README to phase 4. The
+    # restore commit must land cleanly regardless of the prior mid-hook stage.
     assert log == [
         "chore: restore dev plugin state",
     ], log
@@ -10283,16 +10516,14 @@ def test_phase10_propagate_runs_concurrently(
         calls.append("website")
         barrier.wait()
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
-    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
-    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+    monkeypatch.setattr(release, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release, "_propagate_website", mock_website)
 
     def _noop_reset(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
     _phase10_propagate(info, "0.2.0", dry_run=False)
 
@@ -10318,33 +10549,31 @@ def test_phase10_propagate_collects_errors(
     def mock_website(*args: object, **kwargs: object) -> None:
         calls.append("website")
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
-    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
-    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+    monkeypatch.setattr(release, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release, "_propagate_website", mock_website)
 
     def _noop_reset(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError,
+        match=r"1 task\(s\) failed: \.github: \.github failed \(exit code 1\)",
+    ):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
     # All three should have been called despite the failure in install_all
     assert sorted(calls) == ["install_all", "marketplace", "website"]
 
 
-def test_phase10_propagate_records_leg_failure_in_skips(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_phase10_propagate_names_the_failing_leg_in_the_raised_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, skips: SkipRecorder
 ) -> None:
-    """A leg failure lands in the shared SkipRecorder, not only the raised error.
+    """The error names the failing leg and prints nothing itself.
 
-    pkit-d7mz: the end-of-run recap drains ``_skips`` even when the pipeline
-    stops before a successful ``pipeline.summarize()`` — so a Phase 10 leg
-    failure must be recorded there, not only surfaced as the exception that
-    ``ThreadedStep.collect`` raises and the caller sees.
+    ``run_release`` records the failure once, and the recap prints it once.
     """
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -10358,26 +10587,19 @@ def test_phase10_propagate_records_leg_failure_in_skips(
     def mock_website(*args: object, **kwargs: object) -> None:
         return None
 
-    from punt_kit import release as release_mod
-
-    monkeypatch.setattr(release_mod, "_propagate_install_all", mock_install_all)
-    monkeypatch.setattr(release_mod, "_propagate_marketplace", mock_marketplace)
-    monkeypatch.setattr(release_mod, "_propagate_website", mock_website)
+    monkeypatch.setattr(release, "_propagate_install_all", mock_install_all)
+    monkeypatch.setattr(release, "_propagate_marketplace", mock_marketplace)
+    monkeypatch.setattr(release, "_propagate_website", mock_website)
 
     def _noop_reset(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"\.github: install-all\.sh: boom"):
         _phase10_propagate(info, "0.2.0", dry_run=False)
 
-    notices = release_mod._skips.drain()  # pyright: ignore[reportPrivateUsage]
-    assert len(notices) == 1
-    assert "FAILED" in notices[0]
-    assert "Phase 10 propagation" in notices[0]
-    # Names the failing leg (.github), not just "something failed".
-    assert ".github" in notices[0]
+    assert skips.drain() == ()
 
 
 # --- Phases 9+10 concurrent ---
@@ -10392,16 +10614,14 @@ def test_phases_9_10_run_concurrently(
 
     calls: list[str] = []
 
-    from punt_kit import release as release_mod
-
     def mock_p9(*args: object, **kwargs: object) -> None:
         calls.append("p9")
 
     def mock_p10(*args: object, **kwargs: object) -> None:
         calls.append("p10")
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", mock_p9)
-    monkeypatch.setattr(release_mod, "_phase10_propagate", mock_p10)
+    monkeypatch.setattr(release, "_phase9_post_release", mock_p9)
+    monkeypatch.setattr(release, "_phase10_propagate", mock_p10)
 
     _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
     assert sorted(calls) == ["p10", "p9"]
@@ -10416,16 +10636,14 @@ def test_phases_9_10_only_p10_when_start_10(
 
     calls: list[str] = []
 
-    from punt_kit import release as release_mod
-
     def mock_p9(*args: object, **kwargs: object) -> None:
         calls.append("p9")
 
     def mock_p10(*args: object, **kwargs: object) -> None:
         calls.append("p10")
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", mock_p9)
-    monkeypatch.setattr(release_mod, "_phase10_propagate", mock_p10)
+    monkeypatch.setattr(release, "_phase9_post_release", mock_p9)
+    monkeypatch.setattr(release, "_phase10_propagate", mock_p10)
 
     _run_phases_9_10(info, "0.2.0", dry_run=False, start=10)
     assert calls == ["p10"]
@@ -10438,19 +10656,17 @@ def test_phases_9_10_exception_propagates(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    from punt_kit import release as release_mod
-
     def noop_p9(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", noop_p9)
+    monkeypatch.setattr(release, "_phase9_post_release", noop_p9)
 
     def failing_p10(*args: object, **kwargs: object) -> None:
         raise RuntimeError("P10 exploded")
 
-    monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
+    monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"P10: RuntimeError: P10 exploded"):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10461,19 +10677,17 @@ def test_phases_9_10_p9_systemexit_propagates(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    from punt_kit import release as release_mod
-
     def failing_p9(*args: object, **kwargs: object) -> None:
         raise SystemExit(1)
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", failing_p9)
+    monkeypatch.setattr(release, "_phase9_post_release", failing_p9)
 
     def noop_p10(*args: object, **kwargs: object) -> None:
         pass
 
-    monkeypatch.setattr(release_mod, "_phase10_propagate", noop_p10)
+    monkeypatch.setattr(release, "_phase10_propagate", noop_p10)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(ReleaseError, match=r"P9: P9 failed \(exit code 1\)"):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10484,19 +10698,21 @@ def test_phases_9_10_both_fail_reports_both(
     root = _make_release_project(tmp_path)
     info = detect(root)
 
-    from punt_kit import release as release_mod
-
     def failing_p9(*args: object, **kwargs: object) -> None:
         raise RuntimeError("P9 exploded")
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", failing_p9)
+    monkeypatch.setattr(release, "_phase9_post_release", failing_p9)
 
     def failing_p10(*args: object, **kwargs: object) -> None:
         raise RuntimeError("P10 exploded")
 
-    monkeypatch.setattr(release_mod, "_phase10_propagate", failing_p10)
+    monkeypatch.setattr(release, "_phase10_propagate", failing_p10)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError,
+        match=r"2 task\(s\) failed: P9: RuntimeError: P9 exploded; "
+        r"P10: RuntimeError: P10 exploded",
+    ):
         _run_phases_9_10(info, "0.2.0", dry_run=False, start=9)
 
 
@@ -10526,7 +10742,7 @@ MATCHING_RUN: dict[str, object] = {
 }
 
 # The previous release's run — succeeded, and sits at runs[0] until the new
-# run registers. This is the one the old code would have watched.
+# run registers. A selector that ignored the commit would watch this one.
 STALE_SUCCESS_RUN: dict[str, object] = {
     "databaseId": 31761285776,
     "headBranch": "v0.12.0",
@@ -10536,8 +10752,8 @@ STALE_SUCCESS_RUN: dict[str, object] = {
 }
 
 
-def _selector() -> _TagRunSelector:
-    return _TagRunSelector(TAG, COMMIT)
+def _selector() -> TagRunSelector:
+    return TagRunSelector(TAG, COMMIT)
 
 
 def _never_sleep(_seconds: float) -> None:
@@ -10664,11 +10880,6 @@ def test_phase6_error_names_the_tag_and_commit() -> None:
     assert COMMIT[:8] in message
 
 
-def _fake_which(_name: str) -> str:
-    """Stand in for a gh binary so phase 6 gets past its tool check."""
-    return "/usr/bin/gh"
-
-
 def test_phase6_fails_when_the_tag_cannot_be_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -10689,13 +10900,12 @@ def test_phase6_reports_gh_failure_rather_than_a_missing_run(
     Both produce an empty run list, but the operator's next action is
     completely different, so the two must not share a message.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
@@ -10704,7 +10914,7 @@ def test_phase6_reports_gh_failure_rather_than_a_missing_run(
             cmd, 1, stdout="", stderr="gh: not authenticated"
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="not authenticated"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10720,13 +10930,12 @@ def test_phase6_blames_the_missing_run_when_gh_worked_at_least_once(
     end. Reporting that blip as "gh never succeeded" points the operator at
     their network when the real story is that no run was ever created.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     gh_calls: list[int] = []
 
@@ -10741,7 +10950,7 @@ def test_phase6_blames_the_missing_run_when_gh_worked_at_least_once(
             cmd, 1, stdout="", stderr="gh: connection reset"
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="no release.yml run found"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10755,13 +10964,12 @@ def test_phase6_lists_runs_filtered_to_the_tag(
     Without --branch, a busy release.yml history can push the target run past
     the limit, which reads identically to "the tag never triggered CI".
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     seen: list[list[str]] = []
 
@@ -10771,9 +10979,11 @@ def test_phase6_lists_runs_filtered_to_the_tag(
         seen.append(cmd)
         return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
-    with pytest.raises(ReleaseError):
+    with pytest.raises(
+        ReleaseError, match=r"no release\.yml run found for v9\.9\.9 at abc1234"
+    ):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
 
     assert seen, "gh run list should have been invoked"
@@ -10804,20 +11014,19 @@ def test_phase6_survives_unparseable_gh_output(
     A JSONDecodeError escaping list_runs would bypass both _fail sites and
     end the release in a stack trace instead of a message.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
             return subprocess.CompletedProcess(cmd, 0, stdout="abc1234\n", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout="not json at all", stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="unparseable JSON"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10837,7 +11046,7 @@ def test_phase6_dry_run_prints_the_command_it_would_execute(
     _phase6_ci_wait(info, "9.9.9", dry_run=True)
 
     printed = capsys.readouterr().out
-    executed = " ".join(_TagRunSelector.list_command("gh", "v9.9.9"))
+    executed = " ".join(TagRunSelector.list_command("gh", "v9.9.9"))
     # Rich wraps long lines, so compare on the argument tokens.
     for token in executed.split():
         assert token in printed, f"dry run omitted {token!r}"
@@ -10852,13 +11061,12 @@ def test_phase6_survives_wrong_shaped_gh_json(
     one to a run sequence surfaces as a TypeError from inside poll, which
     escapes both _fail sites the same way a decode error would.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
@@ -10867,7 +11075,7 @@ def test_phase6_survives_wrong_shaped_gh_json(
             cmd, 0, stdout='{"message":"Not Found"}', stderr=""
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="unexpected JSON shape"):
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10908,13 +11116,12 @@ def test_phase6_reports_failed_lookups_alongside_the_missing_run(
     read as 24 clean looks that found nothing, and the operator concludes the
     tag never triggered CI when most of the search never ran.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 3)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 3)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     calls: list[int] = []
 
@@ -10928,7 +11135,7 @@ def test_phase6_reports_failed_lookups_alongside_the_missing_run(
             cmd, 1, stdout="", stderr="gh: API rate limit exceeded"
         )
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError) as caught:
         _phase6_ci_wait(info, "9.9.9", dry_run=False)
@@ -10947,13 +11154,12 @@ def test_phase6_names_the_near_miss_run_it_rejected(
     triggered CI" — saying that while holding evidence to the contrary is the
     worst message this phase can print.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     stale = json.dumps(
         [
@@ -10967,7 +11173,7 @@ def test_phase6_names_the_near_miss_run_it_rejected(
         ]
     )
     monkeypatch.setattr(
-        release_mod,
+        release,
         "_run",
         _run_stub(
             {"list": subprocess.CompletedProcess([], 0, stdout=stale, stderr="")}
@@ -10992,17 +11198,16 @@ def test_phase6_does_not_call_an_unreachable_run_a_ci_failure(
     failed" sends the operator to a green run, and the natural recovery from
     there is to resume past this phase — publishing with no verdict at all.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": "success"}])
     monkeypatch.setattr(
-        release_mod,
+        release,
         "_run",
         _run_stub(
             {
@@ -11028,17 +11233,16 @@ def test_phase6_still_reports_a_genuine_ci_failure_as_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The unreachable-run handling must not soften a real red build."""
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": "failure"}])
     monkeypatch.setattr(
-        release_mod,
+        release,
         "_run",
         _run_stub(
             {
@@ -11067,13 +11271,12 @@ def test_phase6_timeout_explains_itself_instead_of_raising(
     stack trace — and the release environment's manual approval gate makes
     outlasting the two-hour watch a routine occurrence, not an exotic one.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
 
@@ -11084,7 +11287,7 @@ def test_phase6_timeout_explains_itself_instead_of_raising(
             raise subprocess.TimeoutExpired(cmd, 7200)
         return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="release environment approval"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
@@ -11098,20 +11301,19 @@ def test_phase6_treats_a_hung_run_list_as_a_failed_lookup(
     The watch call was hardened against TimeoutExpired; the listing goes
     through the same _run and would escape poll the same way.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 2)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 2)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["git", "rev-parse"]:
             return subprocess.CompletedProcess(cmd, 0, stdout=f"{COMMIT}\n", stderr="")
         raise subprocess.TimeoutExpired(cmd, 60)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="timed out"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
@@ -11126,13 +11328,12 @@ def test_phase6_survives_a_hung_verdict_query(
     likeliest reason the follow-up status query hangs, so a timeout there
     must produce the could-not-confirm message rather than a traceback.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
     monkeypatch.setattr(shutil, "which", _fake_which)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_ATTEMPTS", 1)
-    monkeypatch.setattr(release_mod, "_CI_RUN_POLL_INTERVAL", 0.0)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_ATTEMPTS", 1)
+    monkeypatch.setattr(release, "_CI_RUN_POLL_INTERVAL", 0.0)
 
     listed = json.dumps([MATCHING_RUN | {"conclusion": None}])
 
@@ -11145,26 +11346,24 @@ def test_phase6_survives_a_hung_verdict_query(
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
         return subprocess.CompletedProcess(cmd, 0, stdout=listed, stderr="")
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(ReleaseError, match="could not confirm"):
         _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
 
 
-# --- f85t.2: phase 6 skip/fail on a missing release.yml workflow ---
+# --- phase 6 skip/fail on a missing release.yml workflow ---
 
 
 def test_phase6_skips_for_pure_plugin_without_release_yml(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A pure (non-hybrid) plugin with no release.yml has nothing to wait for."""
-    from punt_kit import release as release_mod
-    from punt_kit.detect import ProjectInfo
 
     def _unreachable(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("_run must not be called on the pure-plugin skip path")
 
-    monkeypatch.setattr(release_mod, "_run", _unreachable)
+    monkeypatch.setattr(release, "_run", _unreachable)
 
     info = ProjectInfo(
         root=_Path("/nonexistent"),
@@ -11176,7 +11375,6 @@ def test_phase6_skips_for_pure_plugin_without_release_yml(
 
 def test_phase6_fails_actionably_when_python_project_missing_release_yml() -> None:
     """A non-plugin project missing release.yml fails loud, not silent."""
-    from punt_kit.detect import ProjectInfo
 
     info = ProjectInfo(
         root=_Path("/nonexistent"),
@@ -11189,7 +11387,6 @@ def test_phase6_fails_actionably_when_python_project_missing_release_yml() -> No
 
 def test_phase6_hybrid_missing_release_yml_still_fails() -> None:
     """A hybrid project (CLI + plugin) must have release.yml — no silent skip."""
-    from punt_kit.detect import ProjectInfo
 
     info = ProjectInfo(
         root=_Path("/nonexistent"),
@@ -11211,7 +11408,6 @@ def test_phase6_proceeds_normally_when_release_yml_present(
     (added for this guard), so this exercises the unchanged code path after
     the new guard using the pre-existing ``_run_stub`` dict-dispatch mocks.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     info = detect(root)
@@ -11224,7 +11420,7 @@ def test_phase6_proceeds_normally_when_release_yml_present(
             "watch": subprocess.CompletedProcess([], 0, stdout="", stderr=""),
         }
     )
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     _phase6_ci_wait(info, TAG.removeprefix("v"), dry_run=False)
 
@@ -11240,8 +11436,8 @@ def test_run_default_timeout_is_short() -> None:
     """
     sig = inspect.signature(_run)
     default = sig.parameters["timeout"].default
-    assert default == _DEFAULT_RUN_TIMEOUT
-    assert _DEFAULT_RUN_TIMEOUT <= 60
+    assert default == timeouts.DEFAULT_RUN
+    assert timeouts.DEFAULT_RUN <= 60
 
 
 def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
@@ -11251,73 +11447,59 @@ def test_git_hook_timeout_exceeds_beads_hook_ceiling() -> None:
     (write index, resolve refs, network for push/pull) in addition to the
     hook. Setting the budget to 300s — the hook's own ceiling — leaves no
     headroom, and the release aborts the moment the hook uses its full
-    tolerance. The v0.14.0 release lost two phases exactly this way.
+    tolerance. A release lost two phases exactly this way.
     """
-    assert _GIT_HOOK_TIMEOUT > 300
+    assert timeouts.GIT_HOOK > 300
 
 
-def test_hook_firing_git_calls_do_not_use_default_timeout() -> None:
-    """Every _run call for a hook-firing git command must pass an explicit timeout.
+def _spawned_timeout(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str], requested: int
+) -> int:
+    """The timeout the release ops layer hands subprocess for ``argv``."""
+    seen: list[int] = []
 
-    checkout, commit, merge, push, and pull all fire bd hooks against the
-    networked Dolt server; the 60s metadata default is not enough. An
-    audit-by-command-name that silently reclassified these back to the
-    default is exactly how the v0.14.0 defect was introduced — this test
-    pins the classification in code so the next audit cannot undo it
-    without a test failure to answer for.
-    """
-    src = _Path(release.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-    hook_firing = {"checkout", "commit", "merge", "push", "pull"}
+    def fake_spawn(cmd: list[str], **kwargs: int) -> subprocess.CompletedProcess[str]:
+        seen.append(kwargs["timeout"])
+        return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
 
-    def _first_git_verb(call: ast.Call) -> str | None:
-        if not call.args:
-            return None
-        first = call.args[0]
-        if not isinstance(first, ast.List) or len(first.elts) < 2:
-            return None
-        head, verb = first.elts[0], first.elts[1]
-        if not (isinstance(head, ast.Constant) and head.value == "git"):
-            return None
-        if not (isinstance(verb, ast.Constant) and isinstance(verb.value, str)):
-            return None
-        return verb.value
+    monkeypatch.setattr(subprocess, "run", fake_spawn)
+    _run(argv, timeout=requested)
+    (timeout,) = seen
+    return timeout
 
-    def _run_name(call: ast.Call) -> str | None:
-        f = call.func
-        if isinstance(f, ast.Name):
-            return f.id
-        if isinstance(f, ast.Attribute):
-            return f.attr
-        return None
 
-    offenders: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        if _run_name(node) != "_run":
-            continue
-        verb = _first_git_verb(node)
-        if verb not in hook_firing:
-            continue
-        # Presence of `timeout=` is not enough. _GIT_NETWORK_TIMEOUT is 300s,
-        # exactly the beads hook ceiling with no headroom, so a call site set
-        # to it would pass a presence check and still reintroduce the hang
-        # this test exists to prevent. Pin the identifier, not the keyword.
-        budget: str | None = None
-        for kw in node.keywords:
-            if kw.arg == "timeout" and isinstance(kw.value, ast.Name):
-                budget = kw.value.id
-            elif kw.arg == "timeout":
-                budget = "<non-name expression>"
-        if budget != "_GIT_HOOK_TIMEOUT":
-            offenders.append((node.lineno, f"{verb} (timeout={budget})"))
-
-    assert offenders == [], (
-        "hook-firing git commands must use timeout=_GIT_HOOK_TIMEOUT — a bare "
-        "`timeout=` or any other budget is not sufficient, because the hook's "
-        f"own ceiling is 300s: {offenders}"
+@pytest.mark.parametrize(
+    "argv",
+    [
+        pytest.param(["git", "push", "origin", "main"], id="git-push"),
+        pytest.param(["gh", "pr", "merge", "1", "-sd"], id="gh-merge-clustered"),
+        pytest.param(["env", "git", "commit"], id="env-wrapper"),
+        pytest.param(["sh", "-c", "git push"], id="shell-wrapper"),
+    ],
+)
+def test_ops_run_floors_a_hook_firing_command_at_the_hook_budget(
+    monkeypatch: pytest.MonkeyPatch, argv: list[str]
+) -> None:
+    """A caller that forgets the hook budget cannot put a hook on the 60s default."""
+    assert _spawned_timeout(monkeypatch, argv, timeouts.DEFAULT_RUN) == (
+        timeouts.GIT_HOOK
     )
+
+
+def test_ops_run_keeps_a_longer_timeout_on_a_hook_firing_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned = _spawned_timeout(monkeypatch, ["git", "push"], timeouts.QUALITY_GATE)
+    assert spawned == timeouts.QUALITY_GATE
+
+
+def test_ops_run_keeps_the_timeout_of_a_command_that_fires_no_hook(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    spawned = _spawned_timeout(
+        monkeypatch, ["git", "rev-parse", "HEAD"], timeouts.DEFAULT_RUN
+    )
+    assert spawned == timeouts.DEFAULT_RUN
 
 
 def test_run_release_converts_timeout_expired_to_diagnosed_exit(
@@ -11333,7 +11515,6 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     surfaces the hang as a diagnosis naming the command that timed out,
     the phase it was in, and the exact --resume-from string to retry with.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
@@ -11343,7 +11524,7 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     def fake_preflight(*_args: object, **_kwargs: object) -> None:
         raise subprocess.TimeoutExpired(hung_cmd, 300)
 
-    monkeypatch.setattr(release_mod, "_phase1_preflight", fake_preflight)
+    monkeypatch.setattr(release, "_phase1_preflight", fake_preflight)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False)
@@ -11364,12 +11545,12 @@ def test_run_release_converts_timeout_expired_to_diagnosed_exit(
     assert "phase 1 (preflight)" in normalized
     assert "--resume-from preflight" in normalized
 
-    # And the suggested value must be a real member of PHASE_NAMES — this is
+    # And the suggested value must be a real member of PhaseOrder.NUMBERS — this is
     # what stops the message drifting into naming a phase that does not
     # exist for --resume-from to accept.
     suggested = "preflight"
-    assert suggested in PHASE_NAMES
-    assert _phase_name(1) == suggested
+    assert suggested in PhaseOrder.NUMBERS
+    assert PhaseOrder.name_of(1) == suggested
 
 
 def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
@@ -11385,9 +11566,8 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
     TimeoutExpired at an actual call site that passes no ``timeout=`` at
     all — Phase 1's very first command, `git branch --show-current` — so
     the diagnosis is pinned to the genuine DEFAULT_RUN fallback value, not
-    a named budget (matrix row 54).
+    a named budget.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     hung_cmd = ["git", "branch", "--show-current"]
@@ -11396,15 +11576,15 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
         cmd: list[str],
         *,
         cwd: str | None = None,
-        timeout: int = _DEFAULT_RUN_TIMEOUT,
+        timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
     ) -> subprocess.CompletedProcess[str]:
-        if cmd == hung_cmd and timeout == _DEFAULT_RUN_TIMEOUT:
+        if cmd == hung_cmd and timeout == timeouts.DEFAULT_RUN:
             raise subprocess.TimeoutExpired(cmd, timeout)
         return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
+    monkeypatch.setattr(release, "_run", fake_run)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False)
@@ -11412,7 +11592,7 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
     assert exc_info.value.code == 1
     normalized = " ".join(capsys.readouterr().out.split())
     assert "git branch --show-current" in normalized
-    assert f"{_DEFAULT_RUN_TIMEOUT}s" in normalized
+    assert f"{timeouts.DEFAULT_RUN}s" in normalized
     assert "phase 1 (preflight)" in normalized
     assert "--resume-from preflight" in normalized
 
@@ -11431,7 +11611,6 @@ def test_run_release_credits_propagate_when_resuming_from_it(
     which is the exact contract failure the phase-in-diagnosis fix
     exists to close.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
@@ -11446,7 +11625,7 @@ def test_run_release_credits_propagate_when_resuming_from_it(
         assert dry_run is False
         raise subprocess.TimeoutExpired(hung_cmd, 300)
 
-    monkeypatch.setattr(release_mod, "_run_phases_9_10", fake_run_phases_9_10)
+    monkeypatch.setattr(release, "_run_phases_9_10", fake_run_phases_9_10)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
@@ -11456,8 +11635,8 @@ def test_run_release_credits_propagate_when_resuming_from_it(
     assert "phase 10 (propagate)" in normalized
     assert "post-release" not in normalized
     assert "--resume-from propagate" in normalized
-    assert "propagate" in PHASE_NAMES
-    assert _phase_name(10) == "propagate"
+    assert "propagate" in PhaseOrder.NUMBERS
+    assert PhaseOrder.name_of(10) == "propagate"
 
 
 def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
@@ -11465,10 +11644,10 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """pkit-d7mz: Phase 11 still runs and reports after a Phase 9/10 failure,
+    """Phase 11 still runs and reports after a Phase 9/10 failure,
     and the release exits non-zero naming the phase to resume from.
 
-    Reproduces the vox v5.0.4 shape at the orchestration level: P10 fails
+    Models the orchestration case where P10 fails
     while running concurrently with P9. The pipeline must not silently stop
     there — Phase 11 verify has to run against the actual state, and the
     release has to fail loudly with --resume-from post-release (which
@@ -11476,7 +11655,6 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     --resume-from verify, which would never retry the propagation that
     verify's own checks are reporting on.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
@@ -11492,9 +11670,9 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
     def fake_phase11_verify(_info: object, version: str, *, dry_run: bool) -> None:
         verify_calls.append(version)
 
-    monkeypatch.setattr(release_mod, "_phase9_post_release", fake_phase9)
-    monkeypatch.setattr(release_mod, "_phase10_propagate", fake_phase10)
-    monkeypatch.setattr(release_mod, "_phase11_verify", fake_phase11_verify)
+    monkeypatch.setattr(release, "_phase9_post_release", fake_phase9)
+    monkeypatch.setattr(release, "_phase10_propagate", fake_phase10)
+    monkeypatch.setattr(release, "_phase11_verify", fake_phase11_verify)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(
@@ -11507,10 +11685,55 @@ def test_run_release_runs_verify_after_propagation_failure_then_exits_nonzero(
 
     normalized = " ".join(capsys.readouterr().out.split())
     assert "did not fully land" in normalized
-    assert "Phase 9 reported" in normalized
-    assert "marketplace: no entry for proj" in normalized
+    assert "Phase 9 did not fully land" in normalized
+    assert normalized.count("marketplace: no entry for proj") == 1
     assert "Not confirmed landed: post-release, propagate, verify" in normalized
     assert "--resume-from post-release" in normalized
+
+
+def test_run_release_reports_any_unexpected_exception_with_the_recap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """An exception that is not a ReleaseError still gets the recap and hint.
+
+    Phase 10 fails and is recorded; Phase 11 then dies on a JSONDecodeError
+    nobody anticipated. The operator must still see the recorded Phase 10
+    failure, what was not confirmed landed, and the exact --resume-from.
+    """
+
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def fake_phase9(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def fake_phase10(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("marketplace: no entry for proj")
+
+    def fake_phase11_verify(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    monkeypatch.setattr(release, "_phase9_post_release", fake_phase9)
+    monkeypatch.setattr(release, "_phase10_propagate", fake_phase10)
+    monkeypatch.setattr(release, "_phase11_verify", fake_phase11_verify)
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    assert exc_info.value.code == 1
+    captured = capsys.readouterr()
+    normalized = " ".join(captured.out.split())
+    assert "Release incomplete" in normalized
+    assert "marketplace: no entry for proj" in normalized.split("Release incomplete")[1]
+    assert "--resume-from post-release" in normalized
+    assert "JSONDecodeError" in captured.err, "the traceback is shown"
+    shown = normalized + " ".join(captured.err.split())
+    assert shown.count("Expecting value: line 1 column 1") == 1, "shown once"
+    assert shown.count("marketplace: no entry for proj") == 1
 
 
 def test_run_release_reports_incomplete_release_on_interrupt(
@@ -11518,7 +11741,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """pkit-d7mz: an interrupted release exits non-zero naming exactly what
+    """An interrupted release exits non-zero naming exactly what
     was not confirmed landed and the --resume-from command to finish.
 
     Before this fix, the interrupt path in run_release's ``finally`` printed
@@ -11527,20 +11750,19 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     a Phase 4/10 check-wait hang go unresolved without anyone noticing the
     release was left mid-flight.
     """
-    from punt_kit import release as release_mod
 
     root = _make_release_project(tmp_path)
     monkeypatch.setattr(shutil, "which", _fake_which)
 
     def fake_ci_wait(_info: object, _version: str, *, dry_run: bool) -> None:
-        release_mod._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        release.interrupt_event().set()
         raise KeyboardInterrupt()
 
     def _noop_reset(*_args: object, **_kwargs: object) -> None:
         return None
 
-    monkeypatch.setattr(release_mod, "_phase6_ci_wait", fake_ci_wait)
-    monkeypatch.setattr(release_mod, "_reset_propagation_siblings", _noop_reset)
+    monkeypatch.setattr(release, "_phase6_ci_wait", fake_ci_wait)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", _noop_reset)
 
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="ci")
@@ -11554,24 +11776,24 @@ def test_run_release_reports_incomplete_release_on_interrupt(
 
 
 def test_phase_name_round_trips_through_phase_names() -> None:
-    """Every phase number 1..N round-trips through PHASE_NAMES.
+    """Every phase number 1..N round-trips through PhaseOrder.NUMBERS.
 
     The TimeoutExpired diagnosis hands the operator ``--resume-from
     <phase_name>``; if _phase_name ever produced a string that is not a
-    key of PHASE_NAMES, that advice would fail at the very next command.
+    key of PhaseOrder.NUMBERS, that advice would fail at the very next command.
     Out-of-range numbers must fall through to 'unknown' rather than
     fabricating a name.
     """
     for phase_num in range(1, 12):
-        name = _phase_name(phase_num)
+        name = PhaseOrder.name_of(phase_num)
         assert name != "unknown"
-        assert name in PHASE_NAMES
-        assert PHASE_NAMES[name] == phase_num
+        assert name in PhaseOrder.NUMBERS
+        assert PhaseOrder.NUMBERS[name] == phase_num
 
     # 0 (nothing started yet) and out-of-range numbers must not fabricate.
-    assert _phase_name(0) == "unknown"
-    assert _phase_name(12) == "unknown"
-    assert _phase_name(-1) == "unknown"
+    assert PhaseOrder.name_of(0) == "unknown"
+    assert PhaseOrder.name_of(12) == "unknown"
+    assert PhaseOrder.name_of(-1) == "unknown"
 
 
 def _graphql_null_rollup_response() -> dict[str, object]:
@@ -11604,12 +11826,11 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
     run is not a warning; it teaches the operator to skim past the ones
     that matter.
     """
-    from punt_kit import release as release_mod
 
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     calls = 0
 
@@ -11641,8 +11862,8 @@ def test_wait_for_required_checks_reports_no_checks_yet_not_a_malformed_response
             )
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
 
     _wait_for_required_checks("gh", "/tmp", 42)
 
@@ -11659,12 +11880,11 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Naming the null-rollup case must not silence real structure errors."""
-    from punt_kit import release as release_mod
 
     def _noop_sleep(_seconds: float) -> None:
         return None
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _noop_sleep)
+    monkeypatch.setattr("time.sleep", _noop_sleep)
 
     calls = 0
 
@@ -11696,78 +11916,13 @@ def test_wait_for_required_checks_still_flags_a_genuinely_malformed_response(
             )
         return result
 
-    monkeypatch.setattr(release_mod, "_run", fake_run)
-    monkeypatch.setattr(release_mod, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
 
     _wait_for_required_checks("gh", "/tmp", 42)
 
     out = " ".join(capsys.readouterr().out.split())
     assert "Unexpected GraphQL response structure" in out
-
-
-def test_shell_scripts_that_fire_hooks_are_invoked_with_the_hook_budget() -> None:
-    """A script that runs hook-firing git commands needs the hook budget too.
-
-    The sibling audit inspects `_run(["git", ...])` calls directly, which
-    makes a script invisible to it: `_run(["bash", script])` runs git one
-    level down, so the call site inherits the 60s metadata default while
-    the work behind it fires the bd pre-commit and post-checkout hooks
-    that allow themselves 300s. That gap is how release-plugin.sh and
-    restore-dev-plugin.sh kept the short budget after the commits inside
-    them started running hooks.
-
-    The rule is deliberately broad — every `_run(["bash", ...])` must
-    carry the budget — because the script path arrives as a variable and
-    cannot be resolved statically. Over-budgeting a fast script costs
-    nothing: the timeout is a ceiling, not a wait. Under-budgeting one
-    aborts a release.
-    """
-    src = _Path(release.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(src)
-
-    # Every shell script the release path invokes lives here and is checked
-    # for hook-firing git verbs, so the rule below is grounded in what the
-    # scripts actually do rather than assumed.
-    scripts_dir = _Path(release.__file__).parent.parent.parent / "scripts"
-    # The scripts call `git -C "$REPO_ROOT" commit`, so a literal "git commit"
-    # never matches — the verb is separated from `git` by the -C flag.
-    hook_verb_re = re.compile(r"\bgit\b[^\n]*\b(commit|checkout|merge|push|pull)\b")
-    hook_firing_scripts = sorted(
-        p.name
-        for p in scripts_dir.glob("*.sh")
-        if hook_verb_re.search(p.read_text(encoding="utf-8"))
-    )
-    assert hook_firing_scripts, (
-        "expected at least one release script to run hook-firing git commands; "
-        "if that is no longer true this audit needs revisiting, not deleting"
-    )
-
-    offenders: list[tuple[int, str]] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
-            continue
-        func = node.func
-        name = func.id if isinstance(func, ast.Name) else getattr(func, "attr", None)
-        if name != "_run" or not node.args:
-            continue
-        first = node.args[0]
-        if not isinstance(first, ast.List) or not first.elts:
-            continue
-        head = first.elts[0]
-        if not (isinstance(head, ast.Constant) and head.value == "bash"):
-            continue
-        budget = None
-        for kw in node.keywords:
-            if kw.arg == "timeout":
-                budget = kw.value.id if isinstance(kw.value, ast.Name) else "<expr>"
-        if budget != "_GIT_HOOK_TIMEOUT":
-            offenders.append((node.lineno, f"timeout={budget}"))
-
-    assert offenders == [], (
-        "shell scripts invoked by the release path run hook-firing git "
-        f"commands ({', '.join(hook_firing_scripts)}) and must be given "
-        f"timeout=_GIT_HOOK_TIMEOUT: {offenders}"
-    )
 
 
 # --- SIGINT during Phase 10 with a worker live inside the check-wait poll ---
@@ -11826,7 +11981,7 @@ def _interrupted_poll_scenario(
     def _near_zero_sleep(_seconds: float) -> None:
         real_sleep(0.001)
 
-    monkeypatch.setattr("punt_kit.release.time.sleep", _near_zero_sleep)
+    monkeypatch.setattr("time.sleep", _near_zero_sleep)
     monkeypatch.setattr("punt_kit.phases.shared.gh.CI_WATCH", 30)
 
     warmup = FaultRule(
@@ -11839,11 +11994,8 @@ def _interrupted_poll_scenario(
         times=None,
         response=FaultRule.from_fixture("gh_graphql_required_checks_pending.json"),
     )
-    pending_forever.interrupt_after(
-        release._interrupted  # pyright: ignore[reportPrivateUsage]
-    )
-    ops = FaultInjectingOps(
-        real_run=_run,
+    pending_forever.interrupt_after(release.interrupt_event())
+    ops = _fault_ops(
         rules=[
             # The sibling's origin is itself (non-bare), which refuses a push
             # of its own checked-out branch — scripted success keeps the merge
@@ -11878,7 +12030,7 @@ def _interrupted_poll_scenario(
             ),
             warmup,
             pending_forever,
-        ],
+        ]
     )
     monkeypatch.setattr(release, "_run", ops.run)
     return root, warmup, pending_forever
@@ -11921,8 +12073,8 @@ def test_phase10_interrupt_with_worker_mid_poll_join_returns_promptly(
     # the armed rule fired, exactly one consumption after — the next
     # iteration's interrupt check stopped the loop before another poll, with
     # the fake still pending (it has no other state to serve).
-    assert warmup._consumed == 3  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-    assert pending_forever._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert warmup.consumed == 3
+    assert pending_forever.consumed == 1
 
 
 def test_run_release_interrupt_mid_poll_reports_incomplete_release(
@@ -11960,8 +12112,8 @@ def test_run_release_interrupt_mid_poll_reports_incomplete_release(
     assert "phase 10 (propagate)" in out
     assert "Not confirmed landed: propagate, verify" in out
     assert "--resume-from propagate" in out
-    assert warmup._consumed == 3  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-    assert pending_forever._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert warmup.consumed == 3
+    assert pending_forever.consumed == 1
 
 
 def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
@@ -12013,14 +12165,12 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
         match=["git", "status", "--porcelain", "--", "src/data/projects.json"],
         response=CompletedProcessSpec(stdout=" M src/data/projects.json\n"),
     )
-    status_rule.interrupt_after(
-        release._interrupted  # pyright: ignore[reportPrivateUsage]
-    )
+    status_rule.interrupt_after(release.interrupt_event())
     checkout_rule = FaultRule(
         match=["git", "checkout", "-b"],
         raises=subprocess.TimeoutExpired(cmd=["git", "checkout", "-b"], timeout=600),
     )
-    ops = FaultInjectingOps(real_run=_run, rules=[status_rule, checkout_rule])
+    ops = _fault_ops(rules=[status_rule, checkout_rule])
     monkeypatch.setattr(release, "_run", ops.run)
 
     with pytest.raises(SystemExit) as exc_info:
@@ -12045,3 +12195,1877 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
     assert "Release incomplete" in out
     assert "phase 10 (propagate)" in out
     assert "--resume-from propagate" in out
+
+
+# --- changelog stamping and release notes ---
+
+
+def _commit_changelog(root: Path, raw: bytes) -> None:
+    (root / "CHANGELOG.md").write_bytes(raw)
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "changelog"], cwd=str(root))
+    _git(["fetch", "origin"], cwd=str(root))
+
+
+def test_phase2_stamp_keeps_crlf_and_the_bom_on_disk(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    original = "\ufeff# Changelog\r\n\r\n## [Unreleased]\r\n\r\n- New\r\n"
+    _commit_changelog(root, original.encode())
+
+    _bump(root)
+
+    today = datetime.date.today().isoformat()
+    assert (root / "CHANGELOG.md").read_bytes().decode() == (
+        "\ufeff# Changelog\r\n\r\n## [Unreleased]\r\n\r\n"
+        f"## [0.2.0] - {today}\r\n\r\n- New\r\n"
+    )
+
+
+def test_phase2_rerun_does_not_stamp_the_version_twice(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+
+    _bump(root)
+    once = (root / "CHANGELOG.md").read_bytes()
+    _bump(root)
+
+    assert (root / "CHANGELOG.md").read_bytes() == once
+
+
+def test_phase2_fails_when_the_changelog_has_no_unreleased_section(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _commit_changelog(root, b"# Changelog\n\n## [0.1.0] - 2026-01-01\n\n- x\n")
+
+    with pytest.raises(ReleaseError, match=r"No \[Unreleased\] section"):
+        _bump(root)
+
+
+def test_phase7_fails_when_the_version_has_no_changelog_section(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which_gh)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["gh", "release", "view", "v0.2.0"],
+                response=CompletedProcessSpec(returncode=1),
+            )
+        ]
+    )
+
+    with pytest.raises(ReleaseError, match=r"no \[0\.2\.0\] section"):
+        Phase7GithubRelease(detect(root), "0.2.0", dry_run=False, ops=ops).run()
+
+
+def test_phase7_fails_when_the_version_section_has_no_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "CHANGELOG.md").write_text("## [0.2.0] - 2026-03-01\n\n### Added\n")
+    monkeypatch.setattr(shutil, "which", _fake_which_gh)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["gh", "release", "view", "v0.2.0"],
+                response=CompletedProcessSpec(returncode=1),
+            )
+        ]
+    )
+
+    with pytest.raises(ReleaseError, match=r"section has no entries"):
+        Phase7GithubRelease(detect(root), "0.2.0", dry_run=False, ops=ops).run()
+
+
+# --- remote and slug policy ---
+
+
+def _origin_rule(
+    *, returncode: int = 0, stdout: str = "", stderr: str = ""
+) -> FaultRule:
+    return FaultRule(
+        match=["git", "remote", "get-url", "origin"],
+        times=None,
+        response=CompletedProcessSpec(
+            returncode=returncode, stdout=stdout, stderr=stderr
+        ),
+    )
+
+
+def _origin_raises(exc: BaseException) -> FaultRule:
+    return FaultRule(
+        match=["git", "remote", "get-url", "origin"], times=None, raises=exc
+    )
+
+
+_NO_ORIGIN = _origin_rule(returncode=2, stderr="error: No such remote 'origin'")
+
+
+def _origin_timeout() -> FaultRule:
+    return _origin_raises(subprocess.TimeoutExpired(["git", "remote"], 60))
+
+
+def test_slug_is_none_without_an_origin_remote(tmp_path: Path) -> None:
+    repo = GithubRepo(tmp_path, ops=_fault_ops([_NO_ORIGIN]))
+
+    assert repo.slug() is None
+
+
+def test_slug_is_none_for_an_origin_that_is_not_on_github(tmp_path: Path) -> None:
+    rule = _origin_rule(stdout="https://gitlab.com/o/r.git\n")
+
+    assert GithubRepo(tmp_path, ops=_fault_ops([rule])).slug() is None
+
+
+def test_slug_raises_when_the_lookup_times_out(tmp_path: Path) -> None:
+    repo = GithubRepo(tmp_path, ops=_fault_ops([_origin_timeout()]))
+
+    with pytest.raises(RemoteLookupError, match=r"timed out"):
+        repo.slug()
+
+
+def test_slug_raises_when_git_cannot_run(tmp_path: Path) -> None:
+    repo = GithubRepo(tmp_path, ops=_fault_ops([_origin_raises(OSError("no git"))]))
+
+    with pytest.raises(RemoteLookupError, match=r"could not be run: no git"):
+        repo.slug()
+
+
+def test_slug_raises_with_gits_own_refusal(tmp_path: Path) -> None:
+    rule = _origin_rule(returncode=128, stderr="fatal: detected dubious ownership")
+    repo = GithubRepo(tmp_path, ops=_fault_ops([rule]))
+
+    with pytest.raises(RemoteLookupError, match=r"dubious ownership"):
+        repo.slug()
+
+
+def test_github_repo_has_no_swallowing_resolver() -> None:
+    assert "resolve_slug" not in vars(GithubRepo)
+
+
+class _Propagates(Protocol):
+    def run(
+        self, version: str, *, dry_run: bool, merge_sibling: Callable[..., bool]
+    ) -> None: ...
+
+
+def _never_merge(*_args: object, **_kwargs: object) -> bool:
+    raise AssertionError("no propagation may reach a sibling PR")
+
+
+def _install_all(
+    info: ProjectInfo, ops: FaultInjectingOps, skips: SkipRecorder
+) -> _Propagates:
+    return InstallAllPropagator(info, ops=ops, skips=skips)
+
+
+def _marketplace(
+    info: ProjectInfo, ops: FaultInjectingOps, skips: SkipRecorder
+) -> _Propagates:
+    return MarketplacePropagator(info, ops=ops, skips=skips)
+
+
+def _website(
+    info: ProjectInfo, ops: FaultInjectingOps, skips: SkipRecorder
+) -> _Propagates:
+    return WebsitePropagator(info, ops=ops, skips=skips)
+
+
+def _with_website_sibling(tmp_path: Path) -> Path:
+    """A project plus a public-website sibling, so the optional step is in play."""
+    root = _make_release_project(tmp_path)
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "other", "version": "1"}])},
+    )
+    return root
+
+
+_PROPAGATORS = [
+    pytest.param(_install_all, "install-all.sh propagation", id="install-all"),
+    pytest.param(_marketplace, "marketplace propagation", id="marketplace"),
+    pytest.param(_website, "website propagation", id="website"),
+]
+
+
+@pytest.mark.parametrize(("build", "label"), _PROPAGATORS)
+def test_propagator_without_a_github_remote_records_a_skip(
+    tmp_path: Path,
+    build: Callable[[ProjectInfo, FaultInjectingOps, SkipRecorder], _Propagates],
+    label: str,
+) -> None:
+    ops = _fault_ops([_NO_ORIGIN])
+    skips = SkipRecorder(ops=ops)
+
+    build(detect(_with_website_sibling(tmp_path)), ops, skips).run(
+        "0.2.0", dry_run=False, merge_sibling=_never_merge
+    )
+
+    (notice,) = skips.drain()
+    assert (label in notice, "no github.com origin" in notice) == (True, True)
+
+
+@pytest.mark.parametrize(("build", "label"), _PROPAGATORS)
+def test_propagator_with_a_malformed_remote_fails_naming_it(
+    tmp_path: Path,
+    build: Callable[[ProjectInfo, FaultInjectingOps, SkipRecorder], _Propagates],
+    label: str,
+) -> None:
+    ops = _fault_ops([_origin_rule(stdout="https://github.com/proj\n")])
+
+    with pytest.raises(ReleaseError, match=rf"{label}: not an owner/repo slug"):
+        build(detect(_with_website_sibling(tmp_path)), ops, SkipRecorder(ops=ops)).run(
+            "0.2.0", dry_run=False, merge_sibling=_never_merge
+        )
+
+
+@pytest.mark.parametrize(("build", "label"), _PROPAGATORS)
+def test_propagator_whose_remote_lookup_fails_fails_naming_it(
+    tmp_path: Path,
+    build: Callable[[ProjectInfo, FaultInjectingOps, SkipRecorder], _Propagates],
+    label: str,
+) -> None:
+    ops = _fault_ops([_origin_timeout()])
+
+    with pytest.raises(ReleaseError, match=rf"{label}: .*timed out"):
+        build(detect(_with_website_sibling(tmp_path)), ops, SkipRecorder(ops=ops)).run(
+            "0.2.0", dry_run=False, merge_sibling=_never_merge
+        )
+
+
+def test_thread_resolver_warns_when_there_is_no_github_remote(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ops = _fault_ops([_NO_ORIGIN])
+
+    PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops).resolve(
+        "gh", str(tmp_path), 7
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "Review threads on PR #7 not resolved: no github.com origin" in out
+
+
+def test_thread_resolver_warns_with_the_lookup_failure(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    ops = _fault_ops([_origin_timeout()])
+
+    PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops).resolve(
+        "gh", str(tmp_path), 7
+    )
+
+    assert "timed out" in _flat(capsys.readouterr().out)
+
+
+def _wait_with_repo(tmp_path: Path, resolve: Callable[[Path], str | None]) -> None:
+    ops = _fault_ops()
+    RequiredChecksWaiter(GithubRepo(tmp_path, ops=ops), ops=ops).wait(
+        "gh",
+        str(tmp_path),
+        5,
+        resolve_repo=resolve,
+        interrupted=threading.Event(),
+    )
+
+
+def test_ci_wait_reports_a_remote_lookup_timeout(tmp_path: Path) -> None:
+    def resolve(_root: Path) -> str | None:
+        raise RemoteLookupError("git remote get-url origin timed out after 60s")
+
+    with pytest.raises(ReleaseError, match=r"timed out after 60s"):
+        _wait_with_repo(tmp_path, resolve)
+
+
+def test_ci_wait_reports_an_absent_github_remote(tmp_path: Path) -> None:
+    with pytest.raises(ReleaseError, match=r"no github\.com origin"):
+        _wait_with_repo(tmp_path, lambda _root: None)
+
+
+def test_ci_wait_reports_a_malformed_remote_with_its_text(tmp_path: Path) -> None:
+    def resolve(_root: Path) -> str | None:
+        raise ValueError("not an owner/repo slug: 'proj'")
+
+    with pytest.raises(ReleaseError, match=r"not an owner/repo slug: 'proj'"):
+        _wait_with_repo(tmp_path, resolve)
+
+
+def _verify_without_remote(
+    tmp_path: Path, rule: FaultRule, skips: SkipRecorder
+) -> None:
+    root, _sibling = _setup_verify_project(tmp_path)
+    ops = _fault_ops(
+        [
+            rule,
+            FaultRule(match=["uv", "pip", "install"], response=CompletedProcessSpec()),
+        ]
+    )
+    Phase11Verify(detect(root), "0.1.0", dry_run=False, ops=ops, skips=skips).run()
+
+
+def test_phase11_fails_the_github_remote_check_when_origin_is_absent(
+    tmp_path: Path, skips: SkipRecorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _verify_without_remote(tmp_path, _NO_ORIGIN, skips)
+
+    _assert_failed_checks(
+        capsys.readouterr().out, ["GitHub remote"], "no github.com origin"
+    )
+    assert skips.drain() == ()
+
+
+def test_phase11_fails_the_github_remote_check_when_the_lookup_fails(
+    tmp_path: Path, skips: SkipRecorder, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _verify_without_remote(tmp_path, _origin_timeout(), skips)
+
+    _assert_failed_checks(capsys.readouterr().out, ["GitHub remote"], "timed out")
+    assert skips.drain() == ()
+
+
+def test_land_without_a_github_remote_does_not_claim_the_readme_is_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "stale readme"], cwd=str(root))
+
+    def _no_merge(**_kwargs: object) -> str:
+        raise AssertionError("nothing to land without a resolvable remote")
+
+    _readme_pin(detect(root)).land(
+        "0.2.0", dry_run=False, merge=_no_merge, resolve_repo=lambda _root: None
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" not in out
+    assert "README pin not updated" in out
+
+
+def test_land_dry_run_without_a_github_remote_does_not_claim_current(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=True,
+        merge=_never_merge_pr,
+        resolve_repo=lambda _root: None,
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" not in out
+    assert "README pin not updated" in out
+
+
+def _never_merge_pr(**_kwargs: object) -> str:
+    raise AssertionError("a dry run must not merge")
+
+
+def test_land_reports_stale_pins_it_could_not_rewrite(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    stale = _pin_url("other-org/proj")
+    (root / "README.md").write_text(_readme_with_urls(stale))
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "foreign pin"], cwd=str(root))
+
+    _readme_pin(detect(root)).land(
+        "0.2.0",
+        dry_run=False,
+        merge=_never_merge_pr,
+        resolve_repo=lambda _root: "punt-labs/proj",
+    )
+
+    out = _flat(capsys.readouterr().out)
+    assert "README already pins the current install SHA" not in out
+    assert "stale install pin" in out
+
+
+@pytest.mark.parametrize(
+    ("url", "slug"),
+    [
+        pytest.param("org-123@github.com:o/r.git", "o/r", id="any-ssh-user"),
+        pytest.param("git@GitHub.com:o/r.git", "o/r", id="mixed-case-host"),
+        pytest.param("GITHUB.COM:o/r", "o/r", id="no-user"),
+        pytest.param("ssh://git@GitHub.com/o/r.git", "o/r", id="ssh-url"),
+    ],
+)
+def test_scp_style_remotes_parse_for_any_user_and_host_case(
+    url: str, slug: str
+) -> None:
+    parsed = RepoSlug.from_remote_url(url)
+
+    assert parsed is not None
+    assert str(parsed) == slug
+
+
+# --- pins and entries: one rule, full slug ---
+
+
+def _github_project(tmp_path: Path) -> Path:
+    root = _make_release_project(tmp_path)
+    _git(
+        ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
+        cwd=str(root),
+    )
+    return root
+
+
+def test_marketplace_propagation_ignores_a_same_named_repo_of_another_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    foreign = {
+        "name": "foreign",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/someone-else/proj", "ref": "v0.1.0"},
+    }
+    ours = {
+        "name": "ours",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/punt-labs/proj.git", "ref": "v0.1.0"},
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {
+            ".claude-plugin/marketplace.json": json.dumps(
+                {"plugins": [foreign, ours]}, indent=2
+            )
+            + "\n"
+        },
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_marketplace(detect(root), "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    plugins = json.loads(mp.read_text())["plugins"]
+    assert [p["version"] for p in plugins] == ["0.1.0", "0.2.0"]
+
+
+def test_marketplace_propagation_fails_when_only_another_owners_repo_matches(
+    tmp_path: Path,
+) -> None:
+    root = _github_project(tmp_path)
+    foreign = {
+        "name": "foreign",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/someone-else/proj", "ref": "v0.1.0"},
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {".claude-plugin/marketplace.json": json.dumps({"plugins": [foreign]})},
+    )
+
+    with pytest.raises(ReleaseError, match="No marketplace entry for proj"):
+        _propagate_marketplace(detect(root), "0.2.0", dry_run=False)
+
+
+def test_phase11_marketplace_check_ignores_a_same_named_repo_of_another_owner(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _setup_fully_passing_verify(tmp_path, "0.1.0")
+    foreign = {
+        "name": "foreign",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/someone-else/proj", "ref": "v0.1.0"},
+    }
+    marketplace = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    marketplace.write_text(json.dumps({"plugins": [foreign]}))
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), "0.1.0", dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["marketplace"], "no entry for")
+
+
+def _website_with(tmp_path: Path, install_command: str) -> Path:
+    projects = [
+        {
+            "id": "proj",
+            "name": "Café",
+            "version": "0.1.0",
+            "githubUrl": "https://github.com/punt-labs/proj",
+            "installCommand": install_command,
+        }
+    ]
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
+    )
+    return tmp_path / "public-website" / "src" / "data" / "projects.json"
+
+
+def test_website_propagation_repins_a_release_tag_install_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    pj = _website_with(
+        tmp_path, f"curl -fsSL {_pin_url('punt-labs/proj', 'v0.1.0')} | sh"
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    command = json.loads(pj.read_text())[0]["installCommand"]
+    assert _pin_url("punt-labs/proj", _current_install_sha(root)) in command
+
+
+def test_website_propagation_leaves_another_owners_install_command_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    foreign = f"curl -fsSL {_pin_url('someone-else/proj', 'abc1234')} | sh"
+    pj = _website_with(tmp_path, foreign)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    assert json.loads(pj.read_text())[0]["installCommand"] == foreign
+
+
+@pytest.mark.parametrize("final_newline", [True, False])
+def test_propagation_writes_json_as_found(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, final_newline: bool
+) -> None:
+    root = _github_project(tmp_path)
+    pj = _website_with(tmp_path, "curl -fsSL https://example.test/x | sh")
+    text = pj.read_text()
+    pj.write_text(text if final_newline else text.rstrip("\n"))
+    _git(["add", "."], cwd=str(tmp_path / "public-website"))
+    _git(
+        ["commit", "--allow-empty", "-m", "newline"],
+        cwd=str(tmp_path / "public-website"),
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    written = pj.read_text()
+    assert ("Café" in written, written.endswith("\n")) == (True, final_newline)
+
+
+def test_marketplace_propagation_keeps_non_ascii_text_as_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    entry = {
+        "name": "proj",
+        "description": "naïve — café",
+        "version": "0.1.0",
+        "source": {"url": "https://github.com/punt-labs/proj", "ref": "v0.1.0"},
+    }
+    _make_sibling(
+        tmp_path,
+        "claude-plugins",
+        {".claude-plugin/marketplace.json": json.dumps({"plugins": [entry]}, indent=2)},
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_marketplace(detect(root), "0.2.0", dry_run=False)
+
+    mp = tmp_path / "claude-plugins" / ".claude-plugin" / "marketplace.json"
+    written = mp.read_text()
+    assert ("naïve — café" in written, written.endswith("\n")) == (True, False)
+
+
+def test_phase2_keeps_non_ascii_text_in_plugin_json(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    manifest = root / ".claude-plugin" / "plugin.json"
+    manifest.write_text(
+        json.dumps({"name": "t", "version": "0.1.0", "description": "naïve"}, indent=2)
+        + "\n"
+    )
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "describe"], cwd=str(root))
+    _git(["fetch", "origin"], cwd=str(root))
+
+    _bump(root)
+
+    assert "naïve" in manifest.read_text()
+
+
+# --- timeouts at call sites ---
+
+
+def _fake_which_cli(_name: str) -> str:
+    return "/opt/bin/test-cli"
+
+
+def test_phase8_runs_the_installed_cli_doctor_under_an_explicit_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    budgets: dict[str, int] = {}
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        budgets[cmd[-1]] = timeout
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", _fake_which_cli)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install"],
+                times=None,
+                response=CompletedProcessSpec(),
+            )
+        ],
+        real_run=run,
+        passthrough=[["test-cli", "doctor"]],
+    )
+    info = detect(_make_release_project(tmp_path))
+
+    Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+    assert budgets["doctor"] == timeouts.CLI_DOCTOR
+
+
+# --- review threads: nulls and pagination ---
+
+
+def _thread_page(ids: list[tuple[str, bool]], *, next_cursor: str | None = None) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "reviewThreads": {
+                            "pageInfo": {
+                                "hasNextPage": next_cursor is not None,
+                                "endCursor": next_cursor,
+                            },
+                            "nodes": [
+                                {"id": tid, "isResolved": done} for tid, done in ids
+                            ],
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+
+def _resolve_threads(
+    tmp_path: Path, replies: Sequence[str | tuple[int, str, str]]
+) -> list[list[str]]:
+    """Run the resolver against scripted ``gh api graphql`` replies, in order.
+
+    A reply is a stdout string (exit 0) or ``(returncode, stdout, stderr)``.
+    """
+    seen: list[list[str]] = []
+    answers = iter(replies)
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        seen.append(cmd)
+        reply = next(answers)
+        if isinstance(reply, str):
+            return subprocess.CompletedProcess(cmd, 0, reply, "")
+        code, out, err = reply
+        return subprocess.CompletedProcess(cmd, code, out, err)
+
+    origin = _origin_rule(stdout="git@github.com:o/r.git\n")
+    ops = _fault_ops([origin], real_run=run, passthrough=[["gh", "api", "graphql"]])
+    PrThreadResolver(GithubRepo(tmp_path, ops=ops), ops=ops).resolve(
+        "gh", str(tmp_path), 7
+    )
+    return seen
+
+
+def _threads_body(review_threads: str) -> str:
+    return (
+        '{"data": {"repository": {"pullRequest": '
+        f'{{"reviewThreads": {review_threads}}}}}}}}}'
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "warns"),
+    [
+        pytest.param('{"data": null}', True, id="data"),
+        pytest.param('{"data": {"repository": null}}', True, id="repository"),
+        pytest.param(
+            '{"data": {"repository": {"pullRequest": null}}}', True, id="pull-request"
+        ),
+        pytest.param(
+            '{"data": {"repository": {"pullRequest": {"reviewThreads": null}}}}',
+            True,
+            id="review-threads",
+        ),
+        pytest.param("null", True, id="whole-body"),
+        # A real reviewThreads object with nothing usable in it is a PR with
+        # nothing to resolve: silence is the right answer there.
+        pytest.param(_threads_body('{"nodes": null}'), False, id="nodes"),
+        pytest.param(_threads_body('{"nodes": [null, 3, {}]}'), False, id="odd"),
+    ],
+)
+def test_a_null_anywhere_in_the_threads_response_resolves_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], body: str, warns: bool
+) -> None:
+    seen = _resolve_threads(tmp_path, [body])
+
+    out = _flat(capsys.readouterr().out)
+    assert len(seen) == 1  # the listing only: no mutation was attempted
+    assert ("merge may fail" in out) is warns
+    assert out.count("WARNING") == (1 if warns else 0)
+
+
+def test_review_threads_are_paged_past_the_first_page(tmp_path: Path) -> None:
+    replies = [
+        _thread_page([("T1", False), ("T0", True)], next_cursor="CUR1"),
+        _thread_page([("T2", False)]),
+        "{}",
+        "{}",
+    ]
+
+    seen = _resolve_threads(tmp_path, replies)
+
+    queries = [cmd[-1] for cmd in seen]
+    assert ('after: "CUR1"' in queries[1], len(queries)) == (True, 4)
+    assert ('threadId: "T1"' in queries[2], 'threadId: "T2"' in queries[3]) == (
+        True,
+        True,
+    )
+
+
+# --- GraphQL response failures ---
+
+
+def test_a_failing_gh_graphql_call_warns_with_the_pr_and_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The real ``gh api graphql`` exits 1 on GraphQL errors.
+
+    Stdout holds the JSON body and stderr ``gh: <message>``; checked against
+    the installed gh with a query for a field that does not exist.
+    """
+    body = json.dumps({"data": None, "errors": [{"message": "rate limited"}]})
+
+    seen = _resolve_threads(tmp_path, [(1, body, "gh: rate limited\n")])
+
+    out = _flat(capsys.readouterr().out)
+    assert len(seen) == 1
+    assert "WARNING" in out
+    assert "PR #7" in out
+    assert "gh: rate limited" in out
+    assert "merge may fail" in out
+    assert "Resolved" not in out
+
+
+def test_an_unparseable_threads_response_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _resolve_threads(tmp_path, ["<html>502</html>"])
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "merge may fail" in out
+
+
+def test_a_partial_resolution_failure_warns_with_the_count_and_is_not_green(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replies: list[str | tuple[int, str, str]] = [
+        _thread_page([("T1", False), ("T2", False)]),
+        "{}",
+        (1, "", "gh: boom"),
+    ]
+
+    _resolve_threads(tmp_path, replies)
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "1/2" in out
+    assert "merge may fail" in out
+    assert "✓ Resolved" not in out
+
+
+def test_a_total_resolution_failure_warns_and_prints_no_ok(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    replies: list[str | tuple[int, str, str]] = [
+        _thread_page([("T1", False)]),
+        (1, "", "gh: boom"),
+    ]
+
+    _resolve_threads(tmp_path, replies)
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "0/1" in out
+    assert "✓" not in out
+
+
+@pytest.mark.parametrize("repeat", [False, True])
+def test_a_next_page_without_a_usable_cursor_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], repeat: bool
+) -> None:
+    first = _thread_page([("T1", False)], next_cursor="CUR1")
+    second = (
+        _thread_page([("T2", False)], next_cursor="CUR1")
+        if repeat
+        else json.dumps(
+            {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {"hasNextPage": True, "endCursor": None},
+                                "nodes": [],
+                            }
+                        }
+                    }
+                }
+            }
+        )
+    )
+
+    _resolve_threads(tmp_path, [first, second, "{}", "{}"])
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "more review threads" in out
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param('{"data": {"repository": {"pullRequest": null}}}', id="no-pr"),
+        pytest.param(_threads_body("null"), id="null-threads"),
+        pytest.param(_threads_body("[]"), id="list-threads"),
+    ],
+)
+def test_threads_response_without_a_threads_object_warns(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], body: str
+) -> None:
+    _resolve_threads(tmp_path, [body])
+
+    out = _flat(capsys.readouterr().out)
+    assert "reviewThreads" in out
+    assert "merge may fail" in out
+
+
+def test_unexpected_check_structure_fails_after_five_strikes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sleeps: list[float] = []
+
+    def record_sleep(seconds: float) -> None:
+        sleeps.append(seconds)
+
+    monkeypatch.setattr("time.sleep", record_sleep)
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        body = '{"data": {"repository": null}}' if "graphql" in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, body, "")
+
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+
+    with pytest.raises(ReleaseError, match=r"structure 5 consecutive times.*shape"):
+        _wait_for_required_checks("gh", "/tmp", 42)
+
+    assert len(sleeps) == 4
+
+
+def test_phase11_records_a_skip_when_a_bare_project_has_no_github_remote(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = tmp_path / "bare"
+    root.mkdir()
+    _init_git_repo(root)
+    (root / "pyproject.toml").write_text(
+        '[project]\nname = "bare"\nversion = "0.1.0"\n'
+    )
+    (root / "CHANGELOG.md").write_text("## [0.1.0] - 2026-01-01\n\n- x\n")
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "bare"], cwd=str(root))
+    _git(["tag", "v0.1.0"], cwd=str(root))
+    # The website check applies only when the optional sibling is present.
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "bare", "version": "0.1.0"}])},
+    )
+    ops = _fault_ops(
+        [
+            _NO_ORIGIN,
+            FaultRule(match=["uv", "pip", "install"], response=CompletedProcessSpec()),
+        ]
+    )
+
+    Phase11Verify(detect(root), "0.1.0", dry_run=False, ops=ops, skips=skips).run()
+
+    (notice,) = skips.drain()
+    assert "website" in notice and "no github.com origin" in notice
+
+
+def test_phase8_doctor_timeout_warns_and_does_not_abort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The doctor is informational: a hang after publishing must not abort."""
+
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        if cmd[-1] == "doctor":
+            raise subprocess.TimeoutExpired(cmd, timeout)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", _fake_which_cli)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install"],
+                times=None,
+                response=CompletedProcessSpec(),
+            )
+        ],
+        real_run=run,
+        passthrough=[["test-cli", "doctor"]],
+    )
+    info = detect(_make_release_project(tmp_path))
+
+    Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+
+    out = _flat(capsys.readouterr().out)
+    assert "doctor did not finish" in out
+    assert "Editable install restored" in out
+
+
+# --- Phase 2 keeps each file's line endings and BOM ---
+
+
+def test_phase2_keeps_crlf_and_the_bom_in_every_file_it_rewrites(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    _write_template_pin(
+        root,
+        "src/test_pkg/data/notify.yml",
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli\n",
+    )
+    boms = {
+        "pyproject.toml": "",
+        "src/test_pkg/__init__.py": "\ufeff",
+        "install.sh": "",
+        ".claude-plugin/plugin.json": "\ufeff",
+        "src/test_pkg/data/notify.yml": "\ufeff",
+    }
+    for rel, bom in boms.items():
+        path = root / rel
+        text = path.read_bytes().decode().replace("\r\n", "\n").replace("\n", "\r\n")
+        path.write_bytes((bom + text).encode())
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "crlf"], cwd=str(root))
+    _git(["fetch", "origin"], cwd=str(root))
+
+    _bump(root)
+
+    for rel, bom in boms.items():
+        data = (root / rel).read_bytes().decode()
+        assert "0.2.0" in data, rel
+        assert data.startswith(bom), rel
+        assert "\n" not in data.replace("\r\n", ""), rel
+
+
+def test_phase11_reads_a_bom_plugin_manifest_and_release_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _setup_fully_passing_verify(tmp_path, "0.1.0")
+    manifest = root / ".claude-plugin" / "plugin.json"
+    body = manifest.read_text().replace("\n", "\r\n")
+    manifest.write_bytes(("\ufeff" + body).encode())
+    init = root / "src" / "test_pkg" / "__init__.py"
+    init.write_bytes(("\ufeff" + init.read_text()).encode())
+    _git(["add", "."], cwd=str(root))
+    _git(["commit", "-m", "bom files"], cwd=str(root))
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), "0.1.0", dry_run=False)  # must not raise
+
+
+def test_project_info_reads_a_bom_plugin_manifest(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    manifest = root / ".claude-plugin" / "plugin.json"
+    manifest.write_bytes(("\ufeff" + manifest.read_text()).encode())
+
+    project = ReleaseProject(detect(root), ops=_fault_ops())
+
+    assert (project.version(), project.marketplace_name()) == ("0.1.0", "test")
+
+
+def test_marketplace_pin_check_reads_a_bom_manifest_from_git(tmp_path: Path) -> None:
+    body = json.dumps(
+        {"plugins": [{"name": "proj", "version": "0.1.0", "source": {"ref": "v0.1.0"}}]}
+    )
+    ops = _fault_ops(
+        [
+            FaultRule(
+                match=["git", "show"],
+                response=CompletedProcessSpec(stdout="\ufeff" + body),
+            )
+        ]
+    )
+    matcher = EntryMatcher("punt-labs", "proj", frozenset({"proj"}))
+
+    passed, _detail = MarketplacePinCheck(matcher, "0.1.0", "v0.1.0", ops=ops).run(
+        tmp_path, "abc1234"
+    )
+
+    assert passed
+
+
+def _pending_checks() -> str:
+    node: dict[str, object] = {
+        "name": "ci",
+        "isRequired": True,
+        "conclusion": None,
+        "status": "IN_PROGRESS",
+    }
+    return json.dumps(_graphql_checks_response([node]))
+
+
+def _passed_checks() -> str:
+    node: dict[str, object] = {
+        "name": "ci",
+        "isRequired": True,
+        "conclusion": "success",
+        "status": "COMPLETED",
+    }
+    return json.dumps(_graphql_checks_response([node]))
+
+
+def test_a_valid_response_resets_the_structure_strike_count(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bad = '{"data": {"repository": null}}'
+    replies = iter([bad] * 4 + [_pending_checks()] + [bad] * 4 + [_passed_checks()])
+
+    def no_sleep(_seconds: float) -> None:
+        return None
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        body = next(replies) if "graphql" in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, body, "")
+
+    monkeypatch.setattr("time.sleep", no_sleep)
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+
+    _wait_for_required_checks("gh", "/tmp", 42)  # must not abort
+
+    assert next(replies, None) is None  # every scripted reply was consumed
+
+
+# --- the other rewriters keep CRLF and the BOM ---
+
+
+def _crlf_bom(text: str) -> str:
+    return "\ufeff" + text.replace("\n", "\r\n")
+
+
+def _assert_crlf_bom(path: Path, *, contains: str) -> None:
+    data = path.read_bytes().decode()
+    assert data.startswith("\ufeff")
+    assert "\n" not in data.replace("\r\n", "")
+    assert contains in data
+
+
+def test_readme_pin_bump_keeps_crlf_and_the_bom(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    readme = root / "README.md"
+    readme.write_bytes(_crlf_bom(_readme_with_install_url("punt-labs/proj")).encode())
+
+    _bump_with_slug(root, "punt-labs/proj")
+
+    _assert_crlf_bom(readme, contains=_current_install_sha(root))
+
+
+def test_install_all_and_profile_propagation_keep_crlf_and_the_bom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _github_project(tmp_path)
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": _crlf_bom(
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+            ),
+            "profile/README.md": _crlf_bom(
+                "# Org\n\n"
+                "curl https://raw.githubusercontent.com/punt-labs/.github/abc1234"
+                "/install-all.sh | sh\n"
+            ),
+        },
+    )
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_install_all(detect(root), "0.2.0", dry_run=False)
+
+    install_sha = _current_install_sha(root)
+    profile_sha = _git_out(
+        ["log", "-1", "--format=%h", "--", "install-all.sh"], cwd=str(sibling)
+    )
+    _assert_crlf_bom(sibling / "install-all.sh", contains=install_sha)
+    _assert_crlf_bom(sibling / "profile" / "README.md", contains=profile_sha)
+
+
+_ROLLUP_BAD = '{"data": {"repository": null}}'
+
+
+def _rollup_response(rollup: object) -> str:
+    return json.dumps(
+        {
+            "data": {
+                "repository": {
+                    "pullRequest": {
+                        "commits": {
+                            "nodes": [{"commit": {"statusCheckRollup": rollup}}]
+                        }
+                    }
+                }
+            }
+        }
+    )
+
+
+def test_a_null_rollup_poll_resets_the_structure_strike_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A null rollup parses into the expected shape, so it ends a strike run.
+
+    Four unexpected responses, a null rollup, four more: never five in a row.
+    """
+
+    def no_sleep(_seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr("time.sleep", no_sleep)
+    passing = _rollup_response(
+        {
+            "contexts": {
+                "nodes": [
+                    {
+                        "name": "ci",
+                        "isRequired": True,
+                        "conclusion": "SUCCESS",
+                        "status": "COMPLETED",
+                    }
+                ]
+            }
+        }
+    )
+    answers = iter(
+        [_ROLLUP_BAD] * 4 + [_rollup_response(None)] + [_ROLLUP_BAD] * 4 + [passing]
+    )
+
+    def fake_run(cmd: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        body = next(answers) if "graphql" in cmd and "rulesets" not in cmd else ""
+        return subprocess.CompletedProcess(cmd, 0, body, "")
+
+    monkeypatch.setattr(release, "_run", fake_run)
+    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+
+    _wait_for_required_checks("gh", "/tmp", 42)  # does not raise
+
+
+# --- one currency predicate per pin kind ---
+
+
+def test_bump_rewrites_a_pin_that_only_shares_a_prefix_with_the_install_sha(
+    tmp_path: Path,
+) -> None:
+    """``<install sha>f00`` starts with the right characters and names no commit.
+
+    A textual prefix test called it current and left it in the README, where
+    Phase 11's rev-parse comparison then failed it. The writer must use the
+    same resolve-and-compare, so it repairs what the verifier flags.
+    """
+    root = _make_release_project(tmp_path)
+    sha = _current_install_sha(root)
+    (root / "README.md").write_text(
+        _readme_with_urls(_pin_url("punt-labs/proj", sha + "f00"))
+    )
+
+    changed = _bump_with_slug(root, "punt-labs/proj")
+
+    assert changed is True
+    assert _pin_url("punt-labs/proj", sha) in (root / "README.md").read_text()
+
+
+def test_bump_leaves_a_full_length_pin_of_the_current_commit_alone(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    full = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=str(root))
+    readme = _readme_with_urls(_pin_url("punt-labs/proj", full))
+    (root / "README.md").write_text(readme)
+
+    result = _readme_pin(detect(root)).bump(
+        "0.2.0", dry_run=False, resolve_repo=lambda _root: "punt-labs/proj"
+    )
+
+    assert (result.changed, result.stale) == (False, ())
+    assert (root / "README.md").read_text() == readme
+
+
+def test_phase11_verify_fails_on_a_second_stale_install_all_line(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    sibling = tmp_path / ".github"
+    first_commit = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=str(root))
+    install_all = sibling / "install-all.sh"
+    install_all.write_text(
+        install_all.read_text()
+        + f'curl -fsSL "$GH/proj/{first_commit}/install.sh" | sh\n'
+    )
+    _git(["add", "install-all.sh"], cwd=str(sibling))
+    _git(["commit", "-m", "second, stale line"], cwd=str(sibling))
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["install-all.sh"], first_commit[:7])
+
+
+def test_phase11_verify_fails_when_the_pinned_install_sh_has_a_stale_unquoted_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    d = str(root)
+    sibling = tmp_path / ".github"
+    sd = str(sibling)
+    install_sh = root / "install.sh"
+    install_sh.write_text(install_sh.read_text() + "VERSION=0.0.9\n")
+    _git(["add", "install.sh"], cwd=d)
+    _git(["commit", "-m", "stale unquoted re-pin"], cwd=d)
+    _git(["tag", "-f", f"v{version}"], cwd=d)
+    new_sha = _git_out(["log", "-1", "--format=%H", "--", "install.sh"], cwd=d)
+    install_all = sibling / "install-all.sh"
+    install_all.write_text(
+        re.sub(r"/proj/[0-9a-f]{40}/", f"/proj/{new_sha}/", install_all.read_text())
+    )
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "pin the stale install.sh"], cwd=sd)
+    (sibling / "profile" / "README.md").write_text(
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{_get_install_all_sha(sibling)}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "repin the profile"], cwd=sd)
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["install.sh", "install-all.sh"],
+        f"SHA={new_sha[:7]}",
+        on="install-all.sh",
+    )
+
+
+def test_phase11_verify_fails_when_any_profile_pin_is_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    sibling = tmp_path / ".github"
+    sd = str(sibling)
+    current = _get_install_all_sha(sibling)
+    stale_content = (
+        '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+        'curl -fsSL "$GH/proj/aabb001/install.sh" | sh\n'
+    )
+    current_content = (sibling / "install-all.sh").read_text()
+    (sibling / "install-all.sh").write_text(stale_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "stale entry"], cwd=sd)
+    stale_commit = _git_out(["rev-parse", "HEAD"], cwd=sd)
+    (sibling / "install-all.sh").write_text(current_content)
+    _git(["add", "install-all.sh"], cwd=sd)
+    _git(["commit", "-m", "current entry"], cwd=sd)
+    (sibling / "profile" / "README.md").write_text(
+        "# Punt Labs\n\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{current}/install-all.sh | sh\n"
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{stale_commit}/install-all.sh | sh\n"
+    )
+    _git(["add", "profile/README.md"], cwd=sd)
+    _git(["commit", "-m", "two profile pins"], cwd=sd)
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["profile SHA"], "stale — lacks")
+
+
+# --- propagation skips are recorded, with the manual action ---
+
+
+def test_install_all_without_an_entry_records_a_skip_and_still_refreshes_profile(
+    tmp_path: Path,
+) -> None:
+    info = _project_with_origin(tmp_path)
+    _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": "#!/bin/sh\necho nothing here\n",
+            "profile/README.md": (
+                "curl -fsSL https://raw.githubusercontent.com/"
+                "punt-labs/.github/aabb002/install-all.sh | sh\n"
+            ),
+        },
+    )
+    ops = _fault_ops()
+    skips = SkipRecorder(ops=ops)
+    merged: list[list[str]] = []
+
+    def merge(
+        _sibling: Path,
+        _branch: str,
+        files: list[str],
+        _message: str,
+        _label: str,
+        *,
+        dry_run: bool,
+    ) -> bool:
+        merged.append(files)
+        return True
+
+    InstallAllPropagator(info, ops=ops, skips=skips).run(
+        "0.2.0", dry_run=False, merge_sibling=merge
+    )
+
+    (notice,) = skips.drain()
+    assert "no entry for proj" in notice
+    assert "manual action required" in notice
+    assert merged == [["profile/README.md"]]
+
+
+def test_website_without_an_entry_records_a_skip(tmp_path: Path) -> None:
+    info = _project_with_origin(tmp_path)
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "other", "version": "1"}])},
+    )
+    ops = _fault_ops()
+    skips = SkipRecorder(ops=ops)
+
+    WebsitePropagator(info, ops=ops, skips=skips).run(
+        "0.2.0", dry_run=False, merge_sibling=_never_merge
+    )
+
+    (notice,) = skips.drain()
+    assert "no entry for proj" in notice
+    assert "manual action required" in notice
+
+
+def test_website_without_a_sibling_is_skipped_quietly_even_without_a_remote(
+    tmp_path: Path,
+) -> None:
+    ops = _fault_ops([_NO_ORIGIN])
+    skips = SkipRecorder(ops=ops)
+
+    WebsitePropagator(
+        detect(_make_release_project(tmp_path)), ops=ops, skips=skips
+    ).run("0.2.0", dry_run=False, merge_sibling=_never_merge)
+
+    assert skips.drain() == ()
+
+
+# --- version fields: a no-op bump is a failure, not an ok ---
+
+
+def _init_py(root: Path) -> Path:
+    return root / "src" / "test_pkg" / "__init__.py"
+
+
+def test_phase2_bumps_a_single_quoted_version_and_keeps_the_quote(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text("__version__ = '0.1.0'\n")
+    pyproject = root / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace('"0.1.0"', "'0.1.0'", 1))
+    _commit_all(root, "single quotes")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == "__version__ = '0.2.0'\n"
+    assert "version = '0.2.0'" in pyproject.read_text()
+
+
+def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text('__version__: str = "0.1.0"\n')
+    _commit_all(root, "annotated")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == '__version__: str = "0.2.0"\n'
+
+
+def test_phase2_fails_when_the_init_version_cannot_be_rewritten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text("__version__ = compute_version()\n")
+    _commit_all(root, "computed version")
+
+    with pytest.raises(ReleaseError, match=r"__init__\.py.*__version__"):
+        _bump(root)
+
+    assert "✓ __init__.py" not in capsys.readouterr().out
+
+
+def test_phase2_fails_when_the_pyproject_version_cannot_be_rewritten(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "pyproject.toml").write_text(
+        'project = {name = "test-pkg", version = "0.1.0"}\n'
+    )
+    _commit_all(root, "inline project table")
+
+    with pytest.raises(ReleaseError, match=r"pyproject\.toml.*version"):
+        _bump(root)
+
+    assert "✓ pyproject.toml" not in capsys.readouterr().out
+
+
+def test_phase2_leaves_an_imported_version_alone(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text("from ._v import __version__\n")
+    _commit_all(root, "imported version")
+
+    _bump(root)  # not an assignment: nothing to bump, nothing to fail
+
+    assert _init_py(root).read_text() == "from ._v import __version__\n"
+
+
+def test_phase11_fails_when_the_init_version_is_assigned_but_unparseable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _init_py(root).write_text("__version__ = compute_version()\n")
+    _commit_all(root, "computed version")
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(capsys.readouterr().out, ["__init__.py"], "__version__")
+
+
+def test_phase11_reads_a_single_quoted_init_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _init_py(root).write_text("__version__ = '0.1.0'\n")
+    _commit_all(root, "single quotes")
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), version, dry_run=False)  # must not raise
+
+    assert "__version__=0.1.0" in _flat(capsys.readouterr().out)
+
+
+# --- skip notices say what actually applies ---
+
+
+def _verify_bare_project_without_remote(
+    tmp_path: Path, skips: SkipRecorder, *, with_website: bool
+) -> None:
+    """Phase 11 on a project that installs nothing from GitHub and has no origin."""
+    root, sibling = _setup_verify_project(tmp_path)
+    shutil.rmtree(sibling)
+    for name in ("install.sh", ".claude-plugin"):
+        path = root / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    _commit_all(root, "bare project")
+    if with_website:
+        _make_sibling(
+            tmp_path,
+            "public-website",
+            {
+                "src/data/projects.json": json.dumps(
+                    [{"id": "proj", "version": "0.1.0"}]
+                )
+            },
+        )
+    ops = _fault_ops(
+        [
+            _NO_ORIGIN,
+            FaultRule(match=["uv", "pip", "install"], response=CompletedProcessSpec()),
+        ]
+    )
+    Phase11Verify(detect(root), "0.1.0", dry_run=False, ops=ops, skips=skips).run()
+
+
+def test_phase11_bare_project_skip_lists_only_the_checks_that_apply(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    _verify_bare_project_without_remote(tmp_path, skips, with_website=True)
+
+    (notice,) = skips.drain()
+    assert "website" in notice
+    for inapplicable in ("install-all.sh", "marketplace", "README"):
+        assert inapplicable not in notice
+
+
+def test_phase11_bare_project_with_nothing_remote_to_check_records_no_skip(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    _verify_bare_project_without_remote(tmp_path, skips, with_website=False)
+
+    assert skips.drain() == ()
+
+
+def test_land_without_a_slug_names_the_lookup_not_stale_pins(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    (root / "README.md").write_text(_readme_with_install_url("punt-labs/proj"))
+    _commit_all(root, "readme")
+    ops = _fault_ops()
+    pin = ReadmeShaPin(detect(root), ops=ops, skips=SkipRecorder(ops=ops))
+
+    def merge(**_kwargs: object) -> str:
+        return "sha"
+
+    pin.land("0.2.0", dry_run=False, merge=merge, resolve_repo=lambda _root: None)
+
+    out = _flat(capsys.readouterr().out)
+    assert "no github.com origin remote names this repository" in out
+    assert "stale install pin" not in out
+
+
+def test_phase8_warns_when_the_installed_cli_doctor_exits_non_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def run(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(cmd, 3 if cmd[-1] == "doctor" else 0, "", "")
+
+    monkeypatch.setattr(shutil, "which", _fake_which_cli)
+    ops = _fault_ops(
+        rules=[
+            FaultRule(
+                match=["uv", "tool", "install"],
+                times=None,
+                response=CompletedProcessSpec(),
+            )
+        ],
+        real_run=run,
+        passthrough=[["test-cli", "doctor"]],
+    )
+
+    Phase8VerifyPypi(
+        detect(_make_release_project(tmp_path)), "0.1.0", dry_run=False, ops=ops
+    ).run()
+
+    out = _flat(capsys.readouterr().out)
+    assert "WARNING" in out
+    assert "test-cli doctor exited 3" in out
+
+
+def test_run_release_recaps_a_phase11_remote_skip_in_its_printed_summary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """End to end: the skip Phase 11 records reaches the recap the operator reads."""
+    root, sibling = _setup_verify_project(tmp_path)
+    shutil.rmtree(sibling)
+    for name in ("install.sh", ".claude-plugin"):
+        path = root / name
+        if path.is_dir():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+    _commit_all(root, "bare project")
+    _git(["remote", "remove", "origin"], cwd=str(root))
+    _make_sibling(
+        tmp_path,
+        "public-website",
+        {"src/data/projects.json": json.dumps([{"id": "proj", "version": "0.1.0"}])},
+    )
+    _patch_pypi_probe(monkeypatch)
+
+    run_release(str(root), version="0.1.0", dry_run=False, resume_from="verify")
+
+    out = _flat(capsys.readouterr().out)
+    recap = out[out.index("Manual action required") :]
+    assert "the website checks did not run" in recap
+    assert "no github.com origin remote" in recap
+
+
+# --- the writers and the verifier share one currency test ---
+
+
+def _failing_merge(
+    _sibling: Path,
+    _branch: str,
+    files: list[str],
+    _message: str,
+    _label: str,
+    *,
+    dry_run: bool,
+) -> bool:
+    raise AssertionError(f"a current pin must not open a propagation PR: {files}")
+
+
+def test_install_all_leaves_a_full_length_current_pin_and_opens_no_pr(
+    tmp_path: Path,
+) -> None:
+    info = _project_with_origin(tmp_path)
+    full = _git_out(
+        ["log", "-1", "--format=%H", "--", "install.sh"], cwd=str(info.root)
+    )
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{full}/install.sh" | sh\n'
+            ),
+            "profile/README.md": "no pin here\n",
+        },
+    )
+    before = (sibling / "install-all.sh").read_text()
+    ops = _fault_ops()
+
+    InstallAllPropagator(info, ops=ops, skips=SkipRecorder(ops=ops)).run(
+        "0.2.0", dry_run=False, merge_sibling=_failing_merge
+    )
+
+    assert (sibling / "install-all.sh").read_text() == before
+
+
+def test_the_profile_keeps_a_full_length_current_pin_and_opens_no_pr(
+    tmp_path: Path,
+) -> None:
+    info = _project_with_origin(tmp_path)
+    install_sha = _git_out(
+        ["log", "-1", "--format=%h", "--", "install.sh"], cwd=str(info.root)
+    )
+    sibling = _make_sibling(
+        tmp_path,
+        ".github",
+        {
+            "install-all.sh": (
+                '#!/bin/sh\nGH="https://raw.githubusercontent.com/punt-labs"\n'
+                f'curl -fsSL "$GH/proj/{install_sha}/install.sh" | sh\n'
+            ),
+        },
+    )
+    full = _git_out(
+        ["log", "-1", "--format=%H", "--", "install-all.sh"], cwd=str(sibling)
+    )
+    readme = (
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{full}/install-all.sh | sh\n"
+    )
+    (sibling / "profile").mkdir()
+    (sibling / "profile" / "README.md").write_text(readme)
+    _commit_all(sibling, "profile")
+    ops = _fault_ops()
+
+    InstallAllPropagator(info, ops=ops, skips=SkipRecorder(ops=ops)).run(
+        "0.2.0", dry_run=False, merge_sibling=_failing_merge
+    )
+
+    assert (sibling / "profile" / "README.md").read_text() == readme
+
+
+def test_phase11_fails_when_a_second_profile_install_all_line_is_stale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The pinned install-all.sh carries a current line AND a stale one."""
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    sibling = tmp_path / ".github"
+    first = _git_out(["rev-list", "--max-parents=0", "HEAD"], cwd=str(root))[:7]
+    install_all = sibling / "install-all.sh"
+    install_all.write_text(
+        install_all.read_text() + f'curl -fsSL "$GH/proj/{first}/install.sh" | sh\n'
+    )
+    _commit_all(sibling, "second, stale line")
+    pinned = _git_out(["rev-parse", "HEAD"], cwd=str(sibling))
+    (sibling / "profile" / "README.md").write_text(
+        "curl -fsSL https://raw.githubusercontent.com/punt-labs/.github/"
+        f"{pinned}/install-all.sh | sh\n"
+    )
+    _commit_all(sibling, "pin it")
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(
+        capsys.readouterr().out,
+        ["install-all.sh", "profile SHA"],
+        first,
+        on="profile SHA",
+    )
+
+
+# --- a recorded Phase 9/10 failure is printed once, in the recap ---
+
+
+def test_a_phase10_failure_is_printed_once_in_the_recap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def boom(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("website: kaboom")
+
+    def quiet(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def quiet_reset(_info: object, *, fail_on_error: bool = True) -> None:
+        return None
+
+    monkeypatch.setattr(release, "_phase9_post_release", quiet)
+    monkeypatch.setattr(release, "_propagate_website", boom)
+    monkeypatch.setattr(release, "_propagate_install_all", quiet)
+    monkeypatch.setattr(release, "_propagate_marketplace", quiet)
+    monkeypatch.setattr(release, "_reset_propagation_siblings", quiet_reset)
+    monkeypatch.setattr(release, "_phase11_verify", quiet)
+
+    with pytest.raises(SystemExit):
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    out = _flat(capsys.readouterr().out)
+    assert out.count("kaboom") == 1
+    assert out.index("kaboom") > out.index("Release incomplete")
+
+
+def test_a_failure_recorded_directly_is_printed_once_in_the_recap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _make_release_project(tmp_path)
+    monkeypatch.setattr(shutil, "which", _fake_which)
+
+    def quiet(_info: object, _version: str, *, dry_run: bool) -> None:
+        return None
+
+    def boom(_info: object, _version: str, *, dry_run: bool) -> None:
+        raise ReleaseError("marketplace: no entry for proj")
+
+    monkeypatch.setattr(release, "_phase9_post_release", quiet)
+    monkeypatch.setattr(release, "_phase10_propagate", boom)
+    monkeypatch.setattr(release, "_phase11_verify", quiet)
+
+    with pytest.raises(SystemExit):
+        run_release(
+            str(root), version="0.2.0", dry_run=False, resume_from="post-release"
+        )
+
+    out = _flat(capsys.readouterr().out)
+    assert out.count("marketplace: no entry for proj") == 1
+
+
+@pytest.mark.parametrize("suffix", ["?x=1", "#y"])
+def test_pr_merge_reads_the_pr_number_from_a_url_with_a_query_or_fragment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, suffix: str
+) -> None:
+    def _noop(_gh: str, _cwd: str, _pr: int) -> None:
+        return None
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    ops, branch = _merge_env(root, monkeypatch, pr_number=12, url_suffix=suffix)
+    ops.append_rule(
+        FaultRule(
+            match=["gh", "pr", "merge", "12", "--squash", "--delete-branch"],
+            response=CompletedProcessSpec(),
+        )
+    )
+
+    oid = PrMerger(ops=ops).merge(
+        cwd=root,
+        branch=branch,
+        title="chore: release v1.0.0",
+        wait_for_checks=_noop,
+        resolve_threads=_noop,
+    )
+
+    assert oid == _MERGE_OID
+
+
+def test_website_propagation_without_an_install_sh_still_saves_the_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A marketplace-only plugin has an installCommand and no install.sh to pin."""
+    root = _github_project(tmp_path)
+    (root / "install.sh").unlink()
+    _git(["add", "-A"], cwd=str(root))
+    _git(["commit", "-m", "drop install.sh"], cwd=str(root))
+    command = f"curl -fsSL {_pin_url('punt-labs/proj', 'v0.1.0')} | sh"
+    pj = _website_with(tmp_path, command)
+    monkeypatch.setattr(release, "_sibling_pr_merge", _always_merges_sibling)
+
+    _propagate_website(detect(root), "0.2.0", dry_run=False)
+
+    entry = json.loads(pj.read_text())[0]
+    assert (entry["version"], entry["installCommand"]) == ("0.2.0", command)

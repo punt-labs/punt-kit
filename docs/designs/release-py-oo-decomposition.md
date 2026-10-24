@@ -137,8 +137,8 @@ Cited `start-end` line ranges are from the current file.
 | `_reset_propagation_siblings` | 2776-2843 | `shared/siblings.py` (`SiblingRegistry.reset_all`) |
 | `_DEFAULT_RUN_TIMEOUT`...`_QUALITY_GATE_TIMEOUT` | 78-106 | `shared/timeouts.py` |
 | `_CI_RUN_POLL_INTERVAL/_ATTEMPTS`, `_CI_ADVERSE_CONCLUSIONS`, `_CI_WATCH_TIMEOUT`, `_CI_RUN_LIST_TIMEOUT` | 1692-1693, 1821-1832 | `shared/timeouts.py` |
-| `_get_github_repo` | 321-339 | `shared/gh.py` (`GithubRepo.resolve`) |
-| `_branch_protection_exists` | 613-640 | `shared/gh.py` (`GithubRepo.has_branch_protection`) |
+| `_get_github_repo` | 321-339 | `shared/github_repo.py` (`GithubRepo.resolve`) |
+| `_branch_protection_exists` | 613-640 | `shared/github_repo.py` (`GithubRepo.has_branch_protection`) |
 | `_wait_for_required_checks` | 643-892 | `shared/gh.py` (`RequiredChecksWaiter.wait`) |
 | `_resolve_pr_threads` | 366-431 | `shared/gh.py` (`PrThreadResolver.resolve`) |
 | `_select_existing_pr` | 895-913 | `shared/pr_merge.py` (`PrMerger._select_existing`, private) |
@@ -200,7 +200,7 @@ Cited `start-end` line ranges are from the current file.
 | `_dry` | (a) `Reporter.dry` | `shared/reporter.py` | Same. |
 | `_warn` | (a) `Reporter.warn` | `shared/reporter.py` | Same. |
 | `_info` | (a) `Reporter.info` | `shared/reporter.py` | Same. |
-| `_get_github_repo` | (a) `GithubRepo.resolve` | `shared/gh.py` | Called from 8+ sites across phases 1, 4, 9, 10, 11 and `_wait_for_required_checks`/`_pr_merge` — a pure `Path → str \| None` query that collaborates with `RequiredChecksWaiter`/`PrThreadResolver` (both need the resolved slug), i.e. real cohesion, not just co-location (PY-OO-7's "takes the same context" trigger — several callers all need "the owner/repo for this root"). |
+| `_get_github_repo` | (a) `GithubRepo.resolve` | `shared/github_repo.py` | Called from 8+ sites across phases 1, 4, 9, 10, 11 and `_wait_for_required_checks`/`_pr_merge` — a pure `Path → str \| None` query that collaborates with `RequiredChecksWaiter`/`PrThreadResolver` (both need the resolved slug), i.e. real cohesion, not just co-location (PY-OO-7's "takes the same context" trigger — several callers all need "the owner/repo for this root"). |
 | `_resolve_sibling` | (a) `SiblingRepo.resolve` (classmethod, Factory per PY-DP-2) | `shared/siblings.py` | Returns `None` on absence — a legitimate Optional (PY-TS-14: absence is the documented contract, exercised by every phase-10 propagator and phase 1/11's skip logic). Everything downstream (`_validate_sibling`, `_sibling_pr_merge`, `_reset_sibling_owned_dirt`) operates on the resolved path — PY-OO-5's "state + behavior" textbook case. |
 | `_validate_sibling` | (a) `SiblingRepo.validate` | `shared/siblings.py` | Operates on the same `path`/`name` `_resolve_sibling` produces — method on the same class. |
 | `_wait_for_required_checks` | (a) `RequiredChecksWaiter.wait` | `shared/gh.py` | 250 lines of GraphQL polling state (`consecutive_errors`, `no_checks_attempts`, `deadline`) that today live as closures over the function's local scope — genuinely a class's job to hold as instance/loop state, not a 250-line function. |
@@ -609,8 +609,8 @@ starts. No test file changes at any step (per §5).
 8. **`phases/shared/git.py`** (`GitWorkspace`) — new extraction (not a pure
    move — collapses five duplicated call sequences, §4). Highest-risk single
    commit in the whole migration; budget extra review time.
-9. **`phases/shared/gh.py`** (`GithubRepo`, `RequiredChecksWaiter`,
-   `PrThreadResolver`).
+9. **`phases/shared/github_repo.py`** (`GithubRepo`) and
+   **`phases/shared/gh.py`** (`RequiredChecksWaiter`, `PrThreadResolver`).
 10. **`phases/shared/ci_run.py`** (`TagRunSelector` relocation,
     `CiRunWatch`).
 11. **`phases/shared/pr_merge.py`** (`PrMerger`) — depends on steps 7-10.

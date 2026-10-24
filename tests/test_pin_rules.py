@@ -1,0 +1,113 @@
+"""Tests for the one definition of each SHA pin the release writes and verifies."""
+
+from __future__ import annotations
+
+import pytest
+
+from punt_kit.phases.shared.pin_rules import ShaPin
+
+_SHA = "0123abc"
+
+
+def _never(_pinned: str) -> bool:
+    return False
+
+
+@pytest.mark.parametrize("sha", ["abc1234", "ABCDEF1", "a" * 40])
+def test_install_all_entry_reads_back_the_sha_it_writes(sha: str) -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = 'curl -fsSL "$GH/proj/abc1234/install.sh" | sh\n'
+
+    rewritten, count = pin.repinned(content, sha, is_current=_never)
+
+    assert (count, pin.all_shas(rewritten)) == (1, [sha])
+
+
+def test_install_all_entry_ignores_other_projects() -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = (
+        'curl "$GH/proj-extra/abc1234/install.sh"\n'
+        'curl "$GH/xproj/abc1234/install.sh"\n'
+        'curl "$GH/proj/main/install.sh"\n'
+    )
+
+    assert pin.repinned(content, _SHA, is_current=_never) == (content, 0)
+    assert pin.all_shas(content) == []
+
+
+def test_install_all_entry_escapes_the_project_name() -> None:
+    pin = ShaPin.install_all_entry("a.b")
+
+    assert pin.all_shas('"$GH/aXb/abc1234/install.sh"') == []
+
+
+def test_all_shas_returns_every_pin_in_order_not_only_the_first() -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = (
+        'curl "$GH/proj/aaaaaaa/install.sh"\n'
+        'curl "$GH/other/bbbbbbb/install.sh"\n'
+        'curl "$GH/proj/ccccccc/install.sh"\n'
+    )
+
+    assert pin.all_shas(content) == ["aaaaaaa", "ccccccc"]
+
+
+def test_profile_pin_reads_back_the_sha_it_writes() -> None:
+    pin = ShaPin.profile()
+    content = (
+        "curl https://raw.githubusercontent.com/punt-labs/.github/abc1234"
+        "/install-all.sh | sh\n"
+    )
+
+    rewritten, count = pin.repinned(content, _SHA, is_current=_never)
+
+    assert (count, pin.all_shas(rewritten)) == (1, [_SHA])
+
+
+def test_profile_pin_ignores_other_repositories() -> None:
+    content = "https://raw.githubusercontent.com/punt-labs/other/abc1234/install-all.sh"
+
+    assert ShaPin.profile().all_shas(content) == []
+
+
+def test_repinned_leaves_current_pins_alone_and_still_counts_them() -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = 'curl "$GH/proj/aaaaaaa/install.sh"\ncurl "$GH/proj/bbbbbbb/install.sh"\n'
+
+    rewritten, count = pin.repinned(
+        content, _SHA, is_current=lambda pinned: pinned == "aaaaaaa"
+    )
+
+    assert count == 2
+    assert pin.all_shas(rewritten) == ["aaaaaaa", _SHA]
+
+
+@pytest.mark.parametrize("tail", [".bak", "-old", ".sh", "x", "_2"])
+def test_a_longer_install_sh_filename_is_not_the_pin(tail: str) -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = f'curl "$GH/proj/abc1234/install.sh{tail}"\n'
+
+    assert pin.repinned(content, _SHA, is_current=_never) == (content, 0)
+    assert pin.all_shas(content) == []
+
+
+@pytest.mark.parametrize("tail", [".bak", "-old", "x"])
+def test_a_longer_install_all_filename_is_not_the_profile_pin(tail: str) -> None:
+    pin = ShaPin.profile()
+    content = f"punt-labs/.github/abc1234/install-all.sh{tail}\n"
+
+    assert pin.repinned(content, _SHA, is_current=_never) == (content, 0)
+    assert pin.all_shas(content) == []
+
+
+@pytest.mark.parametrize("end", ['"', " ", ".", "\n", ")", ""])
+def test_a_filename_that_ends_at_punctuation_or_the_end_is_still_the_pin(
+    end: str,
+) -> None:
+    entry = ShaPin.install_all_entry("proj")
+    profile = ShaPin.profile()
+
+    assert entry.all_shas(f"$GH/proj/abc1234/install.sh{end}") == ["abc1234"]
+    assert profile.all_shas(f"punt-labs/.github/abc1234/install-all.sh{end}") == [
+        "abc1234"
+    ]

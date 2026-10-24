@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.phases.shared import timeouts
@@ -17,20 +16,6 @@ if TYPE_CHECKING:
 # Must stay in sync with the propagator classes in phase10_propagate.py.
 PROPAGATION_SIBLINGS: tuple[str, ...] = ("claude-plugins", ".github", "public-website")
 
-# Recorded whenever the .github sibling does not resolve — by Phase 10a
-# (propagation) and by both Phase 11 checks (install-all.sh, profile SHA). One
-# shared template, worded to cover both the propagation-skip and the verify-skip,
-# so SkipRecorder deduplicates every phase's notice into a SINGLE recap line for
-# the common meta-repo case where .github is absent for the whole run. The repo
-# and version make the interpolated message identical across phases within one
-# release (one release, one project — so dedup still collapses them).
-GITHUB_ABSENT_SKIP = (
-    "SKIPPED — manual action required: the .github sibling did not resolve, so "
-    "the org install-all.sh SHA and profile README were neither propagated nor "
-    "verified for {name} v{ver}. Update ../.github/install-all.sh and "
-    "../.github/profile/README.md manually."
-)
-
 # Files each sibling's propagation writes. SiblingRegistry.reset_all uses this
 # map to reconcile a sibling left dirty by an interrupted phase 10 — the
 # propagation writes the file, then calls into PrMerger.merge_in_sibling which
@@ -44,57 +29,6 @@ PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
     "claude-plugins": (".claude-plugin/marketplace.json",),
     "public-website": ("src/data/projects.json",),
 }
-
-
-@final
-class SkipRecorder:
-    """Thread-safe log of propagation/verification steps skipped mid-release.
-
-    Phase 10 propagates to siblings concurrently, so a warning printed from a
-    worker thread can scroll past among interleaved output; and Phase 11 no
-    longer hard-fails when a sibling is absent, so nothing downstream re-raises
-    the condition. Each recorded skip is surfaced immediately as a loud warning
-    and retained so the pipeline's summary can recap every outstanding manual
-    action at the end of the run, whichever phase skipped.
-    """
-
-    __slots__ = ("_lock", "_notices", "_ops")
-
-    _lock: threading.Lock
-    _notices: list[str]
-    _ops: ReleaseOps
-
-    def __new__(cls, *, ops: ReleaseOps) -> Self:
-        self = super().__new__(cls)
-        self._lock = threading.Lock()
-        self._notices = []
-        self._ops = ops
-        return self
-
-    def record(self, message: str) -> None:
-        """Retain a skip notice and surface it immediately as a warning.
-
-        Deduplicates: a message already recorded is neither stored again nor
-        re-warned, so two phases reporting the same absent sibling collapse to
-        one recap line and one inline warning.
-        """
-        with self._lock:
-            if message in self._notices:
-                return
-            self._notices.append(message)
-        self._ops.warn(message)
-
-    def drain(self) -> tuple[str, ...]:
-        """Return every retained notice and clear the log."""
-        with self._lock:
-            notices = tuple(self._notices)
-            self._notices.clear()
-        return notices
-
-    def clear(self) -> None:
-        """Discard retained notices without surfacing them."""
-        with self._lock:
-            self._notices.clear()
 
 
 @final
@@ -142,7 +76,7 @@ class SiblingRepo:
         )
         if branch_result.returncode != 0:
             # A sibling checkout is far less controlled than the project's
-            # own repo (§ pkit-f85t.7) — a git command failing here (a
+            # own repo — a git command failing here (a
             # corrupted checkout, a detached/unborn HEAD in some git
             # versions) must raise a diagnosed ReleaseError, not a raw
             # CalledProcessError with no indication which sibling or which
@@ -152,6 +86,11 @@ class SiblingRepo:
                 f"{branch_result.stderr.strip()}"
             )
         branch = branch_result.stdout.strip()
+        if not branch:
+            # --show-current prints nothing on a detached HEAD.
+            self._ops.fail(
+                f"Sibling {self._name} has a detached HEAD, expected branch main"
+            )
         if branch != "main":
             self._ops.fail(
                 f"Sibling {self._name} is on branch '{branch}', expected main"
@@ -167,9 +106,9 @@ class SiblingRepo:
                 f"Sibling {self._name}: git status --porcelain failed:\n"
                 f"{status_result.stderr.strip()}"
             )
-        status = status_result.stdout.strip()
+        # No strip(): a leading " M" space is significant to ln[3:].
         dirty_lines: list[str] = []
-        for ln in status.splitlines():
+        for ln in status_result.stdout.splitlines():
             if ln.startswith("?? "):
                 continue
             file_path = ln[3:] if len(ln) > 3 else ""

@@ -3,28 +3,35 @@
 from __future__ import annotations
 
 import importlib.resources
-import json
 import re
 import shutil
 import subprocess
-import tomllib
+from functools import partial
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 from rich.console import Console
+from rich.markup import escape
 
+from punt_kit.audit_github import GithubSettingsAudit
+from punt_kit.audit_permissions import PermissionsAudit
+from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
 from punt_kit.detect import ProjectInfo, detect
-from punt_kit.init import build_standard_deny_rules, build_standard_permissions
-from punt_kit.permission_rules import RuleSet, Tier
+from punt_kit.git_checkout import GitCheckout
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.install_urls import InstallUrl, InstallUrlRecognizer
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 console = Console()
 
-TEMPLATES = importlib.resources.files("punt_kit") / "templates"
+# One audit finding: (status, label, detail).
+type _Findings = list[tuple[str, str, str]]
 
-PASS = "[green]✓[/green]"
-FAIL = "[red]✗[/red]"
-FIXED = "[yellow]⚡[/yellow]"
-INFO = "[dim]○[/dim]"
+TEMPLATES = importlib.resources.files("punt_kit") / "templates"
 
 
 def run_audit(path: str, *, fix: bool = False) -> None:
@@ -37,7 +44,13 @@ def run_audit(path: str, *, fix: bool = False) -> None:
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
-    info = detect(root)
+    try:
+        info = detect(root)
+    except ReleaseError as exc:
+        console.print(f"\n[bold]punt audit[/bold] — {root.name}")
+        console.print(f"  {FAIL} Project files are readable")
+        console.print(f"      [dim]{escape(str(exc))}[/dim]")
+        raise SystemExit(1) from exc
 
     mode = "[bold]punt audit --fix[/bold]" if fix else "[bold]punt audit[/bold]"
     console.print(f"\n{mode} — {root.name}")
@@ -45,23 +58,24 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     ptype = info.project_type or "unknown"
     console.print(f"  Language: {lang}  Type: {ptype}\n")
 
-    results: list[tuple[str, str, str]] = []
-
-    results.extend(_check_ci(info))
-    results.extend(_check_tool_config(info))
-    results.extend(_check_markdownlint(info, fix=fix))
-    results.extend(_check_markdownlint_content(info))
-    results.extend(_check_py_typed(info, fix=fix))
-    results.extend(_check_changelog(info, fix=fix))
-    results.extend(_check_beads(info))
-    results.extend(_check_claude_md(info))
-    results.extend(_check_permissions(info))
-    results.extend(_check_makefile(info))
-    results.extend(_check_plugin_dev_isolation(info))
-    results.extend(_check_install_sh(info))
-    results.extend(_check_readme_sha_pins(info))
-    results.extend(_check_plugin_version_sync(info))
-    results.extend(_check_github_settings(info))
+    checks: tuple[Callable[[], _Findings], ...] = (
+        partial(_check_ci, info),
+        partial(_check_tool_config, info),
+        partial(_check_markdownlint, info, fix=fix),
+        partial(_check_markdownlint_content, info),
+        partial(_check_py_typed, info, fix=fix),
+        partial(_check_changelog, info, fix=fix),
+        partial(_check_beads, info),
+        partial(_check_claude_md, info),
+        PermissionsAudit(info).findings,
+        partial(_check_makefile, info),
+        partial(_check_plugin_dev_isolation, info),
+        partial(_check_install_sh, info),
+        partial(_check_readme_sha_pins, info),
+        partial(_check_plugin_version_sync, info),
+        GithubSettingsAudit(info.root).findings,
+    )
+    results = [finding for check in checks for finding in _guarded(check)]
 
     # Print results
     passes = 0
@@ -85,6 +99,18 @@ def run_audit(path: str, *, fix: bool = False) -> None:
 
     if failures > 0:
         raise SystemExit(1)
+
+
+def _guarded(check: Callable[[], _Findings]) -> _Findings:
+    """Run one check; a file it cannot read becomes a FAIL naming the file.
+
+    Without this one unreadable file would abort the audit and discard every
+    finding the other checks had already produced.
+    """
+    try:
+        return check()
+    except ReleaseError as exc:
+        return [(FAIL, "Project files are readable", escape(str(exc)))]
 
 
 def _check_ci(info: ProjectInfo) -> list[tuple[str, str, str]]:
@@ -156,10 +182,10 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
         results.append((FAIL, "pyproject.toml exists", "Missing"))
         return results
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
+    data = TextFile(pyproject_path).toml()
 
-    tool = data.get("tool", {})
+    tool_raw = data.get("tool")
+    tool = cast("dict[str, object]", tool_raw) if isinstance(tool_raw, dict) else {}
 
     ruff = tool.get("ruff")
     results.append(
@@ -190,7 +216,12 @@ def _check_tool_config(info: ProjectInfo) -> list[tuple[str, str, str]]:
         )
     )
 
-    pytest_cfg = tool.get("pytest", {}).get("ini_options")
+    pytest_raw = tool.get("pytest")
+    pytest_cfg = (
+        cast("dict[str, object]", pytest_raw).get("ini_options")
+        if isinstance(pytest_raw, dict)
+        else None
+    )
     results.append(
         (
             PASS if pytest_cfg else FAIL,
@@ -324,12 +355,11 @@ def _check_changelog(info: ProjectInfo, *, fix: bool) -> list[tuple[str, str, st
 
     if fix:
         project_name = _get_project_name(info)
-        changelog.write_text(
+        TextFile(changelog).write(
             f"# Changelog\n\nAll notable changes to {project_name} "
             "will be documented in this file.\n\n"
             "The format is based on "
-            "[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n",
-            encoding="utf-8",
+            "[Keep a Changelog](https://keepachangelog.com/en/1.1.0/).\n"
         )
         return [(FIXED, "CHANGELOG.md created", "")]
 
@@ -358,406 +388,6 @@ def _check_claude_md(info: ProjectInfo) -> list[tuple[str, str, str]]:
     ]
 
 
-def _check_github_settings(info: ProjectInfo) -> list[tuple[str, str, str]]:
-    """Check GitHub repo settings via gh API. Falls back gracefully."""
-    results: list[tuple[str, str, str]] = []
-
-    gh = shutil.which("gh")
-    if gh is None:
-        results.append(
-            (
-                INFO,
-                "GitHub settings (gh CLI not available)",
-                "Install gh to check remote settings",
-            )
-        )
-        return results
-
-    # Detect repo from git remote — verify we're in a git repo rooted here
-    try:
-        git_root = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(info.root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if (
-            git_root.returncode != 0
-            or Path(git_root.stdout.strip()).resolve() != info.root.resolve()
-        ):
-            results.append((INFO, "GitHub settings (no git repo at root)", ""))
-            return results
-    except (subprocess.TimeoutExpired, OSError):
-        results.append((INFO, "GitHub settings (no git repo at root)", ""))
-        return results
-
-    repo = _get_github_repo(info.root)
-    if repo is None:
-        results.append((INFO, "GitHub settings (no remote detected)", ""))
-        return results
-
-    # Check branch protection via rulesets API (not legacy branch protection)
-    results.extend(_check_rulesets(gh, repo))
-
-    # Check Dependabot / vulnerability alerts
-    try:
-        result = subprocess.run(
-            [gh, "api", f"repos/{repo}/vulnerability-alerts", "--include", "-X", "GET"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        # 204 means enabled, 404 means disabled
-        enabled = "204" in (result.stderr + result.stdout) or result.returncode == 0
-        results.append(
-            (
-                PASS if enabled else FAIL,
-                "Dependabot vulnerability alerts",
-                "Enabled" if enabled else "Not enabled",
-            )
-        )
-    except (subprocess.TimeoutExpired, OSError):
-        results.append((INFO, "Dependabot alerts (could not check)", ""))
-
-    return results
-
-
-def _check_rulesets(gh: str, repo: str) -> list[tuple[str, str, str]]:
-    """Check branch protection rulesets for the main branch."""
-    results: list[tuple[str, str, str]] = []
-
-    try:
-        result = subprocess.run(
-            [gh, "api", f"repos/{repo}/rulesets"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            results.append(
-                (FAIL, "Branch protection ruleset exists", "No rulesets or no access")
-            )
-            return results
-
-        rulesets = json.loads(result.stdout)
-        if not isinstance(rulesets, list) or not rulesets:
-            results.append(
-                (FAIL, "Branch protection ruleset exists", "No rulesets configured")
-            )
-            return results
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        results.append((INFO, "Branch protection (could not check)", ""))
-        return results
-
-    # Find the ruleset named "Protect main" (org convention)
-    main_ruleset_id: int | None = None
-    for rs_raw in cast("list[object]", rulesets):
-        if not isinstance(rs_raw, dict):
-            continue
-        rs = cast("dict[str, object]", rs_raw)
-        rs_id = rs.get("id")
-        rs_name = rs.get("name", "")
-        if isinstance(rs_id, int) and rs_name == "Protect main":
-            main_ruleset_id = rs_id
-            break
-    # Fallback: pick first ruleset with a valid id
-    if main_ruleset_id is None:
-        for rs_raw in cast("list[object]", rulesets):
-            if not isinstance(rs_raw, dict):
-                continue
-            rs = cast("dict[str, object]", rs_raw)
-            rs_id = rs.get("id")
-            if isinstance(rs_id, int):
-                main_ruleset_id = rs_id
-                break
-
-    if main_ruleset_id is None:
-        results.append((FAIL, "Branch protection ruleset exists", "No ruleset found"))
-        return results
-
-    # Fetch full ruleset details
-    try:
-        detail_result = subprocess.run(
-            [gh, "api", f"repos/{repo}/rulesets/{main_ruleset_id}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if detail_result.returncode != 0:
-            results.append((INFO, "Branch protection (could not read ruleset)", ""))
-            return results
-
-        ruleset_raw = json.loads(detail_result.stdout)
-        if not isinstance(ruleset_raw, dict):
-            results.append((INFO, "Branch protection (unexpected response)", ""))
-            return results
-        ruleset = cast("dict[str, object]", ruleset_raw)
-    except (subprocess.TimeoutExpired, json.JSONDecodeError, OSError):
-        results.append((INFO, "Branch protection (could not read ruleset)", ""))
-        return results
-
-    results.append((PASS, "Branch protection ruleset exists", ""))
-
-    # Check: no bypass actors
-    bypass_raw = ruleset.get("bypass_actors", [])
-    bypass_actors: list[object] = (
-        cast("list[object]", bypass_raw) if isinstance(bypass_raw, list) else []
-    )
-    if len(bypass_actors) == 0:
-        results.append((PASS, "Ruleset: zero bypass actors", ""))
-    else:
-        results.append(
-            (
-                FAIL,
-                "Ruleset: zero bypass actors",
-                f"{len(bypass_actors)} bypass actor(s) configured",
-            )
-        )
-
-    # Check rules
-    rules_raw = ruleset.get("rules", [])
-    rules_list: list[object] = (
-        cast("list[object]", rules_raw) if isinstance(rules_raw, list) else []
-    )
-    rules: list[dict[str, object]] = [
-        cast("dict[str, object]", r) for r in rules_list if isinstance(r, dict)
-    ]
-
-    rule_types: set[object] = {r.get("type") for r in rules}
-
-    # Check: pull_request rule exists
-    has_pr = "pull_request" in rule_types
-    results.append(
-        (
-            PASS if has_pr else FAIL,
-            "Ruleset: PR required",
-            "" if has_pr else "No pull_request rule",
-        )
-    )
-
-    # Check: conversation resolution required
-    thread_resolution = False
-    for rule in rules:
-        if rule.get("type") == "pull_request":
-            params_raw = rule.get("parameters", {})
-            if isinstance(params_raw, dict):
-                params = cast("dict[str, object]", params_raw)
-                thread_resolution = bool(
-                    params.get("required_review_thread_resolution")
-                )
-    results.append(
-        (
-            PASS if thread_resolution else FAIL,
-            "Ruleset: conversation resolution required",
-            "" if thread_resolution else "required_review_thread_resolution is false",
-        )
-    )
-
-    # Check: deletion and non_fast_forward rules
-    has_deletion = "deletion" in rule_types
-    has_no_ff = "non_fast_forward" in rule_types
-    results.append(
-        (
-            PASS if has_deletion else FAIL,
-            "Ruleset: branch deletion blocked",
-            "" if has_deletion else "No deletion rule",
-        )
-    )
-    results.append(
-        (
-            PASS if has_no_ff else FAIL,
-            "Ruleset: force push blocked",
-            "" if has_no_ff else "No non_fast_forward rule",
-        )
-    )
-
-    return results
-
-
-def _check_permissions(info: ProjectInfo) -> list[tuple[str, str, str]]:
-    """Check .claude/settings.json has standard permissions for this project type."""
-    results: list[tuple[str, str, str]] = []
-    settings_path = info.root / ".claude" / "settings.json"
-
-    if not settings_path.exists():
-        results.append(
-            (
-                FAIL,
-                ".claude/settings.json exists",
-                "Missing — run punt init",
-            )
-        )
-        return results
-
-    results.append((PASS, ".claude/settings.json exists", ""))
-
-    try:
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        results.append((FAIL, "settings.json is valid JSON", "Parse error"))
-        return results
-
-    if not isinstance(data, dict):
-        results.append((FAIL, "settings.json is valid JSON", "Expected object"))
-        return results
-
-    typed_data = cast("dict[str, object]", data)
-
-    perms_raw = typed_data.get("permissions")
-    if not isinstance(perms_raw, dict):
-        results.append((FAIL, "Standard permissions present", "No permissions key"))
-        return results
-
-    perms = cast("dict[str, object]", perms_raw)
-    results.append(_check_dead_permission_rules(info, perms))
-
-    allow_raw = perms.get("allow")
-    if not isinstance(allow_raw, list):
-        results.append((FAIL, "Standard permissions present", "Missing allow array"))
-        return results
-
-    allow_strs = [str(x) for x in cast("list[object]", allow_raw)]
-
-    standard = build_standard_permissions(info)
-    missing = [p for p in standard if p not in allow_strs]
-
-    if missing:
-        results.append(
-            (
-                FAIL,
-                "Standard allow rules present",
-                f"Missing {len(missing)}: {', '.join(missing[:5])}"
-                + ("..." if len(missing) > 5 else ""),
-            )
-        )
-    else:
-        results.append(
-            (PASS, "Standard allow rules present", f"{len(standard)} standard entries")
-        )
-
-    # Check deny rules
-    deny_raw = perms.get("deny")
-    if not isinstance(deny_raw, list):
-        results.append(
-            (
-                FAIL,
-                "Standard deny rules present",
-                "Missing permissions.deny — run punt init",
-            )
-        )
-        return results
-
-    deny_strs = [str(x) for x in cast("list[object]", deny_raw)]
-    standard_deny = build_standard_deny_rules()
-    missing_deny = [r for r in standard_deny if r not in deny_strs]
-
-    if missing_deny:
-        results.append(
-            (
-                FAIL,
-                "Standard deny rules present",
-                f"Missing {len(missing_deny)}: {', '.join(missing_deny[:5])}"
-                + ("..." if len(missing_deny) > 5 else ""),
-            )
-        )
-    else:
-        results.append(
-            (
-                PASS,
-                "Standard deny rules present",
-                f"{len(standard_deny)} standard entries",
-            )
-        )
-
-    return results
-
-
-def _dead_rules_in(perms: dict[str, object]) -> tuple[list[str], list[str]]:
-    """Dead rules in a permissions block, split by whether init can fix them.
-
-    ``punt init`` skips a tier holding a non-string entry rather than coerce it
-    to its repr, so dead rules in such a tier need a hand edit. Reporting them
-    all as "run punt init" would send the user round a loop that never
-    converges.
-    """
-    fixable: list[str] = []
-    manual: list[str] = []
-    for tier in Tier:
-        raw = perms.get(tier.value)
-        if not isinstance(raw, list):
-            continue
-        entries = cast("list[object]", raw)
-        texts = [str(x) for x in entries]
-        dead = [str(rule) for rule in RuleSet.from_strings(texts).dead]
-        if not dead:
-            continue
-        if all(isinstance(x, str) for x in entries):
-            fixable.extend(dead)
-        else:
-            manual.extend(dead)
-    return fixable, manual
-
-
-def _dead_rules_in_settings_local(info: ProjectInfo) -> tuple[list[str], list[str]]:
-    """Dead rules in the gitignored local settings file.
-
-    Claude Code warns for this file exactly as it does for the checked-in one,
-    so the audit has to read both or it reports clean while the developer sees
-    warnings every session.
-    """
-    settings_path = info.root / ".claude" / "settings.local.json"
-    if not settings_path.exists():
-        return ([], [])
-
-    try:
-        raw = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return ([], [])
-    if not isinstance(raw, dict):
-        return ([], [])
-
-    perms_raw = cast("dict[str, object]", raw).get("permissions")
-    if not isinstance(perms_raw, dict):
-        return ([], [])
-
-    return _dead_rules_in(cast("dict[str, object]", perms_raw))
-
-
-def _dead_rule_remedy(fixable: list[str], manual: list[str]) -> str:
-    """The advice that actually resolves the reported rules."""
-    if not manual:
-        return " — run punt init"
-    if not fixable:
-        return " — edit by hand: the tier holds a non-string entry, so init skips it"
-    return (
-        f" — run punt init; {len(manual)} sit in a tier with a non-string"
-        " entry and need a hand edit"
-    )
-
-
-def _check_dead_permission_rules(
-    info: ProjectInfo, perms: dict[str, object]
-) -> tuple[str, str, str]:
-    """Flag path rules Claude Code never matches (permissions.md §1)."""
-    settings_fixable, settings_manual = _dead_rules_in(perms)
-    local_fixable, local_manual = _dead_rules_in_settings_local(info)
-    fixable = settings_fixable + local_fixable
-    manual = settings_manual + local_manual
-    dead = fixable + manual
-
-    if not dead:
-        return (PASS, "No unmatched path rules", "Edit(path) / Read(path) only")
-
-    return (
-        FAIL,
-        "No unmatched path rules",
-        f"{len(dead)} never match: {', '.join(dead[:5])}"
-        + ("..." if len(dead) > 5 else "")
-        + _dead_rule_remedy(fixable, manual),
-    )
-
-
 _REQUIRED_MAKE_TARGETS = {"help", "test", "lint", "check", "format"}
 
 
@@ -775,7 +405,7 @@ def _check_makefile(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
     results.append((PASS, "Makefile exists", ""))
 
-    content = makefile.read_text(encoding="utf-8")
+    content = TextFile(makefile).read()
 
     # Check required targets — look for "target:" at line start
     target_re = re.compile(r"^([a-zA-Z_-]+)\s*:", re.MULTILINE)
@@ -851,19 +481,7 @@ def _check_plugin_dev_isolation(
             )
         )
 
-    # Check plugin name has -dev suffix
-    plugin_name = _read_plugin_field(info, "name")
-    if plugin_name is not None:
-        if plugin_name.endswith("-dev"):
-            results.append((PASS, "Plugin name has -dev suffix", plugin_name))
-        else:
-            results.append(
-                (
-                    FAIL,
-                    "Plugin name has -dev suffix",
-                    f"'{plugin_name}' — should be '{plugin_name}-dev'",
-                )
-            )
+    results.extend(_check_plugin_dev_suffix(info))
 
     # Check release/restore scripts exist. Required of hybrid projects only:
     # plugins.md "Release flow for pure plugins" states a pure plugin may lack
@@ -941,6 +559,25 @@ def _check_plugin_dev_isolation(
     return results
 
 
+def _check_plugin_dev_suffix(info: ProjectInfo) -> list[tuple[str, str, str]]:
+    """Check the working tree's plugin name carries the ``-dev`` suffix."""
+    try:
+        plugin_name = _read_plugin_field(info, "name")
+    except ReleaseError as exc:
+        return [(FAIL, "Plugin manifest is readable", escape(str(exc)))]
+    if plugin_name is None:
+        return []
+    if plugin_name.endswith("-dev"):
+        return [(PASS, "Plugin name has -dev suffix", plugin_name)]
+    return [
+        (
+            FAIL,
+            "Plugin name has -dev suffix",
+            f"'{plugin_name}' — should be '{plugin_name}-dev'",
+        )
+    ]
+
+
 def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
     """Check that hybrid projects have a compliant install.sh."""
     if not info.is_hybrid:
@@ -957,7 +594,7 @@ def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
     results.append((PASS, "install.sh exists", ""))
 
-    content = install_sh.read_text(encoding="utf-8")
+    content = TextFile(install_sh).read()
 
     if "set -eu" in content:
         results.append((PASS, "install.sh has strict mode", "set -eu"))
@@ -992,37 +629,51 @@ def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
     return results
 
 
-_RAW_GH_URL_RE = re.compile(r"raw\.githubusercontent\.com/punt-labs/[^/]+/([^/]+)/")
-
-
 def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
-    """Check that README.md raw GitHub URLs use SHA pins, not branch names."""
+    """Check that README's install URLs for this repository are SHA pins.
+
+    Pins are recognized by ``InstallUrlRecognizer`` under the project's own
+    ``owner/repo`` (from its origin remote), the same definition the release
+    writes and verifies with: another tool's install one-liner is not this
+    project's pin, and a URL naming this repository on a different host is
+    reported rather than ignored.
+    """
     readme = info.root / "README.md"
     if not readme.exists():
         return []
 
-    content = readme.read_text(encoding="utf-8")
-    matches = _RAW_GH_URL_RE.findall(content)
-    if not matches:
+    content = TextFile(readme).read()
+    # The recognizer ignores case, so the cheap pre-filter must too.
+    lowered = content.lower()
+    if "install.sh" not in lowered and "raw.githubusercontent.com" not in lowered:
         return []
+    try:
+        slug = GitCheckout(info.root).github_slug()
+    except ValueError as exc:
+        return [(INFO, "README install URL pins (not checked)", str(exc))]
 
-    bad_refs: list[str] = []
-    for ref in matches:
-        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", ref):
-            bad_refs.append(ref)
+    refs = InstallUrlRecognizer.for_slug(slug).scan(content)
+    if not refs:
+        return []
+    label = "README raw GitHub URLs use SHA pins"
+    problems = _readme_pin_problems(refs, slug)
+    if problems:
+        return [(FAIL, label, "; ".join(problems))]
+    return [(PASS, label, f"{len(refs)} URL(s) checked")]
 
-    if bad_refs:
-        return [
-            (
-                FAIL,
-                "README raw GitHub URLs use SHA pins",
-                f"Branch refs found: {', '.join(sorted(set(bad_refs)))}",
-            )
-        ]
 
-    return [
-        (PASS, "README raw GitHub URLs use SHA pins", f"{len(matches)} URL(s) checked")
-    ]
+def _readme_pin_problems(refs: list[InstallUrl], slug: str) -> list[str]:
+    """What is wrong with the install URLs ``refs``, one phrase per kind of problem."""
+    problems: list[str] = []
+    branches = sorted({r.segment for r in refs if r.is_trusted and not r.is_sha_pin})
+    if branches:
+        problems.append(f"Branch or tag refs found: {', '.join(branches)}")
+    untrusted = sorted({r.url for r in refs if not r.is_trusted})
+    if untrusted:
+        problems.append(
+            f"Not on raw.githubusercontent.com/{slug}: {', '.join(untrusted)}"
+        )
+    return problems
 
 
 def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
@@ -1030,7 +681,10 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not info.is_plugin:
         return []
 
-    plugin_version = _read_plugin_field(info, "version")
+    try:
+        plugin_version = _read_plugin_field(info, "version")
+    except ReleaseError as exc:
+        return [(FAIL, "Plugin manifest is readable", escape(str(exc)))]
     if plugin_version is None:
         return []
 
@@ -1039,8 +693,7 @@ def _check_plugin_version_sync(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not pyproject_path.exists():
         return []
 
-    with open(pyproject_path, "rb") as f:
-        data = tomllib.load(f)
+    data = TextFile(pyproject_path).toml()
 
     project_raw = data.get("project")
     if not isinstance(project_raw, dict):
@@ -1068,14 +721,12 @@ def _read_plugin_field(info: ProjectInfo, field: str) -> str | None:
 
     None when no manifest declares the field — the callers turn that into a
     skipped check, since a plugin that omits a field is a different finding
-    from one whose value is wrong.
+    from one whose value is wrong. A manifest that cannot be read raises
+    :class:`ReleaseError` instead of being skipped, so a broken file is never
+    mistaken for a field it did not declare.
     """
     for pj_path in info.plugin_manifests:
-        try:
-            data = json.loads(pj_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            continue
-        value = data.get(field)
+        value = JsonFile(pj_path).load_object().get(field)
         if isinstance(value, str):
             return value
     return None
@@ -1114,30 +765,3 @@ def _relpath(path: Path, root: Path) -> str:
         return str(path.relative_to(root))
     except ValueError:
         return str(path)
-
-
-def _get_github_repo(root: Path) -> str | None:
-    """Extract GitHub owner/repo from git remote."""
-    try:
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=str(root),
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return None
-
-        url = result.stdout.strip()
-        # Handle SSH format: git@github.com:owner/repo.git
-        if url.startswith("git@github.com:"):
-            repo = url.removeprefix("git@github.com:").removesuffix(".git")
-            return repo
-        # Handle HTTPS format: https://github.com/owner/repo.git
-        if "github.com/" in url:
-            parts = url.split("github.com/")[1].removesuffix(".git")
-            return parts
-        return None
-    except (subprocess.TimeoutExpired, OSError):
-        return None

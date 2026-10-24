@@ -5,12 +5,15 @@ from __future__ import annotations
 import fnmatch
 import re
 import subprocess
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import cast
 
 from rich.console import Console
+from rich.markup import escape
+
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
 
@@ -63,10 +66,10 @@ _BUILTIN_ALLOW_PATHS: tuple[str, ...] = (
 class PiiConfig:
     """User-configurable PII scanning settings."""
 
-    allow_emails: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    allow_patterns: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    deny: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
-    ignore_files: list[str] = field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
+    allow_emails: list[str] = field(default_factory=list[str])
+    allow_patterns: list[str] = field(default_factory=list[str])
+    deny: list[str] = field(default_factory=list[str])
+    ignore_files: list[str] = field(default_factory=list[str])
 
 
 @dataclass(frozen=True)
@@ -96,8 +99,7 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
     # Try pyproject.toml first
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
-        with open(pyproject, "rb") as f:
-            data = tomllib.load(f)
+        data = TextFile(pyproject).toml()
         pii_section = _drill(data, "tool", "punt", "pii")
         if pii_section is not None:
             return _config_from_dict(pii_section)
@@ -112,8 +114,7 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
 
 def _parse_toml_config(path: Path) -> PiiConfig:
     """Parse a standalone .punt-pii.toml file."""
-    with open(path, "rb") as f:
-        data = tomllib.load(f)
+    data = TextFile(path).toml()
     return _config_from_dict(data)
 
 
@@ -136,14 +137,13 @@ def _str_list(val: object) -> list[str]:
 
 def _drill(data: dict[str, object], *keys: str) -> dict[str, object] | None:
     """Walk nested dicts by key sequence, returning None if any key is missing."""
-    current: object = data
+    current = data
     for key in keys:
-        if not isinstance(current, dict):
+        child = current.get(key)
+        if not isinstance(child, dict):
             return None
-        current = current.get(key)  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-    if isinstance(current, dict):
-        return cast("dict[str, object]", current)
-    return None
+        current = cast("dict[str, object]", child)
+    return current
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +279,11 @@ def run_pii(
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
-    cfg = load_config(root, config)
+    try:
+        cfg = load_config(root, config)
+    except ReleaseError as exc:
+        console.print(f"[red]Error:[/red] {escape(str(exc))}")
+        raise SystemExit(1) from exc
     mode = "--staged" if staged else "all tracked"
     console.print(f"\n[bold]punt pii[/bold] — {root.name} ({mode})")
 

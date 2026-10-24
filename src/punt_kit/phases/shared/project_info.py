@@ -9,9 +9,11 @@ SHA) on top.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import TYPE_CHECKING, Self, cast, final
+
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -71,7 +73,7 @@ class ReleaseProject:
             return self.latest_tag_version()
         if info.pyproject is None:
             if info.is_plugin:
-                data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+                data = cast("dict[str, object]", JsonFile(info.plugin_manifest).load())
                 version = data.get("version")
                 if not isinstance(version, str):
                     self._ops.fail(f"No version in {info.plugin_manifest}")
@@ -130,7 +132,7 @@ class ReleaseProject:
         info = self._info
         if not info.is_plugin:
             return None
-        data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+        data = cast("dict[str, object]", JsonFile(info.plugin_manifest).load())
         name = data.get("name")
         if not isinstance(name, str):
             return None
@@ -153,7 +155,7 @@ class ReleaseProject:
         if info.pyproject is not None:
             return self.package_name()
         if info.is_plugin:
-            data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
+            data = cast("dict[str, object]", JsonFile(info.plugin_manifest).load())
             name = data.get("name")
             if isinstance(name, str):
                 return name.removesuffix("-dev")
@@ -216,7 +218,7 @@ class ReleaseProject:
                 if path in seen or not path.is_file():
                     continue
                 seen.add(path)
-                content = path.read_text(encoding="utf-8")
+                content = TextFile(path).read()
                 new_content = pin_re.sub(_replace, content)
                 if new_content == content:
                     continue
@@ -224,7 +226,7 @@ class ReleaseProject:
                 if dry_run:
                     self._ops.dry(f"{rel}: uvx --from {own_pkg}=={version}")
                 else:
-                    path.write_text(new_content, encoding="utf-8")
+                    TextFile(path).write(new_content)
                     self._ops.ok(f"{rel}: uvx --from {own_pkg}=={version}")
                 changed.append(path)
         return changed

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_kit.detect import detect
+from punt_kit.phases.shared.errors import ReleaseError
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -222,3 +223,45 @@ def test_detect_all_standards_refs(tmp_path: Path) -> None:
 
     assert "github" in info.standards_refs
     assert "workflow" in info.standards_refs
+
+
+def test_detect_reads_a_plugin_manifest_that_starts_with_a_bom(tmp_path: Path) -> None:
+    manifest = tmp_path / ".claude-plugin" / "plugin.json"
+    manifest.parent.mkdir(parents=True)
+    body = '{"name": "x", "mcpServers": {"srv": {}}}\r\n'
+    manifest.write_bytes(("\ufeff" + body).encode())
+
+    info = detect(tmp_path)
+
+    assert info.plugin_mcp_servers == ["srv"]
+
+
+def test_detect_reads_a_pyproject_that_starts_with_a_bom(tmp_path: Path) -> None:
+    body = '[project]\r\nname = "test-pkg"\r\n[project.scripts]\r\ncli = "x:main"\r\n'
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + body).encode())
+
+    info = detect(tmp_path)
+
+    assert (info.language, info.cli_commands) == ("python", ["cli"])
+
+
+def test_detect_reads_package_json_that_starts_with_a_bom(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_bytes('\ufeff{"name": "café"}'.encode())
+
+    info = detect(tmp_path)
+
+    assert (info.language, info.package_json) == ("node", {"name": "café"})
+
+
+def test_detect_fails_on_an_unparseable_plugin_manifest(tmp_path: Path) -> None:
+    _write_manifest(tmp_path, ".claude-plugin", "plugin.json", body="{broken")
+
+    with pytest.raises(ReleaseError, match=r"plugin\.json is not valid JSON"):
+        detect(tmp_path)
+
+
+def test_detect_fails_on_an_unparseable_package_json(tmp_path: Path) -> None:
+    (tmp_path / "package.json").write_text("{broken")
+
+    with pytest.raises(ReleaseError, match=r"package\.json is not valid JSON"):
+        detect(tmp_path)

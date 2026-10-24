@@ -15,7 +15,7 @@ defect #7).
 Two stop mechanisms, per the design's corrected two-path interrupt model
 (§2c): phases that run synchronously on the main thread are stopped with
 a ``KeyboardInterrupt`` whose construction also sets
-``release._interrupted`` — exactly what ``run_release``'s signal handler
+``release.interrupt_event()`` — exactly what ``run_release``'s signal handler
 does atomically on a real Ctrl-C. Phases 9/10 run inside a
 ``ThreadPoolExecutor``, where a real signal's ``KeyboardInterrupt`` can
 never be delivered (signals reach the main thread only), so injecting one
@@ -38,23 +38,13 @@ from typing import TYPE_CHECKING, ClassVar, cast, final
 import pytest
 
 from punt_kit import release
+from punt_kit.phases.shared.command_runner import CommandRunner
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.timeouts import DEFAULT_RUN
-from punt_kit.release import (
-    ReleaseError,
-    _run,  # pyright: ignore[reportPrivateUsage]
-    run_release,
-)
+from punt_kit.release import run_release
+from tests import helpers
 from tests.harness.fault_ops import CompletedProcessSpec, FaultInjectingOps, FaultRule
-
-# Shared scaffolding from the main release-test module — private there by
-# test-helper convention, deliberately reused here rather than duplicated.
-from tests.test_release import (
-    _fake_get_github_repo,  # pyright: ignore[reportPrivateUsage]
-    _git,  # pyright: ignore[reportPrivateUsage]
-    _git_out,  # pyright: ignore[reportPrivateUsage]
-    _make_release_project,  # pyright: ignore[reportPrivateUsage]
-    _make_sibling,  # pyright: ignore[reportPrivateUsage]
-)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -68,16 +58,16 @@ _TAG = "v0.2.0"
 def isolate_release_state() -> Iterator[None]:
     """Clear release.py's module-scoped state around every sweep case.
 
-    ``release._skips`` and ``release._interrupted`` persist for the
+    ``release.skip_recorder()`` and ``release.interrupt_event()`` persist for the
     process; the fresh-run half of every case deliberately sets the
     interrupt event (or records skips), which must not leak into the next
     case — or into unrelated tests collected after this module.
     """
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.skip_recorder().clear()
+    release.interrupt_event().clear()
     yield
-    release._skips.clear()  # pyright: ignore[reportPrivateUsage]
-    release._interrupted.clear()  # pyright: ignore[reportPrivateUsage]
+    release.skip_recorder().clear()
+    release.interrupt_event().clear()
 
 
 @final
@@ -85,7 +75,7 @@ class _SignalInterrupt(KeyboardInterrupt):
     """A ``KeyboardInterrupt`` that models ``run_release``'s signal handler.
 
     The real SIGINT handler does two things atomically: it sets
-    ``release._interrupted`` and raises ``KeyboardInterrupt``. A
+    ``release.interrupt_event()`` and raises ``KeyboardInterrupt``. A
     ``FaultRule(raises=...)`` given this *type* (not an instance)
     reproduces both, because ``raise <class>`` instantiates the class at
     the raise site — ``__new__`` sets the event, then the raise proceeds
@@ -94,7 +84,7 @@ class _SignalInterrupt(KeyboardInterrupt):
     """
 
     def __new__(cls, *args: object) -> Self:
-        release._interrupted.set()  # pyright: ignore[reportPrivateUsage]
+        release.interrupt_event().set()
         return super().__new__(cls, *args)
 
 
@@ -173,7 +163,9 @@ class _GithubSim:
     ) -> subprocess.CompletedProcess[str]:
         name = Path(cmd[0]).name
         if name == "git":
-            return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+            return CommandRunner.run(
+                cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+            )
         if cwd is None:
             raise AssertionError(f"emulated command needs a cwd: {cmd!r}")
         if name == "gh" and cmd[1:3] == ["pr", "list"]:
@@ -237,17 +229,19 @@ class _GithubSim:
         number = int(cmd[3])
         with self._lock:
             record = self._prs[number]
-        _run(["git", "checkout", "main"], cwd=cwd)
-        _run(["git", "merge", "--squash", record.branch], cwd=cwd)
+        CommandRunner.run(["git", "checkout", "main"], cwd=cwd)
+        CommandRunner.run(["git", "merge", "--squash", record.branch], cwd=cwd)
         # Matches real `gh pr merge --squash` (no --subject override): the
         # commit subject defaults to the PR title plus " (#<number>)".
-        _run(
+        CommandRunner.run(
             ["git", "commit", "-m", f"{record.title} (#{number})"],
             cwd=cwd,
         )
-        merge_sha = _run(["git", "rev-parse", "HEAD"], cwd=cwd).stdout.strip()
+        merge_sha = CommandRunner.run(
+            ["git", "rev-parse", "HEAD"], cwd=cwd
+        ).stdout.strip()
         # --delete-branch: gh removes the head branch after the merge.
-        _run(["git", "branch", "-D", record.branch], cwd=cwd)
+        CommandRunner.run(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
             record.state = "MERGED"
             record.merge_sha = merge_sha
@@ -255,7 +249,9 @@ class _GithubSim:
 
     def _run_list(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
         tag = self._flag(cmd, "--branch")
-        sha = _run(["git", "rev-parse", f"{tag}^{{commit}}"], cwd=cwd).stdout.strip()
+        sha = CommandRunner.run(
+            ["git", "rev-parse", f"{tag}^{{commit}}"], cwd=cwd
+        ).stdout.strip()
         runs: list[dict[str, object]] = [
             {
                 "databaseId": 1,
@@ -382,21 +378,21 @@ def _sweep_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     plugin-swap scripts while still exercising the full PR-merge machinery
     twice — the release PR on the project and the propagation PR on the
     sibling. The origin is rewritten to a github.com URL *after* a final
-    local fetch, so ``GithubRepo.resolve`` yields ``punt-labs/proj`` (the
+    local fetch, so ``GithubRepo.slug_text`` yields ``punt-labs/proj`` (the
     propagators and thread resolver require a resolvable slug) while
     ``refs/remotes/origin/main`` already equals HEAD for preflight's
     up-to-date diff; every command that would then touch that remote for
     real is scripted in ``_scripted_release_rules``.
     """
-    root = _make_release_project(tmp_path)
+    root = helpers.make_release_project(tmp_path)
     shutil.rmtree(root / ".claude-plugin")
-    _git(["add", "-A"], cwd=str(root))
-    _git(["commit", "-m", "drop plugin surface"], cwd=str(root))
+    helpers.git(["add", "-A"], cwd=str(root))
+    helpers.git(["commit", "-m", "drop plugin surface"], cwd=str(root))
     # Origin still points at the repo itself here — this refresh pins
     # refs/remotes/origin/main to the commit above before the URL rewrite
     # makes real fetches impossible.
-    _git(["fetch", "origin"], cwd=str(root))
-    _git(
+    helpers.git(["fetch", "origin"], cwd=str(root))
+    helpers.git(
         ["remote", "set-url", "origin", "git@github.com:punt-labs/proj.git"],
         cwd=str(root),
     )
@@ -404,14 +400,14 @@ def _sweep_project(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     projects: list[dict[str, str]] = [
         {"id": "proj", "version": "0.1.0", "githubUrl": ""}
     ]
-    _make_sibling(
+    helpers.make_sibling(
         tmp_path,
         "public-website",
         {"src/data/projects.json": json.dumps(projects, indent=2) + "\n"},
     )
 
     monkeypatch.setattr(shutil, "which", _which_gh_only)
-    monkeypatch.setattr(release, "_get_github_repo", _fake_get_github_repo)
+    monkeypatch.setattr(release, "_get_github_repo", helpers.fake_get_github_repo)
     return root
 
 
@@ -552,14 +548,12 @@ def test_interrupt_during_resumed_version_detection_reports_resume_phase(
 def test_sweep_covers_every_resume_point_exactly_once() -> None:
     """Adding a 12th phase must force a 12th sweep case, and vice versa.
 
-    Compared against the canonical phase order (not ``PHASE_NAMES``, whose
+    Compared against the canonical phase order (not ``PhaseOrder.NUMBERS``, whose
     ``release`` alias maps to the same number as ``release-pr``), so the
     sweep's claim of exhaustiveness is enforced rather than asserted in
     prose.
     """
-    assert [c.resume_from for c in _CASES] == list(
-        release._PHASE_ORDER  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
-    )
+    assert [c.resume_from for c in _CASES] == list(PhaseOrder.ORDER)
 
 
 @pytest.mark.parametrize("case", _CASES, ids=[c.resume_from for c in _CASES])
@@ -598,7 +592,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
         run_release(str(root), version=_VERSION, dry_run=False)
 
     assert stop_exc.value.code == 1
-    assert anchor._consumed == 1  # pyright: ignore[reportPrivateUsage]  # noqa: SLF001
+    assert anchor.consumed == 1
     fresh_out = " ".join(capsys.readouterr().out.split())
     assert "Release incomplete" in fresh_out
     assert f"stopped during phase {case.report_num} ({case.report_name})" in fresh_out
@@ -606,7 +600,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
 
     # The stop landed where scripted: the tag is the run's first
     # irreversible artifact, so its presence cleanly splits the sweep.
-    tag_after_stop = _git_out(["tag", "--list", _TAG], cwd=str(root))
+    tag_after_stop = helpers.git_out(["tag", "--list", _TAG], cwd=str(root))
     assert tag_after_stop == ("" if case.stop_phase <= 5 else _TAG)
 
     _install_release_ops(monkeypatch, _scripted_release_rules())
@@ -625,7 +619,7 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
     # threading regression can't hide behind Phase5Tag's git-history
     # fallback landing on the right commit by the same means it's meant to
     # verify.
-    release_log = _git_out(["log", "--format=%H %s", "main"], cwd=str(root))
+    release_log = helpers.git_out(["log", "--format=%H %s", "main"], cwd=str(root))
     release_sha = next(
         sha
         for sha, _, subject in (
@@ -633,17 +627,22 @@ def test_resume_from_every_phase_completes_a_genuinely_stopped_release(
         )
         if subject.startswith(f"chore: release v{_VERSION}")
     )
-    assert _git_out(["rev-parse", f"{_TAG}^{{commit}}"], cwd=str(root)) == release_sha
+    assert (
+        helpers.git_out(["rev-parse", f"{_TAG}^{{commit}}"], cwd=str(root))
+        == release_sha
+    )
 
     # End state: the release landed the same artifacts a fully clean run
     # produces, whichever phase the stop interrupted.
-    assert _git_out(["branch", "--show-current"], cwd=str(root)) == "main"
+    assert helpers.git_out(["branch", "--show-current"], cwd=str(root)) == "main"
     assert f'version = "{_VERSION}"' in (root / "pyproject.toml").read_text()
-    assert _git_out(["tag", "--list", _TAG], cwd=str(root)) == _TAG
+    assert helpers.git_out(["tag", "--list", _TAG], cwd=str(root)) == _TAG
     merged = cast(
         "list[dict[str, object]]",
-        json.loads(_git_out(["show", "main:src/data/projects.json"], cwd=str(sibling))),
+        json.loads(
+            helpers.git_out(["show", "main:src/data/projects.json"], cwd=str(sibling))
+        ),
     )
     assert merged[0]["version"] == _VERSION
-    assert _git_out(["branch", "--show-current"], cwd=str(sibling)) == "main"
-    assert _git_out(["status", "--porcelain"], cwd=str(sibling)) == ""
+    assert helpers.git_out(["branch", "--show-current"], cwd=str(sibling)) == "main"
+    assert helpers.git_out(["status", "--porcelain"], cwd=str(sibling)) == ""

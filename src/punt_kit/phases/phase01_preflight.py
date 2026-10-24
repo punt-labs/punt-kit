@@ -3,16 +3,16 @@ siblings, and (unless dry-run) quality gates."""
 
 from __future__ import annotations
 
-import json
-import re
 import shlex
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.errors import ReleaseError
+from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.siblings import PROPAGATION_SIBLINGS, SiblingRepo
-from punt_kit.phases.shared.timeouts import GIT_NETWORK, QUALITY_GATE
+from punt_kit.phases.shared.timeouts import GIT_HOOK, QUALITY_GATE
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -103,7 +103,7 @@ class Phase1Preflight:
             ["git", "fetch", "origin"],
             cwd=str(info.root),
             check=False,
-            timeout=GIT_NETWORK,
+            timeout=GIT_HOOK,
         )
         if fetch.returncode != 0:
             ops.fail(f"git fetch origin failed:\n{fetch.stderr.strip()}")
@@ -137,20 +137,11 @@ class Phase1Preflight:
             # A prior release cut outside this flow (a corrective/manual tag)
             # leaves the highest tag's plugin manifest in a shape this
             # release did not produce — warn loudly rather than fail, since
-            # the release under way is exactly how the situation gets fixed
-            # (ethos v4.16.0 is the precedent).
+            # the release under way is exactly how the situation gets fixed.
             self._warn_stale_prior_tag(info)
 
         # 1c. Changelog check
-        changelog = Changelog(info.root, ops=ops).text()
-        if "## [Unreleased]" not in changelog:
-            ops.fail("No [Unreleased] section in CHANGELOG.md")
-
-        unreleased_match = re.search(
-            r"## \[Unreleased\]\s*\n(.*?)(?=\n## \[|\Z)", changelog, re.DOTALL
-        )
-        if not unreleased_match or not unreleased_match.group(1).strip():
-            ops.fail("[Unreleased] section is empty — nothing to release")
+        Changelog(info.root, ops=ops).require_unreleased_entries()
         ops.ok("Changelog has unreleased entries")
 
         # 1d. Sibling repos (propagation targets) must be clean and on main.
@@ -251,12 +242,12 @@ class Phase1Preflight:
         ``untracked_lines`` is folded in whenever non-empty, even in the
         daemon-only case: ``ops.fail`` raises immediately, so a
         daemon-only-dirty message that omits an untracked file would send
-        the operator through a stash only to hit a second, previously
-        invisible failure on the very next run. One failure now reports
-        the whole picture.
+        the operator through a stash only to hit a second, invisible
+        failure on the very next run. One failure reports the
+        whole picture.
 
-        This does not auto-stash — that touches the interrupt/resume
-        paths and is a separate change — and it recommends ``--index`` on
+        This does not auto-stash, because stashing would touch the
+        interrupt/resume paths, and it recommends ``--index`` on
         the pop, because a bare ``git stash pop`` restores file content
         but not staged status, silently turning a staged settings change
         into an unstaged one.
@@ -350,8 +341,9 @@ class Phase1Preflight:
         if show.returncode != 0:
             return
         try:
-            data = cast("dict[str, object]", json.loads(show.stdout))
-        except json.JSONDecodeError:
+            data = JsonFile.parse_object(show.stdout, source=f"{tag}:{manifest_rel}")
+        except ReleaseError as exc:
+            ops.warn(f"Prior tag {tag}'s manifest could not be checked: {exc}")
             return
 
         name = str(data.get("name", ""))
@@ -367,6 +359,5 @@ class Phase1Preflight:
             ops.warn(
                 f"Prior tag {tag}'s {manifest_rel} looks like it was cut "
                 f"outside the release flow: {'; '.join(problems)}. This "
-                "release will correct it (see ethos v4.16.0 for precedent) "
-                "— verify that is what you expect."
+                "release will correct it — verify that is what you expect."
             )

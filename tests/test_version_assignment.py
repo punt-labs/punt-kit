@@ -1,0 +1,360 @@
+"""Tests for the one rule for a quoted version assignment."""
+
+from __future__ import annotations
+
+import pytest
+
+from punt_kit.phases.shared.version_assignment import VersionAssignment
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ('version = "1.2.3"\n', "1.2.3"),
+        ("version = '1.2.3'\n", "1.2.3"),
+        ('__version__: str = "1.2.3"\n', "1.2.3"),
+        ('[project]\nname = "x"\nversion="1.2.3"\n', "1.2.3"),
+    ],
+)
+def test_reads_a_quoted_assignment(text: str, value: str) -> None:
+    name = "__version__" if "__version__" in text else "version"
+
+    assert VersionAssignment(name).read(text) == value
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "version = compute()\n",
+        'project = {version = "1.2.3"}\n',
+        '    version = "1.2.3"\n',
+        'target-version = "py313"\n',
+    ],
+)
+def test_does_not_read_what_is_not_a_line_start_quoted_assignment(text: str) -> None:
+    assert VersionAssignment("version").read(text) is None
+
+
+def test_a_computed_value_is_assigned_but_not_readable() -> None:
+    assignment = VersionAssignment("__version__")
+    text = "__version__ = compute()\n"
+
+    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+
+
+def test_rewriting_keeps_the_quote_style_and_reports_the_count() -> None:
+    assignment = VersionAssignment("version")
+
+    assert assignment.rewritten("version = '1'\n", "2") == ("version = '2'\n", 1)
+    assert assignment.rewritten("version = f()\n", "2") == ("version = f()\n", 0)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'VERSION="1.0"$SUFFIX\n',
+        "VERSION='1'\"$x\"\n",
+        'VERSION="1.0"suffix\n',
+        'VERSION="1.0"#x\n',
+        'typeset VERSION="1.0"$S\n',
+    ],
+)
+def test_a_shell_value_continued_after_its_quote_is_assigned_but_not_plain(
+    text: str,
+) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        'VERSION="1.0"\n',
+        'VERSION="1.0"',
+        'VERSION="1.0" # note\n',
+        'VERSION="1.0"; export VERSION\n',
+        'typeset -r VERSION="1.0"\n',
+    ],
+)
+def test_a_shell_value_ends_at_whitespace_a_semicolon_a_spaced_hash_or_the_end(
+    text: str,
+) -> None:
+    assert VersionAssignment.in_shell("VERSION").read(text) == "1.0"
+
+
+def test_every_shell_assignment_is_listed_in_order() -> None:
+    text = 'VERSION="1.0"\n  VERSION="$(git describe)"\nFOO="1"\nVERSION="2"\n'
+
+    assert VersionAssignment.in_shell("VERSION").assigned_lines(text) == (
+        'VERSION="1.0"',
+        'VERSION="$(git describe)"',
+        'VERSION="2"',
+    )
+
+
+def test_no_shell_assignment_lists_nothing() -> None:
+    assert VersionAssignment.in_shell("VERSION").assigned_lines('FOO="1"\n') == ()
+
+
+def test_every_plain_shell_assignment_is_rewritten() -> None:
+    text = 'VERSION="1"\nif x; then\n  VERSION=\'1\'\nfi\nVERSION="$(f)"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (
+        'VERSION="2"\nif x; then\n  VERSION=\'2\'\nfi\nVERSION="$(f)"\n',
+        2,
+    )
+
+
+def test_a_computed_first_shell_assignment_rewrites_nothing() -> None:
+    text = 'VERSION="$(f)"\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (text, 0)
+
+
+def test_a_shell_value_never_spans_a_newline() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'VERSION=\n"0.1.0"\n'
+
+    assert (assignment.read(text), assignment.rewritten(text, "2")) == (
+        "",
+        (text, 0),
+    )
+
+
+def test_an_unquoted_shell_literal_is_a_readable_pin() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = "VERSION=0.0.9\n"
+
+    assert (assignment.read(text), assignment.values(text)) == ("0.0.9", ("0.0.9",))
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "VERSION=0.1$SUFFIX\n",
+        'VERSION=0.1"x"\n',
+        "VERSION=0.1#x\n",
+        "VERSION=$(git describe)\n",
+        "VERSION=`git describe`\n",
+        "VERSION=0.1\\ 2\n",
+    ],
+)
+def test_a_computed_unquoted_shell_value_is_still_not_plain(text: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+
+
+def test_a_stale_unquoted_pin_after_a_current_quoted_one_is_not_pinned() -> None:
+    text = 'VERSION="0.1.0"\nVERSION=0.0.9\n'
+
+    assert VersionAssignment.in_shell("VERSION").is_pinned_to(text, "0.1.0") is False
+
+
+def test_an_unquoted_pin_is_rewritten_and_stays_unquoted() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'VERSION="0.1.0"\nVERSION=0.0.9 # old\n'
+
+    new, count = assignment.rewritten(text, "0.2.0")
+
+    assert (new, count, assignment.is_pinned_to(new, "0.2.0")) == (
+        'VERSION="0.2.0"\nVERSION=0.2.0 # old\n',
+        2,
+        True,
+    )
+
+
+@pytest.mark.parametrize("empty", ['""', "''"])
+def test_an_empty_shell_reset_is_never_rewritten(empty: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = f'VERSION="0.1.0"\nVERSION={empty}\n'
+
+    assert assignment.rewritten(text, "0.2.0") == (
+        f'VERSION="0.2.0"\nVERSION={empty}\n',
+        1,
+    )
+
+
+def test_an_empty_shell_reset_is_not_a_value_and_does_not_unpin() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'VERSION="0.2.0"\nVERSION=""\n'
+
+    assert (assignment.values(text), assignment.is_pinned_to(text, "0.2.0")) == (
+        ("0.2.0",),
+        True,
+    )
+
+
+def test_a_file_with_only_empty_resets_is_not_pinned() -> None:
+    assert not VersionAssignment.in_shell("VERSION").is_pinned_to('VERSION=""\n', "1")
+
+
+def test_every_assignment_is_described_with_what_becomes_of_it() -> None:
+    text = (
+        'VERSION="0.1.0"\n'
+        'f() {\n  local VERSION="x"\n  local VERSION=""\n}\n'
+        "VERSION=\"$(f)\"\nVERSION=''\n"
+    )
+
+    assert VersionAssignment.in_shell("VERSION").described_lines(text) == (
+        '`VERSION="0.1.0"` (rewritten)',
+        '`local VERSION="x"` (local, rewritten)',
+        '`local VERSION=""` (local, empty reset, left as is)',
+        '`VERSION="$(f)"` (computed, left as is)',
+        "`VERSION=''` (empty reset, left as is)",
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["VERSION=\n", "VERSION= \n", "VERSION=; export VERSION\n", "VERSION= # reset\n"],
+)
+def test_a_bare_valueless_shell_assignment_is_an_empty_reset(line: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = f'{line}VERSION="1.0"\n'
+
+    assert (
+        assignment.values(text),
+        assignment.rewritten(text, "2.0"),
+        assignment.is_pinned_to(text, "1.0"),
+    ) == (("1.0",), (text.replace("1.0", "2.0"), 1), True)
+
+
+def test_a_bare_valueless_assignment_is_labelled_an_empty_reset() -> None:
+    text = 'VERSION="1.0"\nf() {\n  local VERSION=\n}\nVERSION=#x\n'
+
+    assert VersionAssignment.in_shell("VERSION").described_lines(text) == (
+        '`VERSION="1.0"` (rewritten)',
+        "`local VERSION=` (local, empty reset, left as is)",
+        "`VERSION=#x` (computed, left as is)",
+    )
+
+
+def test_only_computed_lines_are_listed_as_computed() -> None:
+    text = 'VERSION=""\nVERSION="$2"\nVERSION="1"\nVERSION="$(f)"\n'
+
+    assert VersionAssignment.in_shell("VERSION").computed_lines(text) == (
+        'VERSION="$2"',
+        'VERSION="$(f)"',
+    )
+
+
+def test_a_file_of_only_resets_assigns_no_value() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert [
+        assignment.assigns_a_value(text)
+        for text in (
+            'VERSION=""\n',
+            "VERSION=\nVERSION=''\n",
+            'VERSION=""\nVERSION=1\n',
+        )
+    ] == [False, False, True]
+
+
+@pytest.mark.parametrize(
+    "opener",
+    [
+        "cat <<EOF",
+        "cat <<-EOF",
+        "cat <<'EOF'",
+        'cat <<"EOF"',
+        "cat << EOF",
+        "cat >f <<EOF",
+    ],
+)
+def test_a_heredoc_body_holds_no_assignment(opener: str) -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = f'VERSION="1.0"\n{opener}\nVERSION="9.9"\nEOF\nVERSION="1.0"\n'
+
+    assert (
+        assignment.assigned_lines(text),
+        assignment.values(text),
+        assignment.rewritten(text, "2.0"),
+    ) == (
+        ('VERSION="1.0"', 'VERSION="1.0"'),
+        ("1.0", "1.0"),
+        (text.replace('"1.0"', '"2.0"'), 2),
+    )
+
+
+def test_a_dash_heredoc_ends_at_a_tab_indented_delimiter() -> None:
+    text = 'cat <<-EOF\n\tVERSION="9"\n\tEOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_a_plain_heredoc_does_not_end_at_an_indented_or_longer_delimiter() -> None:
+    text = 'cat <<EOF\nVERSION="9"\n EOF\nEOF2\nVERSION="8"\nEOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_an_unterminated_heredoc_runs_to_the_end_of_the_file() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+    text = 'cat <<EOF\nVERSION="9"\n'
+
+    assert (assignment.is_assigned(text), assignment.values(text)) == (False, ())
+
+
+def test_two_heredocs_on_one_line_are_both_skipped() -> None:
+    text = 'cat <<A <<B\nVERSION="1"\nA\nVERSION="2"\nB\nVERSION="3"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("3",)
+
+
+def test_a_here_string_and_a_commented_heredoc_do_not_open_a_body() -> None:
+    text = 'cat <<<word\n# cat <<EOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_a_shift_in_arithmetic_does_not_open_a_body() -> None:
+    text = 'n=$((1<<k))\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1",)
+
+
+def test_a_heredoc_only_script_is_not_assigned() -> None:
+    text = 'cat <<EOF\nVERSION="1"\nEOF\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (text, 0)
+
+
+def test_pinned_to_needs_every_plain_assignment_to_match() -> None:
+    assignment = VersionAssignment.in_shell("VERSION")
+
+    assert [
+        assignment.is_pinned_to(text, "2")
+        for text in (
+            'VERSION="2"\nVERSION="2"\n',
+            'VERSION="2"\nVERSION="1"\n',
+            'VERSION="2"\nVERSION="$(f)"\n',
+            'VERSION="$(f)"\nVERSION="2"\n',
+        )
+    ] == [True, False, True, False]
+
+
+def test_a_heredoc_on_an_explicit_descriptor_keeps_its_body_untouched() -> None:
+    text = 'cat 0<<\'EOF\'\nVERSION="9"\nEOF\nVERSION="1"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2") == (
+        'cat 0<<\'EOF\'\nVERSION="9"\nEOF\nVERSION="2"\n',
+        1,
+    )
+
+
+def test_a_live_assignment_after_a_comment_naming_a_heredoc_is_rewritten() -> None:
+    text = 'true # example: <<EOF\nVERSION="1.0"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2.0") == (
+        'true # example: <<EOF\nVERSION="2.0"\n',
+        1,
+    )
+
+
+def test_a_quoted_heredoc_look_alike_does_not_hide_a_live_assignment() -> None:
+    text = 'echo "a # <<EOF"\nVERSION="1.0"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1.0",)

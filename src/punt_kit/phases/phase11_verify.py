@@ -3,168 +3,39 @@ propagation siblings."""
 
 from __future__ import annotations
 
-import json
 import re
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
+from punt_kit.phases.phase11_versions import VersionPinChecks
 from punt_kit.phases.shared.changelog import Changelog
-from punt_kit.phases.shared.gh import GithubRepo
+from punt_kit.phases.shared.entry_matcher import EntryMatcher
+from punt_kit.phases.shared.errors import RemoteLookupError
+from punt_kit.phases.shared.github_repo import GithubRepo
+from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
+from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.pin_currency import PinCurrency
+from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.project_info import ReleaseProject
-from punt_kit.phases.shared.readme_sha import ReadmeShaPin
-from punt_kit.phases.shared.siblings import GITHUB_ABSENT_SKIP, SiblingRepo
+from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
+from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
-    from punt_kit.phases.shared.siblings import SkipRecorder
+    from punt_kit.phases.shared.repo_slug import RepoSlug
+    from punt_kit.phases.shared.skips import SkipRecorder
 
-# Separate from Reporter's singleton — phase banners and per-check verdict
-# lines use raw console.print() with rich markup, not the _ok/_info/_warn
-# vocabulary.
+# Separate from Reporter's singleton: the phase banner prints with rich
+# markup; the per-check verdict lines go through ``ops``.
 _console = Console()
-
-
-@dataclass(frozen=True, slots=True)
-class VerificationCheck:
-    """One named pass/fail verdict with a human-readable detail."""
-
-    name: str
-    passed: bool
-    detail: str
-
-    @classmethod
-    def matches_install_sha(
-        cls,
-        name: str,
-        pinned_sha: str,
-        install_sha: str,
-        *,
-        cwd: Path,
-        ops: ReleaseOps,
-    ) -> Self:
-        """Verify a pinned SHA resolves to the CURRENT install.sh commit.
-
-        Ancestry alone (is the pin reachable from the tag?) is not enough: a
-        previous release's install.sh commit is itself an ancestor of every
-        later tag, so an ancestor-only check would pass the exact rot this
-        exists to catch — Phase 9/10 left the pin one release behind.
-
-        A textual prefix match (``pinned_sha.startswith(install_sha)``) is
-        not enough either: it treats an unresolved string as commit
-        identity, so a fabricated or nonexistent hash that merely starts
-        with the right characters — or a real but unrelated commit that
-        happens to share the short prefix — would pass without ever being
-        resolved. Both ``install_sha`` and ``pinned_sha`` are resolved to
-        full commit object IDs via ``git rev-parse <sha>^{commit}`` and
-        compared for equality, so a valid abbreviated or full pin of the
-        right commit passes, and an arbitrary/nonexistent hash fails.
-        """
-        expected = ops.run(
-            ["git", "rev-parse", f"{install_sha}^{{commit}}"],
-            cwd=str(cwd),
-            check=False,
-        )
-        if expected.returncode != 0:
-            # install_sha comes from a fresh git log on the caller's own
-            # repo, so it always resolves — a failure here is a genuine git
-            # error, not a stale pin, and must not be misreported as one.
-            return cls(
-                name,
-                False,
-                f"SHA={pinned_sha} (git error resolving expected commit "
-                f"{install_sha}: {expected.stderr.strip()})",
-            )
-        resolved = ops.run(
-            ["git", "rev-parse", f"{pinned_sha}^{{commit}}"],
-            cwd=str(cwd),
-            check=False,
-        )
-        if resolved.returncode != 0:
-            return cls(name, False, f"SHA={pinned_sha} (does not resolve to a commit)")
-        current = resolved.stdout.strip() == expected.stdout.strip()
-        detail = (
-            f"SHA={pinned_sha}"
-            if current
-            else f"SHA={pinned_sha} (stale — expected {install_sha})"
-        )
-        return cls(name, current, detail)
-
-
-@final
-class MarketplacePinCheck:
-    """Verifies the marketplace-pin chain for marketplace-only plugins.
-
-    Used only when a project has no ``install.sh`` — the profile-SHA check
-    has no direct install URL to verify against, so the pin chain (profile
-    -> install-all.sh's claude-plugins SHA -> that commit's
-    marketplace.json) is the equivalent invariant.
-    """
-
-    __slots__ = ()
-
-    def run(
-        self,
-        cp_sibling: Path | None,
-        claude_plugins_sha: str,
-        candidates: frozenset[str],
-        version: str,
-        tag: str,
-        *,
-        ops: ReleaseOps,
-    ) -> tuple[bool, str]:
-        """Check a pinned claude-plugins commit's marketplace.json for this project.
-
-        ``candidates`` is the set of names to accept for the entry — the caller
-        supplies both the PyPI distribution name and the marketplace short
-        name (see ``ReleaseProject.marketplace_name``), since marketplace
-        entries key on the plugin's short name (``punt``) while the CLI knows
-        the project by the pyproject distribution name (``punt-kit``).
-
-        Returns ``(passed, detail)``.
-        """
-        if cp_sibling is None:
-            return False, "claude-plugins sibling not found"
-        show = ops.run(
-            ["git", "show", f"{claude_plugins_sha}:.claude-plugin/marketplace.json"],
-            cwd=str(cp_sibling),
-            check=False,
-        )
-        if show.returncode != 0:
-            return False, f"claude-plugins@{claude_plugins_sha} does not resolve"
-        data = cast("dict[str, object]", json.loads(show.stdout))
-        plugins = cast("list[dict[str, object]]", data.get("plugins", []))
-        for p in plugins:
-            src = cast("dict[str, str]", p.get("source", {}))
-            # marketplace.json uses "url" for keyless HTTPS installs
-            # (git-subdir and the earlier plain-url source). "repo" was the
-            # pre-migration key that cloned the whole repo to disk and no live
-            # entry uses it anymore. See pkit-p328 and claude-plugins commit
-            # b77f1ed.
-            source_url = str(src.get("url", "")).removesuffix(".git")
-            if (
-                any(source_url.endswith("/" + n) for n in candidates)
-                or str(p.get("name", "")) in candidates
-            ):
-                ok = (
-                    str(p.get("version", "")) == version
-                    and str(src.get("ref", "")) == tag
-                )
-                return (
-                    ok,
-                    f"claude-plugins@{claude_plugins_sha} version={p.get('version')}, "
-                    f"ref={src.get('ref')}",
-                )
-        names = ",".join(sorted(candidates)) or "?"
-        return (
-            False,
-            f"claude-plugins@{claude_plugins_sha} has no entry for {names}",
-        )
 
 
 @final
@@ -196,9 +67,11 @@ class Phase11Verify:
         self._skips = skips
         return self
 
+    @property
+    def _tag(self) -> str:
+        return f"v{self._version}"
+
     def run(self) -> None:
-        info = self._info
-        version = self._version
         ops = self._ops
         _console.print("\n[bold]Phase 11: Verify[/bold]")
 
@@ -206,596 +79,498 @@ class Phase11Verify:
             ops.dry("Would run release verification checks")
             return
 
-        project = ReleaseProject(info, ops=ops)
-        tag = f"v{version}"
-        checks: list[VerificationCheck] = []
-
-        # 1. Git tag exists
-        result = ops.run(["git", "tag", "--list", tag], cwd=str(info.root), check=False)
-        tag_exists = tag in result.stdout.split()
-        checks.append(
-            VerificationCheck("Git tag", tag_exists, tag if tag_exists else "not found")
-        )
-
-        # 2. Version consistency (read fresh from disk — info.pyproject is
-        # stale after Phase 2 bumps the version)
-        pyproject_path = info.root / "pyproject.toml"
-        if pyproject_path.exists():
-            content = pyproject_path.read_text(encoding="utf-8")
-            match = re.search(r'^version\s*=\s*"([^"]*)"', content, re.MULTILINE)
-            current = match.group(1) if match else "not found"
-            checks.append(
-                VerificationCheck(
-                    "pyproject.toml", current == version, f"version={current}"
-                )
-            )
-
-        pkg_dir = project.package_dir()
-        if pkg_dir is not None:
-            init_py = pkg_dir / "__init__.py"
-            if init_py.exists():
-                content = init_py.read_text(encoding="utf-8")
-                uses_metadata = (
-                    "importlib.metadata" in content or "importlib_metadata" in content
-                )
-                if not uses_metadata:
-                    match = re.search(r'__version__\s*=\s*"([^"]*)"', content)
-                    if match:
-                        init_ver = match.group(1)
-                        checks.append(
-                            VerificationCheck(
-                                "__init__.py",
-                                init_ver == version,
-                                f"__version__={init_ver}",
-                            )
-                        )
-
-        if info.is_plugin:
-            pj_data = json.loads(info.plugin_manifest.read_text(encoding="utf-8"))
-            pj_ver = pj_data.get("version", "not found")
-            checks.append(
-                VerificationCheck("plugin.json", pj_ver == version, f"version={pj_ver}")
-            )
-
-        install_sh = info.root / "install.sh"
-        if install_sh.exists():
-            content = install_sh.read_text(encoding="utf-8")
-            match = re.search(r'VERSION="([^"]*)"', content)
-            if match:
-                install_ver = match.group(1)
-                checks.append(
-                    VerificationCheck(
-                        "install.sh", install_ver == version, f"VERSION={install_ver}"
-                    )
-                )
-
-        # 3. Changelog stamped (must have date: ## [X.Y.Z] - YYYY-MM-DD)
-        changelog = Changelog(info.root, ops=ops).text()
-        stamped = bool(
-            re.search(
-                rf"^## \[{re.escape(version)}\] - \d{{4}}-\d{{2}}-\d{{2}}",
-                changelog,
-                re.MULTILINE,
-            )
-        )
-        checks.append(
-            VerificationCheck(
-                "CHANGELOG", stamped, "stamped" if stamped else "not stamped"
-            )
-        )
-
-        # 4. install-all.sh entry (curl SHA for CLI projects, plugin loop for
-        # pure plugins)
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo and (install_sh.exists() or info.is_plugin):
-            project_name = repo.split("/")[-1]
-            github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
-            if github_sibling is None:
-                # An absent .github sibling is not a verification failure:
-                # Phase 10a already skipped propagation for the same reason
-                # (the workspace meta-repo layout has no resolvable .github
-                # sibling), and this phase runs after the release has
-                # published. Recording the skip surfaces it without
-                # flipping all_pass — a False here would exit non-zero on
-                # an already-published release and read identically to a
-                # real defect.
+        checks = self._local_checks()
+        repo, remote_checks = self._remote_slug()
+        checks.extend(remote_checks)
+        if repo is None and not remote_checks:
+            names = self._remote_check_names()
+            if names:
                 self._skips.record(
-                    GITHUB_ABSENT_SKIP.format(name=project_name, ver=version)
+                    f"SKIPPED — manual action required: the {', '.join(names)} "
+                    "checks did not run because the project has no github.com "
+                    "origin remote."
                 )
-            else:
-                sibling = github_sibling.path
-                install_all = sibling / "install-all.sh"
-                if not install_all.exists():
-                    checks.append(
-                        VerificationCheck(
-                            "install-all.sh", False, "install-all.sh not found"
-                        )
-                    )
-                else:
-                    iac = install_all.read_text(encoding="utf-8")
-                    curl_match = re.search(
-                        rf"\$GH/{re.escape(project_name)}/"
-                        r"([0-9a-fA-F]{7,40})/install\.sh",
-                        iac,
-                    )
-                    if curl_match:
-                        sha = curl_match.group(1)
-                        vr = ops.run(
-                            ["git", "show", f"{sha}:install.sh"],
-                            cwd=str(info.root),
-                            check=False,
-                        )
-                        if vr.returncode != 0:
-                            sha_ok = False
-                            detail = f"SHA={sha} (does not resolve)"
-                        else:
-                            # A resolvable SHA whose content happens to match
-                            # is not enough — the pin has to actually be part
-                            # of this release. Without this, a SHA on an
-                            # unmerged or superseded branch (never reachable
-                            # from the tag) can carry the right VERSION string
-                            # by coincidence and pass a content-only check
-                            # while installing an untagged commit.
-                            ancestor = ops.run(
-                                ["git", "merge-base", "--is-ancestor", sha, tag],
-                                cwd=str(info.root),
-                                check=False,
-                            )
-                            if ancestor.returncode == 1:
-                                sha_ok = False
-                                detail = f"SHA={sha} (not an ancestor of {tag})"
-                            elif ancestor.returncode != 0:
-                                # merge-base --is-ancestor exits 1 for "not an
-                                # ancestor" and >=128 for a genuine git error
-                                # (e.g. a missing ref) — the latter is not a
-                                # stale pin and must not be reported as one,
-                                # or the operator debugs the wrong problem.
-                                sha_ok = False
-                                detail = (
-                                    f"SHA={sha} (git error verifying ancestry: "
-                                    f"{ancestor.stderr.strip()})"
-                                )
-                            elif f'VERSION="{version}"' in vr.stdout:
-                                # Python/hybrid: VERSION pin matches
-                                sha_ok = True
-                                detail = f"SHA={sha}"
-                            else:
-                                # Go/other: no VERSION pin — SHA resolves and
-                                # is on the tag's history
-                                sha_ok = 'VERSION="' not in vr.stdout
-                                detail = f"SHA={sha}"
-                        checks.append(
-                            VerificationCheck("install-all.sh", sha_ok, detail)
-                        )
-                    elif re.search(
-                        rf"for plugin in [^;]*\b{re.escape(project_name)}\b",
-                        iac,
-                    ):
-                        # Pure-plugin loop entry (no SHA to verify)
-                        checks.append(
-                            VerificationCheck("install-all.sh", True, "in plugin loop")
-                        )
-                    else:
-                        checks.append(
-                            VerificationCheck(
-                                "install-all.sh", False, "entry not found"
-                            )
-                        )
+        if repo is not None:
+            checks.extend(self._install_all_checks(repo))
+            checks.extend(self._marketplace_checks(repo))
+            checks.extend(self._profile_checks(repo))
+            checks.extend(self._readme_checks(repo))
+            checks.extend(self._website_checks(repo))
+        checks.extend(self._pypi_checks())
 
-        # 5. Marketplace
-        if info.is_plugin or info.is_hybrid:
-            repo = GithubRepo(info.root, ops=ops).resolve()
-            if repo:
-                project_name = repo.split("/")[-1]
-                marketplace_name = ReleaseProject(info, ops=ops).marketplace_name()
-                candidates = frozenset(n for n in (marketplace_name, project_name) if n)
-                claude_plugins_sibling = SiblingRepo.resolve(
-                    info.root, "claude-plugins", ops=ops
-                )
-                if claude_plugins_sibling is None:
-                    checks.append(
-                        VerificationCheck(
-                            "marketplace", False, "sibling claude-plugins not found"
-                        )
-                    )
-                else:
-                    mp = (
-                        claude_plugins_sibling.path
-                        / ".claude-plugin"
-                        / "marketplace.json"
-                    )
-                    if not mp.exists():
-                        checks.append(
-                            VerificationCheck(
-                                "marketplace", False, "marketplace.json not found"
-                            )
-                        )
-                    else:
-                        data = cast(
-                            "dict[str, object]",
-                            json.loads(mp.read_text(encoding="utf-8")),
-                        )
-                        plugins = cast(
-                            "list[dict[str, object]]", data.get("plugins", [])
-                        )
-                        mp_found = False
-                        for p in plugins:
-                            src = cast("dict[str, str]", p.get("source", {}))
-                            # marketplace.json uses source.url (keyless HTTPS,
-                            # git-subdir). See pkit-p328.
-                            source_url = str(src.get("url", "")).removesuffix(".git")
-                            if (
-                                any(source_url.endswith("/" + n) for n in candidates)
-                                or p.get("name") in candidates
-                            ):
-                                mp_ver = str(p.get("version", ""))
-                                mp_ref = str(src.get("ref", ""))
-                                ok = mp_ver == version and mp_ref == tag
-                                checks.append(
-                                    VerificationCheck(
-                                        "marketplace",
-                                        ok,
-                                        f"version={mp_ver}, ref={mp_ref}",
-                                    )
-                                )
-                                mp_found = True
-                                break
-                        if not mp_found:
-                            names = ",".join(sorted(candidates))
-                            checks.append(
-                                VerificationCheck(
-                                    "marketplace",
-                                    False,
-                                    f"no entry for {names}",
-                                )
-                            )
-
-        # 6. Profile SHA (install-all.sh URL resolves)
-        repo = GithubRepo(info.root, ops=ops).resolve()
-        if repo and (install_sh.exists() or info.is_plugin):
-            github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
-            if github_sibling is None:
-                # Absent sibling — same tolerated case as the install-all.sh
-                # check above. The shared message deduplicates in _skips, so
-                # the two checks collapse to one recap line rather than
-                # double-reporting.
-                self._skips.record(
-                    GITHUB_ABSENT_SKIP.format(name=repo.split("/")[-1], ver=version)
-                )
-            else:
-                sibling = github_sibling.path
-                readme = sibling / "profile" / "README.md"
-                if not readme.exists():
-                    checks.append(
-                        VerificationCheck(
-                            "profile SHA", False, "profile/README.md not found"
-                        )
-                    )
-                else:
-                    content = readme.read_text(encoding="utf-8")
-                    sha_match = re.search(
-                        r"punt-labs/\.github/([0-9a-fA-F]{7,40})/install-all\.sh",
-                        content,
-                    )
-                    if not sha_match:
-                        checks.append(
-                            VerificationCheck(
-                                "profile SHA",
-                                False,
-                                "no .github install-all.sh URL in profile",
-                            )
-                        )
-                    else:
-                        profile_sha = sha_match.group(1)
-                        # The pinned SHA must resolve AND its content must
-                        # carry this project's current install SHA — a
-                        # resolvable pin that predates the propagation merge
-                        # is stale and serves the previous installer.
-                        show_result = ops.run(
-                            ["git", "show", f"{profile_sha}:install-all.sh"],
-                            cwd=str(sibling),
-                            check=False,
-                        )
-                        if show_result.returncode != 0:
-                            checks.append(
-                                VerificationCheck(
-                                    "profile SHA",
-                                    False,
-                                    f"SHA={profile_sha} (does not resolve)",
-                                )
-                            )
-                        elif (
-                            ancestor := ops.run(
-                                [
-                                    "git",
-                                    "merge-base",
-                                    "--is-ancestor",
-                                    profile_sha,
-                                    "main",
-                                ],
-                                cwd=str(sibling),
-                                check=False,
-                            )
-                        ).returncode != 0:
-                            # git show resolves any object still in the local
-                            # DB, merged or not — a commit from an abandoned
-                            # or reverted PR branch resolves for a while after
-                            # it stops being reachable from main. Reachability
-                            # is the property CI's checkout of main actually
-                            # depends on. Distinguish "not an ancestor" (exit
-                            # 1) from a genuine git error (exit >=128, e.g. a
-                            # missing main ref) so a git failure doesn't get
-                            # misreported as a stale pin.
-                            detail = (
-                                f"SHA={profile_sha} (not an ancestor of .github main)"
-                                if ancestor.returncode == 1
-                                else (
-                                    f"SHA={profile_sha} (git error verifying "
-                                    f"ancestry: {ancestor.stderr.strip()})"
-                                )
-                            )
-                            checks.append(
-                                VerificationCheck("profile SHA", False, detail)
-                            )
-                        elif install_sh.exists():
-                            project_name = repo.split("/")[-1]
-                            install_sha = project.install_sh_sha()
-                            current_entry = re.search(
-                                rf"\$GH/{re.escape(project_name)}/"
-                                rf"{re.escape(install_sha)}[0-9a-fA-F]*/install\.sh",
-                                show_result.stdout,
-                            )
-                            checks.append(
-                                VerificationCheck(
-                                    "profile SHA",
-                                    current_entry is not None,
-                                    f"SHA={profile_sha}"
-                                    + (
-                                        ""
-                                        if current_entry
-                                        else (
-                                            " (stale — lacks "
-                                            f"{project_name}@{install_sha})"
-                                        )
-                                    ),
-                                )
-                            )
-                        else:
-                            # Marketplace-only plugin: no install.sh, so
-                            # there is no direct curl URL to verify. The
-                            # equivalent invariant is the marketplace-pin
-                            # chain — the profile-pinned install-all.sh
-                            # names a claude-plugins SHA, and that commit's
-                            # marketplace.json must carry this project's
-                            # current version/ref.
-                            project_name = repo.split("/")[-1]
-                            mp_pin = re.search(
-                                r"\$GH/claude-plugins/([0-9a-fA-F]{7,40})/install\.sh",
-                                show_result.stdout,
-                            )
-                            if mp_pin is None:
-                                checks.append(
-                                    VerificationCheck(
-                                        "profile SHA",
-                                        False,
-                                        f"SHA={profile_sha} "
-                                        "(no claude-plugins pin in install-all.sh)",
-                                    )
-                                )
-                            else:
-                                cp_sibling_repo = SiblingRepo.resolve(
-                                    info.root, "claude-plugins", ops=ops
-                                )
-                                cp_sibling = (
-                                    cp_sibling_repo.path
-                                    if cp_sibling_repo is not None
-                                    else None
-                                )
-                                marketplace_name = ReleaseProject(
-                                    info, ops=ops
-                                ).marketplace_name()
-                                candidates = frozenset(
-                                    n for n in (marketplace_name, project_name) if n
-                                )
-                                ok, detail = MarketplacePinCheck().run(
-                                    cp_sibling,
-                                    mp_pin.group(1),
-                                    candidates,
-                                    version,
-                                    tag,
-                                    ops=ops,
-                                )
-                                checks.append(
-                                    VerificationCheck(
-                                        "profile SHA",
-                                        ok,
-                                        f"SHA={profile_sha} ({detail})",
-                                    )
-                                )
-
-        # 7. Product README (own repo's SHA-pinned install URLs) must match
-        # the CURRENT install.sh commit — see matches_install_sha() for why
-        # ancestry alone would miss the realistic rot. Reuses the same URL
-        # pattern ReadmeShaPin.bump() writes, so it never drifts from the
-        # pin it is verifying. Only runs when a pin is present at all — a
-        # README that predates any SHA pin (still a bare version-tag URL, or
-        # no install snippet) is not this check's concern.
-        if repo and install_sh.exists():
-            owner, repo_name = repo.split("/", 1)
-            own_readme = info.root / "README.md"
-            if own_readme.exists():
-                trusted_shas, has_untrusted = ReadmeShaPin.classify_install_urls(
-                    own_readme.read_text(encoding="utf-8"), owner, repo_name
-                )
-                # Trusted and untrusted pins are detected and reported
-                # independently — a README can carry one trusted current-SHA
-                # pin AND one untrusted-host/owner pin (e.g. an injected
-                # line), and the untrusted one must never be skipped just
-                # because a trusted pin was also found.
-                if trusted_shas:
-                    install_sha = project.install_sh_sha()
-                    for sha in sorted(set(trusted_shas)):
-                        checks.append(
-                            VerificationCheck.matches_install_sha(
-                                "README pin", sha, install_sha, cwd=info.root, ops=ops
-                            )
-                        )
-                if has_untrusted:
-                    checks.append(
-                        VerificationCheck(
-                            "README pin",
-                            False,
-                            "SHA-pinned install URL is not on the trusted "
-                            f"raw.githubusercontent.com/{owner}/{repo_name}/ host",
-                        )
-                    )
-
-        # 8. Website (optional — sibling may not exist)
-        if repo:
-            project_name = repo.split("/")[-1]
-            website_sibling = SiblingRepo.resolve(info.root, "public-website", ops=ops)
-            if website_sibling is not None:
-                pj = website_sibling.path / "src" / "data" / "projects.json"
-                if pj.exists():
-                    data = json.loads(pj.read_text(encoding="utf-8"))
-                    web_found = False
-                    for entry in data:
-                        github_url = entry.get("githubUrl") or ""
-                        if entry.get("id") == project_name or github_url.endswith(
-                            "/" + project_name
-                        ):
-                            web_ver = entry.get("version")
-                            checks.append(
-                                VerificationCheck(
-                                    "website",
-                                    web_ver == version,
-                                    f"version={web_ver}",
-                                )
-                            )
-                            if install_sh.exists():
-                                install_cmd = str(entry.get("installCommand") or "")
-                                if install_cmd:
-                                    owner = repo.split("/", 1)[0]
-                                    # Same shared matcher the README check
-                                    # uses, so README and website validate
-                                    # identically — except this entry is
-                                    # ALREADY matched to this project (by
-                                    # id or githubUrl, above), so unlike a
-                                    # README (which legitimately documents
-                                    # other tools' install one-liners too),
-                                    # EVERY install.sh URL in this field is
-                                    # claimed to install this project.
-                                    # all_urls_relevant=True drops the
-                                    # repo-name reference filter so a URL
-                                    # pointing at a different repo — wrong
-                                    # owner, wrong name, untrusted host, or
-                                    # a stale entry left over from a rename
-                                    # — is flagged instead of silently
-                                    # ignored for not matching the pattern
-                                    # a wrong-repo URL never carries.
-                                    # Trusted and untrusted pins are still
-                                    # detected and reported independently —
-                                    # an installCommand can carry one
-                                    # trusted current-SHA pin AND one
-                                    # untrusted-host/owner pin, and the
-                                    # untrusted one must never be skipped
-                                    # just because a trusted pin was also
-                                    # found.
-                                    trusted_shas, has_untrusted = (
-                                        ReadmeShaPin.classify_install_urls(
-                                            install_cmd,
-                                            owner,
-                                            project_name,
-                                            all_urls_relevant=True,
-                                        )
-                                    )
-                                    if trusted_shas:
-                                        install_sha = project.install_sh_sha()
-                                        for sha in sorted(set(trusted_shas)):
-                                            checks.append(
-                                                VerificationCheck.matches_install_sha(
-                                                    "website SHA",
-                                                    sha,
-                                                    install_sha,
-                                                    cwd=info.root,
-                                                    ops=ops,
-                                                )
-                                            )
-                                    if has_untrusted:
-                                        checks.append(
-                                            VerificationCheck(
-                                                "website SHA",
-                                                False,
-                                                "SHA-pinned install URL is not "
-                                                "on the trusted "
-                                                f"raw.githubusercontent.com/"
-                                                f"{owner}/{project_name}/ host",
-                                            )
-                                        )
-                                    # If neither: no SHA-shaped install URL
-                                    # at all (version-tag or branch pin, or
-                                    # no install.sh reference) — skip. That
-                                    # shape is not this check's concern; it
-                                    # matches WebsitePropagator's own
-                                    # tolerance, whose re.sub silently no-ops
-                                    # on a non-SHA-shaped install URL rather
-                                    # than treating it as an error.
-                            web_found = True
-                            break
-                    if not web_found:
-                        checks.append(
-                            VerificationCheck(
-                                "website", False, f"no entry for {project_name}"
-                            )
-                        )
-
-        # 9. PyPI — confirm the exact published version resolves from the
-        # INDEX. `uv pip install --dry-run` uses uv's own resolver, so it
-        # needs no `pip` binary (uv-managed project venvs do not ship one —
-        # `uv run pip` fails with "Failed to spawn: pip"). This must assert
-        # index presence, not mere local resolvability: by this phase the
-        # wheel was built locally (Phase 3) and installed from PyPI (Phase
-        # 8), so `<pkg>==<version>` is almost certainly in uv's cache and
-        # the environment. `--no-cache` forbids satisfying the resolve from
-        # the download cache, and `--reinstall` forbids satisfying it from
-        # the already-installed environment — together they force a fresh
-        # index query, so a green result can only mean the version is
-        # actually published. `--no-deps` isolates the signal to this one
-        # package==version, so a transiently unresolvable transitive
-        # dependency cannot mask a successful publish. `--dry-run` installs
-        # nothing. Resolvable → exit 0; absent → non-zero ("unsatisfiable").
-        # Run in the project dir so uv resolves against the project's
-        # environment.
-        if info.language == "python":
-            package_name = project.package_name()
-            result = ops.run(
-                [
-                    "uv",
-                    "pip",
-                    "install",
-                    "--dry-run",
-                    "--no-deps",
-                    "--no-cache",
-                    "--reinstall",
-                    f"{package_name}=={version}",
-                ],
-                cwd=str(info.root),
-                check=False,
-                timeout=UV,
-            )
-            pypi_ok = result.returncode == 0
-            checks.append(
-                VerificationCheck("PyPI", pypi_ok, f"{package_name}=={version}")
-            )
-
-        # Print results
         all_pass = True
         for check in checks:
             if check.passed:
                 ops.ok(f"{check.name}: {check.detail}")
             else:
-                _console.print(f"  [red]✗[/red] {check.name}: {check.detail}")
+                ops.error(f"{check.name}: {check.detail}")
                 all_pass = False
 
         if not all_pass:
             ops.fail("Some verification checks failed — see above")
+
+    def _local_checks(self) -> list[VerificationCheck]:
+        """The tag, the version in every file that pins it, and the changelog."""
+        info = self._info
+        ops = self._ops
+        tag = self._tag
+        listing = ops.run(
+            ["git", "tag", "--list", tag], cwd=str(info.root), check=False
+        )
+        tag_exists = tag in listing.stdout.split()
+        checks = [
+            VerificationCheck("Git tag", tag_exists, tag if tag_exists else "not found")
+        ]
+        checks.extend(VersionPinChecks(info, self._version, ops=ops).checks())
+        # Stamped means dated: ## [X.Y.Z] - YYYY-MM-DD
+        stamped = Changelog(info.root, ops=ops).is_stamped(self._version)
+        checks.append(
+            VerificationCheck(
+                "CHANGELOG", stamped, "stamped" if stamped else "not stamped"
+            )
+        )
+        return checks
+
+    def _remote_slug(self) -> tuple[RepoSlug | None, list[VerificationCheck]]:
+        """The project's GitHub slug (``None`` when there is nothing to verify),
+        and the failed checks resolving it produced.
+
+        A remote that names GitHub but is not ``owner/repo``, a lookup git
+        could not answer, and a missing github.com origin on a project that
+        installs or publishes through GitHub are each one failed check here,
+        and every slug-dependent check below is skipped: they must not
+        vanish silently.
+        """
+        info = self._info
+        try:
+            slug = GithubRepo(info.root, ops=self._ops).slug()
+        except (ValueError, RemoteLookupError) as exc:
+            return None, [VerificationCheck("GitHub remote", False, str(exc))]
+        if slug is None and (self._installs_from_github() or info.is_hybrid):
+            detail = (
+                "no github.com origin remote — the "
+                f"{', '.join(self._remote_check_names())} checks could not run"
+            )
+            return None, [VerificationCheck("GitHub remote", False, detail)]
+        return slug, []
+
+    def _remote_check_names(self) -> list[str]:
+        """The checks that need the origin slug AND apply to this project.
+
+        Naming a check that would have been skipped anyway (no README pin to
+        verify on a project with no install.sh, no marketplace entry for a
+        non-plugin) sends the operator after work that was never undone.
+        """
+        info = self._info
+        names: list[str] = []
+        if self._installs_from_github():
+            names.extend(["install-all.sh", "profile SHA"])
+        if info.is_plugin or info.is_hybrid:
+            names.append("marketplace")
+        if (info.root / "install.sh").exists() and (info.root / "README.md").exists():
+            names.append("README pin")
+        if SiblingRepo.resolve(info.root, "public-website", ops=self._ops) is not None:
+            names.append("website")
+        return names
+
+    def _installs_from_github(self) -> bool:
+        """True for a project with an ``install.sh`` or a plugin manifest."""
+        return (self._info.root / "install.sh").exists() or self._info.is_plugin
+
+    def _github_sibling(self, repo: RepoSlug) -> Path | None:
+        """The ``.github`` sibling's path; an absent one is recorded as a skip.
+
+        An absent .github sibling is not a verification failure: Phase 10a
+        already skipped propagation for the same reason (the workspace
+        meta-repo layout has no resolvable .github sibling), and this phase
+        runs after the release has published. Recording the skip surfaces it
+        without flipping the verdict — a failed check here would exit non-zero
+        on an already-published release and read identically to a real
+        defect. The shared message deduplicates, so the install-all.sh and
+        profile checks collapse to one recap line.
+        """
+        sibling = SiblingRepo.resolve(self._info.root, ".github", ops=self._ops)
+        if sibling is None:
+            self._skips.record(
+                GITHUB_ABSENT_SKIP.format(name=repo.name, ver=self._version)
+            )
+            return None
+        return sibling.path
+
+    def _entry_matcher(self, repo: RepoSlug) -> EntryMatcher:
+        """Matches marketplace entries by the plugin's short name or its repo."""
+        marketplace_name = ReleaseProject(self._info, ops=self._ops).marketplace_name()
+        return EntryMatcher.for_marketplace(repo, marketplace_name)
+
+    def _install_all_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The install-all.sh entry: a curl SHA for CLI projects, a plugin loop
+        entry for pure plugins."""
+        if not self._installs_from_github():
+            return []
+        sibling = self._github_sibling(repo)
+        if sibling is None:
+            return []
+        install_all = sibling / "install-all.sh"
+        if not install_all.exists():
+            return [
+                VerificationCheck("install-all.sh", False, "install-all.sh not found")
+            ]
+        content = TextFile(install_all).read()
+        # Every pin line is verified, not the first: a second, stale line is
+        # exactly what a partial propagation leaves behind.
+        shas = self._distinct(ShaPin.install_all_entry(repo.name).all_shas(content))
+        if shas:
+            return [self._install_all_sha_check(sha) for sha in shas]
+        if re.search(rf"for plugin in [^;]*\b{re.escape(repo.name)}\b", content):
+            # Pure-plugin loop entry (no SHA to verify)
+            return [VerificationCheck("install-all.sh", True, "in plugin loop")]
+        return [VerificationCheck("install-all.sh", False, "entry not found")]
+
+    @staticmethod
+    def _distinct(shas: list[str]) -> list[str]:
+        """``shas`` without repeats, in first-seen order."""
+        return list(dict.fromkeys(shas))
+
+    def _install_all_sha_check(self, sha: str) -> VerificationCheck:
+        """A pinned install-all.sh SHA must be current and part of this release."""
+        ops = self._ops
+        root = str(self._info.root)
+        shown = ops.run(["git", "show", f"{sha}:install.sh"], cwd=root, check=False)
+        if shown.returncode != 0:
+            return VerificationCheck(
+                "install-all.sh", False, f"SHA={sha} (does not resolve)"
+            )
+        # A resolvable SHA whose content happens to match is not enough — the
+        # pin has to actually be part of this release. Without this, a SHA on
+        # an unmerged or superseded branch (never reachable from the tag) can
+        # carry the right VERSION string by coincidence and pass a
+        # content-only check while installing an untagged commit.
+        ancestor = ops.run(
+            ["git", "merge-base", "--is-ancestor", sha, self._tag],
+            cwd=root,
+            check=False,
+        )
+        if ancestor.returncode == 1:
+            return VerificationCheck(
+                "install-all.sh", False, f"SHA={sha} (not an ancestor of {self._tag})"
+            )
+        if ancestor.returncode != 0:
+            # merge-base --is-ancestor exits 1 for "not an ancestor" and >=128
+            # for a genuine git error (e.g. a missing ref) — the latter is not
+            # a stale pin and must not be reported as one, or the operator
+            # debugs the wrong problem.
+            return VerificationCheck(
+                "install-all.sh",
+                False,
+                f"SHA={sha} (git error verifying ancestry: {ancestor.stderr.strip()})",
+            )
+        # The same test the propagator rewrites with: the pin names the commit
+        # that last touched install.sh. Ancestry and VERSION below are
+        # necessary, not sufficient: a Go project has no VERSION pin, so an
+        # older install.sh commit on the tag's history would pass both.
+        currency = PinCurrency(
+            ReleaseProject(self._info, ops=ops).install_sh_sha(),
+            cwd=self._info.root,
+            ops=ops,
+        ).verdict(sha)
+        if not currency.is_current:
+            return VerificationCheck("install-all.sh", False, currency.detail)
+        # Python/hybrid: the VERSION pin matches. Go/other: there is no VERSION
+        # pin, and a SHA that resolves and is on the tag's history is enough.
+        # A computed assignment is not a pass: is_pinned_to is False for it.
+        assignment = VersionAssignment.in_shell("VERSION")
+        ok = not assignment.assigns_a_value(shown.stdout) or (
+            assignment.is_pinned_to(shown.stdout, self._version)
+        )
+        return VerificationCheck("install-all.sh", ok, f"SHA={sha}")
+
+    def _marketplace_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The marketplace entry's version and ref, for plugin and hybrid projects."""
+        info = self._info
+        if not (info.is_plugin or info.is_hybrid):
+            return []
+        matcher = self._entry_matcher(repo)
+        sibling = SiblingRepo.resolve(info.root, "claude-plugins", ops=self._ops)
+        if sibling is None:
+            return [
+                VerificationCheck(
+                    "marketplace", False, "sibling claude-plugins not found"
+                )
+            ]
+        marketplace = sibling.path / ".claude-plugin" / "marketplace.json"
+        if not marketplace.exists():
+            return [
+                VerificationCheck("marketplace", False, "marketplace.json not found")
+            ]
+        data = cast("dict[str, object]", JsonFile(marketplace).load())
+        plugins = cast("list[dict[str, object]]", data.get("plugins", []))
+        entry = next((p for p in plugins if matcher.claims_plugin(p)), None)
+        if entry is None:
+            names = ",".join(sorted(matcher.names))
+            return [VerificationCheck("marketplace", False, f"no entry for {names}")]
+        source = cast("dict[str, str]", entry.get("source", {}))
+        entry_version = str(entry.get("version", ""))
+        entry_ref = str(source.get("ref", ""))
+        ok = entry_version == self._version and entry_ref == self._tag
+        return [
+            VerificationCheck(
+                "marketplace", ok, f"version={entry_version}, ref={entry_ref}"
+            )
+        ]
+
+    def _profile_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The org profile's install-all.sh pin: resolves, is on main, is current."""
+        if not self._installs_from_github():
+            return []
+        sibling = self._github_sibling(repo)
+        if sibling is None:
+            return []
+        readme = sibling / "profile" / "README.md"
+        if not readme.exists():
+            return [
+                VerificationCheck("profile SHA", False, "profile/README.md not found")
+            ]
+        profile_shas = self._distinct(
+            ShaPin.profile().all_shas(TextFile(readme).read())
+        )
+        if not profile_shas:
+            return [
+                VerificationCheck(
+                    "profile SHA", False, "no .github install-all.sh URL in profile"
+                )
+            ]
+        return [self._profile_pin_check(repo, sibling, sha) for sha in profile_shas]
+
+    def _profile_pin_check(
+        self, repo: RepoSlug, sibling: Path, profile_sha: str
+    ) -> VerificationCheck:
+        """One profile pin: it resolves, is on main, and carries the current SHA."""
+        # The pinned SHA must resolve AND its content must carry this
+        # project's current install SHA — a resolvable pin that predates the
+        # propagation merge is stale and serves the previous installer.
+        shown = self._ops.run(
+            ["git", "show", f"{profile_sha}:install-all.sh"],
+            cwd=str(sibling),
+            check=False,
+        )
+        if shown.returncode != 0:
+            return VerificationCheck(
+                "profile SHA", False, f"SHA={profile_sha} (does not resolve)"
+            )
+        ancestor = self._ops.run(
+            ["git", "merge-base", "--is-ancestor", profile_sha, "main"],
+            cwd=str(sibling),
+            check=False,
+        )
+        if ancestor.returncode != 0:
+            # git show resolves any object still in the local DB, merged or
+            # not — a commit from an abandoned or reverted PR branch resolves
+            # for a while after it stops being reachable from main.
+            # Reachability is the property CI's checkout of main actually
+            # depends on. Distinguish "not an ancestor" (exit 1) from a
+            # genuine git error (exit >=128, e.g. a missing main ref) so a
+            # git failure doesn't get misreported as a stale pin.
+            detail = (
+                f"SHA={profile_sha} (not an ancestor of .github main)"
+                if ancestor.returncode == 1
+                else (
+                    f"SHA={profile_sha} (git error verifying "
+                    f"ancestry: {ancestor.stderr.strip()})"
+                )
+            )
+            return VerificationCheck("profile SHA", False, detail)
+        if (self._info.root / "install.sh").exists():
+            return self._profile_entry_check(repo, profile_sha, shown.stdout)
+        return self._profile_marketplace_chain(repo, profile_sha, shown.stdout)
+
+    def _profile_entry_check(
+        self, repo: RepoSlug, profile_sha: str, install_all: str
+    ) -> VerificationCheck:
+        """The pinned install-all.sh must carry this project's current install SHA."""
+        install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
+        currency = PinCurrency(install_sha, cwd=self._info.root, ops=self._ops)
+        pins = self._distinct(ShaPin.install_all_entry(repo.name).all_shas(install_all))
+        stale = [pin for pin in pins if not currency.is_current(pin)]
+        detail = f"SHA={profile_sha}"
+        if len(stale) == len(pins):
+            detail += f" (stale — lacks {repo.name}@{install_sha})"
+        elif stale:
+            detail += (
+                f" (stale — also carries {repo.name}@{', '.join(stale)}, "
+                f"expected {install_sha})"
+            )
+        return VerificationCheck("profile SHA", bool(pins) and not stale, detail)
+
+    def _profile_marketplace_chain(
+        self, repo: RepoSlug, profile_sha: str, install_all: str
+    ) -> VerificationCheck:
+        """The marketplace-pin chain, for a marketplace-only plugin.
+
+        With no install.sh there is no direct curl URL to verify. The
+        equivalent invariant is the chain: the profile-pinned install-all.sh
+        names a claude-plugins SHA, and that commit's marketplace.json must
+        carry this project's current version/ref.
+        """
+        mp_pins = self._distinct(
+            ShaPin.install_all_entry("claude-plugins").all_shas(install_all)
+        )
+        if not mp_pins:
+            return VerificationCheck(
+                "profile SHA",
+                False,
+                f"SHA={profile_sha} (no claude-plugins pin in install-all.sh)",
+            )
+        cp_sibling = SiblingRepo.resolve(
+            self._info.root, "claude-plugins", ops=self._ops
+        )
+        check = MarketplacePinCheck(
+            self._entry_matcher(repo), self._version, self._tag, ops=self._ops
+        )
+        cp_path = cp_sibling.path if cp_sibling is not None else None
+        # The first pin that fails is the verdict; all passing, the last one's.
+        results = [check.run(cp_path, mp_pin) for mp_pin in mp_pins]
+        ok, detail = next((r for r in results if not r[0]), results[-1])
+        return VerificationCheck("profile SHA", ok, f"SHA={profile_sha} ({detail})")
+
+    def _readme_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The product README's own install URLs against the current install.sh.
+
+        See ``InstallShaCheck`` for why ancestry alone would miss the realistic
+        rot. Pins are recognized by the same ``InstallUrlRecognizer``
+        ``ReadmeShaPin.bump`` rewrites and verifies with, so the two can never
+        disagree about what a pin is. A README with no pin at all (no install
+        snippet, or a branch URL) has nothing to go stale.
+        """
+        readme = self._info.root / "README.md"
+        if not (self._info.root / "install.sh").exists() or not readme.exists():
+            return []
+        return self._pin_checks(
+            "README pin",
+            TextFile(readme).read(),
+            repo,
+            all_urls_relevant=False,
+        )
+
+    def _website_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The website entry's version and install command (the sibling is optional)."""
+        sibling = SiblingRepo.resolve(self._info.root, "public-website", ops=self._ops)
+        if sibling is None:
+            return []
+        projects = sibling.path / "src" / "data" / "projects.json"
+        if not projects.exists():
+            return []
+        entries = cast("list[dict[str, object]]", JsonFile(projects).load())
+        matcher = EntryMatcher.for_website(repo)
+        entry = next((e for e in entries if matcher.claims_website(e)), None)
+        if entry is None:
+            return [VerificationCheck("website", False, f"no entry for {repo.name}")]
+        web_version = entry.get("version")
+        checks = [
+            VerificationCheck(
+                "website", web_version == self._version, f"version={web_version}"
+            )
+        ]
+        install_command = str(entry.get("installCommand") or "")
+        if install_command and (self._info.root / "install.sh").exists():
+            # The same recognizer the README check uses, so README and website
+            # validate identically — except this entry is ALREADY matched to
+            # this project, so unlike a README (which legitimately documents
+            # other tools' install one-liners too), EVERY install.sh URL in
+            # this field is claimed to install this project.
+            # all_urls_relevant=True drops the repo-name reference filter so a
+            # URL pointing at a different repo — wrong owner, wrong name,
+            # untrusted host, or a stale entry left over from a rename — is
+            # flagged instead of silently ignored. Trusted and untrusted pins
+            # are still reported independently. A branch pin or no install.sh
+            # reference has no pin to go stale: no check.
+            checks.extend(
+                self._pin_checks(
+                    "website SHA", install_command, repo, all_urls_relevant=True
+                )
+            )
+        return checks
+
+    def _pypi_checks(self) -> list[VerificationCheck]:
+        """Confirm the exact published version resolves from the INDEX.
+
+        `uv pip install --dry-run` uses uv's own resolver, so it needs no
+        `pip` binary (uv-managed project venvs do not ship one — `uv run pip`
+        fails with "Failed to spawn: pip"). This must assert index presence,
+        not mere local resolvability: by this phase the wheel was built
+        locally (Phase 3) and installed from PyPI (Phase 8), so
+        `<pkg>==<version>` is almost certainly in uv's cache and the
+        environment. `--no-cache` forbids satisfying the resolve from the
+        download cache, and `--reinstall` forbids satisfying it from the
+        already-installed environment — together they force a fresh index
+        query, so a green result can only mean the version is actually
+        published. `--no-deps` isolates the signal to this one
+        package==version, so a transiently unresolvable transitive dependency
+        cannot mask a successful publish. `--dry-run` installs nothing.
+        Resolvable → exit 0; absent → non-zero ("unsatisfiable"). Run in the
+        project dir so uv resolves against the project's environment.
+        """
+        info = self._info
+        if info.language != "python":
+            return []
+        package_name = ReleaseProject(info, ops=self._ops).package_name()
+        result = self._ops.run(
+            [
+                "uv",
+                "pip",
+                "install",
+                "--dry-run",
+                "--no-deps",
+                "--no-cache",
+                "--reinstall",
+                f"{package_name}=={self._version}",
+            ],
+            cwd=str(info.root),
+            check=False,
+            timeout=UV,
+        )
+        return [
+            VerificationCheck(
+                "PyPI", result.returncode == 0, f"{package_name}=={self._version}"
+            )
+        ]
+
+    def _pin_checks(
+        self,
+        label: str,
+        text: str,
+        slug: RepoSlug,
+        *,
+        all_urls_relevant: bool,
+    ) -> list[VerificationCheck]:
+        """One verdict per pinned install URL ``slug``'s recognizer finds in ``text``.
+
+        Trusted and untrusted pins are detected and reported independently —
+        a text can carry one trusted current-SHA pin AND one untrusted-host
+        or owner pin (e.g. an injected line), and the untrusted one must
+        never be skipped just because a trusted pin was also found.
+        """
+        recognizer = InstallUrlRecognizer(slug.owner, slug.name)
+        trusted_pins, has_untrusted = recognizer.classify(
+            text, all_urls_relevant=all_urls_relevant
+        )
+        checks: list[VerificationCheck] = []
+        if trusted_pins:
+            install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
+            currency = PinCurrency(install_sha, cwd=self._info.root, ops=self._ops)
+            # A release tag is still a pin: the bump rewrites it to the install
+            # SHA, so currency calls one left behind stale.
+            for pin in sorted(set(trusted_pins)):
+                verdict = currency.verdict(pin)
+                checks.append(
+                    VerificationCheck(label, verdict.is_current, verdict.detail)
+                )
+        if has_untrusted:
+            checks.append(
+                VerificationCheck(
+                    label,
+                    False,
+                    "SHA-pinned install URL is not on the trusted "
+                    f"raw.githubusercontent.com/{recognizer.slug}/ host",
+                )
+            )
+        return checks

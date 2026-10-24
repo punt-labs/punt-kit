@@ -3,38 +3,39 @@
 from __future__ import annotations
 
 import json
-import os
 import shutil
 import tomllib
 from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from punt_kit import init as init_mod
+from punt_kit.detect import detect
 from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
+from tests.helpers import (
+    flat,
+)
+from tests.helpers import (
+    no_bd as _no_bd,
+)
+from tests.helpers import (
+    python_project as _python_project,
+)
 
 _EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
 
 
-_real_which = shutil.which
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from punt_kit.detect import ProjectInfo
 
 
-def _no_bd(
-    cmd: str, mode: int = os.F_OK | os.X_OK, path: str | None = None
-) -> str | None:
-    """A ``shutil.which`` stand-in reporting only ``bd`` as not installed.
-
-    Tests asserting exact post-``run_init`` file content must not depend on
-    whatever gitignore patterns the locally installed ``bd`` binary's own
-    ``init`` appends — that behavior belongs to bd, and drifts independently
-    of this repo's release. Every other lookup delegates to the real
-    ``shutil.which`` (signature mirrored exactly, not ``*args``/``**kwargs``,
-    so a call passing ``mode``/``path`` type-checks and behaves identically
-    to the unpatched function) — a blanket ``None`` for every command would
-    silently disable other ``which()`` lookups a future call site adds.
-    """
-    if cmd == "bd":
-        return None
-    return _real_which(cmd, mode, path)
+@pytest.fixture(autouse=True)
+def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No test here runs the host's `bd init`, which a failure now fails the run."""
+    monkeypatch.setattr(shutil, "which", _no_bd)
 
 
 def test_init_creates_docs_workflow(tmp_path: Path) -> None:
@@ -989,3 +990,371 @@ def test_mcp_wildcards_are_all_or_nothing() -> None:
     # prfaq and punt ship no MCP server, so they must not appear.
     assert not any("prfaq" in p for p in perms if p.startswith("mcp__"))
     assert not any(p.startswith("mcp__plugin_punt_") for p in perms)
+
+
+def test_init_python_config_reads_a_pyproject_that_starts_with_a_bom(
+    tmp_path: Path,
+) -> None:
+    body = '[project]\r\nname = "test-pkg"\r\nversion = "0.1.0"\r\n'
+    (tmp_path / "pyproject.toml").write_bytes(("\ufeff" + body).encode())
+    init_python_config = cast(
+        "Callable[[ProjectInfo], list[str]]", vars(init_mod)["_init_python_config"]
+    )
+
+    changes = init_python_config(detect(tmp_path))
+
+    assert changes  # the missing tool sections were added, not a TOMLDecodeError
+    assert "tool" in tomllib.loads((tmp_path / "pyproject.toml").read_text("utf-8-sig"))
+
+
+# --- settings.json is never replaced by a guess ---
+
+
+def test_init_keeps_a_settings_json_that_starts_with_a_bom_intact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    original = {
+        "env": {"KEEP": "me"},
+        "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "true"}]}]},
+    }
+    settings.write_bytes(("\ufeff" + json.dumps(original, indent=2) + "\n").encode())
+
+    run_init(str(tmp_path))
+
+    raw = settings.read_bytes()
+    assert raw.startswith("\ufeff".encode()), "the BOM the file had is kept"
+    data = json.loads(raw.decode("utf-8-sig"))
+    assert data["env"] == original["env"]
+    assert data["hooks"] == original["hooks"]
+    assert "mcp__github__*" in data["permissions"]["allow"]
+
+
+@pytest.mark.parametrize("body", ["{not json", "[1, 2]", "\xff\xfe"])
+def test_init_refuses_to_replace_a_settings_json_it_cannot_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    body: str,
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_bytes(body.encode("latin-1"))
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert settings.read_bytes() == body.encode("latin-1"), "the file is untouched"
+    assert "settings.json" in capsys.readouterr().out
+
+
+def test_init_fails_on_an_unparseable_plugin_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    (tmp_path / ".claude-plugin").mkdir()
+    (tmp_path / ".claude-plugin" / "plugin.json").write_text("{broken")
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert not (tmp_path / ".claude" / "settings.json").exists()
+
+
+def test_init_says_when_it_leaves_an_unreadable_settings_local_alone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    local = tmp_path / ".claude" / "settings.local.json"
+    local.parent.mkdir()
+    local.write_text("{not json")
+
+    run_init(str(tmp_path))
+
+    assert local.read_text() == "{not json"
+    assert "settings.local.json" in capsys.readouterr().out
+
+
+# --- pyproject.toml is edited, not re-serialized ---
+
+
+def _run_python_config(root: Path) -> list[str]:
+    init_python_config = cast(
+        "Callable[[ProjectInfo], list[str]]", vars(init_mod)["_init_python_config"]
+    )
+    return init_python_config(detect(root))
+
+
+def test_init_keeps_comments_bom_and_line_endings_in_pyproject(tmp_path: Path) -> None:
+    body = (
+        "# the project\r\n"
+        "[project]\r\n"
+        'name = "test-pkg"  # keep this comment\r\n'
+        'version = "0.1.0"\r\n'
+        "\r\n"
+        "[tool.ruff]\r\n"
+        "line-length = 100  # not 88\r\n"
+    )
+    path = tmp_path / "pyproject.toml"
+    path.write_bytes(("\ufeff" + body).encode())
+
+    changes = _run_python_config(tmp_path)
+
+    raw = path.read_bytes().decode("utf-8")
+    assert changes == ["pyproject.toml"]
+    assert raw.startswith("\ufeff" + body), "the original text is untouched"
+    assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
+    data = tomllib.loads(raw.removeprefix("\ufeff"))
+    assert data["tool"]["ruff"]["line-length"] == 100
+    assert "lint" in data["tool"]["ruff"]
+    assert {"mypy", "pyright", "pytest"} <= set(data["tool"])
+
+
+def test_init_leaves_a_complete_pyproject_byte_identical(tmp_path: Path) -> None:
+    body = (
+        '[project]\nname = "t"  # c\n\n'
+        "[tool.ruff]\nline-length = 88\n[tool.ruff.lint]\nselect = ['E']\n"
+        "[tool.mypy]\nstrict = true\n"
+        '[tool.pyright]\ntypeCheckingMode = "strict"\n'
+        "[tool.pytest.ini_options]\ntestpaths = ['tests']\n"
+    )
+    path = tmp_path / "pyproject.toml"
+    path.write_text(body)
+
+    assert _run_python_config(tmp_path) == []
+    assert path.read_text() == body
+
+
+def test_init_refuses_to_rewrite_a_pyproject_it_cannot_extend_in_place(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``ruff`` as an inline table cannot take a ``[tool.ruff.lint]`` table."""
+    body = '[project]\nname = "t"\n\n[tool]\nruff = {line-length = 100}\n'
+    path = tmp_path / "pyproject.toml"
+    path.write_text(body)
+
+    assert _run_python_config(tmp_path) == []
+
+    assert path.read_text() == body
+    out = " ".join(capsys.readouterr().out.split())
+    assert "Add these tables by hand" in out
+    assert "[tool.ruff.lint]" in out
+
+
+# --- a failing init leaves nothing half-initialised ---
+
+
+def test_init_validates_settings_json_before_writing_anything(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    before = (tmp_path / "pyproject.toml").read_bytes()
+    settings = tmp_path / ".claude" / "settings.json"
+    settings.parent.mkdir()
+    settings.write_text("{}")
+    settings.chmod(0)
+    try:
+        with pytest.raises(SystemExit) as raised:
+            run_init(str(tmp_path))
+    finally:
+        settings.chmod(0o600)
+
+    assert raised.value.code == 1
+    assert "settings.json cannot be read" in capsys.readouterr().out
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".claude", "pyproject.toml"]
+    assert (tmp_path / "pyproject.toml").read_bytes() == before
+
+
+@pytest.mark.parametrize("name", ["CLAUDE.md", ".gitignore"])
+def test_init_validates_every_file_it_will_merge_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    (tmp_path / name).write_bytes(b"caf\xe9")
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert not (tmp_path / ".github").exists()
+    assert not (tmp_path / ".claude").exists()
+
+
+def test_init_fails_on_a_malformed_pyproject(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project\nname=")
+
+    with pytest.raises(SystemExit) as raised:
+        run_init(str(tmp_path))
+
+    assert raised.value.code == 1
+    assert "pyproject.toml is not valid TOML" in " ".join(
+        capsys.readouterr().out.split()
+    )
+
+
+# --- CLAUDE.md and .gitignore keep their line endings, BOM and final newline ---
+
+
+def test_init_appends_to_a_crlf_claude_md_with_a_bom(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    original = "\ufeff# Project\r\n\r\nSome notes.\r\n"
+    (tmp_path / "CLAUDE.md").write_bytes(original.encode())
+
+    run_init(str(tmp_path))
+
+    raw = (tmp_path / "CLAUDE.md").read_bytes().decode()
+    assert raw.startswith(original.rstrip() + "\r\n\r\n")
+    assert "## Standards References" in raw
+    assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
+    assert raw.endswith("\r\n")
+
+
+def test_init_keeps_a_claude_md_without_a_final_newline_that_way(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    (tmp_path / "CLAUDE.md").write_bytes(b"# Project")
+
+    run_init(str(tmp_path))
+
+    assert not (tmp_path / "CLAUDE.md").read_bytes().endswith(b"\n")
+
+
+@pytest.mark.parametrize("existing", ["dist/\r\n.claude/\r\n", "dist/\r\n"])
+def test_init_edits_a_crlf_gitignore_with_a_bom_in_its_own_style(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, existing: str
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    (tmp_path / ".gitignore").write_bytes(("\ufeff" + existing).encode())
+
+    run_init(str(tmp_path))
+
+    raw = (tmp_path / ".gitignore").read_bytes().decode()
+    assert raw.startswith("\ufeffdist/\r\n")
+    assert "!.claude/settings.json" in raw
+    assert "\n" not in raw.replace("\r\n", ""), "every line ending is still CRLF"
+
+
+# --- caller- and file-derived text is shown literally, never read as markup ---
+
+_MARKUP = "[x][/dim]"
+
+
+def test_init_names_a_path_with_markup_that_is_not_a_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as caught:
+        run_init(str(tmp_path / _MARKUP))
+
+    out = flat(capsys.readouterr().out)
+    assert (caught.value.code, f"{_MARKUP} is not a directory" in out) == (1, True)
+
+
+def test_init_shows_a_project_name_with_markup_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    # A name cannot hold "/", so a closing tag is out; a style tag still vanishes.
+    root = tmp_path / "p[bold]x"
+    root.mkdir()
+    _python_project(root)
+
+    run_init(str(root))
+
+    assert "punt init — p[bold]x" in flat(capsys.readouterr().out)
+
+
+def test_init_shows_an_invalid_language_choice_with_markup_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def answer(_prompt: str = "") -> str:
+        return _MARKUP
+
+    monkeypatch.setattr("builtins.input", answer)
+
+    run_init(str(tmp_path))
+
+    assert f"'{_MARKUP}'" in flat(capsys.readouterr().out)
+
+
+def test_init_shows_an_unsupported_language_with_markup_literally(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        run_init(str(tmp_path), language=_MARKUP)
+
+    assert f"unsupported language '{_MARKUP}'" in flat(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize("name", ["settings.json", "settings.local.json"])
+def test_init_shows_a_removed_dead_rule_with_markup_literally(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    settings = tmp_path / ".claude" / name
+    settings.parent.mkdir()
+    rule = f"Write(docs/{_MARKUP}/**)"
+    settings.write_text(json.dumps({"permissions": {"allow": [rule]}}))
+
+    run_init(str(tmp_path))
+
+    assert f"dead rule removed: {rule}" in flat(capsys.readouterr().out)
+
+
+def test_init_is_not_blocked_by_an_unrelated_unreadable_workflow(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "deploy.yml").write_bytes(b"\xff\xfe\x00 not utf-8")
+
+    run_init(str(tmp_path))
+
+    assert (workflows / "lint.yml").exists()
+
+
+def test_init_still_refuses_an_unreadable_workflow_it_would_merge(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(shutil, "which", _no_bd)
+    _python_project(tmp_path)
+    workflows = tmp_path / ".github" / "workflows"
+    workflows.mkdir(parents=True)
+    (workflows / "lint.yml").write_bytes(b"\xff\xfe\x00 not utf-8")
+
+    with pytest.raises(SystemExit):
+        run_init(str(tmp_path))
