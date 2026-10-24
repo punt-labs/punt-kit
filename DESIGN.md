@@ -1934,7 +1934,7 @@ which would never retry the propagation it is reporting on.
 ## DES-030: Install-SHA Pin Verification Is Currency + Identity + Host, Not Ancestry
 
 **Date:** 2026-09-18
-**Status:** SETTLED
+**Status:** SETTLED — mechanism amended by DES-031 (the shared matcher now lives in `InstallUrlRecognizer`, currency in `PinCurrency`; `WebsitePropagator` no longer has its own `re.sub`)
 **Topic:** What Phase 11 must prove about a pinned `install.sh` SHA (the product's own README `curl | sh` lines and `public-website`'s `projects.json` `installCommand`) for the pin to count as verified
 
 ### Design
@@ -2019,3 +2019,52 @@ defense-in-depth on the pinned URL's shape and destination, not a general
 supply-chain-injection control; the controls for repo-write compromise are branch
 protection, review, and signing (DES-022's "verification over trust" applies to
 the *release process's own* state, not to a hostile committer).
+
+## DES-031: One Owner per Release Rule — Process Spawn, Pins, Changelog, File I/O
+
+**Date:** 2026-10-24
+**Status:** SETTLED
+**Topic:** How `punt release` enforces its cross-cutting rules (hook timeouts, pin currency, changelog structure, file encoding, error reporting) after the `release.py` → `phases/` decomposition
+
+### Context
+
+Removing the dead `release.py` delegation wrappers exposed a pattern: each
+cross-cutting rule had been implemented more than once, and the copies drifted.
+The README pin writer and Phase 11's verifier recognized pinned URLs with
+different patterns (case, owner, shape), so a stale pin could pass the writer
+and fail only after PyPI publish. Changelog structure was read with several
+regexes over prose, so an `[Unreleased]` holding only `### Added` headings
+counted as non-empty and `- Non-breaking tweak` forced a major bump.
+`gh pr merge --delete-branch` ran local git — and the bd hooks — on the 60s
+default timeout because nothing tied "this command fires a hook" to "this
+command gets the hook budget". Review rounds kept finding new instances of each
+class while the fixes stayed local.
+
+### Decision
+
+Each rule has exactly one owner, and every caller goes through it:
+
+| Rule | Owner | Consequence |
+|---|---|---|
+| Process spawn and timeout | `phases/shared/command_runner.CommandRunner` (via `release._run`) | The only spawn site on the release path. It classifies the **concrete argv** with `HookFiringCommand` (git verbs that can run a hook, gh commands that run local git, `env`/`sh -c`/`.sh` wrappers) and floors hook-firing commands at `GIT_HOOK`; it never lowers a caller's longer timeout. Over-classification only lengthens a ceiling. |
+| Pin recognition | `phases/shared/install_urls.InstallUrlRecognizer`, `pin_rules.ShaPin` | One recognizer per pin kind, shared by the writer (Phase 4/9/10) and the verifier (Phase 11). |
+| Pin currency | `phases/shared/pin_currency.PinCurrency` | Resolve-and-compare (DES-030's identity rule) for every writer and the verifier, so the writer can repair everything the verifier would flag. |
+| Changelog structure | `phases/shared/changelog_parser.ChangelogDocument` | CommonMark via `markdown-it-py` token stream; preflight, version suggestion, notes, the stamp check, and the Phase 2 stamp all read it. |
+| File encoding | `phases/shared/text_file.TextFile`, `json_file.JsonFile` | Every release-managed file is read and written without newline translation, keeping BOM, line endings, final newline, and non-ASCII text; decode and parse errors become `ReleaseError` naming the file. |
+| Remote slug | `phases/shared/repo_slug.RepoSlug` | The only remote-URL/slug interpreter, including redaction of credentials before any text is printed. |
+| Error reporting | `phases/shared/errors.OperationalFailure`, `ReportedReleaseError` | Every failure prints exactly once; operational errors are one redacted line, bugs keep their traceback. |
+
+Each owner is backed by a guard test (`tests/test_release_spawns.py`,
+`tests/test_release_invariants.py`) that fails when a second implementation
+appears. The guards are tripwires for plausible forms, not proofs; each states
+the forms it does not see.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Static AST audit of every `ops.run(...)` call site for the right `timeout=` | Shipped and leaked in two consecutive review rounds: it had to guess runtime argv from source and missed clustered short flags (`-sd`), wrapper binaries (`env git push`, `sh -c`), variables holding argv, and aliases. Classifying the concrete argv at the single spawn point removes the defect class instead of auditing for it. |
+| Keep per-call-site `timeout=GIT_HOOK` as the only mechanism | Correct only as long as every author remembers; the `gh pr merge --delete-branch` default-timeout bug is exactly that failure. The explicit arguments stay where they exist, but the floor makes them a convenience, not the guarantee. |
+| Regex fixes to the hand-rolled changelog scanner | Fence and comment edge cases (stray fences pairing with later closers, `-->` in prose, 4-backtick openers) failed review twice; CommonMark already defines every case. A small, pure-Python runtime dependency is cheaper than a fourth round of patches. |
+| Separate writer and verifier pin patterns, kept in sync by review | They drifted in practice (case sensitivity, owner anchoring, tag pins). One recognizer makes agreement true by construction. |
+| A blanket `# pyright: reportPrivateUsage=false` in the large test module | Replaces visible, per-seam suppressions with an invisible one that hides future private access in a 14k-line file; the tests use public seams and helpers instead. |
