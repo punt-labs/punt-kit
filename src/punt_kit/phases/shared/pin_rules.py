@@ -10,6 +10,12 @@ if TYPE_CHECKING:
 
 _SHA = r"[0-9a-fA-F]{7,40}"
 
+# What may follow a complete filename: not another word character, and not a
+# dot or dash that continues it (``install.sh.bak``, ``install-all.sh-old``).
+# Punctuation that merely ends a sentence (``install.sh.``) still closes it.
+# One rule for every recognizer of an install file, here and in install_urls.
+FILENAME_END = r"(?!\w|[.-]\w)"
+
 
 @final
 class ShaPin:
@@ -25,9 +31,12 @@ class ShaPin:
     _pattern: re.Pattern[str]
 
     def __new__(cls, prefix: str, suffix: str) -> Self:
-        """Build a pin from regex source for the text around the SHA."""
+        """Build a pin from regex source for the text around the SHA.
+
+        ``suffix`` ends in a filename, so the match must end the filename too.
+        """
         self = super().__new__(cls)
-        self._pattern = re.compile(rf"({prefix})({_SHA})({suffix})")
+        self._pattern = re.compile(rf"({prefix})({_SHA})({suffix}){FILENAME_END}")
         return self
 
     @classmethod

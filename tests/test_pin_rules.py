@@ -80,3 +80,34 @@ def test_repinned_leaves_current_pins_alone_and_still_counts_them() -> None:
 
     assert count == 2
     assert pin.all_shas(rewritten) == ["aaaaaaa", _SHA]
+
+
+@pytest.mark.parametrize("tail", [".bak", "-old", ".sh", "x", "_2"])
+def test_a_longer_install_sh_filename_is_not_the_pin(tail: str) -> None:
+    pin = ShaPin.install_all_entry("proj")
+    content = f'curl "$GH/proj/abc1234/install.sh{tail}"\n'
+
+    assert pin.repinned(content, _SHA, is_current=_never) == (content, 0)
+    assert pin.all_shas(content) == []
+
+
+@pytest.mark.parametrize("tail", [".bak", "-old", "x"])
+def test_a_longer_install_all_filename_is_not_the_profile_pin(tail: str) -> None:
+    pin = ShaPin.profile()
+    content = f"punt-labs/.github/abc1234/install-all.sh{tail}\n"
+
+    assert pin.repinned(content, _SHA, is_current=_never) == (content, 0)
+    assert pin.all_shas(content) == []
+
+
+@pytest.mark.parametrize("end", ['"', " ", ".", "\n", ")", ""])
+def test_a_filename_that_ends_at_punctuation_or_the_end_is_still_the_pin(
+    end: str,
+) -> None:
+    entry = ShaPin.install_all_entry("proj")
+    profile = ShaPin.profile()
+
+    assert entry.all_shas(f"$GH/proj/abc1234/install.sh{end}") == ["abc1234"]
+    assert profile.all_shas(f"punt-labs/.github/abc1234/install-all.sh{end}") == [
+        "abc1234"
+    ]

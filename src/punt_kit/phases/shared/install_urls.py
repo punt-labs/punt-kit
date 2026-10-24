@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 from urllib.parse import ParseResult, unquote, urlparse
 
+from punt_kit.phases.shared.pin_rules import FILENAME_END
 from punt_kit.phases.shared.repo_slug import RepoSlug
 
 if TYPE_CHECKING:
@@ -116,7 +117,7 @@ class InstallUrlRecognizer:
     # sentence ("install.sh.") still closes the reference. Non-URL noise
     # glued directly onto a real URL ("${IFS}") is dropped, because the "$"
     # is itself a non-word character; "install.shellscript" is not matched.
-    _INSTALL_SH_BOUNDARY = re.compile(r"install\.sh(?!\w|[.-]\w)", re.IGNORECASE)
+    _INSTALL_SH_BOUNDARY = re.compile(rf"install\.sh{FILENAME_END}", re.IGNORECASE)
 
     # Locates both ends of every install.sh reference in a fully decoded
     # token: a scheme start (group 1) or an install.sh boundary (group 2,
