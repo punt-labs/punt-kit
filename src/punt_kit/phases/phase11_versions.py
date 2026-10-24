@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_kit.phases.phase11_checks import VerificationCheck
 from punt_kit.phases.shared.json_file import JsonFile
@@ -49,8 +49,16 @@ class VersionPinChecks:
         path = self._info.root / "pyproject.toml"
         if not path.exists():
             return []
-        current = VersionAssignment("version").read(TextFile(path).read())
-        shown = current or "not found"
+        # [project].version, not the first ``version =`` in the file: a [tool.*]
+        # table may come first and carry its own.
+        data = TextFile(path).toml()
+        project = data.get("project")
+        current = (
+            cast("dict[str, object]", project).get("version")
+            if isinstance(project, dict)
+            else None
+        )
+        shown = current if isinstance(current, str) and current else "not found"
         return [
             VerificationCheck(
                 "pyproject.toml", shown == self._version, f"version={shown}"

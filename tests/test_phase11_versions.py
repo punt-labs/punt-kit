@@ -33,3 +33,23 @@ def test_a_stale_install_sh_fails(tmp_path: Path) -> None:
     (tmp_path / "install.sh").write_text('VERSION="1.0.0"\n')
 
     assert _checks(tmp_path, "1.2.3") == {"install.sh": (False, "VERSION=1.0.0")}
+
+
+def test_a_tool_table_version_before_project_is_not_the_project_version(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.other]\nversion = "1.2.3"\n\n[project]\nname = "p"\nversion = "0.9.0"\n'
+    )
+
+    assert _checks(tmp_path, "1.2.3") == {"pyproject.toml": (False, "version=0.9.0")}
+
+
+def test_a_pyproject_without_a_project_version_is_not_found(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text(
+        '[tool.other]\nversion = "1.2.3"\n\n[project]\nname = "p"\n'
+    )
+
+    assert _checks(tmp_path, "1.2.3") == {
+        "pyproject.toml": (False, "version=not found")
+    }
