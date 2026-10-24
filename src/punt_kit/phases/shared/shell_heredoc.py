@@ -57,13 +57,39 @@ class HeredocBodies:
         """True when ``position`` is inside a here-document body."""
         return any(start <= position < end for start, end in self._spans)
 
-    @staticmethod
-    def _openers(line: str) -> list[tuple[str, bool]]:
+    @classmethod
+    def _openers(cls, line: str) -> list[tuple[str, bool]]:
         """The ``(delimiter, strips tabs)`` of each here-document ``line`` opens."""
-        if line.lstrip().startswith("#"):
-            return []
+        opaque = cls._opaque_spans(line)
         return [
             (m.group(2) or m.group(3) or m.group(4), m.group(1) == "-")
             for m in _OPENER.finditer(line)
             if "((" not in line[: m.start()]
+            and not any(start <= m.start() < end for start, end in opaque)
         ]
+
+    @staticmethod
+    def _opaque_spans(line: str) -> list[tuple[int, int]]:
+        """The ``(start, end)`` of each quoted string and of a trailing comment.
+
+        A ``#`` starts a comment only at the beginning of a word; a backslash
+        escapes the next character; a quote left open runs to the line's end.
+        """
+        spans: list[tuple[int, int]] = []
+        i = 0
+        while i < len(line):
+            char = line[i]
+            if char == "\\":
+                i += 2
+            elif char in "'\"":
+                end = i + 1
+                while end < len(line) and line[end] != char:
+                    end += 2 if char == '"' and line[end] == "\\" else 1
+                spans.append((i, end + 1))
+                i = end + 1
+            elif char == "#" and (i == 0 or line[i - 1] in " \t;&|("):
+                spans.append((i, len(line)))
+                break
+            else:
+                i += 1
+        return spans

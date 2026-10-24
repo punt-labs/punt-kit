@@ -66,3 +66,33 @@ def test_an_explicit_file_descriptor_still_opens_a_body(opener: str) -> None:
 )
 def test_a_shift_is_not_mistaken_for_a_descriptor_redirection(line: str) -> None:
     assert _inside(f"{line}\nbody\n") == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "true # example: <<EOF",
+        "true #<<EOF",
+        "true;# <<EOF",
+        'echo "a # <<EOF"',
+        "echo 'a <<EOF'",
+        'echo "a <<EOF"',
+    ],
+)
+def test_an_opener_in_a_comment_or_quotes_opens_nothing(line: str) -> None:
+    assert _inside(f"{line}\nlive\n") == []
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "cat <<EOF # note",
+        "echo 'it''s' <<EOF",
+        'echo "q # not a comment" <<EOF',
+        "echo a#b <<EOF",
+        "echo \\# <<EOF",
+        "echo a\\ <<EOF",
+    ],
+)
+def test_an_opener_after_a_quote_or_a_non_comment_hash_still_opens(line: str) -> None:
+    assert _inside(f"{line}\nbody\nEOF\nafter\n") == ["body", "EOF"]

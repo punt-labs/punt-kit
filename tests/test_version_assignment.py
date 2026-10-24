@@ -343,3 +343,18 @@ def test_a_heredoc_on_an_explicit_descriptor_keeps_its_body_untouched() -> None:
         'cat 0<<\'EOF\'\nVERSION="9"\nEOF\nVERSION="2"\n',
         1,
     )
+
+
+def test_a_live_assignment_after_a_comment_naming_a_heredoc_is_rewritten() -> None:
+    text = 'true # example: <<EOF\nVERSION="1.0"\n'
+
+    assert VersionAssignment.in_shell("VERSION").rewritten(text, "2.0") == (
+        'true # example: <<EOF\nVERSION="2.0"\n',
+        1,
+    )
+
+
+def test_a_quoted_heredoc_look_alike_does_not_hide_a_live_assignment() -> None:
+    text = 'echo "a # <<EOF"\nVERSION="1.0"\n'
+
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1.0",)
