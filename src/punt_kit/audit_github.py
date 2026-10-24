@@ -114,10 +114,14 @@ class GithubSettingsAudit:
             return [detail]
         if not isinstance(detail, dict):
             return [(INFO, "Branch protection (unexpected response)", "")]
-        return [
-            (PASS, _RULESET, ""),
-            *self._rules_findings(cast("dict[str, object]", detail)),
-        ]
+        ruleset = cast("dict[str, object]", detail)
+        # Only an active ruleset protects anything: "evaluate" logs what it
+        # would block and "disabled" blocks nothing, whatever rules it lists.
+        enforcement = ruleset.get("enforcement")
+        if enforcement != "active":
+            state = enforcement if isinstance(enforcement, str) else "not reported"
+            return [(FAIL, _RULESET, f"Ruleset enforcement is {state}, not active")]
+        return [(PASS, _RULESET, ""), *self._rules_findings(ruleset)]
 
     @staticmethod
     def _gh_json(

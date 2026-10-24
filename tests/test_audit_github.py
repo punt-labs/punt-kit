@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -219,3 +220,67 @@ def test_a_rulesets_timeout_names_the_reason(monkeypatch: pytest.MonkeyPatch) ->
     ((status, label, detail),) = out
     assert (status, label) == (INFO, "Branch protection (could not check)")
     assert detail.startswith("could not check:") and "timed out" in detail
+
+
+def _ruleset_detail(
+    monkeypatch: pytest.MonkeyPatch, detail: dict[str, object]
+) -> list[tuple[str, str, str]]:
+    """What ``rulesets`` reports for a repository whose one ruleset is ``detail``."""
+
+    def fake_run(
+        cmd: list[str], *, capture_output: bool, text: bool, timeout: int
+    ) -> subprocess.CompletedProcess[str]:
+        body = (
+            [{"id": 7, "name": "Protect main"}]
+            if cmd[-1].endswith("rulesets")
+            else detail
+        )
+        return subprocess.CompletedProcess(cmd, 0, json.dumps(body), "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return GithubSettingsAudit(Path("/unused")).rulesets("/usr/bin/gh", "o/r")
+
+
+_PROTECTING_RULES: list[dict[str, object]] = [
+    {
+        "type": "pull_request",
+        "parameters": {"required_review_thread_resolution": True},
+    },
+    {"type": "deletion"},
+    {"type": "non_fast_forward"},
+]
+
+
+def test_an_active_ruleset_with_every_rule_passes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _ruleset_detail(
+        monkeypatch, {"enforcement": "active", "rules": _PROTECTING_RULES}
+    )
+
+    assert {status for status, _label, _detail in out} == {PASS}
+
+
+@pytest.mark.parametrize("state", ["disabled", "evaluate"])
+def test_a_ruleset_that_is_not_active_fails_naming_its_enforcement(
+    monkeypatch: pytest.MonkeyPatch, state: str
+) -> None:
+    out = _ruleset_detail(
+        monkeypatch, {"enforcement": state, "rules": _PROTECTING_RULES}
+    )
+
+    assert out == [
+        (
+            FAIL,
+            "Branch protection ruleset exists",
+            f"Ruleset enforcement is {state}, not active",
+        )
+    ]
+
+
+def test_a_ruleset_with_no_enforcement_state_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    out = _ruleset_detail(monkeypatch, {"rules": _PROTECTING_RULES})
+
+    assert [status for status, _label, _detail in out] == [FAIL]
