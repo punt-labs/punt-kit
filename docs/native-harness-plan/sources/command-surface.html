@@ -1,0 +1,441 @@
+<title>Punt Labs Command Surface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #f7f7f4;
+    --surface: #efefe9;
+    --ink: #22282a;
+    --muted: #5b6663;
+    --line: #d8dad2;
+    --accent: #0e6e64;
+    --accent-ink: #0b5a52;
+    --chip-bg: #e4ecea;
+    --warn: #9a6a1c;
+    --warn-bg: #f3ead7;
+    --crit: #a2382e;
+    --crit-bg: #f2e0dd;
+    --ok: #3d6b43;
+    --ok-bg: #e2ebe0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161d1c;
+      --surface: #1e2726;
+      --ink: #d9e2df;
+      --muted: #8fa09b;
+      --line: #2d3a38;
+      --accent: #43bca9;
+      --accent-ink: #5ecbb9;
+      --chip-bg: #21312e;
+      --warn: #d3a04f;
+      --warn-bg: #2e2717;
+      --crit: #d97b6f;
+      --crit-bg: #331e1b;
+      --ok: #8cbb90;
+      --ok-bg: #1d2b1f;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161d1c;
+    --surface: #1e2726;
+    --ink: #d9e2df;
+    --muted: #8fa09b;
+    --line: #2d3a38;
+    --accent: #43bca9;
+    --accent-ink: #5ecbb9;
+    --chip-bg: #21312e;
+    --warn: #d3a04f;
+    --warn-bg: #2e2717;
+    --crit: #d97b6f;
+    --crit-bg: #331e1b;
+    --ok: #8cbb90;
+    --ok-bg: #1d2b1f;
+  }
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 3.5rem 1.5rem 5rem;
+  }
+  .wrap { max-width: 44rem; margin: 0 auto; }
+  h1, h2, h3 {
+    font-family: "IBM Plex Serif", Georgia, serif;
+    font-weight: 600;
+    line-height: 1.2;
+    text-wrap: balance;
+    margin: 0;
+  }
+  h1 { font-size: 2.1rem; }
+  h2 { font-size: 1.4rem; margin-top: 3.5rem; padding-top: 1.2rem; border-top: 2px solid var(--ink); }
+  h3 { font-size: 1.05rem; margin-top: 1.8rem; }
+  p { margin: 0.9rem 0; max-width: 68ch; }
+  .eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 600;
+    margin-bottom: 0.8rem;
+  }
+  .lede { font-size: 1.08rem; color: var(--muted); max-width: 62ch; }
+  code {
+    font-family: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.86em;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    padding: 0.08em 0.35em;
+  }
+  .sev {
+    display: inline-block;
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-radius: 3px;
+    padding: 0.1em 0.5em;
+    margin-left: 0.5em;
+    vertical-align: 0.15em;
+  }
+  .sev.ok { color: var(--ok); background: var(--ok-bg); }
+  .sev.warn { color: var(--warn); background: var(--warn-bg); }
+  .sev.crit { color: var(--crit); background: var(--crit-bg); }
+  .rulings li { margin: 0.45rem 0; max-width: 68ch; }
+  ul { padding-left: 1.2rem; margin: 0.7rem 0; }
+  li { margin: 0.35rem 0; max-width: 68ch; }
+  .plugin-block { margin: 2.4rem 0; }
+  .plugin-block h3 { font-family: "IBM Plex Mono", monospace; font-weight: 500; }
+  .plugin-block .verdict { font-size: 0.88rem; color: var(--muted); margin: 0.4rem 0 0.2rem; }
+  .change {
+    border-top: 1px solid var(--line);
+    padding: 0.85rem 0 0.9rem;
+    margin: 0;
+  }
+  .change:first-of-type { margin-top: 0.9rem; }
+  .change:last-of-type { border-bottom: 1px solid var(--line); }
+  .delta {
+    font-size: 0.95rem;
+    line-height: 1.9;
+  }
+  .delta .arrow { color: var(--accent); font-weight: 600; padding: 0 0.35em; }
+  .delta .new { color: var(--accent-ink); font-weight: 600; }
+  .delta .del { text-decoration: line-through; color: var(--crit); text-decoration-color: var(--crit); }
+  .why {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0.35rem 0 0;
+    max-width: 66ch;
+  }
+  .why b { color: var(--ink); }
+  .callout {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--accent);
+    border-radius: 4px;
+    padding: 0.9rem 1.1rem;
+    margin: 1.2rem 0;
+    font-size: 0.92rem;
+  }
+  .callout.q { border-left-color: var(--warn); }
+  .callout b:first-child { display: block; margin-bottom: 0.3rem; }
+  .roster { margin: 1.6rem 0; }
+  .roster .prefix {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: var(--accent-ink);
+  }
+  .roster .count { font-size: 0.78rem; color: var(--muted); margin-left: 0.5em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 0.4rem 0.45rem; margin: 0.55rem 0 0; }
+  .chip {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 0.78rem;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 3px;
+    padding: 0.15em 0.55em;
+    white-space: nowrap;
+  }
+  .chip.add { background: var(--chip-bg); border-color: var(--accent); color: var(--accent-ink); font-weight: 500; }
+  .chip.pend { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+  .legend { font-size: 0.8rem; color: var(--muted); margin: 0.6rem 0 1.4rem; }
+  footer { margin-top: 4rem; font-size: 0.8rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; }
+</style>
+<div class="wrap">
+  <div class="eyebrow">Punt Labs · plugin audit · change plan · 2026-08-29</div>
+  <h1>Punt Labs Command Surface</h1>
+  <p class="lede">The operator's rulings applied to the nine-plugin slash-command surface. Every change reads before → after with its rationale beneath. Open decisions at the bottom.</p>
+
+  <h2>Rulings applied</h2>
+  <ul class="rulings">
+    <li><b>Enablement was already specified</b> — <code>punt-kit/standards/tool-enable-disable.md</code> §2.3/§2.14: the verbs are <code>enable</code>/<code>disable</code> (<code>y|n</code> is <em>explicitly retired</em> vocabulary), exposed as <code>/&lt;tool&gt; enable|disable</code> on the slash surface and <code>action="enable"|"disable"</code> (never a boolean) on MCP, both writing the same <code>.punt-labs/&lt;tool&gt;/enabled</code> marker. vox is the spec's own shipped reference. The audit finding is therefore a <b>compliance gap, not a design question</b>: lux (<code>y|n</code>) and z-spec (separate <code>/enable</code>+<code>/disable</code> commands) migrate; quarry's verb shape conforms; prfaq is out of scope (no per-repo presence, no marker).</li>
+    <li><b>beadle keeps <code>/mail</code> and <code>/send</code></b> — multi-transport intent is real; <code>/mail</code> is the clear email door.</li>
+    <li><b>quarry <code>/use</code> dies</b> — too general; <code>/quarry use &lt;db&gt;</code> is the one door.</li>
+    <li><b><code>/vox:recap</code> is correct;</b> bare <code>/recap</code> in the deposited guide was too general — doc fix.</li>
+    <li><b><code>plan</code> keeps its name on every door</b> (2026-09-02): a slash-only rename does not reduce agent confusion when CLI, MCP, and library all say <code>plan</code>.</li>
+    <li><b><code>/punt:init</code> stays.</b> vox <code>mute</code>/<code>unmute</code> naming stays (documented UX constraint). ethos <code>/session</code> stays.</li>
+    <li><b>quarry <code>/remember</code> hint and ethos <code>/ext</code> get fixed.</b></li>
+    <li><b>biff vs beadle:</b> help text must distinguish messaging vs email; beadle gets a <code>/poll</code> modeled on biff's.</li>
+    <li><b>lux dotted names are justified</b> — the agent, not the user, builds the UIs — but the set needs a command/skill re-sort and a naming pass.</li>
+    <li><b><code>/help</code> for every plugin.</b> z-spec's breadth (Z, B, Lean) is justified; skills conversion open.</li>
+    <li><b>Window management is deprecated from the agent surface:</b> <code>frame.raise</code> and anything that manipulates frame z-order, min/max state, or position goes. The human owns the window; the agent owns the content.</li>
+    <li><b><code>/prfaq:permissions</code> is removed</b> — superseded by allowed-tools frontmatter and Claude Code's modern permission flow. <b><code>meeting-hive</code> is left untouched for now</b> — no env-var follow-through, and the <code>auto-meeting</code> rename is deferred with it.</li>
+    <li><b>Flat namespace: selective, criteria-gated.</b> A bare (unprefixed) command must pass two tests, both: (1) unlikely to collide with any other tool, and (2) frequency that dictates the shorter form. The hooks deploy only each plugin's approved bare subset and clean up the rest. Applying the criteria: biff <code>who</code>, <code>finger</code>, <code>tty</code>, <code>plan</code>; vox <code>vibe</code>, <code>recap</code>, <code>mute</code>, <code>unmute</code> — 47 → 8. Notable exclusions: <code>read</code>/<code>write</code>/<code>talk</code>/<code>find</code> (generic English fails test 1), <code>poll</code> (biff and beadle both ship one — self-collision), all lux dotted entries (fail test 2).</li>
+    <li><b>quarry <code>learn</code> approved</b> (bead b6p) as the third capture verb: <code>remember</code> = a specific durable fact, <code>ingest</code> = a URL, <code>learn</code> = a distilled lesson written to a lesson-tagged document and preferentially surfaced in future retrievals. Ships on CLI, MCP, and slash (<code>/quarry:learn</code>) — the boundary between the three verbs is derivable from the names, so the confusable-pair gate passes.</li>
+  </ul>
+
+  <h2>New facts found</h2>
+  <ul>
+    <li><b><code>/ethos:whoami</code> is referenced in exactly one file:</b> the workspace <code>CLAUDE.md</code> (2 occurrences, Ethos section). No child repo carries it.</li>
+    <li><b>punt-kit's pairs are door + engine, not duplicates.</b> The <code>bead-review</code> command body is "Load and execute the bead-review skill"; <code>auto</code> likewise. <code>auto</code>'s skill sets <code>disable-model-invocation: true</code> (the command is the only trigger); <code>bead-review</code>'s skill is model-invocable.</li>
+    <li><b>lux's 22 dotted entries are commands, not skills,</b> in the released plugin (0.31.1) — <code>commands/scene.show.md</code> etc. The released skills are <code>scene.beads</code>, <code>scene.dashboard</code>, <code>scene.data-explorer</code>. (The local lux checkout is a stale work branch at v0.26.0 — inspect the release cache, not the tree.)</li>
+    <li><b>The flat namespace is a shipped feature, not an accident.</b> The 47 bare files in <code>~/.claude/commands/</code> are deployed <em>by the production session-start hooks</em> of biff, vox, lux, and quarry ("Deploy top-level commands if missing" — dev builds skip this, prod does it by design), and biff's plugin.json advertises the bare names as its identity ("UNIX-style team communication: /who, /finger, /plan…"). They are byte-identical to the installed plugin versions and re-deposited when missing. Removing them is therefore a product change across four shipped plugins, not a file cleanup — see open decision 4.</li>
+  </ul>
+
+  <h2>Before → after, per plugin</h2>
+
+  <div class="plugin-block">
+    <h3>vox<span class="sev ok">reference implementation</span></h3>
+    <p class="verdict">The spec. One change beyond the org-wide /help.</p>
+    <div class="change">
+      <div class="delta">deposited guide says <code>/recap</code><span class="arrow">→</span>guide says <code>/vox:recap</code></div>
+      <p class="why">Bare name too general. Fix the guide template in the vox repo, re-deposit via <code>vox enable</code>.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/vox:help</span></div>
+      <p class="why">Org-wide /help ruling.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>biff</h3>
+    <div class="change">
+      <div class="delta"><code>/read</code>, <code>/write</code> descriptions<span class="arrow">→</span>add "team messaging (chat) — email lives in beadle"</div>
+      <p class="why">The two-vocabularies confusion, fixed with words not renames.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/biff:help</span></div>
+      <p class="why">Org-wide /help.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>beadle</h3>
+    <div class="change">
+      <div class="delta"><code>/inbox &lt;filter&gt; | 1m | 5m | … | n | status</code><span class="arrow">→</span><code>/inbox [&lt;filter&gt;]</code> <span class="arrow">+</span> <span class="new">/beadle:poll [interval | n | status]</span></div>
+      <p class="why">Operator ruling: <code>/biff:poll 5m</code> is the sensible shape. Polling moves out of the inbox grab-bag into its own command, mirroring biff.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>/mail</code>, <code>/send</code> descriptions<span class="arrow">→</span>add "email — chat lives in biff"</div>
+      <p class="why">Both commands stay per ruling (<code>/send</code> keeps its multi-transport framing); the help text carries the distinction.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/beadle:help</span></div>
+      <p class="why">Org-wide /help.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>quarry</h3>
+    <p class="verdict">Enablement already conforms: <code>/quarry:quarry enable|disable</code> is the self-named toggle, with manager subcommands alongside.</p>
+    <div class="change">
+      <div class="delta"><span class="del">/quarry:use &lt;db&gt;</span><span class="arrow">→</span>deleted; <code>/quarry use &lt;db&gt;</code> only</div>
+      <p class="why">Operator ruling: too general.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>/remember</code> hint <code>&lt;document name&gt;</code><span class="arrow">→</span><code>&lt;text to remember&gt; [as &lt;name&gt;]</code></div>
+      <p class="why">The hint contradicted the description ("inline text content"); align it with the actual arguments.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/quarry:learn</span></div>
+      <p class="why"><b>Approved</b> (bead b6p, agent-integration work): third capture verb — <code>remember</code> a fact, <code>ingest</code> a URL, <code>learn</code> a distilled lesson that gets retrieval preference. Same verb on CLI (<code>quarry learn "&lt;lesson&gt;"</code>), MCP, and slash. Design gate: the MCP side should be one atomic <code>learn</code> tool (write + config update together), not a two-call <code>learn</code> + <code>set_config</code> orchestration.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/quarry:help</span></div>
+      <p class="why">Org-wide /help.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>ethos</h3>
+    <div class="change">
+      <div class="delta"><code>/ethos:ext</code><span class="arrow">→</span><span class="new">/ethos:extension</span></div>
+      <p class="why">Opaque abbreviation; the MCP tool name can stay <code>ext</code>.</p>
+    </div>
+    <div class="change">
+      <div class="delta">workspace CLAUDE.md <code>/ethos:whoami</code> ×2<span class="arrow">→</span><code>/ethos:identity whoami</code></div>
+      <p class="why">The referenced command never existed. The workspace CLAUDE.md is the only file affected.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>mission</code>, <code>baseline-ops</code>, <code>create-from-project</code> in <code>~/.claude/skills/</code><span class="arrow">→</span>move into <span class="new">ethos/plugin/skills/</span></div>
+      <p class="why">All three are ethos-domain (mission scaffolding, sub-agent ops, identity bootstrap). Today they exist only on machines where someone hand-copied them, yet CLAUDE.md's core delegation workflow depends on <code>/mission</code>.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/ethos:ethos enable|disable</span></div>
+      <p class="why">Compliance: tool-enable-disable.md §2.14 requires both front-ends for every project-level tool, and ethos already writes the <code>.punt-labs/ethos/enabled</code> marker from its CLI. The slash door wraps a new MCP <code>action="enable"|"disable"</code> tool, same marker.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/ethos:help</span></div>
+      <p class="why">Org-wide /help.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>punt-kit</h3>
+    <div class="change">
+      <div class="delta"><code>auto</code> command + skill<span class="arrow">→</span>unchanged — blessed as the <b>door + engine</b> pattern</div>
+      <p class="why">The command is the only trigger (the skill sets <code>disable-model-invocation</code>) and carries the allowed-tools grant; the skill holds the logic. One surface, two files, no drift risk. <code>auto</code> is something a user types with arguments (<code>/punt:auto release-plugin repo=lux</code>) and must never fire on the model's own judgment.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="del">bead-review command</span> + skill<span class="arrow">→</span>skill only</div>
+      <p class="why">The command body is just "load the skill"; the skill is already model-invocable and user-invocable, so the launcher is a redundant second door. <code>bead-review</code> is a workflow you ask for in prose ("clean up the backlog") — exactly what model-invocable skills are for.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/punt:help</span></div>
+      <p class="why">Org-wide /help. <code>/punt:init</code> stays per ruling.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>lux</h3>
+    <p class="verdict">Dotted names are blessed for large agent-facing surfaces and written into the standard. Note: the local lux checkout is a stale v0.26.0 work branch; the released 0.31.1 is the real surface — changes should branch from main.</p>
+    <div class="change">
+      <div class="delta"><code>/lux:lux y|n</code><span class="arrow">→</span><span class="new">/lux:lux enable|disable</span></div>
+      <p class="why">Compliance: tool-enable-disable.md §2.3 explicitly retires <code>y|n</code> for enablement — "it reads as a per-user preference and splits into two vocabularies."</p>
+    </div>
+    <div class="change">
+      <div class="delta">22 dotted commands<span class="arrow">→</span>7 stay commands · 14 become skills</div>
+      <p class="why">The operator's own rationale — the agent, not the user, builds UIs. <b>Commands kept</b> (inspection a human types): <code>lux</code>, <code>ping</code>, <code>display.info</code>, <code>scene.ls</code>, <code>error.ls</code>, <code>event.ls</code>, <code>session.ls</code>. <b>Skill conversions:</b> <code>scene.show</code>, <code>scene.update</code>, <code>scene.table</code>, <code>scene.clear</code>, <code>scene.clear-all</code>, <code>scene.inspect</code>, <code>menu.set</code>, <code>menu.ls</code>, <code>topic.publish</code>, <code>topic.subscribe</code>, <code>topic.unsubscribe</code>, <code>frame.close</code>, <code>callback.pending</code> — joining <code>scene.beads</code>/<code>scene.dashboard</code>/<code>scene.data-explorer</code>.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="del">frame.raise</span><span class="arrow">→</span>deprecated</div>
+      <p class="why"><b>Ruling:</b> nothing on the agent surface manipulates frame z-order, min/max state, or position — the human owns the window, the agent owns the content. <code>frame.close</code> stays (scene teardown, not window management).</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="del">display.screenshot</span><span class="arrow">→</span>removed until supported</div>
+      <p class="why">Ships self-described as "currently unsupported".</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/lux:help</span></div>
+      <p class="why">Org-wide /help.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>z-spec</h3>
+    <p class="verdict">Breadth (Z, B, Lean) is justified per ruling. Skills question stays open — see below.</p>
+    <div class="change">
+      <div class="delta"><span class="del">/z-spec:enable</span> + <span class="del">/z-spec:disable</span><span class="arrow">→</span><span class="new">/z-spec:z-spec enable|disable</span></div>
+      <p class="why">Compliance: tool-enable-disable.md §2.14 defines the slash surface as <code>/&lt;tool&gt; enable</code> / <code>/&lt;tool&gt; disable</code> — one self-named door, not two commands. <code>/cleanup</code> stays as the deliberate purge step (§2.9: removal is never a toggle's side effect).</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>/z-spec:refine</code><span class="arrow">→</span><span class="new">/z-spec:verify-refinement</span></div>
+      <p class="why">Ends the <code>refine</code>/<code>b-refine</code> collision; <code>b-refine</code> keeps its name (B-method domain term).</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>/z-spec:test</code><span class="arrow">→</span><span class="new">/z-spec:animate</span></div>
+      <p class="why">Its own description is "validate and animate with probcli"; <code>check</code> (fuzz type-check) keeps its conventional name and the pair stops being opaque.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>/z-spec:help</code><span class="arrow">→</span>unchanged — now the org template</div>
+      <p class="why">Every plugin adopts it.</p>
+    </div>
+  </div>
+
+  <div class="plugin-block">
+    <h3>prfaq</h3>
+    <p class="verdict">No enablement toggle: prfaq has no per-repo daemon or marker, so the standard exempts it (enablement toggles exist only for plugins with per-repo state).</p>
+    <div class="change">
+      <div class="delta"><code>/prfaq:feedback-to-us</code><span class="arrow">→</span><span class="new">/prfaq:rate</span></div>
+      <p class="why">Stops shadowing <code>/feedback</code> (which redrafts the document); "rate" says what it is — a 1–5 rating sent to Punt Labs.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="del">/prfaq:permissions</span><span class="arrow">→</span>removed</div>
+      <p class="why"><b>Ruling.</b> Its job — pre-seeding <code>permissions.allow</code> rules in project settings — is superseded: every prfaq command declares <code>allowed-tools</code> frontmatter, and the modern "don't ask again" flow writes persistent rules on first approval. The one live dependency it carried (<code>CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1</code> for meeting-hive) is deliberately not chased now — see next.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><code>/prfaq:meeting-hive</code><span class="arrow">→</span>left untouched for now</div>
+      <p class="why"><b>Ruling.</b> Hive stays exactly as it is — the env-var follow-through is deferred, and the earlier <code>auto-meeting</code> rename is deferred with it. Revisit when hive itself is next worked on.</p>
+    </div>
+    <div class="change">
+      <div class="delta"><span class="arrow">+</span><span class="new">/prfaq:help</span></div>
+      <p class="why">Org-wide /help.</p>
+    </div>
+  </div>
+
+  <h2>The standard, as settled</h2>
+  <p>To be written as <code>punt-kit/standards/slash-commands.md</code>:</p>
+  <ul>
+    <li><b>Namespace:</b> pending the flat-namespace decision below.</li>
+    <li><b>Enablement:</b> governed by the existing <code>tool-enable-disable.md</code> §2.3/§2.14 — slash-commands.md <em>references</em> it, never restates it. Self-named toggle, <code>enable|disable</code> vocabulary, MCP <code>action</code> never a boolean, both doors writing the one committed marker.</li>
+    <li><b>Help:</b> every plugin ships <code>/help</code> (z-spec's is the template).</li>
+    <li><b>Polling:</b> plugins with a polled inbox ship <code>/poll [interval | n | status]</code> (biff's is the template).</li>
+    <li><b>Command vs. skill:</b> a command is a user-typed action; agent-facing knowledge and prose-triggered workflows are skills. The <b>door + engine</b> pattern (thin command that loads a skill) is allowed when the command must gate invocation or carry an allowed-tools grant; full duplication never is.</li>
+    <li><b>Naming:</b> flat kebab-case for commands; dotted <code>noun.verb</code> names blessed for large agent-facing skill surfaces (lux). No name that shadows a Claude Code built-in with adjacent meaning, and no name whose description must disclaim a collision.</li>
+    <li><b>Window management:</b> nothing on the agent surface manipulates frame z-order, min/max state, or position.</li>
+    <li><b>Cross-plugin vocabulary:</b> one meaning per word org-wide; where two plugins share a metaphor (biff chat / beadle email), each command's description names the boundary.</li>
+    <li><b>Dev twins:</b> the generated-twin + release-strip machinery (z-spec's) is the single strategy, applied to all nine.</li>
+  </ul>
+
+  <h2>Open decisions</h2>
+  <div class="callout q"><b>z-spec workflow commands → skills?</b> Candidates: <code>elaborate</code>, <code>oracle</code>, <code>prove</code>, <code>contracts</code> — multi-step generators the agent runs as workflows. Converting the four would take z-spec from 20 commands to 16 with no capability loss.</div>
+  <div class="callout q"><b>z-spec <code>test</code> → <code>animate</code> rename: withdraw?</b> The CLI has <code>test</code> (full probcli suite) and <code>animate</code> (animation only) as distinct verbs, so the ratified slash rename would alias the wrong CLI verb. Proposed: keep slash <code>test</code>, fix the check/test opacity in descriptions. This reverses a ruling, so it needs the operator's yes.</div>
+
+  <h2>The command list, post-standard</h2>
+  <p>The full user-typed surface if every change above lands: <b>97 commands</b> across nine plugins (93–97 pending the z-spec skills decision). Everything a user can type, prefixed, nothing else.</p>
+  <p class="legend">plain = unchanged &nbsp;·&nbsp; <span class="chip add">accent</span> = new or renamed &nbsp;·&nbsp; <span class="chip pend">amber</span> = pending an open decision</p>
+
+  <div class="roster">
+    <span class="prefix">/biff:</span><span class="count">13</span>
+    <div class="chips"><span class="chip">biff</span><span class="chip">plan</span><span class="chip">finger</span><span class="chip add">help</span><span class="chip">last</span><span class="chip">mesg</span><span class="chip">poll</span><span class="chip">read</span><span class="chip">talk</span><span class="chip">tty</span><span class="chip">wall</span><span class="chip">who</span><span class="chip">write</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/beadle:</span><span class="count">7</span>
+    <div class="chips"><span class="chip">beadle</span><span class="chip">contacts</span><span class="chip add">help</span><span class="chip">inbox</span><span class="chip">mail</span><span class="chip add">poll</span><span class="chip">send</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/vox:</span><span class="count">11</span>
+    <div class="chips"><span class="chip">call</span><span class="chip add">help</span><span class="chip">model</span><span class="chip">music</span><span class="chip">mute</span><span class="chip">provider</span><span class="chip">recap</span><span class="chip">unmute</span><span class="chip">vibe</span><span class="chip">voice</span><span class="chip">vox</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/quarry:</span><span class="count">8</span>
+    <div class="chips"><span class="chip">explain</span><span class="chip">find</span><span class="chip add">help</span><span class="chip">ingest</span><span class="chip add">learn</span><span class="chip">quarry</span><span class="chip">remember</span><span class="chip">source</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/ethos:</span><span class="count">10</span>
+    <div class="chips"><span class="chip add">ethos</span><span class="chip add">extension</span><span class="chip add">help</span><span class="chip">identity</span><span class="chip">personality</span><span class="chip">role</span><span class="chip">session</span><span class="chip">talent</span><span class="chip">team</span><span class="chip">writing-style</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/punt:</span><span class="count">6</span>
+    <div class="chips"><span class="chip">audit</span><span class="chip">auto</span><span class="chip add">help</span><span class="chip">init</span><span class="chip">pii</span><span class="chip">reconcile</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/lux:</span><span class="count">8</span>
+    <div class="chips"><span class="chip">display.info</span><span class="chip">error.ls</span><span class="chip">event.ls</span><span class="chip add">help</span><span class="chip">lux</span><span class="chip">ping</span><span class="chip">scene.ls</span><span class="chip">session.ls</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/z-spec:</span><span class="count">20 (−4 pending)</span>
+    <div class="chips"><span class="chip add">animate</span><span class="chip">audit</span><span class="chip">b-animate</span><span class="chip">b-check</span><span class="chip">b-create</span><span class="chip">b-refine</span><span class="chip">check</span><span class="chip">cleanup</span><span class="chip">code2model</span><span class="chip pend">contracts</span><span class="chip">doctor</span><span class="chip pend">elaborate</span><span class="chip">help</span><span class="chip">model2code</span><span class="chip pend">oracle</span><span class="chip">partition</span><span class="chip pend">prove</span><span class="chip">setup</span><span class="chip add">verify-refinement</span><span class="chip add">z-spec</span></div>
+  </div>
+
+  <div class="roster">
+    <span class="prefix">/prfaq:</span><span class="count">14</span>
+    <div class="chips"><span class="chip">badge</span><span class="chip">export</span><span class="chip">externalize</span><span class="chip">feedback</span><span class="chip add">help</span><span class="chip">import</span><span class="chip">meeting</span><span class="chip">meeting-hive</span><span class="chip">meeting-listen</span><span class="chip add">rate</span><span class="chip">research</span><span class="chip">review</span><span class="chip">streamline</span><span class="chip">vote</span></div>
+  </div>
+
+  <p class="legend">Not shown, by design: the 14 lux constructor skills (agent-facing), punt's <code>bead-review</code> skill (prose-triggered), the ethos skills moving in from <code>~/.claude/skills</code>, and the <code>-dev</code> twins (release-tooling). Whether the biff/vox/lux/quarry sets also appear unprefixed is open decision 4.</p>
+
+  <footer>Compiled from plugin/commands/*.md frontmatter, released plugin cache (lux 0.31.1), plugin session-start hooks, and ~/.claude/{commands,skills} — punt-labs workspace, 2026-08-29.</footer>
+</div>

@@ -1,0 +1,36 @@
+{
+  "date": "2026-09-13",
+  "research_date": "2026-09-12",
+  "status": "passed",
+  "markdown_files": 21,
+  "json_files": 16,
+  "local_links_checked": 125,
+  "local_heading_anchors_checked": 16,
+  "pinned_source_references_checked": 189,
+  "unique_pinned_files_checked": 147,
+  "repo_task_line_references_checked": 89,
+  "researched_tasks": 98,
+  "active_tasks": 84,
+  "deferred_tasks": 14,
+  "active_aggregate_edges": 231,
+  "active_scoped_outcomes": 28,
+  "active_expanded_edges": 358,
+  "active_certification_cells": 18,
+  "deferred_certification_cells": 9,
+  "phase_closures": {
+    "opencode": {
+      "closure_nodes": 71,
+      "products": 9,
+      "deferred_dependencies": 0,
+      "foreign_harness_dependencies": 0
+    },
+    "pi": {
+      "closure_nodes": 72,
+      "products": 9,
+      "deferred_dependencies": 0,
+      "foreign_harness_dependencies": 0
+    }
+  },
+  "dependency_cycles": 0,
+  "errors": []
+}

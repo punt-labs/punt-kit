@@ -1,0 +1,361 @@
+<title>The Punt Labs Lexicon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-subtle: #f8f8f8;
+    --border: #e5e5e5;
+    --border-strong: #d0d0d0;
+    --ink: #111111;
+    --ink-2: #555555;
+    --ink-3: #888888;
+    --grounding: #5c1a8a;
+    --grounding-bg: #f0e6f8;
+    --blocks: #1a3c8a;
+    --blocks-bg: #e6f0ff;
+    --grammar: #1a5c2a;
+    --grammar-bg: #e6f4ea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1a1a1a;
+      --bg-subtle: #222222;
+      --border: #333333;
+      --border-strong: #454545;
+      --ink: #ececec;
+      --ink-2: #a8a8a8;
+      --ink-3: #7a7a7a;
+      --grounding: #c9a1e8;
+      --grounding-bg: #2c2135;
+      --blocks: #9ab8f0;
+      --blocks-bg: #1e2735;
+      --grammar: #99cfa5;
+      --grammar-bg: #1e2b21;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1a1a1a;
+    --bg-subtle: #222222;
+    --border: #333333;
+    --border-strong: #454545;
+    --ink: #ececec;
+    --ink-2: #a8a8a8;
+    --ink-3: #7a7a7a;
+    --grounding: #c9a1e8;
+    --grounding-bg: #2c2135;
+    --blocks: #9ab8f0;
+    --blocks-bg: #1e2735;
+    --grammar: #99cfa5;
+    --grammar-bg: #1e2b21;
+  }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Inter", system-ui, -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 0 1.5rem 6rem;
+  }
+  .wrap { max-width: 62rem; margin: 0 auto; }
+
+  /* ── Hero ─────────────────────────────── */
+  .hero { padding: 5rem 0 3.5rem; border-bottom: 1px solid var(--ink); }
+  .kicker {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 1.4rem;
+  }
+  h1 {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 500;
+    font-size: clamp(2.4rem, 6vw, 3.6rem);
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+    margin: 0 0 1.2rem;
+    text-wrap: balance;
+  }
+  .hero p {
+    font-size: 1.05rem;
+    color: var(--ink-2);
+    max-width: 46rem;
+    margin: 0;
+  }
+  .hero p b { color: var(--ink); font-weight: 600; }
+
+  /* ── Layer sections ───────────────────── */
+  .layer { padding: 3rem 0 1rem; }
+  .layer-head { display: flex; align-items: baseline; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.4rem; }
+  .layer-head h2 {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.9rem;
+    margin: 0;
+  }
+  .layer-badge {
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 999px;
+    padding: 0.25em 0.9em;
+  }
+  .layer.grounding .layer-badge { color: var(--grounding); background: var(--grounding-bg); }
+  .layer.blocks .layer-badge { color: var(--blocks); background: var(--blocks-bg); }
+  .layer-desc { color: var(--ink-2); max-width: 44rem; font-size: 0.95rem; margin: 0 0 2rem; }
+
+  .entries {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+    gap: 0;
+    border-top: 1px solid var(--border);
+  }
+  .entry {
+    padding: 1.6rem 1.6rem 1.7rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  @media (min-width: 42rem) {
+    .entry { border-right: 1px solid var(--border); padding-left: 1.6rem; }
+    .entry:nth-child(-n+99) { }
+  }
+  .entry:first-child { padding-left: 0; }
+  @media (min-width: 42rem) { .entry:first-child { padding-left: 0; } .entry { padding-left: 1.6rem; } .entries { margin-right: -1px; } .entry:first-child { padding-left: 0; } }
+  .headword {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 600;
+    font-size: 1.55rem;
+    line-height: 1.1;
+    margin: 0;
+  }
+  .headword .pos {
+    font-family: "Newsreader", Georgia, serif;
+    font-weight: 400;
+    font-style: italic;
+    font-size: 0.95rem;
+    color: var(--ink-3);
+    margin-left: 0.45em;
+  }
+  .gloss {
+    font-family: "Newsreader", Georgia, serif;
+    font-style: italic;
+    font-size: 1.02rem;
+    color: var(--ink-2);
+    margin: 0.35rem 0 0.9rem;
+  }
+  .sense { margin: 0.55rem 0 0; font-size: 0.86rem; line-height: 1.75; }
+  .sense .marker {
+    font-family: "Newsreader", Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1rem;
+    margin-right: 0.5em;
+  }
+  .layer.grounding .marker { color: var(--grounding); }
+  .layer.blocks .marker { color: var(--blocks); }
+  .sense code {
+    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size: 0.82rem;
+    color: var(--ink);
+    background: none;
+    border: none;
+    padding: 0;
+  }
+  .sense .sep { color: var(--border-strong); padding: 0 0.15em; }
+  .subgroup {
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    margin-bottom: 0.4rem;
+  }
+
+  /* ── Shared grammar ───────────────────── */
+  .grammar-section { padding: 3.5rem 0 0; }
+  .grammar-section .layer-badge { color: var(--grammar); background: var(--grammar-bg); }
+  .rules { border-top: 1px solid var(--border); margin-top: 1.6rem; }
+  .rule {
+    display: grid;
+    grid-template-columns: minmax(10rem, 16rem) 1fr;
+    gap: 1.5rem;
+    padding: 1.05rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  @media (max-width: 40rem) { .rule { grid-template-columns: 1fr; gap: 0.25rem; } }
+  .rule dt {
+    font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    font-size: 0.85rem;
+    font-weight: 500;
+    margin: 0;
+  }
+  .rule dd { margin: 0; color: var(--ink-2); font-size: 0.9rem; max-width: 42rem; }
+  .rule dd b { color: var(--ink); font-weight: 600; }
+
+  .coda {
+    margin-top: 4rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--ink);
+    display: flex;
+    justify-content: space-between;
+    gap: 2rem;
+    flex-wrap: wrap;
+  }
+  .coda p { margin: 0; font-size: 0.82rem; color: var(--ink-3); max-width: 40rem; }
+  .coda .sig {
+    font-family: "Newsreader", Georgia, serif;
+    font-style: italic;
+    font-size: 0.95rem;
+    color: var(--ink-2);
+    white-space: nowrap;
+  }
+</style>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="kicker">Punt Labs · the toolchain, as a language</div>
+    <h1>Nine tools. Two layers.<br>One grammar.</h1>
+    <p>Every Punt Labs tool is a small language: a set of <b>nouns</b> it manages and a set of <b>verbs</b> you — or your agent — speak to it. The layers come from how we build: <b>Grounding</b> decides what to build and how to specify it; <b>Building&nbsp;Blocks</b> make agents more capable while you build it. Each tool ships the same vocabulary through four doors — library, CLI, MCP server, and slash commands — from a single codebase.</p>
+  </header>
+
+  <section class="layer grounding">
+    <div class="layer-head">
+      <h2>Grounding</h2>
+      <span class="layer-badge">what to build · how to specify it</span>
+    </div>
+    <p class="layer-desc">Structured product discovery and formal specification. These tools work on intent — the artifacts that exist before the code, and the identities accountable for it.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <div class="subgroup">discovery</div>
+        <h3 class="headword">prfaq<span class="pos">n.</span></h3>
+        <p class="gloss">Amazon's Working Backwards process, inside the terminal.</p>
+        <p class="sense"><span class="marker">nouns</span><code>press release</code><span class="sep"> · </span><code>faq</code><span class="sep"> · </span><code>risk</code><span class="sep"> · </span><code>citation</code><span class="sep"> · </span><code>meeting</code><span class="sep"> · </span><code>persona</code><span class="sep"> · </span><code>vote</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>import</code><span class="sep"> · </span><code>research</code><span class="sep"> · </span><code>review</code><span class="sep"> · </span><code>meeting</code><span class="sep"> · </span><code>vote</code><span class="sep"> · </span><code>feedback</code><span class="sep"> · </span><code>streamline</code><span class="sep"> · </span><code>externalize</code><span class="sep"> · </span><code>export</code><span class="sep"> · </span><code>badge</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">specification</div>
+        <h3 class="headword">z-spec<span class="pos">n.</span></h3>
+        <p class="gloss">Formal Z specifications for stateful systems.</p>
+        <p class="sense"><span class="marker">nouns</span><code>specification</code><span class="sep"> · </span><code>schema</code><span class="sep"> · </span><code>invariant</code><span class="sep"> · </span><code>B machine</code><span class="sep"> · </span><code>proof obligation</code><span class="sep"> · </span><code>contract</code><span class="sep"> · </span><code>partition</code><span class="sep"> · </span><code>oracle</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>check</code><span class="sep"> · </span><code>animate</code><span class="sep"> · </span><code>prove</code><span class="sep"> · </span><code>refine</code><span class="sep"> · </span><code>partition</code><span class="sep"> · </span><code>elaborate</code><span class="sep"> · </span><code>audit</code><span class="sep"> · </span><code>code2model</code><span class="sep"> · </span><code>model2code</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">accountability</div>
+        <h3 class="headword">ethos<span class="pos">n.</span></h3>
+        <p class="gloss">The agent harness — identity, missions, and traceable delegation.</p>
+        <p class="sense"><span class="marker">nouns</span><code>identity</code><span class="sep"> · </span><code>personality</code><span class="sep"> · </span><code>writing style</code><span class="sep"> · </span><code>talent</code><span class="sep"> · </span><code>role</code><span class="sep"> · </span><code>team</code><span class="sep"> · </span><code>mission</code><span class="sep"> · </span><code>audit trail</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>whoami</code><span class="sep"> · </span><code>iam</code><span class="sep"> · </span><code>dispatch</code><span class="sep"> · </span><code>advance</code><span class="sep"> · </span><code>close</code><span class="sep"> · </span><code>seal</code><span class="sep"> · </span><code>seed</code></p>
+      </article>
+
+    </div>
+  </section>
+
+  <section class="layer blocks">
+    <div class="layer-head">
+      <h2>Building Blocks</h2>
+      <span class="layer-badge">communication · media · memory · standards</span>
+    </div>
+    <p class="layer-desc">Tools that make agents more capable and improve how we work with them. Each composes with its peers and speaks the shared grammar below.</p>
+    <div class="entries">
+
+      <article class="entry">
+        <div class="subgroup">communication</div>
+        <h3 class="headword">biff<span class="pos">n.</span></h3>
+        <p class="gloss">Team chat for engineers who never leave the terminal.</p>
+        <p class="sense"><span class="marker">nouns</span><code>teammate</code><span class="sep"> · </span><code>session</code><span class="sep"> · </span><code>message</code><span class="sep"> · </span><code>.plan</code><span class="sep"> · </span><code>wall</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>who</code><span class="sep"> · </span><code>finger</code><span class="sep"> · </span><code>write</code><span class="sep"> · </span><code>read</code><span class="sep"> · </span><code>talk</code><span class="sep"> · </span><code>wall</code><span class="sep"> · </span><code>mesg</code><span class="sep"> · </span><code>tty</code><span class="sep"> · </span><code>last</code><span class="sep"> · </span><code>plan</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">communication</div>
+        <h3 class="headword">beadle<span class="pos">n.</span></h3>
+        <p class="gloss">Email for your AI engineering assistant.</p>
+        <p class="sense"><span class="marker">nouns</span><code>message</code><span class="sep"> · </span><code>inbox</code><span class="sep"> · </span><code>folder</code><span class="sep"> · </span><code>contact</code><span class="sep"> · </span><code>identity</code><span class="sep"> · </span><code>trust level</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>mail</code><span class="sep"> · </span><code>send</code><span class="sep"> · </span><code>inbox</code><span class="sep"> · </span><code>contacts</code><span class="sep"> · </span><code>verify</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">media</div>
+        <h3 class="headword">vox<span class="pos">n.</span></h3>
+        <p class="gloss">Voice and music for your AI engineering assistant.</p>
+        <p class="sense"><span class="marker">nouns</span><code>voice</code><span class="sep"> · </span><code>provider</code><span class="sep"> · </span><code>model</code><span class="sep"> · </span><code>vibe</code><span class="sep"> · </span><code>recording</code><span class="sep"> · </span><code>program</code><span class="sep"> · </span><code>album</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>say</code><span class="sep"> · </span><code>unmute</code><span class="sep"> · </span><code>mute</code><span class="sep"> · </span><code>recap</code><span class="sep"> · </span><code>vibe</code><span class="sep"> · </span><code>call</code><span class="sep"> · </span><code>music</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">media</div>
+        <h3 class="headword">lux<span class="pos">n.</span></h3>
+        <p class="gloss">A visual output surface for AI agents.</p>
+        <p class="sense"><span class="marker">nouns</span><code>scene</code><span class="sep"> · </span><code>frame</code><span class="sep"> · </span><code>element</code><span class="sep"> · </span><code>menu</code><span class="sep"> · </span><code>topic</code><span class="sep"> · </span><code>session</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>scene.show</code><span class="sep"> · </span><code>scene.update</code><span class="sep"> · </span><code>scene.table</code><span class="sep"> · </span><code>menu.set</code><span class="sep"> · </span><code>topic.publish</code><span class="sep"> · </span><code>topic.subscribe</code><span class="sep"> · </span><code>ping</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">memory</div>
+        <h3 class="headword">quarry<span class="pos">n.</span></h3>
+        <p class="gloss">Unlock the knowledge trapped on your hard drive.</p>
+        <p class="sense"><span class="marker">nouns</span><code>document</code><span class="sep"> · </span><code>collection</code><span class="sep"> · </span><code>database</code><span class="sep"> · </span><code>capture</code><span class="sep"> · </span><code>lesson</code><span class="sep"> · </span><code>registration</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>find</code><span class="sep"> · </span><code>ingest</code><span class="sep"> · </span><code>remember</code><span class="sep"> · </span><code>learn</code><span class="sep"> · </span><code>explain</code><span class="sep"> · </span><code>source</code><span class="sep"> · </span><code>sync</code><span class="sep"> · </span><code>use</code></p>
+      </article>
+
+      <article class="entry">
+        <div class="subgroup">standards</div>
+        <h3 class="headword">punt-kit<span class="pos">n.</span></h3>
+        <p class="gloss">Shared standards and the scaffolding our tools are built against.</p>
+        <p class="sense"><span class="marker">nouns</span><code>standard</code><span class="sep"> · </span><code>playbook</code><span class="sep"> · </span><code>bead</code><span class="sep"> · </span><code>project</code></p>
+        <p class="sense"><span class="marker">verbs</span><code>init</code><span class="sep"> · </span><code>audit</code><span class="sep"> · </span><code>reconcile</code><span class="sep"> · </span><code>auto</code><span class="sep"> · </span><code>pii</code></p>
+      </article>
+
+    </div>
+  </section>
+
+  <section class="grammar-section">
+    <div class="layer-head">
+      <h2>The shared grammar</h2>
+      <span class="layer-badge">one vocabulary, every tool</span>
+    </div>
+    <p class="layer-desc">Verbs that mean the same thing everywhere. A tool may have a small language of its own, but these words are never redefined.</p>
+    <dl class="rules">
+      <div class="rule">
+        <dt>enable · disable</dt>
+        <dd>Turn a tool on or off <b>for a repo</b> — one committed marker, written the same way from every surface. Never a boolean, never automatic, never a side effect.</dd>
+      </div>
+      <div class="rule">
+        <dt>help</dt>
+        <dd>Every tool explains itself: one quick-reference command per plugin.</dd>
+      </div>
+      <div class="rule">
+        <dt>doctor</dt>
+        <dd>Every tool with an environment can check it and say what's wrong.</dd>
+      </div>
+      <div class="rule">
+        <dt>poll</dt>
+        <dd>Every tool with an inbox checks it the same way: <code>poll 5m</code> to watch, <code>poll</code> to check now.</dd>
+      </div>
+      <div class="rule">
+        <dt>remember · ingest · learn</dt>
+        <dd>The capture triad: <b>remember</b> a specific durable fact, <b>ingest</b> a URL, <b>learn</b> a distilled lesson that shapes future retrieval.</dd>
+      </div>
+      <div class="rule">
+        <dt>noun.verb</dt>
+        <dd>Large agent-facing surfaces speak in dotted pairs — <code>scene.show</code>, <code>topic.publish</code> — so the noun set stays visible in the verb.</dd>
+      </div>
+      <div class="rule">
+        <dt>four doors</dt>
+        <dd>Library · CLI · MCP server · slash command — one vocabulary through every door, from a single codebase. The door changes; the word doesn't.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <footer class="coda">
+    <p>Grounding decides what to build. Building Blocks help build it. The grammar keeps nine small languages from becoming nine dialects.</p>
+    <span class="sig">punt-labs.com</span>
+  </footer>
+
+</div>

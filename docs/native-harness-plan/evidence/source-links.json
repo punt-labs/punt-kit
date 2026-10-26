@@ -1,0 +1,1707 @@
+{
+  "date": "2026-09-13",
+  "basis": "Source permalinks pinned to the September 12 audit revision; Lux uses its closing observed commit. Explicit uncommitted worktree observations remain distinguished in reports and baselines.",
+  "references": [
+    {
+      "document": "strategy.md",
+      "original_reference": "../../../beadle/internal/mcp/tools.go#L661",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L661",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/tools.go#L661"
+    },
+    {
+      "document": "strategy.md",
+      "original_reference": "../../../beadle/cmd/beadle-email/email_cmd.go#L403",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "cmd/beadle-email/email_cmd.go",
+      "anchor": "L403",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/cmd/beadle-email/email_cmd.go#L403"
+    },
+    {
+      "document": "strategy.md",
+      "original_reference": "../../../lux/src/punt_lux/client/facade.py#L45",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/client/facade.py",
+      "anchor": "L45",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/client/facade.py#L45"
+    },
+    {
+      "document": "strategy.md",
+      "original_reference": "../../../prfaq/plugin/commands/meeting-hive.md#L42",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/commands/meeting-hive.md",
+      "anchor": "L42",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/commands/meeting-hive.md#L42"
+    },
+    {
+      "document": "strategy.md",
+      "original_reference": "../../../biff/docs/requirements-biffd-multihost.md#L194",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "docs/requirements-biffd-multihost.md",
+      "anchor": "L194",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/docs/requirements-biffd-multihost.md#L194"
+    },
+    {
+      "document": "acceptance.md",
+      "original_reference": "../../../biff/docs/requirements-biffd-multihost.md",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "docs/requirements-biffd-multihost.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/docs/requirements-biffd-multihost.md"
+    },
+    {
+      "document": "architecture.md",
+      "original_reference": "../../standards/architecture.md",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "standards/architecture.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/standards/architecture.md"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/standards/architecture.md",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "standards/architecture.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/standards/architecture.md"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/detect.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/detect.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/detect.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/__main__.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/__main__.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/__main__.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/audit.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/audit.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/audit.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/pii.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/pii.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/pii.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/init.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/init.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/init.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/seed.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/seed.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/seed.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/phases/phase10_propagate.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/phases/phase10_propagate.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/phases/phase10_propagate.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/src/punt_kit/phases/phase11_verify.py",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "src/punt_kit/phases/phase11_verify.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/src/punt_kit/phases/phase11_verify.py"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/plugin/commands/auto.md",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "plugin/commands/auto.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/plugin/commands/auto.md"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/plugin/skills/auto/SKILL.md",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "plugin/skills/auto/SKILL.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/plugin/skills/auto/SKILL.md"
+    },
+    {
+      "document": "repos/punt-kit.md",
+      "original_reference": "../../../../punt-kit/plugin/commands/reconcile.md",
+      "repo": "punt-kit",
+      "revision": "1ebc0a766423a8b6513feac902e6bb9e45fe867e",
+      "path": "plugin/commands/reconcile.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/punt-kit/blob/1ebc0a766423a8b6513feac902e6bb9e45fe867e/plugin/commands/reconcile.md"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/cmd/beadle-email/email_cmd.go#L145",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "cmd/beadle-email/email_cmd.go",
+      "anchor": "L145",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/cmd/beadle-email/email_cmd.go#L145"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/tools.go#L53",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L53",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/tools.go#L53"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/tools.go#L1479",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L1479",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/tools.go#L1479"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/channel/channel.go#L1",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/channel/channel.go",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/channel/channel.go#L1"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/tools.go#L661",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L661",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/tools.go#L661"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/tools.go#L749",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L749",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/tools.go#L749"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/cmd/beadle-email/email_cmd.go#L403",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "cmd/beadle-email/email_cmd.go",
+      "anchor": "L403",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/cmd/beadle-email/email_cmd.go#L403"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/email/chain.go#L41",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/email/chain.go",
+      "anchor": "L41",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/email/chain.go#L41"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/tools.go#L92",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L92",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/tools.go#L92"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/identity_tools.go#L33",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/identity_tools.go",
+      "anchor": "L33",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/identity_tools.go#L33"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/identity/resolve.go#L75",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/identity/resolve.go",
+      "anchor": "L75",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/identity/resolve.go#L75"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/session/roster.go#L70",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/session/roster.go",
+      "anchor": "L70",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/session/roster.go#L70"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/email/poller.go#L286",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/email/poller.go",
+      "anchor": "L286",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/email/poller.go#L286"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/email/poller.go#L199",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/email/poller.go",
+      "anchor": "L199",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/email/poller.go#L199"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/cmd/beadle-email/admin_cmd.go#L60",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "cmd/beadle-email/admin_cmd.go",
+      "anchor": "L60",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/cmd/beadle-email/admin_cmd.go#L60"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/handler.go#L93",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/handler.go",
+      "anchor": "L93",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/handler.go#L93"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/cmd/beadle-email/admin_cmd.go#L104",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "cmd/beadle-email/admin_cmd.go",
+      "anchor": "L104",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/cmd/beadle-email/admin_cmd.go#L104"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/ws.go#L44",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/ws.go",
+      "anchor": "L44",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/ws.go#L44"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/mcp/ws.go#L199",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/mcp/ws.go",
+      "anchor": "L199",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/mcp/ws.go#L199"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/enable/enable.go#L58",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/enable/enable.go",
+      "anchor": "L58",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/enable/enable.go#L58"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/pipeline.go#L46",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/pipeline.go",
+      "anchor": "L46",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/pipeline.go#L46"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/command.go#L59",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/command.go",
+      "anchor": "L59",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/command.go#L59"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/signature.go#L111",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/signature.go",
+      "anchor": "L111",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/signature.go#L111"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/runner.go#L32",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/runner.go",
+      "anchor": "L32",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/runner.go#L32"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/templates.go#L82",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/templates.go",
+      "anchor": "L82",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/templates.go#L82"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/pipeline.go#L232",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/pipeline.go",
+      "anchor": "L232",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/pipeline.go#L232"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/spawner.go#L71",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/spawner.go",
+      "anchor": "L71",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/spawner.go#L71"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/handler.go#L93",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/handler.go",
+      "anchor": "L93",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/handler.go#L93"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/pipeline.go#L62",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/pipeline.go",
+      "anchor": "L62",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/pipeline.go#L62"
+    },
+    {
+      "document": "repos/beadle.md",
+      "original_reference": "../../../../beadle/internal/daemon/harness_test.go#L32",
+      "repo": "beadle",
+      "revision": "8f3f368d35457c32e0a2b021dbb43e1f36f953e2",
+      "path": "internal/daemon/harness_test.go",
+      "anchor": "L32",
+      "url": "https://github.com/punt-labs/beadle/blob/8f3f368d35457c32e0a2b021dbb43e1f36f953e2/internal/daemon/harness_test.go#L32"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/pyproject.toml#L1",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "pyproject.toml",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/pyproject.toml#L1"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/commands/registry.py#L43",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/commands/registry.py",
+      "anchor": "L43",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/commands/registry.py#L43"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/tests/commands/test_parity.py#L29",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "tests/commands/test_parity.py",
+      "anchor": "L29",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/tests/commands/test_parity.py#L29"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/__main__.py#L347",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/__main__.py",
+      "anchor": "L347",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/__main__.py#L347"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/__main__.py#L68",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/__main__.py",
+      "anchor": "L68",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/__main__.py#L68"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/__main__.py#L293",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/__main__.py",
+      "anchor": "L293",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/__main__.py#L293"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/commands/result.py#L20",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/commands/result.py",
+      "anchor": "L20",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/commands/result.py#L20"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/fuzz.py#L30",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/fuzz.py",
+      "anchor": "L30",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/fuzz.py#L30"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/prob.py#L51",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/prob.py",
+      "anchor": "L51",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/prob.py#L51"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/tests/e2e/test_installed_mcp.py#L175",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "tests/e2e/test_installed_mcp.py",
+      "anchor": "L175",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/tests/e2e/test_installed_mcp.py#L175"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/commands/check.py#L53",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/commands/check.py",
+      "anchor": "L53",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/commands/check.py#L53"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/coverage.py#L22",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/coverage.py",
+      "anchor": "L22",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/coverage.py#L22"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/server_context.py#L23",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/server_context.py",
+      "anchor": "L23",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/server_context.py#L23"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/lux/project.py#L24",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/lux/project.py",
+      "anchor": "L24",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/lux/project.py#L24"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/lux/identity.py#L35",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/lux/identity.py",
+      "anchor": "L35",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/lux/identity.py#L35"
+    },
+    {
+      "document": "repos/z-spec.md",
+      "original_reference": "../../../../z-spec/src/punt_zspec/commands/enablement.py#L123",
+      "repo": "z-spec",
+      "revision": "a6fe3de9740459a3f2bae3889cbe0aa70a8688ba",
+      "path": "src/punt_zspec/commands/enablement.py",
+      "anchor": "L123",
+      "url": "https://github.com/punt-labs/z-spec/blob/a6fe3de9740459a3f2bae3889cbe0aa70a8688ba/src/punt_zspec/commands/enablement.py#L123"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/pyproject.toml",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "pyproject.toml",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/pyproject.toml"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/__main__.py#L329",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/__main__.py",
+      "anchor": "L329",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/__main__.py#L329"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/voxd/daemon.py#L252",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/voxd/daemon.py",
+      "anchor": "L252",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/voxd/daemon.py#L252"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/client.py#L535",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/client.py",
+      "anchor": "L535",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/client.py#L535"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/tests/test_public_api.py#L30",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "tests/test_public_api.py",
+      "anchor": "L30",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/tests/test_public_api.py#L30"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/server.py#L108",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/server.py",
+      "anchor": "L108",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/server.py#L108"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/plugin/hooks/hooks.json#L1",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "plugin/hooks/hooks.json",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/plugin/hooks/hooks.json#L1"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/voxd/daemon.py#L168",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/voxd/daemon.py",
+      "anchor": "L168",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/voxd/daemon.py#L168"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/cli_guard.py#L1",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/cli_guard.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/cli_guard.py#L1"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/__main__.py#L672",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/__main__.py",
+      "anchor": "L672",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/__main__.py#L672"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/client.py#L774",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/client.py",
+      "anchor": "L774",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/client.py#L774"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/client_sync.py#L194",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/client_sync.py",
+      "anchor": "L194",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/client_sync.py#L194"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/server.py#L297",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/server.py",
+      "anchor": "L297",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/server.py#L297"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/server.py#L607",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/server.py",
+      "anchor": "L607",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/server.py#L607"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/config.py#L147",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/config.py",
+      "anchor": "L147",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/config.py#L147"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/hooks.py#L225",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/hooks.py",
+      "anchor": "L225",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/hooks.py#L225"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/DESIGN.md#L1950",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "DESIGN.md",
+      "anchor": "L1950",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/DESIGN.md#L1950"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/enablement.py#L393",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/enablement.py",
+      "anchor": "L393",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/enablement.py#L393"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/voxd/conversation_mode/claude_session_attach.py#L79",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/voxd/conversation_mode/claude_session_attach.py",
+      "anchor": "L79",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/voxd/conversation_mode/claude_session_attach.py#L79"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/voxd/conversation_mode/session_discovery.py#L55",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/voxd/conversation_mode/session_discovery.py",
+      "anchor": "L55",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/voxd/conversation_mode/session_discovery.py#L55"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/DESIGN.md#L3503",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "DESIGN.md",
+      "anchor": "L3503",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/DESIGN.md#L3503"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/DESIGN.md#L3754",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "DESIGN.md",
+      "anchor": "L3754",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/DESIGN.md#L3754"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/src/punt_vox/voxd/router.py#L60",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "src/punt_vox/voxd/router.py",
+      "anchor": "L60",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/src/punt_vox/voxd/router.py#L60"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/tests/test_voxd_daemon.py#L54",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "tests/test_voxd_daemon.py",
+      "anchor": "L54",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/tests/test_voxd_daemon.py#L54"
+    },
+    {
+      "document": "repos/vox.md",
+      "original_reference": "../../../../vox/tests/test_public_api.py#L100",
+      "repo": "vox",
+      "revision": "db1a4a9000fd1270d811e3b85f9aa67e8bcbde43",
+      "path": "tests/test_public_api.py",
+      "anchor": "L100",
+      "url": "https://github.com/punt-labs/vox/blob/db1a4a9000fd1270d811e3b85f9aa67e8bcbde43/tests/test_public_api.py#L100"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/daemon/routes/databases.py#L14",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/daemon/routes/databases.py",
+      "anchor": "L14",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/daemon/routes/databases.py#L14"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/db_pointer.py#L30",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/db_pointer.py",
+      "anchor": "L30",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/db_pointer.py#L30"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/mcp_server.py#L544",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/mcp_server.py",
+      "anchor": "L544",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/mcp_server.py#L544"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/pyproject.toml",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "pyproject.toml",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/pyproject.toml"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/__main__.py#L189",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/__main__.py",
+      "anchor": "L189",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/__main__.py#L189"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/daemon/route_table.py#L138",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/daemon/route_table.py",
+      "anchor": "L138",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/daemon/route_table.py#L138"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/daemon/app.py#L84",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/daemon/app.py",
+      "anchor": "L84",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/daemon/app.py#L84"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/client/client.py#L66",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/client/client.py",
+      "anchor": "L66",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/client/client.py#L66"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/client/client.py#L154",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/client/client.py",
+      "anchor": "L154",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/client/client.py#L154"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/mcp_server.py#L96",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/mcp_server.py",
+      "anchor": "L96",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/mcp_server.py#L96"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/mcp_server.py#L473",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/mcp_server.py",
+      "anchor": "L473",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/mcp_server.py#L473"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/session_transcript.py#L47",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/session_transcript.py",
+      "anchor": "L47",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/session_transcript.py#L47"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/api/capture_ingest.py#L8",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/api/capture_ingest.py",
+      "anchor": "L8",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/api/capture_ingest.py#L8"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/enabled_marker.py#L16",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/enabled_marker.py",
+      "anchor": "L16",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/enabled_marker.py#L16"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/enable.py#L127",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/enable.py",
+      "anchor": "L127",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/enable.py#L127"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/client/client.py#L244",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/client/client.py",
+      "anchor": "L244",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/client/client.py#L244"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/tests/test_client_task.py#L114",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "tests/test_client_task.py",
+      "anchor": "L114",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/tests/test_client_task.py#L114"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/cli_ingest.py#L41",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/cli_ingest.py",
+      "anchor": "L41",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/cli_ingest.py#L41"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/transcript_reader.py#L17",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/transcript_reader.py",
+      "anchor": "L17",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/transcript_reader.py#L17"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/capture.py#L27",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/capture.py",
+      "anchor": "L27",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/capture.py#L27"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/daemon/routes/captures.py#L109",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/daemon/routes/captures.py",
+      "anchor": "L109",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/daemon/routes/captures.py#L109"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/transcript_reader.py#L79",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/transcript_reader.py",
+      "anchor": "L79",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/transcript_reader.py#L79"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/hooks_agent.py#L259",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/hooks_agent.py",
+      "anchor": "L259",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/hooks_agent.py#L259"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/daemon/job_spool.py#L1",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/daemon/job_spool.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/daemon/job_spool.py#L1"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/client/resolver.py#L38",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/client/resolver.py",
+      "anchor": "L38",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/client/resolver.py#L38"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/src/quarry/client/config.py#L50",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "src/quarry/client/config.py",
+      "anchor": "L50",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/src/quarry/client/config.py#L50"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/tests/test_mcp_server.py#L1",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "tests/test_mcp_server.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/tests/test_mcp_server.py#L1"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/tests/test_generate_openapi.py#L1",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "tests/test_generate_openapi.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/tests/test_generate_openapi.py#L1"
+    },
+    {
+      "document": "repos/quarry.md",
+      "original_reference": "../../../../quarry/pyproject.toml",
+      "repo": "quarry",
+      "revision": "b0684cd66d5113773409a547a89891ad63b553ac",
+      "path": "pyproject.toml",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/quarry/blob/b0684cd66d5113773409a547a89891ad63b553ac/pyproject.toml"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/docs/architecture/target/target.md#L22",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "docs/architecture/target/target.md",
+      "anchor": "L22",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/docs/architecture/target/target.md#L22"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/pyproject.toml",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "pyproject.toml",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/pyproject.toml"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/cli/session.py#L29",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/cli/session.py",
+      "anchor": "L29",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/cli/session.py#L29"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/rest/scenes.py#L72",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/rest/scenes.py",
+      "anchor": "L72",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/rest/scenes.py#L72"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/rest/identity.py#L89",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/rest/identity.py",
+      "anchor": "L89",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/rest/identity.py#L89"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/mcp_transport.py#L40",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/mcp_transport.py",
+      "anchor": "L40",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/mcp_transport.py#L40"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/mcp_session.py#L85",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/mcp_session.py",
+      "anchor": "L85",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/mcp_session.py#L85"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/plugin/.claude-plugin/plugin.json#L9",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "plugin/.claude-plugin/plugin.json",
+      "anchor": "L9",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/plugin/.claude-plugin/plugin.json#L9"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/client/facade.py#L45",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/client/facade.py",
+      "anchor": "L45",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/client/facade.py#L45"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/hub_client.py#L1",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/hub_client.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/hub_client.py#L1"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/plugin/hooks/hooks.json#L1",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "plugin/hooks/hooks.json",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/plugin/hooks/hooks.json#L1"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/plugin/hooks/session-start.sh#L110",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "plugin/hooks/session-start.sh",
+      "anchor": "L110",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/plugin/hooks/session-start.sh#L110"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/domain/hub/client_identity.py#L68",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/domain/hub/client_identity.py",
+      "anchor": "L68",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/domain/hub/client_identity.py#L68"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/connection_identity.py#L34",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/connection_identity.py",
+      "anchor": "L34",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/connection_identity.py#L34"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/identity_headers.py#L37",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/identity_headers.py",
+      "anchor": "L37",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/identity_headers.py#L37"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/cli_identity.py#L35",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/cli_identity.py",
+      "anchor": "L35",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/cli_identity.py#L35"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/cli/_shared.py#L267",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/cli/_shared.py",
+      "anchor": "L267",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/cli/_shared.py#L267"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/cli/session.py#L54",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/cli/session.py",
+      "anchor": "L54",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/cli/session.py#L54"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/applets/identity.py#L43",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/applets/identity.py",
+      "anchor": "L43",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/applets/identity.py#L43"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/domain/hub/client_identity.py#L129",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/domain/hub/client_identity.py",
+      "anchor": "L129",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/domain/hub/client_identity.py#L129"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/domain/hub/session_lease.py#L27",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/domain/hub/session_lease.py",
+      "anchor": "L27",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/domain/hub/session_lease.py#L27"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/__main__.py#L55",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/__main__.py",
+      "anchor": "L55",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/__main__.py#L55"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/config.py#L31",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/config.py",
+      "anchor": "L31",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/config.py#L31"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/operations/callbacks.py#L84",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/operations/callbacks.py",
+      "anchor": "L84",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/operations/callbacks.py#L84"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/tests/client/test_ws_e2e.py#L102",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "tests/client/test_ws_e2e.py",
+      "anchor": "L102",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/tests/client/test_ws_e2e.py#L102"
+    },
+    {
+      "document": "repos/lux.md",
+      "original_reference": "../../../../lux/src/punt_lux/transport_policy.py#L19",
+      "repo": "lux",
+      "revision": "23867ae87b1112753e37906e3d595a8e1ad647fd",
+      "path": "src/punt_lux/transport_policy.py",
+      "anchor": "L19",
+      "url": "https://github.com/punt-labs/lux/blob/23867ae87b1112753e37906e3d595a8e1ad647fd/src/punt_lux/transport_policy.py#L19"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/cmd/ethos/ui.go#L18",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "cmd/ethos/ui.go",
+      "anchor": "L18",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/cmd/ethos/ui.go#L18"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/ui/server.go",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/ui/server.go",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/ui/server.go"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/cmd/ethos/serve.go#L16",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "cmd/ethos/serve.go",
+      "anchor": "L16",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/cmd/ethos/serve.go#L16"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/docs/harness-sessions.md",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "docs/harness-sessions.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/docs/harness-sessions.md"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/cmd/ethos/session.go#L384",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "cmd/ethos/session.go",
+      "anchor": "L384",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/cmd/ethos/session.go#L384"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/cmd/ethos/session_harness_test.go#L65",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "cmd/ethos/session_harness_test.go",
+      "anchor": "L65",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/cmd/ethos/session_harness_test.go#L65"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/resolve/resolve.go#L137",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/resolve/resolve.go",
+      "anchor": "L137",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/resolve/resolve.go#L137"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/mcp/tools.go#L199",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L199",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/mcp/tools.go#L199"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/mcp/tools.go#L433",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/mcp/tools.go",
+      "anchor": "L433",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/mcp/tools.go#L433"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/mcp/mission_tools.go#L211",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/mcp/mission_tools.go",
+      "anchor": "L211",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/mcp/mission_tools.go#L211"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/cmd/ethos/enable.go#L16",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "cmd/ethos/enable.go",
+      "anchor": "L16",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/cmd/ethos/enable.go#L16"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/session/session.go#L6",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/session/session.go",
+      "anchor": "L6",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/session/session.go#L6"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/hook/pretooluse.go#L23",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/hook/pretooluse.go",
+      "anchor": "L23",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/hook/pretooluse.go#L23"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/hook/pretooluse_dispatch.go#L55",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/hook/pretooluse_dispatch.go",
+      "anchor": "L55",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/hook/pretooluse_dispatch.go#L55"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../ethos/internal/hook/generate_agents.go#L62",
+      "repo": "ethos",
+      "revision": "ace18cf46bc16ea17d27537b203a43706453cad0",
+      "path": "internal/hook/generate_agents.go",
+      "anchor": "L62",
+      "url": "https://github.com/punt-labs/ethos/blob/ace18cf46bc16ea17d27537b203a43706453cad0/internal/hook/generate_agents.go#L62"
+    },
+    {
+      "document": "repos/ethos.md",
+      "original_reference": "../../../../biff/docs/requirements-biffd-multihost.md#L114",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "docs/requirements-biffd-multihost.md",
+      "anchor": "L114",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/docs/requirements-biffd-multihost.md#L114"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/commands/__init__.py#L1",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/commands/__init__.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/commands/__init__.py#L1"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/commands/_result.py#L15",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/commands/_result.py",
+      "anchor": "L15",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/commands/_result.py#L15"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/commands/talk.py#L1",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/commands/talk.py",
+      "anchor": "L1",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/commands/talk.py#L1"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/__main__.py#L1098",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/__main__.py",
+      "anchor": "L1098",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/__main__.py#L1098"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/cli_session.py#L178",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/cli_session.py",
+      "anchor": "L178",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/cli_session.py#L178"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/server/state.py#L40",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/server/state.py",
+      "anchor": "L40",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/server/state.py#L40"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/server/app.py#L1394",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/server/app.py",
+      "anchor": "L1394",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/server/app.py#L1394"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/docs/requirements-biffd-multihost.md",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "docs/requirements-biffd-multihost.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/docs/requirements-biffd-multihost.md"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/commands/talk.py#L30",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/commands/talk.py",
+      "anchor": "L30",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/commands/talk.py#L30"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/server/app.py#L1166",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/server/app.py",
+      "anchor": "L1166",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/server/app.py#L1166"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/__main__.py#L1254",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/__main__.py",
+      "anchor": "L1254",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/__main__.py#L1254"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/commands/plan.py#L14",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/commands/plan.py",
+      "anchor": "L14",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/commands/plan.py#L14"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/commands/read.py#L11",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/commands/read.py",
+      "anchor": "L11",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/commands/read.py#L11"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/plugin/hooks/session-start.sh",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "plugin/hooks/session-start.sh",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/plugin/hooks/session-start.sh"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/src/biff/enablement.py",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "src/biff/enablement.py",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/src/biff/enablement.py"
+    },
+    {
+      "document": "repos/biff.md",
+      "original_reference": "../../../../biff/research/harness-compatibility.md",
+      "repo": "biff",
+      "revision": "fdf49f322a58ac04d4c55200b8f22d254889c27f",
+      "path": "research/harness-compatibility.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/biff/blob/fdf49f322a58ac04d4c55200b8f22d254889c27f/research/harness-compatibility.md"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/.claude-plugin/plugin.json",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/.claude-plugin/plugin.json",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/.claude-plugin/plugin.json"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/install.sh#L31",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "install.sh",
+      "anchor": "L31",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/install.sh#L31"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/scripts/prose_lint.py#L936",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/scripts/prose_lint.py",
+      "anchor": "L936",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/scripts/prose_lint.py#L936"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/tests/test_prose_lint.py#L369",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "tests/test_prose_lint.py",
+      "anchor": "L369",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/tests/test_prose_lint.py#L369"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/scripts/compile_prfaq.sh#L19",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/scripts/compile_prfaq.sh",
+      "anchor": "L19",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/scripts/compile_prfaq.sh#L19"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/scripts/export_prfaq_docx.sh#L27",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/scripts/export_prfaq_docx.sh",
+      "anchor": "L27",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/scripts/export_prfaq_docx.sh#L27"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/commands/meeting.md#L23",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/commands/meeting.md",
+      "anchor": "L23",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/commands/meeting.md#L23"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/commands/meeting-hive.md#L42",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/commands/meeting-hive.md",
+      "anchor": "L42",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/commands/meeting-hive.md#L42"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/commands/meeting-hive.md#L124",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/commands/meeting-hive.md",
+      "anchor": "L124",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/commands/meeting-hive.md#L124"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/agents/researcher.md",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/agents/researcher.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/agents/researcher.md"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/agents/peer-reviewer.md",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/agents/peer-reviewer.md",
+      "anchor": "",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/agents/peer-reviewer.md"
+    },
+    {
+      "document": "repos/prfaq.md",
+      "original_reference": "../../../../prfaq/plugin/commands/meeting-listen.md#L13",
+      "repo": "prfaq",
+      "revision": "833cea76161cc32ab8a8dcffba984b0b2bfc5c6a",
+      "path": "plugin/commands/meeting-listen.md",
+      "anchor": "L13",
+      "url": "https://github.com/punt-labs/prfaq/blob/833cea76161cc32ab8a8dcffba984b0b2bfc5c6a/plugin/commands/meeting-listen.md#L13"
+    }
+  ]
+}
