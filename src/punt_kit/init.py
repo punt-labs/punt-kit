@@ -642,6 +642,16 @@ def build_standard_deny_rules() -> list[str]:
         "Bash(ncat:*)",
         "Bash(telnet:*)",
         "Bash(socat:*)",
+        # Commands that print environment variable values. Exact matches, so
+        # `env VAR=value cmd` and `compgen -e` (names only) keep working.
+        "Bash(env)",
+        "Bash(env --null)",
+        "Bash(env -0)",
+        "Bash(printenv:*)",
+        "Bash(set)",
+        "Bash(export -p)",
+        "Bash(declare -x)",
+        "Bash(declare -p)",
         # Secrets and environment
         "Edit(.env)",
         "Edit(.envrc)",

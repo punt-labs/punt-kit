@@ -575,6 +575,39 @@ def test_deny_rules_guard_env_via_edit() -> None:
     assert "Write(.envrc)" not in deny
 
 
+ENV_DUMP_DENY_RULES = (
+    "Bash(env)",
+    "Bash(env --null)",
+    "Bash(env -0)",
+    "Bash(printenv:*)",
+    "Bash(set)",
+    "Bash(export -p)",
+    "Bash(declare -x)",
+    "Bash(declare -p)",
+)
+
+
+@pytest.mark.parametrize("rule", ENV_DUMP_DENY_RULES)
+def test_init_scaffolds_deny_rule_for_env_dump(tmp_path: Path, rule: str) -> None:
+    """Commands that print environment values are denied in new repos."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    assert rule in data["permissions"]["deny"]
+
+
+def test_env_dump_deny_rules_leave_env_with_a_command_usable() -> None:
+    """`env VAR=value cmd` and `compgen -e` must not match a deny rule."""
+    from punt_kit.init import build_standard_deny_rules
+
+    deny = build_standard_deny_rules()
+    assert "Bash(env:*)" not in deny
+    assert "Bash(compgen:*)" not in deny
+    assert "Bash(compgen -e)" not in deny
+
+
 def test_init_prunes_dead_rules_from_existing_settings(tmp_path: Path) -> None:
     """Init removes seeded Write(...) entries that duplicate a live Edit(...)."""
     import json
