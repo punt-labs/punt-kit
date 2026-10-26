@@ -21,7 +21,7 @@ The latest [machine validation record](evidence/validation-results.json) contain
 - Acyclic aggregate and expanded scoped-outcome graphs; no active task or outcome depends on deferred Codex work.
 - The complete P1 OpenCode milestone closure contains no pi-only task or outcome. Both P1/P2 retain all nine matching product releases, their required Beadle worker/contract/supervisor and Vox voice outcome. Active fleet aggregation excludes Codex.
 - Local document/evidence destinations, task-to-repository line references and the recorded pinned source targets. Historical snapshots remain explicitly dated rather than being rewritten to look current.
-- Markdown lint under Punt-kit's existing configuration: `markdownlint-cli2 'artifacts/native-harness-plan/**/*.md'` from the punt-kit directory.
+- Markdown lint under Punt-kit's existing configuration: `markdownlint-cli2 'docs/native-harness-plan/**/*.md'` from the punt-kit directory.
 
 Independent reviews checked the priority graph and prose separately. Corrections included stale three-adapter acceptance, active Codex instructions, ambiguous compatibility-test wording, a pi helper named without its scoped auditor outcome, persona-renderer ownership and the mixed Beadle backend row. The [strategy](strategy.md) explicitly labels complexity scores and work sizes as engineering judgment, not measured effort or schedule commitments.
 
