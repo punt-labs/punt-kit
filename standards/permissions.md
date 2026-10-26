@@ -361,17 +361,35 @@ adding any protection (section 1).
 | Rule | Rationale |
 |------|-----------|
 | `Bash(env)` | Bare `env` prints every variable, API keys included, into the transcript |
-| `Bash(env --null)` | Same dump, NUL-separated |
-| `Bash(env -0)` | Short form of `env --null` |
-| `Bash(printenv:*)` | Prints the whole environment, or any one variable's value |
+| `Bash(env:*)` | `env FOO=bar` with no command, `env --null` and `env -0` print the same dump |
+| `Bash(printenv)` | Bare `printenv`, listed apart because a prefix rule may not match the zero-argument form |
+| `Bash(printenv:*)` | Prints any one variable's value, or the whole environment |
 | `Bash(set)` | Bare `set` prints shell variables and functions |
+| `Bash(export)` | Bare `export` prints every exported variable with its value |
 | `Bash(export -p)` | Lists every exported variable with its value |
-| `Bash(declare -x)` | Lists every exported variable with its value |
+| `Bash(export -p:*)` | Prints the value of the named variable |
+| `Bash(declare)` | Bare `declare` prints every variable with its value |
 | `Bash(declare -p)` | Lists every variable with its value |
+| `Bash(declare -p:*)` | Prints the value of the named variable |
+| `Bash(declare -x)` | Lists every exported variable with its value |
+| `Bash(declare -x:*)` | Prints the value of the named exported variable |
+| `Bash(typeset)` | Bare `typeset`, the bash/zsh synonym of `declare`, prints every variable with its value |
+| `Bash(typeset -p)` | Synonym of `declare -p` |
+| `Bash(typeset -p:*)` | Synonym of `declare -p:*` |
+| `Bash(typeset -x)` | Synonym of `declare -x` |
+| `Bash(typeset -x:*)` | Synonym of `declare -x:*` |
 
-These rules are exact matches, not `Bash(env:*)`. `env VAR=value <command>`
-runs a command with a modified environment and must keep working. To see what
-is set without printing values, use `compgen -e`: it lists names only.
+For every command that can print values, deny both the bare form and the prefix
+form: a prefix rule may not match the zero-argument form, and an exact rule
+misses the argument forms.
+
+`env` is denied entirely. To set a variable for one command, use the shell
+form: `VAR=value command`. To see what is set without printing values, use
+`compgen -e`: it lists names only.
+
+Assignments stay usable: `export VAR=value`, and `declare` or `typeset` with an
+assignment. An exact deny wins over a prefix allow, so `Bash(export)` is
+refused even though `Bash(export:*)` is allowed.
 
 ### Known limitations
 
