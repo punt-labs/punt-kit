@@ -806,9 +806,6 @@ targets and ratchet files to its own):
 > that file shows exit 0. The evaluator and the leader re-run it; a report
 > that disagrees with their run rejects the work.
 
-As of 2026-10-26 no sibling repo publishes this contract on `origin/main`;
-the block is prescribed here, not harvested from deployed practice.
-
 ### Dispatch is two operations
 
 `ethos mission create` (or `dispatch`) only writes the contract. The worker
