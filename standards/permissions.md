@@ -356,6 +356,23 @@ entirely — the user cannot approve them even if prompted.
 `Write(.env)` rule to add, and adding one produces a startup warning without
 adding any protection (section 1).
 
+### Secret disclosure
+
+| Rule | Rationale |
+|------|-----------|
+| `Bash(env)` | Bare `env` prints every variable, API keys included, into the transcript |
+| `Bash(env --null)` | Same dump, NUL-separated |
+| `Bash(env -0)` | Short form of `env --null` |
+| `Bash(printenv:*)` | Prints the whole environment, or any one variable's value |
+| `Bash(set)` | Bare `set` prints shell variables and functions |
+| `Bash(export -p)` | Lists every exported variable with its value |
+| `Bash(declare -x)` | Lists every exported variable with its value |
+| `Bash(declare -p)` | Lists every variable with its value |
+
+These rules are exact matches, not `Bash(env:*)`. `env VAR=value <command>`
+runs a command with a modified environment and must keep working. To see what
+is set without printing values, use `compgen -e`: it lists names only.
+
 ### Known limitations
 
 Deny rules match on command prefixes. Flags placed after arguments (e.g.,
@@ -366,6 +383,10 @@ mistakes, not a sandbox.
 Allowed interpreters (`python3`, `uv run`) can bypass network deny rules
 programmatically. The deny list prevents direct invocation of network tools,
 not all possible network access.
+
+Allowed interpreters can likewise read the environment (`python3 -c` with
+`os.environ`). The secret disclosure rules stop the common accident, not a
+determined read.
 
 ---
 
