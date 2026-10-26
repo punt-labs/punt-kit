@@ -45,7 +45,7 @@ module-name = "punt_kit"
 line-length = 88
 target-version = "py313"
 # Preserved design inputs published verbatim with the plan, not punt-kit source.
-extend-exclude = ["docs/native-harness-plan/sources"]
+extend-exclude = [".docs/native-harness-plan/sources"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]

@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `docs/native-harness-plan/` — the research and execution plan for native
+- `.docs/native-harness-plan/` — the research and execution plan for native
   OpenCode (P1) and pi (P2) support across all nine Punt Labs products:
   strategy, shared architecture, roadmap, a 98-package backlog, acceptance
   matrix, and per-product and per-harness audits. Codex support is deferred.
