@@ -16,17 +16,21 @@ All notable changes to this project will be documented in this file.
 
 - `standards/workflow.md`: consult the design decision log before **any**
   design proposal, including an informal naming, UX, or architecture
-  suggestion to the operator. Look up ADRs by topic, read the matches, and
-  cite them; a proposal that cites none is returned. `patterns/design-decision-log.md`
-  carries the same rule.
+  suggestion to the operator. Look up ADRs by topic across every decision
+  log (`DESIGN*.md`, any prefix such as `DES-` or `INS-`), read the matches
+  in full, and cite them. A proposal on a topic the log covers that cites
+  none is returned. `patterns/design-decision-log.md` carries the same
+  lookup.
 - `standards/workflow.md`: the no-mission exception for review fixes covers
   mechanical fixes only. A fix that changes a design (new classes, moved
   responsibilities, a ratchet regression) is a mission with an evaluator.
-- `standards/workflow.md`: each repo's `docs/WORKFLOW.md` keeps one standing
-  worker contract that every implementation mission carries verbatim. It
-  states the goal as design rather than metric targets, lists forbidden
-  operations, requires stopping on any ratchet regression, and requires saved
-  gate output as evidence. lux's `docs/WORKFLOW.md` is the reference.
+- `standards/workflow.md`: a standing worker contract that every
+  implementation mission carries verbatim. It states the goal as design
+  rather than metric targets, lists forbidden operations, requires stopping
+  on any ratchet regression, and requires saved gate output as evidence. The
+  standard carries the reference text. A repo with a `docs/WORKFLOW.md` keeps
+  its contract there; a repo without one carries the standard's block. The
+  standard's `Updated` date is 2026-10-26.
 
 ## [0.17.6] - 2026-10-26
 
