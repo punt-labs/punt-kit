@@ -412,7 +412,10 @@ whole of this section.
    command) inside a repo. Installing a plugin is not consent to edit files in
    every repo on the machine. `enable` grants every surface the tool ships, and
    `disable` removes the same set: the CLI (`Bash(<cli>:*)`), the production
-   MCP server (`mcp__<server>__*`), and one `Skill(...)` rule per shipped
+   MCP server's tool wildcard as Claude Code names it
+   (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server,
+   `mcp__<server>__*` for one registered with `claude mcp add`; see
+   [MCP wildcards](#mcp-wildcards)), and one `Skill(...)` rule per shipped
    command. A tool with no CLI or no MCP server adds no rule for it, and no
    `-dev` rule is ever granted — the dev plugin only exists in a maintainer's
    checkout.

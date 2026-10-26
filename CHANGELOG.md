@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Standards: `<tool> enable` grants the tool's whole production surface.** `permissions.md` §6 and `tool-enable-disable.md` §2.8 now name the set `enable` adds to the repo's `.claude/settings.json` and `disable` removes: the CLI (`Bash(<cli>:*)`), the MCP server's tool wildcard (`mcp__plugin_<plugin>_<server>__*`, or `mcp__<server>__*` for a `claude mcp add` server), and one `Skill(...)` per shipped command. No rule for a surface the tool doesn't ship, and never a `-dev` rule.
+
 ### Fixed
 
 - **`/punt:bead-review` really no longer appears twice.** The 0.17.5 attempt (`disable-model-invocation: true` on the skill) did not remove the duplicate — that flag governs whether Claude auto-invokes the skill, not slash-menu visibility. The actual cause is shipping both a `bead-review` command and a same-named `bead-review` skill; per the Claude Code skills docs, `user-invocable: false` on the skill hides it from the user slash menu, leaving the command as the single `/punt:bead-review`. The command reads the skill file directly, so behavior is unchanged.
