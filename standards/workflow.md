@@ -1,6 +1,6 @@
 # Workflow Standards
 
-**Updated:** 2026-07-26
+**Updated:** 2026-10-26
 
 How Punt Labs teams track work, delegate it, develop code, and ship it. All
 work runs as **three nested loops**. The outermost loop owns the backlog:
@@ -547,8 +547,12 @@ the entry is part of what gets reviewed, never added retroactively on main.
   proposal — a design mission, a design review, and a naming, UX, or
   architecture suggestion the leader makes directly to the operator alike —
   not only before changing settled architecture. Look up by topic, not by
-  number: `grep '^## DES-' DESIGN.md`, read every matching entry in full,
-  and cite the ADRs consulted in the proposal; a proposal on a topic the
+  number, across every decision log:
+  `grep -iE '^## [A-Z]+-[0-9]+.*<topic>' DESIGN*.md` (concern-specific
+  logs such as `DESIGN-INSTALLER.md` carry their own prefix). Read every
+  matching entry in full; if the topic word finds nothing, scan the full
+  heading list (`grep -E '^## [A-Z]+-[0-9]+' DESIGN*.md`) before
+  concluding the log is silent. Cite the ADRs consulted in the proposal; a proposal on a topic the
   log covers that cites none has skipped the step and is returned. Do not
   revisit a settled decision without new evidence. See
   [Design Decision Log](../patterns/design-decision-log.md) for the full
@@ -753,10 +757,12 @@ must either commit by proxy or lose the work. Required criterion text:
 > `make check`. Do not accumulate more than 30 minutes of uncommitted
 > changes.
 
-**The standing worker contract.** Each repo's `docs/WORKFLOW.md` keeps one
-standing contract that every implementation mission carries verbatim; the
-leader never paraphrases it per round, because guardrails rewritten from
-memory drift and a worker reads a missing rule as permission. It must state:
+**The standing worker contract.** Every implementation mission carries one
+standing contract verbatim; the leader never paraphrases it per round,
+because guardrails rewritten from memory drift and a worker reads a missing
+rule as permission. A repo with a `docs/WORKFLOW.md` keeps the contract
+there; a repo without one carries the reference block below verbatim in its
+mission contracts. Either way it must state:
 
 - **The goal as design, metrics as signals.** The goal is stated as
   responsibilities (which object owns what, who depends on what). Quality
@@ -773,7 +779,35 @@ memory drift and a worker reads a missing rule as permission. It must state:
   and cites it. The evaluator and the leader re-run the gate; a report that
   disagrees with their run rejects the work.
 
-lux's `docs/WORKFLOW.md` (Level 3, step 1) is the reference text.
+Reference block, to be carried verbatim (a repo may rename the make
+targets and ratchet files to its own):
+
+> **Goal.** Good SOLID object-oriented design, stated as responsibilities:
+> which object owns what, who depends on what. The ratchet numbers are
+> *signals* of that design, never targets. A change that moves a number
+> without improving responsibilities — a grab-bag class, a bundle of
+> collaborators handed out for callers to reach through, a second facade
+> forwarding to the first — is rejected even when the gate goes green.
+>
+> **Forbidden.** Writing the ratchet baseline or audit files by any means
+> other than the repo's update targets (`make update-oo`,
+> `make update-coupling`). Blessing a baseline (`--rebaseline-files`) at all;
+> it is the leader's act alone. Restoring any file from git
+> (`git show REV:path > path`, `checkout --`, `restore`, `reset`, `stash`),
+> `rm`, `clean`, or switching branches. Pushing, or touching a PR. Piping a
+> gate through `head`, `tail`, or `grep`.
+>
+> **On any ratchet regression: stop.** Do not extract a class to move the
+> number, do not bless, do not commit. Report the design and the numbers to
+> the leader, who decides.
+>
+> **Evidence, not claims.** Run `make check` with output saved to a file
+> under `.tmp/`; cite the file and its final summary line. Commit only after
+> that file shows exit 0. The evaluator and the leader re-run it; a report
+> that disagrees with their run rejects the work.
+
+As of 2026-10-26 no sibling repo publishes this contract on `origin/main`;
+the block is prescribed here, not harvested from deployed practice.
 
 ### Dispatch is two operations
 

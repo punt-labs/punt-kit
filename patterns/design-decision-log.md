@@ -40,7 +40,7 @@ The reasoning behind the decision.
 
 ### Rules
 
-1. Before proposing any design change — including an informal naming, UX, or architecture suggestion — consult the log for prior decisions on the same topic. Search the ADR headings by topic (`grep '^## DES-' DESIGN.md`), read the matches in full, and cite the ADRs consulted in the proposal.
+1. Before proposing any design change — including an informal naming, UX, or architecture suggestion — consult the log for prior decisions on the same topic. Search the ADR headings of every decision log by topic (`grep -iE '^## [A-Z]+-[0-9]+.*<topic>' DESIGN*.md`; concern-specific logs such as `DESIGN-INSTALLER.md` use their own prefix), read every matching entry in full, and cite the ADRs consulted in the proposal. If a topic word finds nothing, scan the full heading list (`grep -E '^## [A-Z]+-[0-9]+' DESIGN*.md`) before concluding the log is silent.
 2. Do not revisit a settled decision without new evidence.
 3. Log the decision, alternatives considered, and outcome.
 4. Include failed approaches — they are as valuable as the solution.
