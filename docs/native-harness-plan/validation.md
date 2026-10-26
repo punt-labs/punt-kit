@@ -4,7 +4,7 @@ Research audit: 2026-09-12. Priority/documentation revision: 2026-09-13. This pa
 
 ## Evidence reviewed
 
-- All **four original files** in `punt-kit/artifacts`, recorded with hashes in [the original artifact inventory](evidence/original-artifacts.json). The 378-operation target vocabulary was treated as intended design, not shipped-API evidence.
+- All **four original files**, now published verbatim in [`sources/`](sources/) (`gen_spec.py` differs from its recorded hash only in its output path), recorded with hashes in [the original artifact inventory](evidence/original-artifacts.json). The 378-operation target vocabulary was treated as intended design, not shipped-API evidence.
 - All nine codebases during the September 12 audit: entry points, commands/services, transports, plugins/workflows, install/release paths, relevant designs and tests. [Repository dossiers](README.md#per-product-research-and-design) cite the evidence for remediation and native choices.
 - **2,419 repo-scoped Beads records** from successful read-only queries executed in each owning directory. [Referenced records](evidence/referenced-beads.json) retain descriptions/status/dependency history. These remain September 12 observations; the priority revision does not claim a new fleet-wide issue audit or mutate the proposed implementation backlog into live Beads.
 - Installed Codex 0.154.0 help/features and generated protocol schemas, OpenCode 1.18.27 and pi 0.84.4 evidence, and fetched official/release-pinned upstream sources for the proposed baselines. [Harness dossiers](README.md#harness-baselines-and-native-choices) distinguish installed, released, experimental and unproven behavior. Codex is now deferred.

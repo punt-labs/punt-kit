@@ -20,6 +20,7 @@ The operator selected this priority order on September 13. The research below wa
 | [Machine-readable backlog](backlog.json) | 98 researched work packages: **84 active**, **14 Codex-only deferred**, and **231 active aggregate dependencies** |
 | [Acceptance matrix](acceptance.md) | Nine OpenCode P1 cells and nine pi P2 cells, with independently evaluated product/release outcomes |
 | [Validation record](validation.md) | Checks actually performed, research limitations and concurrent source changes |
+| [Source design files](sources/) | The target-state design inputs: [command surface](sources/command-surface.html), [command spec](sources/pl-command-spec.html), [lexicon](sources/pl-lexicon.html) and the [generator](sources/gen_spec.py) for the command spec |
 
 The [original artifact inventory](evidence/original-artifacts.json), [initial source baseline](evidence/source-baseline.json), [closing source observation](evidence/end-baseline.json) and [referenced Beads records](evidence/referenced-beads.json) preserve the audit evidence. The [original September 12 backlog](evidence/backlog-2026-09-12.json) preserves the former three-harness program; it is historical, not the current execution graph.
 

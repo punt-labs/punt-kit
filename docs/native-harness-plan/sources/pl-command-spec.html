@@ -1,0 +1,4217 @@
+<title>Punt Labs Command Spec</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #f7f7f4; --surface: #efefe9; --ink: #22282a; --muted: #5b6663;
+    --line: #d8dad2; --accent: #0e6e64; --accent-ink: #0b5a52;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161d1c; --surface: #1e2726; --ink: #d9e2df; --muted: #8fa09b;
+      --line: #2d3a38; --accent: #43bca9; --accent-ink: #5ecbb9;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161d1c; --surface: #1e2726; --ink: #d9e2df; --muted: #8fa09b;
+    --line: #2d3a38; --accent: #43bca9; --accent-ink: #5ecbb9;
+  }
+  body { background: var(--paper); color: var(--ink);
+    font-family: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    font-size: 15px; line-height: 1.5; margin: 0; padding: 3rem 1.5rem 5rem; }
+  .wrap { max-width: 56rem; margin: 0 auto; }
+  h1, h2 { font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600; line-height: 1.2; margin: 0; }
+  h1 { font-size: 2rem; }
+  h2 { font-size: 1.4rem; margin-top: 3rem; padding-top: 1rem; border-top: 2px solid var(--ink);
+       font-family: "IBM Plex Mono", monospace; font-weight: 500; }
+  h2 .meta { font-family: "IBM Plex Sans", sans-serif; font-size: 0.78rem; color: var(--muted); font-weight: 400; margin-left: 0.8rem; }
+  p { margin: 0.8rem 0; max-width: 70ch; }
+  .eyebrow { font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); font-weight: 600; margin-bottom: 0.7rem; }
+  .lede { color: var(--muted); max-width: 66ch; }
+  code { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.85em; }
+  .op { border: 1px solid var(--line); border-radius: 5px; background: var(--surface);
+        margin: 0.8rem 0; padding: 0.7rem 1rem 0.75rem; }
+  .op h4 { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 600;
+           font-size: 0.93rem; margin: 0 0 0.05rem; color: var(--accent-ink); }
+  .op .d { font-size: 0.83rem; color: var(--muted); margin: 0 0 0.5rem; }
+  .doors { display: grid; grid-template-columns: 4.2rem 1fr; row-gap: 0.24rem; column-gap: 1rem; margin: 0; }
+  .doors dt { font-size: 0.65rem; letter-spacing: 0.09em; text-transform: uppercase;
+              color: var(--muted); font-weight: 600; margin: 0; padding-top: 0.12em; }
+  .doors dd { margin: 0; font-family: "IBM Plex Mono", ui-monospace, monospace;
+              font-size: 0.79rem; overflow-wrap: anywhere; }
+  .doors dd.none { color: var(--line); }
+  footer { margin-top: 4rem; font-size: 0.78rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 1rem; }
+</style>
+<div class="wrap">
+  <div class="eyebrow">Punt Labs · engineering reference · 2026-09-01</div>
+  <h1>Punt Labs Command Spec</h1>
+  <p class="lede">Target state. One block per command — 378 blocks across nine tools — each showing that command's signature on every door: slash, CLI, MCP, HTTP, client. A dash means the door does not exist for that command. All surfaces enumerated from source. <code>*</code> marks a required parameter.</p>
+  <h2>biff<span class="meta">team messaging · wire: NATS relay (no REST) · client: python library <code>biff</code></span></h2>
+  <div class="op">
+    <h4>who</h4>
+    <p class="d">List active team members and what they're working on.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:who</dd>
+      <dt>cli</dt><dd>biff who</dd>
+      <dt>mcp</dt><dd>who()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.who(ctx)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>finger</h4>
+    <p class="d">One teammate's status and availability.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:finger user</dd>
+      <dt>cli</dt><dd>biff finger &lt;user&gt;</dd>
+      <dt>mcp</dt><dd>finger(user*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.finger(ctx, user)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>write</h4>
+    <p class="d">Send a direct message (team chat — email lives in beadle).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:write user &lt;message&gt;</dd>
+      <dt>cli</dt><dd>biff write &lt;to&gt; &lt;message&gt;</dd>
+      <dt>mcp</dt><dd>write(to*, message*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.write(ctx, to, message)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>read</h4>
+    <p class="d">Check the inbox; marks all read.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:read</dd>
+      <dt>cli</dt><dd>biff read</dd>
+      <dt>mcp</dt><dd>read_messages()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.read(ctx)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>plan</h4>
+    <p class="d">Set the BSD .plan — one line, ~40 chars, visible via finger/who; not a task plan.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:plan &lt;message&gt;</dd>
+      <dt>cli</dt><dd>biff plan &lt;message&gt;</dd>
+      <dt>mcp</dt><dd>plan(message*, source="manual"|"auto")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.plan(ctx, message)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>plan clear</h4>
+    <p class="d">Clear the .plan.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:plan clear</dd>
+      <dt>cli</dt><dd>biff plan clear</dd>
+      <dt>mcp</dt><dd>plan(message="", source="manual")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.plan(ctx, "")</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>last</h4>
+    <p class="d">Session login/logout history.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:last [user] [count]</dd>
+      <dt>cli</dt><dd>biff last [user] [--count 25]</dd>
+      <dt>mcp</dt><dd>last(user="", count=25)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.last(ctx, user, count)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>wall</h4>
+    <p class="d">Broadcast to the whole team; clear removes an active wall.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:wall "message" [duration] | clear</dd>
+      <dt>cli</dt><dd>biff wall [message] [--duration 30m|2h|1d] [--clear]</dd>
+      <dt>mcp</dt><dd>wall(message="", duration="", clear=false, repo="")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.wall(ctx, message, duration, clear=False)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mesg</h4>
+    <p class="d">Per-user message reception — a preference, not enablement.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:mesg y | n</dd>
+      <dt>cli</dt><dd>biff mesg &lt;on|off|y|n&gt;</dd>
+      <dt>mcp</dt><dd>mesg(enabled*: bool)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.mesg(ctx, value)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>tty</h4>
+    <p class="d">Name the current session; empty auto-assigns ttyN.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:tty [name]</dd>
+      <dt>cli</dt><dd>biff tty [name]</dd>
+      <dt>mcp</dt><dd>tty(name="")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.tty(ctx, name)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talk</h4>
+    <p class="d">Start a real-time conversation.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:talk user [message]</dd>
+      <dt>cli</dt><dd>biff talk &lt;to&gt; [message]</dd>
+      <dt>mcp</dt><dd>talk(to*, message="")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.talk.talk(ctx, to, message)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talk read</h4>
+    <p class="d">Pending talk invites and queued messages; marks them read.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>talk_read()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talk listen</h4>
+    <p class="d">Block until talk activity arrives (agent-to-agent).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>talk_listen(timeout=30)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talk end</h4>
+    <p class="d">End the current talk session.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>(Ctrl+C in biff talk)</dd>
+      <dt>mcp</dt><dd>talk_end()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.talk.end_or_cancel(ctx)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>status</h4>
+    <p class="d">Connection state, session info, pending messages.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff status</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await biff.commands.status(ctx)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>poll</h4>
+    <p class="d">Set the poll cadence, or check now.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:poll [duration | n | force]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>set_poll_interval(interval*: Ns|Nm|n)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>poll status</h4>
+    <p class="d">Current poll interval and whether polling is active.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>get_poll_status()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>relay</h4>
+    <p class="d">Set the relay URL (restart to apply).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>biff_relay(url*, auth="", local=false)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>NatsRelay(url, auth, ...) · LocalRelay(data_dir)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable; writes .punt-labs/biff/enabled.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:biff enable | disable</dd>
+      <dt>cli</dt><dd>biff enable [--start PATH] · biff disable [--start PATH]</dd>
+      <dt>mcp</dt><dd>biff(action*: "enable"|"disable")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of biff commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/biff:help</dd>
+      <dt>cli</dt><dd>biff --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>install</h4>
+    <p class="d">Marketplace install + user guide + this clone's git hooks.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>uninstall</h4>
+    <p class="d">Remove plugin, git hooks, CLAUDE.md import.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Installation health.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff doctor</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>serve</h4>
+    <p class="d">MCP server, HTTP transport.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff serve [--host 127.0.0.1] [--port 8419] [--user] [--data-dir] [--relay-url] [--prefix]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET|POST /mcp (MCP transport)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mcp</h4>
+    <p class="d">MCP server, stdio transport.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff mcp [--user] [--data-dir] [--relay-url] [--prefix]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>statusline install</h4>
+    <p class="d">Install biff into Claude Code's status bar.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff statusline install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>statusline uninstall</h4>
+    <p class="d">Remove biff from the status bar.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff statusline uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>statusline</h4>
+    <p class="d">Output status bar text (invoked by Claude Code; bare form renders).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff statusline</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code pre-tool-use</h4>
+    <p class="d">PreToolUse Edit|Write — gate on a set plan; fails closed. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code pre-tool-use (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code post-bash</h4>
+    <p class="d">PostToolUse Bash — bead claim and checkout nudges. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code post-bash (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code post-pr</h4>
+    <p class="d">PostToolUse GitHub PR — suggest /wall. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code post-pr (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code session-start</h4>
+    <p class="d">SessionStart — auto-tty, plan from branch, unread check. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code session-start (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code session-resume</h4>
+    <p class="d">SessionStart(resume/compact) — re-orient. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code session-resume (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code session-end</h4>
+    <p class="d">SessionEnd — sessions to sentinels. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code session-end (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook claude-code pre-compact</h4>
+    <p class="d">PreCompact — inject plan into context. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook claude-code pre-compact (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook git post-checkout</h4>
+    <p class="d">Plan hint from branch name. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook git post-checkout &lt;prev&gt; &lt;new&gt; &lt;flag&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook git post-commit</h4>
+    <p class="d">Plan hint from commit subject. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook git post-commit</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook git pre-push</h4>
+    <p class="d">Suggest /wall for default-branch pushes. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>biff hook git pre-push &lt;remote&gt; (refs on stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>beadle<span class="meta">agent email · http: /health + MCP-over-WebSocket only · no client library (Go, internal/ by standard)</span></h2>
+  <div class="op">
+    <h4>inbox / list</h4>
+    <p class="d">List messages with trust levels.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:inbox [&lt;filter text&gt;]</dd>
+      <dt>cli</dt><dd>beadle-email list [--folder INBOX] [--count 10] [--offset 0] [--unread] [--all-repos]</dd>
+      <dt>mcp</dt><dd>list_messages(folder="INBOX", count=10, offset=0, unread_only, all_repos)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>search</h4>
+    <p class="d">Search a folder by sender, subject, date, or free text.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email search [--folder] [--from] [--subject] [--since] [--text] [--count] [--offset] [--unread] [--all-repos]</dd>
+      <dt>mcp</dt><dd>search_messages(folder="INBOX", from, subject, since, text, count=10, offset=0, unread_only, all_repos)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>read</h4>
+    <p class="d">One message: headers, body, attachments, trust level.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email read &lt;uid&gt; [--folder]</dd>
+      <dt>mcp</dt><dd>read_message(message_id*, folder="INBOX", max_body_length=0)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mail</h4>
+    <p class="d">Mail something — the explicit email door.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:mail &lt;what to mail&gt; [to &lt;recipient&gt;]</dd>
+      <dt>cli</dt><dd>beadle-email send --to ADDR --subject S --body B [--cc] [--bcc]</dd>
+      <dt>mcp</dt><dd>send_email(to*, subject*, body*, cc, bcc, html, attachments[])</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>send</h4>
+    <p class="d">Send via any channel (email today; transport-agnostic by intent).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:send &lt;what to send&gt; [via &lt;channel&gt;]</dd>
+      <dt>cli</dt><dd>beadle-email send --to ADDR --subject S --body B [--cc] [--bcc]</dd>
+      <dt>mcp</dt><dd>send_email(to*, subject*, body*, cc, bcc, html, attachments[])</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>reply</h4>
+    <p class="d">Threaded, quoted reply by UID.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email reply &lt;uid&gt; --body B [--folder] [--cc] [--bcc]</dd>
+      <dt>mcp</dt><dd>reply_message(message_id*, body*, folder="INBOX", cc, bcc, html, attachments[])</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>move</h4>
+    <p class="d">File one message into another folder.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email move &lt;uid&gt; [--folder SRC] [--to Archive]</dd>
+      <dt>mcp</dt><dd>move_message(message_id*, folder, destination)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>move batch</h4>
+    <p class="d">File many messages; returns the count moved.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email move (per uid)</dd>
+      <dt>mcp</dt><dd>batch_move_messages(message_ids[]*, folder, destination)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mark</h4>
+    <p class="d">Read/unread flag on one message.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email mark [uid] [--unread] [--folder]</dd>
+      <dt>mcp</dt><dd>mark_message(message_id*, folder, seen=true)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mark batch</h4>
+    <p class="d">Read/unread flags on many messages.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email mark --ids a,b,c [--unread] [--folder]</dd>
+      <dt>mcp</dt><dd>batch_mark_messages(message_ids[]*, folder, seen=true)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>folders</h4>
+    <p class="d">List IMAP folders.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email folders</dd>
+      <dt>mcp</dt><dd>list_folders()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>contact list</h4>
+    <p class="d">List all contacts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:contacts list</dd>
+      <dt>cli</dt><dd>beadle-email contact list [--contacts PATH]</dd>
+      <dt>mcp</dt><dd>list_contacts()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>contact add</h4>
+    <p class="d">Add a contact; email may be a glob pattern.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:contacts add &lt;name&gt; &lt;email&gt; [permissions]</dd>
+      <dt>cli</dt><dd>beadle-email contact add --name N --email E [--alias A ...] [--gpg-key-id] [--notes]</dd>
+      <dt>mcp</dt><dd>add_contact(name*, email*, aliases[], gpg_key_id, notes, permissions="---")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>contact remove</h4>
+    <p class="d">Remove a contact by name.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:contacts remove &lt;name&gt;</dd>
+      <dt>cli</dt><dd>beadle-email contact remove &lt;name&gt;</dd>
+      <dt>mcp</dt><dd>remove_contact(name*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>contact find</h4>
+    <p class="d">Search contacts by name, email, or alias.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:contacts find &lt;query&gt;</dd>
+      <dt>cli</dt><dd>beadle-email contact find &lt;query&gt;</dd>
+      <dt>mcp</dt><dd>find_contact(query*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>identity show</h4>
+    <p class="d">Show the resolved identity for the current repo.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email identity [show]</dd>
+      <dt>mcp</dt><dd>whoami()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>identity set</h4>
+    <p class="d">Set the identity handle for this repo / session.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email identity set &lt;handle&gt;</dd>
+      <dt>mcp</dt><dd>switch_identity(handle="")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>check trust</h4>
+    <p class="d">Trust level, encryption type, origin.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>check_trust(message_id*, folder="INBOX")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>verify signature</h4>
+    <p class="d">PGP verification with signer info.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>verify_signature(message_id*, folder="INBOX")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>show mime</h4>
+    <p class="d">Raw MIME structure of a message.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>show_mime(message_id*, folder="INBOX")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>download attachment</h4>
+    <p class="d">Extract an attachment by part index; returns the saved path.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>download_attachment(message_id*, part_index*, folder="INBOX")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>poll</h4>
+    <p class="d">Set the poll cadence.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:poll [interval | n]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>set_poll_interval(interval*: 1m|5m|10m|15m|30m|1h|2h|n)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>poll status</h4>
+    <p class="d">Poller state: interval, active, last check, unread bucket.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:poll status</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>get_poll_status()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:beadle enable | disable</dd>
+      <dt>cli</dt><dd>beadle-email enable · disable [--purge]</dd>
+      <dt>mcp</dt><dd>enablement(action*: "enable"|"disable")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of beadle commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/beadle:help</dd>
+      <dt>cli</dt><dd>beadle-email --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>install</h4>
+    <p class="d">Interactive setup: dirs, config, MCP registration.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email install [--standalone]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>uninstall</h4>
+    <p class="d">Remove MCP registration, deployed commands, permissions.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>serve</h4>
+    <p class="d">Start the MCP server.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email serve [--transport stdio|ws] [--port 8420]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET /mcp (WebSocket upgrade; MCP transport)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Health: identity, credentials, GPG, SMTP, contacts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email doctor</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>status</h4>
+    <p class="d">Version, IMAP/SMTP settings, identity, contact count.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email status</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>health</h4>
+    <p class="d">Daemon liveness.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email health [--port 8420]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET /health → {"status":"ok","version"}</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-email version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>daemon run</h4>
+    <p class="d">Background daemon; polls for new mail.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>beadle-daemon run</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>vox<span class="meta">voice and music · wire: JSON-over-WebSocket /ws?token= · client: python library <code>punt_vox</code> (VoxClient / VoxClientSync)</span></h2>
+  <div class="op">
+    <h4>say</h4>
+    <p class="d">Synthesize and play text (single voice or multi-voice segments).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox say [TEXT] [--from PATH] [--voice] [--language] [--rate 90] [--provider] [--model] [--stability] [--similarity] [--style] [--speaker-boost] [--once N]</dd>
+      <dt>mcp</dt><dd>unmute(text | segments[], voice, language, rate=90, ephemeral=true, stability, similarity, style, speaker_boost, vibe_tags)</dd>
+      <dt>http</dt><dd>ws type:"synthesize" {text*, provider*, voice, model, rate, language, vibe_tags, ...}</dd>
+      <dt>client</dt><dd>await VoxClient().synthesize(text, spec, once=None, timeout=None)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>unmute</h4>
+    <p class="d">Voice mode on — spoken notifications.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:unmute</dd>
+      <dt>cli</dt><dd>vox speak y</dd>
+      <dt>mcp</dt><dd>speak(mode="y")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mute</h4>
+    <p class="d">Chimes only — spoken notifications off.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:mute</dd>
+      <dt>cli</dt><dd>vox speak n</dd>
+      <dt>mcp</dt><dd>speak(mode="n")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>notify</h4>
+    <p class="d">Notification tier within on: task completion vs continuous.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox notify &lt;normal|continuous&gt;</dd>
+      <dt>mcp</dt><dd>notify(mode*: "y"|"c")</dd>
+      <dt>http</dt><dd>ws type:"chime" {signal="done"} (the audible tier)</dd>
+      <dt>client</dt><dd>await VoxClient().chime(signal)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>vibe</h4>
+    <p class="d">Session mood; the agent translates mood into expressive tags.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:vibe &lt;mood&gt; | auto | off</dd>
+      <dt>cli</dt><dd>vox vibe &lt;mood | auto | off&gt;</dd>
+      <dt>mcp</dt><dd>vibe(mood, tags, mode: auto|manual|off)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>recap</h4>
+    <p class="d">Spoken 2–3 point summary of the last response. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:recap</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>model</h4>
+    <p class="d">List or set the TTS model; setting cascades voice.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:model [model-name]</dd>
+      <dt>cli</dt><dd>vox model [NAME]</dd>
+      <dt>mcp</dt><dd>model(name)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>await punt_vox.commands.model(ctx, name)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>provider</h4>
+    <p class="d">List or set the TTS provider; a change cascades model + voice.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:provider [provider-name]</dd>
+      <dt>cli</dt><dd>vox provider [NAME]</dd>
+      <dt>mcp</dt><dd>provider(name: elevenlabs|openai|polly|say|espeak)</dd>
+      <dt>http</dt><dd>ws type:"provider_status" {provider}</dd>
+      <dt>client</dt><dd>await punt_vox.commands.provider(ctx, name)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>voice</h4>
+    <p class="d">List or set the session voice.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:voice [voice-name]</dd>
+      <dt>cli</dt><dd>vox voice [NAME] [--provider]</dd>
+      <dt>mcp</dt><dd>voice(name)</dd>
+      <dt>http</dt><dd>ws type:"voices" {provider*}</dd>
+      <dt>client</dt><dd>await punt_vox.commands.voice(ctx, name, provider) · VoxClient().voices(provider)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music on</h4>
+    <p class="d">Start background music from an authored pool (base prompt + 12 variations).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music on [--title ...] [style ...]</dd>
+      <dt>cli</dt><dd>vox music on [--style] [--title] (pool on stdin)</dd>
+      <dt>mcp</dt><dd>music(subcommand="on", base_prompt, variations[], style, vibe, title)</dd>
+      <dt>http</dt><dd>ws type:"program_on"</dd>
+      <dt>client</dt><dd>await VoxClient().program_on(style, vibe, name, prompts)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music stop</h4>
+    <p class="d">Stop the program.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music stop</dd>
+      <dt>cli</dt><dd>vox music stop</dd>
+      <dt>mcp</dt><dd>music(subcommand="stop")</dd>
+      <dt>http</dt><dd>ws type:"program_stop"</dd>
+      <dt>client</dt><dd>await VoxClient().program_stop()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music play</h4>
+    <p class="d">Replay an album by id/name/tags; bare replays the last played.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music play [&lt;name&gt;]</dd>
+      <dt>cli</dt><dd>vox music play [ID] [--style] [--vibe] [--name]</dd>
+      <dt>mcp</dt><dd>music(subcommand="play", album_id|style|vibe|name)</dd>
+      <dt>http</dt><dd>ws type:"program_select"</dd>
+      <dt>client</dt><dd>await VoxClient().program_select(album_id|style|vibe|name)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music next</h4>
+    <p class="d">Step forward one part.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music next</dd>
+      <dt>cli</dt><dd>vox music next</dd>
+      <dt>mcp</dt><dd>music(subcommand="next")</dd>
+      <dt>http</dt><dd>ws type:"program_next"</dd>
+      <dt>client</dt><dd>await VoxClient().program_next()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music prev</h4>
+    <p class="d">Step back one part.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music prev</dd>
+      <dt>cli</dt><dd>vox music prev</dd>
+      <dt>mcp</dt><dd>music(subcommand="prev")</dd>
+      <dt>http</dt><dd>ws type:"program_prev"</dd>
+      <dt>client</dt><dd>await VoxClient().program_prev()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music pause</h4>
+    <p class="d">Suspend in place.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music pause</dd>
+      <dt>cli</dt><dd>vox music pause</dd>
+      <dt>mcp</dt><dd>music(subcommand="pause")</dd>
+      <dt>http</dt><dd>ws type:"program_pause"</dd>
+      <dt>client</dt><dd>await VoxClient().program_pause()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music resume</h4>
+    <p class="d">Continue a suspended source.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music resume</dd>
+      <dt>cli</dt><dd>vox music resume</dd>
+      <dt>mcp</dt><dd>music(subcommand="resume")</dd>
+      <dt>http</dt><dd>ws type:"program_resume"</dd>
+      <dt>client</dt><dd>await VoxClient().program_resume()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music list</h4>
+    <p class="d">List catalog albums with ready/total counts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music list</dd>
+      <dt>cli</dt><dd>vox music list</dd>
+      <dt>mcp</dt><dd>music(subcommand="list")</dd>
+      <dt>http</dt><dd>ws type:"program_list"</dd>
+      <dt>client</dt><dd>await VoxClient().program_list()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music status</h4>
+    <p class="d">Authoritative program status.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:music status</dd>
+      <dt>cli</dt><dd>vox music status</dd>
+      <dt>mcp</dt><dd>music(subcommand="status")</dd>
+      <dt>http</dt><dd>ws type:"program_status"</dd>
+      <dt>client</dt><dd>await VoxClient().program_status()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music new</h4>
+    <p class="d">Generate one track into a fresh catalog album.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox music new PROMPT [--title]</dd>
+      <dt>mcp</dt><dd>music(subcommand="new", base_prompt*, name)</dd>
+      <dt>http</dt><dd>ws type:"music_new" {base_prompt*, name}</dd>
+      <dt>client</dt><dd>await VoxClient().music_new(prompts, name)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music get</h4>
+    <p class="d">Export an album as a directory of parts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox music get ALBUM_ID [--dest]</dd>
+      <dt>mcp</dt><dd>music(subcommand="get", album_id*, dest)</dd>
+      <dt>http</dt><dd>ws type:"music_manifest" + N x type:"fetch"</dd>
+      <dt>client</dt><dd>await VoxClient().music_get(album_id, dest_dir)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>music remove</h4>
+    <p class="d">Delete a saved album (refused while playing).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox music remove ALBUM_ID</dd>
+      <dt>mcp</dt><dd>music(subcommand="remove", album_id*)</dd>
+      <dt>http</dt><dd>ws type:"music_remove" {album*}</dd>
+      <dt>client</dt><dd>await VoxClient().music_remove(album_id)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>rec new</h4>
+    <p class="d">Synthesize into the store; returns the bare id.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox rec new [TEXT] [voice opts] [--name]</dd>
+      <dt>mcp</dt><dd>rec(subcommand="new", text|segments[], voice, rate=90, name, ...)</dd>
+      <dt>http</dt><dd>ws type:"record"</dd>
+      <dt>client</dt><dd>await VoxClient().record(text, spec, name)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>rec list</h4>
+    <p class="d">List stored recording ids.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox rec list</dd>
+      <dt>mcp</dt><dd>rec(subcommand="list")</dd>
+      <dt>http</dt><dd>ws type:"rec_list"</dd>
+      <dt>client</dt><dd>await VoxClient().rec_list()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>rec play</h4>
+    <p class="d">Play a recording on the daemon host.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox rec play REF</dd>
+      <dt>mcp</dt><dd>rec(subcommand="play", ref*)</dd>
+      <dt>http</dt><dd>ws type:"play" {ref*}</dd>
+      <dt>client</dt><dd>await VoxClient().play(ref)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>rec get</h4>
+    <p class="d">Copy a recording's bytes out of the store.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox rec get REF</dd>
+      <dt>mcp</dt><dd>rec(subcommand="get", ref*)</dd>
+      <dt>http</dt><dd>ws type:"fetch" {ref*}</dd>
+      <dt>client</dt><dd>await VoxClient().fetch(ref)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>rec remove</h4>
+    <p class="d">Delete a recording by id.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox rec remove REF</dd>
+      <dt>mcp</dt><dd>rec(subcommand="remove", ref*)</dd>
+      <dt>http</dt><dd>ws type:"rec_remove" {ref*}</dd>
+      <dt>client</dt><dd>await VoxClient().rec_remove(ref)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>call start</h4>
+    <p class="d">Start a Conversation Mode call: listen, detect turns, speak replies.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:call start [--script &lt;path&gt;] [--session &lt;id&gt;]</dd>
+      <dt>cli</dt><dd>vox call start [--script] [--session] [--trace-turns]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>call stop</h4>
+    <p class="d">Hang up the running call.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:call stop</dd>
+      <dt>cli</dt><dd>vox call stop</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>call transfer</h4>
+    <p class="d">Re-attach the call to a different active session.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:call transfer [--session &lt;id&gt;]</dd>
+      <dt>cli</dt><dd>vox call transfer [--session]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>cache status</h4>
+    <p class="d">Daemon cache entry count, size, path.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox cache status</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>ws type:"cache_status"</dd>
+      <dt>client</dt><dd>await VoxClient().cache_status()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>cache clear</h4>
+    <p class="d">Delete all cached MP3s on the daemon host.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox cache clear</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>ws type:"cache_clear"</dd>
+      <dt>client</dt><dd>await VoxClient().cache_clear()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>log</h4>
+    <p class="d">Daemon log verbosity, live.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox log &lt;info|debug&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>ws type:"set_log_level" {level*}</dd>
+      <dt>client</dt><dd>await VoxClient().set_log_level(level)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>status</h4>
+    <p class="d">Provider, model, voice, notify, vibe, daemon health, music program.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox status</dd>
+      <dt>mcp</dt><dd>status()</dd>
+      <dt>http</dt><dd>GET /health · ws type:"health"</dd>
+      <dt>client</dt><dd>await VoxClient().health() · provider_status(provider=None)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable — the R4 reference implementation.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:vox enable | disable</dd>
+      <dt>cli</dt><dd>vox enable · vox disable [--purge]</dd>
+      <dt>mcp</dt><dd>enablement(action*: "enable"|"disable")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of vox commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/vox:help</dd>
+      <dt>cli</dt><dd>vox --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>install</h4>
+    <p class="d">Install the plugin and daemon service.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>uninstall</h4>
+    <p class="d">Remove the plugin.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">System health.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox doctor</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mcp</h4>
+    <p class="d">MCP server, stdio transport.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox mcp</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>daemon install</h4>
+    <p class="d">Register voxd as a system service.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox daemon install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>daemon uninstall</h4>
+    <p class="d">Remove the voxd service.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox daemon uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>daemon restart</h4>
+    <p class="d">Restart voxd; verify it is back.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox daemon restart</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>daemon status</h4>
+    <p class="d">voxd health: port, uptime, version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox daemon status</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>desktop install</h4>
+    <p class="d">Register the MCP server with Claude Desktop.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox desktop install [--output-dir] [--uvx-path] [--provider]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>desktop uninstall</h4>
+    <p class="d">Remove the Claude Desktop entry.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox desktop uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>register-guidance</h4>
+    <p class="d">Write or prune the usage guide and its @-import. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox register-guidance [--remove]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook stop</h4>
+    <p class="d">Stop-hook narration. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook stop (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook vibe-nudge</h4>
+    <p class="d">Vibe auto-update signal. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook vibe-nudge (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook notification</h4>
+    <p class="d">Permission-prompt notification. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook notification (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook pre-compact</h4>
+    <p class="d">PreCompact handler. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook pre-compact (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook user-prompt-submit</h4>
+    <p class="d">UserPromptSubmit handler. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook user-prompt-submit (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook subagent-start</h4>
+    <p class="d">SubagentStart handler. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook subagent-start (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook subagent-stop</h4>
+    <p class="d">SubagentStop handler. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook subagent-stop (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook session-end</h4>
+    <p class="d">SessionEnd handler. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>vox hook session-end (stdin)</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>lux<span class="meta">visual surface · http: typed REST on luxd (loopback) + /ws listen leg · client: python library <code>punt_lux</code> (LuxClient / LuxHubClient)</span></h2>
+  <div class="op">
+    <h4>scene show</h4>
+    <p class="d">Install or replace a scene — a tree of typed elements, optionally framed.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.show &lt;scene_id&gt; &lt;elements-json&gt; [title=...] [layout=...] [frame_*=...]</dd>
+      <dt>cli</dt><dd>lux scene show SCENE_ID [PAYLOAD | --from FILE | stdin]</dd>
+      <dt>mcp</dt><dd>scene_show(scene_id*, elements[]*, title, layout="single"|rows|columns|grid, frame_id, frame_title, frame_size[], frame_flags{}, frame_layout, frame_ttl_seconds)</dd>
+      <dt>http</dt><dd>PUT /scenes/{scene_id} body RenderRequest</dd>
+      <dt>client</dt><dd>await client.scene.show(RenderRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene update</h4>
+    <p class="d">Patch elements in place (set / remove).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.update &lt;scene_id&gt; &lt;patches-json&gt;</dd>
+      <dt>cli</dt><dd>lux scene update SCENE_ID [PAYLOAD | --from | stdin]</dd>
+      <dt>mcp</dt><dd>scene_update(scene_id*, patches[]*)</dd>
+      <dt>http</dt><dd>PATCH /scenes/{scene_id} body UpdateRequest</dd>
+      <dt>client</dt><dd>await client.scene.update(scene_id, UpdateRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene table</h4>
+    <p class="d">Server-composed filterable table with optional detail panel.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.table &lt;scene_id&gt; &lt;columns-json&gt; &lt;rows-json&gt; [filters=...] [detail=...]</dd>
+      <dt>cli</dt><dd>lux scene table SCENE_ID [PAYLOAD | --from | stdin]</dd>
+      <dt>mcp</dt><dd>scene_table(scene_id*, columns[]*, rows[]*, filters[], detail{}, flags[], key_column=0, table_id, title, frame_id, frame_title)</dd>
+      <dt>http</dt><dd>PUT /scenes/{scene_id}/table body RenderTableRequest</dd>
+      <dt>client</dt><dd>await client.scene.table(RenderTableRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene dashboard</h4>
+    <p class="d">Metric cards, charts, and a summary table.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.dashboard</dd>
+      <dt>cli</dt><dd>lux scene dashboard SCENE_ID [PAYLOAD | --from | stdin]</dd>
+      <dt>mcp</dt><dd>scene_dashboard(scene_id*, metrics[], charts[], table_columns[], table_rows[], title, frame_id, frame_title)</dd>
+      <dt>http</dt><dd>PUT /scenes/{scene_id}/dashboard body RenderDashboardRequest</dd>
+      <dt>client</dt><dd>await client.scene.dashboard(RenderDashboardRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene clear</h4>
+    <p class="d">Remove one scene you own.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.clear &lt;scene_id&gt;</dd>
+      <dt>cli</dt><dd>lux scene clear SCENE_ID</dd>
+      <dt>mcp</dt><dd>scene_clear(scene_id*)</dd>
+      <dt>http</dt><dd>DELETE /scenes/{scene_id}</dd>
+      <dt>client</dt><dd>await client.scene.clear(scene_id)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene clear-all</h4>
+    <p class="d">Remove every scene you own.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.clear-all</dd>
+      <dt>cli</dt><dd>lux scene clear-all</dd>
+      <dt>mcp</dt><dd>scene_clear_all()</dd>
+      <dt>http</dt><dd>DELETE /scenes</dd>
+      <dt>client</dt><dd>await client.scene.clear_all()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene inspect</h4>
+    <p class="d">Element tree of a scene you own; optional geometry and visibility.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.inspect &lt;scene_id&gt; [want_geometry=true]</dd>
+      <dt>cli</dt><dd>lux scene inspect SCENE_ID [--geometry]</dd>
+      <dt>mcp</dt><dd>scene_inspect(scene_id*, want_geometry=false)</dd>
+      <dt>http</dt><dd>GET /scenes/{scene_id}?want_geometry=&amp;want_visibility=</dd>
+      <dt>client</dt><dd>await client.scene.inspect(scene_id, InspectScope)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>scene ls</h4>
+    <p class="d">All active scenes and frames from the Hub's store.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:scene.ls</dd>
+      <dt>cli</dt><dd>lux scene ls</dd>
+      <dt>mcp</dt><dd>scene_ls(want_visibility=false)</dd>
+      <dt>http</dt><dd>GET /scenes</dd>
+      <dt>client</dt><dd>await client.scene.ls()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>beads</h4>
+    <p class="d">Beads issue board pattern.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.beads</dd>
+      <dt>cli</dt><dd>lux beads [--all]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>data explorer</h4>
+    <p class="d">Filterable data explorer pattern.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill scene.data-explorer</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>frame close</h4>
+    <p class="d">Close a frame and tear down its scenes — lifecycle, not window management.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill frame.close &lt;frame_id&gt;</dd>
+      <dt>cli</dt><dd>lux frame close FRAME_ID</dd>
+      <dt>mcp</dt><dd>frame_close(frame_id*)</dd>
+      <dt>http</dt><dd>POST /display/frames/{frame_id}/close</dd>
+      <dt>client</dt><dd>await client.frame.close(frame_id)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>frame ls</h4>
+    <p class="d">Frame states: on-screen, docked, closed.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd>frame_ls()</dd>
+      <dt>http</dt><dd>GET /display/frames</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>menu ls</h4>
+    <p class="d">The Hub-owned menu bar and its items.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill menu.ls</dd>
+      <dt>cli</dt><dd>lux menu ls</dd>
+      <dt>mcp</dt><dd>menu_ls()</dd>
+      <dt>http</dt><dd>GET /menus</dd>
+      <dt>client</dt><dd>await client.menu.ls()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>menu set</h4>
+    <p class="d">Replace this caller's agent-defined menus.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill menu.set &lt;menus-json&gt;</dd>
+      <dt>cli</dt><dd>lux menu set [ENTRIES | --from FILE]</dd>
+      <dt>mcp</dt><dd>menu_set(menus[]*)</dd>
+      <dt>http</dt><dd>PUT /menus body SetMenuRequest</dd>
+      <dt>client</dt><dd>await client.menu.set(SetMenuRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>callback register</h4>
+    <p class="d">Register a menu callback for the caller's session.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux callback register CALLBACK_ID LABEL</dd>
+      <dt>mcp</dt><dd>callback_register(callback_id*, label*)</dd>
+      <dt>http</dt><dd>POST /menus/callbacks body RegisterCallbackRequest</dd>
+      <dt>client</dt><dd>await client.callback.register(callback_id, label)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>callback pending</h4>
+    <p class="d">Peek at held callback invocations without draining. REST-unreachable by design.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill callback.pending</dd>
+      <dt>cli</dt><dd>lux callback pending</dd>
+      <dt>mcp</dt><dd>callback_pending()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>topic publish</h4>
+    <p class="d">Fan a payload out to in-scope subscribers.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill topic.publish &lt;topic&gt; [&lt;payload-json&gt;]</dd>
+      <dt>cli</dt><dd>lux topic publish &lt;topic&gt; [payload]</dd>
+      <dt>mcp</dt><dd>topic_publish(topic*, payload{})</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>topic subscribe</h4>
+    <p class="d">Subscribe this session to a topic.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill topic.subscribe &lt;topic&gt;</dd>
+      <dt>cli</dt><dd>lux topic subscribe &lt;topic&gt;</dd>
+      <dt>mcp</dt><dd>topic_subscribe(topic*)</dd>
+      <dt>http</dt><dd>WS /ws (subscription rides the listen leg)</dd>
+      <dt>client</dt><dd>LuxHubClient.subscribe(*topics)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>topic unsubscribe</h4>
+    <p class="d">Drop this session's subscription.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill topic.unsubscribe &lt;topic&gt;</dd>
+      <dt>cli</dt><dd>lux topic unsubscribe &lt;topic&gt;</dd>
+      <dt>mcp</dt><dd>topic_unsubscribe(topic*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>topic recv</h4>
+    <p class="d">Next business event, or none; never blocks.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux topic recv</dd>
+      <dt>mcp</dt><dd>topic_recv()</dd>
+      <dt>http</dt><dd>WS /ws (delivery)</dd>
+      <dt>client</dt><dd>await LuxHubClient.listen() (handlers)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session ls</h4>
+    <p class="d">Every session the Hub tracks.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:session.ls</dd>
+      <dt>cli</dt><dd>lux session ls</dd>
+      <dt>mcp</dt><dd>session_ls()</dd>
+      <dt>http</dt><dd>GET /clients</dd>
+      <dt>client</dt><dd>await client.session.ls()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session inspect</h4>
+    <p class="d">One session's metadata by connection id.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux session inspect CONNECTION_ID</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session identify</h4>
+    <p class="d">Declare caller identity; REST carries it as X-Lux-Client-* headers.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux session identify [--as] [--kind] [--name] [--repo] [--agent]</dd>
+      <dt>mcp</dt><dd>session_identify(kind*, name*, repo, agent)</dd>
+      <dt>http</dt><dd>X-Lux-Client-* headers on every request</dd>
+      <dt>client</dt><dd>await client.session.identify(declaration)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display info</h4>
+    <p class="d">Backend, resolution, FPS, PID, uptime.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:display.info</dd>
+      <dt>cli</dt><dd>lux display info</dd>
+      <dt>mcp</dt><dd>display_info()</dd>
+      <dt>http</dt><dd>GET /display</dd>
+      <dt>client</dt><dd>await client.display.info()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display theme</h4>
+    <p class="d">Get the theme, or set it when a name is given.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display theme [NAME]</dd>
+      <dt>mcp</dt><dd>display_theme_get() · display_theme_set(theme*)</dd>
+      <dt>http</dt><dd>GET|PUT /display/theme</dd>
+      <dt>client</dt><dd>await client.display.get_theme() · set_theme(req)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display window</h4>
+    <p class="d">Window appearance: opacity, font scale, decoration, idle FPS.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display window [--opacity] [--font-scale] [--decorated] [--fps-idle]</dd>
+      <dt>mcp</dt><dd>display_window_get() · display_window_set(opacity, font_scale, decorated, fps_idle)</dd>
+      <dt>http</dt><dd>GET|PATCH /display/window</dd>
+      <dt>client</dt><dd>await client.display.get_window() · set_window(patch)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display mode</h4>
+    <p class="d">Per-repo display on/off, persisted in the repo.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display mode [on|off] --repo PATH</dd>
+      <dt>mcp</dt><dd>display_mode_get(repo*) · display_mode_set(mode*: enable|disable, repo*)</dd>
+      <dt>http</dt><dd>GET /display-mode?repo= · PUT /display-mode</dd>
+      <dt>client</dt><dd>await client.display.get_mode(repo) · set_mode(req)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display screenshot</h4>
+    <p class="d">Framebuffer capture. CLI-only by design (DES-028); agent doors refuse.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display screenshot</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>event ls</h4>
+    <p class="d">Recent interaction events.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:event.ls [count]</dd>
+      <dt>cli</dt><dd>lux event ls [--count ≤200]</dd>
+      <dt>mcp</dt><dd>event_ls(count=50)</dd>
+      <dt>http</dt><dd>GET /events?count=</dd>
+      <dt>client</dt><dd>await client.event.ls(count)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>error ls</h4>
+    <p class="d">Recent display-side errors and warnings.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:error.ls [count]</dd>
+      <dt>cli</dt><dd>lux error ls [--count ≤100]</dd>
+      <dt>mcp</dt><dd>error_ls(count=20)</dd>
+      <dt>http</dt><dd>GET /errors?count=</dd>
+      <dt>client</dt><dd>await client.error.ls(count)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>ping</h4>
+    <p class="d">Round-trip time to the display server.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:ping</dd>
+      <dt>cli</dt><dd>lux ping [--timeout 0.1–30]</dd>
+      <dt>mcp</dt><dd>ping()</dd>
+      <dt>http</dt><dd>GET /display/ping?timeout=</dd>
+      <dt>client</dt><dd>await client.ping(wait=None)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>status</h4>
+    <p class="d">Is the display server running.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux status [--socket]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET /health → HubHealth{status, sessions}</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:lux enable | disable</dd>
+      <dt>cli</dt><dd>lux enable · lux disable</dd>
+      <dt>mcp</dt><dd>display_mode_set(mode*: enable|disable, repo*)</dd>
+      <dt>http</dt><dd>PUT /display-mode</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of lux commands and skills.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/lux:help</dd>
+      <dt>cli</dt><dd>lux --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>install</h4>
+    <p class="d">Install the plugin via the marketplace.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>uninstall</h4>
+    <p class="d">Uninstall the plugin.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Python, imgui-bundle, fonts, display server, plugin.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux doctor [--socket]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub install</h4>
+    <p class="d">Register luxd as a system service.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub uninstall</h4>
+    <p class="d">Remove the luxd service registration.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub start</h4>
+    <p class="d">Start luxd if installed and stopped.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub stop</h4>
+    <p class="d">Stop luxd; registration stays.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub stop</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub restart</h4>
+    <p class="d">Restart luxd through the supervisor.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub restart</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub doctor</h4>
+    <p class="d">Diagnose/repair registrations and port conflicts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub doctor [--fix]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hub status</h4>
+    <p class="d">luxd status: port and session count.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hub status</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display serve</h4>
+    <p class="d">Start the display server render loop.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display serve [--socket] [--test-auto-click]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display install</h4>
+    <p class="d">Register the display as a system service.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display uninstall</h4>
+    <p class="d">Remove the display service registration.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display start</h4>
+    <p class="d">Start the display.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display stop</h4>
+    <p class="d">Stop the display; registration stays.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display stop</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display restart</h4>
+    <p class="d">Restart the display via its supervisor.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display restart</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display doctor</h4>
+    <p class="d">Diagnose/repair display registrations.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display doctor [--fix]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>display status</h4>
+    <p class="d">Display service state and window process.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux display status [--socket]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook session-start</h4>
+    <p class="d">SessionStart dispatcher. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>lux hook session-start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>quarry<span class="meta">semantic knowledge · http: REST /v1 on the daemon · client: python library <code>quarry.client.QuarryClient</code></span></h2>
+  <div class="op">
+    <h4>find</h4>
+    <p class="d">Hybrid semantic + keyword search (vector + BM25 via RRF).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:find &lt;query&gt;</dd>
+      <dt>cli</dt><dd>quarry find QUERY [--limit 10] [--document] [--collection] [--page-type] [--source-format] [--agent-handle] [--memory-type]</dd>
+      <dt>mcp</dt><dd>find(query*, limit=10, document_filter, collection, page_type, source_format, agent_handle, memory_type)</dd>
+      <dt>http</dt><dd>GET /v1/search?q=*&amp;limit=&amp;collection=&amp;document=&amp;page_type=&amp;source_format=&amp;agent_handle=&amp;memory_type=</dd>
+      <dt>client</dt><dd>client.search(SearchRequest) → SearchResponse</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>ingest</h4>
+    <p class="d">Capture a URL into the knowledge base.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:ingest &lt;url, directory, or file path&gt;</dd>
+      <dt>cli</dt><dd>quarry ingest SOURCE [--overwrite] [--collection] [--agent-handle] [--memory-type] [--summary]</dd>
+      <dt>mcp</dt><dd>ingest(source*, overwrite=false, collection)</dd>
+      <dt>http</dt><dd>POST /v1/ingest body {source*, overwrite, collection, cwd, scrub, agent_handle, memory_type, summary} → 202</dd>
+      <dt>client</dt><dd>client.ingest_url(IngestRequest, timeout=None) → TaskAccepted</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>remember</h4>
+    <p class="d">Capture a specific durable fact verbatim. One overwrite default on every door.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:remember &lt;text to remember&gt; [as &lt;name&gt;]</dd>
+      <dt>cli</dt><dd>quarry remember --name NAME [--collection default] [--format auto] [--overwrite] (content on stdin)</dd>
+      <dt>mcp</dt><dd>remember(content*, document_name*, overwrite, collection="default", format_hint="auto", agent_handle, memory_type, summary)</dd>
+      <dt>http</dt><dd>POST /v1/remember body RememberRequest → 202</dd>
+      <dt>client</dt><dd>client.remember(RememberRequest) → TaskAccepted</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>learn</h4>
+    <p class="d">Capture a distilled lesson — lesson-tagged, preferentially surfaced in retrieval. One atomic call.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:learn &lt;lesson text&gt; [as &lt;name&gt;]</dd>
+      <dt>cli</dt><dd>quarry learn "&lt;lesson&gt;" [--topic] [--name]</dd>
+      <dt>mcp</dt><dd>learn(lesson*, topic, name)</dd>
+      <dt>http</dt><dd>POST /v1/learn → 202</dd>
+      <dt>client</dt><dd>client.learn(LearnRequest) → TaskAccepted</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>explain</h4>
+    <p class="d">Explain a document or topic. Prompt-native over find/show.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:explain &lt;document or topic&gt;</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>source</h4>
+    <p class="d">Find the original document for a claim. Prompt-native over find/show.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:source &lt;claim or text&gt;</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>show</h4>
+    <p class="d">Document metadata, or one page's text.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry show DOCUMENT [--page N] [--collection]</dd>
+      <dt>mcp</dt><dd>show(document_name*, page_number=0, collection)</dd>
+      <dt>http</dt><dd>GET /v1/show?document=*&amp;page=&amp;collection=</dd>
+      <dt>client</dt><dd>client.show_page(ShowRequest) · client.show_document(ShowRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>delete</h4>
+    <p class="d">Delete indexed data for a document or a collection.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry delete NAME [--type document|collection] [--collection]</dd>
+      <dt>mcp</dt><dd>delete(name*, kind="document"|collection, collection)</dd>
+      <dt>http</dt><dd>DELETE /v1/documents?name=* · DELETE /v1/collections?name=* → 202</dd>
+      <dt>client</dt><dd>client.delete_document(req) · client.delete_collection(req)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>list documents</h4>
+    <p class="d">List indexed documents.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry list documents [--collection]</dd>
+      <dt>mcp</dt><dd>list(kind="documents", collection)</dd>
+      <dt>http</dt><dd>GET /v1/documents?collection=</dd>
+      <dt>client</dt><dd>client.list_documents(collection)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>list collections</h4>
+    <p class="d">Collections with document and chunk counts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry collections</dd>
+      <dt>cli</dt><dd>quarry list collections</dd>
+      <dt>mcp</dt><dd>list(kind="collections")</dd>
+      <dt>http</dt><dd>GET /v1/collections</dd>
+      <dt>client</dt><dd>client.list_collections()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>list registrations</h4>
+    <p class="d">Registered directories.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry registrations</dd>
+      <dt>cli</dt><dd>quarry list registrations</dd>
+      <dt>mcp</dt><dd>list(kind="registrations")</dd>
+      <dt>http</dt><dd>GET /v1/registrations</dd>
+      <dt>client</dt><dd>client.list_registrations()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>list databases</h4>
+    <p class="d">Databases.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry databases</dd>
+      <dt>cli</dt><dd>quarry list databases</dd>
+      <dt>mcp</dt><dd>list(kind="databases")</dd>
+      <dt>http</dt><dd>GET /v1/databases</dd>
+      <dt>client</dt><dd>client.list_databases()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>sync</h4>
+    <p class="d">Sync all registered directories.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry sync</dd>
+      <dt>cli</dt><dd>quarry sync</dd>
+      <dt>mcp</dt><dd>sync_all_registrations()</dd>
+      <dt>http</dt><dd>POST /v1/sync → 202</dd>
+      <dt>client</dt><dd>client.sync()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>register</h4>
+    <p class="d">Register a directory for incremental sync.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry register DIRECTORY [--collection]</dd>
+      <dt>mcp</dt><dd>register_directory(directory*, collection)</dd>
+      <dt>http</dt><dd>POST /v1/registrations body {directory*, collection*} → 202</dd>
+      <dt>client</dt><dd>client.register(RegisterRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>deregister</h4>
+    <p class="d">Remove a directory registration.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry deregister COLLECTION [--keep-data]</dd>
+      <dt>mcp</dt><dd>deregister_directory(collection*, keep_data=false)</dd>
+      <dt>http</dt><dd>DELETE /v1/registrations?collection=*&amp;keep_data= → 202</dd>
+      <dt>client</dt><dd>client.deregister(DeregisterRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>status</h4>
+    <p class="d">Database status: documents, chunks, storage, model.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry status</dd>
+      <dt>cli</dt><dd>quarry status</dd>
+      <dt>mcp</dt><dd>status()</dd>
+      <dt>http</dt><dd>GET /v1/status · GET /health (liveness)</dd>
+      <dt>client</dt><dd>client.status() · client.health()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>use</h4>
+    <p class="d">Switch the default database. Client-side by design; the daemon is fixed to one database.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry use &lt;name&gt;</dd>
+      <dt>cli</dt><dd>quarry use NAME</dd>
+      <dt>mcp</dt><dd>use(name*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>captures push</h4>
+    <p class="d">Re-scrub and push redacted captures to project shadows.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry captures push</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>POST /v1/captures/push</dd>
+      <dt>client</dt><dd>client.captures_push()</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>captures init</h4>
+    <p class="d">Bootstrap the project's private capture shadow.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry captures init [--create]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>capture write</h4>
+    <p class="d">Write one session capture.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>POST /v1/capture body CaptureIngestRequest → 202</dd>
+      <dt>client</dt><dd>client.capture(req, timeout=None)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>task status</h4>
+    <p class="d">Poll a 202-accepted task.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET /v1/tasks/{task_id}</dd>
+      <dt>client</dt><dd>client.task_status(task_id) · client.await_task(task_id)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>remote list</h4>
+    <p class="d">The daemon target commands resolve to.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry remote list [--ping]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable for knowledge capture.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:quarry enable | disable</dd>
+      <dt>cli</dt><dd>quarry enable [DIR] [--collection] · disable [DIR] [--keep-data]</dd>
+      <dt>mcp</dt><dd>enablement(action*: "enable"|"disable")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of quarry commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/quarry:help</dd>
+      <dt>cli</dt><dd>quarry --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>optimize</h4>
+    <p class="d">Compact LanceDB; rebuild indexes.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry optimize [--force]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>POST /v1/optimize → 202</dd>
+      <dt>client</dt><dd>client.optimize(OptimizeRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>backfill-sessions</h4>
+    <p class="d">Backfill historical session transcripts.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry backfill-sessions [--dry-run] [--collection] [--project] [--limit 0]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>POST /v1/backfill-sessions → 202</dd>
+      <dt>client</dt><dd>client.backfill_sessions(BackfillRequest)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>login</h4>
+    <p class="d">Connect to a remote quarry (TOFU certificate pinning).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry login HOST [--port] [--api-key] [--yes]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET /ca.crt (pinning)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>logout</h4>
+    <p class="d">Revert to the local daemon.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry logout</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>install</h4>
+    <p class="d">Data directory + embedding model.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry install</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd>QuarryClient.connect(config, transport=None)</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>uninstall</h4>
+    <p class="d">Remove daemon and service file.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry uninstall</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Python, data dir, model, imports.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry doctor</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mcp</h4>
+    <p class="d">MCP server, stdio transport.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry mcp</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hooks session-start</h4>
+    <p class="d">Auto-register and sync the current repo. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry hooks session-start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hooks post-web-fetch</h4>
+    <p class="d">Auto-ingest fetched URLs. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry hooks post-web-fetch</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hooks pre-compact</h4>
+    <p class="d">Capture compaction summaries. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>quarry hooks pre-compact</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>ethos<span class="meta">identity and delegation · http: read-only UI dashboard only (no JSON API) · no library (internal/ by design)</span></h2>
+  <div class="op">
+    <h4>whoami</h4>
+    <p class="d">Resolve the caller's identity.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:whoami</dd>
+      <dt>cli</dt><dd>ethos whoami [--reference]</dd>
+      <dt>mcp</dt><dd>identity(method="whoami", reference)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>identity list</h4>
+    <p class="d">List all identities.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:identity list</dd>
+      <dt>cli</dt><dd>ethos identity list</dd>
+      <dt>mcp</dt><dd>identity(method="list")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>identity show</h4>
+    <p class="d">Identity details.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:identity get &lt;handle&gt;</dd>
+      <dt>cli</dt><dd>ethos identity show &lt;handle&gt;</dd>
+      <dt>mcp</dt><dd>identity(method="get", handle*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>identity create</h4>
+    <p class="d">Create an identity (interactive or from file).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:identity create [args]</dd>
+      <dt>cli</dt><dd>ethos identity create [-f yaml]</dd>
+      <dt>mcp</dt><dd>identity(method="create", name*, handle*, kind*: human|agent, email, github, agent, writing_style, personality, talents[])</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>identity schema</h4>
+    <p class="d">Identity field reference.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos identity schema</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>extension get</h4>
+    <p class="d">Read extension values on an identity.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:extension get [args]</dd>
+      <dt>cli</dt><dd>ethos extension get &lt;handle&gt; &lt;ns&gt; [key]</dd>
+      <dt>mcp</dt><dd>extension(method="get", handle*, namespace*, key)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>extension set</h4>
+    <p class="d">Set an extension value.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:extension set [args]</dd>
+      <dt>cli</dt><dd>ethos extension set &lt;handle&gt; &lt;ns&gt; &lt;key&gt; &lt;value&gt;...</dd>
+      <dt>mcp</dt><dd>extension(method="set", handle*, namespace*, key*, value*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>extension del</h4>
+    <p class="d">Delete a key or a namespace.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:extension del [args]</dd>
+      <dt>cli</dt><dd>ethos extension delete &lt;handle&gt; &lt;ns&gt; [key]</dd>
+      <dt>mcp</dt><dd>extension(method="del", handle*, namespace*, key)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>extension list</h4>
+    <p class="d">List extensions on an identity.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:extension list [args]</dd>
+      <dt>cli</dt><dd>ethos extension list &lt;handle&gt;</dd>
+      <dt>mcp</dt><dd>extension(method="list", handle*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session roster</h4>
+    <p class="d">Show the current roster.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:session roster</dd>
+      <dt>cli</dt><dd>ethos session</dd>
+      <dt>mcp</dt><dd>session(method="roster", session_id)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session start</h4>
+    <p class="d">Start a session.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos session start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session end</h4>
+    <p class="d">End the session.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos session end</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session join</h4>
+    <p class="d">Join the roster.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:session join [args]</dd>
+      <dt>cli</dt><dd>ethos session join</dd>
+      <dt>mcp</dt><dd>session(method="join", agent_id*, persona, parent, agent_type)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session leave</h4>
+    <p class="d">Leave the roster.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:session leave [args]</dd>
+      <dt>cli</dt><dd>ethos session leave</dd>
+      <dt>mcp</dt><dd>session(method="leave", agent_id*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session iam</h4>
+    <p class="d">Declare a persona.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:session iam &lt;persona&gt;</dd>
+      <dt>cli</dt><dd>ethos session iam &lt;persona&gt;</dd>
+      <dt>mcp</dt><dd>session(method="iam", persona*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session list</h4>
+    <p class="d">List sessions.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos session list</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session show</h4>
+    <p class="d">Session details.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos session show [session-id]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>session purge</h4>
+    <p class="d">Clear stale sessions.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos session purge</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talent create</h4>
+    <p class="d">Create a talent.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:talent create [args]</dd>
+      <dt>cli</dt><dd>ethos talent create &lt;slug&gt; [--file]</dd>
+      <dt>mcp</dt><dd>talent(method="create", slug*, content*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talent list</h4>
+    <p class="d">List talents.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:talent list</dd>
+      <dt>cli</dt><dd>ethos talent list</dd>
+      <dt>mcp</dt><dd>talent(method="list")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talent show</h4>
+    <p class="d">Talent content.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:talent show [args]</dd>
+      <dt>cli</dt><dd>ethos talent show &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>talent(method="show", slug*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talent delete</h4>
+    <p class="d">Delete a talent.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:talent delete [args]</dd>
+      <dt>cli</dt><dd>ethos talent delete &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>talent(method="delete", slug*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talent add</h4>
+    <p class="d">Add a talent to an identity.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:talent add [args]</dd>
+      <dt>cli</dt><dd>ethos talent add &lt;handle&gt; &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>talent(method="add", slug*, handle*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>talent remove</h4>
+    <p class="d">Remove a talent from an identity.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:talent remove [args]</dd>
+      <dt>cli</dt><dd>ethos talent remove &lt;handle&gt; &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>talent(method="remove", slug*, handle*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>personality create</h4>
+    <p class="d">Create a personality.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:personality create [args]</dd>
+      <dt>cli</dt><dd>ethos personality create &lt;slug&gt; [--file]</dd>
+      <dt>mcp</dt><dd>personality(method="create", slug*, content*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>personality list</h4>
+    <p class="d">List personalities.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:personality list</dd>
+      <dt>cli</dt><dd>ethos personality list</dd>
+      <dt>mcp</dt><dd>personality(method="list")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>personality show</h4>
+    <p class="d">Personality content.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:personality show [args]</dd>
+      <dt>cli</dt><dd>ethos personality show &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>personality(method="show", slug*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>personality delete</h4>
+    <p class="d">Delete a personality.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:personality delete [args]</dd>
+      <dt>cli</dt><dd>ethos personality delete &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>personality(method="delete", slug*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>personality set</h4>
+    <p class="d">Set on an identity (single-valued).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:personality set [args]</dd>
+      <dt>cli</dt><dd>ethos personality set &lt;handle&gt; &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>personality(method="set", slug*, handle*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>writing-style create</h4>
+    <p class="d">Create a writing style.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:writing-style create [args]</dd>
+      <dt>cli</dt><dd>ethos writing-style create &lt;slug&gt; [--file]</dd>
+      <dt>mcp</dt><dd>writing_style(method="create", slug*, content*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>writing-style list</h4>
+    <p class="d">List writing styles.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:writing-style list</dd>
+      <dt>cli</dt><dd>ethos writing-style list</dd>
+      <dt>mcp</dt><dd>writing_style(method="list")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>writing-style show</h4>
+    <p class="d">Writing-style content.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:writing-style show [args]</dd>
+      <dt>cli</dt><dd>ethos writing-style show &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>writing_style(method="show", slug*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>writing-style delete</h4>
+    <p class="d">Delete a writing style.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:writing-style delete [args]</dd>
+      <dt>cli</dt><dd>ethos writing-style delete &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>writing_style(method="delete", slug*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>writing-style set</h4>
+    <p class="d">Set on an identity (single-valued).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:writing-style set [args]</dd>
+      <dt>cli</dt><dd>ethos writing-style set &lt;handle&gt; &lt;slug&gt;</dd>
+      <dt>mcp</dt><dd>writing_style(method="set", slug*, handle*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>role create</h4>
+    <p class="d">Create a role.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:role create [args]</dd>
+      <dt>cli</dt><dd>ethos role create &lt;name&gt;</dd>
+      <dt>mcp</dt><dd>role(method="create", name*, model, responsibilities[], permissions[], tools[], safety_constraints[], output_format)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>role list</h4>
+    <p class="d">List roles.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:role list</dd>
+      <dt>cli</dt><dd>ethos role list</dd>
+      <dt>mcp</dt><dd>role(method="list")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>role show</h4>
+    <p class="d">Role details.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:role show [args]</dd>
+      <dt>cli</dt><dd>ethos role show &lt;name&gt;</dd>
+      <dt>mcp</dt><dd>role(method="show", name*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>role delete</h4>
+    <p class="d">Delete a role.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:role delete [args]</dd>
+      <dt>cli</dt><dd>ethos role delete &lt;name&gt;</dd>
+      <dt>mcp</dt><dd>role(method="delete", name*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>role schema</h4>
+    <p class="d">Role field reference.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos role schema</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team create</h4>
+    <p class="d">Create a team.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team create [args]</dd>
+      <dt>cli</dt><dd>ethos team create &lt;name&gt; [-f]</dd>
+      <dt>mcp</dt><dd>team(method="create", name*, members[]*, repositories[], collaborations[])</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team list</h4>
+    <p class="d">List teams.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team list</dd>
+      <dt>cli</dt><dd>ethos team list</dd>
+      <dt>mcp</dt><dd>team(method="list")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team show</h4>
+    <p class="d">Team details.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team show [args]</dd>
+      <dt>cli</dt><dd>ethos team show &lt;name&gt;</dd>
+      <dt>mcp</dt><dd>team(method="show", name*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team delete</h4>
+    <p class="d">Delete a team.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team delete [args]</dd>
+      <dt>cli</dt><dd>ethos team delete &lt;name&gt;</dd>
+      <dt>mcp</dt><dd>team(method="delete", name*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team add-member</h4>
+    <p class="d">Add a member.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team add-member [args]</dd>
+      <dt>cli</dt><dd>ethos team add-member &lt;team&gt; &lt;identity&gt; &lt;role&gt;</dd>
+      <dt>mcp</dt><dd>team(method="add_member", name*, identity*, role*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team remove-member</h4>
+    <p class="d">Remove a member.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team remove-member [args]</dd>
+      <dt>cli</dt><dd>ethos team remove-member &lt;team&gt; &lt;identity&gt; &lt;role&gt;</dd>
+      <dt>mcp</dt><dd>team(method="remove_member", name*, identity*, role*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team add-collab</h4>
+    <p class="d">Add a collaboration edge.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team add-collab [args]</dd>
+      <dt>cli</dt><dd>ethos team add-collab &lt;team&gt; &lt;from&gt; &lt;to&gt; &lt;type&gt;</dd>
+      <dt>mcp</dt><dd>team(method="add_collab", name*, from*, to*, collab_type*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team for-repo</h4>
+    <p class="d">Team(s) for a repository.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:team for-repo [args]</dd>
+      <dt>cli</dt><dd>ethos team for-repo [repo]</dd>
+      <dt>mcp</dt><dd>team(method="for_repo", repo)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team available</h4>
+    <p class="d">Discoverable team bundles.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos team available</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team activate</h4>
+    <p class="d">Activate a bundle.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos team activate &lt;name&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team active</h4>
+    <p class="d">Show the active bundle.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos team active</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team deactivate</h4>
+    <p class="d">Deactivate the bundle.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos team deactivate</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team add-bundle</h4>
+    <p class="d">Add a team bundle from a git URL.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos team add-bundle &lt;git-url&gt; [--name] [--global] [--apply]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>team schema</h4>
+    <p class="d">Team field reference.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos team schema</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission create</h4>
+    <p class="d">Create a mission contract from YAML.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission create --file &lt;contract.yaml&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="create", contract*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission show</h4>
+    <p class="d">Inspect a mission.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission show &lt;id-or-prefix&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="show", mission_id*)</dd>
+      <dt>http</dt><dd>GET /missions/{id} (read-only HTML, ethos ui)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission list</h4>
+    <p class="d">List missions.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission list [--status]</dd>
+      <dt>mcp</dt><dd>mission(method="list", status)</dd>
+      <dt>http</dt><dd>GET / (dashboard, ethos ui)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission close</h4>
+    <p class="d">Close a passing mission.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission close &lt;id&gt; [--status closed|failed|escalated]</dd>
+      <dt>mcp</dt><dd>mission(method="close", mission_id*, status)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission abandon</h4>
+    <p class="d">Retire a never-started mission.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission abandon &lt;id&gt; --reason &lt;text&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="abandon", mission_id*, reason*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission result</h4>
+    <p class="d">Submit a worker result for the round.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission result &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="result", mission_id*, result*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission results</h4>
+    <p class="d">Round-by-round result log.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission results &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="results", mission_id*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission reflect</h4>
+    <p class="d">File an evaluator reflection.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission reflect &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="reflect", mission_id*, reflection*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission reflections</h4>
+    <p class="d">Reflection log.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission reflections &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="reflections", mission_id*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission advance</h4>
+    <p class="d">Advance to the next round.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission advance &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="advance", mission_id*, actor)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission log</h4>
+    <p class="d">Append-only event log.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission log &lt;id&gt; [--event] [--since]</dd>
+      <dt>mcp</dt><dd>mission(method="log", mission_id*, event, since)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission dispatch</h4>
+    <p class="d">Create a mission from flags.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission dispatch [--worker --evaluator --write-set --criteria --context --ticket --type --budget]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission lint</h4>
+    <p class="d">Advisory heuristics on a contract.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission lint &lt;contract.yaml&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission export</h4>
+    <p class="d">Export contract + result for git tracking.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission export &lt;id&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission migrate</h4>
+    <p class="d">Migrate mission state.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission migrate [mission-id] [--to-repo] [--dry-run] [--verbose]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission claim</h4>
+    <p class="d">Claim a mission.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission claim &lt;mission-id&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission release</h4>
+    <p class="d">Release the claimed mission.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission release</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission correct</h4>
+    <p class="d">File a correction against a closed mission.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission correct &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>mission(method="correct", mission_id*, correction*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission scaffold contract</h4>
+    <p class="d">Print a fillable contract YAML skeleton.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission scaffold contract</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission scaffold result</h4>
+    <p class="d">Print a fillable result YAML skeleton.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission scaffold result</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission pipeline list</h4>
+    <p class="d">List pipeline templates.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission pipeline list</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission pipeline show</h4>
+    <p class="d">Pipeline template details.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission pipeline show &lt;name&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mission pipeline instantiate</h4>
+    <p class="d">Instantiate multi-stage work.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos mission pipeline instantiate &lt;name&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>adr create</h4>
+    <p class="d">Create an ADR.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos adr create</dd>
+      <dt>mcp</dt><dd>adr(method="create", title*, decision*, context_text, status, author, mission_id, bead_id)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>adr list</h4>
+    <p class="d">List ADRs.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos adr list</dd>
+      <dt>mcp</dt><dd>adr(method="list", status)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>adr show</h4>
+    <p class="d">ADR details.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos adr show &lt;id&gt;</dd>
+      <dt>mcp</dt><dd>adr(method="show", id*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>adr settle</h4>
+    <p class="d">Mark an ADR settled.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos adr settle &lt;id&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>audit migrate</h4>
+    <p class="d">Migrate audit logs.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos audit migrate [--dry-run] [--verbose]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>audit show</h4>
+    <p class="d">Reconstruct a delegation's trail.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos audit show --delegation &lt;id&gt; [--format]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET /delegations/{mission}/{delegation} (read-only HTML, ethos ui)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>audit seal</h4>
+    <p class="d">Seal audit chunks (runs at pre-commit).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos audit seal [--dry-run] [--verbose]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>audit quarantine</h4>
+    <p class="d">Recovery path for a corrupt chunk.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos audit quarantine &lt;chunk-path&gt; [--reason]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>find missions</h4>
+    <p class="d">Query mission state files.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos find missions [--since] [--worker] [--status] [--format]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>vendor</h4>
+    <p class="d">Snapshot a self-standing identity set into the repo; plan by default.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos vendor [handle...] [--team] [--all] [--to] [--prune] [--dry-run] [--apply] [--allow-ext-key]</dd>
+      <dt>mcp</dt><dd>vendor(handles[], team, all, to, prune, apply, allow_ext_key[])</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>import</h4>
+    <p class="d">Import an identity from an external format.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos import --from soulspec [--dir] [--handle]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>export</h4>
+    <p class="d">Export an identity (lossy).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos export &lt;handle&gt; --to soulspec|claude-md [--dir]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>ui</h4>
+    <p class="d">Open the read-only traceability dashboard.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos ui [--port]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd>GET / · /missions/{id} · /delegations/{m}/{d} · /browse/{relpath} (HTML)</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:ethos enable | disable</dd>
+      <dt>cli</dt><dd>ethos enable · ethos disable [--force]</dd>
+      <dt>mcp</dt><dd>enablement(action*: "enable"|"disable")</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of ethos commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/ethos:help</dd>
+      <dt>cli</dt><dd>ethos --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Installation health. MCP exposure is a stated R3 exception under review.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos doctor</dd>
+      <dt>mcp</dt><dd>doctor()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>setup</h4>
+    <p class="d">Set up identities and team for the repo.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos setup [--bundle | --solo] [-f]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>seed</h4>
+    <p class="d">Deploy starter roles, talents, skills.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos seed [--force]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>serve</h4>
+    <p class="d">MCP server, stdio transport.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos serve</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>uninstall</h4>
+    <p class="d">Remove plugin; --purge removes binary + data.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos uninstall [--purge]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>completion</h4>
+    <p class="d">Shell completion script.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos completion &lt;bash|zsh|fish&gt;</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook session-start</h4>
+    <p class="d">SessionStart persona injection. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook session-start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook session-end</h4>
+    <p class="d">SessionEnd cleanup. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook session-end</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook subagent-start</h4>
+    <p class="d">SubagentStart roster join. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook subagent-start</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook subagent-stop</h4>
+    <p class="d">SubagentStop roster leave. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook subagent-stop</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook pre-compact</h4>
+    <p class="d">PreCompact persona re-injection. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook pre-compact</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook format-output</h4>
+    <p class="d">Output formatting. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook format-output</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook pre-tool-use</h4>
+    <p class="d">PreToolUse gate. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook pre-tool-use</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook audit-log</h4>
+    <p class="d">Audit logging. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook audit-log</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>hook commit-trailers</h4>
+    <p class="d">Mission/Delegation commit trailers. Hidden.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>ethos hook commit-trailers</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>punt<span class="meta">standards and automation · no MCP server · no daemon · no library</span></h2>
+  <div class="op">
+    <h4>init</h4>
+    <p class="d">Detect project type; generate missing files.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:init [project-path]</dd>
+      <dt>cli</dt><dd>punt init [PATH] [--language]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>audit</h4>
+    <p class="d">Standards compliance check.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:audit [project-path] [--fix]</dd>
+      <dt>cli</dt><dd>punt audit [PATH] [--fix]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>pii</h4>
+    <p class="d">Scan for personally identifiable information.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:pii [project-path] [--staged] [--config FILE]</dd>
+      <dt>cli</dt><dd>punt pii [PATH] [--staged] [--config]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>auto</h4>
+    <p class="d">Execute an automation playbook. Prompt-native; the command is the sole door to its engine skill.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:auto &lt;playbook&gt; [key=value ...] | list</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>reconcile</h4>
+    <p class="d">LLM-powered standards reconciliation. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:reconcile [project-path]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>bead-review</h4>
+    <p class="d">Full backlog audit. A skill; no launcher command.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>skill punt:bead-review</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>status</h4>
+    <p class="d">Project type, standards version, beads state.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>punt status [PATH]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable (guide + marker; bead pkit-pjwn).</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:punt enable | disable</dd>
+      <dt>cli</dt><dd>punt enable · punt disable</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of punt commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/punt:help</dd>
+      <dt>cli</dt><dd>punt --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>release</h4>
+    <p class="d">11-phase release pipeline.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>punt release [VERSION] [--dry-run] [--resume-from PHASE]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>seed</h4>
+    <p class="d">Render managed sections into Makefile / settings.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>punt seed &lt;makefile|settings&gt; [--dry-run]</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Installation health.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>punt doctor</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>version</h4>
+    <p class="d">Print the version.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>punt version</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>z-spec<span class="meta">formal specification · no daemon · no library</span></h2>
+  <div class="op">
+    <h4>check</h4>
+    <p class="d">Type-check a Z specification with fuzz.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:check [file.tex]</dd>
+      <dt>cli</dt><dd>z-spec check FILE</dd>
+      <dt>mcp</dt><dd>check(file*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>test</h4>
+    <p class="d">Full probcli suite; saves a report. Distinct from animate on every door.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:test [file.tex] [-v] [-s N]</dd>
+      <dt>cli</dt><dd>z-spec test FILE [--setsize 2] [--max-ops 1000] [--timeout 30000]</dd>
+      <dt>mcp</dt><dd>test(file*, setsize=2, max_ops=1000, timeout=30000)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>animate</h4>
+    <p class="d">Animate a specification with probcli.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec animate FILE [--steps 20] [--setsize 2]</dd>
+      <dt>mcp</dt><dd>animate(file*, steps=20, setsize=2)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>model-check</h4>
+    <p class="d">Model-check a specification with probcli.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec model-check FILE [--setsize 2] [--max-ops 1000] [--timeout 30000]</dd>
+      <dt>mcp</dt><dd>model_check(file*, setsize=2, max_ops=1000, timeout=30000)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>report</h4>
+    <p class="d">Load and display an existing report.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec report FILE</dd>
+      <dt>mcp</dt><dd>report(file*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>partition</h4>
+    <p class="d">Derive/persist TTF partition test cases.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:partition [spec.tex] [--code [language]] [--operation=NAME] [--json]</dd>
+      <dt>cli</dt><dd>z-spec partition FILE [--report -]</dd>
+      <dt>mcp</dt><dd>partition(file*, report_json*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>audit</h4>
+    <p class="d">Audit/persist test coverage against spec constraints.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:audit [spec.tex] [--json] [--test-dir=DIR]</dd>
+      <dt>cli</dt><dd>z-spec audit FILE [--report -]</dd>
+      <dt>mcp</dt><dd>audit(file*, report_json*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>show</h4>
+    <p class="d">Display a spec and its reports in lux.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec show FILE</dd>
+      <dt>mcp</dt><dd>show(file*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>browse</h4>
+    <p class="d">Open a spec collection in the tutorial browser.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec browse MANIFEST</dd>
+      <dt>mcp</dt><dd>browse(manifest*)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>pick</h4>
+    <p class="d">Discover a directory's specs; display a picker.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec pick [DIRECTORY]</dd>
+      <dt>mcp</dt><dd>pick(directory=&lt;root&gt;)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>code2model</h4>
+    <p class="d">Create a Z spec for stateful entities. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:code2model [focus area or description]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>model2code</h4>
+    <p class="d">Generate code from a Z spec. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:model2code [spec.tex] [language]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>elaborate</h4>
+    <p class="d">Elaborate a spec with design narrative. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:elaborate [spec file] [design doc]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>contracts</h4>
+    <p class="d">Generate runtime contracts. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:contracts [spec.tex] [language] [--invariants-only] [--wrap] [--strip]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>oracle</h4>
+    <p class="d">Property tests with a Lean 4 oracle. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:oracle [spec.tex] [language] [--sequences N] [--steps N]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>prove</h4>
+    <p class="d">Generate Lean 4 proof obligations. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:prove [spec.tex] [--obligations=all|init|preserve] [--no-mathlib]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>verify-refinement</h4>
+    <p class="d">Verify code refines the Z spec. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:verify-refinement [spec.tex] [language] [--lean] [--generate-abstraction] [--impl file]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>b-create</h4>
+    <p class="d">Create a B machine or translate a Z spec. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:b-create [description or file.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>b-check</h4>
+    <p class="d">Type-check a B machine. Prompt-native over probcli.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:b-check [machine.mch]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>b-animate</h4>
+    <p class="d">Animate and model-check a B machine. Prompt-native over probcli.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:b-animate [machine.mch] [-v] [-a N] [-s N]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>b-refine</h4>
+    <p class="d">Create or verify a B refinement machine. Prompt-native.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:b-refine [machine.mch] [refinement.ref]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>setup</h4>
+    <p class="d">Install/verify fuzz, probcli, Lean. Prompt-native over install.sh.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:setup [check | fuzz | probcli | lean | all]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>cleanup</h4>
+    <p class="d">Remove Z tooling files from a project — the deliberate purge.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:cleanup [docs-dir]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>doctor</h4>
+    <p class="d">Environment health: fuzz, probcli, LaTeX, Lean.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:doctor</dd>
+      <dt>cli</dt><dd>z-spec doctor</dd>
+      <dt>mcp</dt><dd>doctor()</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>enablement</h4>
+    <p class="d">Repo-level enable/disable; disabled files stay dormant.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:z-spec enable | disable</dd>
+      <dt>cli</dt><dd>z-spec enable [DIR] · disable [DIR]</dd>
+      <dt>mcp</dt><dd>enablement(action*: "enable"|"disable", directory=&lt;root&gt;)</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference — the org's /help template.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/z-spec:help</dd>
+      <dt>cli</dt><dd>z-spec --help</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>mcp</h4>
+    <p class="d">MCP server, stdio transport.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd class="none">—</dd>
+      <dt>cli</dt><dd>z-spec mcp</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <h2>prfaq<span class="meta">working backwards · entirely prompt-native: slash only, no CLI, no MCP, no daemon</span></h2>
+  <div class="op">
+    <h4>import</h4>
+    <p class="d">Import an existing document and launch the full workflow.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:import [path/to/document.md or pasted text]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>feedback</h4>
+    <p class="d">Incorporate feedback; redraft affected sections.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:feedback [feedback text or path/to/meeting-summary.md]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>research</h4>
+    <p class="d">Research evidence for claims; generate biblatex citations.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:research [claim, topic, or path/to/prfaq.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>streamline</h4>
+    <p class="d">Remove redundancy, weasel words, and bloat.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:streamline [section]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>review</h4>
+    <p class="d">Peer review for quality and decision readiness.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:review [path/to/prfaq.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>meeting</h4>
+    <p class="d">Simulated review meeting with agentic personas.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:meeting [path/to/prfaq.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>meeting-hive</h4>
+    <p class="d">Autonomous four-persona consensus meeting.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:meeting-hive [path/to/prfaq.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>meeting-listen</h4>
+    <p class="d">Voiced playback of a meeting summary.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:meeting-listen [path/to/meeting-summary.md]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>vote</h4>
+    <p class="d">Structured go/no-go decision; multiple paths compare a portfolio.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:vote [prfaq.tex ...]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>export</h4>
+    <p class="d">Export as .docx via pandoc.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:export [filename.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>externalize</h4>
+    <p class="d">External press release from PR/FAQ + CHANGELOG.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:externalize [version]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>badge</h4>
+    <p class="d">Stage-colored badge into the README.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:badge [path/to/prfaq.tex]</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>rate</h4>
+    <p class="d">Anonymous 1–5 plugin rating.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:rate</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <div class="op">
+    <h4>help</h4>
+    <p class="d">Quick reference of prfaq commands.</p>
+    <dl class="doors">
+      <dt>slash</dt><dd>/prfaq:help</dd>
+      <dt>cli</dt><dd class="none">—</dd>
+      <dt>mcp</dt><dd class="none">—</dd>
+      <dt>http</dt><dd class="none">—</dd>
+      <dt>client</dt><dd class="none">—</dd>
+    </dl>
+  </div>
+  <footer>Target state per the operator rulings of 2026-08-29/30 and punt-kit/standards (cli.md, tool-enable-disable.md). Surfaces enumerated from source per repo, 2026-08-30/09-01 (lux from main; vox source 5.0.4). MCP names flagged as R2 drift but not yet redesigned are shown with their current names; final renames land with each repo's epic. Companions: the command audit (decision ledger) and the Punt Labs Lexicon (public-facing).</footer>
+</div>
