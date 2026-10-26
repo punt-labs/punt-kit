@@ -1,5 +1,7 @@
 # Hook Standards
 
+**Updated:** 2026-10-26
+
 Standards for Claude Code hook implementation across all Punt Labs projects.
 Hooks integrate tools with Claude Code's lifecycle without containing
 business logic themselves.

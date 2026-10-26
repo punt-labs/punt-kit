@@ -1,6 +1,6 @@
 # Distribution Standards
 
-**Updated:** 2026-09-10
+**Updated:** 2026-10-26
 
 How each of a tool's surfaces is shipped and installed. For what the surfaces
 are — the engine-and-clients model — see
