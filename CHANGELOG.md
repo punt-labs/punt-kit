@@ -12,6 +12,22 @@ All notable changes to this project will be documented in this file.
   matrix, and per-product and per-harness audits. Codex support is deferred.
   A plan, not shipped integrations.
 
+### Changed
+
+- `standards/workflow.md`: consult the design decision log before **any**
+  design proposal, including an informal naming, UX, or architecture
+  suggestion to the operator. Look up ADRs by topic, read the matches, and
+  cite them; a proposal that cites none is returned. `patterns/design-decision-log.md`
+  carries the same rule.
+- `standards/workflow.md`: the no-mission exception for review fixes covers
+  mechanical fixes only. A fix that changes a design (new classes, moved
+  responsibilities, a ratchet regression) is a mission with an evaluator.
+- `standards/workflow.md`: each repo's `docs/WORKFLOW.md` keeps one standing
+  worker contract that every implementation mission carries verbatim. It
+  states the goal as design rather than metric targets, lists forbidden
+  operations, requires stopping on any ratchet regression, and requires saved
+  gate output as evidence. lux's `docs/WORKFLOW.md` is the reference.
+
 ## [0.17.6] - 2026-10-26
 
 ### Fixed
