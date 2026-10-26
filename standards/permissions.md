@@ -410,7 +410,12 @@ whole of this section.
 3. **The user asks for it.** The installer installs; it does not grant. Rules
    land when the user runs `<tool> enable` (or the plugin's own permissions
    command) inside a repo. Installing a plugin is not consent to edit files in
-   every repo on the machine.
+   every repo on the machine. `enable` grants every surface the tool ships, and
+   `disable` removes the same set: the CLI (`Bash(<cli>:*)`), the production
+   MCP server (`mcp__<server>__*`), and one `Skill(...)` rule per shipped
+   command. A tool with no CLI or no MCP server adds no rule for it, and no
+   `-dev` rule is ever granted — the dev plugin only exists in a maintainer's
+   checkout.
 
 4. **Least privilege.** Only allow operations the plugin performs
    autonomously. Risky, rare, or destructive operations stay at the prompt
