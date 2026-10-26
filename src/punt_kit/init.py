@@ -642,26 +642,31 @@ def build_standard_deny_rules() -> list[str]:
         "Bash(ncat:*)",
         "Bash(telnet:*)",
         "Bash(socat:*)",
-        # Commands that print environment variable values. Exact matches, so
-        # `env VAR=value cmd` and `compgen -e` (names only) keep working.
+        # Commands that print environment variable values. Every one is denied
+        # in both forms: the bare command (a prefix rule may not match the
+        # zero-argument form) and the prefix form (`env FOO=bar` with no
+        # command still dumps the environment). `env` is denied entirely, so
+        # set a variable for one command with `VAR=value command`.
+        # `export:*` stays allowed so assignments work; the exact `export` and
+        # `export -p` denies win over it.
         "Bash(env)",
-        "Bash(env --null)",
-        "Bash(env -0)",
+        "Bash(env:*)",
+        "Bash(printenv)",
         "Bash(printenv:*)",
         "Bash(set)",
-        "Bash(export -p)",
-        "Bash(declare -x)",
-        "Bash(declare -p)",
-        # Bare forms print every value. An exact deny wins over a prefix
-        # allow, so `Bash(export)` is refused even though `Bash(export:*)` is
-        # allowed; `export VAR=value` and `declare`/`typeset` with an
-        # assignment or other flags still match only the allow rule.
-        "Bash(printenv)",
         "Bash(export)",
+        "Bash(export -p)",
+        "Bash(export -p:*)",
         "Bash(declare)",
+        "Bash(declare -p)",
+        "Bash(declare -p:*)",
+        "Bash(declare -x)",
+        "Bash(declare -x:*)",
         "Bash(typeset)",
         "Bash(typeset -p)",
+        "Bash(typeset -p:*)",
         "Bash(typeset -x)",
+        "Bash(typeset -x:*)",
         # Secrets and environment
         "Edit(.env)",
         "Edit(.envrc)",

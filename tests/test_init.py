@@ -577,19 +577,23 @@ def test_deny_rules_guard_env_via_edit() -> None:
 
 ENV_DUMP_DENY_RULES = (
     "Bash(env)",
-    "Bash(env --null)",
-    "Bash(env -0)",
+    "Bash(env:*)",
+    "Bash(printenv)",
     "Bash(printenv:*)",
     "Bash(set)",
-    "Bash(export -p)",
-    "Bash(declare -x)",
-    "Bash(declare -p)",
-    "Bash(printenv)",
     "Bash(export)",
+    "Bash(export -p)",
+    "Bash(export -p:*)",
     "Bash(declare)",
+    "Bash(declare -p)",
+    "Bash(declare -p:*)",
+    "Bash(declare -x)",
+    "Bash(declare -x:*)",
     "Bash(typeset)",
     "Bash(typeset -p)",
+    "Bash(typeset -p:*)",
     "Bash(typeset -x)",
+    "Bash(typeset -x:*)",
 )
 
 
@@ -604,27 +608,41 @@ def test_init_scaffolds_deny_rule_for_env_dump(tmp_path: Path, rule: str) -> Non
     assert rule in data["permissions"]["deny"]
 
 
-def test_env_dump_deny_rules_leave_env_with_a_command_usable() -> None:
-    """`env VAR=value cmd` and `compgen -e` must not match a deny rule."""
+def test_env_is_denied_entirely_with_and_without_arguments() -> None:
+    """`env FOO=bar` with no command prints the environment, so `env:*` is denied."""
     from punt_kit.init import build_standard_deny_rules
 
     deny = build_standard_deny_rules()
-    assert "Bash(env:*)" not in deny
-    assert "Bash(compgen:*)" not in deny
-    assert "Bash(compgen -e)" not in deny
+    assert "Bash(env:*)" in deny
+
+
+def test_env_dump_deny_set_is_exactly_the_standard_set() -> None:
+    """The env-printing deny rules match the standard's 18, no more, no fewer."""
+    from punt_kit.init import build_standard_deny_rules
+
+    printing = {
+        r
+        for r in build_standard_deny_rules()
+        if r.split("(")[1].split()[0].rstrip(":*)")
+        in {"env", "printenv", "set", "export", "declare", "typeset"}
+    }
+    assert printing == set(ENV_DUMP_DENY_RULES)
+    assert len(ENV_DUMP_DENY_RULES) == 18
 
 
 def test_bare_export_is_denied_while_export_with_assignment_stays_allowed(
     tmp_path: Path,
 ) -> None:
-    """Exact `Bash(export)` deny beats the `Bash(export:*)` prefix allow."""
+    """`Bash(export:*)` stays allowed; the exact and `-p` forms are denied."""
     from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
     allow = build_standard_permissions(detect(tmp_path))
+    deny = build_standard_deny_rules()
 
     assert "Bash(export:*)" in allow
-    assert "Bash(export)" in build_standard_deny_rules()
+    assert "Bash(export:*)" not in deny
+    assert "Bash(export)" in deny
 
 
 def test_init_prunes_dead_rules_from_existing_settings(tmp_path: Path) -> None:

@@ -134,7 +134,9 @@ discovery paths above are used ONLY to locate the YAML playbook file. Never
 ## Environment
 
 All steps inherit the current shell environment. Steps can add variables via
-the `env` field. Parameter values are available as `${param_name}` in commands.
+the `env` field. When you run a step yourself, set them as `VAR=value command`,
+never `env VAR=value command`: the Bash tool denies every `env` form.
+Parameter values are available as `${param_name}` in commands.
 
 ## Principles
 
