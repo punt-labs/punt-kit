@@ -1,6 +1,6 @@
 # Distribution Standards
 
-**Updated:** 2026-09-10
+**Updated:** 2026-10-26
 
 How each of a tool's surfaces is shipped and installed. For what the surfaces
 are — the engine-and-clients model — see
@@ -661,8 +661,7 @@ handles all cleanup:
 |----------|-----------|---------------|
 | Plugin registration | `claude plugin install` | `claude plugin uninstall` |
 | Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
-| MCP tool permissions in `~/.claude/settings.json` | SessionStart hook | Project `uninstall` |
-| Non-MCP permissions in `~/.claude/settings.json` | Installer (permission step) | Project `uninstall` |
+| Permission rules in `<repo>/.claude/settings.json` | `<tool> enable` | `<tool> disable`, per repo |
 | User-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` | `<tool> install` | Project `uninstall` (or `disable --global`) — removed under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract; `~/.punt-labs/<tool>/` stays dormant unless the user purges it |
 | Status line wrapping | `install-statusline` | Project `uninstall` |
 | Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
