@@ -430,8 +430,11 @@ The SessionStart hook should:
    fi
    ```
 
-2. **Run any first-time setup** — npm install for Node.js MCP servers, statusline
-   installation, dependency verification.
+2. **Run any first-time setup** — npm install for Node.js MCP servers,
+   dependency verification. Not status-line installation: that writes
+   `statusLine` to `~/.claude/settings.json`, so it belongs to the explicit
+   `install-statusline` command (see
+   [stash-and-wrap](../patterns/stash-and-wrap.md)).
 
 3. **Notify Claude** — Output JSON with `hookSpecificOutput` describing what was
    set up. Silent on subsequent sessions when everything is already configured.
