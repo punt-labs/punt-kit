@@ -34,6 +34,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Standards: `<tool> enable` grants the tool's whole production surface.** `permissions.md` §6 and `tool-enable-disable.md` §2.8 now name the set `enable` adds to the repo's `.claude/settings.json` and `disable` removes: the CLI (`Bash(<cli>:*)`), the MCP server's tool wildcard (`mcp__plugin_<plugin>_<server>__*`, or `mcp__<server>__*` for a `claude mcp add` server), and one `Skill(...)` per shipped command. No rule for a surface the tool doesn't ship, and never a `-dev` rule.
+
 - `/punt:bead-review` and the `autopilot` playbook refuse to run in a
   Linear-migrated repo (one where `bd config get linear.pull_label` prints
   `repo:<repo>`) and redirect to Linear. Both write beads only; in a
@@ -282,6 +284,8 @@ All notable changes to this project will be documented in this file.
 - **`punt audit` reports accurately and never prints credentials.** An unreadable file becomes one FAIL finding naming it, and every other finding still prints (it used to crash and print none); `punt seed` names an unreadable Makefile and exits 1. A remote that is not a GitHub owner/repo, a missing `git`, git refusing the directory, and a failed `git remote get-url` each get their own message; credentials in the origin URL (userinfo, scp-style user, query string) are stripped before it is shown. The Dependabot and ruleset checks report a permissions or network error as `could not check: <reason>` rather than as a compliance failure, and only an active ruleset counts as branch protection (a disabled or evaluate-only ruleset fails, naming its state). README install-URL checks are case-insensitive, so an uppercase host or `INSTALL.SH` is no longer skipped.
 
 ### Changed
+
+- **Standards: `<tool> enable` grants the tool's whole production surface.** `permissions.md` §6 and `tool-enable-disable.md` §2.8 now name the set `enable` adds to the repo's `.claude/settings.json` and `disable` removes: the CLI (`Bash(<cli>:*)`), the MCP server's tool wildcard (`mcp__plugin_<plugin>_<server>__*`, or `mcp__<server>__*` for a `claude mcp add` server), and one `Skill(...)` per shipped command. No rule for a surface the tool doesn't ship, and never a `-dev` rule.
 
 - **Permission standards are repo-level only.** `permissions.md`, `plugins.md`, `hooks.md`, and `distribution.md` no longer tell installers or SessionStart hooks to write `~/.claude/settings.json`. Every rule, MCP tool wildcards included, goes in the repo's `.claude/settings.json` via `<tool> enable` and comes out via `<tool> disable`. The legacy global-cleanup section and the backup requirement are removed, and the reference permissions script refuses a malformed settings file instead of replacing it.
 - **`punt-kit` now depends on `markdown-it-py`** (CommonMark parsing of `CHANGELOG.md`).
