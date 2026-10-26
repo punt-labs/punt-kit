@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.17.6] - 2026-10-26
+
 ### Fixed
 
 - **`/punt:bead-review` really no longer appears twice.** The 0.17.5 attempt (`disable-model-invocation: true` on the skill) did not remove the duplicate — that flag governs whether Claude auto-invokes the skill, not slash-menu visibility. The actual cause is shipping both a `bead-review` command and a same-named `bead-review` skill; per the Claude Code skills docs, `user-invocable: false` on the skill hides it from the user slash menu, leaving the command as the single `/punt:bead-review`. The command reads the skill file directly, so behavior is unchanged.
