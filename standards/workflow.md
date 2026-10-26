@@ -548,10 +548,11 @@ the entry is part of what gets reviewed, never added retroactively on main.
   architecture suggestion the leader makes directly to the operator alike —
   not only before changing settled architecture. Look up by topic, not by
   number, across every decision log:
-  `grep -iE '^## [A-Z]+-[0-9]+.*<topic>' DESIGN*.md` (concern-specific
-  logs such as `DESIGN-INSTALLER.md` carry their own prefix). Read every
+  `grep -inE '^(## ([A-Z]+-)?[0-9]+|\*\*Topic:\*\*).*<topic>' DESIGN*.md` (concern-specific
+  logs such as `DESIGN-INSTALLER.md` carry their own prefix, and some, such as langlearn's, number entries
+  bare, `## 0001`; the pattern matches headings and `**Topic:**` fields). Read every
   matching entry in full; if the topic word finds nothing, scan the full
-  heading list (`grep -E '^## [A-Z]+-[0-9]+' DESIGN*.md`) before
+  heading list (`grep -nE '^## ([A-Z]+-)?[0-9]+' DESIGN*.md`) before
   concluding the log is silent. Cite the ADRs consulted in the proposal; a proposal on a topic the
   log covers that cites none has skipped the step and is returned. Do not
   revisit a settled decision without new evidence. See
@@ -782,12 +783,14 @@ mission contracts. Either way it must state:
 Reference block, to be carried verbatim (a repo may rename the make
 targets and ratchet files to its own):
 
-> **Goal.** Good SOLID object-oriented design, stated as responsibilities:
-> which object owns what, who depends on what. The ratchet numbers are
-> *signals* of that design, never targets. A change that moves a number
-> without improving responsibilities — a grab-bag class, a bundle of
-> collaborators handed out for callers to reach through, a second facade
-> forwarding to the first — is rejected even when the gate goes green.
+> **Goal.** Good design, stated as responsibilities: which unit (type,
+> module, or package) owns what, who depends on what. The language
+> standard (`standards/<lang>.md`) says what good design means in that
+> language. The ratchet numbers are *signals* of that design, never
+> targets. A change that moves a number without improving responsibilities
+> — a grab-bag unit, a bundle of collaborators handed out for callers to
+> reach through, a second facade forwarding to the first — is rejected even
+> when the gate goes green.
 >
 > **Forbidden.** Writing the ratchet baseline or audit files by any means
 > other than the repo's update targets (`make update-oo`,
