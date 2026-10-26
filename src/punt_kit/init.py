@@ -652,6 +652,16 @@ def build_standard_deny_rules() -> list[str]:
         "Bash(export -p)",
         "Bash(declare -x)",
         "Bash(declare -p)",
+        # Bare forms print every value. An exact deny wins over a prefix
+        # allow, so `Bash(export)` is refused even though `Bash(export:*)` is
+        # allowed; `export VAR=value` and `declare`/`typeset` with an
+        # assignment or other flags still match only the allow rule.
+        "Bash(printenv)",
+        "Bash(export)",
+        "Bash(declare)",
+        "Bash(typeset)",
+        "Bash(typeset -p)",
+        "Bash(typeset -x)",
         # Secrets and environment
         "Edit(.env)",
         "Edit(.envrc)",

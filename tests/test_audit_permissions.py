@@ -58,6 +58,12 @@ def test_standard_permissions_pass(tmp_path: Path) -> None:
         "Bash(export -p)",
         "Bash(declare -x)",
         "Bash(declare -p)",
+        "Bash(printenv)",
+        "Bash(export)",
+        "Bash(declare)",
+        "Bash(typeset)",
+        "Bash(typeset -p)",
+        "Bash(typeset -x)",
     ],
 )
 def test_a_missing_env_dump_deny_rule_fails(tmp_path: Path, rule: str) -> None:

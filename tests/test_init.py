@@ -584,6 +584,12 @@ ENV_DUMP_DENY_RULES = (
     "Bash(export -p)",
     "Bash(declare -x)",
     "Bash(declare -p)",
+    "Bash(printenv)",
+    "Bash(export)",
+    "Bash(declare)",
+    "Bash(typeset)",
+    "Bash(typeset -p)",
+    "Bash(typeset -x)",
 )
 
 
@@ -606,6 +612,19 @@ def test_env_dump_deny_rules_leave_env_with_a_command_usable() -> None:
     assert "Bash(env:*)" not in deny
     assert "Bash(compgen:*)" not in deny
     assert "Bash(compgen -e)" not in deny
+
+
+def test_bare_export_is_denied_while_export_with_assignment_stays_allowed(
+    tmp_path: Path,
+) -> None:
+    """Exact `Bash(export)` deny beats the `Bash(export:*)` prefix allow."""
+    from punt_kit.init import build_standard_deny_rules, build_standard_permissions
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    allow = build_standard_permissions(detect(tmp_path))
+
+    assert "Bash(export:*)" in allow
+    assert "Bash(export)" in build_standard_deny_rules()
 
 
 def test_init_prunes_dead_rules_from_existing_settings(tmp_path: Path) -> None:
