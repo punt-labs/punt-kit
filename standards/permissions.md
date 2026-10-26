@@ -396,20 +396,19 @@ whole of this section.
 
 ### Principles
 
-1. **Project scope, never global.** Non-MCP rules go in the project's
-   `.claude/settings.json`. A plugin has no business granting itself standing
+1. **Repo scope, never global.** Every rule — Bash, `Edit`, web, and MCP tool
+   wildcards alike — goes in the repo's `.claude/settings.json`. No Punt Labs
+   tool, installer, or hook writes permission rules to
+   `~/.claude/settings.json`. A plugin has no business granting itself standing
    permission in projects the user never pointed it at.
 
-2. **MCP tool wildcards are the sole global exception.** An MCP server is
-   process-global and its tool names are namespaced to the plugin
-   (`mcp__plugin_<name>_<server>__*`), so a global allow entry grants nothing
-   outside the plugin's own tools. The SessionStart hook handles these — see
-   [plugins.md](plugins.md).
+2. **No hook writes settings.** The SessionStart hook deploys commands; it
+   never edits a settings file — see [plugins.md](plugins.md).
 
 3. **The user asks for it.** The installer installs; it does not grant. Rules
-   land when the user runs the plugin's own permissions command inside a
-   project. Installing a plugin is not consent to edit files in every repo on
-   the machine.
+   land when the user runs `<tool> enable` (or the plugin's own permissions
+   command) inside a repo. Installing a plugin is not consent to edit files in
+   every repo on the machine.
 
 4. **Least privilege.** Only allow operations the plugin performs
    autonomously. Risky, rare, or destructive operations stay at the prompt
@@ -428,9 +427,9 @@ whole of this section.
 
 8. **Order preservation.** New rules append; existing order is preserved.
 
-9. **Reversible.** Every rule the plugin adds must be removable by the plugin,
-   and the file must be backed up before it changes — including rules earlier
-   versions added to places the plugin no longer writes.
+9. **Reversible.** Every rule the plugin adds must be removable by the plugin
+   (`<tool> disable`, or the permissions command's `--remove`). The file is
+   version-controlled, so the write is atomic rather than backed up.
 
 Precedent: prfaq shipped installer-injected global rules in v1.5.0 and carried
 them to v1.6.1. The result was a plugin holding standing permission to edit
@@ -462,7 +461,7 @@ edit form and it already covers the Write tool.
 | `Bash(rm *)` | File deletion — users approve every delete |
 | Broad `Edit(*)` | Patterns that match files outside the plugin's domain |
 | `Write(anything)` | Not a working form — use `Edit(...)` |
-| Anything in `~/.claude/settings.json` except MCP wildcards | Applies in every project the user opens |
+| Anything in `~/.claude/settings.json` | Applies in every project the user opens |
 | Bash with side effects | Package installs, process management, system config |
 
 ### Pattern specificity
@@ -485,9 +484,9 @@ edit form and it already covers the Write tool.
 The plugin ships one script, invoked by one command
 (`/<plugin>:permissions`), operating on one file:
 `<project>/.claude/settings.json`. It supports `--add`, `--check`, and
-`--remove`, refuses to write when the target resolves to `$HOME`, backs up
-before changing anything, and exits without touching the file when there is
-nothing to do.
+`--remove`, refuses to write when the target resolves to `$HOME`, refuses to
+touch a file that is not valid JSON, and exits without touching the file when
+there is nothing to do.
 
 **Note on Bash rule syntax.** Project-level settings (section 3) use
 per-command patterns like `Bash(make:*)` — broad within one tool, but naming
@@ -523,8 +522,8 @@ if command -v jq >/dev/null 2>&1; then
     mkdir -p "$(dirname "$SETTINGS_FILE")"
     printf '{}' > "$SETTINGS_FILE"
   elif ! jq -e . "$SETTINGS_FILE" >/dev/null 2>&1; then
-    cp "$SETTINGS_FILE" "${SETTINGS_FILE}.bak" 2>/dev/null || true
-    printf '{}' > "$SETTINGS_FILE"
+    echo "$SETTINGS_FILE is not valid JSON; fix it and re-run." >&2
+    exit 1
   fi
 
   # Count new rules, then merge (order-preserving, idempotent)
@@ -548,32 +547,6 @@ else
   printf '%s\n' "$PLUGIN_RULES"
 fi
 ```
-
-### Legacy global cleanup
-
-An installer that previously injected non-MCP rules into
-`~/.claude/settings.json` is responsible for removing them on upgrade. The
-list of rules to remove is frozen historical data — every rule the plugin ever
-wrote globally — and is never added to.
-
-```sh
-LEGACY_GLOBAL_RULES='[ ... ]'
-
-FOUND=$(jq -r --argjson legacy "$LEGACY_GLOBAL_RULES" '
-  [(.permissions.allow // [])[] | select(. as $r | $legacy | index($r))] | length
-' "$SETTINGS_FILE")
-
-if [ "$FOUND" -gt 0 ]; then
-  cp "$SETTINGS_FILE" "${SETTINGS_FILE}.backup.$(date +%Y%m%d%H%M%S)"
-  jq --argjson legacy "$LEGACY_GLOBAL_RULES" '
-    .permissions.allow = [(.permissions.allow // [])[] | select(. as $r | $legacy | index($r) | not)]
-  ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp" && mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
-fi
-```
-
-Print every rule removed. Cleanup cannot distinguish a rule the plugin
-injected from an identical rule the user wrote by hand, so the backup and the
-printed list are what make the operation safe.
 
 ### Uninstall cleanup
 

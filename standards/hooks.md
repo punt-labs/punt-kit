@@ -363,9 +363,11 @@ exact value-match — follow
 Setup hook that runs on every session start. Must:
 
 1. Deploy top-level commands (diff-and-copy, not skip-if-exists)
-2. Auto-allow MCP tool permissions in `~/.claude/settings.json`
-3. Run any first-time setup
-4. Emit `hookSpecificOutput` with `additionalContext`
+2. Run any first-time setup
+3. Emit `hookSpecificOutput` with `additionalContext`
+
+It never edits a settings file: permission rules come from `<tool> enable`
+([permissions.md § 6](permissions.md#6-plugin-distributed-permissions)).
 
 ### PostToolUse (output suppression)
 

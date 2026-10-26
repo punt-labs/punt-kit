@@ -29,6 +29,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Permission standards are repo-level only.** `permissions.md`, `plugins.md`, `hooks.md`, and `distribution.md` no longer tell installers or SessionStart hooks to write `~/.claude/settings.json`. Every rule, MCP tool wildcards included, goes in the repo's `.claude/settings.json` via `<tool> enable` and comes out via `<tool> disable`. The legacy global-cleanup section and the backup requirement are removed, and the reference permissions script refuses a malformed settings file instead of replacing it.
 - **`punt-kit` now depends on `markdown-it-py`** (CommonMark parsing of `CHANGELOG.md`).
 
 ## [0.17.5] - 2026-09-20

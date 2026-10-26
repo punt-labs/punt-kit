@@ -430,21 +430,17 @@ The SessionStart hook should:
    fi
    ```
 
-2. **Auto-allow MCP tool permissions** — Add the plugin's tool pattern (e.g.,
-   `mcp__plugin_biff_tty__*`) to `permissions.allow` in
-   `~/.claude/settings.json` via jq. Without this, users get permission prompts
-   on every tool call.
-
-3. **Run any first-time setup** — npm install for Node.js MCP servers, statusline
+2. **Run any first-time setup** — npm install for Node.js MCP servers, statusline
    installation, dependency verification.
 
-4. **Notify Claude** — Output JSON with `hookSpecificOutput` describing what was
+3. **Notify Claude** — Output JSON with `hookSpecificOutput` describing what was
    set up. Silent on subsequent sessions when everything is already configured.
 
 Repo-scoped guidance and config (`.punt-labs/<tool>/`, the `@`-import line,
 repo `.claude/settings.json` entries) are deposited by `<tool> enable` — not
 by the SessionStart hook, which stays responsible for command deployment and
-MCP permission wildcards. See
+never edits a settings file. Permission rules, MCP tool wildcards included,
+come from `<tool> enable` ([permissions.md § 6](permissions.md#6-plugin-distributed-permissions)). See
 [tool-enable-disable.md](tool-enable-disable.md).
 
 Pattern: `biff/hooks/session-start.sh`, `dungeon/hooks/session-start.sh`,
@@ -562,33 +558,30 @@ __pycache__/
 
 ---
 
-## Plugin Installer Permissions
+## Plugin Permissions
 
-The SessionStart hook handles MCP tool wildcards (section above). Plugins that
-use Bash commands, file writes/edits, or web access in their commands and
-skills need additional permissions injected by the **installer** (not the
-SessionStart hook — the installer runs once with user attention, making it the
-right place for explicit permission setup).
+Neither the installer nor the SessionStart hook writes permission rules. Every
+rule a plugin needs — MCP tool wildcards, Bash, `Edit`, web access — is added
+to the repo's `.claude/settings.json` by `<tool> enable` and removed by
+`<tool> disable`, following
+[permissions.md § 6](permissions.md#6-plugin-distributed-permissions).
 
 ### Requirements
 
-1. **Every installer must include a permission injection step.** Define the
-   plugin's permission rules as a JSON array and merge them into
-   `~/.claude/settings.json` using the order-preserving `jq` pattern from
-   [permissions.md § 6](permissions.md#6-plugin-distributed-permissions).
+1. **Repo scope only.** Never write `~/.claude/settings.json`.
 
-2. **Every uninstaller must remove injected permissions.** Use the same JSON
-   array to selectively remove only the plugin's rules.
+2. **`disable` removes exactly what `enable` added.** Recompute the same rule
+   set and remove those exact values.
 
 3. **Rules must be pattern-specific.** Include the plugin name or a
-   domain-specific identifier in every Write/Edit pattern. See
+   domain-specific identifier in every `Edit` pattern. See
    [permissions.md § 6](permissions.md#6-plugin-distributed-permissions) for
    examples.
 
 4. **Dangerous operations stay at the prompt tier.** Never auto-allow `curl`,
    `rm`, broad file patterns, or commands with side effects.
 
-Pattern: `prfaq/install.sh` (Step 5: Configure permissions).
+Pattern: `quarry/src/quarry/claude_permissions.py`.
 
 ---
 
