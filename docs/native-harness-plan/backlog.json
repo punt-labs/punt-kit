@@ -1230,7 +1230,7 @@
       "title": "Neutral marker/guidance plus explicit selected harness registration/install/remove",
       "scope": "Neutral marker/guidance plus explicit selected harness registration/install/remove",
       "acceptance": [
-        "Enabling pi alone leaves other harness registrations unchanged; failures cannot leave marker-on/half-configured state."
+        "Enabling one selected harness alone leaves other harness registrations unchanged; failures cannot leave marker-on/half-configured state."
       ],
       "depends_on": [
         "KIT-STD"
@@ -3326,7 +3326,7 @@
       "title": "Complete JSON/error/progress/abort runner and atomic run artifacts",
       "scope": "Complete JSON/error/progress/abort runner and atomic run artifacts; existing command layer.",
       "acceptance": [
-        "CLI/MCP/native adapters return the same outcome; timeout/cancel kill children and never publish success; concurrent artifacts stay distinct."
+        "CLI/MCP return the same outcome; timeout/cancel kill children and never publish success; concurrent artifacts stay distinct. Native adapters prove the same outcome in each host's own adapter outcome."
       ],
       "depends_on": [
         "KIT-STD"
@@ -3396,7 +3396,7 @@
       "title": "Reuse 77g deterministic B services and thin workflow invocations",
       "scope": "Reuse 77g deterministic B services and thin workflow invocations; execution contract.",
       "acceptance": [
-        "B check/animate behave identically across CLI/MCP and two active adapters with actual solver fixtures."
+        "B check/animate behave identically across CLI/MCP with actual solver fixtures, preserving Claude regression; native parity is certified in each host's own adapter outcome."
       ],
       "depends_on": [
         "ZSPEC-EXECUTION",
