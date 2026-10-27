@@ -277,7 +277,9 @@ answered(f)  = one path per source, never both:
                  attribution_status is closed (implemented, dismissed,
                  outdated); close it with `qodo pr-review-session
                  mark-implemented` or `dismiss` plus the reason and
-                 file:line. A ledger line does not close it.
+                 file:line. A ledger line does not close it. After a
+                 force-push or rebase, a mark-implemented finding whose
+                 fix left the branch history is reopened: unanswered.
                - any other finding — Bugbot, a security automation, Copilot,
                  a human, the local outage fallback: fixed by a commit on
                  the PR head, or a ledger comment gives the reason and

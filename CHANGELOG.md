@@ -62,6 +62,8 @@ All notable changes to this project will be documented in this file.
     only after that review completed on the head.
   - `reviewed_head` is the commit a Qodo review or the fallback ran on, not
     the head when it completed, and it never moves backward.
+  - After a force-push or rebase, a Qodo finding closed with
+    `mark-implemented` whose fix left the branch history is reopened.
   - The leader posts "demo confirmed" once the demo passes on the head, and
     waits for the operator only on user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**

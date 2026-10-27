@@ -454,8 +454,11 @@ function poll_tick(pr):
             fix it now, or answer it by its source's path (answered(f))
             # handled now, never on a later tick; never re-litigated; no
             # deferral beads. A Qodo finding closes through the Qodo CLI;
-            # any other finding by a landed commit or a ledger comment with
-            # the exact finding, the specific reason, and the code reference
+            # after a force-push or rebase, a mark-implemented one whose
+            # fix left the branch history is reopened: unanswered. Any
+            # other finding closes by a landed commit or a ledger comment
+            # with the exact finding, the specific reason, and the code
+            # reference
     for each escalation the operator has ruled on:
         apply the ruling; record it in a ledger comment
     if fixes were made: delegate them to a bare agent; make check; commit
