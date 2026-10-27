@@ -1,0 +1,701 @@
+%
+% A Z model of the PR review state in standards/pr-review.md: the review
+% markers (reviewed_head, delta_head), the Qodo and Bugbot rounds, Bugbot
+% runs and rulings, findings and answered(f), escalations, and merge_gate.
+%
+% Type-check:  fuzz -t standards/pr-review-model.tex
+% Model-check: probcli standards/pr-review-model.tex -model_check \
+%                -card COMMIT 3 -card FINDING 2 -card RUN 2 \
+%                -p MAX_INITIALISATIONS 1 -p SYMMETRY_MODE hash
+%   (1.77M states, about 8 minutes). Without symmetry, a precise run:
+%   -card COMMIT 3 -card FINDING 1 -card RUN 1 -p MAX_INITIALISATIONS 10
+% probcli writes pr-review-model.fuzz beside the file; do not commit it.
+%
+% A review event raises at most one finding (#new? <= 1); two findings
+% raised at once behave as two events in sequence.
+%
+% The demo gate (demo_ok), Copilot, CI, and bot-authored (skipped) PRs are
+% out of scope: each is a conjunct of merge_gate that no other term reads.
+%
+\documentclass{article}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{A Formal Model of the PR Review State (\texttt{pr-review.md})}
+\author{Punt Labs}
+\maketitle
+
+\section{Purpose and scope}
+
+Eight empirical fix rounds on the review-state rules each surfaced the next
+defect. This model replaces those rounds: it states the state the leader reads
+from GitHub, the events that change it, and the guard $merge\_gate$ puts on
+$Merge$. ProB checks that no reachable state merges an unreviewed head, an
+unanswered finding, or a live un-ruled Bugbot run, and that every non-merged
+state can still move.
+
+Time is abstract. ``30 minutes have passed'' is the event $Timeout$; the model
+checker explores it firing at every point. A fix push is a $Push$ plus an
+$AnswerFinding$; the model lets them happen in either order, a superset of the
+leader's behaviour.
+
+\section{Given sets and enumerations}
+
+Commits, findings, and Bugbot check runs are opaque identities.
+
+\begin{zed}
+  [COMMIT, FINDING, RUN]
+\end{zed}
+
+\begin{zed}
+  Flag ::= yes | no
+\end{zed}
+
+A Bugbot run is live (queued or in progress) or done. A done run either
+finished its review ($doneOk$: success or neutral) or reviewed nothing
+($doneFail$: failure, timeout, cancelled).
+
+\begin{zed}
+  RunStatus ::= live | doneOk | doneFail
+\end{zed}
+
+\begin{zed}
+  ROUND == 1 \upto 3
+\end{zed}
+
+\section{State}
+
+\textbf{Commits.} $anc$ is ancestry, reflexive: $a \mapsto b \in anc$ when $a$
+is $b$ or an ancestor of $b$. A push extends it; a rebase starts a fresh
+history, so the old commits are no longer ancestors of the head. $used$ keeps
+commit identities from being reused.
+
+\begin{schema}{Commits}
+  head : COMMIT \\
+  used : \power COMMIT \\
+  anc : COMMIT \rel COMMIT
+\where
+  head \in used \\
+  head \mapsto head \in anc \\
+  \dom anc \subseteq used \\
+  \ran anc \subseteq used
+\end{schema}
+
+\textbf{Review markers.} $reviewedHead$ and $deltaHead$ are optional commits,
+sets of size 0 or 1. $deltaRun$ is the head a local delta review was started
+on and has not yet completed; $deltaRange$ the commits it covers; $deltaF$ the
+findings the last completed delta review raised. $seen$ and $overlap$ are
+ghost variables, not read by any guard: $seen$ is every commit a completed
+review actually covered, and $overlap$ records that a delta review re-covered a
+commit already seen.
+
+\begin{schema}{Review}
+  reviewedHead, deltaHead, deltaRun : \power COMMIT \\
+  deltaRange, seen : \power COMMIT \\
+  deltaF : \power FINDING \\
+  overlap : Flag \\
+  round : ROUND \\
+  qodoDone : \power ROUND
+\where
+  \# reviewedHead \leq 1 \\
+  \# deltaHead \leq 1 \\
+  \# deltaRun \leq 1
+\end{schema}
+
+\textbf{Bugbot.} $runs$ gives each run its status, $runRound$ the round whose
+trigger started it. $stuck$ marks runs live for over 60 minutes; $proceed$
+marks runs the operator ruled ``proceed''. $retried$ is the rounds whose
+leader posted a ``bugbot run'' re-run comment; $timedOut$ is the rounds whose
+30-minute fallback window has elapsed since the trigger or the re-run comment.
+
+\begin{schema}{Bugbot}
+  runs : RUN \pfun RunStatus \\
+  runRound : RUN \pfun ROUND \\
+  stuck, proceed : \power RUN \\
+  retried, timedOut : \power ROUND
+\where
+  \dom runRound = \dom runs \\
+  stuck \subseteq \dom runs \\
+  proceed \subseteq stuck
+\end{schema}
+
+\textbf{Findings and escalations.} $escRun$ and $escF$ name what the one open
+escalation is about.
+
+\begin{schema}{Issues}
+  findings, answered, escF : \power FINDING \\
+  escRun : \power RUN \\
+  escalOpen : Flag
+\where
+  answered \subseteq findings \\
+  escF \subseteq findings \setminus answered \\
+  escalOpen = no \implies escRun = \emptyset \land escF = \emptyset
+\end{schema}
+
+\begin{schema}{Gate}
+  merged : Flag
+\end{schema}
+
+\begin{schema}{State}
+  Commits \\
+  Review \\
+  Bugbot \\
+  Issues \\
+  Gate
+\end{schema}
+
+\textbf{The invariant.} Every reachable state must satisfy these; ProB checks
+them in every state it visits. They live in $Invariant$, not in $State$: a
+predicate of $State$ is part of every $\Delta State$, so it would silently
+disable a violating operation instead of reporting it.
+(I1) A merge never leaves an unreviewed head, an unanswered finding, or a live
+un-ruled run.
+(I2) Every reviewed marker was actually covered by a completed review.
+(I3) No delta review re-covers a commit an earlier review already covered.
+(I4) A merge on the Bugbot fallback never skips the re-run of a failed run.
+
+\begin{schema}{Invariant}
+  State
+\where
+  merged = yes \implies \\
+  \quad~ ( head \in seen \land findings \subseteq answered \land \\
+  \quad~\quad~ ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) ) \\
+  reviewedHead \subseteq seen \\
+  overlap = no \\
+  merged = yes \implies \\
+  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
+  \quad~\quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  \quad~\quad~\quad~ \implies round \in retried ) )
+\end{schema}
+
+\section{Derived terms}
+
+These are the terms of \texttt{pr-review.md}, stated over $State$.
+
+$bugbot\_open$: a live run with no ``proceed'' ruling.
+
+\begin{schema}{BugbotOpen}
+  State
+\where
+  \exists r : \dom runs @ runs~r = live \land r \notin proceed
+\end{schema}
+
+$bugbot\_in(N)$: a run of round $N$ finished its review; or the fallback
+window elapsed, no run is open, and every failed run of round $N$ has had its
+re-run requested. The last clause is the fix for defect (2).
+
+\begin{schema}{BugbotIn}
+  State
+\where
+  ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
+  ( round \in timedOut \land \\
+  \quad~ ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \land \\
+  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  \quad~\quad~ \implies round \in retried ) )
+\end{schema}
+
+$\lnot pending$: Qodo and Bugbot are both in for the current round.
+
+\begin{schema}{NotPending}
+  BugbotIn
+\where
+  round \in qodoDone
+\end{schema}
+
+\section{Initial state}
+
+The PR opens on some commit; round 1; nothing reviewed, no run, no finding.
+
+\begin{schema}{Init}
+  State'
+\where
+  used' = \{ head' \} \\
+  anc' = \{ head' \mapsto head' \} \\
+  reviewedHead' = \emptyset \\
+  deltaHead' = \emptyset \\
+  deltaRun' = \emptyset \\
+  deltaRange' = \emptyset \\
+  seen' = \emptyset \\
+  deltaF' = \emptyset \\
+  overlap' = no \\
+  round' = 1 \\
+  qodoDone' = \emptyset \\
+  runs' = \emptyset \\
+  runRound' = \emptyset \\
+  stuck' = \emptyset \\
+  proceed' = \emptyset \\
+  retried' = \emptyset \\
+  timedOut' = \emptyset \\
+  findings' = \emptyset \\
+  answered' = \emptyset \\
+  escF' = \emptyset \\
+  escRun' = \emptyset \\
+  escalOpen' = no \\
+  merged' = no
+\end{schema}
+
+\section{Branch operations}
+
+$Push$ adds a commit on top of the head.
+
+\begin{schema}{Push}
+  \Delta State \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Issues \\
+  \Xi Gate \\
+  c? : COMMIT
+\where
+  merged = no \\
+  c? \notin used \\
+  head' = c? \\
+  used' = used \cup \{ c? \} \\
+  anc' = anc \cup ( \{ a : COMMIT | a \mapsto head \in anc \} \cross \{ c? \} ) \cup \{ c? \mapsto c? \}
+\end{schema}
+
+$Rebase$ replaces the history: the new head has no old ancestor, so neither
+marker is an ancestor of it.
+
+\begin{schema}{Rebase}
+  \Delta State \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Issues \\
+  \Xi Gate \\
+  c? : COMMIT
+\where
+  merged = no \\
+  c? \notin used \\
+  head' = c? \\
+  used' = used \cup \{ c? \} \\
+  anc' = anc \cup \{ c? \mapsto c? \}
+\end{schema}
+
+\section{Qodo}
+
+Qodo's review for the current round completes on the head. It covers the
+whole PR, sets $reviewedHead$ to the head, and may raise findings.
+
+\begin{schema}{QodoCompletes}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Bugbot \\
+  \Xi Gate \\
+  new? : \power FINDING
+\where
+  merged = no \\
+  round \notin qodoDone \\
+  new? \cap findings = \emptyset \\
+  \# new? \leq 1 \\
+  qodoDone' = qodoDone \cup \{ round \} \\
+  reviewedHead' = \{ head \} \\
+  seen' = seen \cup \{ a : COMMIT | a \mapsto head \in anc \} \\
+  findings' = findings \cup new? \\
+  deltaHead' = deltaHead \\
+  deltaRun' = deltaRun \\
+  deltaRange' = deltaRange \\
+  deltaF' = deltaF \\
+  overlap' = overlap \\
+  round' = round \\
+  answered' = answered \\
+  escF' = escF \\
+  escRun' = escRun \\
+  escalOpen' = escalOpen
+\end{schema}
+
+\section{Bugbot}
+
+A run starts, for the current round.
+
+\begin{schema}{BugbotStart}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Issues \\
+  \Xi Gate \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \notin \dom runs \\
+  runs' = runs \cup \{ r? \mapsto live \} \\
+  runRound' = runRound \cup \{ r? \mapsto round \} \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  retried' = retried \\
+  timedOut' = timedOut
+\end{schema}
+
+A live run ends. A finished review may raise findings.
+
+\begin{schema}{BugbotEnd}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Gate \\
+  r? : RUN \\
+  s? : RunStatus \\
+  new? : \power FINDING
+\where
+  merged = no \\
+  r? \in \dom runs \\
+  runs~r? = live \\
+  s? \in \{ doneOk, doneFail \} \\
+  ( s? = doneFail \implies new? = \emptyset ) \\
+  new? \cap findings = \emptyset \\
+  \# new? \leq 1 \\
+  runs' = runs \oplus \{ r? \mapsto s? \} \\
+  findings' = findings \cup new? \\
+  runRound' = runRound \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  answered' = answered \\
+  escF' = escF \\
+  escRun' = escRun \\
+  escalOpen' = escalOpen
+\end{schema}
+
+A live run passes 60 minutes.
+
+\begin{schema}{BugbotStuck}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Issues \\
+  \Xi Gate \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \in \dom runs \\
+  runs~r? = live \\
+  r? \notin stuck \\
+  stuck' = stuck \cup \{ r? \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  proceed' = proceed \\
+  retried' = retried \\
+  timedOut' = timedOut
+\end{schema}
+
+The 30-minute fallback window for the current round elapses.
+
+\begin{schema}{Timeout}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Issues \\
+  \Xi Gate
+\where
+  merged = no \\
+  round \notin timedOut \\
+  timedOut' = timedOut \cup \{ round \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  retried' = retried
+\end{schema}
+
+The leader comments ``bugbot run'' once per round when a run of that round
+reviewed nothing. The guard does not read $bugbot\_in$: the fallback may
+already have elapsed (fix for defect (2)). The comment restarts the fallback
+window.
+
+\begin{schema}{RequestRetry}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Issues \\
+  \Xi Gate
+\where
+  merged = no \\
+  ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  round \notin retried \\
+  retried' = retried \cup \{ round \} \\
+  timedOut' = timedOut \setminus \{ round \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  stuck' = stuck \\
+  proceed' = proceed
+\end{schema}
+
+\section{Escalations and rulings}
+
+The leader escalates a stuck run, once per run, while no escalation is open.
+
+\begin{schema}{EscalateStuck}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Gate \\
+  r? : RUN
+\where
+  merged = no \\
+  escalOpen = no \\
+  r? \in stuck \\
+  runs~r? = live \\
+  r? \notin proceed \\
+  escalOpen' = yes \\
+  escRun' = \{ r? \} \\
+  escF' = \emptyset \\
+  findings' = findings \\
+  answered' = answered
+\end{schema}
+
+The operator rules ``proceed'': the run no longer holds the gate.
+
+\begin{schema}{OperatorProceed}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Gate
+\where
+  merged = no \\
+  escalOpen = yes \\
+  escRun \neq \emptyset \\
+  proceed' = proceed \cup escRun \\
+  escalOpen' = no \\
+  escRun' = \emptyset \\
+  escF' = escF \\
+  findings' = findings \\
+  answered' = answered \\
+  runs' = runs \\
+  runRound' = runRound \\
+  stuck' = stuck \\
+  retried' = retried \\
+  timedOut' = timedOut
+\end{schema}
+
+The operator rules ``wait'': the run holds the gate until it ends.
+
+\begin{schema}{OperatorWait}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Gate
+\where
+  merged = no \\
+  escalOpen = yes \\
+  escRun \neq \emptyset \\
+  escalOpen' = no \\
+  escRun' = \emptyset \\
+  escF' = escF \\
+  findings' = findings \\
+  answered' = answered
+\end{schema}
+
+In round 2 the leader escalates a new High instead of answering it.
+
+\begin{schema}{EscalateFinding}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Gate \\
+  f? : FINDING
+\where
+  merged = no \\
+  escalOpen = no \\
+  round = 2 \\
+  f? \in findings \setminus answered \\
+  escalOpen' = yes \\
+  escF' = \{ f? \} \\
+  escRun' = \emptyset \\
+  findings' = findings \\
+  answered' = answered
+\end{schema}
+
+The operator rules on the escalated finding; the leader applies the ruling,
+which answers it.
+
+\begin{schema}{OperatorRule}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Gate
+\where
+  merged = no \\
+  escalOpen = yes \\
+  escF \neq \emptyset \\
+  answered' = answered \cup escF \\
+  escalOpen' = no \\
+  escF' = \emptyset \\
+  escRun' = \emptyset \\
+  findings' = findings
+\end{schema}
+
+\section{Findings}
+
+The leader answers a finding by its source's path: a fix, a ledger line, or a
+Qodo CLI close.
+
+\begin{schema}{AnswerFinding}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Gate \\
+  f? : FINDING
+\where
+  merged = no \\
+  f? \in findings \setminus answered \\
+  f? \notin escF \\
+  answered' = answered \cup \{ f? \} \\
+  findings' = findings \\
+  escF' = escF \\
+  escRun' = escRun \\
+  escalOpen' = escalOpen
+\end{schema}
+
+\section{Rounds}
+
+Round 1 is in and a High was fixed: the leader opens round 2, the last.
+
+\begin{schema}{OpenRound2}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Bugbot \\
+  \Xi Issues \\
+  \Xi Gate
+\where
+  merged = no \\
+  NotPending \\
+  round = 1 \\
+  round' = 2 \\
+  reviewedHead' = reviewedHead \\
+  deltaHead' = deltaHead \\
+  deltaRun' = deltaRun \\
+  deltaRange' = deltaRange \\
+  deltaF' = deltaF \\
+  seen' = seen \\
+  overlap' = overlap \\
+  qodoDone' = qodoDone
+\end{schema}
+
+\section{The local delta review}
+
+The delta review starts when nothing is pending and the head is covered by
+neither marker. The guard does not ask whether the head is ``newer'' than a
+marker: an unset $deltaHead$ (fix for defect (1)) and a marker a rebase
+orphaned (fix for defect (4)) both leave the head uncovered. The range starts
+at every marker that is an ancestor of the head --- $deltaHead$ as well as
+$reviewedHead$ (fix for defect (3)) --- and is the whole diff when neither is.
+
+\begin{schema}{DeltaReviewStart}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Bugbot \\
+  \Xi Issues \\
+  \Xi Gate
+\where
+  merged = no \\
+  NotPending \\
+  deltaRun = \emptyset \\
+  head \notin reviewedHead \cup deltaHead \\
+  deltaRun' = \{ head \} \\
+  deltaRange' = \{ a : COMMIT | a \mapsto head \in anc \} \setminus \\
+  \quad~ \{ a : COMMIT | ( \exists m : reviewedHead \cup deltaHead @ \\
+  \quad~\quad~ m \mapsto head \in anc \land a \mapsto m \in anc ) \} \\
+  ( deltaRange' \cap seen = \emptyset \implies overlap' = overlap ) \\
+  ( deltaRange' \cap seen \neq \emptyset \implies overlap' = yes ) \\
+  reviewedHead' = reviewedHead \\
+  deltaHead' = deltaHead \\
+  deltaF' = deltaF \\
+  seen' = seen \\
+  round' = round \\
+  qodoDone' = qodoDone
+\end{schema}
+
+The delta review completes. Only now is $deltaHead$ set; its findings are
+findings like any other.
+
+\begin{schema}{DeltaReviewCompletes}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Bugbot \\
+  \Xi Gate \\
+  new? : \power FINDING
+\where
+  merged = no \\
+  deltaRun \neq \emptyset \\
+  new? \cap findings = \emptyset \\
+  \# new? \leq 1 \\
+  deltaHead' = deltaRun \\
+  deltaRun' = \emptyset \\
+  seen' = seen \cup deltaRange \\
+  deltaRange' = \emptyset \\
+  deltaF' = new? \\
+  findings' = findings \cup new? \\
+  reviewedHead' = reviewedHead \\
+  overlap' = overlap \\
+  round' = round \\
+  qodoDone' = qodoDone \\
+  answered' = answered \\
+  escF' = escF \\
+  escRun' = escRun \\
+  escalOpen' = escalOpen
+\end{schema}
+
+When a completed delta review covers the head and its findings are answered,
+$reviewedHead$ moves to it. It reads $deltaHead$, which only a completed review
+sets, never the review in flight (fix for defect (5)).
+
+\begin{schema}{Promote}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Bugbot \\
+  \Xi Issues \\
+  \Xi Gate
+\where
+  merged = no \\
+  deltaHead = \{ head \} \\
+  head \notin reviewedHead \\
+  deltaF \subseteq answered \\
+  reviewedHead' = deltaHead \\
+  deltaHead' = deltaHead \\
+  deltaRun' = deltaRun \\
+  deltaRange' = deltaRange \\
+  deltaF' = deltaF \\
+  seen' = seen \\
+  overlap' = overlap \\
+  round' = round \\
+  qodoDone' = qodoDone
+\end{schema}
+
+\section{Merge}
+
+$merge\_gate$: nothing pending, no open run, the head reviewed, every finding
+answered, at most two rounds, no open escalation.
+
+\begin{schema}{Merge}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Bugbot \\
+  \Xi Issues
+\where
+  merged = no \\
+  NotPending \\
+  ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
+  head \in reviewedHead \\
+  findings \subseteq answered \\
+  round \leq 2 \\
+  escalOpen = no \\
+  merged' = yes
+\end{schema}
+
+After the merge nothing changes. This stutter keeps the merged state from
+reading as a deadlock.
+
+\begin{schema}{Merged}
+  \Xi State
+\where
+  merged = yes
+\end{schema}
+
+\end{document}
