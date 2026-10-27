@@ -47,7 +47,7 @@ owned by neighboring documents — cross-reference them, do not restate them:
 | PR boundaries, local and remote review sequencing, what "installed" means | [PR and Review](pr-review.md) |
 | Judgment defaults: reversibility, test proportionality, confidence calibration | [Agent Engineering](agent-engineering.md) |
 | `make check` targets and gate composition | [Makefile](makefile.md) |
-| Branch protection, CI, Copilot configuration | [GitHub](github.md) |
+| Branch protection, CI, review-bot configuration | [GitHub](github.md) |
 | Release phases and cross-repo propagation | [Release Process](release-process.md) |
 | Mission contract schema, archetypes, pipeline templates, mission CLI | ethos documentation (see §6) |
 | Per-repo instantiation: the demo, worker/evaluator table, formal classes | each repo's `docs/WORKFLOW.md` |
@@ -107,7 +107,7 @@ merges.
 
 **Review of code is agent-owned end to end**: the evaluator inside each
 mission, the local review agents on the diff, and the remote reviewers
-(Copilot, Bugbot) on the PR. There is no human code-review gate. The
+(Qodo, Bugbot) on the PR. There is no human code-review gate. The
 operator reads code in the IDE, but that inspection is separate, feeds
 design discussion only, and nothing in these loops waits on it; when it
 happens, it happens locally, before the PR — the PR is a merge gate, not a
@@ -379,10 +379,10 @@ function pr_loop(unit):
 
     # B. FULL-DIFF VERIFICATION (local, before any PR exists)
     make check                            # full gate on the accumulated diff
-    repeat:
-        findings = local review agents on the full diff   # pr-review.md
-        fix every finding in this PR      # no deferrals
-    until a round produces zero findings
+    if local_review(full diff) is blocked: stop the unit until the
+        operator rules                    # local_review: pr-review.md; at
+                                          #   most four fix rounds plus a
+                                          #   verifying review; no deferrals
 
     # C. VERIFY — drive the real entry point, not just the tests
     install the built artifact            # pr-review.md "What Installed Means"
@@ -397,47 +397,81 @@ function pr_loop(unit):
     bd close the bead(s)                  # close before push, once the unit
                                           #   is verified and merge-ready
     push; create the PR
-    request Copilot review once, on open
-    schedule a background poll            # never a blocking watch, never a
-                                          #   foreground sleep loop
+        # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
+        #   on its own, at open — no "bugbot run" comment for round 1; a
+        #   Copilot review is requested only if the repo's WORKFLOW.md says so
+    schedule a background poll            # 3m while a review is pending, 15m
+                                          #   after; never a blocking watch,
+                                          #   never a foreground sleep loop
     # Closing at ship time declares the work complete, not the merge: if the
     # PR is later abandoned or closed unmerged, reopen its bead(s)
     # (bd update <id> --status=open) as part of abandoning the PR — the one
     # case where a closed bead returns to the funnel, so "closed" still
     # means merged at every batch exit.
 
+# Terms (round, trigger, head, qodo_in, bugbot_in, copilot_in, pending,
+# finding, answered, new High, escalation, skipped, reviewed_head,
+# bugbot_open) are defined in pr-review.md, with the full poll_tick.
+# A round is the PR open (round 1) or one "/agentic_review" plus one
+# "bugbot run" comment (round 2, only after a High fix; the last).
+
 function poll_tick(pr):
     state = current reviews, threads, checks
-    for finding in unaddressed(state):    # handled now, never on a later tick
-        fix it in this PR                 # or dismiss with the exact finding,
-                                          #   the specific reason it does not
-                                          #   apply, and the code reference
-        make check; commit; push          # each push restarts the gate
-        resolve the thread                # the leader resolves, not the worker
+    N = round(pr)
+    if CI failed: fix in this PR
+    if not skipped(pr) and not qodo_in(N)
+            and 30 minutes have passed since trigger(N)
+            and the fallback has not yet run for round N:
+        run code_reviewer locally on the diff Qodo was asked to review
+                                          # outage fallback; ledger path
+    for each finding not answered(f) and not under an open escalation:
+        if N == 2 and f is a new High:
+            post an escalation comment; the operator rules
+        else:
+            fix it now, or answer it by its source's path (answered(f))
+            # handled now, never on a later tick; never re-litigated; no
+            # deferral beads. A Qodo finding closes through the Qodo CLI;
+            # any other finding by a landed commit or a ledger comment with
+            # the exact finding, the specific reason, and the code reference
+    if fixes were made: make check; commit
+        if local_review(the fix diff) is blocked: stop; the operator rules
+        push once                         # each push restarts CI, not review
+    resolve each answered thread, one by one   # the leader resolves, not the
+                                          #   worker
+    if not skipped(pr) and not pending(pr) and N == 1
+            and a High was fixed since trigger(1):
+        comment "/agentic_review"; comment "bugbot run"   # round 2, the last
+    if not pending(pr) and the PR head is newer than reviewed_head:
+        run code_reviewer locally on the reviewed_head..head delta
+                                          # bounded rounds, no unreviewed merge
+    if the repo defines a demo and demo_ok(pr) is false and nothing was
+            pushed this tick:
+        run the demo                      # per the repo's WORKFLOW.md
+    cadence = 15m if not pending(pr) and not bugbot_open and no finding is
+              unanswered, else 3m         # reschedule the poll when it changes
+    re-read state                         # the gate must see this tick's push
     if merge_gate(state): merge (squash); close_out()
 
 function merge_gate(state) -> bool:
     return CI green on the latest commit
-       and (Copilot has reviewed the latest commit
-            or Copilot reviewed an earlier commit but not the latest, and
-               CI has been green for more than ten minutes)   # silence after
-                                          #   a fix is no-new-findings; a first
-                                          #   review is always required, since
-                                          #   re-review on push varies by repo
-       and (Bugbot has reviewed the latest commit
-            or Bugbot never reviewed this PR and more than six minutes
-               have passed since CI went green)
+       and not pending(pr)                # Qodo and Bugbot in for the round
+                                          #   (and Copilot, if requested)
+       and not bugbot_open                # a push-started run's findings land
+                                          #   before the merge
+       and (skipped(pr) or reviewed_head is the PR head)
+       and every finding is answered
        and zero unresolved review threads
-       and the latest review round has no unaddressed material findings
-           # findings fixed and their threads resolved satisfy this; silence
-           # on the fix commit is governed by the Copilot rule above, so a
-           # finding-laden round that was fully addressed does not deadlock
-    # When this returns true: merge. Do not ask, do not wait.
+       and round(pr) <= 2
+       and no escalation is open
+       and demo_ok(pr)                    # true when the repo defines no demo
+    # A push restarts CI, not review. When this returns true: merge. Do not
+    # ask, do not wait.
 
 function close_out():
     cancel the poll loop
     delete the branch; checkout main; pull
-    send the merge recap                  # every merge, unprompted
+    send the merge recap                  # every merge, unprompted, with the
+                                          #   review-metrics block (pr-review.md)
     start the next unit immediately       # no stopping to report
 ```
 
@@ -461,10 +495,15 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
                                           --   the operator confirmed the demo
                                           --   where only a human can judge
   ∧ ciGreen(head(pr))
-  ∧ reviewedByBots(head(pr))              -- Copilot + Bugbot on the latest
-                                          --   commit, per the merge_gate rules
+  ∧ ¬ pending(pr)                         -- every requested review is in
+  ∧ ¬ bugbotOpen(head(pr))                -- bugbot_open was false at merge
+  ∧ (skipped(pr) ∨ reviewedHead(pr) = head(pr))  -- merged code was reviewed
+  ∧ (∀ f : findings(pr) • answered(f))    -- fixed on head, or reasoned
+  ∧ round(pr) ≤ 2                         -- round 2 only after a High fix
   ∧ unresolvedThreads(pr) = ∅
-  ∧ materialFindings(latestRound(pr)) = ∅
+  ∧ openEscalations(pr) = ∅               -- each closed by a recorded ruling
+  ∧ demoOk(pr)                            -- the repo's demo, if it defines
+                                          --   one, confirmed on the head
   ∧ beadsOf(pr) ⊆ closed′
   ∧ mergeRecapSent(pr) ]
 ```
@@ -524,9 +563,9 @@ a lint pass and a read-through is their verification.
 
 ### Remote review and merge
 
-Remote review (Copilot, Bugbot) is an automated second opinion on
-already-clean code — sequencing, dismissal rules, and re-request protocol
-are owned by [PR and Review](pr-review.md). The `merge_gate` predicate above
+Remote review (Qodo, Bugbot) is an automated second opinion on
+already-clean code, at most two rounds — sequencing, dismissal rules, and the
+round-2 trigger are owned by [PR and Review](pr-review.md). The `merge_gate` predicate above
 is the whole merge decision: when it returns true, merge — do not ask, do
 not wait for one more empty round.
 
@@ -677,7 +716,7 @@ A mission is **not required** for:
 
 - T4 changes — no bead, no mission; the commit is the record
 - Review-cycle fix rounds — findings from local review agents or remote
-  reviewers (Copilot, Bugbot) may be fixed by a bare `Agent()` spawn without
+  reviewers (Qodo, Bugbot) may be fixed by a bare `Agent()` spawn without
   a mission contract. The finding is the spec and the write set is obvious,
   so a contract adds nothing. Spawn the domain specialist, not a generic
   shell — a Python finding goes to the Python worker. The leader reviews the
@@ -935,8 +974,10 @@ state machine and model-check it.
    a merge, and nothing waits once it passes.
 3. **Findings never wait.** Review feedback is handled the moment it
    arrives, not on the next poll tick and never in a follow-up PR.
-4. **Every push restarts the merge gate.** Fresh CI and fresh reviews on the
-   new commit, with the single Bugbot exception stated in the gate.
+4. **A push restarts CI, not review.** Local rounds run until clean (at most
+   four fix rounds plus a verifying review) before the PR opens and before
+   every fix push. PR rounds are at most two, and the second only after a
+   High fix.
 5. **Defects flow inward, scope flows outward.** A defect found while a PR
    is open is fixed in that PR. Only genuinely new lines of work become
    beads.
@@ -970,6 +1011,6 @@ consuming repo's owner before either side merges.
 - [Git](git.md) — git mechanics: branch check, no-rewrite rule, conflict resolution, post-merge cleanup, worktrees, submodules
 - [Agent Engineering](agent-engineering.md) — judgment defaults for AI coding agents
 - [Makefile](makefile.md) — quality-gate composition
-- [GitHub](github.md) — branch protection, CI, Copilot configuration
+- [GitHub](github.md) — branch protection, CI, review-bot configuration
 - [Release Process](release-process.md) — the release playbook
 - [Archetypes and Pipelines Guide](https://github.com/punt-labs/ethos/blob/main/docs/archetypes-and-pipelines.md) — the mission harness reference
