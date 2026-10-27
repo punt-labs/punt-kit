@@ -422,7 +422,9 @@ function poll_tick(pr):
     if not skipped(pr) and not qodo_in(N)
             and 30 minutes have passed since trigger(N)
             and the fallback has not yet run for round N:
-        run code_reviewer locally on the diff Qodo was asked to review
+        run code_reviewer locally on the diff Qodo was asked to review;
+            it completes round N only if it completed — on an error, re-run
+            once, then report to the operator and stop
                                           # outage fallback; ledger path
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
@@ -446,8 +448,10 @@ function poll_tick(pr):
     if not skipped(pr) and not pending(pr) and N == 1
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # round 2, the last
-    if not pending(pr) and the PR head is newer than reviewed_head:
-        run code_reviewer locally on the reviewed_head..head delta
+    if not pending(pr) and (reviewed_head does not exist
+            or the PR head is newer than reviewed_head):
+        run code_reviewer locally on the reviewed_head..head delta (the
+            whole diff when there is no reviewed_head)
                                           # bounded rounds, no unreviewed merge
     if the repo defines a demo and demo_ok(pr) is false and nothing was
             pushed this tick:
@@ -463,7 +467,7 @@ function merge_gate(state) -> bool:
                                           #   (and Copilot, if requested)
        and not bugbot_open                # a push-started run's findings land
                                           #   before the merge
-       and (skipped(pr) or reviewed_head is the PR head)
+       and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
        and round(pr) <= 2
@@ -502,7 +506,8 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ ciGreen(head(pr))
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ ¬ bugbotOpen(head(pr))                -- bugbot_open was false at merge
-  ∧ (skipped(pr) ∨ reviewedHead(pr) = head(pr))  -- merged code was reviewed
+  ∧ reviewedHead(pr) = head(pr)           -- merged code was reviewed, bot-
+                                          --   authored PRs included
   ∧ (∀ f : findings(pr) • answered(f))    -- fixed on head, or reasoned
   ∧ round(pr) ≤ 2                         -- round 2 only after a High fix
   ∧ unresolvedThreads(pr) = ∅

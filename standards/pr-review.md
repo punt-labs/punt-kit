@@ -237,11 +237,12 @@ trigger(N)   = the PR open, for N = 1; the leader's (N-1)th
                "/agentic_review" comment, for N > 1
 head(N)      = the PR head commit when trigger(N) happened
 qodo_in(N)   = `qodo read pr-review-session findings --pr-url <url>` reports
-               review_session.status "completed" with a commit_sha that is
-               head(N) or a later commit on the branch; or the outage
-               fallback ran for round N. A late reply to an earlier round
-               never completes round N, and a clean review counts like any
-               other.
+               review_session.status "completed" with a started_at at or
+               after trigger(N) and a commit_sha that is head(N) or a later
+               commit on the branch; or the outage fallback ran for round N.
+               A session that started before trigger(N) — a round-1 session
+               for N = 2 — never completes round N, and a clean review
+               counts like any other.
 bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                commit, started at or after trigger(N) — the PR open for
                N = 1 (Bugbot's automatic run), round 2's "bugbot run" comment
@@ -253,8 +254,10 @@ bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
-pending(pr)  = not skipped(pr) and (not qodo_in(round(pr))
-               or not bugbot_in(round(pr)) or not copilot_in)
+pending(pr)  = (not skipped(pr) and (not qodo_in(round(pr))
+               or not bugbot_in(round(pr)))) or not copilot_in
+               # a requested Copilot review counts on a skipped
+               # (bot-authored) PR too
 finding      = any unresolved review thread, from any author, or any Medium
                in Qodo's summary — whenever it arrives, late ones included
 answered(f)  = one path per source, never both:
@@ -268,15 +271,20 @@ answered(f)  = one path per source, never both:
                  the PR head, or a ledger comment gives the reason and
                  file:line.
                A finding repeated from an earlier round keeps its answer.
-new High     = a High not raised in an earlier round; a manual review may
-               re-scan the whole PR and repeat old findings
+new High     = a High raised by a round-2 review (one that started at or
+               after trigger(2)) and not raised in an earlier round; a manual
+               review may re-scan the whole PR and repeat old findings, and a
+               round-1 High that arrives late is not new — it takes the
+               normal fix path
 escalation   = the leader's "escalated:" comment on one new round-2 High;
                closed by a later ledger entry recording the operator's
                ruling and how it was applied
 skipped(pr)  = the PR author is a bot ([github_app] ignore_bot_pr in
                .pr_agent.toml); no title or label lets an author skip
 reviewed_head = the newest commit covered by a Qodo review, the outage
-               fallback, or the local delta review below
+               fallback, or the local delta review below; a skipped
+               (bot-authored) PR has none until the local delta review has
+               covered its whole diff
 bugbot_open  = a Cursor Bugbot check run on the head whose status is not
                completed (queued or in progress) and that was created under
                30 minutes ago
@@ -301,8 +309,10 @@ function poll_tick(pr):
             and 30 minutes have passed since trigger(N)
             and the fallback has not yet run for round N:
         run code_reviewer locally on the diff Qodo was asked to review;
-            it completes round N for qodo_in; its findings have no Qodo
-            id, so they take the ledger path       # outage fallback
+            it completes round N for qodo_in only if it completed — on an
+            error, re-run once, then report to the operator and stop;
+            its findings have no Qodo id, so they take the ledger path
+                                                   # outage fallback
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -325,11 +335,12 @@ function poll_tick(pr):
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # opens round 2,
                                                           #   the last
-    if not pending(pr) and the PR head is newer
-            than reviewed_head:
-        run code_reviewer locally on the reviewed_head..head delta; its
-            findings are findings like any other   # bounded rounds, but
-                                                   #   no unreviewed merge
+    if not pending(pr) and (reviewed_head does not exist
+            or the PR head is newer than reviewed_head):
+        run code_reviewer locally on the reviewed_head..head delta (the
+            whole diff when there is no reviewed_head); its findings are
+            findings like any other   # bounded rounds, but no unreviewed
+                                      #   merge, bot-authored PRs included
     if the repo defines a demo and it is not confirmed for the head
             and nothing was pushed this tick:
         run it per the repo's WORKFLOW.md      # see "Repo-specific human
@@ -348,7 +359,7 @@ function merge_gate(state) -> bool:
        and not pending(pr)                 # no requested review outstanding
        and not bugbot_open                 # a push-started run's findings
                                            #   land before the merge
-       and (skipped(pr) or reviewed_head is the PR head)
+       and reviewed_head is the PR head    # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
        and round(pr) <= 2
