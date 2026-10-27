@@ -366,16 +366,23 @@ adding any protection (section 1).
 | `Bash(printenv:*)` | Prints any one variable's value, or the whole environment |
 | `Bash(set)` | Bare `set` prints shell variables and functions |
 | `Bash(export)` | Bare `export` prints every exported variable with its value |
-| `Bash(export -:*)` | Every flag form of `export` (`-p`, `-n`, `-np`, `-n -p`, `--`) can print values |
+| `Bash(export -*)` | Every flag form of `export` (`-p`, `-n`, `-np`, `-n -p`, `--`) can print values |
 | `Bash(declare)` | Bare `declare` prints every variable with its value |
-| `Bash(declare -:*)` | Every flag form of `declare` (`-p`, `-x`, `--`, combinations) can print values |
+| `Bash(declare -*)` | Every flag form of `declare` (`-p`, `-x`, `--`, combinations) can print values |
 | `Bash(typeset)` | Bare `typeset`, the bash/zsh synonym of `declare`, prints every variable with its value |
-| `Bash(typeset -:*)` | Every flag form of `typeset`, the synonym of `declare` |
+| `Bash(typeset -*)` | Every flag form of `typeset`, the synonym of `declare` |
 
 Deny the bare command and every flag form. Flags combine and reorder (`export
 -np`, `export -n -p`, `export -pn`, `export -n --`), so enumerating them always
-misses one; a single `-` prefix rule per command covers them all. A prefix rule
-may not match the zero-argument form, so the bare command is denied as well.
+misses one; a single `-*` rule per command covers them all. A prefix rule may
+not match the zero-argument form, so the bare command is denied as well.
+
+Write the flag rules with no space before the `*`. Claude Code treats the `:*`
+suffix as equivalent to a space-star, so `Bash(export -:*)` means `export - *`
+and would miss `export -p`, `export -np` and `export --`, where the flag is
+attached to the dash. `Bash(export -*)` is a character glob that matches every
+word beginning with `export -`. Deny rules also match past a leading `VAR=x`
+assignment, so `FOO=1 export -p` is refused too.
 
 `env` is denied entirely. To set a variable for one command, use the shell
 form: `VAR=value command`. To see what is set without printing values, use

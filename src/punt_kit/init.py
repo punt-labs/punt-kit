@@ -645,20 +645,22 @@ def build_standard_deny_rules() -> list[str]:
         # Commands that print environment variable values. Principle: deny the
         # bare command and every flag form, because flags combine and reorder
         # (`export -np`, `export -n -p`, `declare -x`) and cannot be enumerated.
-        # Plain assignment stays allowed: `export VAR=value` does not start with
-        # `export -`. `env` is denied entirely; set a variable for one command
-        # with `VAR='value' command`.
+        # Flag rules are written `cmd -*` with no space before `*`: Claude Code
+        # reads `:*` as a space-star, so `cmd -:*` means `cmd - *` and misses
+        # attached flags such as `export -p`. Plain assignment stays allowed:
+        # `export VAR=value` does not start with `export -`. `env` is denied
+        # entirely; set a variable for one command with `VAR='value' command`.
         "Bash(env)",
         "Bash(env:*)",
         "Bash(printenv)",
         "Bash(printenv:*)",
         "Bash(set)",
         "Bash(export)",
-        "Bash(export -:*)",
+        "Bash(export -*)",
         "Bash(declare)",
-        "Bash(declare -:*)",
+        "Bash(declare -*)",
         "Bash(typeset)",
-        "Bash(typeset -:*)",
+        "Bash(typeset -*)",
         # Secrets and environment
         "Edit(.env)",
         "Edit(.envrc)",
