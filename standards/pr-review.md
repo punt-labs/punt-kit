@@ -252,8 +252,8 @@ bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                count; a later push does not undo a completed run. A clean
                run posts no review, so read the check run. Or: 30 minutes
                have passed since trigger(N) (or since the re-run comment
-               below, if later) and no Bugbot run on the PR is queued or in
-               progress — the timeout covers an outage, never a live run.
+               below, if later) and bugbot_open is false — the timeout
+               covers an outage, never a live run.
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
@@ -288,10 +288,14 @@ reviewed_head = the newest commit covered by a Qodo review, the outage
                fallback, or the local delta review below; a skipped
                (bot-authored) PR has none until the local delta review has
                covered its whole diff
+delta_head   = the newest commit a local delta review has completed on
 bugbot_open  = a Cursor Bugbot check run on any commit of the PR, not only
                the head, whose status is not completed (queued or in
-               progress), whatever its age; only the run ending clears it
-bugbot_stuck = a Bugbot run queued or in progress for more than 60 minutes
+               progress), whatever its age, and that has no recorded
+               "proceed" ruling; only the run ending or a "proceed" ruling
+               clears it
+bugbot_stuck = a Bugbot run queued or in progress for more than 60 minutes,
+               with no recorded "proceed" ruling
 ```
 
 "Ledger comment" is a PR comment that records one finding, its reason, and
@@ -319,7 +323,8 @@ function poll_tick(pr):
                                                    # outage fallback
     if a Bugbot run for round N completed without a finished review
             (failure, timeout, or cancelled — a fix push cancels an
-            in-progress run) and no re-run was requested for round N:
+            in-progress run) and no re-run was requested for round N
+            and bugbot_in(N) is still false:
         comment "bugbot run"               # once; if the re-run fails too or
                                            #   none starts, the 30-minute
                                            #   fallback in bugbot_in applies
@@ -328,9 +333,10 @@ function poll_tick(pr):
     if a run is still bugbot_stuck 30 minutes after that comment and no
             escalation has been posted for this run:
         post an escalation comment         # once, ever, per run; the operator
-                                           #   rules: "cancel" — the leader
-                                           #   cancels the run, it ends, and
-                                           #   bugbot_open clears; "wait" —
+                                           #   rules: "proceed" — the run is
+                                           #   abandoned, the ledger entry
+                                           #   names its check-run id, and
+                                           #   bugbot_open ignores it; "wait" —
                                            #   bugbot_open stays true until
                                            #   the run ends, and the operator
                                            #   may rule again later
@@ -361,18 +367,21 @@ function poll_tick(pr):
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # opens round 2,
                                                           #   the last
-    if not pending(pr) and (reviewed_head does not exist
-            or the PR head is newer than reviewed_head):
+    if not pending(pr) and (the PR head is newer than both reviewed_head
+            and delta_head, or skipped(pr) and neither exists):
         run code_reviewer locally on the reviewed_head..head delta (the
             whole diff when there is no reviewed_head); its findings are
-            findings like any other; set reviewed_head to the head only
-            once the review has completed and every finding it raised is
-            answered(f)              # bounded rounds, but no unreviewed
-                                     #   merge, bot-authored PRs included
+            findings like any other; set delta_head to the head once the
+            review has completed
+    if every finding of the delta review at delta_head is answered(f):
+        set reviewed_head to delta_head  # bounded rounds, but no unreviewed
+                                         #   merge, bot-authored PRs included
     if demo_ok(pr) is false and nothing was pushed this tick:
         if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;
-            after the operator confirms, the leader comments
-            "demo confirmed: <sha>" naming the head exercised; on a failure
+            once it passes on the head, the leader comments
+            "demo confirmed: <sha>" naming the head exercised, after the
+            operator's confirmation only where the demo requires it
+            (user-facing behavior a human must judge); on a failure
             it comments "demo failed: <sha>" with what was observed, and the
             failure is a finding like any other
         else: report to the operator and stop  # no demo policy: the gate
@@ -392,7 +401,8 @@ function merge_gate(state) -> bool:
     return CI green on the latest commit
        and not pending(pr)                 # no requested review outstanding
        and not bugbot_open                 # any queued or in-progress run on
-                                           #   any commit: its findings land
+                                           #   any commit, unless ruled
+                                           #   "proceed": its findings land
                                            #   before the merge, until it
                                            #   ends
        and reviewed_head is the PR head    # bot-authored PRs included
@@ -419,6 +429,8 @@ Some behavior only a human can judge. Each repo's `docs/WORKFLOW.md` or
 what the operator confirms — or explicitly declares that it has none. A repo
 that does neither has an incomplete gate, not a passing one. A failed demo is
 a finding like any other. The demo is a human check on observed behavior, never a diff review.
+An internal, non-exempt change that passes the real-entry-point check
+therefore does not wait for an operator reply.
 
 The standard fixes the shape of `demo_ok`; each repo fills in its own
 `demo_exempt` set:
@@ -437,8 +449,9 @@ demo_ok(pr)    = the repo explicitly declares it has no demo (in its
                  definition and no declaration, demo_ok is false.
 demoed_head    = the commit named in the leader's latest "demo confirmed:"
                  PR comment, newer than any "demo failed:" comment; the
-                 leader posts the comment after the operator confirms the
-                 demo on that commit
+                 leader posts the comment once the demo passes on that
+                 commit, with the operator's confirmation only where the
+                 demo requires it (user-facing behavior a human must judge)
 ```
 
 A plugin-only Markdown PR is therefore not docs-only, and an edit to

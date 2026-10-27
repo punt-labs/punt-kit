@@ -36,6 +36,15 @@ All notable changes to this project will be documented in this file.
   `standards/github.md`: Copilot is on request only, with no
   `copilot_code_review` ruleset rule. `standards/workflow.md`: the PR loop
   follows the same gate.
+- `standards/pr-review.md` and `standards/workflow.md`: four fixes to the PR
+  review model. A failed Bugbot run is re-run only while `bugbot_in(N)` is
+  still false. A stuck Bugbot run is ruled "proceed" instead of "cancel"
+  (only the owning app can cancel a check run). The ledger names the run's
+  check-run id, and `bugbot_open` ignores that run. A new `delta_head` term
+  stops the local delta review from re-running on the same head while its
+  findings are still being answered. The leader posts "demo confirmed" once
+  the demo passes on the head, and waits for the operator only on
+  user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**
   design proposal, including an informal naming, UX, or architecture
   suggestion to the operator. Look up ADRs by topic across every decision

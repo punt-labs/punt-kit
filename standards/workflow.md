@@ -412,7 +412,8 @@ function pr_loop(unit):
 
 # Terms (round, trigger, head, qodo_in, bugbot_in, copilot_in, pending,
 # finding, answered, new High, escalation, skipped, reviewed_head,
-# bugbot_open, bugbot_stuck) are defined in pr-review.md, with the full poll_tick.
+# delta_head, bugbot_open, bugbot_stuck) are defined in pr-review.md, with the
+# full poll_tick.
 # A round is the PR open (round 1) or one "/agentic_review" plus one
 # "bugbot run" comment (round 2, only after a High fix; the last).
 
@@ -429,14 +430,16 @@ function poll_tick(pr):
                                           # outage fallback; ledger path
     if a Bugbot run for round N completed without a finished review
             (failure, timeout, or cancelled) and no re-run was requested
-            for round N:
+            for round N and bugbot_in(N) is still false:
         comment "bugbot run"              # once; then the 30-minute fallback
     if a bugbot_stuck run (open over 60 minutes) has no "bugbot run" comment
             since it got stuck: comment "bugbot run"   # once; cancel nothing
     if a run is still bugbot_stuck 30 minutes after that comment and no
             escalation has been posted for this run:
-        post an escalation comment        # once, ever, per run; "cancel": the
-                                          #   leader cancels it and it ends;
+        post an escalation comment        # once, ever, per run; "proceed":
+                                          #   the run is abandoned, the ledger
+                                          #   entry names its check-run id,
+                                          #   and bugbot_open ignores it;
                                           #   "wait": bugbot_open stays true
                                           #   until it ends
     for each finding not answered(f) and not under an open escalation:
@@ -464,17 +467,19 @@ function poll_tick(pr):
     if not skipped(pr) and not pending(pr) and N == 1
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # round 2, the last
-    if not pending(pr) and (reviewed_head does not exist
-            or the PR head is newer than reviewed_head):
+    if not pending(pr) and (the PR head is newer than both reviewed_head
+            and delta_head, or skipped(pr) and neither exists):
         run code_reviewer locally on the reviewed_head..head delta (the
-            whole diff when there is no reviewed_head); set reviewed_head
-            to the head only once the review has completed and every
-            finding it raised is answered(f)
-                                          # bounded rounds, no unreviewed merge
+            whole diff when there is no reviewed_head); set delta_head to
+            the head once the review has completed
+    if every finding of the delta review at delta_head is answered(f):
+        set reviewed_head to delta_head   # bounded rounds, no unreviewed merge
     if demo_ok(pr) is false and nothing was pushed this tick:
         if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;
-            after the operator confirms, the leader comments
-            "demo confirmed: <sha>" naming the head exercised; on a failure
+            once it passes on the head, the leader comments
+            "demo confirmed: <sha>" naming the head exercised, after the
+            operator's confirmation only where the demo requires it
+            (user-facing behavior a human must judge); on a failure
             it comments "demo failed: <sha>" with what was observed, and the
             failure is a finding like any other
         else: report to the operator and stop   # no demo policy: the gate
@@ -490,7 +495,8 @@ function merge_gate(state) -> bool:
                                           #   (and Copilot, if requested)
        and not bugbot_open                # any queued or in-progress run on
                                           #   any commit of the PR, whatever
-                                          #   its age: its findings land
+                                          #   its age, unless ruled
+                                          #   "proceed": its findings land
                                           #   before the merge, until it ends
        and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
