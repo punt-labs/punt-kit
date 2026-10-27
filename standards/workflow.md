@@ -437,12 +437,14 @@ function poll_tick(pr):
             # the exact finding, the specific reason, and the code reference
     for each escalation the operator has ruled on:
         apply the ruling; record it in a ledger comment
-        if the finding has a Qodo id: also close it through the Qodo CLI
-            (mark-implemented or dismiss); a ledger line alone leaves it
-            unanswered and the next tick escalates it again
     if fixes were made: make check; commit
         if local_review(the fix diff) is blocked: stop; the operator rules
         push once                         # each push restarts CI, not review
+    close each escalated finding the operator ruled on, by its answered(f)
+        path, only once its fix commit is on the PR head and passed
+        local_review — a finding with a Qodo id through the Qodo CLI
+        (mark-implemented; or dismiss if the ruling was dismiss), because
+        a ledger line does not close it
     resolve each answered thread, one by one   # the leader resolves, not the
                                           #   worker
     if not skipped(pr) and not pending(pr) and N == 1

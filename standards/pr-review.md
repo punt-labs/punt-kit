@@ -322,13 +322,17 @@ function poll_tick(pr):
             # no deferral beads
     for each escalation the operator has ruled on:
         apply the ruling; record it in a ledger comment
-        if the finding has a Qodo id: also close it through the Qodo CLI
-            (mark-implemented or dismiss, per answered(f)); a ledger line
-            alone leaves it unanswered and the next tick escalates it again
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked:
             stop; the operator rules
         push once                          # every fix reaches the PR head
+    close each escalated finding the operator ruled on, by its answered(f)
+        path, only once its fix commit is on the PR head and passed
+        local_review — a finding with a Qodo id through the Qodo CLI
+        (mark-implemented; or dismiss if the ruling was dismiss), because
+        a ledger line does not close it
+        # closing earlier would let a stopped fix merge unfixed: no open
+        #   escalation, no unanswered finding
     resolve each thread that is answered, one by one — the leader
         resolves, not the agent
     if not skipped(pr) and not pending(pr) and N == 1
