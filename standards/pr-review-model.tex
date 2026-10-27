@@ -37,10 +37,11 @@
 %     completion, because Promote reads them.
 %  A4 No force-push to a commit the PR already had. Push and Rebase always
 %     create a new commit. A reset that drops a fix is not modelled.
-%     pr-review.md answered(f) covers it (decision D1): mark-implemented
-%     records the fix sha; after a force-push or rebase a finding reopens
-%     only if that fix's change left the branch, and a ledger line with its
-%     Qodo id and the new fix sha answers it again. Rebase keeps every fix
+%     pr-review.md answered(f) covers it (decision D1) for every finding
+%     answered by a fix, from any source: after a force-push or rebase it
+%     reopens only if that fix's change left the branch, and a Qodo one is
+%     answered again by a ledger line with its Qodo id and the new fix sha,
+%     any other by a new fix commit. Rebase keeps every fix
 %     (A7), so by construction the rule never fires in the model, and the
 %     state machine is unchanged.
 %  A5 History is linear: no merge commits. delta_base is a set of markers,

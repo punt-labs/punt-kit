@@ -462,12 +462,14 @@ function poll_tick(pr):
             # deferral beads; the latest ruling governs. A fix answers a
             # finding only once its commit is on the PR head and passed
             # local_review. A Qodo finding closes through the Qodo CLI,
-            # mark-implemented naming the fix sha; after a force-push or
-            # rebase it reopens only if that fix's change left the branch,
-            # and a ledger line with its Qodo id and a new fix sha answers
-            # it again, under the same fix rule. Any other finding closes
+            # mark-implemented naming the fix sha. Any other finding closes
             # by a landed commit or a ledger comment with the exact
-            # finding, the specific reason, and the code reference
+            # finding, the specific reason, and the code reference. After
+            # a force-push or rebase, a finding of any source answered by
+            # a fix reopens only if that fix's change left the branch; a
+            # Qodo one is answered again by a ledger line with its Qodo id
+            # and a new fix sha, any other by a new fix commit, under the
+            # same fix rule
     for each escalation the operator has ruled on:
         record the ruling in a ledger comment   # closes the escalation,
                                                 #   not the finding

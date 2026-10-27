@@ -85,9 +85,11 @@ All notable changes to this project will be documented in this file.
     findings return unanswered); either ruling's ledger entry closes the
     escalation.
   - `mark-implemented` records the fix sha. After a force-push or rebase, a
-    finding reopens only if that fix's change left the branch, not because
-    commit ids changed; a ledger line with its Qodo id and a new fix sha
-    answers it again, under the same fix rule.
+    finding answered by a fix, from any source, reopens only if that fix's
+    change left the branch, not because commit ids changed. A Qodo finding
+    is answered again by a ledger line with its Qodo id and a new fix sha,
+    any other by a new fix commit, under the same fix rule. A reopened
+    finding does not keep its answer as a repeat.
   - The leader posts "demo confirmed" once the demo passes on the head, and
     waits for the operator only on user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**
