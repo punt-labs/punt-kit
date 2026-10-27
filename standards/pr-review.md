@@ -246,13 +246,14 @@ qodo_in(N)   = `qodo read pr-review-session findings --pr-url <url>` reports
 bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                commit, started at or after trigger(N) — the PR open for
                N = 1 (Bugbot's automatic run), round 2's "bugbot run" comment
-               for N = 2 — and completed with any conclusion except
-               cancelled; or 30 minutes have passed since trigger(N) and no
-               Bugbot run on head(N) or a later commit is queued or in
-               progress (the timeout covers an outage, never a live run). A
-               run a push cancelled reviewed nothing, so it does not count;
-               a later push does not undo a completed run. A clean run posts
-               no review, so read the check run.
+               for N = 2 — and completed with a conclusion showing the
+               review finished (success or neutral). A run that failed,
+               timed out, or was cancelled reviewed nothing, so it does not
+               count; a later push does not undo a completed run. A clean
+               run posts no review, so read the check run. Or: 30 minutes
+               have passed since trigger(N) (or since the re-run comment
+               below, if later) and no Bugbot run on the PR is queued or in
+               progress — the timeout covers an outage, never a live run.
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
@@ -287,8 +288,9 @@ reviewed_head = the newest commit covered by a Qodo review, the outage
                fallback, or the local delta review below; a skipped
                (bot-authored) PR has none until the local delta review has
                covered its whole diff
-bugbot_open  = a Cursor Bugbot check run on the head whose status is not
-               completed (queued or in progress), whatever its age
+bugbot_open  = a Cursor Bugbot check run on any commit of the PR, not only
+               the head, whose status is not completed (queued or in
+               progress), whatever its age
 ```
 
 "Ledger comment" is a PR comment that records one finding, its reason, and
@@ -314,6 +316,11 @@ function poll_tick(pr):
             error, re-run once, then report to the operator and stop;
             its findings have no Qodo id, so they take the ledger path
                                                    # outage fallback
+    if a Bugbot run for round N completed without a finished review
+            (failure or timeout) and no re-run was requested for round N:
+        comment "bugbot run"               # once; if the re-run fails too or
+                                           #   none starts, the 30-minute
+                                           #   fallback in bugbot_in applies
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -367,8 +374,9 @@ function poll_tick(pr):
 function merge_gate(state) -> bool:
     return CI green on the latest commit
        and not pending(pr)                 # no requested review outstanding
-       and not bugbot_open                 # a push-started run's findings
-                                           #   land before the merge
+       and not bugbot_open                 # any queued or in-progress run on
+                                           #   any commit: its findings land
+                                           #   before the merge
        and reviewed_head is the PR head    # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads

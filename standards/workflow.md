@@ -427,6 +427,9 @@ function poll_tick(pr):
             it completes round N only if it completed — on an error, re-run
             once, then report to the operator and stop
                                           # outage fallback; ledger path
+    if a Bugbot run for round N completed without a finished review
+            (failure or timeout) and no re-run was requested for round N:
+        comment "bugbot run"              # once; then the 30-minute fallback
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -472,9 +475,10 @@ function merge_gate(state) -> bool:
     return CI green on the latest commit
        and not pending(pr)                # Qodo and Bugbot in for the round
                                           #   (and Copilot, if requested)
-       and not bugbot_open                # any queued or in-progress run,
-                                          #   whatever its age: its findings
-                                          #   land before the merge
+       and not bugbot_open                # any queued or in-progress run on
+                                          #   any commit of the PR, whatever
+                                          #   its age: its findings land
+                                          #   before the merge
        and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
@@ -514,7 +518,8 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
                                           --   where only a human can judge
   ∧ ciGreen(head(pr))
   ∧ ¬ pending(pr)                         -- every requested review is in
-  ∧ ¬ bugbotOpen(head(pr))                -- bugbot_open was false at merge
+  ∧ ¬ bugbotOpen(pr)                      -- no Bugbot run on any commit of
+                                          --   the PR was open at merge
   ∧ reviewedHead(pr) = head(pr)           -- merged code was reviewed, bot-
                                           --   authored PRs included
   ∧ (∀ f : findings(pr) • answered(f))    -- fixed on head, or reasoned
