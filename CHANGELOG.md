@@ -52,6 +52,9 @@ All notable changes to this project will be documented in this file.
   - Bugbot: a failed run gets one `rerun(N)` per round, even after the
     30-minute fallback elapsed. The fallback counts only after that re-run
     and a fresh window. Round 2's "bugbot run" trigger is not a `rerun`.
+    A round-1 run that fails after round 2 opens still gets `rerun(1)`,
+    and `merge_gate` waits until every round with a failed run has its
+    re-run.
   - A stuck run is ruled "proceed" instead of "cancel" (only the owning app
     can cancel a check run); the ledger names its check-run id and
     `bugbot_open` ignores it. After a "wait" ruling the operator may rule

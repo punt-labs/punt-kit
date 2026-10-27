@@ -429,10 +429,12 @@ function poll_tick(pr):
             it completes round N only if it completed — on an error, re-run
             once, then report to the operator and stop
                                           # outage fallback; ledger path
-    if a Bugbot run for round N completed without a finished review
-            (failure, timeout, or cancelled) and no rerun(N) was posted:
-        comment "bugbot run"              # rerun(N): once, even after the
-                                          #   fallback elapsed; it restarts
+    if a Bugbot run of any round M <= N completed without a finished
+            review (failure, timeout, or cancelled) and no rerun(M) was
+            posted:
+        comment "bugbot run"              # rerun(M): once per round, even
+                                          #   after the fallback elapsed or
+                                          #   round 2 opened; it restarts
                                           #   the window; then the fallback
     if a bugbot_stuck run (open over 60 minutes) has no "bugbot run" comment
             since it got stuck: comment "bugbot run"   # once; cancel nothing
@@ -517,6 +519,7 @@ function merge_gate(state) -> bool:
                                           #   its age, unless ruled
                                           #   "proceed": its findings land
                                           #   before the merge, until it ends
+       and every round with a failed Bugbot run has its rerun(N)
        and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
@@ -558,6 +561,8 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ ¬ bugbotOpen(pr)                      -- no Bugbot run on any commit of
                                           --   the PR was open at merge
+  ∧ bugbotRerunsPosted(pr)                -- each round with a failed run
+                                          --   had its rerun(N)
   ∧ reviewedHead(pr) = head(pr)           -- merged code was reviewed, bot-
                                           --   authored PRs included
   ∧ (∀ f : findings(pr) • answered(f))    -- fixed on head, or reasoned

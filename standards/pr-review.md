@@ -359,15 +359,18 @@ function poll_tick(pr):
             error, re-run once, then report to the operator and stop;
             its findings have no Qodo id, so they take the ledger path
                                                    # outage fallback
-    if a Bugbot run for round N completed without a finished review
-            (failure, timeout, or cancelled — a fix push cancels an
-            in-progress run) and no rerun(N) was posted:
-        comment "bugbot run"               # this is rerun(N): once, even
-                                           #   after the 30-minute fallback
-                                           #   elapsed; it restarts the
-                                           #   window; if the re-run fails
-                                           #   too or none starts, the
-                                           #   fallback in bugbot_in applies
+    if a Bugbot run of any round M <= N completed without a finished
+            review (failure, timeout, or cancelled — a fix push cancels an
+            in-progress run) and no rerun(M) was posted:
+        comment "bugbot run"               # this is rerun(M) for every such
+                                           #   M: once per round, even after
+                                           #   the 30-minute fallback
+                                           #   elapsed, and for round 1 even
+                                           #   after round 2 opened; it
+                                           #   restarts the window; if the
+                                           #   re-run fails too or none
+                                           #   starts, the fallback in
+                                           #   bugbot_in applies
     if a bugbot_stuck run has no "bugbot run" comment since it got stuck:
         comment "bugbot run"               # once; the leader cancels nothing
     if a run is still bugbot_stuck 30 minutes after that comment and no
@@ -453,6 +456,8 @@ function merge_gate(state) -> bool:
                                            #   "proceed": its findings land
                                            #   before the merge, until it
                                            #   ends
+       and every round with a failed Bugbot run has its rerun(N)
+                                           # any round, not only round(pr)
        and reviewed_head is the PR head    # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads

@@ -7,7 +7,8 @@
 % Model-check (precise, no symmetry):
 %   timeout 900 probcli standards/pr-review-model-bugbot.tex -model_check \
 %     -card RUN 3 -p MAX_INITIALISATIONS 10
-%   (175,892 states, all visited, about 65 s and 0.5 GB)
+%   (168,422 states, 686,044 transitions, all visited, no counterexample,
+%   about 68 s and 0.5 GB)
 % probcli writes pr-review-model-bugbot.fuzz beside the file; do not commit it.
 %
 % Named assumptions:
@@ -36,8 +37,9 @@
 
 This machine checks the Bugbot conjuncts of $merge\_gate$. No reachable state
 merges with a live run that has no ``proceed'' ruling. On a PR that is not
-skipped, a merge on the 30-minute fallback never skips the re-run of a failed
-run, and never comes before a full window after that re-run. Every non-merged
+skipped, a merge never skips the re-run of a failed run of any round, and a
+merge on the 30-minute fallback never comes before a full window after the
+current round's re-run. Every non-merged
 state can still move, and where none of this machine's own events can, the
 Bugbot conjuncts of $merge\_gate$ hold (the deadlock lemma, I6).
 
@@ -107,14 +109,16 @@ $rerun(N)$.
   \quad~\quad~ \implies round \in retried ) )
 \end{schema}
 
-$bugbot\_clear$: no live run without a ``proceed'' ruling, and no open run
-escalation.
+$bugbot\_clear$: no live run without a ``proceed'' ruling, no open run
+escalation, and every failed run's round has had its $rerun(N)$, whichever
+round that is. A round-1 run can fail after round 2 opens.
 
 \begin{schema}{BugbotClear}
   State
 \where
   ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
-  escRun = \emptyset
+  escRun = \emptyset \\
+  ( \forall r : \dom runs @ runs~r = doneFail \implies runRound~r \in retried )
 \end{schema}
 
 $Quiescent$: the PR is not merged and every event of this machine except
@@ -132,8 +136,7 @@ own events; they stand for the review side (B4).
   \lnot ( \exists r : \dom runs @ runs~r = live \land r \notin stuck ) \\
   \lnot ( \exists r : stuck @ runs~r = live \land r \notin proceed \cup escRunEver ) \\
   round \in timedOut \\
-  \lnot ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \land \\
-  \quad~ round \notin retried ) \\
+  \lnot ( \exists r : \dom runs @ runs~r = doneFail \land runRound~r \notin retried ) \\
   escRun \cup waitRuled = \emptyset \\
   escRun = \emptyset
 \end{schema}
@@ -144,14 +147,15 @@ By cases.
 \begin{itemize}
 \item $BugbotClear$ false: either a live run without a ``proceed'' ruling
   exists, and then $BugbotEnd$ is enabled on it; or $escRun \neq \emptyset$,
-  and then $OperatorProceed$ and $OperatorWait$ are enabled on its member.
-  Both contradict $Quiescent$. So no run is live and $escRun = \emptyset$.
+  and then $OperatorProceed$ and $OperatorWait$ are enabled on its member; or
+  a failed run's round $n$ has no $rerun(n)$, and then $RequestRetry$ is
+  enabled for $n$. Each contradicts $Quiescent$. So no run is live,
+  $escRun = \emptyset$, and every failed run's round is in $retried$.
 \item $skipped = no$ and $BugbotIn$ false, with $round \notin timedOut$:
   $Timeout$ is enabled. A contradiction.
 \item $skipped = no$ and $BugbotIn$ false, with $round \in timedOut$: no run
-  is live (first case), so $BugbotIn$'s live-run clause holds, and $BugbotIn$
-  can fail only through a failed run of $round$ with $round \notin retried$.
-  Then $RequestRetry$ is enabled. A contradiction.
+  is live and every failed run's round is in $retried$ (first case), so both
+  remaining clauses of $BugbotIn$ hold. A contradiction.
 \end{itemize}
 The proof does not use $BugbotStart$, so the lemma holds even while a fresh
 run could still start. Machine A uses it in ``Why the split is sound''.
@@ -159,9 +163,9 @@ ProB checks it as I6 below.
 
 \textbf{The invariant.}
 (I1, Bugbot half) A merge leaves no live run without a ``proceed'' ruling.
-(I4) On a PR that is not skipped, a merge on the fallback never skips the
-re-run of a failed run, and never comes before a full window after that
-re-run.
+(I4) On a PR that is not skipped, a merge never skips the re-run of a failed
+run of any round, and a merge on the fallback never comes before a full
+window after the current round's re-run.
 (I6) The deadlock lemma.
 
 \begin{schema}{Invariant}
@@ -169,9 +173,8 @@ re-run.
 \where
   merged = yes \implies ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
   ( merged = yes \land skipped = no ) \implies \\
-  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
-  \quad~\quad~ ( ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
-  \quad~\quad~\quad~ \implies round \in rerunAfterFail ) \land \\
+  \quad~ ( ( \forall r : \dom runs @ runs~r = doneFail \implies runRound~r \in rerunAfterFail ) \land \\
+  \quad~\quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
   \quad~\quad~\quad~ ( round \in retried \implies round \in windowSinceRetry ) ) ) \\
   Quiescent \implies ( ( skipped = yes \lor BugbotIn ) \land BugbotClear )
 \end{schema}
@@ -305,18 +308,21 @@ or from $rerun(N)$, whichever is later.
 $rerun(N)$: the leader comments ``bugbot run'' once per round when a run of
 that round reviewed nothing. The round-2 trigger is not a $rerun$, so
 $OpenRound2$ leaves $retried$ alone. The guard does not read $bugbot\_in$: the
-window may already have elapsed (defect (2)). The comment restarts the window.
+window may already have elapsed (defect (2)). Nor is it limited to the current
+round: a round-1 run that fails after round 2 opens still gets $rerun(1)$.
+The comment restarts round $n?$'s window.
 
 \begin{schema}{RequestRetry}
-  \Delta State
+  \Delta State \\
+  n? : ROUND
 \where
   merged = no \\
-  ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
-  round \notin retried \\
-  retried' = retried \cup \{ round \} \\
-  rerunAfterFail' = rerunAfterFail \cup \{ round \} \\
-  timedOut' = timedOut \setminus \{ round \} \\
-  windowSinceRetry' = windowSinceRetry \setminus \{ round \} \\
+  ( \exists r : \dom runs @ runRound~r = n? \land runs~r = doneFail ) \\
+  n? \notin retried \\
+  retried' = retried \cup \{ n? \} \\
+  rerunAfterFail' = rerunAfterFail \cup \{ n? \} \\
+  timedOut' = timedOut \setminus \{ n? \} \\
+  windowSinceRetry' = windowSinceRetry \setminus \{ n? \} \\
   runs' = runs \\
   runRound' = runRound \\
   round' = round \\
