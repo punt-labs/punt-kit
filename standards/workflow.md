@@ -412,7 +412,7 @@ function pr_loop(unit):
 
 # Terms (round, trigger, head, qodo_in, bugbot_in, copilot_in, pending,
 # finding, answered, new High, escalation, skipped, reviewed_head,
-# bugbot_open) are defined in pr-review.md, with the full poll_tick.
+# bugbot_open, bugbot_stuck) are defined in pr-review.md, with the full poll_tick.
 # A round is the PR open (round 1) or one "/agentic_review" plus one
 # "bugbot run" comment (round 2, only after a High fix; the last).
 
@@ -431,6 +431,11 @@ function poll_tick(pr):
             (failure, timeout, or cancelled) and no re-run was requested
             for round N:
         comment "bugbot run"              # once; then the 30-minute fallback
+    if a bugbot_stuck run (open over 60 minutes) has no "bugbot run" comment
+            since it got stuck: comment "bugbot run"   # once; cancel nothing
+    if a run is still bugbot_stuck 30 minutes after that comment and no
+            escalation for it is open:
+        post an escalation comment        # the operator rules: cancel or wait
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -483,7 +488,9 @@ function merge_gate(state) -> bool:
        and not bugbot_open                # any queued or in-progress run on
                                           #   any commit of the PR, whatever
                                           #   its age: its findings land
-                                          #   before the merge
+                                          #   before the merge, until it ends
+                                          #   or a stuck run's escalation is
+                                          #   ruled on
        and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
