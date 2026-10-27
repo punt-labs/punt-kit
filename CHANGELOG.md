@@ -138,6 +138,8 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Standards: `<tool> enable` grants the tool's whole production surface.** `permissions.md` §6 and `tool-enable-disable.md` §2.8 now name the set `enable` adds to the repo's `.claude/settings.json` and `disable` removes: the CLI (`Bash(<cli>:*)`), the MCP server's tool wildcard (`mcp__plugin_<plugin>_<server>__*`, or `mcp__<server>__*` for a `claude mcp add` server), and one `Skill(...)` per shipped command. No rule for a surface the tool doesn't ship, and never a `-dev` rule.
+
 - **Permission standards are repo-level only.** `permissions.md`, `plugins.md`, `hooks.md`, and `distribution.md` no longer tell installers or SessionStart hooks to write `~/.claude/settings.json`. Every rule, MCP tool wildcards included, goes in the repo's `.claude/settings.json` via `<tool> enable` and comes out via `<tool> disable`. The legacy global-cleanup section and the backup requirement are removed, and the reference permissions script refuses a malformed settings file instead of replacing it.
 - **`punt-kit` now depends on `markdown-it-py`** (CommonMark parsing of `CHANGELOG.md`).
 
