@@ -410,10 +410,11 @@ function pr_loop(unit):
     # case where a closed bead returns to the funnel, so "closed" still
     # means merged at every batch exit.
 
-# Terms (round, trigger, head, qodo_in, bugbot_in, copilot_in, pending,
-# finding, answered, new High, escalation, skipped, reviewed_head,
-# delta_head, delta_base, bugbot_open, bugbot_stuck) are defined in
-# pr-review.md, with the full poll_tick; pr-review-model.tex model-checks them.
+# Terms (round, trigger, head, qodo_in, bugbot_in, rerun, copilot_in,
+# pending, finding, answered, new High, escalation, skipped, reviewed_head,
+# delta_head, delta_base, delta range, bugbot_open, bugbot_stuck) are defined
+# in pr-review.md, with the full poll_tick; pr-review-model.tex and
+# pr-review-model-bugbot.tex model-check them.
 # A round is the PR open (round 1) or one "/agentic_review" plus one
 # "bugbot run" comment (round 2, only after a High fix; the last).
 
@@ -429,10 +430,10 @@ function poll_tick(pr):
             once, then report to the operator and stop
                                           # outage fallback; ledger path
     if a Bugbot run for round N completed without a finished review
-            (failure, timeout, or cancelled) and no re-run was requested
-            for round N:
-        comment "bugbot run"              # once, even after the fallback
-                                          #   elapsed; then the fallback
+            (failure, timeout, or cancelled) and no rerun(N) was posted:
+        comment "bugbot run"              # rerun(N): once, even after the
+                                          #   fallback elapsed; it restarts
+                                          #   the window; then the fallback
     if a bugbot_stuck run (open over 60 minutes) has no "bugbot run" comment
             since it got stuck: comment "bugbot run"   # once; cancel nothing
     if a run is still bugbot_stuck 30 minutes after that comment and no
@@ -441,8 +442,11 @@ function poll_tick(pr):
                                           #   the run is abandoned, the ledger
                                           #   entry names its check-run id,
                                           #   and bugbot_open ignores it;
-                                          #   "wait": bugbot_open stays true
-                                          #   until it ends
+                                          #   "wait": the escalation closes,
+                                          #   bugbot_open stays true until the
+                                          #   run ends or the operator later
+                                          #   rules "proceed" on it, with no
+                                          #   new escalation
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -454,7 +458,7 @@ function poll_tick(pr):
             # the exact finding, the specific reason, and the code reference
     for each escalation the operator has ruled on:
         apply the ruling; record it in a ledger comment
-    if fixes were made: make check; commit
+    if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked: stop; the operator rules
         push once                         # each push restarts CI, not review
     close each escalated finding the operator ruled on, by its answered(f)
@@ -470,9 +474,9 @@ function poll_tick(pr):
         comment "/agentic_review"; comment "bugbot run"   # round 2, the last
     if not pending(pr) and no delta review is running
             and the PR head is neither reviewed_head nor delta_head:
-        run code_reviewer locally on the delta_base..head delta (the
-            whole PR diff when there is no delta_base); when it completes,
-            set delta_head to the head it ran on
+        run code_reviewer locally on the delta range; its findings are
+            findings like any other; when it completes, set delta_head to
+            the head it ran on
     if delta_head is the PR head, reviewed_head is not, and every finding
             that delta review raised is answered(f):
         set reviewed_head to delta_head   # bounded rounds, no unreviewed merge

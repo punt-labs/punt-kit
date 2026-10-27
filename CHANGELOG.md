@@ -14,11 +14,14 @@ All notable changes to this project will be documented in this file.
   strategy, shared architecture, roadmap, a 98-package backlog, acceptance
   matrix, and per-product and per-harness audits. Codex support is deferred.
   A plan, not shipped integrations.
-- `standards/pr-review-model.tex` — a Z model of the PR review state
-  (review markers, Bugbot runs and rulings, findings, escalations,
-  `merge_gate`), type-checked with fuzz and model-checked with ProB. Each of
-  the five review-state defects it fixes reappears as a counterexample when
-  its fix is removed.
+- `standards/pr-review-model.tex` and `standards/pr-review-model-bugbot.tex`
+  — a Z model of the PR review state in two machines checked separately: the
+  review side (markers, Qodo sessions and the outage fallback, findings, fix
+  and dismiss rulings, escalations, `merge_gate`) and the Bugbot side (runs,
+  re-runs, the fallback window, stuck-run rulings). Both are type-checked
+  with fuzz and model-checked with ProB. Removing
+  any of the prose fixes it checks yields a ProB counterexample: an invariant
+  violation, or a deadlock for the two delta-review guard defects.
 
 ### Security
 
@@ -41,21 +44,26 @@ All notable changes to this project will be documented in this file.
   `standards/github.md`: Copilot is on request only, with no
   `copilot_code_review` ruleset rule. `standards/workflow.md`: the PR loop
   follows the same gate.
-- `standards/pr-review.md` and `standards/workflow.md`: four fixes to the PR
-  review model. A failed Bugbot run is re-run once per round, even after the
-  30-minute fallback elapsed, and the fallback does not count until that
-  re-run was requested. A stuck Bugbot run is ruled "proceed" instead of "cancel"
-  (only the owning app can cancel a check run). The ledger names the run's
-  check-run id, and `bugbot_open` ignores that run. A new `delta_head` term
-  stops the local delta review from re-running on the same head while its
-  findings are still being answered. The delta review runs whenever the head
-  is neither `reviewed_head` nor `delta_head`, so an unset `delta_head` or a
-  rebase never blocks it. It starts at `delta_base`, the newer marker that is
-  an ancestor of the head, so no commit is reviewed twice. `reviewed_head`
-  takes `delta_head` only after that review completed on the head. The
-  leader posts "demo confirmed" once
-  the demo passes on the head, and waits for the operator only on
-  user-facing behavior a human must judge.
+- `standards/pr-review.md` and `standards/workflow.md`: fixes to the PR
+  review loop.
+  - Bugbot: a failed run gets one `rerun(N)` per round, even after the
+    30-minute fallback elapsed. The fallback counts only after that re-run
+    and a fresh window. Round 2's "bugbot run" trigger is not a `rerun`.
+  - A stuck run is ruled "proceed" instead of "cancel" (only the owning app
+    can cancel a check run); the ledger names its check-run id and
+    `bugbot_open` ignores it. After a "wait" ruling the operator may rule
+    "proceed" later without a new escalation.
+  - Delta review: a new `delta_head` term stops it re-running on the same
+    head while its findings are answered. It runs whenever the head is
+    neither `reviewed_head` nor `delta_head`, so an unset `delta_head` or a
+    rebase never blocks it. Its range excludes every commit a `delta_base`
+    marker reaches, so it never re-covers a commit an earlier delta or Qodo
+    review covered on the same history. `reviewed_head` takes `delta_head`
+    only after that review completed on the head.
+  - `reviewed_head` is the commit a Qodo review or the fallback ran on, not
+    the head when it completed, and it never moves backward.
+  - The leader posts "demo confirmed" once the demo passes on the head, and
+    waits for the operator only on user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**
   design proposal, including an informal naming, UX, or architecture
   suggestion to the operator. Look up ADRs by topic across every decision

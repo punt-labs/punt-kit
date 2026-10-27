@@ -229,8 +229,10 @@ other.
 #### Terms
 
 All terms are read from GitHub; Qodo's login is `qodo-code-review[bot]`.
-The review markers, Bugbot runs, findings, escalations, and `merge_gate` are
-model-checked in [pr-review-model.tex](pr-review-model.tex).
+The review markers, Qodo sessions, findings, rulings, and `merge_gate` are
+model-checked in [pr-review-model.tex](pr-review-model.tex); Bugbot runs,
+`rerun(N)`, and the run rulings in
+[pr-review-model-bugbot.tex](pr-review-model-bugbot.tex).
 
 ```text
 round(pr)    = 1 + the number of "/agentic_review" comments the leader has
@@ -253,11 +255,14 @@ bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                timed out, or was cancelled reviewed nothing, so it does not
                count; a later push does not undo a completed run. A clean
                run posts no review, so read the check run. Or: 30 minutes
-               have passed since trigger(N) (or since the re-run comment
-               below, if later), bugbot_open is false, and, if a run for
-               round N failed, the re-run comment for round N was posted —
-               the timeout covers an outage, never a live run and never a
-               skipped re-run.
+               have passed since trigger(N) (or since rerun(N), if later),
+               bugbot_open is false, and, if a run for round N failed,
+               rerun(N) was posted — the timeout covers an outage, never a
+               live run and never a skipped re-run.
+rerun(N)     = a "bugbot run" comment the leader posted because a round-N
+               run ended without a finished review. Round 2's trigger
+               comment and a stuck-run nudge use the same text and are
+               neither: a round has at most one rerun.
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
@@ -288,20 +293,27 @@ escalation   = the leader's "escalated:" comment on one new round-2 High,
                recording the operator's ruling and how it was applied
 skipped(pr)  = the PR author is a bot ([github_app] ignore_bot_pr in
                .pr_agent.toml); no title or label lets an author skip
-reviewed_head = the commit the latest Qodo review or outage fallback ran
-               on, or, later, a delta_head that was the PR head once every
-               finding its delta review raised was answered; a skipped
+reviewed_head = set by a completing Qodo review or outage fallback to the
+               commit that review ran on (not the head when it completed),
+               or by promoting a delta_head that is the PR head once every
+               finding its delta review raised is answered. It never moves
+               backward: a completing review moves it only when it is
+               unset, is not in the head's history (a rebase orphaned it),
+               or is an ancestor of the reviewed commit. A skipped
                (bot-authored) PR has none until a delta review promotes one
 delta_head   = the PR head a local delta review ran on, set only when that
                review completes; unset until the first one completes
-delta_base   = the newer of reviewed_head and delta_head, among those that
-               are set and are the head or an ancestor of it; none when
-               neither is — no marker yet, or a rebase orphaned both
+delta_base   = the markers among reviewed_head and delta_head that are set
+               and are the head or an ancestor of it; empty when neither
+               is — no marker yet, or a rebase orphaned both
+delta range  = the commits in the head's history that no delta_base commit
+               reaches (`git log <head> --not <delta_base>`); the whole PR
+               when delta_base is empty
 bugbot_open  = a Cursor Bugbot check run on any commit of the PR, not only
                the head, whose status is not completed (queued or in
                progress), whatever its age, and that has no recorded
                "proceed" ruling; only the run ending or a "proceed" ruling
-               clears it
+               clears it, and a "wait" ruling does not
 bugbot_stuck = a Bugbot run queued or in progress for more than 60 minutes,
                with no recorded "proceed" ruling
 ```
@@ -331,10 +343,12 @@ function poll_tick(pr):
                                                    # outage fallback
     if a Bugbot run for round N completed without a finished review
             (failure, timeout, or cancelled — a fix push cancels an
-            in-progress run) and no re-run was requested for round N:
-        comment "bugbot run"               # once, even after the 30-minute
-                                           #   fallback elapsed; if the re-run
-                                           #   fails too or none starts, the
+            in-progress run) and no rerun(N) was posted:
+        comment "bugbot run"               # this is rerun(N): once, even
+                                           #   after the 30-minute fallback
+                                           #   elapsed; it restarts the
+                                           #   window; if the re-run fails
+                                           #   too or none starts, the
                                            #   fallback in bugbot_in applies
     if a bugbot_stuck run has no "bugbot run" comment since it got stuck:
         comment "bugbot run"               # once; the leader cancels nothing
@@ -345,9 +359,11 @@ function poll_tick(pr):
                                            #   abandoned, the ledger entry
                                            #   names its check-run id, and
                                            #   bugbot_open ignores it; "wait" —
+                                           #   the escalation closes and
                                            #   bugbot_open stays true until
-                                           #   the run ends, and the operator
-                                           #   may rule again later
+                                           #   the run ends or the operator
+                                           #   later rules "proceed" on it,
+                                           #   which needs no new escalation
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -377,8 +393,7 @@ function poll_tick(pr):
                                                           #   the last
     if not pending(pr) and no delta review is running
             and the PR head is neither reviewed_head nor delta_head:
-        run code_reviewer locally on the delta_base..head delta (the
-            whole PR diff when there is no delta_base); its findings are
+        run code_reviewer locally on the delta range; its findings are
             findings like any other; when it completes, set delta_head to
             the head it ran on
                                          # an unset delta_head or a marker a
