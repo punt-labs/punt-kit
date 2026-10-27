@@ -247,10 +247,12 @@ bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                commit, started at or after trigger(N) — the PR open for
                N = 1 (Bugbot's automatic run), round 2's "bugbot run" comment
                for N = 2 — and completed with any conclusion except
-               cancelled; or 30 minutes since trigger(N). A run a push
-               cancelled reviewed nothing, so it does not count; a later
-               push does not undo a completed run. A clean run posts no
-               review, so read the check run.
+               cancelled; or 30 minutes have passed since trigger(N) and no
+               Bugbot run on head(N) or a later commit is queued or in
+               progress (the timeout covers an outage, never a live run). A
+               run a push cancelled reviewed nothing, so it does not count;
+               a later push does not undo a completed run. A clean run posts
+               no review, so read the check run.
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
@@ -286,8 +288,7 @@ reviewed_head = the newest commit covered by a Qodo review, the outage
                (bot-authored) PR has none until the local delta review has
                covered its whole diff
 bugbot_open  = a Cursor Bugbot check run on the head whose status is not
-               completed (queued or in progress) and that was created under
-               30 minutes ago
+               completed (queued or in progress), whatever its age
 ```
 
 "Ledger comment" is a PR comment that records one finding, its reason, and
@@ -346,7 +347,7 @@ function poll_tick(pr):
             whole diff when there is no reviewed_head); its findings are
             findings like any other   # bounded rounds, but no unreviewed
                                       #   merge, bot-authored PRs included
-    if the repo defines a demo and it is not confirmed for the head
+    if the repo defines a demo and demo_ok(pr) is false
             and nothing was pushed this tick:
         run it per the repo's WORKFLOW.md      # see "Repo-specific human
                                                #   gate" below

@@ -468,8 +468,9 @@ function merge_gate(state) -> bool:
     return CI green on the latest commit
        and not pending(pr)                # Qodo and Bugbot in for the round
                                           #   (and Copilot, if requested)
-       and not bugbot_open                # a push-started run's findings land
-                                          #   before the merge
+       and not bugbot_open                # any queued or in-progress run,
+                                          #   whatever its age: its findings
+                                          #   land before the merge
        and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
