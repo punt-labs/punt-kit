@@ -473,9 +473,10 @@ function poll_tick(pr):
         a "dismiss" ruling answers the finding (a Qodo id: `dismiss`)
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked: post an escalation
-            comment on each fix-ruled finding in the diff; every other
-            finding in the diff stays unanswered and is taken again next
-            tick; stop
+            comment naming the blocked fix commit and what blocked it, and
+            one on each fix-ruled finding in the diff; every other finding
+            in the diff stays unanswered and is taken again after the
+            operator rules on the block; stop
         push once                         # each push restarts CI, not review
     answer each finding fixed this tick, or fix-ruled, whose fix commit is
         now on the PR head and passed local_review — a Qodo id by

@@ -55,6 +55,10 @@
 %     old history under new commit ids.
 %  A8 A review event raises at most one finding at once; two findings at
 %     once behave as two events in sequence.
+%  A9 The escalation a blocked local_review posts for the block is not
+%     modelled. The prose is only stricter: FixBlocked returns unruled
+%     findings to the pool, and the prose adds an open escalation that
+%     blocks Merge.
 %
 \documentclass{article}
 \usepackage{fuzz}
@@ -76,7 +80,7 @@ local review or push.
 Every non-merged state can still move, so the only waits are on the operator,
 the author, or a bot.
 
-The named assumptions A1--A8 in the file header bound what the result covers.
+The named assumptions A1--A9 in the file header bound what the result covers.
 
 \section{Two machines}
 
