@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `src/punt_kit/templates/pr_agent.toml` — the Qodo review config template
+  every repo instantiates as `.pr_agent.toml`: one review at open, no push
+  trigger, Highs inline, Mediums in the summary, Lows dropped.
 - `.docs/native-harness-plan/` — the research and execution plan for native
   OpenCode (P1) and pi (P2) support across all nine Punt Labs products:
   strategy, shared architecture, roadmap, a 98-package backlog, acceptance
@@ -14,6 +17,14 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- PR review adopts the vox-tested model (DES-032, supersedes DES-005's Copilot
+  gate). `standards/pr-review.md`: local review (`qodo review` +
+  silent-failure-hunter + code-reviewer) before the PR and every fix push;
+  Qodo and Bugbot once at open; at most two remote rounds, the second only
+  after a High fix; a merge_gate over Qodo and Bugbot rounds.
+  `standards/github.md`: Copilot is on request only, with no
+  `copilot_code_review` ruleset rule. `standards/workflow.md`: the PR loop
+  follows the same gate.
 - `standards/workflow.md`: consult the design decision log before **any**
   design proposal, including an informal naming, UX, or architecture
   suggestion to the operator. Look up ADRs by topic across every decision

@@ -2068,3 +2068,56 @@ the forms it does not see.
 | Regex fixes to the hand-rolled changelog scanner | Fence and comment edge cases (stray fences pairing with later closers, `-->` in prose, 4-backtick openers) failed review twice; CommonMark already defines every case. A small, pure-Python runtime dependency is cheaper than a fourth round of patches. |
 | Separate writer and verifier pin patterns, kept in sync by review | They drifted in practice (case sensitivity, owner anchoring, tag pins). One recognizer makes agreement true by construction. |
 | A blanket `# pyright: reportPrivateUsage=false` in the large test module | Replaces visible, per-seam suppressions with an invisible one that hides future private access in a 14k-line file; the tests use public seams and helpers instead. |
+
+## DES-032: Local Review First; Qodo and Bugbot Once; Copilot on Request
+
+**Date:** 2026-10-26
+**Status:** SETTLED
+**Topic:** Which reviewers gate a PR, and how many remote rounds it pays
+**Supersedes:** DES-005 point 2 ("blocking CI and Copilot review") and its
+"skip Copilot review for small changes" rejection
+
+### Context
+
+Under DES-005 every PR requested Copilot, and Copilot, Bugbot, and Qodo
+re-reviewed on every push. In an org-wide sample of 923 merged PRs the median
+remote review rounds rose from 1–2 to 4 in October 2026 (p90 10.6), driven by
+re-review of fix pushes; 28 of 49 bugs a reduced remote review missed were in
+code added by those pushes. A 4-line change could not merge. The vox pilot
+(vox-2q95, PRs #522–#528) tested the alternative: review each diff locally
+before it is pushed, and let the remote bots review once.
+
+### Design
+
+`standards/pr-review.md` is the full specification. In short:
+
+1. **Local review before the PR and before every fix push:** `qodo review` +
+   silent-failure-hunter + code-reviewer on the full diff and on fix diffs of
+   20+ lines; `qodo review` alone under 20 lines; the security reviewer on
+   credential diffs. From round 2 the scope is regressions and Highs in the
+   diff. At most four fix rounds plus a verifying review.
+2. **Remote review:** Qodo once at open (`.pr_agent.toml` from
+   `src/punt_kit/templates/pr_agent.toml`: no push trigger, Highs inline,
+   Mediums in the summary, Lows dropped) and Bugbot once at open. Round 2
+   only after a High fix; hard cap of two.
+3. **Copilot is on request only.** No repo ruleset carries a
+   `copilot_code_review` rule (removed from every readable repo on
+   2026-10-26). Rulesets keep `required_review_thread_resolution` and the
+   required status checks.
+4. **merge_gate** is CI green, no review pending, the reviewed head equals
+   the PR head, every finding answered, zero unresolved threads, round ≤ 2.
+
+### Evidence
+
+On vox, local review fixed 89 real defects before five PRs opened; remote
+review then found 10. Four of the five merged in one or two remote rounds.
+Under the old model one docs PR (punt-labs#155) took 9 remote rounds and 26
+bot findings. Figures: `punt-labs/.docs/review-strategy/SUMMARY.md`.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep Copilot on every push and cap rounds | Each push still costs a full remote round; the cap only moves where the PR stalls. Copilot's real-bug share of comments was the lowest of the three bots (12%). |
+| Remove remote review entirely | Remote review still found runtime facts no diff reader saw (vox#527's cache and mirror findings). One round at open keeps that value. |
+| Lower the bar by making threads non-blocking | Untested, and it trades fewer rounds for unanswered findings. The vox model cuts rounds while keeping every finding answered. |
