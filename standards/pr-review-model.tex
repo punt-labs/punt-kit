@@ -105,11 +105,25 @@ of machine B.
 \textbf{Why the split is sound.} Each invariant mentions the variables of one
 machine plus the shared $round$, $skipped$, and $merged$. It holds on every
 real trace, because the trace's projection is a trace of the machine that owns
-the invariant. A deadlock of the real system is a state where neither side can
-move. Then machine B has no move either: its $Merge$ would be enabled if the
-Bugbot conjuncts held, and if they hold, machine A, with both abstract events
-fired, has no move. So a real deadlock is a deadlock of A or of B, and neither
-machine has one.
+the invariant.
+
+Deadlock freedom rests on a lemma, stated, proved by cases, and checked as I6
+in machine B: in every non-merged state where none of B's own events is
+enabled ($BugbotStart$ aside, which the proof does not need), the Bugbot
+conjuncts hold. B's $OpenRound2$ and $Merge$ are not among B's own events:
+they stand for the review side, so B being deadlock-free says nothing on its
+own, and the argument does not use it. Take a real non-merged state where
+nothing can move. B's own events are real events with the same guards, so all
+are disabled, and by the lemma $bugbot\_clear$ and $bugbot\_in(round)$ hold
+(the latter unless the PR is skipped, where $\lnot pending$ does not read it).
+Project the trace onto machine A with $BugbotInArrives$ for the current round
+and $BugbotClears$ inserted just before this state where they have not yet
+fired; each is enabled before the merge until it fires, and the predicates
+they report are true here. Every other
+variable is the real one, and A reads $bbIn$ and $bbClear$ only positively. So
+an A event enabled in the projected state is enabled in the real state too,
+and the two abstract events are not, since they have fired. Machine A has no
+deadlock. So the real state can move, and the real system has no deadlock.
 
 \section{Given sets and enumerations}
 
@@ -167,21 +181,15 @@ re-covered a commit already seen.
   \# trigHead = 1
 \end{schema}
 
-\textbf{Qodo and its outage fallback.} A Qodo session and the local fallback
-each run on a commit recorded when they start, for the round that started
-them. The head may move while either runs.
+\textbf{Qodo and its outage fallback.} $qodoRun$ and $fbRun$ map each round
+with a session or fallback in flight to the commit it started on. Sessions of
+different rounds may overlap: a round-2 session may start while a late
+round-1 session still runs, and so may two fallbacks. The head may move while
+any of them runs.
 
 \begin{schema}{Qodo}
   qodoDone, qodoStarted, fbStarted : \power ROUND \\
-  qodoRun, fbRun : \power COMMIT \\
-  qodoRunRound, fbRound : \power ROUND
-\where
-  \# qodoRun \leq 1 \\
-  \# fbRun \leq 1 \\
-  ( qodoRun = \emptyset \iff qodoRunRound = \emptyset ) \\
-  ( fbRun = \emptyset \iff fbRound = \emptyset ) \\
-  \# qodoRunRound \leq 1 \\
-  \# fbRound \leq 1
+  qodoRun, fbRun : ROUND \pfun COMMIT
 \end{schema}
 
 \textbf{The Bugbot interface.} $bbIn$ is the rounds whose $bugbot\_in$ the
@@ -261,20 +269,22 @@ $reviewed\_head$ never moves backward. A completing review moves it to the
 commit it ran on only when the current $reviewed\_head$ is unset, is off the
 head's history (a rebase orphaned it), or is an ancestor of that commit. A
 late session that ran on an older or orphaned commit leaves a marker that
-already covers the head alone.
+already covers the head alone. $n?$ is the round of the completing review.
 
 \begin{schema}{Advances}
-  State
+  State \\
+  n? : ROUND
 \where
   \forall m : reviewedHead @ m \mapsto head \in anc \implies \\
-  \quad~ ( \exists q : qodoRun @ m \mapsto q \in anc )
+  \quad~ ( \exists q : COMMIT @ n? \mapsto q \in qodoRun \land m \mapsto q \in anc )
 \end{schema}
 
 \begin{schema}{FbAdvances}
-  State
+  State \\
+  n? : ROUND
 \where
   \forall m : reviewedHead @ m \mapsto head \in anc \implies \\
-  \quad~ ( \exists q : fbRun @ m \mapsto q \in anc )
+  \quad~ ( \exists q : COMMIT @ n? \mapsto q \in fbRun \land m \mapsto q \in anc )
 \end{schema}
 
 \section{Initial state}
@@ -301,8 +311,6 @@ no finding.
   fbStarted' = \emptyset \\
   qodoRun' = \emptyset \\
   fbRun' = \emptyset \\
-  qodoRunRound' = \emptyset \\
-  fbRound' = \emptyset \\
   bbIn' = \emptyset \\
   bbClear' = no \\
   findings' = \emptyset \\
@@ -403,38 +411,34 @@ A Qodo session starts for the current round, once per round, on the head.
   merged = no \\
   skipped = no \\
   round \notin qodoDone \cup qodoStarted \\
-  qodoRun = \emptyset \\
-  qodoRun' = \{ head \} \\
-  qodoRunRound' = \{ round \} \\
+  qodoRun' = qodoRun \cup \{ round \mapsto head \} \\
   qodoStarted' = qodoStarted \cup \{ round \} \\
   qodoDone' = qodoDone \\
   fbStarted' = fbStarted \\
-  fbRun' = fbRun \\
-  fbRound' = fbRound
+  fbRun' = fbRun
 \end{schema}
 
-The session completes. It covers the history of the commit it ran on, not the
-head now, and completes the round that started it.
+A session completes, in any order. It covers the history of the commit it ran
+on, not the head now, and completes the round that started it.
 
 \begin{schema}{QodoCompletes}
   \Delta State \\
   \Xi Commits \\
   \Xi BugbotIface \\
   \Xi Issues \\
-  \Xi Gate
+  \Xi Gate \\
+  n? : ROUND
 \where
   merged = no \\
-  qodoRun \neq \emptyset \\
-  qodoDone' = qodoDone \cup qodoRunRound \\
-  ( Advances \implies reviewedHead' = qodoRun ) \\
+  n? \in \dom qodoRun \\
+  qodoDone' = qodoDone \cup \{ n? \} \\
+  ( Advances \implies reviewedHead' = qodoRun \limg \{ n? \} \rimg ) \\
   ( \lnot Advances \implies reviewedHead' = reviewedHead ) \\
-  seen' = seen \cup \{ a : COMMIT | ( \exists q : qodoRun @ a \mapsto q \in anc ) \} \\
-  qodoRun' = \emptyset \\
-  qodoRunRound' = \emptyset \\
+  seen' = seen \cup \{ a : COMMIT | ( \exists q : COMMIT @ n? \mapsto q \in qodoRun \land a \mapsto q \in anc ) \} \\
+  qodoRun' = \{ n? \} \ndres qodoRun \\
   qodoStarted' = qodoStarted \\
   fbStarted' = fbStarted \\
   fbRun' = fbRun \\
-  fbRound' = fbRound \\
   deltaHead' = deltaHead \\
   deltaRun' = deltaRun \\
   deltaRange' = deltaRange \\
@@ -459,14 +463,11 @@ once per round. A1 lets it start before 30 minutes.
   merged = no \\
   skipped = no \\
   round \notin qodoDone \cup fbStarted \\
-  fbRun = \emptyset \\
-  fbRun' = trigHead \\
-  fbRound' = \{ round \} \\
+  fbRun' = fbRun \cup ( \{ round \} \cross trigHead ) \\
   fbStarted' = fbStarted \cup \{ round \} \\
   qodoDone' = qodoDone \\
   qodoStarted' = qodoStarted \\
-  qodoRun' = qodoRun \\
-  qodoRunRound' = qodoRunRound
+  qodoRun' = qodoRun
 \end{schema}
 
 \begin{schema}{FallbackCompletes}
@@ -474,20 +475,19 @@ once per round. A1 lets it start before 30 minutes.
   \Xi Commits \\
   \Xi BugbotIface \\
   \Xi Issues \\
-  \Xi Gate
+  \Xi Gate \\
+  n? : ROUND
 \where
   merged = no \\
-  fbRun \neq \emptyset \\
-  qodoDone' = qodoDone \cup fbRound \\
-  ( FbAdvances \implies reviewedHead' = fbRun ) \\
+  n? \in \dom fbRun \\
+  qodoDone' = qodoDone \cup \{ n? \} \\
+  ( FbAdvances \implies reviewedHead' = fbRun \limg \{ n? \} \rimg ) \\
   ( \lnot FbAdvances \implies reviewedHead' = reviewedHead ) \\
-  seen' = seen \cup \{ a : COMMIT | ( \exists q : fbRun @ a \mapsto q \in anc ) \} \\
-  fbRun' = \emptyset \\
-  fbRound' = \emptyset \\
+  seen' = seen \cup \{ a : COMMIT | ( \exists q : COMMIT @ n? \mapsto q \in fbRun \land a \mapsto q \in anc ) \} \\
+  fbRun' = \{ n? \} \ndres fbRun \\
   fbStarted' = fbStarted \\
   qodoStarted' = qodoStarted \\
   qodoRun' = qodoRun \\
-  qodoRunRound' = qodoRunRound \\
   deltaHead' = deltaHead \\
   deltaRun' = deltaRun \\
   deltaRange' = deltaRange \\

@@ -37,7 +37,8 @@ This machine checks the Bugbot conjuncts of $merge\_gate$. No reachable state
 merges with a live run that has no ``proceed'' ruling. On a PR that is not
 skipped, a merge on the 30-minute fallback never skips the re-run of a failed
 run, and never comes before a full window after that re-run. Every non-merged
-state can still move.
+state can still move, and where none of this machine's own events can, the
+Bugbot conjuncts of $merge\_gate$ hold (the deadlock lemma, I6).
 
 \section{Given sets and enumerations}
 
@@ -89,23 +90,6 @@ records that a full window elapsed after that re-run.
   escRun \subseteq escRunEver \setminus waitRuled
 \end{schema}
 
-\textbf{The invariant.}
-(I1, Bugbot half) A merge leaves no live run without a ``proceed'' ruling.
-(I4) On a PR that is not skipped, a merge on the fallback never skips the
-re-run of a failed run, and never comes before a full window after that
-re-run.
-
-\begin{schema}{Invariant}
-  State
-\where
-  merged = yes \implies ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
-  ( merged = yes \land skipped = no ) \implies \\
-  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
-  \quad~\quad~ ( ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
-  \quad~\quad~\quad~ \implies round \in rerunAfterFail ) \land \\
-  \quad~\quad~\quad~ ( round \in retried \implies round \in windowSinceRetry ) ) )
-\end{schema}
-
 \section{Derived terms}
 
 $bugbot\_in(N)$: a run of round $N$ finished its review; or the window
@@ -130,6 +114,65 @@ escalation.
 \where
   ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
   escRun = \emptyset
+\end{schema}
+
+$Quiescent$: the PR is not merged and every event of this machine except
+$BugbotStart$ is disabled. Each line is the negated precondition of one
+event, in order: $BugbotEnd$, $BugbotStuck$, $EscalateStuck$, $Timeout$,
+$RequestRetry$, $OperatorProceed$, $OperatorWait$; a change to one of those
+guards changes its line here. $OpenRound2$ and $Merge$ are not this machine's
+own events; they stand for the review side (B4).
+
+\begin{schema}{Quiescent}
+  State
+\where
+  merged = no \\
+  \lnot ( \exists r : \dom runs @ runs~r = live ) \\
+  \lnot ( \exists r : \dom runs @ runs~r = live \land r \notin stuck ) \\
+  \lnot ( \exists r : stuck @ runs~r = live \land r \notin proceed \cup escRunEver ) \\
+  round \in timedOut \\
+  \lnot ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \land \\
+  \quad~ round \notin retried ) \\
+  escRun \cup waitRuled = \emptyset \\
+  escRun = \emptyset
+\end{schema}
+
+\textbf{The deadlock lemma.} In every $Quiescent$ state the Bugbot conjuncts
+of $merge\_gate$ hold: $BugbotClear$, and $BugbotIn$ unless the PR is skipped.
+By cases.
+\begin{itemize}
+\item $BugbotClear$ false: either a live run without a ``proceed'' ruling
+  exists, and then $BugbotEnd$ is enabled on it; or $escRun \neq \emptyset$,
+  and then $OperatorProceed$ and $OperatorWait$ are enabled on its member.
+  Both contradict $Quiescent$. So no run is live and $escRun = \emptyset$.
+\item $skipped = no$ and $BugbotIn$ false, with $round \notin timedOut$:
+  $Timeout$ is enabled. A contradiction.
+\item $skipped = no$ and $BugbotIn$ false, with $round \in timedOut$: no run
+  is live (first case), so $BugbotIn$'s live-run clause holds, and $BugbotIn$
+  can fail only through a failed run of $round$ with $round \notin retried$.
+  Then $RequestRetry$ is enabled. A contradiction.
+\end{itemize}
+The proof does not use $BugbotStart$, so the lemma holds even while a fresh
+run could still start. Machine A uses it in ``Why the split is sound''.
+ProB checks it as I6 below.
+
+\textbf{The invariant.}
+(I1, Bugbot half) A merge leaves no live run without a ``proceed'' ruling.
+(I4) On a PR that is not skipped, a merge on the fallback never skips the
+re-run of a failed run, and never comes before a full window after that
+re-run.
+(I6) The deadlock lemma.
+
+\begin{schema}{Invariant}
+  State
+\where
+  merged = yes \implies ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
+  ( merged = yes \land skipped = no ) \implies \\
+  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
+  \quad~\quad~ ( ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  \quad~\quad~\quad~ \implies round \in rerunAfterFail ) \land \\
+  \quad~\quad~\quad~ ( round \in retried \implies round \in windowSinceRetry ) ) ) \\
+  Quiescent \implies ( ( skipped = yes \lor BugbotIn ) \land BugbotClear )
 \end{schema}
 
 \section{Initial state}
