@@ -1,0 +1,36 @@
+# Qodo v2 review config from punt-kit's pr_agent.toml template; replace every {{PLACEHOLDER}}.
+[github_app]
+ignore_bot_pr = true
+pr_commands = ["/agentic_describe", "/agentic_review"]
+handle_push_trigger = false
+
+[review_agent]
+enable_incremental_review = true
+# comments_routing below is authoritative; the threshold restates it (High only inline).
+inline_comments_severity_threshold = 3
+# Python repos fill {{LANGUAGE_RULES}} with this exact line: Never suggest suppressions (# noqa, # type: ignore, xfail) or replacing __new__ with __init__; __new__ is the constructor by design.
+issues_user_guidelines = """
+{{LANGUAGES_AND_TARGETS}}
+Report every finding in this one pass; do not hold findings back for a later pass.
+Flag only defects reachable by a real caller of the changed code: logic errors, None paths, security, API contract breaks, concurrency, resource leaks.
+Do not flag hypothetical environments (exotic env vars such as CDPATH or GIT_TRACE, control bytes in paths, tests run as root).
+Do not flag what CI enforces: {{CI_ENFORCED}}.
+Do not flag lines the PR did not change.
+{{LANGUAGE_RULES}}
+"""
+compliance_user_guidelines = """
+Apply code rules only: correctness, typing, error handling, security, and the coding standards for the changed files.
+Do not grade PR titles, PR descriptions, commit messages, or CHANGELOG wording.
+Do not grade agent process rules from CLAUDE.md, AGENTS.md, or WORKFLOW.md (missions, beads, review cycles, delegation).
+"""
+# {{LOW_RISK}} must not cover plugin/ commands, skills, agents, or hooks: Claude Code
+# executes them, so they are behavior even when Markdown. List them under {{HIGH_RISK}}.
+smart_router_extra_instructions = """
+High risk: {{HIGH_RISK}}.
+Low risk: {{LOW_RISK}}.
+"""
+
+[review_agent.comments_routing]
+action_required = "both"
+remediation_recommended = "summary"
+informational = "drop"

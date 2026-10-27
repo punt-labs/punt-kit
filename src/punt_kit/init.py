@@ -923,11 +923,16 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
 
 def _report_manual_steps(info: ProjectInfo) -> None:
     """Print steps that require manual action."""
+    template = TEMPLATES / "pr_agent.toml"
     steps: list[str] = [
         "Create branch protection ruleset on main"
         " (require PR, 0 approvals, status checks,"
         " conversation resolution, zero bypass actors)",
-        "Enable GitHub Copilot code review",
+        f"Copy {escape(str(template))} to .pr_agent.toml,"
+        " fill its placeholders, and merge it to main;"
+        " set Qodo 'Review every push' to Disable and Bugbot to"
+        " review each PR once (Cursor dashboard);"
+        " do not add a copilot_code_review ruleset rule",
         "Enable Dependabot alerts + security updates",
         "Enable secret scanning + push protection",
         "Enable auto-delete head branches",
@@ -935,7 +940,8 @@ def _report_manual_steps(info: ProjectInfo) -> None:
 
     console.print("\n[bold]Manual steps remaining:[/bold]")
     for step in steps:
-        console.print(f"  [dim]○[/dim] {step}")
+        # soft_wrap keeps the template path in one piece for copy and paste
+        console.print(f"  [dim]○[/dim] {step}", soft_wrap=True)
     console.print()
 
 

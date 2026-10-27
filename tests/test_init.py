@@ -724,6 +724,23 @@ def test_init_drops_orphan_dead_deny_rule_without_activating_it(
     assert "Edit(secrets/**)" not in deny
 
 
+def test_init_manual_steps_name_the_packaged_pr_agent_template(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The step must print a path the operator can actually copy from."""
+    import re
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    match = re.search(
+        r"Copy (\S+pr_agent\.toml) to \.pr_agent\.toml", capsys.readouterr().out
+    )
+    assert match is not None
+    assert Path(match.group(1)).is_file()
+
+
 def test_init_reports_why_each_rule_was_removed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
