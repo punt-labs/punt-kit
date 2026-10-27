@@ -54,7 +54,8 @@ All notable changes to this project will be documented in this file.
     and a fresh window. Round 2's "bugbot run" trigger is not a `rerun`.
     A round-1 run that fails after round 2 opens still gets `rerun(1)`,
     and `merge_gate` waits until every round with a failed run has its
-    re-run.
+    re-run. Each `rerun(N)` posts a ledger line naming its round and the
+    failed check run, so GitHub shows which rounds were re-run.
   - A stuck run is ruled "proceed" instead of "cancel" (only the owning app
     can cancel a check run); the ledger names its check-run id and
     `bugbot_open` ignores it. After a "wait" ruling the operator may rule
