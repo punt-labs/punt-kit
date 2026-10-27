@@ -412,8 +412,8 @@ function pr_loop(unit):
 
 # Terms (round, trigger, head, qodo_in, bugbot_in, copilot_in, pending,
 # finding, answered, new High, escalation, skipped, reviewed_head,
-# delta_head, bugbot_open, bugbot_stuck) are defined in pr-review.md, with the
-# full poll_tick.
+# delta_head, delta_base, bugbot_open, bugbot_stuck) are defined in
+# pr-review.md, with the full poll_tick; pr-review-model.tex model-checks them.
 # A round is the PR open (round 1) or one "/agentic_review" plus one
 # "bugbot run" comment (round 2, only after a High fix; the last).
 
@@ -430,8 +430,9 @@ function poll_tick(pr):
                                           # outage fallback; ledger path
     if a Bugbot run for round N completed without a finished review
             (failure, timeout, or cancelled) and no re-run was requested
-            for round N and bugbot_in(N) is still false:
-        comment "bugbot run"              # once; then the 30-minute fallback
+            for round N:
+        comment "bugbot run"              # once, even after the fallback
+                                          #   elapsed; then the fallback
     if a bugbot_stuck run (open over 60 minutes) has no "bugbot run" comment
             since it got stuck: comment "bugbot run"   # once; cancel nothing
     if a run is still bugbot_stuck 30 minutes after that comment and no
@@ -467,12 +468,13 @@ function poll_tick(pr):
     if not skipped(pr) and not pending(pr) and N == 1
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # round 2, the last
-    if not pending(pr) and (the PR head is newer than both reviewed_head
-            and delta_head, or skipped(pr) and neither exists):
-        run code_reviewer locally on the reviewed_head..head delta (the
-            whole diff when there is no reviewed_head); set delta_head to
-            the head once the review has completed
-    if every finding of the delta review at delta_head is answered(f):
+    if not pending(pr) and no delta review is running
+            and the PR head is neither reviewed_head nor delta_head:
+        run code_reviewer locally on the delta_base..head delta (the
+            whole PR diff when there is no delta_base); when it completes,
+            set delta_head to the head it ran on
+    if delta_head is the PR head, reviewed_head is not, and every finding
+            that delta review raised is answered(f):
         set reviewed_head to delta_head   # bounded rounds, no unreviewed merge
     if demo_ok(pr) is false and nothing was pushed this tick:
         if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;

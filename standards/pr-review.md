@@ -229,6 +229,8 @@ other.
 #### Terms
 
 All terms are read from GitHub; Qodo's login is `qodo-code-review[bot]`.
+The review markers, Bugbot runs, findings, escalations, and `merge_gate` are
+model-checked in [pr-review-model.tex](pr-review-model.tex).
 
 ```text
 round(pr)    = 1 + the number of "/agentic_review" comments the leader has
@@ -252,8 +254,10 @@ bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                count; a later push does not undo a completed run. A clean
                run posts no review, so read the check run. Or: 30 minutes
                have passed since trigger(N) (or since the re-run comment
-               below, if later) and bugbot_open is false — the timeout
-               covers an outage, never a live run.
+               below, if later), bugbot_open is false, and, if a run for
+               round N failed, the re-run comment for round N was posted —
+               the timeout covers an outage, never a live run and never a
+               skipped re-run.
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
@@ -284,11 +288,15 @@ escalation   = the leader's "escalated:" comment on one new round-2 High,
                recording the operator's ruling and how it was applied
 skipped(pr)  = the PR author is a bot ([github_app] ignore_bot_pr in
                .pr_agent.toml); no title or label lets an author skip
-reviewed_head = the newest commit covered by a Qodo review, the outage
-               fallback, or the local delta review below; a skipped
-               (bot-authored) PR has none until the local delta review has
-               covered its whole diff
-delta_head   = the newest commit a local delta review has completed on
+reviewed_head = the commit the latest Qodo review or outage fallback ran
+               on, or, later, a delta_head that was the PR head once every
+               finding its delta review raised was answered; a skipped
+               (bot-authored) PR has none until a delta review promotes one
+delta_head   = the PR head a local delta review ran on, set only when that
+               review completes; unset until the first one completes
+delta_base   = the newer of reviewed_head and delta_head, among those that
+               are set and are the head or an ancestor of it; none when
+               neither is — no marker yet, or a rebase orphaned both
 bugbot_open  = a Cursor Bugbot check run on any commit of the PR, not only
                the head, whose status is not completed (queued or in
                progress), whatever its age, and that has no recorded
@@ -323,10 +331,10 @@ function poll_tick(pr):
                                                    # outage fallback
     if a Bugbot run for round N completed without a finished review
             (failure, timeout, or cancelled — a fix push cancels an
-            in-progress run) and no re-run was requested for round N
-            and bugbot_in(N) is still false:
-        comment "bugbot run"               # once; if the re-run fails too or
-                                           #   none starts, the 30-minute
+            in-progress run) and no re-run was requested for round N:
+        comment "bugbot run"               # once, even after the 30-minute
+                                           #   fallback elapsed; if the re-run
+                                           #   fails too or none starts, the
                                            #   fallback in bugbot_in applies
     if a bugbot_stuck run has no "bugbot run" comment since it got stuck:
         comment "bugbot run"               # once; the leader cancels nothing
@@ -367,13 +375,16 @@ function poll_tick(pr):
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # opens round 2,
                                                           #   the last
-    if not pending(pr) and (the PR head is newer than both reviewed_head
-            and delta_head, or skipped(pr) and neither exists):
-        run code_reviewer locally on the reviewed_head..head delta (the
-            whole diff when there is no reviewed_head); its findings are
-            findings like any other; set delta_head to the head once the
-            review has completed
-    if every finding of the delta review at delta_head is answered(f):
+    if not pending(pr) and no delta review is running
+            and the PR head is neither reviewed_head nor delta_head:
+        run code_reviewer locally on the delta_base..head delta (the
+            whole PR diff when there is no delta_base); its findings are
+            findings like any other; when it completes, set delta_head to
+            the head it ran on
+                                         # an unset delta_head or a marker a
+                                         #   rebase orphaned never blocks it
+    if delta_head is the PR head, reviewed_head is not, and every finding
+            that delta review raised is answered(f):
         set reviewed_head to delta_head  # bounded rounds, but no unreviewed
                                          #   merge, bot-authored PRs included
     if demo_ok(pr) is false and nothing was pushed this tick:

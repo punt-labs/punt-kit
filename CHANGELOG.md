@@ -14,6 +14,11 @@ All notable changes to this project will be documented in this file.
   strategy, shared architecture, roadmap, a 98-package backlog, acceptance
   matrix, and per-product and per-harness audits. Codex support is deferred.
   A plan, not shipped integrations.
+- `standards/pr-review-model.tex` — a Z model of the PR review state
+  (review markers, Bugbot runs and rulings, findings, escalations,
+  `merge_gate`), type-checked with fuzz and model-checked with ProB. Each of
+  the five review-state defects it fixes reappears as a counterexample when
+  its fix is removed.
 
 ### Security
 
@@ -37,12 +42,18 @@ All notable changes to this project will be documented in this file.
   `copilot_code_review` ruleset rule. `standards/workflow.md`: the PR loop
   follows the same gate.
 - `standards/pr-review.md` and `standards/workflow.md`: four fixes to the PR
-  review model. A failed Bugbot run is re-run only while `bugbot_in(N)` is
-  still false. A stuck Bugbot run is ruled "proceed" instead of "cancel"
+  review model. A failed Bugbot run is re-run once per round, even after the
+  30-minute fallback elapsed, and the fallback does not count until that
+  re-run was requested. A stuck Bugbot run is ruled "proceed" instead of "cancel"
   (only the owning app can cancel a check run). The ledger names the run's
   check-run id, and `bugbot_open` ignores that run. A new `delta_head` term
   stops the local delta review from re-running on the same head while its
-  findings are still being answered. The leader posts "demo confirmed" once
+  findings are still being answered. The delta review runs whenever the head
+  is neither `reviewed_head` nor `delta_head`, so an unset `delta_head` or a
+  rebase never blocks it. It starts at `delta_base`, the newer marker that is
+  an ancestor of the head, so no commit is reviewed twice. `reviewed_head`
+  takes `delta_head` only after that review completed on the head. The
+  leader posts "demo confirmed" once
   the demo passes on the head, and waits for the operator only on
   user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**
