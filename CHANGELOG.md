@@ -16,8 +16,8 @@ All notable changes to this project will be documented in this file.
 
 - Deny the shell commands that print environment variable values: `env` and
   `printenv` in every form, bare `set`, and `export`, `declare`, and
-  `typeset` bare or with any flag (`Bash(export -:*)` and so on, because
-  flags combine and reorder). That is 11 rules, added to
+  `typeset` bare or with any flag (`Bash(export -*)` and so on, with no space
+  before `*` so attached flags such as `-p` and `-np` match). That is 11 rules, added to
   `standards/permissions.md` §4, to the deny list `punt init` scaffolds and
   `punt audit` enforces, and to punt-kit's own settings. To set a variable
   for one command, use `VAR=value command`. `export VAR=value` and
