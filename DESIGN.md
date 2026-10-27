@@ -2121,3 +2121,46 @@ bot findings. Figures: `punt-labs/.docs/review-strategy/SUMMARY.md`.
 | Keep Copilot on every push and cap rounds | Each push still costs a full remote round; the cap only moves where the PR stalls. Copilot's real-bug share of comments was the lowest of the three bots (12%). |
 | Remove remote review entirely | Remote review still found runtime facts no diff reader saw (vox#527's cache and mirror findings). One round at open keeps that value. |
 | Lower the bar by making threads non-blocking | Untested, and it trades fewer rounds for unanswered findings. The vox model cuts rounds while keeping every finding answered. |
+
+## DES-033: The Review State Machine Is Model-Checked, as Two Machines
+
+**Date:** 2026-10-27
+**Status:** SETTLED
+**Topic:** How `pr-review.md`'s review terms, `poll_tick`, and `merge_gate`
+are kept correct
+
+### Context
+
+Rolling DES-032 out to every repo ran eight review rounds on the prose of
+`reviewed_head`, `delta_head`, the Bugbot rounds, and the rulings. Each round
+fixed one defect and surfaced the next. The repeated defect class meets the
+formal-model trigger in `workflow.md`: stop opening empirical rounds and
+model-check the state machine.
+
+### Design
+
+1. `standards/pr-review-model.tex` (machine A) models commits and rebases, the
+   review markers, Qodo sessions and the outage fallback, findings, fix and
+   dismiss rulings, and escalations. `standards/pr-review-model-bugbot.tex`
+   (machine B) models Bugbot runs, `rerun(N)`, the 30-minute window, and the
+   stuck-run proceed and wait rulings.
+2. The machines share only `round`, `skipped`, and `merged`. Each stands in
+   for the other with events that allow at least every real behaviour, and
+   `merge_gate` is the conjunction of both machines' conjuncts. A's header
+   states why the split is sound; B's `Quiescent` lemma (I6) carries the
+   deadlock half.
+3. Both are type-checked with fuzz and model-checked with ProB. A is checked
+   at COMMIT 3 / FINDING 1 and COMMIT 2 / FINDING 2; B at RUN 3. Each check
+   stays under 8 GB and 15 minutes.
+4. Every defect found during the rollout is kept as a fidelity variant: the
+   model with that one fix removed must produce a counterexample.
+5. The prose in `pr-review.md` and `workflow.md` says what the checked
+   model says. A change to either rule set changes the model first.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep fixing the prose round by round | Eight rounds each produced the next defect in the same state; the rounds were not converging. |
+| One combined machine | Interleaving Bugbot, Qodo, commit, and finding events reached 899,610 states at COMMIT 2 and 30 GB before finishing at COMMIT 3. No single variable caused it, so no bound short of the split fit. |
+| Symmetry reduction at COMMIT 3 / FINDING 2 | Did not finish within 8 GB twice; ProB also warns symmetry hashing may be imprecise for the ancestry relation. The precise COMMIT 2 / FINDING 2 run covers two findings exactly. |
