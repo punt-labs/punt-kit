@@ -469,13 +469,15 @@ function poll_tick(pr):
         a "dismiss" ruling answers the finding (a Qodo id: `dismiss`)
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked: post an escalation
-            comment on each fix-ruled finding in the diff; stop; the
-            operator rules
+            comment on each fix-ruled finding in the diff; every other
+            finding in the diff stays unanswered and is taken again next
+            tick; stop
         push once                         # each push restarts CI, not review
     answer each finding fixed this tick, or fix-ruled, whose fix commit is
         now on the PR head and passed local_review — a Qodo id by
-        `mark-implemented`, any other source by that commit, named in its
-        ledger entry
+        `mark-implemented` (a reopened one by a ledger line naming its
+        Qodo id and the new fix sha), any other source by that commit,
+        named in its ledger entry
         # whatever the source: answered earlier, a stopped fix would merge
         #   unfixed, with no open escalation and no unanswered finding
     resolve each answered thread, one by one   # the leader resolves, not the
