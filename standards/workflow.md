@@ -434,8 +434,11 @@ function poll_tick(pr):
     if a bugbot_stuck run (open over 60 minutes) has no "bugbot run" comment
             since it got stuck: comment "bugbot run"   # once; cancel nothing
     if a run is still bugbot_stuck 30 minutes after that comment and no
-            escalation for it is open:
-        post an escalation comment        # the operator rules: cancel or wait
+            escalation has been posted for this run:
+        post an escalation comment        # once, ever, per run; "cancel": the
+                                          #   leader cancels it and it ends;
+                                          #   "wait": bugbot_open stays true
+                                          #   until it ends
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
             post an escalation comment; the operator rules
@@ -489,8 +492,6 @@ function merge_gate(state) -> bool:
                                           #   any commit of the PR, whatever
                                           #   its age: its findings land
                                           #   before the merge, until it ends
-                                          #   or a stuck run's escalation is
-                                          #   ruled on
        and reviewed_head is the PR head   # bot-authored PRs included
        and every finding is answered
        and zero unresolved review threads
