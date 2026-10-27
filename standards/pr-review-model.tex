@@ -64,7 +64,8 @@ Eight empirical fix rounds on the review-state rules each surfaced the next
 defect. This model replaces those rounds. It states what the leader reads from
 GitHub, the events that change it, and the guard $merge\_gate$ puts on
 $Merge$. ProB checks two things. No reachable state merges a commit no review
-covered or an unanswered finding, or answers a ``fix'' ruling without its fix.
+covered or an unanswered finding, or answers a finding by a fix before that
+fix passed local review and reached the head.
 Every non-merged state can still move, so the only waits are on the operator,
 the author, or a bot.
 
@@ -118,12 +119,27 @@ are disabled, and by the lemma $bugbot\_clear$ and $bugbot\_in(round)$ hold
 (the latter unless the PR is skipped, where $\lnot pending$ does not read it).
 Project the trace onto machine A with $BugbotInArrives$ for the current round
 and $BugbotClears$ inserted just before this state where they have not yet
-fired; each is enabled before the merge until it fires, and the predicates
-they report are true here. Every other
-variable is the real one, and A reads $bbIn$ and $bbClear$ only positively. So
-an A event enabled in the projected state is enabled in the real state too,
-and the two abstract events are not, since they have fired. Machine A has no
-deadlock. So the real state can move, and the real system has no deadlock.
+fired. $BugbotInArrives$ is inserted on a skipped PR too, harmlessly:
+$NotPending$ reads $bbIn$ only when $skipped = no$. Neither abstract event is
+enabled in the projected state, since both have fired. Every other variable is
+the real one, and A reads $bbIn$ and $bbClear$ only positively. Machine A has
+no deadlock, so some A event is enabled in the projected state. Each such
+event is enabled in the real state too, or implies another A event that is.
+Three A guards are weaker than the real ones:
+\begin{itemize}
+\item $EscalateFinding$ takes any unanswered finding, not only a new High.
+  $AnswerLedger$ has the same finding guard: the real ledger answer covers a
+  finding that is not a new High, the real escalation one that is.
+\item $FallbackStart$ may fire before 30 minutes (A1): the real ``30 minutes
+  pass'' event moves.
+\item $OpenRound2$ omits ``a High was fixed''. With $bbClear = yes$, $Merge$
+  is enabled, or one of these is: $RuleDismiss$ ($escF \neq \emptyset$),
+  $FixBlocked$ ($fixing \cup fixPending \neq \emptyset$), $AnswerLedger$,
+  $DeltaReviewCompletes$ ($deltaRun \neq \emptyset$), $DeltaReviewStart$
+  ($head \notin deltaHead$), or $Promote$ ($head \in deltaHead$, every finding
+  answered).
+\end{itemize}
+So the real state can move, and the real system has no deadlock.
 
 \section{Given sets and enumerations}
 
@@ -203,13 +219,14 @@ monotone (section ``Two machines'').
 
 \textbf{Findings and escalations.} Any number of findings may be escalated at
 once ($escF$). $fixPending$ holds findings the operator ruled ``fix'' whose fix
-has not yet landed. Three ghosts: $fixRuledEver$, $pushFixed$ (findings
-answered by a fix push), and $dismissedEver$ (findings answered by a
-``dismiss'' ruling).
+has not yet landed; $fixing$ holds unruled findings whose fix commit awaits
+local review. Four ghosts: $fixRuledEver$, $pushFixed$ (findings answered by
+a fix push), $dismissedEver$ (findings answered by a ``dismiss'' ruling), and
+$ledgered$ (findings answered by a ledger line or a Qodo CLI dismiss).
 
 \begin{schema}{Issues}
-  findings, answered, escF, fixPending : \power FINDING \\
-  fixRuledEver, pushFixed, dismissedEver : \power FINDING
+  findings, answered, escF, fixPending, fixing : \power FINDING \\
+  fixRuledEver, pushFixed, dismissedEver, ledgered : \power FINDING
 \where
   answered \subseteq findings \\
   escF \subseteq findings \setminus answered \\
@@ -241,7 +258,9 @@ review.
 (I3) No delta review re-covers a commit an earlier review already covered.
 (I5) A finding ruled ``fix'' is answered only by a fix push, or by a later
 ``dismiss'' ruling after its fix was blocked.
-(I4, the Bugbot fallback, is machine B's.)
+(I7) Every answer is a pushed fix, a ``dismiss'' ruling, or a ledger line: a
+fix answers nothing until it passed local review and is on the head.
+(I4, the Bugbot fallback, and I6, the deadlock lemma, are machine B's.)
 
 \begin{schema}{Invariant}
   State
@@ -251,7 +270,8 @@ review.
   \quad~\quad~ findings \subseteq answered ) \\
   ( \forall m : reviewedHead @ \{ a : COMMIT | a \mapsto m \in anc \} \subseteq seen ) \\
   overlap = no \\
-  fixRuledEver \cap answered \subseteq pushFixed \cup dismissedEver
+  fixRuledEver \cap answered \subseteq pushFixed \cup dismissedEver \\
+  answered \subseteq pushFixed \cup dismissedEver \cup ledgered
 \end{schema}
 
 \section{Derived terms}
@@ -317,9 +337,11 @@ no finding.
   answered' = \emptyset \\
   escF' = \emptyset \\
   fixPending' = \emptyset \\
+  fixing' = \emptyset \\
   fixRuledEver' = \emptyset \\
   pushFixed' = \emptyset \\
   dismissedEver' = \emptyset \\
+  ledgered' = \emptyset \\
   merged' = no
 \end{schema}
 
@@ -513,12 +535,14 @@ In round 2 the leader escalates a new High instead of answering it.
 \where
   merged = no \\
   round = 2 \\
-  f? \in findings \setminus ( answered \cup escF \cup fixPending ) \\
+  f? \in findings \setminus ( answered \cup escF \cup fixPending \cup fixing ) \\
   escF' = escF \cup \{ f? \} \\
   fixPending' = fixPending \\
+  fixing' = fixing \\
   fixRuledEver' = fixRuledEver \\
   pushFixed' = pushFixed \\
   dismissedEver' = dismissedEver \\
+  ledgered' = ledgered \\
   findings' = findings \\
   answered' = answered
 \end{schema}
@@ -540,8 +564,10 @@ A ``dismiss'' ruling answers the finding as soon as it is recorded.
   answered' = answered \cup \{ f? \} \\
   dismissedEver' = dismissedEver \cup \{ f? \} \\
   fixPending' = fixPending \\
+  fixing' = fixing \\
   fixRuledEver' = fixRuledEver \\
   pushFixed' = pushFixed \\
+  ledgered' = ledgered \\
   findings' = findings
 \end{schema}
 
@@ -562,14 +588,17 @@ its fix lands ($FixPush$).
   escF' = escF \setminus \{ f? \} \\
   fixPending' = fixPending \cup \{ f? \} \\
   fixRuledEver' = fixRuledEver \cup \{ f? \} \\
+  fixing' = fixing \\
   answered' = answered \\
   pushFixed' = pushFixed \\
   dismissedEver' = dismissedEver \\
+  ledgered' = ledgered \\
   findings' = findings
 \end{schema}
 
-The local review of a ruled fix is blocked: the leader stops and the operator
-rules again.
+The local review of a fix is blocked: the leader stops, and a ruled fix is
+escalated again, so the operator's next ruling governs. An unruled finding is
+left unanswered.
 
 \begin{schema}{FixBlocked}
   \Delta State \\
@@ -581,13 +610,15 @@ rules again.
   f? : FINDING
 \where
   merged = no \\
-  f? \in fixPending \\
+  f? \in fixPending \cup fixing \\
   fixPending' = fixPending \setminus \{ f? \} \\
-  escF' = escF \cup \{ f? \} \\
+  fixing' = fixing \setminus \{ f? \} \\
+  escF' = escF \cup ( \{ f? \} \cap fixPending ) \\
   answered' = answered \\
   fixRuledEver' = fixRuledEver \\
   pushFixed' = pushFixed \\
   dismissedEver' = dismissedEver \\
+  ledgered' = ledgered \\
   findings' = findings
 \end{schema}
 
@@ -610,13 +641,16 @@ A finding arrives from any source at any time before the merge (A3).
   answered' = answered \\
   escF' = escF \\
   fixPending' = fixPending \\
+  fixing' = fixing \\
   fixRuledEver' = fixRuledEver \\
   pushFixed' = pushFixed \\
-  dismissedEver' = dismissedEver
+  dismissedEver' = dismissedEver \\
+  ledgered' = ledgered
 \end{schema}
 
 The leader answers a finding by a ledger line or a Qodo CLI dismiss. A finding
-under escalation or under a ``fix'' ruling cannot take this path.
+under escalation, under a ``fix'' ruling, or with a fix in local review cannot
+take this path.
 
 \begin{schema}{AnswerLedger}
   \Delta State \\
@@ -628,18 +662,45 @@ under escalation or under a ``fix'' ruling cannot take this path.
   f? : FINDING
 \where
   merged = no \\
-  f? \in findings \setminus ( answered \cup escF \cup fixPending ) \\
+  f? \in findings \setminus ( answered \cup escF \cup fixPending \cup fixing ) \\
   answered' = answered \cup \{ f? \} \\
+  ledgered' = ledgered \cup \{ f? \} \\
   findings' = findings \\
   escF' = escF \\
   fixPending' = fixPending \\
+  fixing' = fixing \\
   fixRuledEver' = fixRuledEver \\
   pushFixed' = pushFixed \\
   dismissedEver' = dismissedEver
 \end{schema}
 
-A fix passes local review and is pushed: a new head commit that answers the
-finding. Only now does a ``fix'' ruling close.
+The leader fixes an unruled finding on its own authority: the fix commit
+exists and awaits local review. It answers nothing yet, whatever the source.
+
+\begin{schema}{FixStart}
+  \Delta State \\
+  \Xi Commits \\
+  \Xi Review \\
+  \Xi Qodo \\
+  \Xi BugbotIface \\
+  \Xi Gate \\
+  f? : FINDING
+\where
+  merged = no \\
+  f? \in findings \setminus ( answered \cup escF \cup fixPending \cup fixing ) \\
+  fixing' = fixing \cup \{ f? \} \\
+  answered' = answered \\
+  findings' = findings \\
+  escF' = escF \\
+  fixPending' = fixPending \\
+  fixRuledEver' = fixRuledEver \\
+  pushFixed' = pushFixed \\
+  dismissedEver' = dismissedEver \\
+  ledgered' = ledgered
+\end{schema}
+
+A fix, ruled or not, passes local review and is pushed: a new head commit that
+answers the finding. Only now is the finding answered.
 
 \begin{schema}{FixPush}
   \Delta State \\
@@ -651,7 +712,7 @@ finding. Only now does a ``fix'' ruling close.
   c? : COMMIT
 \where
   merged = no \\
-  f? \in findings \setminus ( answered \cup escF ) \\
+  f? \in fixPending \cup fixing \\
   c? \notin used \\
   head' = c? \\
   used' = used \cup \{ c? \} \\
@@ -659,10 +720,12 @@ finding. Only now does a ``fix'' ruling close.
   answered' = answered \cup \{ f? \} \\
   pushFixed' = pushFixed \cup \{ f? \} \\
   fixPending' = fixPending \setminus \{ f? \} \\
+  fixing' = fixing \setminus \{ f? \} \\
   findings' = findings \\
   escF' = escF \\
   fixRuledEver' = fixRuledEver \\
-  dismissedEver' = dismissedEver
+  dismissedEver' = dismissedEver \\
+  ledgered' = ledgered
 \end{schema}
 
 \section{Rounds}
@@ -762,9 +825,11 @@ findings like any other.
   answered' = answered \\
   escF' = escF \\
   fixPending' = fixPending \\
+  fixing' = fixing \\
   fixRuledEver' = fixRuledEver \\
   pushFixed' = pushFixed \\
-  dismissedEver' = dismissedEver
+  dismissedEver' = dismissedEver \\
+  ledgered' = ledgered
 \end{schema}
 
 When a completed delta review covers the head and its findings are answered,
