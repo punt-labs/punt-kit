@@ -13,12 +13,13 @@
 %   timeout 900 probcli standards/pr-review-model.tex -model_check \
 %     -card COMMIT 3 -card FINDING 1 -p MAX_INITIALISATIONS 10
 %   (1,973,091 states, all visited, about 9 minutes and 5 GB)
-% Model-check (two findings, symmetry reduction):
+% Model-check (two findings, precise, smaller commit scope):
 %   timeout 900 probcli standards/pr-review-model.tex -model_check \
-%     -card COMMIT 3 -card FINDING 2 -p MAX_INITIALISATIONS 10 \
-%     -p SYMMETRY_MODE hash
-%   (does not finish in 8 GB: with -p COMPRESSION TRUE, 1,191,600 of at
-%   least 1,478,508 states checked, no counterexample)
+%     -card COMMIT 2 -card FINDING 2 -p MAX_INITIALISATIONS 10
+%   (774,800 states, 3,762,928 transitions, all visited, no
+%   counterexample, about 160 s and 2 GB)
+% COMMIT 3 with FINDING 2 does not finish in 8 GB and is not part of the
+% check.
 % probcli writes pr-review-model.fuzz beside the file; do not commit it.
 %
 % Named assumptions (each is outside the model; the consequence is stated):
