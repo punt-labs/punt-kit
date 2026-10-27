@@ -594,6 +594,10 @@ ENV_DUMP_DENY_RULES = (
     "Bash(typeset -p:*)",
     "Bash(typeset -x)",
     "Bash(typeset -x:*)",
+    "Bash(export --)",
+    "Bash(export -n)",
+    "Bash(declare --)",
+    "Bash(typeset --)",
 )
 
 
@@ -617,7 +621,7 @@ def test_env_is_denied_entirely_with_and_without_arguments() -> None:
 
 
 def test_env_dump_deny_set_is_exactly_the_standard_set() -> None:
-    """The env-printing deny rules match the standard's 18, no more, no fewer."""
+    """The env-printing deny rules match the standard's 22, no more, no fewer."""
     from punt_kit.init import build_standard_deny_rules
 
     printing = {
@@ -627,7 +631,7 @@ def test_env_dump_deny_set_is_exactly_the_standard_set() -> None:
         in {"env", "printenv", "set", "export", "declare", "typeset"}
     }
     assert printing == set(ENV_DUMP_DENY_RULES)
-    assert len(ENV_DUMP_DENY_RULES) == 18
+    assert len(ENV_DUMP_DENY_RULES) == 22
 
 
 def test_bare_export_is_denied_while_export_with_assignment_stays_allowed(

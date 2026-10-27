@@ -667,6 +667,10 @@ def build_standard_deny_rules() -> list[str]:
         "Bash(typeset -p:*)",
         "Bash(typeset -x)",
         "Bash(typeset -x:*)",
+        "Bash(export --)",
+        "Bash(export -n)",
+        "Bash(declare --)",
+        "Bash(typeset --)",
         # Secrets and environment
         "Edit(.env)",
         "Edit(.envrc)",

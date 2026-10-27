@@ -366,14 +366,18 @@ adding any protection (section 1).
 | `Bash(printenv:*)` | Prints any one variable's value, or the whole environment |
 | `Bash(set)` | Bare `set` prints shell variables and functions |
 | `Bash(export)` | Bare `export` prints every exported variable with its value |
+| `Bash(export --)` | `export --` with no names lists every exported variable with its value |
+| `Bash(export -n)` | `export -n` with no names lists every exported variable with its value |
 | `Bash(export -p)` | Lists every exported variable with its value |
 | `Bash(export -p:*)` | Prints the value of the named variable |
 | `Bash(declare)` | Bare `declare` prints every variable with its value |
+| `Bash(declare --)` | `declare --` with no names lists every variable with its value |
 | `Bash(declare -p)` | Lists every variable with its value |
 | `Bash(declare -p:*)` | Prints the value of the named variable |
 | `Bash(declare -x)` | Lists every exported variable with its value |
 | `Bash(declare -x:*)` | Prints the value of the named exported variable |
 | `Bash(typeset)` | Bare `typeset`, the bash/zsh synonym of `declare`, prints every variable with its value |
+| `Bash(typeset --)` | Synonym of `declare --` |
 | `Bash(typeset -p)` | Synonym of `declare -p` |
 | `Bash(typeset -p:*)` | Synonym of `declare -p:*` |
 | `Bash(typeset -x)` | Synonym of `declare -x` |
@@ -389,7 +393,10 @@ form: `VAR=value command`. To see what is set without printing values, use
 
 Assignments stay usable: `export VAR=value`, and `declare` or `typeset` with an
 assignment. An exact deny wins over a prefix allow, so `Bash(export)` is
-refused even though `Bash(export:*)` is allowed.
+refused even though `Bash(export:*)` is allowed. The exact denies match only
+the bare forms, so `export -- FOO=bar` and `export -n FOO` still work. Set an
+exported variable with `export VAR=value`: `declare -x` and `typeset -x` are
+denied in every form, because `-x` with a name prints that variable's value.
 
 ### Known limitations
 
