@@ -642,35 +642,23 @@ def build_standard_deny_rules() -> list[str]:
         "Bash(ncat:*)",
         "Bash(telnet:*)",
         "Bash(socat:*)",
-        # Commands that print environment variable values. Every one is denied
-        # in both forms: the bare command (a prefix rule may not match the
-        # zero-argument form) and the prefix form (`env FOO=bar` with no
-        # command still dumps the environment). `env` is denied entirely, so
-        # set a variable for one command with `VAR=value command`.
-        # `export:*` stays allowed so assignments work; the exact `export` and
-        # `export -p` denies win over it.
+        # Commands that print environment variable values. Principle: deny the
+        # bare command and every flag form, because flags combine and reorder
+        # (`export -np`, `export -n -p`, `declare -x`) and cannot be enumerated.
+        # Plain assignment stays allowed: `export VAR=value` does not start with
+        # `export -`. `env` is denied entirely; set a variable for one command
+        # with `VAR='value' command`.
         "Bash(env)",
         "Bash(env:*)",
         "Bash(printenv)",
         "Bash(printenv:*)",
         "Bash(set)",
         "Bash(export)",
-        "Bash(export -p)",
-        "Bash(export -p:*)",
+        "Bash(export -:*)",
         "Bash(declare)",
-        "Bash(declare -p)",
-        "Bash(declare -p:*)",
-        "Bash(declare -x)",
-        "Bash(declare -x:*)",
+        "Bash(declare -:*)",
         "Bash(typeset)",
-        "Bash(typeset -p)",
-        "Bash(typeset -p:*)",
-        "Bash(typeset -x)",
-        "Bash(typeset -x:*)",
-        "Bash(export --)",
-        "Bash(export -n)",
-        "Bash(declare --)",
-        "Bash(typeset --)",
+        "Bash(typeset -:*)",
         # Secrets and environment
         "Edit(.env)",
         "Edit(.envrc)",

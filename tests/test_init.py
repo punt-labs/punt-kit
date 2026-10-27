@@ -582,22 +582,11 @@ ENV_DUMP_DENY_RULES = (
     "Bash(printenv:*)",
     "Bash(set)",
     "Bash(export)",
-    "Bash(export -p)",
-    "Bash(export -p:*)",
+    "Bash(export -:*)",
     "Bash(declare)",
-    "Bash(declare -p)",
-    "Bash(declare -p:*)",
-    "Bash(declare -x)",
-    "Bash(declare -x:*)",
+    "Bash(declare -:*)",
     "Bash(typeset)",
-    "Bash(typeset -p)",
-    "Bash(typeset -p:*)",
-    "Bash(typeset -x)",
-    "Bash(typeset -x:*)",
-    "Bash(export --)",
-    "Bash(export -n)",
-    "Bash(declare --)",
-    "Bash(typeset --)",
+    "Bash(typeset -:*)",
 )
 
 
@@ -621,7 +610,7 @@ def test_env_is_denied_entirely_with_and_without_arguments() -> None:
 
 
 def test_env_dump_deny_set_is_exactly_the_standard_set() -> None:
-    """The env-printing deny rules match the standard's 22, no more, no fewer."""
+    """The env-printing deny rules match the standard's 11, no more, no fewer."""
     from punt_kit.init import build_standard_deny_rules
 
     printing = {
@@ -631,13 +620,13 @@ def test_env_dump_deny_set_is_exactly_the_standard_set() -> None:
         in {"env", "printenv", "set", "export", "declare", "typeset"}
     }
     assert printing == set(ENV_DUMP_DENY_RULES)
-    assert len(ENV_DUMP_DENY_RULES) == 22
+    assert len(ENV_DUMP_DENY_RULES) == 11
 
 
 def test_bare_export_is_denied_while_export_with_assignment_stays_allowed(
     tmp_path: Path,
 ) -> None:
-    """`Bash(export:*)` stays allowed; the exact and `-p` forms are denied."""
+    """`Bash(export:*)` stays allowed; bare `export` and `export -:*` are denied."""
     from punt_kit.init import build_standard_deny_rules, build_standard_permissions
 
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
@@ -647,6 +636,7 @@ def test_bare_export_is_denied_while_export_with_assignment_stays_allowed(
     assert "Bash(export:*)" in allow
     assert "Bash(export:*)" not in deny
     assert "Bash(export)" in deny
+    assert "Bash(export -:*)" in deny
 
 
 def test_init_prunes_dead_rules_from_existing_settings(tmp_path: Path) -> None:

@@ -366,37 +366,26 @@ adding any protection (section 1).
 | `Bash(printenv:*)` | Prints any one variable's value, or the whole environment |
 | `Bash(set)` | Bare `set` prints shell variables and functions |
 | `Bash(export)` | Bare `export` prints every exported variable with its value |
-| `Bash(export --)` | `export --` with no names lists every exported variable with its value |
-| `Bash(export -n)` | `export -n` with no names lists every exported variable with its value |
-| `Bash(export -p)` | Lists every exported variable with its value |
-| `Bash(export -p:*)` | Prints the value of the named variable |
+| `Bash(export -:*)` | Every flag form of `export` (`-p`, `-n`, `-np`, `-n -p`, `--`) can print values |
 | `Bash(declare)` | Bare `declare` prints every variable with its value |
-| `Bash(declare --)` | `declare --` with no names lists every variable with its value |
-| `Bash(declare -p)` | Lists every variable with its value |
-| `Bash(declare -p:*)` | Prints the value of the named variable |
-| `Bash(declare -x)` | Lists every exported variable with its value |
-| `Bash(declare -x:*)` | Prints the value of the named exported variable |
+| `Bash(declare -:*)` | Every flag form of `declare` (`-p`, `-x`, `--`, combinations) can print values |
 | `Bash(typeset)` | Bare `typeset`, the bash/zsh synonym of `declare`, prints every variable with its value |
-| `Bash(typeset --)` | Synonym of `declare --` |
-| `Bash(typeset -p)` | Synonym of `declare -p` |
-| `Bash(typeset -p:*)` | Synonym of `declare -p:*` |
-| `Bash(typeset -x)` | Synonym of `declare -x` |
-| `Bash(typeset -x:*)` | Synonym of `declare -x:*` |
+| `Bash(typeset -:*)` | Every flag form of `typeset`, the synonym of `declare` |
 
-For every command that can print values, deny both the bare form and the prefix
-form: a prefix rule may not match the zero-argument form, and an exact rule
-misses the argument forms.
+Deny the bare command and every flag form. Flags combine and reorder (`export
+-np`, `export -n -p`, `export -pn`, `export -n --`), so enumerating them always
+misses one; a single `-` prefix rule per command covers them all. A prefix rule
+may not match the zero-argument form, so the bare command is denied as well.
 
 `env` is denied entirely. To set a variable for one command, use the shell
 form: `VAR=value command`. To see what is set without printing values, use
 `compgen -e`: it lists names only.
 
-Assignments stay usable: `export VAR=value`, and `declare` or `typeset` with an
-assignment. An exact deny wins over a prefix allow, so `Bash(export)` is
-refused even though `Bash(export:*)` is allowed. The exact denies match only
-the bare forms, so `export -- FOO=bar` and `export -n FOO` still work. Set an
-exported variable with `export VAR=value`: `declare -x` and `typeset -x` are
-denied in every form, because `-x` with a name prints that variable's value.
+Plain assignment stays usable, because `export VAR=value` does not start with
+`export -`. Set variables with `export VAR=value` or plain `VAR=value`. An
+exact deny wins over a prefix allow, so `Bash(export)` is refused even though
+`Bash(export:*)` is allowed. As a side effect, `declare` and `typeset` with any
+flag (`-a`, `-i`, `-x` and so on) are refused too.
 
 ### Known limitations
 
