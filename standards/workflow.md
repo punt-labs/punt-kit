@@ -432,7 +432,9 @@ function poll_tick(pr):
     if a Bugbot run of any round M <= N completed without a finished
             review (failure, timeout, or cancelled) and no rerun(M) was
             posted:
-        comment "bugbot run"              # rerun(M): once per round, even
+        comment "bugbot run"; and, for each such M, a ledger comment
+            "rerun(M): <failed check-run id>"
+                                          # rerun(M): once per round, even
                                           #   after the fallback elapsed or
                                           #   round 2 opened; it restarts
                                           #   the window; then the fallback

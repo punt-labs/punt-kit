@@ -260,9 +260,14 @@ bugbot_in(N) = a "Cursor Bugbot" check run on head(N) or a later branch
                rerun(N) was posted — the timeout covers an outage, never a
                live run and never a skipped re-run.
 rerun(N)     = a "bugbot run" comment the leader posted because a round-N
-               run ended without a finished review. Round 2's trigger
-               comment and a stuck-run nudge use the same text and are
-               neither: a round has at most one rerun.
+               run ended without a finished review, plus a ledger comment
+               `rerun(N): <failed check-run id>` posted in the same tick.
+               The ledger line is what records the round: the comment text
+               is the same for every round. One "bugbot run" comment may
+               serve several rounds, one ledger line each. Round 2's
+               trigger comment and a stuck-run nudge use the same text,
+               have no ledger line, and are neither: a round has at most
+               one rerun.
 copilot_in   = no Copilot review was requested on the PR, or one was and
                (a review by copilot-pull-request-reviewer exists or 30
                minutes have passed since the request)
@@ -362,7 +367,9 @@ function poll_tick(pr):
     if a Bugbot run of any round M <= N completed without a finished
             review (failure, timeout, or cancelled — a fix push cancels an
             in-progress run) and no rerun(M) was posted:
-        comment "bugbot run"               # this is rerun(M) for every such
+        comment "bugbot run"; and, for each such M, a ledger comment
+            "rerun(M): <failed check-run id>"
+                                           # together rerun(M) for every such
                                            #   M: once per round, even after
                                            #   the 30-minute fallback
                                            #   elapsed, and for round 1 even
