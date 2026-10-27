@@ -80,6 +80,10 @@ All notable changes to this project will be documented in this file.
   - A blocked local review also escalates the block itself, naming the fix
     commit and its cause; the other findings wait for that ruling. The
     finding loop skips a finding in a diff whose block escalation is open.
+    The operator rules "retry" (the fix is reworked and passes local review
+    before any push) or "drop" (the fix commit is discarded unpushed and its
+    findings return unanswered); either ruling's ledger entry closes the
+    escalation.
   - `mark-implemented` records the fix sha. After a force-push or rebase, a
     finding reopens only if that fix's change left the branch, not because
     commit ids changed; a ledger line with its Qodo id and a new fix sha
