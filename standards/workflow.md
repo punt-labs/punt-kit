@@ -1,6 +1,6 @@
 # Workflow Standards
 
-**Updated:** 2026-07-26
+**Updated:** 2026-10-26
 
 How Punt Labs teams track work, delegate it, develop code, and ship it. All
 work runs as **three nested loops**. The outermost loop owns the backlog:
@@ -543,10 +543,21 @@ the entry is part of what gets reviewed, never added retroactively on main.
   changes (CI config, dev tooling, test-only) do not get entries.
 - **DESIGN.md.** Use `DESIGN.md` at the repo root. Write an ADR entry when a
   decision is non-obvious, has rejected alternatives worth recording, or
-  would confuse a future reader. Consult the log before proposing changes to
-  settled architecture; do not revisit a settled decision without new
-  evidence. See [Design Decision Log](../patterns/design-decision-log.md)
-  for the full pattern.
+  would confuse a future reader. Consult the log before **any** design
+  proposal — a design mission, a design review, and a naming, UX, or
+  architecture suggestion the leader makes directly to the operator alike —
+  not only before changing settled architecture. Look up by topic, not by
+  number, across every decision log:
+  `grep -inE '^(## ([A-Z]+-)?[0-9]+|\*\*Topic:\*\*).*<topic>' DESIGN*.md` (concern-specific
+  logs such as `DESIGN-INSTALLER.md` carry their own prefix, and some, such as langlearn's, number entries
+  bare, `## 0001`; the pattern matches headings and `**Topic:**` fields). Read every
+  matching entry in full; if the topic word finds nothing, scan the full
+  heading list (`grep -nE '^## ([A-Z]+-)?[0-9]+' DESIGN*.md`) before
+  concluding the log is silent. Cite the ADRs consulted in the proposal; a proposal on a topic the
+  log covers that cites none has skipped the step and is returned. Do not
+  revisit a settled decision without new evidence. See
+  [Design Decision Log](../patterns/design-decision-log.md) for the full
+  pattern.
 
   **A design mission always produces a `DESIGN.md` ADR entry.** A design
   mission (per §6 The Mission Loop) exists precisely for the non-obvious
@@ -673,7 +684,11 @@ A mission is **not required** for:
   finding before delegating, which collapses (not skips) the design step.
   Bare spawns are still audit-tagged by ethos (Tier A audited delegation)
   but carry no write-set enforcement or evaluator. This is the one
-  delegation that is not a mission.
+  delegation that is not a mission. The exception is for *mechanical*
+  fixes only: a fix that changes a design — new classes, moved
+  responsibilities, resolving a quality-ratchet regression — is a mission
+  with an evaluator, whatever review raised it. A bare spawn has nothing
+  checking it before its report reaches the leader.
 
 A leader **may** still wrap either case in a mission when the audit surface
 is worth the ceremony (e.g. a T4 change to release mechanics).
@@ -742,6 +757,57 @@ must either commit by proxy or lose the work. Required criterion text:
 > concern, or single PR-equivalent slice). Each commit must pass
 > `make check`. Do not accumulate more than 30 minutes of uncommitted
 > changes.
+
+**The standing worker contract.** Every implementation mission carries one
+standing contract verbatim; the leader never paraphrases it per round,
+because guardrails rewritten from memory drift and a worker reads a missing
+rule as permission. A repo with a `docs/WORKFLOW.md` keeps the contract
+there; a repo without one carries the reference block below verbatim in its
+mission contracts. Either way it must state:
+
+- **The goal as design, metrics as signals.** The goal is stated as
+  responsibilities (which object owns what, who depends on what). Quality
+  ratchet numbers are signals of that design, never targets; no contract
+  sets a numeric target for a ratchet metric. A change that moves a number
+  without improving responsibilities is rejected even when the gate passes.
+- **The forbidden operations.** Writing ratchet baseline or audit files by
+  any means but the repo's update targets; any baseline bless (a leader-only
+  act); restoring files from git; destructive git; pushing or touching a PR.
+- **Stop on regression.** On any ratchet regression the worker stops and
+  reports the design and the numbers; it does not extract to move the
+  number, bless, or commit.
+- **Evidence, not claims.** The worker saves the full gate output to a file
+  and cites it. The evaluator and the leader re-run the gate; a report that
+  disagrees with their run rejects the work.
+
+Reference block, to be carried verbatim (a repo may rename the make
+targets and ratchet files to its own):
+
+> **Goal.** Good design, stated as responsibilities: which unit (type,
+> module, or package) owns what, who depends on what. The language
+> standard (`standards/<lang>.md`) says what good design means in that
+> language. The ratchet numbers are *signals* of that design, never
+> targets. A change that moves a number without improving responsibilities
+> — a grab-bag unit, a bundle of collaborators handed out for callers to
+> reach through, a second facade forwarding to the first — is rejected even
+> when the gate goes green.
+>
+> **Forbidden.** Writing the ratchet baseline or audit files by any means
+> other than the repo's update targets (`make update-oo`,
+> `make update-coupling`). Blessing a baseline (`--rebaseline-files`) at all;
+> it is the leader's act alone. Restoring any file from git
+> (`git show REV:path > path`, `checkout --`, `restore`, `reset`, `stash`),
+> `rm`, `clean`, or switching branches. Pushing, or touching a PR. Piping a
+> gate through `head`, `tail`, or `grep`.
+>
+> **On any ratchet regression: stop.** Do not extract a class to move the
+> number, do not bless, do not commit. Report the design and the numbers to
+> the leader, who decides.
+>
+> **Evidence, not claims.** Run `make check` with output saved to a file
+> under `.tmp/`; cite the file and its final summary line. Commit only after
+> that file shows exit 0. The evaluator and the leader re-run it; a report
+> that disagrees with their run rejects the work.
 
 ### Dispatch is two operations
 
