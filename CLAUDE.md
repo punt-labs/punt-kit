@@ -250,7 +250,7 @@ PR review follows punt-kit/standards/pr-review.md: local review (qodo review + s
    - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
 3. **Take every comment seriously.** If a reviewer flags it, you fix it. There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. If you genuinely disagree, explain why in a reply — do not silently ignore.
 4. **Fix and push once per round.** The second round happens only after a High finding was fixed.
-5. **Merge when CI is green and every review thread is resolved.** Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
+5. **Merge when `merge_gate` in [pr-review.md](standards/pr-review.md) returns true.** CI green and resolved threads are not enough: Qodo and Bugbot must be in for the round, the head must be reviewed, every finding answered, and no escalation open. Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
 
 ## Design Decisions
 

@@ -136,7 +136,7 @@ Use this checklist to audit a project for compliance:
 - [ ] **Branch protection on main** — require PR with 1 approval, require status checks, prevent force push ([github](standards/github.md))
 - [ ] **CI workflow exists** — lint, test, or docs validation per project type ([github](standards/github.md))
 - [ ] **Required status checks configured** — CI must pass before merge ([github](standards/github.md))
-- [ ] **Review bots configured** — `.pr_agent.toml` from the template, no `copilot_code_review` ruleset rule ([github](standards/github.md))
+- [ ] **Review bots configured** — `.pr_agent.toml` from the template on the default branch, Qodo portal "Review every push" set to Disable, Bugbot set to review each PR once in the Cursor dashboard, no `copilot_code_review` ruleset rule ([github](standards/github.md))
 - [ ] **Dependabot and secret scanning enabled** — security baseline ([github](standards/github.md))
 - [ ] **Auto-delete head branches enabled** — clean up after merge ([github](standards/github.md))
 - [ ] **Cross-project integrations are optional and one-way** — no circular dependencies ([workflow](standards/workflow.md))
