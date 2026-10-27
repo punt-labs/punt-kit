@@ -78,7 +78,8 @@ All notable changes to this project will be documented in this file.
     and the latest ruling governs. A ruling's ledger entry closes the
     escalation, not the finding.
   - A blocked local review also escalates the block itself, naming the fix
-    commit and its cause; the other findings wait for that ruling.
+    commit and its cause; the other findings wait for that ruling. The
+    finding loop skips a finding in a diff whose block escalation is open.
   - `mark-implemented` records the fix sha. After a force-push or rebase, a
     finding reopens only if that fix's change left the branch, not because
     commit ids changed; a ledger line with its Qodo id and a new fix sha
