@@ -428,7 +428,8 @@ function poll_tick(pr):
             once, then report to the operator and stop
                                           # outage fallback; ledger path
     if a Bugbot run for round N completed without a finished review
-            (failure or timeout) and no re-run was requested for round N:
+            (failure, timeout, or cancelled) and no re-run was requested
+            for round N:
         comment "bugbot run"              # once; then the 30-minute fallback
     for each finding not answered(f) and not under an open escalation:
         if N == 2 and f is a new High:
@@ -463,7 +464,11 @@ function poll_tick(pr):
             finding it raised is answered(f)
                                           # bounded rounds, no unreviewed merge
     if demo_ok(pr) is false and nothing was pushed this tick:
-        if the repo defines a demo: run it  # per its WORKFLOW.md or CLAUDE.md
+        if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;
+            after the operator confirms, the leader comments
+            "demo confirmed: <sha>" naming the head exercised; on a failure
+            it comments "demo failed: <sha>" with what was observed, and the
+            failure is a finding like any other
         else: report to the operator and stop   # no demo policy: the gate
                                           #   is incomplete
     cadence = 15m if not pending(pr) and not bugbot_open and no finding is

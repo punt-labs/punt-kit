@@ -317,7 +317,8 @@ function poll_tick(pr):
             its findings have no Qodo id, so they take the ledger path
                                                    # outage fallback
     if a Bugbot run for round N completed without a finished review
-            (failure or timeout) and no re-run was requested for round N:
+            (failure, timeout, or cancelled — a fix push cancels an
+            in-progress run) and no re-run was requested for round N:
         comment "bugbot run"               # once; if the re-run fails too or
                                            #   none starts, the 30-minute
                                            #   fallback in bugbot_in applies
@@ -357,7 +358,11 @@ function poll_tick(pr):
             answered(f)              # bounded rounds, but no unreviewed
                                      #   merge, bot-authored PRs included
     if demo_ok(pr) is false and nothing was pushed this tick:
-        if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md
+        if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;
+            after the operator confirms, the leader comments
+            "demo confirmed: <sha>" naming the head exercised; on a failure
+            it comments "demo failed: <sha>" with what was observed, and the
+            failure is a finding like any other
         else: report to the operator and stop  # no demo policy: the gate
                                                #   is incomplete
                                                # see "Repo-specific human
@@ -418,7 +423,9 @@ demo_ok(pr)    = the repo explicitly declares it has no demo (in its
                  every file changed since it is demo_exempt. With no demo
                  definition and no declaration, demo_ok is false.
 demoed_head    = the commit named in the leader's latest "demo confirmed:"
-                 PR comment, newer than any "demo failed:" comment
+                 PR comment, newer than any "demo failed:" comment; the
+                 leader posts the comment after the operator confirms the
+                 demo on that commit
 ```
 
 A plugin-only Markdown PR is therefore not docs-only, and an edit to
