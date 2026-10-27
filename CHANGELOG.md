@@ -21,7 +21,7 @@ All notable changes to this project will be documented in this file.
   re-runs, the fallback window, stuck-run rulings). Both are type-checked
   with fuzz and model-checked with ProB. Removing any of the prose fixes it
   checks yields a ProB counterexample, an invariant violation unless noted.
-  A blocked ruled fix that is not escalated again breaks I5. Two cases
+  A blocked ruled fix that is not escalated again breaks I5. Three variants
   deadlock: the two delta-review guard defects, and the earlier
   blocked-fix prose (no re-escalation, and a fix-ruled finding answered only
   by its fix).
