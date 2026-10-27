@@ -252,6 +252,8 @@ PR review follows punt-kit/standards/pr-review.md: local review (qodo review + s
 4. **Fix and push once per round.** The second round happens only after a High finding was fixed.
 5. **Merge when `merge_gate` in [pr-review.md](standards/pr-review.md) returns true.** CI green and resolved threads are not enough: Qodo and Bugbot must be in for the round, the head must be reviewed, every finding answered, and no escalation open. Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
 
+**Demo.** punt-kit ships the `punt` CLI and the `plugin/` commands, skills, agents, and hooks. Its demo is running the changed `punt` subcommand or plugin command from the installed build (`make build`, then `uv tool install --force dist/*.whl`), with the expected outcome written first. `demo_exempt` files: `*.md` outside `plugin/`, plus `docs/`, `standards/`, `lang-rules/`, `patterns/`, `tests/`, and `.github/`. Anything under `plugin/` is behavior, even when it is Markdown.
+
 ## Design Decisions
 
 Consult [DESIGN.md](DESIGN.md) before proposing changes to settled
