@@ -83,7 +83,8 @@ All notable changes to this project will be documented in this file.
     The operator rules "retry" (the fix is reworked and passes local review
     before any push) or "drop" (the fix commit is discarded unpushed and its
     findings return unanswered); either ruling's ledger entry closes the
-    escalation.
+    escalation. After "drop" the next local review starts fresh, not
+    resumed, so the dropped fix's local Qodo closures carry no weight.
   - `mark-implemented` records the fix sha. After a force-push or rebase, a
     finding answered by a fix, from any source, reopens only if that fix's
     change left the branch, not because commit ids changed. A Qodo finding
