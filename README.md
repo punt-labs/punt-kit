@@ -77,7 +77,18 @@ punt init /path    # Target a specific directory
 - **Gitignore** — `.claude/` exceptions appended to `.gitignore`
 - **Beads** — issue tracking initialized via `bd init`
 
-After scaffolding, it reports manual steps that require GitHub access (branch protection rulesets, Copilot code review, Dependabot). Init is idempotent — re-running it updates existing files without overwriting customizations.
+After scaffolding, it lists the manual steps that need GitHub or dashboard access:
+
+- **Branch protection** — the ruleset on `main`.
+- **Review bots** ([PR and Review](standards/pr-review.md)):
+  - copy the packaged `pr_agent.toml` template, at the path init prints, to `.pr_agent.toml`;
+  - fill in its placeholders and merge it to `main`;
+  - set Qodo's "Review every push" to Disable;
+  - set Bugbot to review each PR once;
+  - leave Copilot on request only, with no `copilot_code_review` ruleset rule.
+- **Repository settings** — Dependabot, secret scanning, and auto-delete of head branches.
+
+Init is idempotent — re-running it updates existing files without overwriting customizations.
 
 `punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated.
 
