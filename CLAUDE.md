@@ -240,17 +240,17 @@ See [DESIGN.md](DESIGN.md) DES-013, DES-014, and DES-016 for the full rationale.
 
 ## Code Review
 
-See the [PR and Review standard](standards/pr-review.md) for the full specification. Key rules inlined here:
+See the [PR and Review standard](standards/pr-review.md) for the full specification.
+
+PR review follows punt-kit/standards/pr-review.md: local review (qodo review + silent-failure-hunter + code-reviewer) before the PR, then Qodo and Bugbot once at open, at most two rounds, Copilot only on request.
 
 1. **Create PR** via `mcp__github__create_pull_request`. Prefer MCP GitHub tools over `gh` CLI where possible.
-2. **Request Copilot review** via `mcp__github__request_copilot_review`.
-3. **Watch for CI/Copilot/Bugbot feedback without blocking your main shell** — run `gh pr checks <number> --watch` in a background task or separate session. Do not stop waiting. Copilot and Bugbot may take 1–3 minutes to post after CI completes. Do not assume silence means approval.
-4. **Read all feedback** using MCP tools:
+2. **Read all feedback** once Qodo and Bugbot have reported, using MCP tools:
    - `mcp__github__pull_request_read` with `get_reviews` — check review verdicts
    - `mcp__github__pull_request_read` with `get_review_comments` — read inline comments
-5. **Take every comment seriously.** If a reviewer flags it, you fix it. There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. If you genuinely disagree, explain why in a reply — do not silently ignore.
-6. **Fix, re-push, repeat.** Each fix commit triggers a new review cycle. Expect **2–6 review cycles** before merging.
-7. **Merge only when the last review cycle is uneventful** — zero new comments, all checks green. Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
+3. **Take every comment seriously.** If a reviewer flags it, you fix it. There is no such thing as "pre-existing" or "unrelated to this change" — if you can see it, you own it. If you genuinely disagree, explain why in a reply — do not silently ignore.
+4. **Fix and push once per round.** The second round happens only after a High finding was fixed.
+5. **Merge when CI is green and every review thread is resolved.** Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
 
 ## Design Decisions
 
