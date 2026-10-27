@@ -1,0 +1,425 @@
+%
+% Machine B of the PR review model: the Bugbot side of standards/pr-review.md.
+% Machine A, the review side, and the argument that checking the two
+% separately is sound are in pr-review-model.tex (section "Two machines").
+%
+% Type-check:  fuzz -t standards/pr-review-model-bugbot.tex
+% Model-check (precise, no symmetry):
+%   timeout 900 probcli standards/pr-review-model-bugbot.tex -model_check \
+%     -card RUN 2 -p MAX_INITIALISATIONS 10
+% probcli writes pr-review-model-bugbot.fuzz beside the file; do not commit it.
+%
+% Named assumptions:
+%  B1 Time is abstract: "30 minutes have passed" and "60 minutes have
+%     passed" are events the checker may fire at any point.
+%  B2 Commits are not modelled. A push that cancels an in-progress run is a
+%     BugbotEnd with doneFail; a run on an older commit counts the same as
+%     one on the head, as bugbot_in allows ("head(N) or a later commit").
+%  B3 The stuck-run "bugbot run" nudge is omitted. It changes no state the
+%     gate reads; EscalateStuck does not wait for it, which adds behaviours.
+%  B4 The review side is abstract: round 2 may open whenever Bugbot is in
+%     for round 1 on a PR that is not skipped, and Merge may fire whenever
+%     the Bugbot conjuncts of merge_gate hold. Both are weaker than the real
+%     guards.
+%
+\documentclass{article}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{A Formal Model of the PR Review State (\texttt{pr-review.md}), machine B: Bugbot}
+\author{Punt Labs}
+\maketitle
+
+\section{Purpose and scope}
+
+This machine checks the Bugbot conjuncts of $merge\_gate$. No reachable state
+merges with a live run that has no ``proceed'' ruling. On a PR that is not
+skipped, a merge on the 30-minute fallback never skips the re-run of a failed
+run, and never comes before a full window after that re-run. Every non-merged
+state can still move.
+
+\section{Given sets and enumerations}
+
+\begin{zed}
+  [RUN]
+\end{zed}
+
+\begin{zed}
+  Flag ::= yes | no
+\end{zed}
+
+A run is live (queued or in progress) or done. A done run either finished its
+review ($doneOk$: success or neutral) or reviewed nothing ($doneFail$: failure,
+timeout, cancelled).
+
+\begin{zed}
+  RunStatus ::= live | doneOk | doneFail
+\end{zed}
+
+\begin{zed}
+  ROUND == 1 \upto 3
+\end{zed}
+
+\section{State}
+
+$runs$ gives each run its status, $runRound$ the round whose trigger started
+it. $stuck$ marks runs live for over 60 minutes; $proceed$ marks runs the
+operator ruled ``proceed''. $escRun$ holds escalated runs awaiting a ruling,
+$escRunEver$ every run ever escalated (once per run, ever), and $waitRuled$ the
+escalated runs ruled ``wait''. $retried$ is the rounds with a $rerun(N)$
+comment; $timedOut$ the rounds whose 30-minute window has elapsed since the
+trigger or the re-run. Two ghosts, read by no guard: $rerunAfterFail$ records
+a re-run posted because a run of that round failed; $windowSinceRetry$
+records that a full window elapsed after that re-run.
+
+\begin{schema}{State}
+  round : ROUND \\
+  skipped, merged : Flag \\
+  runs : RUN \pfun RunStatus \\
+  runRound : RUN \pfun ROUND \\
+  stuck, proceed, escRun, escRunEver, waitRuled : \power RUN \\
+  retried, timedOut, rerunAfterFail, windowSinceRetry : \power ROUND
+\where
+  \dom runRound = \dom runs \\
+  stuck \subseteq \dom runs \\
+  proceed \subseteq stuck \\
+  escRunEver \subseteq stuck \\
+  waitRuled \subseteq escRunEver \\
+  escRun \subseteq escRunEver \setminus waitRuled
+\end{schema}
+
+\textbf{The invariant.}
+(I1, Bugbot half) A merge leaves no live run without a ``proceed'' ruling.
+(I4) On a PR that is not skipped, a merge on the fallback never skips the
+re-run of a failed run, and never comes before a full window after that
+re-run.
+
+\begin{schema}{Invariant}
+  State
+\where
+  merged = yes \implies ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
+  ( merged = yes \land skipped = no ) \implies \\
+  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
+  \quad~\quad~ ( ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  \quad~\quad~\quad~ \implies round \in rerunAfterFail ) \land \\
+  \quad~\quad~\quad~ ( round \in retried \implies round \in windowSinceRetry ) ) )
+\end{schema}
+
+\section{Derived terms}
+
+$bugbot\_in(N)$: a run of round $N$ finished its review; or the window
+elapsed, no run is open, and every failed run of round $N$ has had its
+$rerun(N)$.
+
+\begin{schema}{BugbotIn}
+  State
+\where
+  ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneOk ) \lor \\
+  ( round \in timedOut \land \\
+  \quad~ ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \land \\
+  \quad~ ( ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  \quad~\quad~ \implies round \in retried ) )
+\end{schema}
+
+$bugbot\_clear$: no live run without a ``proceed'' ruling, and no open run
+escalation.
+
+\begin{schema}{BugbotClear}
+  State
+\where
+  ( \forall r : \dom runs @ runs~r = live \implies r \in proceed ) \\
+  escRun = \emptyset
+\end{schema}
+
+\section{Initial state}
+
+\begin{schema}{Init}
+  State'
+\where
+  round' = 1 \\
+  merged' = no \\
+  runs' = \emptyset \\
+  runRound' = \emptyset \\
+  stuck' = \emptyset \\
+  proceed' = \emptyset \\
+  escRun' = \emptyset \\
+  escRunEver' = \emptyset \\
+  waitRuled' = \emptyset \\
+  retried' = \emptyset \\
+  timedOut' = \emptyset \\
+  rerunAfterFail' = \emptyset \\
+  windowSinceRetry' = \emptyset
+\end{schema}
+
+$skipped'$ is left free: the PR is bot-authored or not.
+
+\section{Runs}
+
+A run starts, for the current round. A skipped PR may still get one, and
+$bugbot\_clear$ still reads it.
+
+\begin{schema}{BugbotStart}
+  \Delta State \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \notin \dom runs \\
+  runs' = runs \cup \{ r? \mapsto live \} \\
+  runRound' = runRound \cup \{ r? \mapsto round \} \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+A live run ends.
+
+\begin{schema}{BugbotEnd}
+  \Delta State \\
+  r? : RUN \\
+  s? : RunStatus
+\where
+  merged = no \\
+  r? \in \dom runs \\
+  runs~r? = live \\
+  s? \in \{ doneOk, doneFail \} \\
+  runs' = runs \oplus \{ r? \mapsto s? \} \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+A live run passes 60 minutes.
+
+\begin{schema}{BugbotStuck}
+  \Delta State \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \in \dom runs \\
+  runs~r? = live \\
+  r? \notin stuck \\
+  stuck' = stuck \cup \{ r? \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+The 30-minute window for the current round elapses, measured from the trigger
+or from $rerun(N)$, whichever is later.
+
+\begin{schema}{Timeout}
+  \Delta State
+\where
+  merged = no \\
+  round \notin timedOut \\
+  timedOut' = timedOut \cup \{ round \} \\
+  windowSinceRetry' = windowSinceRetry \cup \{ round \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  rerunAfterFail' = rerunAfterFail
+\end{schema}
+
+$rerun(N)$: the leader comments ``bugbot run'' once per round when a run of
+that round reviewed nothing. The round-2 trigger is not a $rerun$, so
+$OpenRound2$ leaves $retried$ alone. The guard does not read $bugbot\_in$: the
+window may already have elapsed (defect (2)). The comment restarts the window.
+
+\begin{schema}{RequestRetry}
+  \Delta State
+\where
+  merged = no \\
+  ( \exists r : \dom runs @ runRound~r = round \land runs~r = doneFail ) \\
+  round \notin retried \\
+  retried' = retried \cup \{ round \} \\
+  rerunAfterFail' = rerunAfterFail \cup \{ round \} \\
+  timedOut' = timedOut \setminus \{ round \} \\
+  windowSinceRetry' = windowSinceRetry \setminus \{ round \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled
+\end{schema}
+
+\section{Escalations and rulings}
+
+The leader escalates a stuck run once per run, ever.
+
+\begin{schema}{EscalateStuck}
+  \Delta State \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \in stuck \\
+  runs~r? = live \\
+  r? \notin proceed \cup escRunEver \\
+  escRun' = escRun \cup \{ r? \} \\
+  escRunEver' = escRunEver \cup \{ r? \} \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+The operator rules ``proceed'' on an escalated run, or later on a run already
+ruled ``wait'', with no new escalation: the run no longer holds the gate.
+
+\begin{schema}{OperatorProceed}
+  \Delta State \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \in escRun \cup waitRuled \\
+  proceed' = proceed \cup \{ r? \} \\
+  escRun' = escRun \setminus \{ r? \} \\
+  waitRuled' = waitRuled \setminus \{ r? \} \\
+  escRunEver' = escRunEver \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+The operator rules ``wait'': the escalation closes, and the run holds the gate
+until it ends or the operator rules ``proceed''.
+
+\begin{schema}{OperatorWait}
+  \Delta State \\
+  r? : RUN
+\where
+  merged = no \\
+  r? \in escRun \\
+  escRun' = escRun \setminus \{ r? \} \\
+  waitRuled' = waitRuled \cup \{ r? \} \\
+  proceed' = proceed \\
+  escRunEver' = escRunEver \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+\section{The review side, abstracted}
+
+Round 2 opens: the review side's $OpenRound2$, with only its Bugbot conjunct
+of $\lnot pending$ kept (B4). It is not a $rerun$.
+
+\begin{schema}{OpenRound2}
+  \Delta State
+\where
+  merged = no \\
+  skipped = no \\
+  round = 1 \\
+  BugbotIn \\
+  round' = 2 \\
+  runs' = runs \\
+  runRound' = runRound \\
+  skipped' = skipped \\
+  merged' = merged \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+The merge, with only the Bugbot conjuncts of $merge\_gate$ kept (B4).
+
+\begin{schema}{Merge}
+  \Delta State
+\where
+  merged = no \\
+  ( skipped = yes \lor BugbotIn ) \\
+  BugbotClear \\
+  round \leq 2 \\
+  merged' = yes \\
+  runs' = runs \\
+  runRound' = runRound \\
+  round' = round \\
+  skipped' = skipped \\
+  stuck' = stuck \\
+  proceed' = proceed \\
+  escRun' = escRun \\
+  escRunEver' = escRunEver \\
+  waitRuled' = waitRuled \\
+  retried' = retried \\
+  timedOut' = timedOut \\
+  rerunAfterFail' = rerunAfterFail \\
+  windowSinceRetry' = windowSinceRetry
+\end{schema}
+
+\begin{schema}{Merged}
+  \Xi State
+\where
+  merged = yes
+\end{schema}
+
+\end{document}
