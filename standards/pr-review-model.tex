@@ -44,8 +44,9 @@
 %     reopens only if that fix's change left the branch, and a Qodo one is
 %     answered again by a ledger line with its Qodo id and the new fix sha,
 %     any other by a new fix commit. A reopen is visible as an unresolved
-%     review thread (the leader unresolves it) or, for a local finding
-%     with no thread, a `reopened:` ledger line, so the finding term and
+%     review thread (the leader unresolves it) or, for a finding with no
+%     review thread (a local or a Qodo summary finding), a `reopened:`
+%     ledger line, so the finding term and
 %     merge_gate see it. Rebase keeps every fix
 %     (A7), so by construction the rule never fires in the model, and the
 %     state machine is unchanged.
