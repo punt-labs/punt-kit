@@ -349,9 +349,11 @@ function poll_tick(pr):
             once the review has completed and every finding it raised is
             answered(f)              # bounded rounds, but no unreviewed
                                      #   merge, bot-authored PRs included
-    if the repo defines a demo and demo_ok(pr) is false
-            and nothing was pushed this tick:
-        run it per the repo's WORKFLOW.md      # see "Repo-specific human
+    if demo_ok(pr) is false and nothing was pushed this tick:
+        if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md
+        else: report to the operator and stop  # no demo policy: the gate
+                                               #   is incomplete
+                                               # see "Repo-specific human
                                                #   gate" below
     if not pending(pr) and not bugbot_open and no finding is unanswered:
         cadence = 15m
@@ -372,7 +374,9 @@ function merge_gate(state) -> bool:
        and zero unresolved review threads
        and round(pr) <= 2
        and no escalation is open
-       and demo_ok(pr)                     # true when the repo defines no demo
+       and demo_ok(pr)                     # false while the repo has no demo
+                                           #   policy; true for a declared
+                                           #   no-demo repo
     # A push restarts CI, not review. When this returns true: merge
     # explicitly. No auto-merge. No admin override. Do not ask, do not wait.
 ```
@@ -384,10 +388,11 @@ remote review is round 2, and only after a High fix.
 
 #### Repo-specific human gate (demo)
 
-Some behavior only a human can judge. Each repo's `docs/WORKFLOW.md` defines
-its demo — what is driven, through which entry point, and what the operator
-confirms — or states that it has none. A failed demo is a finding like any
-other. The demo is a human check on observed behavior, never a diff review.
+Some behavior only a human can judge. Each repo's `docs/WORKFLOW.md` or
+`CLAUDE.md` defines its demo — what is driven, through which entry point, and
+what the operator confirms — or explicitly declares that it has none. A repo
+that does neither has an incomplete gate, not a passing one. A failed demo is
+a finding like any other. The demo is a human check on observed behavior, never a diff review.
 
 The standard fixes the shape of `demo_ok`; each repo fills in its own
 `demo_exempt` set:
@@ -398,10 +403,12 @@ demo_exempt(f) = f is a file the repo lists as not changing behavior (for
                  is not under plugin/ — commands, skills, agents, and hooks
                  there are behavior even when Markdown, because Claude Code
                  executes them
-demo_ok(pr)    = the repo defines no demo; or every file the PR changes is
-                 demo_exempt; or demoed_head exists, is the head or an
-                 ancestor of it, and every file changed since it is
-                 demo_exempt
+demo_ok(pr)    = the repo explicitly declares it has no demo (in its
+                 docs/WORKFLOW.md or CLAUDE.md); or the repo defines a demo
+                 and either every file the PR changes is demo_exempt, or
+                 demoed_head exists, is the head or an ancestor of it, and
+                 every file changed since it is demo_exempt. With no demo
+                 definition and no declaration, demo_ok is false.
 demoed_head    = the commit named in the leader's latest "demo confirmed:"
                  PR comment, newer than any "demo failed:" comment
 ```

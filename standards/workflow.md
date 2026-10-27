@@ -28,7 +28,8 @@ rules bind the levels together:
   fixed in that PR — never sent back to the backlog as a "follow-up bead."
 
 This standard is the normative home of the loop structure. Each repo deploys
-a `docs/WORKFLOW.md` that instantiates it — naming that repo's demo, its
+a `docs/WORKFLOW.md` that instantiates it — naming that repo's demo (or
+declaring that it has none; silence leaves the merge gate incomplete), its
 worker/evaluator table, its formal-verification classes, and its
 backlog-ordering specifics — and points here for the frame. This document
 carries what those instantiations share; it never absorbs per-repo specifics.
@@ -458,9 +459,10 @@ function poll_tick(pr):
             to the head only once the review has completed and every
             finding it raised is answered(f)
                                           # bounded rounds, no unreviewed merge
-    if the repo defines a demo and demo_ok(pr) is false and nothing was
-            pushed this tick:
-        run the demo                      # per the repo's WORKFLOW.md
+    if demo_ok(pr) is false and nothing was pushed this tick:
+        if the repo defines a demo: run it  # per its WORKFLOW.md or CLAUDE.md
+        else: report to the operator and stop   # no demo policy: the gate
+                                          #   is incomplete
     cadence = 15m if not pending(pr) and not bugbot_open and no finding is
               unanswered, else 3m         # reschedule the poll when it changes
     re-read state                         # the gate must see this tick's push
@@ -478,7 +480,8 @@ function merge_gate(state) -> bool:
        and zero unresolved review threads
        and round(pr) <= 2
        and no escalation is open
-       and demo_ok(pr)                    # true when the repo defines no demo
+       and demo_ok(pr)                    # false while the repo has no demo
+                                          #   policy (pr-review.md)
     # A push restarts CI, not review. When this returns true: merge. Do not
     # ask, do not wait.
 
@@ -518,8 +521,9 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ round(pr) ≤ 2                         -- round 2 only after a High fix
   ∧ unresolvedThreads(pr) = ∅
   ∧ openEscalations(pr) = ∅               -- each closed by a recorded ruling
-  ∧ demoOk(pr)                            -- the repo's demo, if it defines
-                                          --   one, confirmed on the head
+  ∧ demoOk(pr)                            -- the repo's demo confirmed on the
+                                          --   head, or an explicit no-demo
+                                          --   declaration
   ∧ beadsOf(pr) ⊆ closed′
   ∧ mergeRecapSent(pr) ]
 ```
