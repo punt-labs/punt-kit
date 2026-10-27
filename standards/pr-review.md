@@ -345,8 +345,10 @@ function poll_tick(pr):
             or the PR head is newer than reviewed_head):
         run code_reviewer locally on the reviewed_head..head delta (the
             whole diff when there is no reviewed_head); its findings are
-            findings like any other   # bounded rounds, but no unreviewed
-                                      #   merge, bot-authored PRs included
+            findings like any other; set reviewed_head to the head only
+            once the review has completed and every finding it raised is
+            answered(f)              # bounded rounds, but no unreviewed
+                                     #   merge, bot-authored PRs included
     if the repo defines a demo and demo_ok(pr) is false
             and nothing was pushed this tick:
         run it per the repo's WORKFLOW.md      # see "Repo-specific human

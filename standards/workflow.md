@@ -454,7 +454,9 @@ function poll_tick(pr):
     if not pending(pr) and (reviewed_head does not exist
             or the PR head is newer than reviewed_head):
         run code_reviewer locally on the reviewed_head..head delta (the
-            whole diff when there is no reviewed_head)
+            whole diff when there is no reviewed_head); set reviewed_head
+            to the head only once the review has completed and every
+            finding it raised is answered(f)
                                           # bounded rounds, no unreviewed merge
     if the repo defines a demo and demo_ok(pr) is false and nothing was
             pushed this tick:

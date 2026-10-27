@@ -27,7 +27,8 @@ smart_router_extra_instructions = """
 High risk: src/punt_kit/release.py and src/punt_kit/phases/ (the release pipeline: PyPI publish, tagging, cross-repo propagation),
 src/punt_kit/audit_github.py, src/punt_kit/audit_permissions.py and src/punt_kit/permission_rules.py (GitHub and permission auditing),
 src/punt_kit/init.py (writes files into a consumer repo), install.sh, scripts/release-plugin.sh, and .github/workflows/.
-Low risk: docs-only diffs (*.md, standards/, patterns/, lang-rules/, docs/) and test-only diffs (tests/).
+Low risk: docs-only diffs (*.md, standards/, patterns/, lang-rules/, docs/) and test-only diffs (tests/), except anything under plugin/.
+Behavior, never low risk even when Markdown: plugin/ commands, skills, agents, and hooks, which Claude Code executes.
 """
 
 [review_agent.comments_routing]
