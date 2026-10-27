@@ -1,6 +1,6 @@
 # Workflow Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-10-27
 
 How Punt Labs teams track work, delegate it, develop code, and ship it. All
 work runs as **three nested loops**. The outermost loop owns the backlog:

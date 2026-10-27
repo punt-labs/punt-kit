@@ -1,6 +1,6 @@
 # PR and Review Standard
 
-**Updated:** 2026-10-26
+**Updated:** 2026-10-27
 
 ## Philosophy
 
