@@ -21,7 +21,8 @@ All notable changes to this project will be documented in this file.
   re-runs, the fallback window, stuck-run rulings). Both are type-checked
   with fuzz and model-checked with ProB. Removing any of the prose fixes it
   checks yields a ProB counterexample: an invariant violation, or a deadlock
-  for the two delta-review guard defects.
+  for the two delta-review guard defects and for a blocked ruled fix that is
+  not escalated again.
 
 ### Security
 
@@ -62,13 +63,15 @@ All notable changes to this project will be documented in this file.
     only after that review completed on the head.
   - `reviewed_head` is the commit a Qodo review or the fallback ran on, not
     the head when it completed, and it never moves backward.
-  - A finding ruled "fix" is answered only once its fix commit is on the
-    head and passed local review, whatever its source; the ruling's ledger
-    entry closes the escalation, not the finding.
+  - A finding answered by a fix, escalated or not and whatever its source,
+    is answered only once its fix commit is on the head and passed local
+    review. A ruled fix whose local review is blocked is escalated again,
+    and the latest ruling governs. A ruling's ledger entry closes the
+    escalation, not the finding.
   - `mark-implemented` records the fix sha. After a force-push or rebase, a
     finding reopens only if that fix's change left the branch, not because
-    commit ids changed; a ledger line with its Qodo id and the new fix sha
-    answers it again.
+    commit ids changed; a ledger line with its Qodo id and a new fix sha
+    answers it again, under the same fix rule.
   - The leader posts "demo confirmed" once the demo passes on the head, and
     waits for the operator only on user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**

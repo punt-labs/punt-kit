@@ -451,25 +451,31 @@ function poll_tick(pr):
         if N == 2 and f is a new High with no ruling:
             post an escalation comment; the operator rules
         else:
-            fix it now, or answer it by its source's path (answered(f))
+            fix it now (answered after the push, below), or answer it by
+                its source's path (answered(f))
             # handled now, never on a later tick; never re-litigated; no
-            # deferral beads. A Qodo finding closes through the Qodo CLI,
+            # deferral beads; the latest ruling governs. A fix answers a
+            # finding only once its commit is on the PR head and passed
+            # local_review. A Qodo finding closes through the Qodo CLI,
             # mark-implemented naming the fix sha; after a force-push or
             # rebase it reopens only if that fix's change left the branch,
-            # and a ledger line with its Qodo id and the new fix sha
-            # answers it again. Any other finding closes by a landed commit
-            # or a ledger comment with the exact finding, the specific
-            # reason, and the code reference
+            # and a ledger line with its Qodo id and a new fix sha answers
+            # it again, under the same fix rule. Any other finding closes
+            # by a landed commit or a ledger comment with the exact
+            # finding, the specific reason, and the code reference
     for each escalation the operator has ruled on:
         record the ruling in a ledger comment   # closes the escalation,
                                                 #   not the finding
         a "dismiss" ruling answers the finding (a Qodo id: `dismiss`)
     if fixes were made: delegate them to a bare agent; make check; commit
-        if local_review(the fix diff) is blocked: stop; the operator rules
+        if local_review(the fix diff) is blocked: post an escalation
+            comment on each fix-ruled finding in the diff; stop; the
+            operator rules
         push once                         # each push restarts CI, not review
-    answer each "fix"-ruled finding whose fix commit is now on the PR head
-        and passed local_review — a Qodo id by `mark-implemented`, any
-        other source by that commit, named in its ledger entry
+    answer each finding fixed this tick, or fix-ruled, whose fix commit is
+        now on the PR head and passed local_review — a Qodo id by
+        `mark-implemented`, any other source by that commit, named in its
+        ledger entry
         # whatever the source: answered earlier, a stopped fix would merge
         #   unfixed, with no open escalation and no unanswered finding
     resolve each answered thread, one by one   # the leader resolves, not the
