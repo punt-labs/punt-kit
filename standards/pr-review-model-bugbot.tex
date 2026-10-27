@@ -6,7 +6,8 @@
 % Type-check:  fuzz -t standards/pr-review-model-bugbot.tex
 % Model-check (precise, no symmetry):
 %   timeout 900 probcli standards/pr-review-model-bugbot.tex -model_check \
-%     -card RUN 2 -p MAX_INITIALISATIONS 10
+%     -card RUN 3 -p MAX_INITIALISATIONS 10
+%   (175,892 states, all visited, about 65 s and 0.5 GB)
 % probcli writes pr-review-model-bugbot.fuzz beside the file; do not commit it.
 %
 % Named assumptions:

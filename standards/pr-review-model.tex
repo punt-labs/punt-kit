@@ -12,10 +12,13 @@
 % Model-check (precise, no symmetry):
 %   timeout 900 probcli standards/pr-review-model.tex -model_check \
 %     -card COMMIT 3 -card FINDING 1 -p MAX_INITIALISATIONS 10
+%   (1,973,091 states, all visited, about 9 minutes and 5 GB)
 % Model-check (two findings, symmetry reduction):
 %   timeout 900 probcli standards/pr-review-model.tex -model_check \
 %     -card COMMIT 3 -card FINDING 2 -p MAX_INITIALISATIONS 10 \
 %     -p SYMMETRY_MODE hash
+%   (does not finish in 8 GB: with -p COMPRESSION TRUE, 1,191,600 of at
+%   least 1,478,508 states checked, no counterexample)
 % probcli writes pr-review-model.fuzz beside the file; do not commit it.
 %
 % Named assumptions (each is outside the model; the consequence is stated):
@@ -64,8 +67,8 @@ Eight empirical fix rounds on the review-state rules each surfaced the next
 defect. This model replaces those rounds. It states what the leader reads from
 GitHub, the events that change it, and the guard $merge\_gate$ puts on
 $Merge$. ProB checks two things. No reachable state merges a commit no review
-covered or an unanswered finding, or answers a finding by a fix before that
-fix passed local review and reached the head.
+covered or an unanswered finding, or answers a finding while its fix awaits
+local review or push.
 Every non-merged state can still move, so the only waits are on the operator,
 the author, or a bot.
 
@@ -124,8 +127,10 @@ $NotPending$ reads $bbIn$ only when $skipped = no$. Neither abstract event is
 enabled in the projected state, since both have fired. Every other variable is
 the real one, and A reads $bbIn$ and $bbClear$ only positively. Machine A has
 no deadlock, so some A event is enabled in the projected state. Each such
-event is enabled in the real state too, or implies another A event that is.
-Three A guards are weaker than the real ones:
+event is enabled in the real state too, implies another A event that is, or
+is held only by an A2 conjunct, whose own event (a Copilot review or its 30
+minutes, CI completing, the demo) then moves. Besides the A2 conjuncts, three
+A guards are weaker than the real ones:
 \begin{itemize}
 \item $EscalateFinding$ takes any unanswered finding, not only a new High.
   $AnswerLedger$ has the same finding guard: the real ledger answer covers a
@@ -230,7 +235,7 @@ $ledgered$ (findings answered by a ledger line or a Qodo CLI dismiss).
 \where
   answered \subseteq findings \\
   escF \subseteq findings \setminus answered \\
-  fixPending \subseteq findings \setminus answered \\
+  fixPending \subseteq findings \\
   escF \cap fixPending = \emptyset
 \end{schema}
 
@@ -258,8 +263,10 @@ review.
 (I3) No delta review re-covers a commit an earlier review already covered.
 (I5) A finding ruled ``fix'' is answered only by a fix push, or by a later
 ``dismiss'' ruling after its fix was blocked.
-(I7) Every answer is a pushed fix, a ``dismiss'' ruling, or a ledger line: a
-fix answers nothing until it passed local review and is on the head.
+(I7) Every answer has one recorded path (a pushed fix, a ``dismiss'' ruling,
+or a ledger line), and no finding is answered while its fix awaits local
+review or push. $fixPending \cap answered = \emptyset$ lives here, not in
+$Issues$, so a violating operation is reported, not disabled.
 (I4, the Bugbot fallback, and I6, the deadlock lemma, are machine B's.)
 
 \begin{schema}{Invariant}
@@ -271,7 +278,9 @@ fix answers nothing until it passed local review and is on the head.
   ( \forall m : reviewedHead @ \{ a : COMMIT | a \mapsto m \in anc \} \subseteq seen ) \\
   overlap = no \\
   fixRuledEver \cap answered \subseteq pushFixed \cup dismissedEver \\
-  answered \subseteq pushFixed \cup dismissedEver \cup ledgered
+  answered \subseteq pushFixed \cup dismissedEver \cup ledgered \\
+  answered \cap fixing = \emptyset \\
+  answered \cap fixPending = \emptyset
 \end{schema}
 
 \section{Derived terms}
