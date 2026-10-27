@@ -45,7 +45,10 @@
 %     state machine is unchanged.
 %  A5 History is linear: no merge commits. delta_base is a set of markers,
 %     and the delta range excludes everything reachable from any of them,
-%     so a merge commit would not change the range rule.
+%     so a merge commit would not change the range rule. The base branch is
+%     not modelled: anc holds only the PR's own commits, so "the whole
+%     history" here is pr-review.md's merge-base..head range, and the
+%     prose's `--not <base branch>` term has nothing to exclude.
 %  A6 An outage-fallback review that errors twice stops the loop for the
 %     operator. The model has no such error: the fallback always completes.
 %  A7 A rebase keeps every fix: the rebased head carries the content of the

@@ -61,7 +61,10 @@ All notable changes to this project will be documented in this file.
     neither `reviewed_head` nor `delta_head`, so an unset `delta_head` or a
     rebase never blocks it. Its range excludes every commit a `delta_base`
     marker reaches, so it never re-covers a commit an earlier delta or Qodo
-    review covered on the same history. `reviewed_head` takes `delta_head`
+    review covered on the same history. It also excludes the base branch,
+    so with no marker it is the PR's own diff (merge-base..head), never
+    every ancestor of the head, and commits merged in from the base branch
+    are never in a range. `reviewed_head` takes `delta_head`
     only after that review completed on the head.
   - `reviewed_head` is the commit a Qodo review or the fallback ran on, not
     the head when it completed, and it never moves backward.

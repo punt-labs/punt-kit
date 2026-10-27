@@ -321,9 +321,12 @@ delta_head   = the PR head a local delta review ran on, set only when that
 delta_base   = the markers among reviewed_head and delta_head that are set
                and are the head or an ancestor of it; empty when neither
                is — no marker yet, or a rebase orphaned both
-delta range  = the commits in the head's history that no delta_base commit
-               reaches (`git log <head> --not <delta_base>`); the whole PR
-               when delta_base is empty
+delta range  = the PR's own commits in the head's history that no
+               delta_base commit reaches:
+               `git log <head> --not <delta_base> <base branch>`; with
+               delta_base empty, `git log <head> --not <base branch>`, the
+               merge-base(base branch, head)..head diff. Excluding the base
+               branch keeps commits merged in from it out of every range
 bugbot_open  = a Cursor Bugbot check run on any commit of the PR, not only
                the head, whose status is not completed (queued or in
                progress), whatever its age, and that has no recorded
