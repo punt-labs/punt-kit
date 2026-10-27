@@ -8,6 +8,7 @@ handle_push_trigger = false
 enable_incremental_review = true
 # comments_routing below is authoritative; the threshold restates it (High only inline).
 inline_comments_severity_threshold = 3
+# Python repos fill {{LANGUAGE_RULES}} with this exact line: Never suggest suppressions (# noqa, # type: ignore, xfail) or replacing __new__ with __init__; __new__ is the constructor by design.
 issues_user_guidelines = """
 {{LANGUAGES_AND_TARGETS}}
 Report every finding in this one pass; do not hold findings back for a later pass.
@@ -15,7 +16,7 @@ Flag only defects reachable by a real caller of the changed code: logic errors, 
 Do not flag hypothetical environments (exotic env vars such as CDPATH or GIT_TRACE, control bytes in paths, tests run as root).
 Do not flag what CI enforces: {{CI_ENFORCED}}.
 Do not flag lines the PR did not change.
-Never suggest suppressions (# noqa, # type: ignore, xfail) or replacing __new__ with __init__; __new__ is the constructor by design.
+{{LANGUAGE_RULES}}
 """
 compliance_user_guidelines = """
 Apply code rules only: correctness, typing, error handling, security, and the coding standards for the changed files.
