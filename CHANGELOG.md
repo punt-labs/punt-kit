@@ -14,14 +14,14 @@ All notable changes to this project will be documented in this file.
 
 ### Security
 
-- Deny every shell command form that prints environment variable values,
-  both bare and with arguments: `env` (denied entirely), `printenv`, bare
-  `set`, and the printing forms of `export`, `declare`, and `typeset` (bare,
-  `-p`, `-x`, `--`, and `export -n`). That is 22 rules, added to `standards/permissions.md` §4,
-  to the deny list `punt init` scaffolds and `punt audit` enforces, and to
-  punt-kit's own settings. To set a variable for one command, use
-  `VAR=value command`. `export VAR=value` and `compgen -e` (names only) still
-  work.
+- Deny the shell commands that print environment variable values: `env` and
+  `printenv` in every form, bare `set`, and `export`, `declare`, and
+  `typeset` bare or with any flag (`Bash(export -:*)` and so on, because
+  flags combine and reorder). That is 11 rules, added to
+  `standards/permissions.md` §4, to the deny list `punt init` scaffolds and
+  `punt audit` enforces, and to punt-kit's own settings. To set a variable
+  for one command, use `VAR=value command`. `export VAR=value` and
+  `compgen -e` (names only) still work.
 
 ### Changed
 
