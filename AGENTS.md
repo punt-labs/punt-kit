@@ -31,7 +31,7 @@ Each standard lives in its own document under `standards/`.
 | [Integration](standards/integration.md) | Peer-tool discovery tiers L0–L5, presence markers, graceful degradation, integration matrix, bundled integrations |
 | [Logging](standards/logging.md) | Centralized dictConfig, log locations, atomic append, file permissions, content escaping |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
-| [GitHub](standards/github.md) | Branch protection, CI/CD workflows, Copilot code review, required status checks, repo settings |
+| [GitHub](standards/github.md) | Branch protection, CI/CD workflows, review bots (Qodo, Bugbot), required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
 | [PR and Review](standards/pr-review.md) | Local-first review: the PR as merge gate, review agents, remote reviewers as second opinion |
 | [Git](standards/git.md) | Git mechanics: branch check before commit, no-rewrite of pushed branches, conflict resolution, post-merge cleanup ordering, worktree lifecycle, submodules, mission trailers, stop-and-ask |
@@ -136,7 +136,7 @@ Use this checklist to audit a project for compliance:
 - [ ] **Branch protection on main** — require PR with 1 approval, require status checks, prevent force push ([github](standards/github.md))
 - [ ] **CI workflow exists** — lint, test, or docs validation per project type ([github](standards/github.md))
 - [ ] **Required status checks configured** — CI must pass before merge ([github](standards/github.md))
-- [ ] **Copilot code review enabled** — automatic review on PRs ([github](standards/github.md))
+- [ ] **Review bots configured** — `.pr_agent.toml` from the template, no `copilot_code_review` ruleset rule ([github](standards/github.md))
 - [ ] **Dependabot and secret scanning enabled** — security baseline ([github](standards/github.md))
 - [ ] **Auto-delete head branches enabled** — clean up after merge ([github](standards/github.md))
 - [ ] **Cross-project integrations are optional and one-way** — no circular dependencies ([workflow](standards/workflow.md))

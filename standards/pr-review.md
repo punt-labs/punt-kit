@@ -1,5 +1,7 @@
 # PR and Review Standard
 
+**Updated:** 2026-10-26
+
 ## Philosophy
 
 A pull request is not a review mechanism — it is a merge gate. All review
@@ -310,6 +312,9 @@ function poll_tick(pr):
             # no deferral beads
     for each escalation the operator has ruled on:
         apply the ruling; record it in a ledger comment
+        if the finding has a Qodo id: also close it through the Qodo CLI
+            (mark-implemented or dismiss, per answered(f)); a ledger line
+            alone leaves it unanswered and the next tick escalates it again
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked:
             stop; the operator rules
@@ -320,7 +325,7 @@ function poll_tick(pr):
             and a High was fixed since trigger(1):
         comment "/agentic_review"; comment "bugbot run"   # opens round 2,
                                                           #   the last
-    if not pending(pr) and no review is requested and the PR head is newer
+    if not pending(pr) and the PR head is newer
             than reviewed_head:
         run code_reviewer locally on the reviewed_head..head delta; its
             findings are findings like any other   # bounded rounds, but

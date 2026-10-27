@@ -1,5 +1,7 @@
 # GitHub Standards
 
+**Updated:** 2026-10-26
+
 Rules for repository configuration, CI/CD, branch protection, and code review across all Punt Labs projects.
 
 ---
