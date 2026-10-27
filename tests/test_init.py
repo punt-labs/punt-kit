@@ -575,6 +575,80 @@ def test_deny_rules_guard_env_via_edit() -> None:
     assert "Write(.envrc)" not in deny
 
 
+ENV_DUMP_DENY_RULES = (
+    "Bash(env)",
+    "Bash(env:*)",
+    "Bash(printenv)",
+    "Bash(printenv:*)",
+    "Bash(set)",
+    "Bash(export)",
+    "Bash(export -*)",
+    "Bash(declare)",
+    "Bash(declare -*)",
+    "Bash(typeset)",
+    "Bash(typeset -*)",
+)
+
+
+@pytest.mark.parametrize("rule", ENV_DUMP_DENY_RULES)
+def test_init_scaffolds_deny_rule_for_env_dump(tmp_path: Path, rule: str) -> None:
+    """Commands that print environment values are denied in new repos."""
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+
+    run_init(str(tmp_path))
+
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    assert rule in data["permissions"]["deny"]
+
+
+def test_env_is_denied_entirely_with_and_without_arguments() -> None:
+    """`env FOO=bar` with no command prints the environment, so `env:*` is denied."""
+    from punt_kit.init import build_standard_deny_rules
+
+    deny = build_standard_deny_rules()
+    assert "Bash(env:*)" in deny
+
+
+def test_env_dump_deny_set_is_exactly_the_standard_set() -> None:
+    """The env-printing deny rules match the standard's 11, no more, no fewer."""
+    from punt_kit.init import build_standard_deny_rules
+
+    printing = {
+        r
+        for r in build_standard_deny_rules()
+        if r.split("(")[1].split()[0].rstrip(":*)")
+        in {"env", "printenv", "set", "export", "declare", "typeset"}
+    }
+    assert printing == set(ENV_DUMP_DENY_RULES)
+    assert len(ENV_DUMP_DENY_RULES) == 11
+
+
+def test_bare_export_is_denied_while_export_with_assignment_stays_allowed(
+    tmp_path: Path,
+) -> None:
+    """`Bash(export:*)` stays allowed; bare `export` and `export -*` are denied."""
+    from punt_kit.init import build_standard_deny_rules, build_standard_permissions
+
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    allow = build_standard_permissions(detect(tmp_path))
+    deny = build_standard_deny_rules()
+
+    assert "Bash(export:*)" in allow
+    assert "Bash(export:*)" not in deny
+    assert "Bash(export)" in deny
+    assert "Bash(export -*)" in deny
+
+
+@pytest.mark.parametrize("command", ["export", "declare", "typeset"])
+def test_flag_deny_rules_have_no_space_before_the_star(command: str) -> None:
+    """`cmd -:*` means `cmd - *` and misses `cmd -p`; `cmd -*` matches it."""
+    from punt_kit.init import build_standard_deny_rules
+
+    deny = build_standard_deny_rules()
+    assert f"Bash({command} -*)" in deny
+    assert f"Bash({command} -:*)" not in deny
+
+
 def test_init_prunes_dead_rules_from_existing_settings(tmp_path: Path) -> None:
     """Init removes seeded Write(...) entries that duplicate a live Edit(...)."""
     import json
