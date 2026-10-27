@@ -13,7 +13,7 @@ Every repository must protect `main` with a ruleset (preferred) or branch protec
 | Setting | Value | Why |
 |---------|-------|-----|
 | Require pull request | Yes | No direct pushes to main. Creates an audit trail. |
-| Required approvals | 0 | Copilot and Cursor review as advisory (COMMENT, not APPROVE). Revisit when a project has 3+ developers. |
+| Required approvals | 0 | Qodo, Bugbot, and Copilot review as advisory (COMMENT, not APPROVE). Revisit when a project has 3+ developers. |
 | Require conversation resolution | Yes | Unresolved review comments block merge. |
 | Require status checks to pass | Yes | CI must pass before merge. |
 | Prevent force push | Yes | Protects commit history. |
@@ -133,26 +133,20 @@ Add project-specific overrides in `.markdownlint-cli2.jsonc` when certain direct
 
 ## 3. Code Review
 
+### PR review bots: Qodo and Bugbot
+
+Qodo and Bugbot are the default remote reviewers. Their sequencing, round cap, and merge conditions are owned by the [PR and Review standard](pr-review.md); this section covers only the repository configuration they need.
+
+- **Qodo** reads `.pr_agent.toml` from the default branch. Start from the punt-kit template (`src/punt_kit/templates/pr_agent.toml`), fill its `{{PLACEHOLDER}}` values, and merge it to `main` before the first PR that should use it. In the Qodo portal, set "Review every push" to Disable (the portal default is Enable); the config reviews once, on open.
+- **Bugbot** is configured in the Cursor dashboard to review each PR once, on open.
+
+Both leave COMMENT reviews (not APPROVE), so they do not count toward approval requirements. With required approvals set to 0, they serve as an advisory quality check alongside CI; Qodo's High findings post as threads that block merge through the conversation-resolution rule in section 1. When a project grows to 3+ developers, revisit the approval requirement — set it to 1 and require human approval.
+
 ### GitHub Copilot Code Review
 
-Every repository must enable GitHub Copilot as a code reviewer. Copilot is assigned as a reviewer on PRs to provide automated feedback before human review.
+Copilot is on request only. It is not a default reviewer, and repository rulesets carry no `copilot_code_review` rule (as of 2026-10-26). A repo may request one Copilot review per PR, at open, per its `docs/WORKFLOW.md`; its findings are handled like any other.
 
-#### Setup
-
-1. Ensure GitHub Copilot is enabled for the organization (requires Copilot Business or Enterprise).
-2. In repository settings > Code review > Copilot code review, enable automatic Copilot review on PRs.
-3. Optionally add a `copilot-review-instructions.md` in the repo root or `.github/` to customize review focus areas.
-
-#### Workflow
-
-1. Developer opens a PR.
-2. Copilot automatically reviews and leaves comments.
-3. Developer addresses Copilot feedback.
-4. Human reviewer approves (or requests changes).
-5. CI passes.
-6. Merge.
-
-Copilot leaves COMMENT reviews (not APPROVE), so it does not count toward approval requirements. With required approvals set to 0, Copilot review serves as an advisory quality check alongside CI. When a project grows to 3+ developers, revisit the approval requirement — set it to 1 and require human approval.
+Rulesets keep `required_review_thread_resolution` and the required status checks (section 4). Do not add `copilot_code_review` to a ruleset: it makes Copilot review automatically, outside the bounded review loop in [PR and Review](pr-review.md).
 
 ### Review expectations
 
@@ -211,11 +205,11 @@ Use this checklist when creating a new repo:
 3. Add `.markdownlint.jsonc` and `.markdownlint-cli2.jsonc` (org standard, section 2)
 4. Add CI workflow(s) per project type, including `docs.yml` (section 2)
 5. Configure branch protection ruleset with required status checks (sections 1, 4)
-6. Enable Copilot code review (section 3)
+6. Add `.pr_agent.toml` from the template and configure Qodo and Bugbot (section 3); do not enable Copilot code review
 7. Enable Dependabot and secret scanning (section 5)
 8. Enable auto-merge and auto-delete head branches (section 5)
 9. Verify with a test PR that CI runs and protection works
 
 ### Existing repositories
 
-Audit against the checklist in [AGENTS.md](../AGENTS.md). Create beads for each gap. Apply incrementally — branch protection and CI first, then Copilot review, then security settings.
+Audit against the checklist in [AGENTS.md](../AGENTS.md). Create beads for each gap. Apply incrementally — branch protection and CI first, then the review bots, then security settings.
