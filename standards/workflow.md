@@ -441,10 +441,11 @@ function poll_tick(pr):
         if local_review(the fix diff) is blocked: stop; the operator rules
         push once                         # each push restarts CI, not review
     close each escalated finding the operator ruled on, by its answered(f)
-        path, only once its fix commit is on the PR head and passed
-        local_review — a finding with a Qodo id through the Qodo CLI
-        (mark-implemented; or dismiss if the ruling was dismiss), because
-        a ledger line does not close it
+        path — a finding with a Qodo id through the Qodo CLI, because a
+        ledger line does not close it: a dismiss ruling closes it (dismiss)
+        as soon as the ruling is recorded; a fix ruling closes it
+        (mark-implemented) only once its fix commit is on the PR head and
+        passed local_review
     resolve each answered thread, one by one   # the leader resolves, not the
                                           #   worker
     if not skipped(pr) and not pending(pr) and N == 1

@@ -327,12 +327,13 @@ function poll_tick(pr):
             stop; the operator rules
         push once                          # every fix reaches the PR head
     close each escalated finding the operator ruled on, by its answered(f)
-        path, only once its fix commit is on the PR head and passed
-        local_review — a finding with a Qodo id through the Qodo CLI
-        (mark-implemented; or dismiss if the ruling was dismiss), because
-        a ledger line does not close it
-        # closing earlier would let a stopped fix merge unfixed: no open
-        #   escalation, no unanswered finding
+        path — a finding with a Qodo id through the Qodo CLI, because a
+        ledger line does not close it: a dismiss ruling closes it (dismiss)
+        as soon as the ruling is recorded; a fix ruling closes it
+        (mark-implemented) only once its fix commit is on the PR head and
+        passed local_review
+        # a fix ruling closed earlier would let a stopped fix merge
+        #   unfixed: no open escalation, no unanswered finding
     resolve each thread that is answered, one by one — the leader
         resolves, not the agent
     if not skipped(pr) and not pending(pr) and N == 1
@@ -382,11 +383,28 @@ remote review is round 2, and only after a High fix.
 
 Some behavior only a human can judge. Each repo's `docs/WORKFLOW.md` defines
 its demo — what is driven, through which entry point, and what the operator
-confirms — or states that it has none. `demo_ok(pr)` is true when the repo
-defines no demo, or when the demo was confirmed on a commit that is the PR
-head or an ancestor of it with nothing demo-relevant landed since. A failed
-demo is a finding like any other. The demo is a human check on observed
-behavior, never a diff review.
+confirms — or states that it has none. A failed demo is a finding like any
+other. The demo is a human check on observed behavior, never a diff review.
+
+The standard fixes the shape of `demo_ok`; each repo fills in its own
+`demo_exempt` set:
+
+```text
+demo_exempt(f) = f is a file the repo lists as not changing behavior (for
+                 example *.md, docs/, tests/, .github/, ratchet files), and
+                 is not under plugin/ — commands, skills, agents, and hooks
+                 there are behavior even when Markdown, because Claude Code
+                 executes them
+demo_ok(pr)    = the repo defines no demo; or every file the PR changes is
+                 demo_exempt; or demoed_head exists, is the head or an
+                 ancestor of it, and every file changed since it is
+                 demo_exempt
+demoed_head    = the commit named in the leader's latest "demo confirmed:"
+                 PR comment, newer than any "demo failed:" comment
+```
+
+A plugin-only Markdown PR is therefore not docs-only, and an edit to
+`plugin/*.md` after the demo needs a re-demo.
 
 #### Close-out
 
