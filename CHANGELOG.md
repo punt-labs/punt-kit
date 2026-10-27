@@ -14,6 +14,17 @@ All notable changes to this project will be documented in this file.
   strategy, shared architecture, roadmap, a 98-package backlog, acceptance
   matrix, and per-product and per-harness audits. Codex support is deferred.
   A plan, not shipped integrations.
+- `standards/pr-review-model.tex` and `standards/pr-review-model-bugbot.tex`
+  — a Z model of the PR review state in two machines checked separately: the
+  review side (markers, Qodo sessions and the outage fallback, findings, fix
+  and dismiss rulings, escalations, `merge_gate`) and the Bugbot side (runs,
+  re-runs, the fallback window, stuck-run rulings). Both are type-checked
+  with fuzz and model-checked with ProB. Removing any of the prose fixes it
+  checks yields a ProB counterexample, an invariant violation unless noted.
+  A blocked ruled fix that is not escalated again breaks I5. Three variants
+  deadlock: the two delta-review guard defects, and the earlier
+  blocked-fix prose (no re-escalation, and a fix-ruled finding answered only
+  by its fix).
 
 ### Security
 
@@ -36,6 +47,52 @@ All notable changes to this project will be documented in this file.
   `standards/github.md`: Copilot is on request only, with no
   `copilot_code_review` ruleset rule. `standards/workflow.md`: the PR loop
   follows the same gate.
+- `standards/pr-review.md` and `standards/workflow.md`: fixes to the PR
+  review loop.
+  - Bugbot: a failed run gets one `rerun(N)` per round, even after the
+    30-minute fallback elapsed. The fallback counts only after that re-run
+    and a fresh window. Round 2's "bugbot run" trigger is not a `rerun`.
+    A round-1 run that fails after round 2 opens still gets `rerun(1)`,
+    and `merge_gate` waits until every round with a failed run has its
+    re-run. Each `rerun(N)` posts a ledger line naming its round and the
+    failed check run, so GitHub shows which rounds were re-run.
+  - A stuck run is ruled "proceed" instead of "cancel" (only the owning app
+    can cancel a check run); the ledger names its check-run id and
+    `bugbot_open` ignores it. After a "wait" ruling the operator may rule
+    "proceed" later without a new escalation.
+  - Delta review: a new `delta_head` term stops it re-running on the same
+    head while its findings are answered. It runs whenever the head is
+    neither `reviewed_head` nor `delta_head`, so an unset `delta_head` or a
+    rebase never blocks it. Its range excludes every commit a `delta_base`
+    marker reaches, so it never re-covers a commit an earlier delta or Qodo
+    review covered on the same history. It also excludes the base branch,
+    so with no marker it is the PR's own diff (merge-base..head), never
+    every ancestor of the head, and commits merged in from the base branch
+    are never in a range. `reviewed_head` takes `delta_head`
+    only after that review completed on the head.
+  - `reviewed_head` is the commit a Qodo review or the fallback ran on, not
+    the head when it completed, and it never moves backward.
+  - A finding answered by a fix, escalated or not and whatever its source,
+    is answered only once its fix commit is on the head and passed local
+    review. A ruled fix whose local review is blocked is escalated again,
+    and the latest ruling governs. A ruling's ledger entry closes the
+    escalation, not the finding.
+  - A blocked local review also escalates the block itself, naming the fix
+    commit and its cause; the other findings wait for that ruling. The
+    finding loop skips a finding in a diff whose block escalation is open.
+    The operator rules "retry" (the fix is reworked and passes local review
+    before any push) or "drop" (the fix commit is discarded unpushed and its
+    findings return unanswered); either ruling's ledger entry closes the
+    escalation. After "drop" the next local review starts fresh, not
+    resumed, so the dropped fix's local Qodo closures carry no weight.
+  - `mark-implemented` records the fix sha. After a force-push or rebase, a
+    finding answered by a fix, from any source, reopens only if that fix's
+    change left the branch, not because commit ids changed. A Qodo finding
+    is answered again by a ledger line with its Qodo id and a new fix sha,
+    any other by a new fix commit, under the same fix rule. A reopened
+    finding does not keep its answer as a repeat.
+  - The leader posts "demo confirmed" once the demo passes on the head, and
+    waits for the operator only on user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**
   design proposal, including an informal naming, UX, or architecture
   suggestion to the operator. Look up ADRs by topic across every decision
