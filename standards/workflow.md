@@ -466,10 +466,11 @@ function poll_tick(pr):
             # by a landed commit or a ledger comment with the exact
             # finding, the specific reason, and the code reference. After
             # a force-push or rebase, a finding of any source answered by
-            # a fix reopens only if that fix's change left the branch; a
-            # Qodo one is answered again by a ledger line with its Qodo id
-            # and a new fix sha, any other by a new fix commit, under the
-            # same fix rule
+            # a fix reopens only if that fix's change left the branch, and
+            # the leader unresolves its thread (no thread: a ledger line
+            # `reopened: <finding> <fix sha>`); a Qodo one is answered
+            # again by a ledger line with its Qodo id and a new fix sha,
+            # any other by a new fix commit, under the same fix rule
     for each escalation the operator has ruled on:
         record the ruling in a ledger comment   # closes the escalation,
                                                 #   not the finding

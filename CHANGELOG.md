@@ -39,6 +39,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/pr-review.md` and `standards/workflow.md`: when a force-push or
+  rebase reopens a finding, the leader unresolves its review thread; a local
+  finding with no thread gets a `reopened: <finding> <fix sha>` ledger line.
+  The `finding` term counts a reopened finding, so the finding loop and
+  `merge_gate` see it.
 - PR review adopts the vox-tested model (DES-032, supersedes DES-005's Copilot
   gate). `standards/pr-review.md`: local review (`qodo review` +
   silent-failure-hunter + code-reviewer) before the PR and every fix push;
