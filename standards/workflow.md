@@ -448,28 +448,30 @@ function poll_tick(pr):
                                           #   rules "proceed" on it, with no
                                           #   new escalation
     for each finding not answered(f) and not under an open escalation:
-        if N == 2 and f is a new High:
+        if N == 2 and f is a new High with no ruling:
             post an escalation comment; the operator rules
         else:
             fix it now, or answer it by its source's path (answered(f))
             # handled now, never on a later tick; never re-litigated; no
-            # deferral beads. A Qodo finding closes through the Qodo CLI;
-            # after a force-push or rebase, a mark-implemented one whose
-            # fix left the branch history is reopened: unanswered. Any
-            # other finding closes by a landed commit or a ledger comment
-            # with the exact finding, the specific reason, and the code
-            # reference
+            # deferral beads. A Qodo finding closes through the Qodo CLI,
+            # mark-implemented naming the fix sha; after a force-push or
+            # rebase it reopens only if that fix's change left the branch,
+            # and a ledger line with its Qodo id and the new fix sha
+            # answers it again. Any other finding closes by a landed commit
+            # or a ledger comment with the exact finding, the specific
+            # reason, and the code reference
     for each escalation the operator has ruled on:
-        apply the ruling; record it in a ledger comment
+        record the ruling in a ledger comment   # closes the escalation,
+                                                #   not the finding
+        a "dismiss" ruling answers the finding (a Qodo id: `dismiss`)
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked: stop; the operator rules
         push once                         # each push restarts CI, not review
-    close each escalated finding the operator ruled on, by its answered(f)
-        path — a finding with a Qodo id through the Qodo CLI, because a
-        ledger line does not close it: a dismiss ruling closes it (dismiss)
-        as soon as the ruling is recorded; a fix ruling closes it
-        (mark-implemented) only once its fix commit is on the PR head and
-        passed local_review
+    answer each "fix"-ruled finding whose fix commit is now on the PR head
+        and passed local_review — a Qodo id by `mark-implemented`, any
+        other source by that commit, named in its ledger entry
+        # whatever the source: answered earlier, a stopped fix would merge
+        #   unfixed, with no open escalation and no unanswered finding
     resolve each answered thread, one by one   # the leader resolves, not the
                                           #   worker
     if not skipped(pr) and not pending(pr) and N == 1

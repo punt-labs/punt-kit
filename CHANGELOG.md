@@ -19,9 +19,9 @@ All notable changes to this project will be documented in this file.
   review side (markers, Qodo sessions and the outage fallback, findings, fix
   and dismiss rulings, escalations, `merge_gate`) and the Bugbot side (runs,
   re-runs, the fallback window, stuck-run rulings). Both are type-checked
-  with fuzz and model-checked with ProB. Removing
-  any of the prose fixes it checks yields a ProB counterexample: an invariant
-  violation, or a deadlock for the two delta-review guard defects.
+  with fuzz and model-checked with ProB. Removing any of the prose fixes it
+  checks yields a ProB counterexample: an invariant violation, or a deadlock
+  for the two delta-review guard defects.
 
 ### Security
 
@@ -62,8 +62,13 @@ All notable changes to this project will be documented in this file.
     only after that review completed on the head.
   - `reviewed_head` is the commit a Qodo review or the fallback ran on, not
     the head when it completed, and it never moves backward.
-  - After a force-push or rebase, a Qodo finding closed with
-    `mark-implemented` whose fix left the branch history is reopened.
+  - A finding ruled "fix" is answered only once its fix commit is on the
+    head and passed local review, whatever its source; the ruling's ledger
+    entry closes the escalation, not the finding.
+  - `mark-implemented` records the fix sha. After a force-push or rebase, a
+    finding reopens only if that fix's change left the branch, not because
+    commit ids changed; a ledger line with its Qodo id and the new fix sha
+    answers it again.
   - The leader posts "demo confirmed" once the demo passes on the head, and
     waits for the operator only on user-facing behavior a human must judge.
 - `standards/workflow.md`: consult the design decision log before **any**

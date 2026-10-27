@@ -32,11 +32,13 @@
 %     before merge. Only the delta review's own findings are tied to its
 %     completion, because Promote reads them.
 %  A4 No force-push to a commit the PR already had. Push and Rebase always
-%     create a new commit. A reset that drops a fix commit is not modelled.
-%     pr-review.md answered(f) covers it: after a force-push or rebase, a
-%     mark-implemented finding whose fix left the branch history is
-%     reopened, unanswered (decision D1). The state machine is unchanged:
-%     Rebase keeps every fix (A7), so the rule never fires in the model.
+%     create a new commit. A reset that drops a fix is not modelled.
+%     pr-review.md answered(f) covers it (decision D1): mark-implemented
+%     records the fix sha; after a force-push or rebase a finding reopens
+%     only if that fix's change left the branch, and a ledger line with its
+%     Qodo id and the new fix sha answers it again. Rebase keeps every fix
+%     (A7), so by construction the rule never fires in the model, and the
+%     state machine is unchanged.
 %  A5 History is linear: no merge commits. delta_base is a set of markers,
 %     and the delta range excludes everything reachable from any of them,
 %     so a merge commit would not change the range rule.

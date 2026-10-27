@@ -276,14 +276,21 @@ answered(f)  = one path per source, never both:
                - a finding with a Qodo id (from the CLI read): its
                  attribution_status is closed (implemented, dismissed,
                  outdated); close it with `qodo pr-review-session
-                 mark-implemented` or `dismiss` plus the reason and
-                 file:line. A ledger line does not close it. After a
-                 force-push or rebase, a mark-implemented finding whose
-                 fix left the branch history is reopened: unanswered.
+                 mark-implemented` (the explanation names the fix sha) or
+                 `dismiss` plus the reason and file:line. A ledger line
+                 does not close it.
                - any other finding — Bugbot, a security automation, Copilot,
                  a human, the local outage fallback: fixed by a commit on
                  the PR head, or a ledger comment gives the reason and
                  file:line.
+               Whatever the source, a finding ruled "fix" is answered only
+               once its fix commit is on the PR head and passed
+               local_review; a "dismiss" ruling answers it once recorded.
+               After a force-push or rebase, a mark-implemented finding is
+               reopened, unanswered, only if the change its recorded fix
+               sha made is no longer in the branch; new commit ids alone
+               do not reopen it. A ledger line naming its Qodo id and the new fix
+               sha answers it again, and that sha is its recorded fix.
                A finding repeated from an earlier round keeps its answer.
 new High     = a High raised by a round-2 review (one that started at or
                after trigger(2)) and not raised in an earlier round; a manual
@@ -292,7 +299,8 @@ new High     = a High raised by a round-2 review (one that started at or
                normal fix path
 escalation   = the leader's "escalated:" comment on one new round-2 High,
                or on a stuck Bugbot run; closed by a later ledger entry
-               recording the operator's ruling and how it was applied
+               recording the operator's ruling. The entry closes the
+               escalation, not the finding (see answered(f))
 skipped(pr)  = the PR author is a bot ([github_app] ignore_bot_pr in
                .pr_agent.toml); no title or label lets an author skip
 reviewed_head = set by a completing Qodo review or outage fallback to the
@@ -367,26 +375,25 @@ function poll_tick(pr):
                                            #   later rules "proceed" on it,
                                            #   which needs no new escalation
     for each finding not answered(f) and not under an open escalation:
-        if N == 2 and f is a new High:
+        if N == 2 and f is a new High with no ruling:
             post an escalation comment; the operator rules
         else:
             fix it now, or answer it by its source's path (answered(f))
             # never re-litigated; Qodo Lows are dropped by comments_routing;
-            # no deferral beads
+            # no deferral beads; a "fix" ruling is answered only by its fix
     for each escalation the operator has ruled on:
-        apply the ruling; record it in a ledger comment
+        record the ruling in a ledger comment   # closes the escalation,
+                                                #   not the finding
+        a "dismiss" ruling answers the finding (a Qodo id: `dismiss`)
     if fixes were made: delegate them to a bare agent; make check; commit
         if local_review(the fix diff) is blocked:
             stop; the operator rules
         push once                          # every fix reaches the PR head
-    close each escalated finding the operator ruled on, by its answered(f)
-        path — a finding with a Qodo id through the Qodo CLI, because a
-        ledger line does not close it: a dismiss ruling closes it (dismiss)
-        as soon as the ruling is recorded; a fix ruling closes it
-        (mark-implemented) only once its fix commit is on the PR head and
-        passed local_review
-        # a fix ruling closed earlier would let a stopped fix merge
-        #   unfixed: no open escalation, no unanswered finding
+    answer each "fix"-ruled finding whose fix commit is now on the PR head
+        and passed local_review — a Qodo id by `mark-implemented`, any
+        other source by that commit, named in its ledger entry
+        # whatever the source: answered earlier, a stopped fix would merge
+        #   unfixed, with no open escalation and no unanswered finding
     resolve each thread that is answered, one by one — the leader
         resolves, not the agent
     if not skipped(pr) and not pending(pr) and N == 1
