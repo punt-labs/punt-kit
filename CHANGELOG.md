@@ -26,6 +26,10 @@ All notable changes to this project will be documented in this file.
   blocked-fix prose (no re-escalation, and a fix-ruled finding answered only
   by its fix).
 
+### Fixed
+
+- ethos config resolves layered again so the engineering team, seeded pipelines and the claude leader identity resolve alongside the vendored gstack team
+
 ### Security
 
 - Deny the shell commands that print environment variable values: `env` and

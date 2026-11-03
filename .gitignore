@@ -222,8 +222,13 @@ uv.toml
 # Working notes, not part of the package
 resume.md
 
-# Ethos org registry — was a git submodule here (SSH URL, ~1 MB / 246 files).
-# Claude Code clones plugins with --recurse-submodules, so it aborted every
-# keyless install. Removed; identity resolves from ~/.punt-labs/ethos/ instead.
-# The repo-local .punt-labs/ethos.yaml identity pointer stays tracked.
-/.punt-labs/ethos/
+# Ethos: the vendored gstack team (identities, roles, teams, attributes) is
+# tracked under .punt-labs/ethos/ and resolves repo-only. Only runtime state
+# is ignored: per-run sessions and mission lock files.
+.punt-labs/ethos/sessions/
+.punt-labs/ethos/missions/**/.lock
+**/.create.lock
+
+# ethos runtime (never track) — DES-058 live zone + mission locks
+.punt-labs/ethos/missions/**/*.lock
+.punt-labs/**/*.ethos-tmp*
