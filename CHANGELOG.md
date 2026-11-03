@@ -43,6 +43,10 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/punt-labs-dir.md` § 8: the vendored-subtree seal-manifest fail
+  now applies only when the repo opts the ethos trace tier into the tracked
+  tree (`.punt-labs/ethos/sessions/` not gitignored). A repo that gitignores
+  it, the ethos DES-079 default, passes with a note.
 - `standards/pr-review.md` and `standards/workflow.md`: when a force-push or
   rebase reopens a finding, the leader unresolves its review thread; a finding
   with no review thread (a local or a Qodo summary finding) gets a

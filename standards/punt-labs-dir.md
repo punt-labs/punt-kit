@@ -738,12 +738,20 @@ These extend the audit list in
   zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
   blocked; only the tracked landings in the subtree depend on the de-gitlink.
   Symmetrically, once that de-gitlink **completes**, the vendored subtree must
-  actually deliver the audit trail it now can: a tool with a **seal-pattern § 10
-  row** (ethos(logs)) whose vendored subtree carries **no readable seal manifest**
-  ([§ 5](#5-live-state-is-never-a-tracked-file)) is a **fail**. Vendoring exists to
-  make the trail verifiable, so a vendored-but-manifest-less subtree leaves the
-  unsealed tail invisible forever — the same vacuous pass the gitlink warning
-  flags, now un-exempted because the gitlink is gone.
+  actually deliver the audit trail it now can — **when the repo opts the trace
+  tier into the tracked tree** (`.punt-labs/ethos/sessions/` is **not**
+  gitignored): a tool with a **seal-pattern § 10 row** (ethos(logs)) whose
+  vendored subtree carries **no readable seal manifest**
+  ([§ 5](#5-live-state-is-never-a-tracked-file)) is then a **fail**. Vendoring
+  exists to make the trail verifiable, so a vendored-but-manifest-less subtree
+  leaves the unsealed tail invisible forever — the same vacuous pass the gitlink
+  warning flags, now un-exempted because the gitlink is gone. Under ethos
+  DES-079 only the blame tier (mission records, `missions-closed/` exports) is
+  committed by default; the session trace tier (`.punt-labs/ethos/sessions/`
+  audit chunks) is local by default and committing it is opt-in. A repo that
+  gitignores `.punt-labs/ethos/sessions/` (the DES-079 default) has no tracked
+  trail to verify: audit grades it **pass with a note** ("trace tier local per
+  DES-079; no seal manifest required"), never fail.
 - **Unvendored gitlink is audit-unverifiable** *(graded)*. A `.punt-labs/<tool>`
   entry recorded at **gitlink mode `160000`** (a submodule, not an inline subtree)
   grades a deterministic **warning** — "audit trail unverifiable until vendored."
