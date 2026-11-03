@@ -1,6 +1,6 @@
 # Repo-Local State Directory Standard
 
-**Introduced:** 2026-07-20 · **Updated:** 2026-09-10
+**Introduced:** 2026-07-20 · **Updated:** 2026-11-03
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
 the two are told apart. A tool's committed repo state lives under one directory —
@@ -452,7 +452,14 @@ row names — **file or directory**, not directories only — today:
 ```gitignore
 .punt-labs/quarry/captures/
 .punt-labs/vox/ephemeral/
+.punt-labs/ethos/sessions/
 ```
+
+The `.punt-labs/ethos/sessions/` line is the ethos DES-079 interim: the session
+trace tier is local by default, and until ethos writes it to the local zone
+(`.punt-labs/local/ethos/trace/`) its in-tree location must stay ignored. It
+retires with its [§ 10](#10-adoption-status) row, when ethos writes the trace
+tier to the local zone.
 
 Each interim line is **tied to a [§ 10](#10-adoption-status) row, not to prose**:
 the rollout generates this list from the § 10 table's open live-state rows and
@@ -667,7 +674,7 @@ These extend the audit list in
   **with exactly one exemption, not zero**: a path matching a
   [§ 6](#6-the-canonical-gitignore-block) interim exclude while its owning
   [§ 10](#10-adoption-status) row is still open (`.punt-labs/quarry/captures/`,
-  `.punt-labs/vox/ephemeral/` today) is sanctioned, table-driven, and expected
+  `.punt-labs/vox/ephemeral/`, `.punt-labs/ethos/sessions/` today) is sanctioned, table-driven, and expected
   to be ignored — it is not this check's business, and this check must not
   re-fail what § 8's own live-state-migration grade already governs on its own
   expiring schedule. Every other gitignored, non-local-convention path is a
@@ -738,12 +745,22 @@ These extend the audit list in
   zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
   blocked; only the tracked landings in the subtree depend on the de-gitlink.
   Symmetrically, once that de-gitlink **completes**, the vendored subtree must
-  actually deliver the audit trail it now can: a tool with a **seal-pattern § 10
-  row** (ethos(logs)) whose vendored subtree carries **no readable seal manifest**
-  ([§ 5](#5-live-state-is-never-a-tracked-file)) is a **fail**. Vendoring exists to
-  make the trail verifiable, so a vendored-but-manifest-less subtree leaves the
-  unsealed tail invisible forever — the same vacuous pass the gitlink warning
-  flags, now un-exempted because the gitlink is gone.
+  actually deliver the audit trail it now can — **when the repo tracks any of
+  the trace tier** (`git ls-files .punt-labs/ethos/sessions` is non-empty;
+  tracked-ness decides, not ignore status, because a gitignore line does not
+  untrack chunks already committed): a tool with a **seal-pattern § 10 row** (ethos(logs)) whose
+  vendored subtree carries **no readable seal manifest**
+  ([§ 5](#5-live-state-is-never-a-tracked-file)) is then a **fail**. Vendoring
+  exists to make the trail verifiable, so a vendored-but-manifest-less subtree
+  leaves the unsealed tail invisible forever — the same vacuous pass the gitlink
+  warning flags, now un-exempted because the gitlink is gone. Under ethos
+  DES-079 only the blame tier (mission records, `missions-closed/` exports) is
+  committed by default; the session trace tier (`.punt-labs/ethos/sessions/`
+  audit chunks) is local by default and committing it is opt-in. A repo with
+  nothing tracked under `.punt-labs/ethos/sessions/` (the DES-079 default, with
+  the directory ignored as the § 6 interim exclude) has no tracked trail to
+  verify: audit grades it **pass with a note** ("trace tier local per DES-079;
+  no seal manifest required"), never fail.
 - **Unvendored gitlink is audit-unverifiable** *(graded)*. A `.punt-labs/<tool>`
   entry recorded at **gitlink mode `160000`** (a submodule, not an inline subtree)
   grades a deterministic **warning** — "audit trail unverifiable until vendored."
@@ -897,6 +914,7 @@ local-convention naming on their next release.
 | lux (bare file) | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
 | lux (root config dir) | `.lux/config.md` root directory, git-tracked in some repos: carries a live setting (`display`) written by `enable`/`disable` themselves (lux's `operations/config.py`: "not a client setter routed through the Hub"), not pure presence and not daemon-rewritten — same not-pure-presence correction as vox (root config dir) above, different writer | — | move the file to `.punt-labs/lux/config.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.lux/` directory; a genuinely empty `.lux/` is deleted outright once `.punt-labs/lux/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
 | ethos (root runtime dir) | the bare `.ethos/` root directory (no `.punt-labs/` prefix), holding `.ethos/missions.jsonl`, git-tracked in every surveyed ethos-adopting repo: a continuously-appended mission audit log with no settings, the root-level predecessor of the local zone. **Distinct from** `.punt-labs/ethos/missions.jsonl` inside the vendored subtree, which this row does not touch — that file's disposition is the pre-existing ethos(logs) row below | — | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), then delete the empty `.ethos/` directory. Graded by [§ 8](#8-what-punt-audit-checks)'s legacy-root-sentinel check, not the live-state check — the row carries no interim-exclude live path because the artifact being removed is the root directory itself, not a path under `.punt-labs/` | Planned |
+| ethos (trace tier) | session trace tier (`.punt-labs/ethos/sessions/` audit chunks) is local by default, committing it is opt-in (ethos DES-079); written in-tree today | `.punt-labs/ethos/sessions/` | trace tier written to the local zone `.punt-labs/local/ethos/trace/` (DES-079), after which the interim exclude retires | Planned |
 | punt | writes the canonical gitignore block | — | `init` writes, `audit` verifies, rollout propagates | Building |
 
 The **Live path(s)** column is machine-resolvable: it lists the concrete paths
