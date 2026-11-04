@@ -13650,17 +13650,58 @@ def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
     assert _init_py(root).read_text() == '__version__: str = "0.2.0"\n'
 
 
-def test_phase2_fails_when_the_init_version_cannot_be_rewritten(
+# vox's shape (pkit-bl6s): the metadata read hides behind a helper, so the
+# file never names importlib.metadata.
+_HELPER_COMPUTED_INIT = (
+    "from punt_vox.paths import installed_version\n\n"
+    "__version__ = installed_version()\n"
+)
+_METADATA_COMPUTED_INIT = (
+    'from importlib.metadata import version\n\n__version__ = version("test-pkg")\n'
+)
+
+
+@pytest.mark.parametrize(
+    "init_text",
+    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT],
+    ids=["helper-call", "importlib-metadata"],
+)
+def test_phase2_leaves_a_computed_init_version_alone(
+    tmp_path: Path, init_text: str
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text(init_text)
+    _commit_all(root, "computed version")
+
+    _bump(root)  # computed at import time: nothing to bump, nothing to fail
+
+    assert _init_py(root).read_text() == init_text
+
+
+def test_phase2_says_a_computed_init_version_is_not_bumped(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = _make_release_project(tmp_path)
-    _init_py(root).write_text("__version__ = compute_version()\n")
+    _init_py(root).write_text(_HELPER_COMPUTED_INIT)
     _commit_all(root, "computed version")
 
-    with pytest.raises(ReleaseError, match=r"__init__\.py.*__version__"):
-        _bump(root)
+    _bump(root)
 
-    assert "✓ __init__.py" not in capsys.readouterr().out
+    assert "__init__.py: __version__ is computed — not bumped" in _flat(
+        capsys.readouterr().out
+    )
+
+
+def test_phase2_bumps_a_literal_init_version_beside_an_importlib_import(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text('import importlib.metadata\n\n__version__ = "0.1.0"\n')
+    _commit_all(root, "literal beside an import")
+
+    _bump(root)  # a stale literal would ship: the import does not excuse it
+
+    assert '__version__ = "0.2.0"' in _init_py(root).read_text()
 
 
 def test_phase2_fails_when_the_pyproject_version_cannot_be_rewritten(
@@ -13688,19 +13729,41 @@ def test_phase2_leaves_an_imported_version_alone(tmp_path: Path) -> None:
     assert _init_py(root).read_text() == "from ._v import __version__\n"
 
 
-def test_phase11_fails_when_the_init_version_is_assigned_but_unparseable(
+@pytest.mark.parametrize(
+    "init_text",
+    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT],
+    ids=["helper-call", "importlib-metadata"],
+)
+def test_phase11_skips_a_computed_init_version(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    init_text: str,
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _init_py(root).write_text(init_text)
+    _commit_all(root, "computed version")
+    _patch_pypi_probe(monkeypatch)
+
+    _phase11_verify(detect(root), version, dry_run=False)  # must not raise
+
+    assert "__init__.py:" not in _flat(capsys.readouterr().out)
+
+
+def test_phase11_checks_a_literal_init_version_beside_an_importlib_import(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     version = "0.1.0"
     root = _setup_fully_passing_verify(tmp_path, version)
-    _init_py(root).write_text("__version__ = compute_version()\n")
-    _commit_all(root, "computed version")
+    _init_py(root).write_text('import importlib.metadata\n\n__version__ = "0.0.9"\n')
+    _commit_all(root, "stale literal beside an import")
     _patch_pypi_probe(monkeypatch)
 
     with pytest.raises(ReleaseError, match="Some verification checks failed"):
         _phase11_verify(detect(root), version, dry_run=False)
 
-    _assert_failed_checks(capsys.readouterr().out, ["__init__.py"], "__version__")
+    _assert_failed_checks(capsys.readouterr().out, ["__init__.py"], "__version__=0.0.9")
 
 
 def test_phase11_reads_a_single_quoted_init_version(

@@ -35,8 +35,10 @@ class VersionAssignment:
     single quotes (TOML basic or literal string, Python either). The quote
     style is kept when the value is rewritten. Anything else, such as a
     computed value, an inline table or a tuple, is *assigned* but not
-    *readable*: the bump must fail on it and the check must report it, never
-    pass over it.
+    *readable*. A caller that can only pin a literal (``pyproject.toml``,
+    ``install.sh``) must fail on it and report it, never pass over it; a
+    Python ``__version__`` that ``is_computed`` comes from installed metadata
+    and has nothing to pin.
     """
 
     __slots__ = ("_assigned", "_bare", "_is_shell", "_quoted")
@@ -90,6 +92,15 @@ class VersionAssignment:
     def is_assigned(self, text: str) -> bool:
         """True when ``text`` assigns the name at the start of some line."""
         return next(iter(self._heads(text)), None) is not None
+
+    def is_computed(self, text: str) -> bool:
+        """True when ``text`` assigns the name but no plain literal supplies it.
+
+        ``__version__ = installed_version()`` is computed whatever the helper
+        reads, so there is nothing to bump or verify; ``__version__ = "1.0"``
+        is not, even beside an ``importlib.metadata`` import.
+        """
+        return self.is_assigned(text) and self._readable(text) is None
 
     def assigned_lines(self, text: str) -> tuple[str, ...]:
         """Every line that assigns the name, stripped, in order.

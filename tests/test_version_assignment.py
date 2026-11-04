@@ -42,6 +42,33 @@ def test_a_computed_value_is_assigned_but_not_readable() -> None:
     assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
 
 
+@pytest.mark.parametrize(
+    ("text", "computed"),
+    [
+        ("__version__ = installed_version()\n", True),
+        ('__version__ = version("punt-vox")\n', True),
+        ("__version__ = VERSION\n", True),
+        ('__version__ = "1.0"\n', False),
+        ("__version__: str = '1.0'\n", False),
+        ("from ._v import __version__\n", False),
+        ("", False),
+    ],
+    ids=[
+        "helper-call",
+        "metadata-call",
+        "name",
+        "literal",
+        "annotated-literal",
+        "imported",
+        "absent",
+    ],
+)
+def test_computed_means_assigned_without_a_plain_literal(
+    text: str, computed: bool
+) -> None:
+    assert VersionAssignment("__version__").is_computed(text) is computed
+
+
 def test_rewriting_keeps_the_quote_style_and_reports_the_count() -> None:
     assignment = VersionAssignment("version")
 

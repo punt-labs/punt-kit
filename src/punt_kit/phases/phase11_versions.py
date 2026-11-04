@@ -70,22 +70,11 @@ class VersionPinChecks:
         if pkg_dir is None or not (pkg_dir / "__init__.py").exists():
             return []
         content = TextFile(pkg_dir / "__init__.py").read()
-        uses_metadata = (
-            "importlib.metadata" in content or "importlib_metadata" in content
-        )
-        assignment = VersionAssignment("__version__")
-        if uses_metadata or not assignment.is_assigned(content):
-            return []
-        init_ver = assignment.read(content)
+        # None when absent or computed (VersionAssignment.is_computed): either
+        # way there is no literal to check.
+        init_ver = VersionAssignment("__version__").read(content)
         if init_ver is None:
-            return [
-                VerificationCheck(
-                    "__init__.py",
-                    False,
-                    "__version__ is assigned but not as a plain quoted string, "
-                    "so it cannot be verified",
-                )
-            ]
+            return []
         return [
             VerificationCheck(
                 "__init__.py", init_ver == self._version, f"__version__={init_ver}"

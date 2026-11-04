@@ -76,21 +76,17 @@ class Phase2VersionBump:
             self._ops.ok(f'pyproject.toml: version = "{self._version}"')
 
     def _bump_init(self, path: Path) -> None:
-        """Set ``__version__``; fail when it is assigned but cannot be set."""
+        """Set a literal ``__version__``; leave a computed one alone."""
         content = TextFile(path).read()
-        uses_metadata = (
-            "importlib.metadata" in content or "importlib_metadata" in content
-        )
         assignment = VersionAssignment("__version__")
-        if uses_metadata or not assignment.is_assigned(content):
+        if assignment.is_computed(content):
+            # Read from installed metadata at import time (python.md, Version
+            # Reporting): pyproject.toml is the one pin.
+            self._ops.info(f"{path.name}: __version__ is computed — not bumped")
             return
         new_content, count = assignment.rewritten(content, self._version)
-        if count == 0:
-            self._ops.fail(
-                f"{path.name}: __version__ is assigned but not as a plain quoted "
-                f'string (__version__ = "X.Y.Z"), so it cannot be bumped to '
-                f"{self._version}; set it by hand"
-            )
+        if count == 0:  # not assigned here, e.g. ``from ._v import __version__``
+            return
         if self._dry_run:
             self._ops.dry(f'{path.name}: __version__ = "{self._version}"')
         else:
@@ -160,8 +156,7 @@ class Phase2VersionBump:
         if pyproject_path.exists():
             self._bump_pyproject(pyproject_path)
 
-        # Bump __init__.py __version__ (skip if version comes from
-        # importlib.metadata)
+        # Bump __init__.py __version__ (skip a computed one)
         pkg_dir = project.package_dir()
         if pkg_dir is not None:
             init_py = pkg_dir / "__init__.py"
