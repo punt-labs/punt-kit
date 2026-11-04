@@ -34,6 +34,8 @@ _TRY_EXCEPT = (
         "from importlib.metadata import version\n"
         '__version__ = version("x").split("+")[0]\n',
         'from importlib.metadata import version\n__version__ = version("x") or "0"\n',
+        'from . import _version\n__version__ = _version.get_versions()["version"]\n',
+        'from importlib import metadata\n__version__ = metadata.version("x")\n',
     ],
     ids=[
         "helper-call",
@@ -42,6 +44,8 @@ _TRY_EXCEPT = (
         "versioneer",
         "call-then-split",
         "call-or-fallback",
+        "imported-module-attribute-call",
+        "imported-submodule-call",
     ],
 )
 def test_a_call_is_computed(text: str) -> None:
@@ -207,6 +211,11 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         'from ._v import *\n__version__ = "0.1.0"\n',
         '__version__ = "0.1.0"\nfrom ._v import *\n',
         'VERSION = "0.1.0"\n__version__ = VERSION\nfrom ._v import *\n',
+        "from ._about import VERSION\n__version__ = parse(VERSION)\n",
+        "from ._about import VERSION\n__version__ = f(x=VERSION)\n",
+        "from ._about import VERSION\nV = VERSION\n__version__ = parse(V)\n",
+        "from ._about import VERSION\nV = parse(VERSION)\n__version__ = V\n",
+        "from . import _about\n__version__ = str(_about.VERSION)\n",
     ],
     ids=[
         "f-string",
@@ -252,6 +261,11 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         "star-before",
         "star-after",
         "star-beside-name",
+        "imported-argument",
+        "imported-keyword-argument",
+        "imported-through-a-name",
+        "imported-on-the-chain",
+        "imported-attribute-argument",
     ],
 )
 def test_anything_else_cannot_be_pinned(text: str) -> None:
@@ -298,6 +312,10 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
             r"hardcoded version \(0, 1, 0\) \(line 1\)",
         ),
         ('__version__ = str("0.1.0")\n', "hardcoded version '0.1.0'"),
+        (
+            "from ._about import VERSION\n__version__ = parse(VERSION)\n",
+            "from VERSION, which is imported from another module; pin the version",
+        ),
     ],
     ids=[
         "imported-name",
@@ -309,6 +327,7 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "star-import",
         "tuple-joined",
         "literal-in-call",
+        "imported-argument",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:

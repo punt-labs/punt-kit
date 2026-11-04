@@ -13761,6 +13761,7 @@ _UNPINNABLE_INITS = {
     "star-import": '__version__ = "0.1.0"\nfrom ._v import *\n',
     # Pinned in another module, which this one cannot see.
     "imported": "from ._v import __version__\n",
+    "imported-argument": "from ._about import VERSION\n__version__ = parse(VERSION)\n",
 }
 
 

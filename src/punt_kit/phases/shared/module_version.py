@@ -66,9 +66,12 @@ class ModuleVersion:
     - ``None`` — nothing in the module binds ``__version__``.
     - ``ComputedVersion`` — the value contains a call (``installed_version()``,
       ``version("x").split("+")[0]``, versioneer's
-      ``get_versions()["version"]``) and no version-like literal reaches it:
-      read from installed metadata at import time, so there is nothing to
-      bump or verify.
+      ``get_versions()["version"]``), no version-like literal reaches it, and
+      no imported name feeds it as data: read from installed metadata at
+      import time, so there is nothing to bump or verify. An imported name
+      may be what is called (``version``, ``importlib`` in
+      ``importlib.metadata.version("x")``), never what is passed or operated
+      on (``parse(VERSION)`` with ``VERSION`` imported).
     - ``LiteralVersion`` — a one-line, unprefixed, single- or double-quoted
       string that ends its statement (a ``# comment`` may follow), optionally
       annotated. A plain name bound once, in the module body, to such a
@@ -83,7 +86,9 @@ class ModuleVersion:
     concatenated, triple-quoted or conditional value; and a call that a
     version-like literal reaches (``str("0.1.0")``,
     ``os.environ.get("V", "0.1.0")``, ``".".join(map(str, VERSION_INFO))``
-    with ``VERSION_INFO = (0, 1, 0)``). A version-like literal is a string
+    with ``VERSION_INFO = (0, 1, 0)``) or that reads an imported name as data,
+    directly or through a name bound in this module, since the other module
+    may pin a stale literal. A version-like literal is a string
     holding ``digits.digits`` or a tuple of two or more ints; it reaches a
     value when it appears inside it or a name inside it is bound in this
     module to a value it reaches.
@@ -188,7 +193,31 @@ class ModuleVersion:
                 "package metadata"
             )
             raise UnpinnableVersionError(msg)
+        imported = self._imported_operand(value, frozenset())
+        if imported is not None:
+            msg = (
+                f"`{source}` computes {name} from {imported}, which is imported "
+                "from another module; pin the version there"
+            )
+            raise UnpinnableVersionError(msg)
         return ComputedVersion(source)
+
+    def _imported_operand(self, expr: ast.expr, seen: frozenset[str]) -> str | None:
+        """An imported name ``expr`` reads as data, not as the function it calls."""
+        callees = _callee_names(expr)
+        for node in ast.walk(expr):
+            if not isinstance(node, ast.Name) or node in callees or node.id in seen:
+                continue
+            seen |= {node.id}
+            bindings = self._bindings.of(node.id)
+            if any(binding.is_import for binding in bindings):
+                return node.id
+            for binding in bindings:
+                for feed in binding.sources:
+                    found = self._imported_operand(feed, seen)
+                    if found is not None:
+                        return found
+        return None
 
     def _version_literal(self, expr: ast.expr, seen: frozenset[str]) -> ast.expr | None:
         """A version-like literal that reaches ``expr``, through names too."""
@@ -375,6 +404,19 @@ def _captured(pattern: ast.pattern) -> Iterator[str]:
                 yield name
             case _:
                 pass
+
+
+def _callee_names(expr: ast.expr) -> set[ast.Name]:
+    """Each name a call in ``expr`` invokes: ``f`` in ``f()``, ``a`` in ``a.b.f()``."""
+    callees: set[ast.Name] = set()
+    for node in ast.walk(expr):
+        if isinstance(node, ast.Call):
+            func = node.func
+            while isinstance(func, ast.Attribute):
+                func = func.value
+            if isinstance(func, ast.Name):
+                callees.add(func)
+    return callees
 
 
 def _is_version_like(node: ast.AST) -> TypeIs[ast.Constant | ast.Tuple]:
