@@ -172,6 +172,7 @@ def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[: len(prefix)] == prefix:
             recorded.append(cmd)
@@ -517,6 +518,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd and cmd[0] in ("make", "uv"):
             gate_calls.append(cmd)
@@ -549,6 +551,7 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd and cmd[0] in ("make", "uv"):
             gate_calls.append(cmd)
@@ -591,6 +594,7 @@ def test_preflight_python_make_check_failure_aborts_phase(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd and cmd[0] in ("make", "uv"):
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="lint failed")
@@ -623,6 +627,7 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[:3] == ["git", "fetch", "origin"]:
             return subprocess.CompletedProcess(
@@ -664,6 +669,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd == hung_cmd:
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -718,6 +724,7 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["go", "test"]:
             return subprocess.CompletedProcess(
@@ -881,6 +888,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd == ["uv", "lock"]:
             return subprocess.CompletedProcess(
@@ -6719,6 +6727,7 @@ def _patch_pypi_probe(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if len(cmd) == len(_PYPI_PROBE_CMD) + 1 and tuple(cmd[:-1]) == _PYPI_PROBE_CMD:
             calls.append((list(cmd), {"cwd": cwd, "timeout": timeout}))
@@ -11618,6 +11627,7 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd == hung_cmd and timeout == timeouts.DEFAULT_RUN:
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -12856,6 +12866,7 @@ def test_phase8_runs_the_installed_cli_doctor_under_an_explicit_budget(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         budgets[cmd[-1]] = timeout
         return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -12921,6 +12932,7 @@ def _resolve_threads(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         seen.append(cmd)
         reply = next(answers)
@@ -13177,6 +13189,7 @@ def test_phase8_doctor_timeout_warns_and_does_not_abort(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[-1] == "doctor":
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -14051,6 +14064,7 @@ def test_phase8_warns_when_the_installed_cli_doctor_exits_non_zero(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, 3 if cmd[-1] == "doctor" else 0, "", "")
 

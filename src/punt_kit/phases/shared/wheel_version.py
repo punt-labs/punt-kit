@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import ast
 import re
-from typing import TYPE_CHECKING, NoReturn, Self, cast, final
+import secrets
+import zipfile
+from typing import TYPE_CHECKING, Self, cast, final
 
 from packaging.version import InvalidVersion, Version
 
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.wheel_probe import PROBE_SOURCE, ProbeRecord
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -17,24 +19,6 @@ if TYPE_CHECKING:
     from punt_kit.phases.shared.ops import ReleaseOps
     from punt_kit.phases.shared.skips import SkipRecorder
 
-# The probe frames its one answer as a record no ordinary output starts with.
-_RECORD = "\x00PUNT_VERSION"
-_VALUE = f"{_RECORD}="
-_ABSENT = f"{_RECORD} absent"
-# Run inside the isolated interpreter. The module name arrives as an argument,
-# never spliced into the code. The record goes straight to file descriptor 1,
-# after a newline so it starts its own line, and ``os._exit`` ends the process
-# before atexit handlers or buffered ``sys.stdout`` output can add to it.
-# ``ascii`` keeps the value literal-evaluable whatever the output encoding.
-_PROBE = (
-    "import importlib, os, sys\n"
-    "module = importlib.import_module(sys.argv[1])\n"
-    "missing = object()\n"
-    "value = getattr(module, '__version__', missing)\n"
-    f"record = {_ABSENT!r} if value is missing else {_VALUE!r} + ascii(value)\n"
-    "os.write(1, ('\\n' + record + '\\n').encode('ascii'))\n"
-    "os._exit(0)\n"
-)
 # uv_build's default when [tool.uv.build-backend] sets no module-root.
 _DEFAULT_MODULE_ROOT = "src"
 # uv_build's default module-name: the project name, lowercased, with each run
@@ -51,7 +35,8 @@ class WheelVersionCheck:
     ``__getattr__``, a monkeypatched reader, or a helper module that returns a
     stale literal. Importing the wheel the release is about to publish can,
     so the syntax tree has no say here: every module is imported, and the
-    version it reports must equal the release version under PEP 440.
+    version it reports must be the release version exactly as written, or its
+    PEP 440 canonical form (``1.0.0rc1`` for a ``1.0.0-rc1`` release).
 
     The modules imported are, first match wins:
 
@@ -62,16 +47,22 @@ class WheelVersionCheck:
     3. the one package under the module root, or, when it holds none, the one
        package at the repo root.
 
-    Anything else fails, naming what was searched. The import always runs
-    against the installed wheel, never the source tree: a module that will
-    not import fails the release, and one with no ``__version__`` once
-    imported is skipped, with the skip recorded for the release recap.
+    Anything else fails, naming what was searched. Steps 2 and 3 name one
+    module, so a wheel shipping several top-level packages has only that one
+    checked unless ``module-name`` lists them all.
+
+    Each module must be in the wheel, and must import from the wheel: one a
+    stdlib module of the same name shadows fails. The import runs under the
+    project's ``requires-python`` when it sets one. A module that will not
+    import fails the release, and one with no ``__version__`` once imported
+    is skipped, with the skip recorded for the release recap.
     """
 
-    __slots__ = ("_info", "_ops", "_skips", "_version")
+    __slots__ = ("_canonical", "_info", "_ops", "_skips", "_version")
 
     _info: ProjectInfo
     _version: str
+    _canonical: str
     _ops: ReleaseOps
     _skips: SkipRecorder
 
@@ -88,6 +79,7 @@ class WheelVersionCheck:
         self._version = version
         self._ops = ops
         self._skips = skips
+        self._canonical = self._canonical_release()
         return self
 
     def verify(self, dist: Path) -> None:
@@ -136,6 +128,99 @@ class WheelVersionCheck:
             "set [tool.uv.build-backend] module-name"
         )
 
+    def _verify_wheel(self, wheel: Path, module: str) -> None:
+        """Fail unless ``module`` imported from ``wheel`` reports the version."""
+        if not _ships(wheel, module):
+            self._ops.fail(f"{wheel.name} does not contain {module}")
+        record = self._probe(wheel, module)
+        if record.in_stdlib:
+            self._ops.fail(
+                f"{wheel.name}: importing {module} loaded {record.origin!r}, "
+                "from the standard library, not the wheel; rename the module"
+            )
+        match record.kind:
+            case "absent":
+                self._skips.record(
+                    f"SKIPPED — {wheel.name}: {module} has no __version__ at run "
+                    "time, so the runtime __version__ check did not apply"
+                )
+                return
+            case "type":
+                self._ops.fail(
+                    f"{wheel.name}: {module}.__version__ is a {record.value}, not "
+                    f"a string, at run time; the release version is "
+                    f"{self._version!r}"
+                )
+            case "str" if record.value not in (self._version, self._canonical):
+                self._ops.fail(
+                    f"{wheel.name}: {module}.__version__ is {record.value!r} at "
+                    f"run time, but the release version is {self._version!r}"
+                )
+            case "str":
+                self._ops.ok(f"{wheel.name}: {module}.__version__ == {self._version}")
+
+    def _probe(self, wheel: Path, module: str) -> ProbeRecord:
+        """Import ``module`` from ``wheel`` in isolation; the one record it gave."""
+        nonce = secrets.token_hex(16)
+        result = self._ops.run(
+            [
+                "uv",
+                "run",
+                "--isolated",
+                "--no-project",
+                "--with",
+                str(wheel),
+                *self._python(),
+                "python",
+                "-I",
+                "-c",
+                PROBE_SOURCE,
+                module,
+                nonce,
+            ],
+            cwd=str(wheel.parent),
+            timeout=UV,
+            check=False,
+            # The package may write any bytes while it imports.
+            errors="replace",
+        )
+        if result.returncode != 0:
+            self._ops.fail(
+                f"{wheel.name}: importing {module} to read __version__ failed "
+                f"(release version {self._version}):\n{result.stderr.strip()}"
+            )
+        lines = ProbeRecord.lines(result.stdout, nonce)
+        if len(lines) != 1:
+            self._ops.fail(
+                f"{wheel.name}: importing {module} gave {len(lines)} version "
+                f"records, expected exactly 1 (release version {self._version})"
+            )
+        record = ProbeRecord.parse(lines[0])
+        if record is None:
+            self._ops.fail(
+                f"{wheel.name}: importing {module} gave a malformed version "
+                f"record {lines[0]!r} (release version {self._version})"
+            )
+        return record
+
+    def _python(self) -> tuple[str, ...]:
+        """``--python <requires-python>`` when the project sets one; else nothing."""
+        requires = self._project().get("requires-python")
+        return ("--python", requires) if isinstance(requires, str) else ()
+
+    def _canonical_release(self) -> str:
+        """The release version's PEP 440 canonical form; fail if it has none."""
+        # Version() forgives surrounding whitespace; a release version must not.
+        try:
+            if self._version != self._version.strip():
+                raise InvalidVersion(self._version)
+            return str(Version(self._version))
+        except InvalidVersion:
+            self._ops.fail(
+                f"the release version {self._version!r} is not a PEP 440 version, "
+                "so no wheel's __version__ can be checked against it"
+            )
+
     def _configured_names(self) -> tuple[str, ...]:
         """``[tool.uv.build-backend] module-name``; empty when it is not set."""
         configured = self._build_backend().get("module-name")
@@ -154,97 +239,17 @@ class WheelVersionCheck:
 
     def _project_name(self) -> str:
         """``[project] name``."""
-        project = (self._info.pyproject or {}).get("project")
-        name = (
-            cast("dict[str, object]", project).get("name")
-            if isinstance(project, dict)
-            else None
-        )
+        name = self._project().get("name")
         if not isinstance(name, str):
             self._ops.fail("pyproject.toml has no [project] name to find the module by")
         return name
 
-    def _verify_wheel(self, wheel: Path, module: str) -> None:
-        """Fail unless ``module`` imported from ``wheel`` reports the version."""
-        result = self._ops.run(
-            [
-                "uv",
-                "run",
-                "--isolated",
-                "--no-project",
-                "--with",
-                str(wheel),
-                "python",
-                "-I",
-                "-c",
-                _PROBE,
-                module,
-            ],
-            cwd=str(wheel.parent),
-            timeout=UV,
-            check=False,
-        )
-        if result.returncode != 0:
-            self._ops.fail(
-                f"{wheel.name}: importing {module} to read __version__ failed "
-                f"(release version {self._version}):\n{result.stderr.strip()}"
-            )
-        records = [
-            line for line in result.stdout.split("\n") if line.startswith(_RECORD)
-        ]
-        if len(records) != 1:
-            self._ops.fail(
-                f"{wheel.name}: importing {module} gave {len(records)} version "
-                f"records, expected exactly 1 (release version {self._version})"
-            )
-        [record] = records
-        if record == _ABSENT:
-            self._skips.record(
-                f"SKIPPED — {wheel.name}: {module} has no __version__ at run "
-                "time, so the runtime __version__ check did not apply"
-            )
-            return
-        found = self._reported(record, wheel, module)
-        if self._parsed(found, wheel, module) != self._parsed(
-            self._version, wheel, module
-        ):
-            self._ops.fail(
-                f"{wheel.name}: {module}.__version__ is {found!r} at run time, "
-                f"but the release version is {self._version!r}"
-            )
-        self._ops.ok(f"{wheel.name}: {module}.__version__ == {self._version}")
-
-    def _reported(self, record: str, wheel: Path, module: str) -> str:
-        """The ``__version__`` string ``record`` carries; fail on anything else."""
-        payload = record.removeprefix(_VALUE)
-        value: object = None
-        if record.startswith(_VALUE):
-            try:
-                value = ast.literal_eval(payload)
-            except (ValueError, SyntaxError):
-                value = None
-        if not isinstance(value, str):
-            self._ops.fail(
-                f"{wheel.name}: {module}.__version__ is not a string at run time "
-                f"({payload}); the release version is {self._version!r}"
-            )
-        return value
-
-    def _parsed(self, text: str, wheel: Path, module: str) -> Version:
-        """``text`` as a PEP 440 version, exactly as written; fail otherwise."""
-        # Version() forgives surrounding whitespace; a release must not.
-        if text != text.strip():
-            self._not_a_version(text, wheel, module)
-        try:
-            return Version(text)
-        except InvalidVersion:
-            self._not_a_version(text, wheel, module)
-
-    def _not_a_version(self, text: str, wheel: Path, module: str) -> NoReturn:
-        self._ops.fail(
-            f"{wheel.name}: {module}.__version__ check: {text!r} is not a PEP 440 "
-            f"version (release version {self._version!r})"
-        )
+    def _project(self) -> dict[str, object]:
+        """The ``[project]`` table; empty when absent."""
+        project = (self._info.pyproject or {}).get("project")
+        if not isinstance(project, dict):
+            return {}
+        return cast("dict[str, object]", project)
 
     def _module_root(self) -> Path:
         """The directory uv_build finds the module in."""
@@ -265,6 +270,14 @@ class WheelVersionCheck:
         if not isinstance(table, dict):
             return {}
         return cast("dict[str, object]", table)
+
+
+def _ships(wheel: Path, module: str) -> bool:
+    """Whether ``wheel`` holds ``module``: a package, a module file, or a namespace."""
+    path = module.replace(".", "/")
+    with zipfile.ZipFile(wheel) as archive:
+        names = archive.namelist()
+    return f"{path}.py" in names or any(name.startswith(f"{path}/") for name in names)
 
 
 def _packages(base: Path) -> tuple[str, ...]:

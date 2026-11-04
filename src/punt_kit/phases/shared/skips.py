@@ -25,7 +25,9 @@ GITHUB_ABSENT_SKIP = (
 # Phase 3 imports the built wheel to check its run-time __version__; a release
 # resumed after Phase 3 never builds, so that check never runs.
 RESUMED_PAST_BUILD_SKIP = (
-    "SKIPPED — runtime __version__ check not run: resumed past build"
+    "SKIPPED — runtime __version__ check not run this invocation (resumed past "
+    "build); if dist/ was rebuilt since phase 3 passed, re-run with "
+    "--resume-from build"
 )
 
 

@@ -31,6 +31,7 @@ import json
 import shutil
 import subprocess
 import threading
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, cast, final
@@ -128,6 +129,8 @@ class _GithubSim:
       the squash commit created above — unknowable before the run starts.
     - ``uv build``: Phase 3 requires artifacts on disk in ``dist/``
       afterward, not just a zero exit.
+    - ``uv run --isolated``: Phase 3's wheel probe frames its answer under a
+      nonce the run picks, unknowable before the run starts.
     """
 
     passthrough: ClassVar[tuple[tuple[str, ...], ...]] = (
@@ -137,6 +140,7 @@ class _GithubSim:
         ("gh", "pr", "merge"),
         ("gh", "run", "list"),
         ("uv", "build"),
+        ("uv", "run", "--isolated"),
     )
 
     __slots__ = ("_lock", "_next_pr", "_prs")
@@ -160,6 +164,7 @@ class _GithubSim:
         timeout: int = DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         name = Path(cmd[0]).name
         if name == "git":
@@ -180,6 +185,8 @@ class _GithubSim:
             return self._run_list(cmd, cwd)
         if name == "uv" and cmd[1:2] == ["build"]:
             return self._uv_build(cmd, cwd)
+        if name == "uv" and cmd[1:3] == ["run", "--isolated"]:
+            return self._wheel_probe(cmd)
         raise AssertionError(
             f"command routed to _GithubSim without an emulation: {cmd!r}"
         )
@@ -266,9 +273,17 @@ class _GithubSim:
     def _uv_build(self, cmd: list[str], cwd: str) -> subprocess.CompletedProcess[str]:
         dist = Path(cwd) / "dist"
         dist.mkdir(exist_ok=True)
-        (dist / f"test_pkg-{_VERSION}-py3-none-any.whl").write_bytes(b"wheel")
+        # A real zip: Phase 3 opens the wheel to find the module it imports.
+        wheel = dist / f"test_pkg-{_VERSION}-py3-none-any.whl"
+        with zipfile.ZipFile(wheel, "w") as archive:
+            archive.writestr("test_pkg/__init__.py", f'__version__ = "{_VERSION}"\n')
         (dist / f"test_pkg-{_VERSION}.tar.gz").write_bytes(b"sdist")
         return self._done(cmd)
+
+    def _wheel_probe(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
+        """Answer Phase 3's import of the wheel under the nonce it was handed."""
+        fields = ("str", _VERSION, "/venv/site-packages/test_pkg/__init__.py", False)
+        return self._done(cmd, f"\n\x00PUNT_VERSION:{cmd[-1]}{ascii(fields)}\n")
 
 
 def _which_gh_only(name: str) -> str | None:
@@ -335,16 +350,13 @@ def _scripted_release_rules() -> list[FaultRule]:
         FaultRule(match=["git", "fetch", "origin"], times=None, response=ok),
         FaultRule(match=["git", "pull"], times=None, response=ok),
         FaultRule(match=["git", "push"], times=None, response=ok),
-        # Phase 3's isolated import of the built wheel reports __version__;
-        # ahead of the blanket `uv run` rule, which answers with no output.
-        FaultRule(
-            match=["uv", "run", "--isolated", "--no-project"],
-            times=None,
-            response=CompletedProcessSpec(stdout=f"\n\x00PUNT_VERSION={_VERSION!r}\n"),
-        ),
         # Phase 1's five no-Makefile quality gates (ruff/format/mypy/
-        # pyright/pytest) all arrive as `uv run ...`.
-        FaultRule(match=["uv", "run"], times=None, response=ok),
+        # pyright/pytest). Named one by one: Phase 3's wheel probe is also a
+        # `uv run`, and _GithubSim answers it with the per-run nonce.
+        *(
+            FaultRule(match=["uv", "run", tool], times=None, response=ok)
+            for tool in ("ruff", "mypy", "pyright", "pytest")
+        ),
         FaultRule(match=["uvx", "twine", "check"], times=None, response=ok),
         # Phase 8's PyPI install and its editable-restore share the prefix.
         FaultRule(match=["uv", "tool", "install"], times=None, response=ok),

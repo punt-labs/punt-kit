@@ -61,6 +61,7 @@ def _real_run_stub() -> RunFn:
         timeout: int = DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         raise AssertionError(f"unexpected real dispatch: {cmd!r}")
 

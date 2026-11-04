@@ -70,10 +70,11 @@ def _run(
     timeout: int = timeouts.DEFAULT_RUN,
     check: bool = True,
     capture: bool = True,
+    errors: str = "strict",
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess through the shared ``CommandRunner``."""
     return CommandRunner.run(
-        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
     )
 
 
@@ -115,8 +116,11 @@ class _ReleaseOpsAdapter:
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
-        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+        return _run(
+            cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
+        )
 
     def ok(self, msg: str) -> None:
         _ok(msg)
