@@ -1,6 +1,6 @@
 # Filesystem Standards
 
-**Updated:** 2026-09-10
+**Updated:** 2026-11-04
 
 Standards for home directory layout across all Punt Labs projects. Role models: **biff** (reference implementation) and **vox** (early adopter of namespaced paths).
 

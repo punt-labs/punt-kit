@@ -176,7 +176,8 @@ and 5-7 are absent or wrong in the current prose.
    `main_agent_id` (control b).
 3. **Every call carrying `main_agent_id` does too**, including a known-handle
    call and the first call after a resume whose SessionStart did not run
-   (control b').
+   (control b'). An open or call from a replaced run (a pid that ran for the
+   session but is not current) is refused and never repins (`PidOk`).
 4. **SessionEnd ends the record only if its `main_agent_id` equals the record's
    current main pid** (control c); any state, idempotent on an ended record.
 5. **Resources belong to the run that registered them.** An Open or call whose
@@ -200,9 +201,11 @@ and 5-7 are absent or wrong in the current prose.
 
 ## Assumptions the model makes
 
-- A call or open comes only from the session's latest run or from a fresh run.
-  A late call from a replaced run would move the current main pid backward;
-  the engine cannot detect that.
+- A call or open is enabled only for the session's latest run or a run never
+  seen for the session (`PidOk`, over the `ever` history). An engine
+  implements this by keeping, per record, the main pids that have run, and
+  refusing an open or call from a replaced run; a late call from a replaced
+  run therefore never moves the current main pid backward.
 - Calls store durable state. `RetentionExpire` is nondeterministic for ended
   and dormant records.
 - Resolution by `session_id` makes the presented handle non-authoritative: a

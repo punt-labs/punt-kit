@@ -1,5 +1,7 @@
 # Architecture Standards
 
+**Updated:** 2026-11-04
+
 What a Punt Labs tool is: one engine, thin client surfaces. Language-agnostic;
 the per-language standards and distribution.md cross-reference this.
 

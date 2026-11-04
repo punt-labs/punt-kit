@@ -1,6 +1,6 @@
 # Plugin Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-04
 
 Standards for Claude Code plugins across all Punt Labs projects.
 
