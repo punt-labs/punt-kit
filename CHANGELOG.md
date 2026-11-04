@@ -35,8 +35,8 @@ All notable changes to this project will be documented in this file.
   literal, or a same-module name bound to one, is bumped and checked. A single
   call to a reader imported from another module (`importlib.metadata.version`,
   or a package helper like `installed_version()`), whose arguments are plain
-  non-numeric strings (or, for a metadata reader, an imported name), is not
-  bumped, and phase 11 reports it as a passing check.
+  strings with no digit (a metadata reader may also take an imported name or
+  `__name__`), is not bumped, and phase 11 reports it as a passing check.
   Everything else fails the release with the reason instead of shipping a
   stale version. A docstring that mentions `__version__` is no longer mistaken
   for the assignment.
@@ -64,8 +64,9 @@ All notable changes to this project will be documented in this file.
   result (`version("x").split("+")[0]`, versioneer's
   `get_versions()["version"]`), a method on an imported value
   (`_v.VERSION.strip()`), a dynamic import, and any argument that is not a
-  plain non-numeric string (a default like `"1" + ".0"` or `"2"`). It also
-  covers an imported `__version__`, a `from X import *` that could supply it,
+  plain string with no digit (a default like `"1" + ".0"`, `"2"` or `"v2"`).
+  It also covers an imported `__version__`, any `from X import *` beside a
+  computed value or after a literal's binding,
   a non-metadata call given an imported name ("pin the version there"), more
   than one binding of the name (a later import, a walrus, or the `"0.0.0"`
   fallback python.md forbids), an assignment only inside an `if`/`try` block,
