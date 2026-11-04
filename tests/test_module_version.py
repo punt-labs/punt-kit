@@ -48,6 +48,15 @@ _TRY_EXCEPT = (
         "from .paths import installed_version as iv\n__version__ = iv()\n",
         "from .paths import installed_version\n"
         "VERSION = installed_version()\n__version__ = VERSION\n",
+        'from importlib.metadata import version\n__version__ = version("punt-x")\n',
+        'from importlib.metadata import version\nNAME = "punt-x"\n'
+        "__version__ = version(NAME)\n",
+        "import pkg._version as _version\n__version__ = _version.get_versions()\n",
+        'from importlib import metadata as md\n__version__ = md.version("x")\n',
+        "import importlib\nimport importlib.metadata\n"
+        '__version__ = importlib.metadata.version("x")\n',
+        "import importlib\nfrom importlib.metadata import version\n"
+        '__version__ = version("punt-biff")\n',
     ],
     ids=[
         "helper-call",
@@ -61,6 +70,12 @@ _TRY_EXCEPT = (
         "try-either-reader",
         "aliased-helper-call",
         "through-a-name",
+        "plain-dist-string",
+        "dist-name-bound-to-a-string",
+        "module-alias-function",
+        "metadata-alias-function",
+        "package-and-submodule-imports",
+        "biff-and-quarry-shape",
     ],
 )
 def test_a_call_is_computed(text: str) -> None:
@@ -157,9 +172,8 @@ def test_a_name_bound_to_a_call_is_computed() -> None:
         "__version__: str\n",
         "x = 1\n",
         'def f():\n    __version__ = "0.1.0"\n',
-        "from ._v import *\n",
     ],
-    ids=["empty", "annotation-only", "unrelated", "function-local", "star-only"],
+    ids=["empty", "annotation-only", "unrelated", "function-local"],
 )
 def test_no_binding_at_all_is_absent(text: str) -> None:
     assert ModuleVersion(text).resolved() is None
@@ -292,6 +306,41 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         # A method call on a from-imported name reads a value, not a module.
         "from ._about import VERSION\n__version__ = VERSION.strip()\n",
         'from .paths import helpers\n__version__ = helpers.installed_version("x")\n',
+        # The callee is an imported module's path plus exactly one attribute.
+        "import pkg._version as _v\n__version__ = _v.VERSION.strip()\n",
+        'import pkg._version as _v\n__version__ = _v.TAG.removeprefix("v")\n',
+        "import pkg._version as _v\n__version__ = _v.VERSION.__str__()\n",
+        "import pkg._version\n__version__ = pkg._version.__version__.strip()\n",
+        "import mypkg\n__version__ = mypkg.VERSION.lower()\n",
+        'import importlib\n__version__ = importlib.metadata.version("x")\n',
+        # Every argument is a plain string, a name bound once to one, or an
+        # imported name passed to a metadata reader.
+        'import os\n__version__ = os.getenv("V", "1" + ".0")\n',
+        'import os\n__version__ = os.getenv("V", "1-0".replace("-", "."))\n',
+        'from textwrap import dedent\n__version__ = dedent("1" + ".0")\n',
+        'import os\ndef _default():\n    return "0.1.0"\n'
+        '__version__ = os.getenv("PKG_VERSION", _default())\n',
+        'import os\nclass _C:\n    DEFAULT = "0.1.0"\n'
+        '__version__ = os.getenv("PKG_VERSION", _C.DEFAULT)\n',
+        "from importlib.metadata import version\ndef f():\n    return 'x'\n"
+        "__version__ = version(f())\n",
+        'from importlib.metadata import version\n__version__ = version(f"{X}")\n',
+        "from importlib.metadata import version\ndef f():\n    pass\n"
+        "__version__ = version(f)\n",
+        "from importlib.metadata import version\n__version__ = version(*NAMES)\n",
+        "from importlib.metadata import version\n__version__ = version(**KW)\n",
+        'from importlib.metadata import version\nNAME = "x"\nNAME = "y"\n'
+        "__version__ = version(NAME)\n",
+        'from importlib.metadata import version\nif A:\n    NAME = "x"\n'
+        "__version__ = version(NAME)\n",
+        "from importlib.metadata import version\n__version__ = version(NAME)\n",
+        f'{_PARSE}__version__ = parse("x", ("y", "z"))\n',
+        _LUX_FALLBACK + '__version__ = "0.1.0"\n',
+        "from ._v import *\n",
+        'import os\n__version__ = os.environ.get("X", "2")\n',
+        'import os\n__version__ = os.getenv("X", "10")\n',
+        'import os\n__version__ = os.getenv("X", "2rc1")\n',
+        'import os\nDEFAULT = "2"\n__version__ = os.getenv("X", DEFAULT)\n',
     ],
     ids=[
         "f-string",
@@ -383,6 +432,32 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         "type-alias",
         "method-on-from-imported-value",
         "attribute-on-from-imported-name",
+        "method-on-module-alias-attribute",
+        "removeprefix-on-module-alias-attribute",
+        "dunder-str-on-module-alias-attribute",
+        "method-on-dotted-module-attribute",
+        "method-on-package-attribute",
+        "submodule-not-imported",
+        "binop-default",
+        "method-call-default",
+        "binop-argument",
+        "def-default",
+        "class-attribute-default",
+        "call-argument",
+        "f-string-argument",
+        "def-bound-argument",
+        "starred-argument",
+        "double-starred-argument",
+        "name-bound-twice",
+        "name-bound-in-block",
+        "unbound-name-argument",
+        "tuple-argument",
+        "fallback-then-literal",
+        "star-only",
+        "digit-only-default",
+        "two-digit-default",
+        "digit-led-default",
+        "digit-only-name-default",
     ],
 )
 def test_anything_else_cannot_be_pinned(text: str) -> None:
@@ -439,7 +514,7 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         ),
         (
             f'{_PARSE}V = "0.1.0"\n__version__ = parse(V)\n',
-            r"\(line 3\) passes the hardcoded value '0\.1\.0' \(line 2\)",
+            r"\(line 3\) passes V, bound to the hardcoded version '0\.1\.0' \(line 2\)",
         ),
         (
             'from importlib.metadata import version\n__version__ = version("x")[0]\n',
@@ -448,13 +523,37 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         ),
         (
             "from ._about import VERSION\n__version__ = VERSION.strip()\n",
-            "on a name a from-import binds, which may be a value rather than a module",
+            "calls `VERSION.strip`, which is not a function of a module this file "
+            "imports",
         ),
         (
             _LUX_FALLBACK,
             r"assigned 2 times \(lines 4, 6\); a fallback version is not allowed "
             r'\(python\.md Version Reporting: no "0\.0\.0" fallback\); remove the '
             "except branch",
+        ),
+        (
+            _LUX_FALLBACK + '__version__ = "0.1.0"\n',
+            r"assigned 3 times \(lines 4, 6, 7\); Python keeps the last",
+        ),
+        (
+            'import os\n__version__ = os.getenv("V", "1" + ".0")\n',
+            r"\(line 2\) passes `'1' \+ '\.0'`, which is not a plain string or a "
+            "name bound to one",
+        ),
+        (
+            "import mypkg\n__version__ = mypkg.VERSION.lower()\n",
+            "calls `mypkg.VERSION.lower`, which is not a function of a module this "
+            "file imports",
+        ),
+        (
+            "from ._v import *\n",
+            r"`from \._v import \*` at line 1 could supply __version__; bind it "
+            "explicitly",
+        ),
+        (
+            'import os\n__version__ = os.getenv("X", "2")\n',
+            "passes the hardcoded version '2', which could be stale",
         ),
     ],
     ids=[
@@ -472,6 +571,11 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "subscripted-call",
         "method-on-from-imported-value",
         "metadata-fallback",
+        "fallback-then-literal",
+        "binop-argument",
+        "callee-too-deep",
+        "star-only",
+        "digit-only-default",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:

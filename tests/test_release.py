@@ -13772,6 +13772,12 @@ _UNPINNABLE_INITS = {
         "from importlib.metadata import version\n\n"
         '__version__ = version("test-pkg").split("+")[0]\n'
     ),
+    # The callee must be a module's own function; its arguments plain.
+    "deep-attribute-chain": (
+        "import pkg._version as _v\n__version__ = _v.VERSION.strip()\n"
+    ),
+    "binop-argument": 'import os\n__version__ = os.getenv("V", "1" + ".0")\n',
+    "star-import-only": "from ._v import *\n",
 }
 
 

@@ -6,7 +6,7 @@ import ast
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self, TypeIs, final
+from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -18,6 +18,8 @@ _PLAIN_STRING = re.compile(r"""(["'])[^"'\\\n]*\1""")
 _TRAILER = re.compile(r"\s*(?:#.*)?")
 # A string that spells a version somewhere in it: digits, a dot, digits.
 _VERSION_TEXT = re.compile(r"\d+\.\d+")
+# A string that starts like a version: "2", "10", "2rc1".
+_DIGIT_LED = re.compile(r"[0-9]")
 # Callees that read installed package metadata, however they were imported.
 _METADATA_READERS = ("importlib.metadata.", "importlib_metadata.")
 _ADVICE = (
@@ -113,10 +115,17 @@ class ModuleVersion:
         self._bindings = _ModuleBindings(tree)
         return self
 
-    # None: absence is the contract; a module may omit __version__.
+    # None: absence is the contract; a module may omit __version__, provided
+    # no ``import *`` could supply it.
     def resolved(self) -> ComputedVersion | LiteralVersion | None:
         """What the module assigns to ``__version__``; ``None`` when nothing."""
         if not self._bindings.of(_NAME):
+            for star in self._bindings.star_imports():
+                msg = (
+                    f"`{ast.unparse(star)}` at line {star.lineno} could supply "
+                    f"{_NAME}; bind it explicitly"
+                )
+                raise UnpinnableVersionError(msg)
             return None
         return self._resolve(_NAME, frozenset())
 
@@ -213,16 +222,15 @@ class ModuleVersion:
 class _ReaderCall:
     """A call that may read ``__version__`` from package metadata at import time.
 
-    It qualifies only when its callee is a name, or an attribute chain on a
-    name, that the module binds by import alone. An attribute chain must
-    start from a module (``import X``, ``import X.Y``, ``import X as Z``,
-    ``from importlib import metadata``, ``from importlib_metadata import
-    ...``), never another from-import, which may bind a value such as a
-    stale ``VERSION`` string. No argument may hardcode a
-    version (``_is_version_like``) or, unless the callee is
-    ``importlib.metadata``'s or ``importlib_metadata``'s, reads an imported
-    name, directly or through a name bound in this module. An imported
-    argument could be a stale literal pinned in the other module.
+    It qualifies only when its callee is a name bound by import alone, or an
+    imported module's path plus exactly one attribute: a function of that
+    module. The module path is the ``as`` name, the full dotted path of
+    ``import a.b.c``, or ``metadata`` for ``from importlib import metadata``;
+    no other from-import binds a module, since it may bind a value such as a
+    stale ``VERSION`` string. Every argument must be a plain string with no
+    version text, a name bound once at module level to such a string, or,
+    only when the callee is ``importlib.metadata``'s or
+    ``importlib_metadata``'s, an imported name such as a distribution name.
     """
 
     __slots__ = ("_bindings", "_call")
@@ -239,69 +247,99 @@ class _ReaderCall:
     def fault(self) -> str | None:
         """Why the call cannot be trusted to read the version; ``None`` if it can."""
         callee = ast.unparse(self._call.func)
-        base, attributes = _callee_path(self._call.func)
-        bindings = self._bindings.of(base.id) if base is not None else []
+        parts = _dotted(self._call.func)
+        bindings = self._bindings.of(parts[0]) if parts else []
         if not bindings or not all(binding.is_import for binding in bindings):
             return (
                 f"calls `{callee}`, which is not a function imported from another "
                 f"module; {_ADVICE}"
             )
-        if attributes and not all(binding.imports_a_module for binding in bindings):
-            return (
-                f"calls `{callee}` on a name a from-import binds, which may be a "
-                f"value rather than a module; {_ADVICE}"
-            )
-        callees = [
-            ".".join([binding.origin or "", *attributes]) for binding in bindings
+        qualified = [
+            name
+            for binding in bindings
+            if (name := binding.qualified(parts)) is not None
         ]
-        arguments = [*self._call.args, *(kw.value for kw in self._call.keywords)]
-        for argument in arguments:
-            literal = self._version_literal(argument, frozenset())
-            if literal is not None:
+        if not qualified:
+            return (
+                f"calls `{callee}`, which is not a function of a module this file "
+                f"imports; {_ADVICE}"
+            )
+        reads_metadata = all(name.startswith(_METADATA_READERS) for name in qualified)
+        for argument in self._call.args:
+            fault = self._argument_fault(argument, reads_metadata=reads_metadata)
+            if fault is not None:
+                return fault
+        for keyword in self._call.keywords:
+            if keyword.arg is None:
                 return (
-                    f"passes the hardcoded value {ast.unparse(literal)} "
-                    f"(line {literal.lineno}), which could be a stale version; "
-                    f"{_ADVICE}"
+                    f"passes `**{ast.unparse(keyword.value)}`, whose values this "
+                    f"file cannot see; {_ADVICE}"
                 )
-        if all(callee.startswith(_METADATA_READERS) for callee in callees):
-            return None
-        for argument in arguments:
-            imported = self._imported_name(argument, frozenset())
-            if imported is not None:
-                return (
-                    f"passes {imported}, which is imported from another module; "
-                    "pin the version there"
-                )
+            fault = self._argument_fault(keyword.value, reads_metadata=reads_metadata)
+            if fault is not None:
+                return fault
         return None
 
-    def _version_literal(self, expr: ast.expr, seen: frozenset[str]) -> ast.expr | None:
-        """A version-like literal that reaches ``expr``, through names too."""
-        for node in ast.walk(expr):
-            if _is_version_like(node):
-                return node
-            if isinstance(node, ast.Name) and node.id not in seen:
-                seen |= {node.id}
-                for binding in self._bindings.of(node.id):
-                    for feed in binding.sources:
-                        found = self._version_literal(feed, seen)
-                        if found is not None:
-                            return found
+    def _argument_fault(
+        self, argument: ast.expr, *, reads_metadata: bool
+    ) -> str | None:
+        """Why ``argument`` may feed a stale version; ``None`` when it cannot."""
+        match argument:
+            case ast.Constant(value=str() as text) if _is_version_text(
+                text, reads_metadata=reads_metadata
+            ):
+                return (
+                    f"passes the hardcoded version {ast.unparse(argument)}, which "
+                    f"could be stale; {_ADVICE}"
+                )
+            case ast.Constant(value=str()):
+                return None
+            case ast.Name(id=name):
+                return self._name_fault(name, reads_metadata=reads_metadata)
+            case _:
+                return (
+                    f"passes `{ast.unparse(argument)}`, which is not a plain string "
+                    f"or a name bound to one; {_ADVICE}"
+                )
+
+    def _name_fault(self, name: str, *, reads_metadata: bool) -> str | None:
+        """Why the argument ``name`` may feed a stale version; ``None`` if not."""
+        bindings = self._bindings.of(name)
+        if bindings and all(binding.is_import for binding in bindings):
+            if reads_metadata:
+                return None  # a distribution name, read by the metadata reader
+            return (
+                f"passes {name}, which is imported from another module; "
+                "pin the version there"
+            )
+        text = bindings[0].plain_string if len(bindings) == 1 else None
+        if text is None:
+            return (
+                f"passes {name}, which is neither imported nor bound once, at "
+                f"module level, to a plain string; {_ADVICE}"
+            )
+        if _is_version_text(text, reads_metadata=reads_metadata):
+            return (
+                f"passes {name}, bound to the hardcoded version {text!r} "
+                f"(line {bindings[0].stmt.lineno}), which could be stale; {_ADVICE}"
+            )
         return None
 
-    def _imported_name(self, expr: ast.expr, seen: frozenset[str]) -> str | None:
-        """An imported name that reaches ``expr``, through names too."""
-        for node in ast.walk(expr):
-            if not isinstance(node, ast.Name) or node.id in seen:
-                continue
-            seen |= {node.id}
-            bindings = self._bindings.of(node.id)
-            if any(binding.is_import for binding in bindings):
-                return node.id
-            for binding in bindings:
-                for feed in binding.sources:
-                    found = self._imported_name(feed, seen)
-                    if found is not None:
-                        return found
+
+@dataclass(frozen=True, slots=True)
+class _Import:
+    """What an import statement binds a name to."""
+
+    origin: str  # the dotted name of what the bound name refers to
+    module_path: str | None  # how a call spells the module; None if not one
+
+    def qualified(self, parts: list[str]) -> str | None:
+        """The dotted name a callee spelled ``parts`` reaches; ``None`` if none."""
+        *path, function = parts
+        if not path:
+            return self.origin
+        if ".".join(path) == self.module_path:
+            return f"{self.origin}.{function}"
         return None
 
 
@@ -311,25 +349,32 @@ class _Binding:
 
     stmt: ast.stmt  # the statement that holds the binding
     sources: tuple[ast.expr, ...]  # the expressions whose value flows in
-    origin: str | None  # the dotted name an import binds; None otherwise
+    imported: _Import | None  # what an import binds; None for any other binding
     is_nested: bool  # inside a block or a function, not the module body
     is_in_except: bool  # inside an ``except`` branch
 
     @property
     def is_import(self) -> bool:
         """Whether an import statement makes this binding."""
-        return self.origin is not None
+        return self.imported is not None
+
+    def qualified(self, parts: list[str]) -> str | None:
+        """The dotted name a callee spelled ``parts`` reaches through this import."""
+        return self.imported.qualified(parts) if self.imported else None
 
     @property
-    def imports_a_module(self) -> bool:
-        """Whether the bound name is surely a module: ``import X`` or metadata."""
-        return isinstance(self.stmt, ast.Import) or (
-            self.origin is not None
-            and (
-                self.origin == "importlib.metadata"
-                or self.origin.startswith("importlib_metadata.")
-            )
-        )
+    def plain_string(self) -> str | None:
+        """The string a module-body assignment binds; ``None`` for anything else."""
+        if self.is_nested:
+            return None
+        match self.stmt:
+            case (
+                ast.Assign(value=ast.Constant(value=str() as text))
+                | ast.AnnAssign(value=ast.Constant(value=str() as text))
+            ):
+                return text
+            case _:
+                return None
 
     @property
     def assigns_a_call(self) -> bool:
@@ -404,10 +449,10 @@ class _ModuleBindings:
         """Note the names ``stmt`` binds, keeping only ``only`` when given."""
         if isinstance(stmt, ast.ImportFrom) and only is None:
             self._stars.extend(stmt for alias in stmt.names if alias.name == "*")
-        for name, sources, origin in _bound_names(stmt):
+        for name, sources, imported in _bound_names(stmt):
             if only is None or name in only:
                 binding = _Binding(
-                    stmt, sources, origin, is_nested, stmt in self._excepted
+                    stmt, sources, imported, is_nested, stmt in self._excepted
                 )
                 self._by_name[name].append(binding)
 
@@ -447,7 +492,7 @@ def _own_expressions(node: ast.AST) -> Iterator[ast.AST]:
 
 def _bound_names(
     stmt: ast.stmt,
-) -> Iterator[tuple[str, tuple[ast.expr, ...], str | None]]:
+) -> Iterator[tuple[str, tuple[ast.expr, ...], _Import | None]]:
     """Each name ``stmt`` binds, what flows into it, and what it imports."""
     match stmt:
         case ast.Assign(targets=targets, value=value):
@@ -461,16 +506,16 @@ def _bound_names(
             yield name, (value,), None
         case ast.Import(names=aliases):
             for alias in aliases:
-                if alias.asname:
-                    yield alias.asname, (), alias.name
-                else:
-                    package = alias.name.split(".")[0]
-                    yield package, (), package
+                bound = alias.asname or alias.name.split(".")[0]
+                yield bound, (), _Import(alias.name, alias.asname or alias.name)
         case ast.ImportFrom(module=module, names=aliases, level=level):
             prefix = "." * level + (f"{module}." if module else "")
             for alias in aliases:
                 if alias.name != "*":
-                    yield alias.asname or alias.name, (), prefix + alias.name
+                    bound = alias.asname or alias.name
+                    origin = prefix + alias.name
+                    is_module = origin == "importlib.metadata"
+                    yield bound, (), _Import(origin, bound if is_module else None)
         case ast.For(target=target, iter=feed) | ast.AsyncFor(target=target, iter=feed):
             yield from _stored(target, (feed,))
         case ast.With(items=items) | ast.AsyncWith(items=items):
@@ -500,7 +545,7 @@ def _bound_names(
 
 def _stored(
     target: ast.expr, sources: tuple[ast.expr, ...]
-) -> Iterator[tuple[str, tuple[ast.expr, ...], str | None]]:
+) -> Iterator[tuple[str, tuple[ast.expr, ...], _Import | None]]:
     """Each plain name ``target`` stores into, fed by ``sources``."""
     for node in ast.walk(target):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
@@ -519,53 +564,36 @@ def _captured(pattern: ast.pattern) -> Iterator[str]:
                 pass
 
 
-def _is_version_like(
-    node: ast.AST,
-) -> TypeIs[ast.Constant | ast.List | ast.Set | ast.Tuple]:
-    """Whether ``node`` could hardcode a version or a part of one.
-
-    A string holding ``digits.digits``; any int, float or bytes constant; a
-    list, set or tuple of two or more numbers or digit-only strings.
-    """
-    match node:
-        case ast.Constant(value=str() as text):
-            return _VERSION_TEXT.search(text) is not None
-        case ast.Constant(value=bool()):
-            return False
-        case ast.Constant(value=int() | float() | bytes()):
-            return True
-        case ast.List(elts=elts) | ast.Set(elts=elts) | ast.Tuple(elts=elts):
-            return sum(map(_is_version_part, elts)) >= 2
-        case _:
-            return False
+def _is_version_text(text: str, *, reads_metadata: bool) -> bool:
+    """Whether ``text`` could be a version: ``digits.digits`` anywhere, or,
+    passed to anything but a metadata reader, a leading digit (``"2rc1"``)."""
+    if _VERSION_TEXT.search(text):
+        return True
+    return not reads_metadata and _DIGIT_LED.match(text) is not None
 
 
-def _is_version_part(node: ast.expr) -> bool:
-    """Whether ``node`` is a number or a digit-only string."""
-    match node:
-        case ast.Constant(value=bool()):
-            return False
-        case ast.Constant(value=int() | float()):
-            return True
-        case ast.Constant(value=str() as text):
-            return text.isdigit()
-        case _:
-            return False
-
-
-def _callee_path(func: ast.expr) -> tuple[ast.Name | None, list[str]]:
-    """The name a callee starts from and the attributes it then reads."""
-    attributes: list[str] = []
+def _dotted(func: ast.expr) -> list[str]:
+    """``func`` as dotted name parts (``a.b.f`` is ``a``, ``b``, ``f``); else empty."""
+    parts: list[str] = []
     while isinstance(func, ast.Attribute):
-        attributes.insert(0, func.attr)
+        parts.insert(0, func.attr)
         func = func.value
-    return (func if isinstance(func, ast.Name) else None), attributes
+    return [func.id, *parts] if isinstance(func, ast.Name) else []
 
 
 def _is_a_fallback(bindings: list[_Binding]) -> bool:
-    """Whether ``bindings`` read the version but fall back to a literal on error."""
-    return any(binding.assigns_a_call for binding in bindings) and any(
-        binding.is_in_except and binding.assigns_a_string for binding in bindings
+    """Whether ``bindings`` read the version but fall back to a literal on error.
+
+    Only when dropping the ``except`` branch leaves exactly one binding, a
+    call, is the except branch the whole problem.
+    """
+    kept = [binding for binding in bindings if not binding.is_in_except]
+    return (
+        len(kept) == 1
+        and kept[0].assigns_a_call
+        and any(
+            binding.assigns_a_string for binding in bindings if binding.is_in_except
+        )
     )
 
 
