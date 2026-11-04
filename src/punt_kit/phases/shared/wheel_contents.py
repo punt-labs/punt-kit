@@ -16,7 +16,7 @@ type Shipping = Literal["module", "empty", "missing"]
 
 # A wheel's ``<dist>.data/purelib/`` and ``.../platlib/`` install to
 # site-packages just as the wheel root does.
-_INSTALLED_DATA = re.compile(r"[^/]+\.data/(?:purelib|platlib)/")
+_INSTALLED_DATA = re.compile(r"^[^/]+\.data/(?:purelib|platlib)/")
 _CODE_SUFFIXES = (".py", ".so", ".pyd")
 
 
@@ -38,6 +38,23 @@ class WheelContents:
         """The contents of ``wheel``; ``zipfile.BadZipFile`` if it is not a zip."""
         with zipfile.ZipFile(wheel) as archive:
             return cls(archive.namelist())
+
+    def top_level(self) -> tuple[str, ...]:
+        """The top-level importable names the wheel installs, sorted.
+
+        Top-level directories count, except ``*.dist-info`` and the
+        ``*.data`` schemes that do not install to site-packages; so do
+        top-level ``.py``, ``.so`` and ``.pyd`` files, by module name.
+        """
+        names: set[str] = set()
+        for path in self._paths:
+            head, slash, _ = path.partition("/")
+            if slash:
+                if not head.endswith((".dist-info", ".data")):
+                    names.add(head)
+            elif head.endswith(_CODE_SUFFIXES):
+                names.add(head.split(".", 1)[0])
+        return tuple(sorted(names))
 
     def shipping(self, module: str) -> Shipping:
         """How the wheel ships the dotted ``module``.

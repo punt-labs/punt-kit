@@ -19,6 +19,7 @@ from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.command_runner import CommandRunner
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.skips import SkipRecorder
+from punt_kit.phases.shared.wheel_contents import WheelContents
 from punt_kit.phases.shared.wheel_version import WheelVersionCheck
 from tests.harness.fault_ops import CompletedProcessSpec, FaultRule
 from tests.helpers import fault_ops, flat
@@ -86,13 +87,20 @@ def _module_name(module: str) -> str:
     return f'\n[tool.uv.build-backend]\nmodule-name = "{module}"\n'
 
 
-def _wheel(dist: Path, files: dict[str, str], *, name: str = "test_pkg") -> Path:
+def _wheel(
+    dist: Path,
+    files: dict[str, str],
+    *,
+    name: str = "test_pkg",
+    requires: tuple[str, ...] = (),
+) -> Path:
     """Write a minimal, installable wheel of distribution ``name`` with ``files``."""
     info = f"{name}-{_RELEASE}.dist-info"
+    depends = "".join(f"Requires-Dist: {req}\n" for req in requires)
     contents = {
         **files,
         f"{info}/METADATA": (
-            f"Metadata-Version: 2.1\nName: {name}\nVersion: {_RELEASE}\n"
+            f"Metadata-Version: 2.1\nName: {name}\nVersion: {_RELEASE}\n{depends}"
         ),
         f"{info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
@@ -660,13 +668,72 @@ def test_two_packages_none_named_for_the_project_fail(
         _check(root, fault_ops(), skips).module_names()
 
 
-def test_no_package_anywhere_fails_naming_what_was_searched(
+def test_nothing_found_in_the_source_leaves_it_to_the_wheel(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
     root = _flat_project(tmp_path, "nothing-here", ())
 
-    with pytest.raises(ReleaseError, match=r"no nothing_here package or module.*src"):
-        _check(root, fault_ops(), skips).module_names()
+    assert _check(root, fault_ops(), skips).module_names() == ()
+
+
+def test_a_package_the_source_scan_misses_is_read_from_the_wheel(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _flat_project(tmp_path, "lib-project", ())
+    (root / "lib" / "pkg").mkdir(parents=True)
+    (root / "lib" / "pkg" / "__init__.py").write_text("")
+    (root / "dist").mkdir()
+    probe = _Probe(_version(_RELEASE))
+
+    _check(root, probe.ops(), skips).verify(_built(root, {"pkg/__init__.py": ""}))
+
+    assert [cmd[-3] for cmd, _, _ in probe.calls] == ["pkg"]
+
+
+def test_a_wheel_with_several_top_level_names_fails_listing_them(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _flat_project(tmp_path, "nothing-here", ())
+    (root / "dist").mkdir()
+    files = {"alpha/__init__.py": "", "beta.py": ""}
+
+    with pytest.raises(ReleaseError, match=r"2 top-level importable names \(alpha"):
+        _check(root, fault_ops(), skips).verify(_built(root, files))
+
+
+@pytest.mark.parametrize(
+    ("paths", "expected"),
+    [
+        pytest.param(
+            ("pkg/__init__.py", "test_pkg-1.0.0.dist-info/RECORD"),
+            ("pkg",),
+            id="package",
+        ),
+        pytest.param(
+            ("mod.py", "fast.cpython-313-x86_64-linux-gnu.so", "win.pyd"),
+            ("fast", "mod", "win"),
+            id="module-files",
+        ),
+        pytest.param(
+            (
+                "test_pkg-1.0.0.data/purelib/datapkg/__init__.py",
+                "test_pkg-1.0.0.data/scripts/tool",
+            ),
+            ("datapkg",),
+            id="data-schemes",
+        ),
+    ],
+)
+def test_wheel_top_level_names(
+    paths: tuple[str, ...], expected: tuple[str, ...]
+) -> None:
+    assert WheelContents(paths).top_level() == expected
+
+
+def test_a_data_directory_deeper_in_the_wheel_is_not_a_scheme() -> None:
+    contents = WheelContents(("pkg/a.data/purelib/mod.py",))
+
+    assert contents.shipping("pkg.mod") == "missing"
 
 
 @pytest.mark.parametrize(
@@ -833,19 +900,48 @@ def test_a_real_wheel_reporting_the_release_version_passes(
     _real(tmp_path, init, skips)
 
 
+@pytest.mark.parametrize(
+    "init",
+    [
+        pytest.param(
+            "class _Meta:\n"
+            "    pass\n"
+            "_meta = _Meta()\n"
+            "def __getattr__(name):\n"
+            '    if name == "__version__":\n'
+            "        return _meta.version\n"
+            "    raise AttributeError(name)\n",
+            id="missing-field",
+        ),
+        pytest.param(
+            "_meta = None\n"
+            "def __getattr__(name):\n"
+            '    if name == "__version__":\n'
+            '        return getattr(_meta, "__version__")\n'
+            "    raise AttributeError(name)\n",
+            id="asks-none",
+        ),
+        pytest.param(
+            "def _lookup(name):\n"
+            "    raise AttributeError(name)\n"
+            "def __getattr__(name):\n"
+            "    return _lookup(name)\n",
+            id="p_lazybare",
+        ),
+        pytest.param(
+            "import sys, types\n"
+            "class _Versioned(types.ModuleType):\n"
+            "    @property\n"
+            "    def __version__(self):\n"
+            "        raise AttributeError()\n"
+            "sys.modules[__name__].__class__ = _Versioned\n",
+            id="p_propbare",
+        ),
+    ],
+)
 def test_a_real_lazy_reader_that_breaks_inside_fails(
-    tmp_path: Path, skips: SkipRecorder
+    tmp_path: Path, skips: SkipRecorder, init: str
 ) -> None:
-    init = (
-        "class _Meta:\n"
-        "    pass\n"
-        "_meta = _Meta()\n"
-        "def __getattr__(name):\n"
-        '    if name == "__version__":\n'
-        "        return _meta.version\n"
-        "    raise AttributeError(name)\n"
-    )
-
     with pytest.raises(ReleaseError, match="importing test_pkg to read"):
         _real(tmp_path, init, skips)
 
@@ -938,25 +1034,34 @@ def test_a_real_module_shadowed_by_the_stdlib_fails(
         _real(tmp_path, "", skips, module=module, files=files)
 
 
-def test_a_real_dependency_shadowing_the_module_fails(
-    tmp_path: Path, skips: SkipRecorder
+@dataclass(frozen=True)
+class _Dependency:
+    """A wheel the checked wheel depends on, installed beside it."""
+
+    name: str
+    files: dict[str, str]
+
+
+def _with_dependency(
+    tmp_path: Path,
+    module: str,
+    own: dict[str, str],
+    dependency: _Dependency,
+    skips: SkipRecorder,
 ) -> None:
-    """An installed package of the same name, not this wheel, answers the import.
+    """Check, for real, a wheel holding ``own`` that requires ``dependency``.
 
-    The wheel ships ``shadowed.py``; a second wheel installed beside it ships
-    the package ``shadowed/``, which the import system prefers.
+    The wheel's distribution is named for ``module``. uv resolves the
+    dependency from a local ``--find-links`` directory, as it would from an
+    index, and installs it beside the wheel.
     """
-    root = _project(tmp_path, "", pyproject_extra=_module_name("shadowed"))
-    _wheel(root / "dist", {"shadowed.py": f'__version__ = "{_RELEASE}"\n'})
-    decoys = tmp_path / "decoys"
-    decoys.mkdir()
-    decoy = _wheel(
-        decoys,
-        {"shadowed/__init__.py": f'__version__ = "{_RELEASE}"\n'},
-        name="decoy",
-    )
+    root = _project(tmp_path, "", pyproject_extra=_module_name(module))
+    _wheel(root / "dist", own, requires=(dependency.name,), name=module)
+    links = tmp_path / "links"
+    links.mkdir()
+    _wheel(links, dependency.files, name=dependency.name)
 
-    def with_decoy(
+    def with_links(
         cmd: list[str],
         *,
         cwd: str | None = None,
@@ -965,16 +1070,84 @@ def test_a_real_dependency_shadowing_the_module_fails(
         capture: bool = True,
         errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
-        at = cmd.index("--with") + 2
-        cmd = [*cmd[:at], "--with", str(decoy), *cmd[at:]]
+        at = cmd.index("--no-project") + 1
+        cmd = [*cmd[:at], "--no-index", "--find-links", str(links), *cmd[at:]]
         return CommandRunner.run(
             cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
         )
 
-    ops = fault_ops(real_run=with_decoy, passthrough=[_PROBE])
+    ops = fault_ops(real_run=with_links, passthrough=[_PROBE])
+    _check(root, ops, skips).verify(root / "dist")
+
+
+def test_a_real_dependency_shadowing_the_module_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """An installed package of the same name, not this wheel, answers the import.
+
+    The wheel ships ``shadowed.py``; its dependency ships the package
+    ``shadowed/``, which the import system prefers.
+    """
+    own = {"shadowed.py": f'__version__ = "{_RELEASE}"\n'}
+    decoy = _Dependency("decoy", {"shadowed/__init__.py": "__version__ = '1.0.0'\n"})
 
     with pytest.raises(ReleaseError, match="another installed package shadows"):
-        _check(root, ops, skips).verify(root / "dist")
+        _with_dependency(tmp_path, "shadowed", own, decoy, skips)
+
+
+def test_a_real_dependency_overwriting_the_module_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """A dependency installing the same path must not pass for the wheel.
+
+    The wheel ``sfhpkg``'s ``sfhpkg/__init__.py`` reports a stale version;
+    its dependency ``zzdep`` ships the same path with the release version
+    (the reviewer's case). uv installs the two in no fixed order: when zzdep's
+    copy lands last, the path is still the wheel's but its RECORD hash no
+    longer matches; when the wheel's lands last, the stale version is read.
+    Either way the release fails. The hash path alone is pinned down by
+    ``test_a_real_file_no_longer_matching_its_record_hash_fails``.
+    """
+    own = {"sfhpkg/__init__.py": '__version__ = "0.0.1"\n'}
+    zzdep = _Dependency("zzdep", {"sfhpkg/__init__.py": "__version__ = '1.0.0'\n"})
+    either = "was overwritten by another installed|'0.0.1' at run time"
+
+    with pytest.raises(ReleaseError, match=either):
+        _with_dependency(tmp_path, "sfhpkg", own, zzdep, skips)
+
+
+def test_a_real_file_no_longer_matching_its_record_hash_fails(
+    tmp_path: Path, skips: SkipRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The overwrite, made deterministic: the module rewrites its own file.
+
+    It then reports the release version, so only the RECORD hash check can
+    tell that what is on disk is not what the wheel installed. Installed by
+    copy into a private cache, so the rewrite cannot reach uv's shared cache
+    through a hard link.
+    """
+    monkeypatch.setenv("UV_LINK_MODE", "copy")
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "private-cache"))
+    init = (
+        "import pathlib\n"
+        f"pathlib.Path(__file__).write_text('__version__ = \"{_RELEASE}\"\\n')\n"
+        f'__version__ = "{_RELEASE}"\n'
+    )
+
+    with pytest.raises(ReleaseError, match="was overwritten by another installed"):
+        _real(tmp_path, init, skips)
+
+
+def test_a_real_namespace_package_under_symlinked_installs_records_a_skip(
+    tmp_path: Path, skips: SkipRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Site-packages files that are symlinks into uv's cache still match."""
+    monkeypatch.setenv("UV_LINK_MODE", "symlink")
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "fresh-cache"))
+
+    _real(tmp_path, "", skips, module="nspkg", files={"nspkg/sub.py": ""})
+
+    assert any("nspkg has no __version__" in note for note in skips.drain())
 
 
 def test_a_real_module_missing_from_the_wheel_fails(

@@ -47,9 +47,14 @@ class WheelVersionCheck:
        (``module-root``, default ``src``) or, for a flat layout, the repo root;
     3. the one package or ``.py`` module under the module root, or, when it
        holds none, the one package at the repo root (a lone root ``.py`` is
-       a tooling script such as ``noxfile.py``, so it never counts here).
+       a tooling script such as ``noxfile.py``, so it never counts here);
+    4. when steps 1 to 3 find nothing, each wheel is read, per wheel, for its
+       top-level importable names: its top-level directories (but not
+       ``*.dist-info`` or ``*.data``), its top-level ``.py``, ``.so`` and
+       ``.pyd`` files, and the same under ``*.data/purelib`` or ``platlib``.
+       Exactly one is used; anything else fails, listing what it holds.
 
-    Anything else fails, naming what was searched. Steps 2 and 3 name one
+    Several modules where step 3 wants one fails, naming them. Steps 2 to 4 name one
     module, so a wheel shipping several top-level packages has only that one
     checked unless ``module-name`` lists them all.
 
@@ -87,24 +92,28 @@ class WheelVersionCheck:
 
     def verify(self, dist: Path) -> None:
         """Fail unless every wheel in ``dist`` reports the release version."""
-        modules = self.module_names()
         wheels = sorted(dist.glob("*.whl"))
         if not wheels:
             self._ops.fail(f"no wheel in {dist} to import for the __version__ check")
         for wheel in wheels:
-            for module in modules:
+            for module in self._modules_in(wheel):
                 self._verify_wheel(wheel, module)
 
     def dry_run(self) -> None:
         """Report the import the check would run."""
-        for module in self.module_names():
+        modules = self.module_names() or ("<the one module the wheel ships>",)
+        for module in modules:
             self._ops.dry(
                 "uv run --isolated --no-project --with dist/*.whl python -I: "
                 f"import {module}; __version__ == {self._version}"
             )
 
     def module_names(self) -> tuple[str, ...]:
-        """The import names the wheel ships; see the class docstring for the order."""
+        """The import names found from config and the source tree, steps 1 to 3.
+
+        Empty when none of them finds anything: each wheel is then read for
+        its one top-level importable name (step 4 in the class docstring).
+        """
         configured = self._configured_names()
         if configured:
             return configured
@@ -129,12 +138,7 @@ class WheelVersionCheck:
                     f"modules under {base} ({', '.join(modules)}) and none is "
                     f"{name}; set [tool.uv.build-backend] module-name"
                 )
-        searched = " or ".join(str(base) for base in bases)
-        self._ops.fail(
-            "cannot tell which module the wheel ships: no [tool.uv.build-backend] "
-            f"module-name, no {name} package or module, and nothing under "
-            f"{searched}; set [tool.uv.build-backend] module-name"
-        )
+        return ()
 
     def _verify_wheel(self, wheel: Path, module: str) -> None:
         """Fail unless ``module`` imported from ``wheel`` reports the version."""
@@ -155,6 +159,12 @@ class WheelVersionCheck:
                 f"{wheel.name}: importing {module} loaded {record.origin!r}, "
                 f"which is not one of the files {_distribution(wheel)} installs; "
                 "another installed package shadows the wheel"
+            )
+        if record.kind == "overwritten":
+            self._ops.fail(
+                f"{wheel.name}: {module} was overwritten by another installed "
+                f"distribution ({record.origin!r} no longer matches the hash "
+                f"{_distribution(wheel)} recorded for it)"
             )
         match record.kind:
             case "absent":
@@ -177,13 +187,31 @@ class WheelVersionCheck:
             case "str":
                 self._ops.ok(f"{wheel.name}: {module}.__version__ == {self._version}")
 
-    def _require_shipped(self, wheel: Path, module: str) -> None:
-        """Fail unless ``wheel`` is a readable zip that ships ``module``."""
+    def _contents(self, wheel: Path) -> WheelContents:
+        """What ``wheel`` installs; fail if it is not a readable zip."""
         try:
-            contents = WheelContents.of(wheel)
+            return WheelContents.of(wheel)
         except zipfile.BadZipFile as exc:
             self._ops.fail(f"{wheel.name} is not a readable wheel: {exc}")
-        match contents.shipping(module):
+
+    def _modules_in(self, wheel: Path) -> tuple[str, ...]:
+        """The modules to check in ``wheel``: from the source, else from it."""
+        modules = self.module_names()
+        if modules:
+            return modules
+        importable = self._contents(wheel).top_level()
+        if len(importable) != 1:
+            self._ops.fail(
+                "cannot tell which module the wheel ships: no [tool.uv.build-"
+                "backend] module-name, nothing found in the source tree, and "
+                f"{wheel.name} holds {len(importable)} top-level importable "
+                f"names ({', '.join(importable) or 'none'}); set module-name"
+            )
+        return importable
+
+    def _require_shipped(self, wheel: Path, module: str) -> None:
+        """Fail unless ``wheel`` is a readable zip that ships ``module``."""
+        match self._contents(wheel).shipping(module):
             case "missing":
                 self._ops.fail(f"{wheel.name} does not contain {module}")
             case "empty":
