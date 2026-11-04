@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Literal, Self, cast, final
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 # kickstart and `systemctl restart` can return before the manager publishes the
 # new main PID, so the PID is polled rather than read once.
@@ -33,8 +34,13 @@ class ServiceSpec:
     systemd: str | None = None
     launchd: str | None = None
 
+    @property
+    def is_declared(self) -> bool:
+        """True when the project names a service under at least one manager."""
+        return self.systemd is not None or self.launchd is not None
+
     @classmethod
-    def for_project(cls, info: ProjectInfo) -> Self:
+    def for_project(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
         """The service the project declares in ``pyproject.toml``, else none::
 
             [tool.punt-kit.release.service]
@@ -42,48 +48,86 @@ class ServiceSpec:
             launchd = "com.punt-labs.quarry"
 
         Only a declaration names a service: guessing one from the CLI name
-        could restart a daemon the project never registered.
+        could restart a daemon the project never registered. A declaration
+        that is present but unusable (not a table, a non-string name, or no
+        name at all) fails: it must not silently degrade to "no service".
+        A mistyped parent key is indistinguishable from no declaration.
         """
         table: dict[str, object] = info.pyproject or {}
-        for key in ("tool", "punt-kit", "release", "service"):
+        for key in ("tool", "punt-kit", "release"):
             child = table.get(key)
             if not isinstance(child, dict):
                 return cls()
             table = cast("dict[str, object]", child)
-        systemd, launchd = table.get("systemd"), table.get("launchd")
-        return cls(
+        if "service" not in table:
+            return cls()
+        declared = table["service"]
+        if not isinstance(declared, dict):
+            ops.fail(
+                "[tool.punt-kit.release.service] in pyproject.toml must be a table "
+                f"of strings, got {type(declared).__name__}"
+            )
+        names = cast("dict[str, object]", declared)
+        for manager in ("systemd", "launchd"):
+            if manager in names and not isinstance(names[manager], str):
+                ops.fail(
+                    f"[tool.punt-kit.release.service] {manager} must be a string, "
+                    f"got {names[manager]!r}"
+                )
+        systemd, launchd = names.get("systemd"), names.get("launchd")
+        spec = cls(
             systemd=systemd if isinstance(systemd, str) else None,
             launchd=launchd if isinstance(launchd, str) else None,
         )
+        if not spec.is_declared:
+            ops.fail(
+                "[tool.punt-kit.release.service] in pyproject.toml names no "
+                "service: set systemd and/or launchd"
+            )
+        return spec
 
 
 @final
 class UserService:
     """Restarts a project's user service and confirms the process was replaced."""
 
-    __slots__ = ("_ops", "_spec")
+    __slots__ = ("_ops", "_skips", "_spec")
 
     _spec: ServiceSpec
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
-    def __new__(cls, spec: ServiceSpec, *, ops: ReleaseOps) -> Self:
+    def __new__(
+        cls, spec: ServiceSpec, *, ops: ReleaseOps, skips: SkipRecorder
+    ) -> Self:
         self = super().__new__(cls)
         self._spec = spec
         self._ops = ops
+        self._skips = skips
         return self
 
     def restart(self) -> None:
-        """Restart the registered service; fail unless its PID changed.
+        """Restart the declared service; fail unless its PID changed.
 
-        A project with no registered service is skipped. A daemon started
-        before the install keeps the old code in memory, so an unchanged PID
-        means the release was verified against the wrong process.
+        Nothing declared is a no-op. A declared service whose manager cannot
+        be queried fails the phase. One the host simply has not loaded is
+        recorded as a manual-action skip: the release was verified, but not
+        against a restarted daemon. A daemon started before the install keeps
+        the old code in memory, so an unchanged PID means the release was
+        verified against the wrong process.
         """
-        found = self._registered()
-        if found is None:
-            self._ops.info("No user service registered — nothing to restart")
+        if not self._spec.is_declared:
+            self._ops.info("No user service declared — nothing to restart")
             return
-        manager, name = found
+        manager = self._manager()
+        name = self._spec.systemd if manager == "systemd" else self._spec.launchd
+        if name is None or not self._is_loaded(manager, name):
+            self._skips.record(
+                "SKIPPED — manual action required: declared service "
+                f"{name or self._declared_name()} is not loaded on this host; "
+                "release verified without a restart"
+            )
+            return
         before = self._pid(manager, name)
         self._ops.info(f"Restarting {manager} service {name} (PID {before})...")
         self._kick(manager, name)
@@ -100,30 +144,50 @@ class UserService:
             )
         self._ops.ok(f"{name} restarted (PID {before} -> {after})")
 
-    def _registered(self) -> tuple[Manager, str] | None:
-        spec = self._spec
-        if shutil.which("systemctl") and spec.systemd:
+    def _declared_name(self) -> str:
+        return self._spec.systemd or self._spec.launchd or ""
+
+    def _manager(self) -> Manager:
+        if shutil.which("systemctl"):
+            return "systemd"
+        if shutil.which("launchctl"):
+            return "launchd"
+        self._ops.fail(
+            f"service {self._declared_name()} is declared but neither systemctl "
+            "nor launchctl is available to restart it"
+        )
+
+    def _is_loaded(self, manager: Manager, name: str) -> bool:
+        """Whether the manager has ``name`` loaded; a failed query fails the phase."""
+        if manager == "systemd":
             shown = self._ops.run(
                 [
                     "systemctl",
                     "--user",
                     "show",
-                    spec.systemd,
+                    name,
                     "--property=LoadState",
                     "--value",
                 ],
                 check=False,
             )
-            if shown.returncode == 0 and shown.stdout.strip() == "loaded":
-                return "systemd", spec.systemd
-        elif shutil.which("launchctl") and spec.launchd:
-            printed = self._ops.run(
-                ["launchctl", "print", self._launchd_target(spec.launchd)],
-                check=False,
-            )
-            if printed.returncode == 0:
-                return "launchd", spec.launchd
-        return None
+            if shown.returncode != 0:
+                self._ops.fail(
+                    f"Cannot query the systemd service {name} (is the user session "
+                    f"bus available?): {shown.stderr.strip()}"
+                )
+            return shown.stdout.strip() == "loaded"
+        printed = self._ops.run(
+            ["launchctl", "print", self._launchd_target(name)], check=False
+        )
+        if printed.returncode == 0:
+            return True
+        detail = f"{printed.stdout}\n{printed.stderr}"
+        if "could not find service" in detail.lower():
+            return False
+        self._ops.fail(
+            f"Cannot query the launchd service {name}: {printed.stderr.strip()}"
+        )
 
     def _pid(self, manager: Manager, name: str) -> int:
         """The service's main PID, 0 when it is not running."""

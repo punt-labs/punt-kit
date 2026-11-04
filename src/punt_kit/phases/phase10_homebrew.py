@@ -6,6 +6,7 @@ import re
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.formula_version import FormulaVersion
 from punt_kit.phases.shared.project_remote import ProjectRemote
 from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.text_file import TextFile
@@ -77,12 +78,8 @@ class HomebrewTapPropagator:
     ) -> None:
         info = self._info
         ops = self._ops
-        tap_repo = tap_sibling(info, ops=ops)
-        if tap_repo is None:
-            ops.info(
-                f"No {BREW_TARGET} target or no {TAP_SIBLING} sibling "
-                "— skipping homebrew-tap update"
-            )
+        if not has_brew_formula_target(info.root):
+            ops.info(f"No {BREW_TARGET} Makefile target — skipping homebrew-tap update")
             return
         slug = ProjectRemote(
             info.root, ops=ops, skips=self._skips, step="homebrew-tap propagation"
@@ -90,9 +87,23 @@ class HomebrewTapPropagator:
         if slug is None:
             return
         name = slug.name
+        tag = f"v{version}"
+        tap_repo = tap_sibling(info, ops=ops)
+        if tap_repo is None:
+            self._skips.record(
+                f"SKIPPED — manual action required: {name} has a {BREW_TARGET} "
+                f"target but no ../{TAP_SIBLING} checkout, so its formula was not "
+                f"updated for {tag}. Check out the tap and run `make {BREW_TARGET} "
+                "FORMULA_OUT=../homebrew-tap/Formula/" + f"{name}.rb`."
+            )
+            return
         formula = tap_formula(tap_repo, name)
         if formula is None:
-            ops.info(f"{TAP_SIBLING} has no Formula/{name}.rb — skipping")
+            self._skips.record(
+                f"SKIPPED — manual action required: ../{TAP_SIBLING}/Formula/"
+                f"{name}.rb does not exist, so the formula was not updated for "
+                f"{tag}. Add the formula to the tap first."
+            )
             return
 
         tap = tap_repo.path
@@ -112,6 +123,13 @@ class HomebrewTapPropagator:
         )
         if made.returncode != 0:
             ops.fail(f"make {BREW_TARGET} failed for {name} — see output above")
+        written = FormulaVersion(TextFile(formula).read()).value()
+        if written != version:
+            ops.fail(
+                f"make {BREW_TARGET} (Makefile in {info.root}) left "
+                f"{formula.name} at version {written or 'none'}, not {version} "
+                "— the target must write the formula to FORMULA_OUT"
+            )
 
         files = [f"Formula/{formula.name}"]
         if (tap / "CHANGELOG.md").is_file():

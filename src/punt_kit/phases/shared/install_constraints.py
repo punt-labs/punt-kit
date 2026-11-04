@@ -36,10 +36,57 @@ class InstallConstraints:
         return self
 
     def text(self) -> str | None:
-        """The file's content at the tag, or ``None`` when the tag has none."""
-        shown = self._ops.run(
+        """The file's content at the tag, or ``None`` when the tag has none.
+
+        "Absent" and "could not be read" are different answers: only an
+        ``ls-tree`` that succeeds and lists nothing means absent. An
+        unresolvable tag, a failing git command, or a failing ``git show``
+        fails the phase, because installing unpinned on a read error would
+        verify an environment no user gets.
+        """
+        ops = self._ops
+        cwd = str(self._root)
+        self._require_tag()
+        listing = ops.run(
+            ["git", "ls-tree", "--name-only", self._tag, "--", CONSTRAINTS_FILENAME],
+            cwd=cwd,
+            check=False,
+        )
+        if listing.returncode != 0:
+            ops.fail(f"git ls-tree {self._tag} failed:\n{listing.stderr.strip()}")
+        if not listing.stdout.strip():
+            return None
+        shown = ops.run(
             ["git", "show", f"{self._tag}:{CONSTRAINTS_FILENAME}"],
+            cwd=cwd,
+            check=False,
+        )
+        if shown.returncode != 0:
+            ops.fail(
+                f"git show {self._tag}:{CONSTRAINTS_FILENAME} failed:\n"
+                f"{shown.stderr.strip()}"
+            )
+        return shown.stdout
+
+    def _require_tag(self) -> None:
+        """Resolve the tag locally, fetching it from origin once if it is missing."""
+        if self._resolves():
+            return
+        self._ops.run(
+            ["git", "fetch", "origin", "tag", self._tag],
             cwd=str(self._root),
             check=False,
         )
-        return shown.stdout if shown.returncode == 0 else None
+        if not self._resolves():
+            self._ops.fail(
+                f"tag {self._tag} does not resolve locally or on origin — cannot "
+                f"read {CONSTRAINTS_FILENAME} from the release"
+            )
+
+    def _resolves(self) -> bool:
+        found = self._ops.run(
+            ["git", "rev-parse", "--verify", "--quiet", f"{self._tag}^{{commit}}"],
+            cwd=str(self._root),
+            check=False,
+        )
+        return found.returncode == 0

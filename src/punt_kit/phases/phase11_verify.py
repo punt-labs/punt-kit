@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
-from punt_kit.phases.phase10_homebrew import TAP_SIBLING, tap_formula, tap_sibling
+from punt_kit.phases.phase10_homebrew import (
+    TAP_SIBLING,
+    has_brew_formula_target,
+    tap_sibling,
+)
 from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
 from punt_kit.phases.phase11_versions import VersionPinChecks
 from punt_kit.phases.shared.changelog import Changelog
@@ -24,7 +28,7 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.siblings import SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 from punt_kit.phases.shared.text_file import TextFile
-from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.timeouts import GIT_HOOK, UV
 from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
@@ -174,7 +178,7 @@ class Phase11Verify:
             names.append("README pin")
         if SiblingRepo.resolve(info.root, "public-website", ops=self._ops) is not None:
             names.append("website")
-        if tap_sibling(info, ops=self._ops) is not None:
+        if has_brew_formula_target(info.root):
             names.append("homebrew-tap")
         return names
 
@@ -496,21 +500,49 @@ class Phase11Verify:
         return checks
 
     def _homebrew_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The tap formula's version: it must be this release.
+        """The tap's committed formula must be this release.
 
-        Runs only where Phase 10e ran: the project has a ``brew-formula``
-        target and the tap carries its formula.
+        Applies to every project with a ``brew-formula`` target, so a missing
+        tap or formula fails here rather than vanishing. Reads the formula as
+        committed on the tap's ``main`` after a pull, not the working tree,
+        which can hold an unmerged write.
         """
-        tap = tap_sibling(self._info, ops=self._ops)
-        formula = tap_formula(tap, repo.name) if tap is not None else None
-        if formula is None:
+        info = self._info
+        ops = self._ops
+        if not has_brew_formula_target(info.root):
             return []
-        found = FormulaVersion(TextFile(formula).read()).value()
+        tap = tap_sibling(info, ops=ops)
+        if tap is None:
+            return [
+                VerificationCheck(
+                    TAP_SIBLING, False, f"sibling {TAP_SIBLING} not found"
+                )
+            ]
+        path = f"Formula/{repo.name}.rb"
+        cwd = str(tap.path)
+        pulled = ops.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=cwd,
+            check=False,
+            timeout=GIT_HOOK,
+        )
+        if pulled.returncode != 0:
+            return [
+                VerificationCheck(
+                    TAP_SIBLING,
+                    False,
+                    f"git pull in {TAP_SIBLING} failed: {pulled.stderr.strip()}",
+                )
+            ]
+        shown = ops.run(["git", "show", f"main:{path}"], cwd=cwd, check=False)
+        if shown.returncode != 0:
+            return [VerificationCheck(TAP_SIBLING, False, f"{path} not on main")]
+        found = FormulaVersion(TextFile.without_bom(shown.stdout)).value()
         return [
             VerificationCheck(
                 TAP_SIBLING,
                 found == self._version,
-                f"{formula.name} version={found or 'not found'}",
+                f"{path} version={found or 'not found'}",
             )
         ]
 

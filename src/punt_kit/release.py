@@ -284,7 +284,7 @@ def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 8: Verify PyPI install."""
-    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops).run()
+    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,12 @@ if TYPE_CHECKING:
 
 # Sibling repos checked during preflight and used during propagation (phase 10).
 # Must stay in sync with the propagator classes in phase10_propagate.py.
-PROPAGATION_SIBLINGS: tuple[str, ...] = ("claude-plugins", ".github", "public-website")
+PROPAGATION_SIBLINGS: tuple[str, ...] = (
+    "claude-plugins",
+    ".github",
+    "public-website",
+    "homebrew-tap",
+)
 
 # Files each sibling's propagation writes. SiblingRegistry.reset_all uses this
 # map to reconcile a sibling left dirty by an interrupted phase 10 — the
@@ -28,6 +33,9 @@ PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
     ".github": ("install-all.sh", "profile/README.md"),
     "claude-plugins": (".claude-plugin/marketplace.json",),
     "public-website": ("src/data/projects.json",),
+    # A trailing slash owns everything under that directory: which formula a
+    # release writes depends on the project, and the reset has no project.
+    "homebrew-tap": ("Formula/", "CHANGELOG.md"),
 }
 
 
@@ -170,7 +178,10 @@ class SiblingRepo:
             file_path = ln[3:] if len(ln) > 3 else ""
             if file_path == ".beads" or file_path.startswith(".beads/"):
                 continue
-            if file_path in owned:
+            if any(
+                file_path == own or (own.endswith("/") and file_path.startswith(own))
+                for own in owned
+            ):
                 dirty_owned.append(file_path)
                 continue
             # A modification outside the ownership map. Leave the whole

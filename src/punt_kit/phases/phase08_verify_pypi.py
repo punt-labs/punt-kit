@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 _console = Console()
 
@@ -33,27 +34,34 @@ _console = Console()
 class Phase8VerifyPypi:
     """Phase 8: verify PyPI install."""
 
-    __slots__ = ("_dry_run", "_info", "_ops", "_version")
+    __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
     _info: ProjectInfo
     _version: str
     _dry_run: bool
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
     def __new__(
-        cls, info: ProjectInfo, version: str, *, dry_run: bool, ops: ReleaseOps
+        cls,
+        info: ProjectInfo,
+        version: str,
+        *,
+        dry_run: bool,
+        ops: ReleaseOps,
+        skips: SkipRecorder,
     ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._version = version
         self._dry_run = dry_run
         self._ops = ops
+        self._skips = skips
         return self
 
     def run(self) -> None:
         info = self._info
         version = self._version
-        dry_run = self._dry_run
         ops = self._ops
         if info.language != "python":
             return
@@ -62,21 +70,11 @@ class Phase8VerifyPypi:
 
         package_name = ReleaseProject(info, ops=ops).package_name()
 
-        constraints = InstallConstraints(info.root, f"v{version}", ops=ops).text()
-
-        if dry_run:
-            pinned = "--constraints " if constraints is not None else ""
-            ops.dry(
-                f"uv tool install --force --refresh {pinned}{package_name}=={version}"
-            )
-            if constraints is None:
-                ops.dry(f"{CONSTRAINTS_FILENAME} absent at v{version}: unpinned")
-            ops.dry("restart the project's user service, confirm the PID changed")
-            if info.cli_commands:
-                ops.dry(f"{info.cli_commands[0]} doctor (if available)")
-            ops.dry("uv tool install --force --editable .")
+        if self._dry_run:
+            self._dry_run_plan(package_name)
             return
 
+        constraints = InstallConstraints(info.root, f"v{version}", ops=ops).text()
         if constraints is None:
             ops.info(
                 f"No {CONSTRAINTS_FILENAME} at v{version} — installing unpinned "
@@ -84,7 +82,38 @@ class Phase8VerifyPypi:
             )
         else:
             ops.info(f"Installing with {CONSTRAINTS_FILENAME} from v{version}")
-        ops.info(f"Installing {package_name}=={version} from PyPI...")
+
+        # The editable install is the operator's dev environment. Whatever
+        # happens from the first PyPI install on, it is put back.
+        primary: BaseException | None = None
+        try:
+            self._verify_published(package_name, constraints)
+        except BaseException as exc:
+            primary = exc
+            raise
+        finally:
+            self._restore_editable(primary)
+
+    def _dry_run_plan(self, package_name: str) -> None:
+        info = self._info
+        ops = self._ops
+        tag = f"v{self._version}"
+        if (info.root / CONSTRAINTS_FILENAME).exists():
+            pinned = f"--constraints <{CONSTRAINTS_FILENAME} from {tag}> "
+        else:
+            pinned = ""
+            ops.dry(f"would read {CONSTRAINTS_FILENAME} from {tag}; pinned if present")
+        ops.dry(
+            f"uv tool install --force --refresh {pinned}{package_name}=={self._version}"
+        )
+        ops.dry("restart the project's declared user service, confirm the PID changed")
+        if info.cli_commands:
+            ops.dry(f"{info.cli_commands[0]} doctor (if available)")
+        ops.dry("uv tool install --force --editable .")
+
+    def _verify_published(self, package_name: str, constraints: str | None) -> None:
+        ops = self._ops
+        ops.info(f"Installing {package_name}=={self._version} from PyPI...")
 
         with tempfile.TemporaryDirectory(prefix="punt-constraints-") as scratch:
             flags: Sequence[str] = ()
@@ -94,24 +123,42 @@ class Phase8VerifyPypi:
                 flags = ("--constraints", str(pins))
             self._install_with_retries(package_name, flags)
 
-        ops.ok(f"Installed {package_name}=={version} from PyPI")
+        ops.ok(f"Installed {package_name}=={self._version} from PyPI")
 
-        UserService(ServiceSpec.for_project(info), ops=ops).restart()
+        spec = ServiceSpec.for_project(self._info, ops=ops)
+        UserService(spec, ops=ops, skips=self._skips).restart()
 
         self._run_doctor()
 
-        # Restore editable install. Convention for external commands: run with
-        # check=False, and turn a non-zero exit into a diagnosed fail.
+    def _restore_editable(self, primary: BaseException | None) -> None:
+        """Put the editable install back; never mask the error already in flight.
+
+        Convention for external commands: run with check=False, and turn a
+        non-zero exit into a diagnosed fail. With another error in flight the
+        restore failure is reported as secondary instead, so the operator
+        sees the original cause.
+        """
+        ops = self._ops
         ops.info("Restoring editable install...")
-        restore_result = ops.run(
-            ["uv", "tool", "install", "--force", "--editable", "."],
-            cwd=str(info.root),
-            capture=False,
-            check=False,
-            timeout=UV,
-        )
-        if restore_result.returncode != 0:
-            ops.fail("uv tool install --editable . failed — see output above")
+        failure = "uv tool install --editable . failed — see output above"
+        try:
+            result = ops.run(
+                ["uv", "tool", "install", "--force", "--editable", "."],
+                cwd=str(self._info.root),
+                capture=False,
+                check=False,
+                timeout=UV,
+            )
+        except subprocess.TimeoutExpired:
+            if primary is None:
+                raise
+            ops.error(f"{failure} (timed out) after {primary!r}")
+            return
+        if result.returncode != 0:
+            if primary is not None:
+                ops.error(f"{failure} (secondary to: {primary})")
+                return
+            ops.fail(failure)
         ops.ok("Editable install restored")
 
     def _install_with_retries(self, package_name: str, flags: Sequence[str]) -> None:
