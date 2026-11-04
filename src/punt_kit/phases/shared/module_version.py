@@ -129,21 +129,27 @@ class ModuleVersion:
                 )
                 raise UnpinnableVersionError(msg)
             return None
-        return self._resolve(_NAME, frozenset())
+        return self._resolve(_NAME, frozenset(), ())
 
     def _resolve(
-        self, name: str, seen: frozenset[str]
+        self, name: str, seen: frozenset[str], chain: tuple[ast.stmt, ...]
     ) -> ComputedVersion | LiteralVersion:
+        """Follow ``name`` to its value; ``chain`` holds the bindings so far."""
         stmt = self._only_binding(name)
         source = self._source(stmt)
         seen |= {name}
+        chain = (*chain, stmt)
         value = self._value(stmt, name, source)
         match value:
             case ast.Name(id=other) if other not in seen:
-                return self._resolve(other, seen)
+                return self._resolve(other, seen, chain)
             case ast.Constant(value=str()):
+                self._refuse_a_later_star(chain)
                 return self._literal(stmt, value, name, source)
             case ast.Call():
+                # A call reads names (its callee, its arguments, __name__) that
+                # a star import can rebind wherever it sits.
+                self._refuse_a_later_star(())
                 fault = _ReaderCall(value, self._bindings).fault()
                 if fault is not None:
                     msg = f"`{source}` (line {stmt.lineno}) {fault}"
@@ -151,6 +157,20 @@ class ModuleVersion:
                 return ComputedVersion(source)
             case _:
                 raise _not_plain(source, stmt.lineno, name)
+
+    def _refuse_a_later_star(self, chain: tuple[ast.stmt, ...]) -> None:
+        """Raise on an ``import *`` not strictly before every binding in ``chain``.
+
+        An empty ``chain`` refuses every star import.
+        """
+        first = min(((link.lineno, link.col_offset) for link in chain), default=None)
+        for star in self._bindings.star_imports():
+            if first is None or (star.lineno, star.col_offset) > first:
+                msg = (
+                    f"`{ast.unparse(star)}` at line {star.lineno} could rebind "
+                    f"{_NAME}, so a bump could ship a stale version"
+                )
+                raise UnpinnableVersionError(msg)
 
     def _only_binding(self, name: str) -> ast.stmt:
         """The one module-body statement that binds ``name``."""
@@ -173,13 +193,6 @@ class ModuleVersion:
                 "a bump cannot tell whether it runs, so it could ship a stale version"
             )
             raise UnpinnableVersionError(msg)
-        for star in self._bindings.star_imports():
-            if star.lineno > binding.stmt.lineno:  # an earlier one is overridden
-                msg = (
-                    f"`{ast.unparse(star)}` at line {star.lineno} could rebind "
-                    f"{name}, so a bump could ship a stale version"
-                )
-                raise UnpinnableVersionError(msg)
         return binding.stmt
 
     @staticmethod

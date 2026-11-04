@@ -13650,6 +13650,17 @@ def test_phase2_bumps_a_literal_after_a_star_import(tmp_path: Path) -> None:
     assert _init_py(root).read_text() == 'from .core import *\n__version__ = "0.2.0"\n'
 
 
+def test_phase2_bumps_an_alias_bound_after_a_star_import(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    text = 'from .core import *\nV = "0.1.0"\n__version__ = V\n'
+    _init_py(root).write_text(text)
+    _commit_all(root, "star import before the alias")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == text.replace("0.1.0", "0.2.0")
+
+
 def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     _init_py(root).write_text('__version__: str = "0.1.0"\n')
@@ -13788,6 +13799,10 @@ _UNPINNABLE_INITS = {
     ),
     "binop-argument": 'import os\n__version__ = os.getenv("V", "1" + ".0")\n',
     "star-import-only": "from ._v import *\n",
+    "star-before-a-call": (
+        "from importlib.metadata import version\nfrom x import *\n"
+        '__version__ = version("test-pkg")\n'
+    ),
     "shadowed-metadata-module": (
         "from importlib import metadata\nfrom mypkg import metadata\n"
         '__version__ = metadata.version("test-pkg")\n'

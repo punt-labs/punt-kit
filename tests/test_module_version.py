@@ -121,6 +121,7 @@ def test_a_computed_version_names_its_source_line() -> None:
         ('def f():\n    __version__ = "9.9"\n__version__ = "0.1.0"\n', "0.1.0"),
         ('class C:\n    __version__ = "9.9"\n__version__ = "0.1.0"\n', "0.1.0"),
         ('from .core import *\n__version__ = "1.0"\n', "1.0"),
+        ('from .core import *\nV = "1.0"\n__version__ = V\n', "1.0"),
     ],
     ids=[
         "double",
@@ -132,6 +133,7 @@ def test_a_computed_version_names_its_source_line() -> None:
         "beside-a-function-local",
         "beside-a-class-attribute",
         "after-a-star-import",
+        "alias-after-a-star-import",
     ],
 )
 def test_a_plain_quoted_string_is_a_literal(text: str, value: str) -> None:
@@ -377,6 +379,20 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         'import os\n_, D = "x2"\n__version__ = os.getenv("V", D)\n',
         'import os\n*_, D = "release-2"\n__version__ = os.getenv("V", D)\n',
         'import os\n_, D = "xy"\n__version__ = os.getenv("V", D)\n',
+        # A call reads names a star import can rebind wherever it sits.
+        "from importlib.metadata import version\nfrom x import *\n"
+        '__version__ = version("pkg")\n',
+        'import os\nfrom x import *\n__version__ = os.getenv("V", "x")\n',
+        'import os\nD = "x"\nfrom x import *\n__version__ = os.getenv("V", D)\n',
+        'from helpers import installed\nDIST = "mypkg"\nfrom x import *\n'
+        "__version__ = installed(DIST)\n",
+        "from importlib.metadata import version\nfrom x import *\n"
+        "__version__ = version(__name__)\n",
+        "from importlib.metadata import version\n"
+        '__version__ = version("x"); from evil import *\n',
+        # A literal's star import must come before its whole chain.
+        'V = "1.0"\nfrom .core import *\n__version__ = V\n',
+        '__version__ = "1.0"; from evil import *\n',
     ],
     ids=[
         "f-string",
@@ -504,6 +520,14 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         "tuple-unpacked-name",
         "starred-unpacked-name",
         "tuple-unpacked-digit-free-name",
+        "star-between-reader-import-and-call",
+        "star-between-module-import-and-call",
+        "star-between-argument-and-call",
+        "star-between-dist-name-and-call",
+        "star-before-module-name-call",
+        "star-after-call-on-one-line",
+        "star-between-alias-and-literal",
+        "star-after-literal-on-one-line",
     ],
 )
 def test_anything_else_cannot_be_pinned(text: str) -> None:
@@ -619,6 +643,11 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
             "passes D, which is neither imported nor bound once, at module level, "
             "to a plain string",
         ),
+        (
+            "from importlib.metadata import version\nfrom x import *\n"
+            '__version__ = version("pkg")\n',
+            r"`from x import \*` at line 2 could rebind __version__",
+        ),
     ],
     ids=[
         "imported-name",
@@ -644,6 +673,7 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "module-name-to-non-metadata",
         "full-width-digit",
         "unpacked-name",
+        "star-beside-a-call",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:
