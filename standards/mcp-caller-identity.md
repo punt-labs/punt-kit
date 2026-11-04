@@ -188,8 +188,13 @@ Durable state belongs to the session; live-client resources belong to the
    `main_agent_id`. A resume's first call may arrive before (or without) its
    SessionStart, so updating the pid on open alone is not enough: with it,
    a late SessionEnd from the replaced run still ends the resumed record
-   (model control `_nopincall_buggy`). The record keeps every main pid that
-   has run for its session. An open or call whose `main_agent_id` is one of
+   (model control `_nopincall_buggy`). The engine keeps, per `session_id`,
+   every main pid that has run for the session — independent of the record,
+   so it outlives a record's retention expiry (the model's `ever`). An engine
+   that drops this history may do so only after the session has been absent
+   longer than its retention period, and then a late call from a replaced run
+   is indistinguishable from a new session. An open or call whose
+   `main_agent_id` is one of
    those but not the current one comes from a **replaced run**: the engine
    refuses it with a named error and never moves the pin back. An open or
    call whose `main_agent_id` has never run for the session is a **new run**:
@@ -243,7 +248,7 @@ Durable state belongs to the session; live-client resources belong to the
 The model enables an open or call only for the current run or a run that has
 never been seen for the session (its `PidOk` guard over the pids that have
 run); rule 2's refusal of a replaced run is that guard, implemented from the
-pids the record keeps.
+per-session pid history the engine keeps.
 
 ### 4.3 Per-agent state
 

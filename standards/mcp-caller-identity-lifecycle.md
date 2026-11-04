@@ -202,8 +202,10 @@ and 5-7 are absent or wrong in the current prose.
 ## Assumptions the model makes
 
 - A call or open is enabled only for the session's latest run or a run never
-  seen for the session (`PidOk`, over the `ever` history). An engine
-  implements this by keeping, per record, the main pids that have run, and
+  seen for the session (`PidOk`, over the `ever` history, which
+  `RetentionExpire` leaves unchanged). An engine implements this by keeping,
+  per `session_id` and independent of the record, the main pids that have
+  run, and
   refusing an open or call from a replaced run; a late call from a replaced
   run therefore never moves the current main pid backward.
 - Calls store durable state. `RetentionExpire` is nondeterministic for ended
