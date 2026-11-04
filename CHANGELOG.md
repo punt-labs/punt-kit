@@ -8,10 +8,13 @@ All notable changes to this project will be documented in this file.
 
 - `punt release` phase 3 now installs each built wheel in an isolated
   environment, imports the package, and fails the release unless its
-  `__version__` equals the release version, before anything is published.
-  This catches a stale version that a static read of `__init__.py` cannot
-  see, such as a `globals()` rebind or a monkeypatched reader. A module with
-  no `__version__` is skipped with a line saying so (DES-035).
+  `__version__` equals the release version (PEP 440 comparison, so
+  `1.0.0-rc1` matches `1.0.0rc1`), before anything is published. This
+  catches a stale version that a static read of `__init__.py` cannot see,
+  such as a `globals()` rebind, a PEP 562 `__getattr__`, or a monkeypatched
+  reader. A module with no `__version__`, or a run resumed past the build
+  step, is listed under the end-of-run skips (DES-035). `packaging` is now a
+  runtime dependency.
 - `src/punt_kit/templates/pr_agent.toml` — the Qodo review config template
   every repo instantiates as `.pr_agent.toml`: one review at open, no push
   trigger, Highs inline, Mediums in the summary, Lows dropped.

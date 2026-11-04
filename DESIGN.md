@@ -2259,16 +2259,32 @@ question it is a proxy for is simply what the shipped package reports.
 ### Design
 
 `WheelVersionCheck` (`src/punt_kit/phases/shared/wheel_version.py`) runs at
-the end of phase 3, after `uv build` and the twine check. For each wheel in
-`dist/` it runs
-`uv run --isolated --no-project --with <wheel> python -I -c <probe> <module>`,
-reads the version the package reports, and fails the release unless it
-equals the release version. Phase 3 is the last point before anything
-leaves the machine: phase 4 merges the release PR and phase 5 tags, which
-publishes. The module is `[tool.uv.build-backend] module-name`, or the single
-package under the module root. A module with no `__version__` binding is
-skipped with a line. An import failure, a mismatch, or an empty `dist/` fails
-the phase with both values and the wheel named.
+the end of phase 3, after `uv build` and the twine check. Phase 3 is the last
+point before anything leaves the machine: phase 4 merges the release PR and
+phase 5 tags, which publishes.
+
+1. **Which module.** `[tool.uv.build-backend] module-name` (a string or a
+   list). Otherwise the project name normalised as uv does, under the module
+   root or the repo root. Otherwise the single package under `src/`, or at
+   the repo root only when `src/` has none. Otherwise the phase fails, naming
+   what it searched.
+2. **The probe.** For each wheel in `dist/` and each module, it runs
+   `uv run --isolated --no-project --with <wheel> python -I -c <probe>
+   <module>`. The probe imports the module, writes exactly one framed record
+   to file descriptor 1 (`\x00PUNT_VERSION=` plus the `ascii()` of the
+   value, or an "absent" record), and calls `os._exit(0)` so no atexit
+   handler or buffered print can follow it. Every module is imported. No
+   static pre-filter decides whether to look, because the static reader is
+   blind to exactly the cases this check exists for.
+3. **The comparison.** Exactly one record is required. The value must be a
+   `str` with no surrounding whitespace that parses as a PEP 440 version,
+   and it must equal the release version under `packaging.version.Version`.
+   So `1.0.0-rc1` matches a package reporting `1.0.0rc1`.
+4. **Skips.** A module with no `__version__` at run time is recorded with
+   the `SkipRecorder`, so it appears in the end-of-run recap. A run resumed
+   past phase 3 records that the check did not run. An import failure, a
+   mismatch, a malformed record, or an empty `dist/` fails the phase, naming
+   both values and the wheel.
 
 DES-034 still decides what phase 2 bumps. This check decides whether the
 release may proceed, so a miss in the static classifier becomes a loud
