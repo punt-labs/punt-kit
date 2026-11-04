@@ -13704,6 +13704,58 @@ def test_phase2_bumps_a_literal_init_version_beside_an_importlib_import(
     assert '__version__ = "0.2.0"' in _init_py(root).read_text()
 
 
+def test_phase2_bumps_the_literal_a_version_name_is_bound_to(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text('VERSION = "0.1.0"\n__version__ = VERSION\n')
+    _commit_all(root, "version through a name")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == 'VERSION = "0.2.0"\n__version__ = VERSION\n'
+
+
+def test_phase2_does_not_bump_a_docstring_decoy(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    text = '"""Package.\n\n__version__ = "0.1.0"\n"""\n\n' + _HELPER_COMPUTED_INIT
+    _init_py(root).write_text(text)
+    _commit_all(root, "docstring decoy")
+
+    _bump(root)
+
+    assert _init_py(root).read_text() == text
+
+
+# Each is a version a bump cannot pin safely: skipping it ships a stale value.
+_UNPINNABLE_INITS = {
+    "f-string": '__version__ = f"0.1.{0}"\n',
+    "parenthesised": '__version__ = ("0.1.0")\n',
+    "implicit-concatenation": '__version__ = "0.1" ".0"\n',
+    "plus-concatenation": '__version__ = "0.1.0" + "-dev"\n',
+    "imported-name": "from ._about import VERSION\n__version__ = VERSION\n",
+    "reassigned": '__version__ = "0.1.0"\n__version__ = "0.1.0-dev"\n',
+    "syntax-error": '__version__ = "0.1.0\n',
+    "number": "__version__ = 1.0\n",
+    "tuple": "__version__ = (1, 0)\n",
+}
+
+
+@pytest.mark.parametrize(
+    "init_text", _UNPINNABLE_INITS.values(), ids=_UNPINNABLE_INITS.keys()
+)
+def test_phase2_fails_on_an_init_version_it_cannot_pin(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], init_text: str
+) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text(init_text)
+    _commit_all(root, "unpinnable version")
+
+    with pytest.raises(ReleaseError, match=r"__init__\.py: __version__ cannot be"):
+        _bump(root)
+
+    assert _init_py(root).read_text() == init_text
+    assert "✓ __init__.py" not in capsys.readouterr().out
+
+
 def test_phase2_fails_when_the_pyproject_version_cannot_be_rewritten(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -13734,7 +13786,7 @@ def test_phase2_leaves_an_imported_version_alone(tmp_path: Path) -> None:
     [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT],
     ids=["helper-call", "importlib-metadata"],
 )
-def test_phase11_skips_a_computed_init_version(
+def test_phase11_passes_a_computed_init_version_and_names_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -13748,7 +13800,32 @@ def test_phase11_skips_a_computed_init_version(
 
     _phase11_verify(detect(root), version, dry_run=False)  # must not raise
 
-    assert "__init__.py:" not in _flat(capsys.readouterr().out)
+    source = init_text.rstrip("\n").rsplit("\n", 1)[-1]
+    expected = f"✓ __init__.py: __version__ computed: {source}"
+    assert expected in _flat(capsys.readouterr().out)
+
+
+@pytest.mark.parametrize(
+    "init_text", _UNPINNABLE_INITS.values(), ids=_UNPINNABLE_INITS.keys()
+)
+def test_phase11_fails_an_init_version_it_cannot_verify(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    init_text: str,
+) -> None:
+    version = "0.1.0"
+    root = _setup_fully_passing_verify(tmp_path, version)
+    _init_py(root).write_text(init_text)
+    _commit_all(root, "unpinnable version")
+    _patch_pypi_probe(monkeypatch)
+
+    with pytest.raises(ReleaseError, match="Some verification checks failed"):
+        _phase11_verify(detect(root), version, dry_run=False)
+
+    _assert_failed_checks(
+        capsys.readouterr().out, ["__init__.py"], "__version__ cannot be verified"
+    )
 
 
 def test_phase11_checks_a_literal_init_version_beside_an_importlib_import(

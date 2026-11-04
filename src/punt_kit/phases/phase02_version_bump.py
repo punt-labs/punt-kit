@@ -10,6 +10,12 @@ from rich.console import Console
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.module_version import (
+    ComputedVersion,
+    LiteralVersion,
+    ModuleVersion,
+    UnpinnableVersionError,
+)
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
@@ -76,17 +82,27 @@ class Phase2VersionBump:
             self._ops.ok(f'pyproject.toml: version = "{self._version}"')
 
     def _bump_init(self, path: Path) -> None:
-        """Set a literal ``__version__``; leave a computed one alone."""
+        """Set a literal ``__version__``; leave a computed one; fail on the rest."""
         content = TextFile(path).read()
-        assignment = VersionAssignment("__version__")
-        if assignment.is_computed(content):
-            # Read from installed metadata at import time (python.md, Version
-            # Reporting): pyproject.toml is the one pin.
-            self._ops.info(f"{path.name}: __version__ is computed — not bumped")
-            return
-        new_content, count = assignment.rewritten(content, self._version)
-        if count == 0:  # not assigned here, e.g. ``from ._v import __version__``
-            return
+        try:
+            found = ModuleVersion(content).resolved()
+        except UnpinnableVersionError as exc:
+            self._ops.fail(
+                f"{path.name}: __version__ cannot be bumped to {self._version}: "
+                f"{exc}; set it by hand"
+            )
+        match found:
+            case None:  # not assigned here, e.g. ``from ._v import __version__``
+                return
+            case ComputedVersion(source=source):
+                # Read from installed metadata at import time (python.md,
+                # Version Reporting): pyproject.toml is the one pin.
+                self._ops.info(
+                    f"{path.name}: __version__ is computed — not bumped ({source})"
+                )
+                return
+            case LiteralVersion():
+                new_content = found.rewritten(content, self._version)
         if self._dry_run:
             self._ops.dry(f'{path.name}: __version__ = "{self._version}"')
         else:

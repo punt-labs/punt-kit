@@ -6,6 +6,12 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_kit.phases.phase11_checks import VerificationCheck
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.module_version import (
+    ComputedVersion,
+    LiteralVersion,
+    ModuleVersion,
+    UnpinnableVersionError,
+)
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.version_assignment import VersionAssignment
@@ -70,16 +76,23 @@ class VersionPinChecks:
         if pkg_dir is None or not (pkg_dir / "__init__.py").exists():
             return []
         content = TextFile(pkg_dir / "__init__.py").read()
-        # None when absent or computed (VersionAssignment.is_computed): either
-        # way there is no literal to check.
-        init_ver = VersionAssignment("__version__").read(content)
-        if init_ver is None:
-            return []
-        return [
-            VerificationCheck(
-                "__init__.py", init_ver == self._version, f"__version__={init_ver}"
-            )
-        ]
+        try:
+            found = ModuleVersion(content).resolved()
+        except UnpinnableVersionError as exc:
+            detail = f"__version__ cannot be verified: {exc}"
+            return [VerificationCheck("__init__.py", False, detail)]
+        match found:
+            case None:
+                return []
+            case ComputedVersion(source=source):
+                detail = f"__version__ computed: {source}"
+                return [VerificationCheck("__init__.py", True, detail)]
+            case LiteralVersion(value=value):
+                return [
+                    VerificationCheck(
+                        "__init__.py", value == self._version, f"__version__={value}"
+                    )
+                ]
 
     def _plugin_json(self) -> list[VerificationCheck]:
         if not self._info.is_plugin:

@@ -29,16 +29,15 @@ _BARE_WORD = r"[^\s\"'`$;&|<>(){}\\#]*"
 class VersionAssignment:
     """A version assigned to ``name`` on one line, as a quoted string literal.
 
-    The rule, shared by the Phase 2 bump and the Phase 11 check so they cannot
-    disagree: the assignment starts its line, may carry a type annotation
-    (``__version__: str = "1.0"``), and its value is a string in double or
-    single quotes (TOML basic or literal string, Python either). The quote
-    style is kept when the value is rewritten. Anything else, such as a
-    computed value, an inline table or a tuple, is *assigned* but not
-    *readable*. A caller that can only pin a literal (``pyproject.toml``,
-    ``install.sh``) must fail on it and report it, never pass over it; a
-    Python ``__version__`` that ``is_computed`` comes from installed metadata
-    and has nothing to pin.
+    The text rule for ``pyproject.toml``'s ``version`` and ``install.sh``'s
+    ``VERSION``, shared by the Phase 2 bump and the Phase 11 check so they
+    cannot disagree: the assignment starts its line, may carry a type
+    annotation, and its value is a string in double or single quotes (TOML
+    basic or literal string). The quote style is kept when the value is
+    rewritten. Anything else, such as a computed value, an inline table or a
+    tuple, is *assigned* but not *readable*: the bump must fail on it and the
+    check must report it, never pass over it. A Python ``__version__`` is not
+    read this way: ``ModuleVersion`` classifies it from the syntax tree.
     """
 
     __slots__ = ("_assigned", "_bare", "_is_shell", "_quoted")
@@ -92,15 +91,6 @@ class VersionAssignment:
     def is_assigned(self, text: str) -> bool:
         """True when ``text`` assigns the name at the start of some line."""
         return next(iter(self._heads(text)), None) is not None
-
-    def is_computed(self, text: str) -> bool:
-        """True when ``text`` assigns the name but no plain literal supplies it.
-
-        ``__version__ = installed_version()`` is computed whatever the helper
-        reads, so there is nothing to bump or verify; ``__version__ = "1.0"``
-        is not, even beside an ``importlib.metadata`` import.
-        """
-        return self.is_assigned(text) and self._readable(text) is None
 
     def assigned_lines(self, text: str) -> tuple[str, ...]:
         """Every line that assigns the name, stripped, in order.
