@@ -2264,10 +2264,14 @@ point before anything leaves the machine: phase 4 merges the release PR and
 phase 5 tags, which publishes.
 
 1. **Which module.** `[tool.uv.build-backend] module-name` (a string or a
-   list). Otherwise the project name normalised as uv does, under the module
-   root or the repo root. Otherwise the single package under `src/`, or at
-   the repo root only when `src/` has none. Otherwise the phase fails, naming
-   what it searched.
+   list). Otherwise the project name normalised as uv does, as a package or a
+   `<name>.py` module, under the module root or the repo root. Otherwise the
+   single package or `.py` module under the module root (`src/`), or the
+   single package at the repo root when the module root has none; loose
+   `.py` files at the repo root (`noxfile.py`, `conftest.py`) never count.
+   Otherwise the single importable top-level name the built wheel ships,
+   which covers custom layouts such as `lib/`. Otherwise the phase fails,
+   naming what it searched.
 2. **The probe.** The parent first requires the wheel to ship the module:
    `<path>.py`, an extension module, a `.data/purelib` or `.data/platlib`
    path, or a directory holding code. For each wheel and module it then runs
@@ -2277,18 +2281,22 @@ phase 5 tags, which publishes.
    its arguments, clears `sys.argv`, and binds `os.write`, `os._exit` and
    the path helpers it needs, so a package that rewrites them during import
    changes nothing. After the import it works out the module's origin,
-   whether that origin is in the standard library, and whether it is one of
-   the files `<dist>` installs. Only a module that came from the wheel has
-   `__version__` read, and it is always read directly: an `AttributeError`
-   naming `__version__` on the module itself means absent, and any other
-   exception fails the release. The probe writes exactly one record tagged
+   whether that origin is in the standard library, whether it is one of
+   the files `<dist>` installs, and whether its content still matches the
+   hash in the wheel's RECORD (a dependency installing the same path would
+   overwrite it). Only a module that came from the wheel has
+   `__version__` read, and it is always read directly. An `AttributeError`
+   whose name and object are `__version__` and the module itself, or a bare
+   one with neither set, means absent; any other exception, including one
+   naming `__version__` on some other object, fails the release. The probe writes exactly one record tagged
    with the nonce to file descriptor 1 and calls `os._exit(0)`. Every
    module is imported; no static pre-filter decides whether to look,
    because the static reader is blind to exactly the cases this check
    exists for.
 3. **The comparison.** Exactly one record with the run's nonce is required.
-   A module with no file origin, one loaded from the standard library, or
-   one that is not among the wheel's files fails, each with its own message.
+   A module with no file origin, one loaded from the standard library,
+   one that is not among the wheel's files, or one whose file was
+   overwritten fails, each with its own message.
    The value must be a `str` equal to the release version as written, or to
    its canonical PEP 440 form, so `1.0.0-rc1` matches a package reporting
    `1.0.0rc1` while `v1.0.0` or `1.0` do not. Probe output is decoded with

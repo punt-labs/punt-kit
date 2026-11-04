@@ -13,7 +13,8 @@ All notable changes to this project will be documented in this file.
   not), before anything is published. This catches a stale version that a
   static read of `__init__.py` cannot see, such as a `globals()` rebind, a
   PEP 562 `__getattr__`, or a monkeypatched reader. The module must ship in
-  the wheel and must not resolve to the standard library. A module with no
+  the wheel and must not resolve to the standard library or to another
+  installed package. A module with no
   `__version__`, or a run resumed past the build step, is listed under the
   end-of-run skips (DES-035). `packaging` is now a runtime dependency.
 - `src/punt_kit/templates/pr_agent.toml` — the Qodo review config template
