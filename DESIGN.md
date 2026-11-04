@@ -2210,8 +2210,11 @@ a dynamic import. An allow-list stops that.
 3. **Unpinnable.** Everything else fails both phases with the reason and the
    line:
    - any other expression;
-   - more than one binding of the name: a later import, a later
-     `from X import *`, a walrus
+   - any `from X import *` when the value is computed, since a star can
+     rebind the callee or an argument at any point; for a literal, a star
+     that is not strictly before every binding on its chain (compared by line
+     and column);
+   - more than one binding of the name: a later import, a walrus
      anywhere evaluated at module scope, a `type` alias, or a fallback in an
      `except` branch, which python.md's Version Reporting rule forbids;
    - an assignment only inside a block;
