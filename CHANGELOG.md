@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `standards/mcp-caller-identity.md` and DES-034 — how an engine learns which
+- `standards/mcp-caller-identity.md` and DES-035 — how an engine learns which
   Claude Code session and agent is calling: each plugin's PreToolUse hook
   stamps `_caller {session_id, agent_id}` on its own tools, the server strips
   it before validation, and an engine holding per-session state owns its
@@ -42,6 +42,18 @@ All notable changes to this project will be documented in this file.
 - `standards/architecture.md` cited quarry as keeping each client's selected
   database in its daemon; the selection lives in quarry's MCP client. The
   example is now the lux Hub.
+- `punt release` no longer fails the version bump on a computed
+  `__version__` that does not name `importlib.metadata` in the same file,
+  such as vox's `__version__ = installed_version()`. Phases 2 and 11 now
+  classify `__version__` with `ast`, with three outcomes. A plain string
+  literal, or a same-module name bound to one, is bumped and checked. A single
+  call to a reader imported from another module (`importlib.metadata.version`,
+  or a package helper like `installed_version()`), whose arguments are plain
+  strings with no digit (a metadata reader may also take an imported name or
+  `__name__`), is not bumped, and phase 11 reports it as a passing check.
+  Everything else fails the release with the reason instead of shipping a
+  stale version. A docstring that mentions `__version__` is no longer mistaken
+  for the assignment.
 - ethos config resolves layered again so the engineering team, seeded pipelines and the claude leader identity resolve alongside the vendored gstack team
 
 ### Security
@@ -57,6 +69,21 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `punt release` now fails the bump and the version check, naming the line,
+  on a `__version__` it cannot pin, where it used to skip it silently or
+  report it as computed. That covers any value that is neither a plain string
+  nor one call to an imported reader: a same-module helper function or class,
+  `.format()`, `.join()`, `%`, `.decode()`, a subscript or method call on the
+  result (`version("x").split("+")[0]`, versioneer's
+  `get_versions()["version"]`), a method on an imported value
+  (`_v.VERSION.strip()`), a dynamic import, and any argument that is not a
+  plain string with no digit (a default like `"1" + ".0"`, `"2"` or `"v2"`).
+  It also covers an imported `__version__`, any `from X import *` beside a
+  computed value or after a literal's binding,
+  a non-metadata call given an imported name ("pin the version there"), more
+  than one binding of the name (a later import, a walrus, or the `"0.0.0"`
+  fallback python.md forbids), an assignment only inside an `if`/`try` block,
+  and a file that does not parse.
 - `standards/punt-labs-dir.md` § 8: the vendored-subtree seal-manifest fail
   now applies only when the repo tracks any file under
   `.punt-labs/ethos/sessions/` (the ethos trace tier). A repo with nothing

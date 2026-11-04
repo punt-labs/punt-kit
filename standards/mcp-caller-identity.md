@@ -2,7 +2,7 @@
 
 **Introduced:** 2026-11-04
 
-Decision record: [DESIGN.md DES-034](../DESIGN.md).
+Decision record: [DESIGN.md DES-035](../DESIGN.md).
 
 How a Punt Labs engine learns which Claude Code session, and which agent
 inside it, is calling — on every client surface that session uses: MCP tool

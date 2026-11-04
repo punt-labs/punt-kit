@@ -10,6 +10,12 @@ from rich.console import Console
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.json_file import JsonFile
+from punt_kit.phases.shared.module_version import (
+    ComputedVersion,
+    LiteralVersion,
+    ModuleVersion,
+    UnpinnableVersionError,
+)
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
@@ -76,21 +82,27 @@ class Phase2VersionBump:
             self._ops.ok(f'pyproject.toml: version = "{self._version}"')
 
     def _bump_init(self, path: Path) -> None:
-        """Set ``__version__``; fail when it is assigned but cannot be set."""
+        """Set a literal ``__version__``; leave a computed one; fail on the rest."""
         content = TextFile(path).read()
-        uses_metadata = (
-            "importlib.metadata" in content or "importlib_metadata" in content
-        )
-        assignment = VersionAssignment("__version__")
-        if uses_metadata or not assignment.is_assigned(content):
-            return
-        new_content, count = assignment.rewritten(content, self._version)
-        if count == 0:
+        try:
+            found = ModuleVersion(content).resolved()
+        except UnpinnableVersionError as exc:
             self._ops.fail(
-                f"{path.name}: __version__ is assigned but not as a plain quoted "
-                f'string (__version__ = "X.Y.Z"), so it cannot be bumped to '
-                f"{self._version}; set it by hand"
+                f"{path.name}: __version__ cannot be bumped to {self._version}: "
+                f"{exc}; set it by hand"
             )
+        match found:
+            case None:  # the module never binds __version__
+                return
+            case ComputedVersion(source=source):
+                # Read from installed metadata at import time (python.md,
+                # Version Reporting): pyproject.toml is the one pin.
+                self._ops.info(
+                    f"{path.name}: __version__ is computed — not bumped ({source})"
+                )
+                return
+            case LiteralVersion():
+                new_content = found.rewritten(content, self._version)
         if self._dry_run:
             self._ops.dry(f'{path.name}: __version__ = "{self._version}"')
         else:
@@ -160,8 +172,7 @@ class Phase2VersionBump:
         if pyproject_path.exists():
             self._bump_pyproject(pyproject_path)
 
-        # Bump __init__.py __version__ (skip if version comes from
-        # importlib.metadata)
+        # Bump __init__.py __version__ (skip a computed one)
         pkg_dir = project.package_dir()
         if pkg_dir is not None:
             init_py = pkg_dir / "__init__.py"

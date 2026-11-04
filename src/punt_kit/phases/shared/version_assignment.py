@@ -29,14 +29,15 @@ _BARE_WORD = r"[^\s\"'`$;&|<>(){}\\#]*"
 class VersionAssignment:
     """A version assigned to ``name`` on one line, as a quoted string literal.
 
-    The rule, shared by the Phase 2 bump and the Phase 11 check so they cannot
-    disagree: the assignment starts its line, may carry a type annotation
-    (``__version__: str = "1.0"``), and its value is a string in double or
-    single quotes (TOML basic or literal string, Python either). The quote
-    style is kept when the value is rewritten. Anything else, such as a
-    computed value, an inline table or a tuple, is *assigned* but not
-    *readable*: the bump must fail on it and the check must report it, never
-    pass over it.
+    The text rule for ``pyproject.toml``'s ``version`` and ``install.sh``'s
+    ``VERSION``, shared by the Phase 2 bump and the Phase 11 check so they
+    cannot disagree: the assignment starts its line, may carry a type
+    annotation, and its value is a string in double or single quotes (TOML
+    basic or literal string). The quote style is kept when the value is
+    rewritten. Anything else, such as a computed value, an inline table or a
+    tuple, is *assigned* but not *readable*: the bump must fail on it and the
+    check must report it, never pass over it. A Python ``__version__`` is not
+    read this way: ``ModuleVersion`` classifies it from the syntax tree.
     """
 
     __slots__ = ("_assigned", "_bare", "_is_shell", "_quoted")
