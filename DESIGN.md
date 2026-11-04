@@ -2164,3 +2164,59 @@ model-check the state machine.
 | Keep fixing the prose round by round | Eight rounds each produced the next defect in the same state; the rounds were not converging. |
 | One combined machine | Interleaving Bugbot, Qodo, commit, and finding events reached 899,610 states at COMMIT 2 and 30 GB before finishing at COMMIT 3. No single variable caused it, so no bound short of the split fit. |
 | Symmetry reduction at COMMIT 3 / FINDING 2 | Did not finish within 8 GB twice; ProB also warns symmetry hashing may be imprecise for the ancestry relation. The precise COMMIT 2 / FINDING 2 run covers two findings exactly. |
+
+## DES-034: A Python `__version__` Is Classified From the Syntax Tree
+
+**Date:** 2026-11-04
+**Status:** SETTLED
+**Topic:** How release phases 2 (bump) and 11 (verify) treat a module's
+`__version__`
+
+### Context
+
+Phase 2 matched `__version__` as text. It took a value to be computed only
+when the file mentioned `importlib.metadata`, and failed every other value
+that was not a plain quoted string. vox reads its version through its own
+helper (`__version__ = installed_version()`) and never names
+`importlib.metadata`, so the 5.0.6 release stopped at the bump (pkit-bl6s).
+The text rule also failed the other way: a docstring that mentioned
+`__version__` could be taken for the assignment, and an `importlib.metadata`
+import anywhere in the file skipped a hardcoded literal.
+
+### Design
+
+`src/punt_kit/phases/shared/module_version.py` parses the module with `ast`
+and classifies `__version__` into one of three outcomes. Both phases use the
+same result.
+
+1. **Literal.** A plain string, or a same-module name bound to one. Phase 2
+   rewrites that string in place, keeping quotes, line endings, and
+   comments. Phase 11 checks it.
+2. **Computed.** A value that contains a call, with no hardcoded version (a
+   `N.N` string or a tuple of ints) and no imported name reaching it as
+   data. Following names through same-module bindings counts as reaching.
+   Phase 2 reports it as not bumped. Phase 11 reports a passing line naming
+   the source.
+3. **Unpinnable.** Everything else fails both phases with the reason and the
+   line:
+   - more than one binding of the name, including a later import or
+     `import *`;
+   - an assignment only inside a block;
+   - an imported `__version__`, or a value built from an imported name;
+   - a hardcoded version inside a call;
+   - prefixed or concatenated strings, numbers;
+   - a file that does not parse.
+   The release never reports success while a stale literal ships.
+
+The rule rests on one invariant. The tool never reports success while the
+shipped version is a stale hardcoded literal. It also never fails a value
+that really comes from package metadata.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep the text rule and widen its evidence (also accept a helper call) | A regex cannot tell an assignment from a docstring, a block, or a later rebinding. Each reviewer round found a new stale-literal-passes case in the text rule. |
+| Treat every call as computed | `str("1.0")`, `os.environ.get("V", "1.0")` and `".".join(map(str, (1, 0)))` ship a stale hardcoded version with a green check. |
+| Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module. That breaks the second half of the invariant. |
+| Exempt the base of a called attribute only when it came from `import X` | It would catch `VERSION.strip()` on an imported `VERSION`, but it fails `from importlib import metadata; metadata.version("x")`. The syntax cannot separate the two, and the second is the common, correct form. |
