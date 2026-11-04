@@ -2197,12 +2197,14 @@ a dynamic import. An allow-list stops that.
    Phase 11 checks it.
 2. **Computed.** Exactly one call, reached through same-module name aliases,
    whose callee is a function imported from another module. An attribute
-   callee must start from a module import, or from `importlib.metadata` or
-   `importlib_metadata`. The arguments hold no hardcoded version (a `N.N`
-   string, a number, bytes, or a collection of numbers). They hold no
-   imported name either, unless the callee is an importlib metadata reader,
-   as in `version(DIST)`. Phase 2 reports it as not bumped. Phase 11 reports
-   a passing line naming the source.
+   callee is an imported module's path plus exactly one attribute
+   (`importlib.metadata.version`, `metadata.version` after
+   `from importlib import metadata`); a longer chain may end on a value, so
+   it is refused. The arguments are an allow-list too. Each one is a plain
+   string that does not start with a digit, or a name bound once to such a
+   string. An imported name is also allowed when the callee is an importlib
+   metadata reader, as in `version(DIST)`. Phase 2 reports it as not bumped.
+   Phase 11 reports a passing line naming the source.
 3. **Unpinnable.** Everything else fails both phases with the reason and the
    line:
    - any other expression;
@@ -2210,7 +2212,8 @@ a dynamic import. An allow-list stops that.
      anywhere evaluated at module scope, a `type` alias, or a fallback in an
      `except` branch, which python.md's Version Reporting rule forbids;
    - an assignment only inside a block;
-   - an imported `__version__`;
+   - an imported `__version__`, or a `from X import *` that could supply it
+     when nothing binds it explicitly;
    - a file that does not parse.
 
 The rule rests on one invariant. The tool never reports success while the
