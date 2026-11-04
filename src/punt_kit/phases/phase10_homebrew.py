@@ -6,9 +6,11 @@ import re
 from typing import TYPE_CHECKING, Self, final
 
 from punt_kit.phases.shared.changelog import Changelog
+from punt_kit.phases.shared.errors import RemoteLookupError
 from punt_kit.phases.shared.formula_version import FormulaVersion
+from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.project_remote import ProjectRemote
-from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.siblings import TAP_SIBLING, SiblingRepo
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import UV
 
@@ -20,7 +22,6 @@ if TYPE_CHECKING:
     from punt_kit.phases.shared.ops import ReleaseOps
     from punt_kit.phases.shared.skips import SkipRecorder
 
-TAP_SIBLING = "homebrew-tap"
 BREW_TARGET = "brew-formula"
 
 _BREW_TARGET = re.compile(rf"^{re.escape(BREW_TARGET)}[ \t]*:", re.MULTILINE)
@@ -30,6 +31,23 @@ def has_brew_formula_target(root: Path) -> bool:
     """True when ``root``'s Makefile declares a ``brew-formula`` target."""
     makefile = root / "Makefile"
     return makefile.is_file() and bool(_BREW_TARGET.search(TextFile(makefile).read()))
+
+
+def tap_owned_paths(info: ProjectInfo, *, ops: ReleaseOps) -> tuple[str, ...]:
+    """The tap files a release of this project writes; empty if it never does.
+
+    Recovery resets only these. A project without the ``brew-formula`` target,
+    or whose repo name is unknown, owns nothing in the shared tap.
+    """
+    if not has_brew_formula_target(info.root):
+        return ()
+    try:
+        slug = GithubRepo(info.root, ops=ops).slug()
+    except (ValueError, RemoteLookupError):
+        return ()
+    if slug is None:
+        return ()
+    return (f"Formula/{slug.name}.rb", "CHANGELOG.md")
 
 
 def tap_sibling(info: ProjectInfo, *, ops: ReleaseOps) -> SiblingRepo | None:

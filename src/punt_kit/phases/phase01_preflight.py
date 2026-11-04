@@ -8,11 +8,15 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
-from punt_kit.phases.phase10_homebrew import TAP_SIBLING, has_brew_formula_target
+from punt_kit.phases.phase10_homebrew import has_brew_formula_target
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
-from punt_kit.phases.shared.siblings import PROPAGATION_SIBLINGS, SiblingRepo
+from punt_kit.phases.shared.siblings import (
+    PROPAGATION_SIBLINGS,
+    TAP_SIBLING,
+    SiblingRepo,
+)
 from punt_kit.phases.shared.timeouts import GIT_HOOK, QUALITY_GATE
 
 if TYPE_CHECKING:

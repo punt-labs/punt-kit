@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sys
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Self, cast, final
@@ -148,14 +149,20 @@ class UserService:
         return self._spec.systemd or self._spec.launchd or ""
 
     def _manager(self) -> Manager:
-        if shutil.which("systemctl"):
-            return "systemd"
-        if shutil.which("launchctl"):
-            return "launchd"
-        self._ops.fail(
-            f"service {self._declared_name()} is declared but neither systemctl "
-            "nor launchctl is available to restart it"
-        )
+        """The manager to use: declared AND present; the native one if both are."""
+        available: list[Manager] = []
+        if self._spec.systemd is not None and shutil.which("systemctl"):
+            available.append("systemd")
+        if self._spec.launchd is not None and shutil.which("launchctl"):
+            available.append("launchd")
+        if not available:
+            self._ops.fail(
+                f"service {self._declared_name()} is declared but its manager "
+                "(systemctl for systemd, launchctl for launchd) is not available "
+                "to restart it"
+            )
+        native: Manager = "launchd" if sys.platform == "darwin" else "systemd"
+        return native if native in available else available[0]
 
     def _is_loaded(self, manager: Manager, name: str) -> bool:
         """Whether the manager has ``name`` loaded; a failed query fails the phase."""

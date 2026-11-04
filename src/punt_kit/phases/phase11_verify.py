@@ -8,11 +8,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
-from punt_kit.phases.phase10_homebrew import (
-    TAP_SIBLING,
-    has_brew_formula_target,
-    tap_sibling,
-)
+from punt_kit.phases.phase10_homebrew import has_brew_formula_target, tap_sibling
 from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
 from punt_kit.phases.phase11_versions import VersionPinChecks
 from punt_kit.phases.shared.changelog import Changelog
@@ -25,7 +21,7 @@ from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.project_info import ReleaseProject
-from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.siblings import TAP_SIBLING, SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.phases.shared.timeouts import GIT_HOOK, UV
@@ -504,7 +500,7 @@ class Phase11Verify:
 
         Applies to every project with a ``brew-formula`` target, so a missing
         tap or formula fails here rather than vanishing. Reads the formula as
-        committed on the tap's ``main`` after a pull, not the working tree,
+        committed on the tap's ``origin/main``, not the working tree,
         which can hold an unmerged write.
         """
         info = self._info
@@ -520,23 +516,26 @@ class Phase11Verify:
             ]
         path = f"Formula/{repo.name}.rb"
         cwd = str(tap.path)
-        pulled = ops.run(
-            ["git", "pull", "--ff-only", "origin", "main"],
+        # Fetch and read origin/main: `git pull` would merge into whatever
+        # branch the tap has checked out, and a stale local main is not the
+        # published formula.
+        fetched = ops.run(
+            ["git", "fetch", "origin", "main"],
             cwd=cwd,
             check=False,
             timeout=GIT_HOOK,
         )
-        if pulled.returncode != 0:
+        if fetched.returncode != 0:
             return [
                 VerificationCheck(
                     TAP_SIBLING,
                     False,
-                    f"git pull in {TAP_SIBLING} failed: {pulled.stderr.strip()}",
+                    f"git fetch in {TAP_SIBLING} failed: {fetched.stderr.strip()}",
                 )
             ]
-        shown = ops.run(["git", "show", f"main:{path}"], cwd=cwd, check=False)
+        shown = ops.run(["git", "show", f"origin/main:{path}"], cwd=cwd, check=False)
         if shown.returncode != 0:
-            return [VerificationCheck(TAP_SIBLING, False, f"{path} not on main")]
+            return [VerificationCheck(TAP_SIBLING, False, f"{path} not on origin/main")]
         found = FormulaVersion(TextFile.without_bom(shown.stdout)).value()
         return [
             VerificationCheck(

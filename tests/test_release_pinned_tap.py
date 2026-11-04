@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,7 +15,7 @@ import pytest
 from punt_kit.detect import detect
 from punt_kit.phases.phase01_preflight import Phase1Preflight
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
-from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator
+from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator, tap_owned_paths
 from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared.command_runner import CommandRunner
 from punt_kit.phases.shared.errors import ReleaseError
@@ -74,14 +75,19 @@ class Machine:
                     cmd, self.load_rc, "", self.load_stderr
                 )
             out = self.load_state
+        elif cmd[:2] == ["launchctl", "print"]:
+            out = f"service = {{\n\tpid = {self._next_pid()}\n}}"
         elif cmd[-2:] == ["--editable", "."]:
             return subprocess.CompletedProcess(cmd, self.editable_rc, "", "")
         elif cmd[:4] == SHOW and "--property=MainPID" in cmd:
-            out = str(self.pids.pop(0) if len(self.pids) > 1 else self.pids[0])
+            out = str(self._next_pid())
         elif "--constraints" in cmd:
             pins = Path(cmd[cmd.index("--constraints") + 1])
             self.constraints_seen.append(pins.read_text())
         return subprocess.CompletedProcess(cmd, 0, out + "\n", "")
+
+    def _next_pid(self) -> int:
+        return self.pids.pop(0) if len(self.pids) > 1 else self.pids[0]
 
     def commands(self, prefix: list[str]) -> list[list[str]]:
         return [c for c in self.calls if c[: len(prefix)] == prefix]
@@ -98,18 +104,22 @@ def _ops(machine: Machine, *rules: FaultRule) -> FaultInjectingOps:
     )
 
 
-@pytest.fixture(autouse=True)
-def _host(monkeypatch: pytest.MonkeyPatch) -> None:
-    """systemd is the host's manager; time does not pass."""
+def _host(monkeypatch: pytest.MonkeyPatch, *tools: str) -> None:
+    """The host has these service managers; time does not pass."""
 
     def which(name: str) -> str | None:
-        return f"/usr/bin/{name}" if name == "systemctl" else None
+        return f"/usr/bin/{name}" if name in tools else None
 
     def no_sleep(_seconds: float) -> None:
         return None
 
     monkeypatch.setattr(shutil, "which", which)
     monkeypatch.setattr(time, "sleep", no_sleep)
+
+
+@pytest.fixture(autouse=True)
+def _systemd_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    _host(monkeypatch, "systemctl")
 
 
 def _released_project(
@@ -296,6 +306,54 @@ def test_phase8_fails_on_an_unusable_service_declaration(
 
     with pytest.raises(ReleaseError, match="release.service"):
         _phase8(root, Machine(pids=[100, 200]))
+
+
+def _launchd_project(tmp_path: Path, table: str) -> Path:
+    root = _released_project(tmp_path, constraints=True, service=False)
+    with (root / "pyproject.toml").open("a") as f:
+        f.write(table)
+    return root
+
+
+LAUNCHD_ONLY = '\n[tool.punt-kit.release.service]\nlaunchd = "com.example.svc"\n'
+BOTH = (
+    '\n[tool.punt-kit.release.service]\nsystemd = "svc"\nlaunchd = "com.example.svc"\n'
+)
+
+
+def test_a_launchd_only_declaration_is_restarted_on_a_host_with_both_managers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _host(monkeypatch, "systemctl", "launchctl")
+    machine = Machine(pids=[100, 100, 200])
+    _phase8(_launchd_project(tmp_path, LAUNCHD_ONLY), machine)
+
+    assert len(machine.commands(["launchctl", "kickstart"])) == 1
+    assert machine.commands(["systemctl"]) == []
+
+
+@pytest.mark.parametrize(
+    ("platform", "restarted_with"),
+    [("darwin", "launchctl"), ("linux", "systemctl")],
+)
+def test_with_both_declared_and_available_the_platforms_manager_wins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, restarted_with: str
+) -> None:
+    _host(monkeypatch, "systemctl", "launchctl")
+    monkeypatch.setattr(sys, "platform", platform)
+    machine = Machine(pids=[100, 100, 200])
+    _phase8(_launchd_project(tmp_path, BOTH), machine)
+
+    restarts = machine.commands([restarted_with])
+    assert any("restart" in c or "kickstart" in c for c in restarts)
+
+
+def test_a_declaration_for_an_unavailable_manager_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _host(monkeypatch, "systemctl")
+    with pytest.raises(ReleaseError, match="is not available"):
+        _phase8(_launchd_project(tmp_path, LAUNCHD_ONLY), Machine(pids=[100]))
 
 
 def test_phase8_dry_run_does_not_claim_the_file_is_absent_at_an_uncreated_tag(
@@ -562,7 +620,9 @@ def test_a_make_that_fails_after_a_partial_write_is_recovered_by_the_next_run(
         sibling = SiblingRepo.resolve(base, name, ops=ops)
         return sibling.path if sibling else None
 
-    SiblingRegistry(ops=ops).reset_all(root, resolve=resolve)
+    SiblingRegistry(ops=ops).reset_all(
+        root, resolve=resolve, tap_paths=tap_owned_paths(detect(root), ops=ops)
+    )
     merges = Merges()
     _propagate(root, FormulaWriter(), merges)
 
@@ -579,9 +639,66 @@ def test_reset_returns_the_tap_from_a_propagation_branch(tmp_path: Path) -> None
         sibling = SiblingRepo.resolve(base, name, ops=ops)
         return sibling.path if sibling else None
 
-    SiblingRegistry(ops=ops).reset_all(root, resolve=resolve)
+    SiblingRegistry(ops=ops).reset_all(
+        root, resolve=resolve, tap_paths=tap_owned_paths(detect(root), ops=ops)
+    )
 
     assert git_out(["branch", "--show-current"], cwd=str(tap)) == "main"
+
+
+def _reset(root: Path) -> None:
+    ops = _ops(Machine())
+
+    def resolve(base: Path, name: str) -> Path | None:
+        sibling = SiblingRepo.resolve(base, name, ops=ops)
+        return sibling.path if sibling else None
+
+    SiblingRegistry(ops=ops).reset_all(
+        root, resolve=resolve, tap_paths=tap_owned_paths(detect(root), ops=ops)
+    )
+
+
+def test_reset_leaves_another_tools_dirty_formula_alone(tmp_path: Path) -> None:
+    root = _brew_project(tmp_path)
+    tap = make_sibling(
+        tmp_path,
+        "homebrew-tap",
+        {"Formula/proj.rb": "a\n", "Formula/other.rb": "b\n", "CHANGELOG.md": "c\n"},
+    )
+    (tap / "Formula" / "other.rb").write_text("operator edit\n")
+
+    _reset(root)
+
+    assert (tap / "Formula" / "other.rb").read_text() == "operator edit\n"
+
+
+def test_reset_restores_only_this_projects_formula_and_the_tap_changelog(
+    tmp_path: Path,
+) -> None:
+    root = _brew_project(tmp_path)
+    tap = _tap(tmp_path)
+    (tap / "Formula" / "proj.rb").write_text("partial\n")
+    (tap / "CHANGELOG.md").write_text("partial\n")
+
+    _reset(root)
+
+    assert (tap / "CHANGELOG.md").read_text() == TAP_CHANGELOG
+
+
+def test_a_project_without_the_target_never_has_the_tap_touched(
+    tmp_path: Path,
+) -> None:
+    root = _brew_project(tmp_path, target=False)
+    tap = _tap(tmp_path)
+    (tap / "Formula" / "proj.rb").write_text("operator edit\n")
+    git(["checkout", "-b", "propagate/v0.1.0-proj-homebrew-tap"], cwd=str(tap))
+
+    _reset(root)
+
+    assert (
+        (tap / "Formula" / "proj.rb").read_text(),
+        git_out(["branch", "--show-current"], cwd=str(tap)),
+    ) == ("operator edit\n", "propagate/v0.1.0-proj-homebrew-tap")
 
 
 @pytest.mark.parametrize("opted_in", [False, True])
@@ -611,7 +728,9 @@ def test_a_dirty_tap_blocks_preflight_only_for_a_project_that_uses_it(
 def _verify_tap(tmp_path: Path, formula_text: str, *, committed: bool = True) -> str:
     root = _brew_project(tmp_path)
     tap = _tap(tmp_path)
-    (tap / "Formula" / "proj.rb").write_text(formula_text)
+    (tap / "Formula" / "proj.rb").write_text(
+        f"class Proj < Formula\n  {formula_text}end\n"
+    )
     if committed:
         commit_all(tap, "formula")
     return _check(root)
@@ -644,8 +763,8 @@ def test_verify_reads_the_version_from_the_formula_url(tmp_path: Path) -> None:
 
 
 def test_verify_fails_when_the_tap_formula_is_a_stale_release(tmp_path: Path) -> None:
-    assert _verify_tap(tmp_path, 'version "0.1.0"\n') == (
-        "homebrew-tap False Formula/proj.rb version=0.1.0"
+    assert _verify_tap(tmp_path, 'version "0.1.5"\n') == (
+        "homebrew-tap False Formula/proj.rb version=0.1.5"
     )
 
 
@@ -654,7 +773,9 @@ def test_verify_reads_the_committed_formula_not_the_working_tree(
 ) -> None:
     root = _brew_project(tmp_path)
     tap = _tap(tmp_path)  # main carries 0.1.0
-    (tap / "Formula" / "proj.rb").write_text('version "0.2.0"\n')  # unmerged
+    (tap / "Formula" / "proj.rb").write_text(
+        'class Proj < Formula\n  version "0.2.0"\nend\n'
+    )  # unmerged
 
     assert _check(root).startswith("homebrew-tap False")
 
@@ -671,7 +792,7 @@ def test_verify_fails_for_an_opted_in_project_whose_formula_is_missing(
     root = _brew_project(tmp_path)
     _tap(tmp_path, formula=False)
 
-    assert _check(root) == "homebrew-tap False Formula/proj.rb not on main"
+    assert _check(root) == "homebrew-tap False Formula/proj.rb not on origin/main"
 
 
 def test_verify_is_silent_for_a_project_without_the_target(tmp_path: Path) -> None:
@@ -688,3 +809,25 @@ def test_verify_is_silent_for_a_project_without_the_target(tmp_path: Path) -> No
         )
         == []
     )
+
+
+def test_verify_reads_origin_main_whatever_branch_the_tap_has_checked_out(
+    tmp_path: Path,
+) -> None:
+    root = _brew_project(tmp_path)
+    tap = _tap(tmp_path)  # main carries 0.1.0
+    bare = tmp_path / "tap-origin.git"
+    git(["clone", "--bare", str(tap), str(bare)], cwd=str(tmp_path))
+    git(["remote", "set-url", "origin", str(bare)], cwd=str(tap))
+    publisher = tmp_path / "publisher"
+    git(["clone", str(bare), str(publisher)], cwd=str(tmp_path))
+    git(["config", "user.email", "t@t.com"], cwd=str(publisher))
+    git(["config", "user.name", "T"], cwd=str(publisher))
+    (publisher / "Formula" / "proj.rb").write_text(
+        'class Proj < Formula\n  version "0.2.0"\nend\n'
+    )
+    commit_all(publisher, "release")
+    git(["push", "origin", "main"], cwd=str(publisher))
+    git(["checkout", "-b", "side"], cwd=str(tap))
+
+    assert _check(root) == "homebrew-tap True Formula/proj.rb version=0.2.0"

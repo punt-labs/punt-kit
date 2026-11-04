@@ -22,7 +22,7 @@ from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
-from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator
+from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator, tap_owned_paths
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
@@ -369,7 +369,10 @@ def _reset_propagation_siblings(
     this module and expect ``_reset_propagation_siblings`` to observe it.
     """
     SiblingRegistry(ops=_ops).reset_all(
-        info.root, resolve=_resolve_sibling, fail_on_error=fail_on_error
+        info.root,
+        resolve=_resolve_sibling,
+        fail_on_error=fail_on_error,
+        tap_paths=tap_owned_paths(info, ops=_ops),
     )
 
 
