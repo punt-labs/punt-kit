@@ -13640,6 +13640,16 @@ def test_phase2_bumps_a_single_quoted_version_and_keeps_the_quote(
     assert "version = '0.2.0'" in pyproject.read_text()
 
 
+def test_phase2_bumps_a_literal_after_a_star_import(tmp_path: Path) -> None:
+    root = _make_release_project(tmp_path)
+    _init_py(root).write_text('from .core import *\n__version__ = "0.1.0"\n')
+    _commit_all(root, "star import before the literal")
+
+    _bump(root)  # the later binding overrides whatever the star supplied
+
+    assert _init_py(root).read_text() == 'from .core import *\n__version__ = "0.2.0"\n'
+
+
 def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     _init_py(root).write_text('__version__: str = "0.1.0"\n')
@@ -13778,6 +13788,10 @@ _UNPINNABLE_INITS = {
     ),
     "binop-argument": 'import os\n__version__ = os.getenv("V", "1" + ".0")\n',
     "star-import-only": "from ._v import *\n",
+    "shadowed-metadata-module": (
+        "from importlib import metadata\nfrom mypkg import metadata\n"
+        '__version__ = metadata.version("test-pkg")\n'
+    ),
 }
 
 

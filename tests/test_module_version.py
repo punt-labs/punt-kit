@@ -57,6 +57,16 @@ _TRY_EXCEPT = (
         '__version__ = importlib.metadata.version("x")\n',
         "import importlib\nfrom importlib.metadata import version\n"
         '__version__ = version("punt-biff")\n',
+        "from importlib.metadata import version\n__version__ = version(__name__)\n",
+        "import importlib.metadata\n"
+        "__version__ = importlib.metadata.version(__package__)\n",
+        'import os\n__version__ = os.getenv("PKG_VERSION", "x")\n',
+        'import os.path\n__version__ = os.getenv("V", "x")\n',
+        "import importlib_metadata.foo\nfrom ._dist import DIST\n"
+        "__version__ = importlib_metadata.version(DIST)\n",
+        "try:\n    from importlib import metadata\n"
+        "except ImportError:\n    import importlib_metadata as metadata\n"
+        '__version__ = metadata.version("x")\n',
     ],
     ids=[
         "helper-call",
@@ -76,6 +86,12 @@ _TRY_EXCEPT = (
         "metadata-alias-function",
         "package-and-submodule-imports",
         "biff-and-quarry-shape",
+        "dist-from-module-name",
+        "dist-from-package-name",
+        "digit-free-default",
+        "dotted-import-binds-its-top-module",
+        "dotted-backport-import",
+        "try-either-metadata-module",
     ],
 )
 def test_a_call_is_computed(text: str) -> None:
@@ -104,6 +120,7 @@ def test_a_computed_version_names_its_source_line() -> None:
         ('__version__: str\n__version__ = "0.1.0"\n', "0.1.0"),
         ('def f():\n    __version__ = "9.9"\n__version__ = "0.1.0"\n', "0.1.0"),
         ('class C:\n    __version__ = "9.9"\n__version__ = "0.1.0"\n', "0.1.0"),
+        ('from .core import *\n__version__ = "1.0"\n', "1.0"),
     ],
     ids=[
         "double",
@@ -114,6 +131,7 @@ def test_a_computed_version_names_its_source_line() -> None:
         "after-bare-annotation",
         "beside-a-function-local",
         "beside-a-class-attribute",
+        "after-a-star-import",
     ],
 )
 def test_a_plain_quoted_string_is_a_literal(text: str, value: str) -> None:
@@ -244,7 +262,6 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         'for __version__ in ["0.1.0"]:\n    pass\n',
         'with open("V") as __version__:\n    pass\n',
         'match "0.1.0":\n    case __version__:\n        pass\n',
-        'from ._v import *\n__version__ = "0.1.0"\n',
         '__version__ = "0.1.0"\nfrom ._v import *\n',
         'VERSION = "0.1.0"\n__version__ = VERSION\nfrom ._v import *\n',
         f"{_PARSE}from ._about import VERSION\n__version__ = parse(VERSION)\n",
@@ -341,6 +358,25 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         'import os\n__version__ = os.getenv("X", "10")\n',
         'import os\n__version__ = os.getenv("X", "2rc1")\n',
         'import os\nDEFAULT = "2"\n__version__ = os.getenv("X", DEFAULT)\n',
+        # Every binding of the callee's root must be a module that reaches it.
+        "import importlib.metadata as md\nfrom ._compat import md\n"
+        '__version__ = md.version("pkg")\n',
+        "from importlib import metadata\nfrom mypkg import metadata\n"
+        '__version__ = metadata.version("x")\n',
+        "try:\n    import importlib.metadata as md\n"
+        "except ImportError:\n    from ._compat import md\n"
+        '__version__ = md.version("pkg")\n',
+        # Only a metadata reader may take the module's own name.
+        "import os\n__version__ = os.getenv(__name__)\n",
+        "import os\n__version__ = os.getenv(__package__)\n",
+        # Any digit is version text to a non-metadata reader.
+        'import os\n__version__ = os.getenv("V", "v2")\n',
+        'import os\n__version__ = os.getenv("V", " 2")\n',
+        'import os\n__version__ = os.getenv("V", "\uff12")\n',
+        # Unpacking does not bind a plain string.
+        'import os\n_, D = "x2"\n__version__ = os.getenv("V", D)\n',
+        'import os\n*_, D = "release-2"\n__version__ = os.getenv("V", D)\n',
+        'import os\n_, D = "xy"\n__version__ = os.getenv("V", D)\n',
     ],
     ids=[
         "f-string",
@@ -383,7 +419,6 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         "for-target",
         "with-target",
         "match-capture",
-        "star-before",
         "star-after",
         "star-beside-name",
         "imported-argument",
@@ -458,6 +493,17 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         "two-digit-default",
         "digit-led-default",
         "digit-only-name-default",
+        "alias-shadowed-by-from-import",
+        "metadata-shadowed-by-from-import",
+        "alias-shadowed-in-try",
+        "module-name-to-non-metadata",
+        "package-name-to-non-metadata",
+        "v-digit-default",
+        "space-digit-default",
+        "full-width-digit-default",
+        "tuple-unpacked-name",
+        "starred-unpacked-name",
+        "tuple-unpacked-digit-free-name",
     ],
 )
 def test_anything_else_cannot_be_pinned(text: str) -> None:
@@ -498,7 +544,7 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         ("from ._v import __version__\n", "imported from another module"),
         (_TYPE_CHECKING_ELSE, "assigned inside a block at line 5"),
         (_TRY_EXCEPT, r"assigned 2 times \(lines 2, 4\)"),
-        ('from ._v import *\n__version__ = "0.1.0"\n', r"import \*` at line 1"),
+        ('__version__ = "0.1.0"\nfrom ._v import *\n', r"import \*` at line 2"),
         (
             'VI = (0, 1, 0)\n__version__ = ".".join(map(str, VI))\n',
             r"\(line 2\) calls `'\.'\.join`, which is not a function imported",
@@ -555,6 +601,24 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
             'import os\n__version__ = os.getenv("X", "2")\n',
             "passes the hardcoded version '2', which could be stale",
         ),
+        (
+            "import importlib.metadata as md\nfrom ._compat import md\n"
+            '__version__ = md.version("pkg")\n',
+            "calls `md.version`, which is not a function of a module this file imports",
+        ),
+        (
+            "import os\n__version__ = os.getenv(__name__)\n",
+            "passes __name__, which only a metadata reader may take",
+        ),
+        (
+            'import os\n__version__ = os.getenv("V", "\uff12")\n',
+            "passes the hardcoded version '\uff12'",
+        ),
+        (
+            'import os\n_, D = "x2"\n__version__ = os.getenv("V", D)\n',
+            "passes D, which is neither imported nor bound once, at module level, "
+            "to a plain string",
+        ),
     ],
     ids=[
         "imported-name",
@@ -576,6 +640,10 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "callee-too-deep",
         "star-only",
         "digit-only-default",
+        "shadowed-alias",
+        "module-name-to-non-metadata",
+        "full-width-digit",
+        "unpacked-name",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:

@@ -18,8 +18,10 @@ _PLAIN_STRING = re.compile(r"""(["'])[^"'\\\n]*\1""")
 _TRAILER = re.compile(r"\s*(?:#.*)?")
 # A string that spells a version somewhere in it: digits, a dot, digits.
 _VERSION_TEXT = re.compile(r"\d+\.\d+")
-# A string that starts like a version: "2", "10", "2rc1".
-_DIGIT_LED = re.compile(r"[0-9]")
+# Any digit, full-width ones too: "2", "v2", " 2", "２".
+_ANY_DIGIT = re.compile(r"\d")
+# Names Python binds in every module; only a metadata reader may take them.
+_MODULE_DUNDERS = frozenset({"__name__", "__package__"})
 # Callees that read installed package metadata, however they were imported.
 _METADATA_READERS = ("importlib.metadata.", "importlib_metadata.")
 _ADVICE = (
@@ -152,12 +154,6 @@ class ModuleVersion:
 
     def _only_binding(self, name: str) -> ast.stmt:
         """The one module-body statement that binds ``name``."""
-        for star in self._bindings.star_imports():
-            msg = (
-                f"`{ast.unparse(star)}` at line {star.lineno} could rebind {name}, "
-                "so a bump could ship a stale version"
-            )
-            raise UnpinnableVersionError(msg)
         bindings = self._bindings.of(name)
         if not bindings:
             msg = f"{name} is not assigned at module level"
@@ -177,6 +173,13 @@ class ModuleVersion:
                 "a bump cannot tell whether it runs, so it could ship a stale version"
             )
             raise UnpinnableVersionError(msg)
+        for star in self._bindings.star_imports():
+            if star.lineno > binding.stmt.lineno:  # an earlier one is overridden
+                msg = (
+                    f"`{ast.unparse(star)}` at line {star.lineno} could rebind "
+                    f"{name}, so a bump could ship a stale version"
+                )
+                raise UnpinnableVersionError(msg)
         return binding.stmt
 
     @staticmethod
@@ -225,12 +228,17 @@ class _ReaderCall:
     It qualifies only when its callee is a name bound by import alone, or an
     imported module's path plus exactly one attribute: a function of that
     module. The module path is the ``as`` name, the full dotted path of
-    ``import a.b.c``, or ``metadata`` for ``from importlib import metadata``;
-    no other from-import binds a module, since it may bind a value such as a
-    stale ``VERSION`` string. Every argument must be a plain string with no
-    version text, a name bound once at module level to such a string, or,
-    only when the callee is ``importlib.metadata``'s or
-    ``importlib_metadata``'s, an imported name such as a distribution name.
+    ``import a.b.c`` or any prefix of it, or ``metadata`` for ``from importlib
+    import metadata``; no other from-import binds a module, since it may bind
+    a value such as a stale ``VERSION`` string. Every binding of the root name
+    must be such a module and reach the callee, except that an unaliased
+    ``import importlib`` may sit beside ``import importlib.metadata``.
+
+    Every argument must be a plain string with no version text, or a name
+    bound once, at module level, by a plain assignment to such a string. To a
+    callee other than a metadata reader, any digit is version text. Only a
+    metadata reader (``importlib.metadata``'s or ``importlib_metadata``'s)
+    may also take an imported name, ``__name__`` or ``__package__``.
     """
 
     __slots__ = ("_bindings", "_call")
@@ -259,7 +267,14 @@ class _ReaderCall:
             for binding in bindings
             if (name := binding.qualified(parts)) is not None
         ]
-        if not qualified:
+        # ``import importlib`` beside ``import importlib.metadata`` binds one
+        # name twice, both modules; any other binding that does not reach the
+        # callee could be what the call actually runs.
+        is_shadowed = any(
+            binding.qualified(parts) is None and not binding.is_dotted_import
+            for binding in bindings
+        )
+        if not qualified or is_shadowed:
             return (
                 f"calls `{callee}`, which is not a function of a module this file "
                 f"imports; {_ADVICE}"
@@ -305,6 +320,10 @@ class _ReaderCall:
     def _name_fault(self, name: str, *, reads_metadata: bool) -> str | None:
         """Why the argument ``name`` may feed a stale version; ``None`` if not."""
         bindings = self._bindings.of(name)
+        if name in _MODULE_DUNDERS and not bindings:
+            if reads_metadata:
+                return None  # the package's own name, read by the metadata reader
+            return f"passes {name}, which only a metadata reader may take; {_ADVICE}"
         if bindings and all(binding.is_import for binding in bindings):
             if reads_metadata:
                 return None  # a distribution name, read by the metadata reader
@@ -332,13 +351,20 @@ class _Import:
 
     origin: str  # the dotted name of what the bound name refers to
     module_path: str | None  # how a call spells the module; None if not one
+    # An unaliased ``import a.b.c``: ``a``, ``a.b`` and ``a.b.c`` are modules.
+    is_dotted: bool = False
 
     def qualified(self, parts: list[str]) -> str | None:
         """The dotted name a callee spelled ``parts`` reaches; ``None`` if none."""
         *path, function = parts
         if not path:
             return self.origin
-        if ".".join(path) == self.module_path:
+        spelled = ".".join(path)
+        if self.module_path is None:
+            return None
+        if self.is_dotted and f"{self.module_path}.".startswith(f"{spelled}."):
+            return f"{spelled}.{function}"
+        if spelled == self.module_path:
             return f"{self.origin}.{function}"
         return None
 
@@ -363,14 +389,21 @@ class _Binding:
         return self.imported.qualified(parts) if self.imported else None
 
     @property
+    def is_dotted_import(self) -> bool:
+        """Whether this is an unaliased ``import a.b.c``, binding module ``a``."""
+        return self.imported is not None and self.imported.is_dotted
+
+    @property
     def plain_string(self) -> str | None:
         """The string a module-body assignment binds; ``None`` for anything else."""
         if self.is_nested:
             return None
         match self.stmt:
-            case (
-                ast.Assign(value=ast.Constant(value=str() as text))
-                | ast.AnnAssign(value=ast.Constant(value=str() as text))
+            case ast.Assign(targets=targets, value=ast.Constant(value=str() as text)):
+                is_plain = all(isinstance(target, ast.Name) for target in targets)
+                return text if is_plain else None  # never ``_, D = "x2"``
+            case ast.AnnAssign(
+                target=ast.Name(), value=ast.Constant(value=str() as text)
             ):
                 return text
             case _:
@@ -506,8 +539,12 @@ def _bound_names(
             yield name, (value,), None
         case ast.Import(names=aliases):
             for alias in aliases:
-                bound = alias.asname or alias.name.split(".")[0]
-                yield bound, (), _Import(alias.name, alias.asname or alias.name)
+                if alias.asname:
+                    yield alias.asname, (), _Import(alias.name, alias.asname)
+                else:
+                    package = alias.name.split(".")[0]
+                    imported = _Import(package, alias.name, is_dotted=True)
+                    yield package, (), imported
         case ast.ImportFrom(module=module, names=aliases, level=level):
             prefix = "." * level + (f"{module}." if module else "")
             for alias in aliases:
@@ -566,10 +603,10 @@ def _captured(pattern: ast.pattern) -> Iterator[str]:
 
 def _is_version_text(text: str, *, reads_metadata: bool) -> bool:
     """Whether ``text`` could be a version: ``digits.digits`` anywhere, or,
-    passed to anything but a metadata reader, a leading digit (``"2rc1"``)."""
+    passed to anything but a metadata reader, any digit (``"v2"``, ``"２"``)."""
     if _VERSION_TEXT.search(text):
         return True
-    return not reads_metadata and _DIGIT_LED.match(text) is not None
+    return not reads_metadata and _ANY_DIGIT.search(text) is not None
 
 
 def _dotted(func: ast.expr) -> list[str]:
