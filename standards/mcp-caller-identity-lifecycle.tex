@@ -1,0 +1,287 @@
+%
+% mcp-caller-identity-lifecycle.tex
+%
+% A Z specification of the engine-session lifecycle of the punt-kit standard
+% standards/mcp-caller-identity.md, section 4.2 (Layer 2).
+%
+% Type-check:  fuzz -t standards/mcp-caller-identity-lifecycle.tex
+% Model-check: see standards/mcp-caller-identity-lifecycle.md for the exact
+%   probcli commands.  The safety properties I1--I5 are stated in the schema
+%   Safety and checked as reachability goals (a state invariant would make
+%   ProB disable the violating operation instead of reporting it).
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Engine-Session Lifecycle for MCP Caller Identity: a Z Specification}
+\author{Formal model of \S4.2 of \texttt{mcp-caller-identity.md}}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+An engine holds one record per Claude Code session.  A session is named by its
+\texttt{session\_id}; each run of it (a first start, or a \texttt{--resume})
+has its own main-thread process id, and the process id changes on resume while
+the \texttt{session\_id} does not.  The record may be live, dormant (its lease
+lapsed; live-client resources kept) or ended (SessionEnd seen; resources
+released; durable state kept for a retention period).  Both Open and a call
+carrying an unknown handle are get-or-create keyed by \texttt{session\_id}.
+
+The model is flat and bounded: two sessions, three process ids, three handles.
+A record is keyed by its handle, so \emph{one record per session} (I1) is the
+non-trivial claim that no two handles map to one session.
+
+\begin{description}
+ \item[I1] At most one record per session.
+ \item[I2] A SessionEnd from a run that has been replaced never ends the
+   record: an ended record was ended by the session's latest run.
+ \item[I3] A session whose durable state exists, and whose record has not
+   expired, has a record and that record holds the state.
+ \item[I4] Dormancy never releases live-client resources (and, structurally,
+   live records hold them and ended records do not).
+ \item[I5] Every record's current main pid is the pid of the most recent Open
+   (or call) for its session.
+\end{description}
+
+\section{Basic Types}
+
+\begin{zed}
+  SID ::= sa | sb \\
+  PID ::= pa | pb | pc \\
+  HND ::= ha | hb | hc \\
+  STATE ::= live | dormant | ended
+\end{zed}
+
+\section{State}
+
+\texttt{hs} is the set of records, each named by its handle.  The last three
+components are ghost history, used only to state the invariants:
+\texttt{ever} relates a session to every pid that has run for it,
+\texttt{lastrun} gives its latest run, and \texttt{dursid} is the set of
+sessions with durable state that has not legitimately expired.
+
+\begin{schema}{Engine}
+  hs : \power HND \\
+  hsid : HND \pfun SID \\
+  hst : HND \pfun STATE \\
+  hpid : HND \pfun PID \\
+  dur : \power HND \\
+  res : \power HND \\
+  endby : HND \pfun PID \\
+  ever : SID \rel PID \\
+  lastrun : SID \pfun PID \\
+  dursid : \power SID
+\where
+  \dom hsid = hs \\
+  \dom hst = hs \\
+  \dom hpid = hs \\
+  dur \subseteq hs \\
+  res \subseteq hs \\
+  \dom endby = \dom (hst \rres \{ ended \}) \\
+  \dom lastrun = \dom ever
+\end{schema}
+
+\begin{schema}{Init}
+  Engine~'
+\where
+  hs' = \emptyset \\
+  hsid' = \emptyset \\
+  hst' = \emptyset \\
+  hpid' = \emptyset \\
+  dur' = \emptyset \\
+  res' = \emptyset \\
+  endby' = \emptyset \\
+  ever' = \emptyset \\
+  lastrun' = \emptyset \\
+  dursid' = \emptyset
+\end{schema}
+
+\section{Safety}
+
+\begin{schema}{Safety}
+  Engine
+\where
+  \forall a, b : hs | hsid~a = hsid~b @ a = b \\
+  \forall h : hs | hst~h = ended @ endby~h = lastrun (hsid~h) \\
+  (\forall s : dursid @ s \in \ran hsid) \land
+    (\forall h : hs | hsid~h \in dursid @ h \in dur) \\
+  (\forall h : hs | hst~h = dormant @ h \in res) \land
+    (\forall h : hs | hst~h = live @ h \in res) \land
+    (\forall h : hs | hst~h = ended @ h \notin res) \\
+  \forall h : hs @ hpid~h = lastrun (hsid~h)
+\end{schema}
+
+\section{Operations}
+
+A pid may speak for a session if the session has no history, or it is the
+session's latest run, or it is a fresh run (a resume).  Every Open or call
+makes its pid the latest run.
+
+\begin{schema}{PidOk}
+  \Delta Engine; s? : SID; p? : PID
+\where
+  s? \notin \dom ever \lor p? = lastrun~s? \lor p? \notin ever \limg \{ s? \} \rimg \\
+  ever' = ever \cup \{ s? \mapsto p? \} \\
+  lastrun' = lastrun \oplus \{ s? \mapsto p? \}
+\end{schema}
+
+Revive reuses the session's record in any retained state, makes it live,
+restores its resources, and clears any end mark.
+
+\begin{schema}{Revive}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hst' = hst \oplus \{ h! \mapsto live \} \\
+  res' = res \cup \{ h! \} \\
+  endby' = \{ h! \} \ndres endby
+\end{schema}
+
+\begin{schema}{Repin}
+  \Delta Engine; p? : PID; h! : HND
+\where
+  hpid' = hpid \oplus \{ h! \mapsto p? \}
+\end{schema}
+
+\begin{schema}{Store}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  dur' = dur \cup \{ h! \} \\
+  dursid' = dursid \cup \{ s? \}
+\end{schema}
+
+\begin{schema}{NoStore}
+  \Delta Engine
+\where
+  dur' = dur \\
+  dursid' = dursid
+\end{schema}
+
+\begin{schema}{CreateCore}
+  \Delta Engine; s? : SID; p? : PID; h! : HND
+\where
+  s? \notin \ran hsid \\
+  h! \notin hs \\
+  hs' = hs \cup \{ h! \} \\
+  hsid' = hsid \cup \{ h! \mapsto s? \} \\
+  hst' = hst \cup \{ h! \mapsto live \} \\
+  hpid' = hpid \cup \{ h! \mapsto p? \} \\
+  res' = res \cup \{ h! \} \\
+  endby' = endby
+\end{schema}
+
+\begin{zed}
+  OpenReuse \defs PidOk \land Revive \land Repin \land NoStore \\
+  OpenCreate \defs PidOk \land CreateCore \land NoStore \\
+  OpenSess \defs OpenReuse \lor OpenCreate
+\end{zed}
+
+\begin{schema}{KnownHandle}
+  h? : HND; h! : HND
+\where
+  h? = h!
+\end{schema}
+
+\begin{schema}{UnknownHandle}
+  Engine; h? : HND
+\where
+  h? \notin hs
+\end{schema}
+
+A call with a held handle renews; a call with a handle no record holds goes
+through get-or-create under the session.  Either way the call stores durable
+state.
+
+\begin{zed}
+  CallKnown \defs PidOk \land Revive \land Repin \land Store \land KnownHandle \\
+  CallUnknownReuse \defs
+    PidOk \land Revive \land Repin \land Store \land UnknownHandle \\
+  CallUnknownCreate \defs
+    PidOk \land CreateCore \land Store \land KnownHandle \land UnknownHandle \\
+  CallTool \defs CallKnown \lor CallUnknownReuse \lor CallUnknownCreate
+\end{zed}
+
+\begin{schema}{LeaseLapse}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hst~h! = live \\
+  hst' = hst \oplus \{ h! \mapsto dormant \} \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hpid' = hpid \\
+  dur' = dur \\
+  res' = res \\
+  endby' = endby \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid
+\end{schema}
+
+SessionEnd may arrive from any pid that ever ran for the session.  It ends
+the record only if the pid is the record's current main pid.
+
+\begin{schema}{EndMatch}
+  \Delta Engine; s? : SID; p? : PID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  p? \in ever \limg \{ s? \} \rimg \\
+  hpid~h! = p? \\
+  hst' = hst \oplus \{ h! \mapsto ended \} \\
+  res' = res \setminus \{ h! \} \\
+  endby' = endby \oplus \{ h! \mapsto p? \} \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hpid' = hpid \\
+  dur' = dur \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid
+\end{schema}
+
+\begin{schema}{EndStale}
+  \Xi Engine; s? : SID; p? : PID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  p? \in ever \limg \{ s? \} \rimg \\
+  hpid~h! \neq p?
+\end{schema}
+
+\begin{zed}
+  SessionEnd \defs EndMatch \lor EndStale
+\end{zed}
+
+\begin{schema}{RetentionExpire}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hst~h! \in \{ ended, dormant \} \\
+  hs' = hs \setminus \{ h! \} \\
+  hsid' = \{ h! \} \ndres hsid \\
+  hst' = \{ h! \} \ndres hst \\
+  hpid' = \{ h! \} \ndres hpid \\
+  dur' = dur \setminus \{ h! \} \\
+  res' = res \setminus \{ h! \} \\
+  endby' = \{ h! \} \ndres endby \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid \setminus \{ s? \}
+\end{schema}
+
+Resume is not a separate operation: a new run with a new pid calls
+\texttt{OpenSess} (or \texttt{CallTool}), and \texttt{PidOk} admits the fresh
+pid.
+
+\end{document}
