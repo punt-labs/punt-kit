@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_kit.phases.shared.changelog_entry import UnreleasedEntry
 from punt_kit.phases.shared.changelog_parser import ChangelogDocument
 from punt_kit.phases.shared.text_file import TextFile
 
@@ -98,6 +99,18 @@ class Changelog:
         stamped = document.stamped(version, today)
         TextFile(self._root / "CHANGELOG.md").write(stamped)
         self._ops.ok(f"CHANGELOG.md: [{version}] - {today}")
+
+    def add_unreleased_entry(self, line: str, *, category: str = "Changed") -> bool:
+        """File ``- line`` under ``[Unreleased]``; ``False`` if it has no such section.
+
+        Idempotent: a bullet already there is left alone. The file's BOM and
+        line endings are kept.
+        """
+        filed = UnreleasedEntry(line, category=category).added_to(self.text())
+        if filed is None:
+            return False
+        TextFile(self._root / "CHANGELOG.md").write(filed)
+        return True
 
     def suggest_next_version(self, current: str) -> str:
         """Suggest the next version from the [Unreleased] entries."""

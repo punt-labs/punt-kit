@@ -25,9 +25,25 @@ All notable changes to this project will be documented in this file.
   deadlock: the two delta-review guard defects, and the earlier
   blocked-fix prose (no re-escalation, and a fix-ruled finding answered only
   by its fix).
+- `punt release` Phase 10e propagates the release to the `homebrew-tap`: when
+  the project's Makefile has a `brew-formula` target and
+  `../homebrew-tap/Formula/<name>.rb` exists, it runs
+  `make brew-formula FORMULA_OUT=../homebrew-tap/Formula/<name>.rb`, files
+  `<name>: bump to vX.Y.Z` under the tap's `[Unreleased]`, and merges the
+  change through a sibling PR. Phase 11 fails when the tap formula's version
+  is not the release.
+- `punt release` Phase 8 can restart a project's user service. A project
+  declares it under `[tool.punt-kit.release.service]` in `pyproject.toml`
+  (`systemd` unit and/or `launchd` label). After the PyPI install the phase
+  restarts it and fails unless the main PID changed; a project with no
+  declaration, or a service the host has not registered, is skipped.
 
 ### Fixed
 
+- `punt release` Phase 8 no longer verifies an environment no user gets. When
+  the release tag contains `install-constraints.txt` it installs with
+  `--constraints` on that file, so the project's locked dependency versions
+  apply; without the file it installs unpinned and logs that it did.
 - `punt release` no longer fails the version bump on a computed
   `__version__` that does not name `importlib.metadata` in the same file,
   such as vox's `__version__ = installed_version()`. Phases 2 and 11 now

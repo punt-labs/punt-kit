@@ -22,6 +22,7 @@ from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
+from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
@@ -351,6 +352,13 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     )
 
 
+def _propagate_homebrew(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """10e. Regenerate the project's formula in homebrew-tap."""
+    HomebrewTapPropagator(info, ops=_ops, skips=_skips).run(
+        version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
+    )
+
+
 def _reset_propagation_siblings(
     info: ProjectInfo, *, fail_on_error: bool = True
 ) -> None:
@@ -379,6 +387,7 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         propagate_install_all=_propagate_install_all,
         propagate_marketplace=_propagate_marketplace,
         propagate_website=_propagate_website,
+        propagate_homebrew=_propagate_homebrew,
         interrupted=_interrupted,
     )
 

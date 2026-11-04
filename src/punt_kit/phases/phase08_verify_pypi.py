@@ -5,15 +5,24 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tempfile
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
+from punt_kit.phases.shared.install_constraints import (
+    CONSTRAINTS_FILENAME,
+    InstallConstraints,
+)
 from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.timeouts import CLI_DOCTOR, UV
+from punt_kit.phases.shared.user_service import ServiceSpec, UserService
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
 
@@ -53,45 +62,41 @@ class Phase8VerifyPypi:
 
         package_name = ReleaseProject(info, ops=ops).package_name()
 
+        constraints = InstallConstraints(info.root, f"v{version}", ops=ops).text()
+
         if dry_run:
-            ops.dry(f"uv tool install --force --refresh {package_name}=={version}")
+            pinned = "--constraints " if constraints is not None else ""
+            ops.dry(
+                f"uv tool install --force --refresh {pinned}{package_name}=={version}"
+            )
+            if constraints is None:
+                ops.dry(f"{CONSTRAINTS_FILENAME} absent at v{version}: unpinned")
+            ops.dry("restart the project's user service, confirm the PID changed")
             if info.cli_commands:
                 ops.dry(f"{info.cli_commands[0]} doctor (if available)")
             ops.dry("uv tool install --force --editable .")
             return
 
+        if constraints is None:
+            ops.info(
+                f"No {CONSTRAINTS_FILENAME} at v{version} — installing unpinned "
+                "(the project's lock is not applied)"
+            )
+        else:
+            ops.info(f"Installing with {CONSTRAINTS_FILENAME} from v{version}")
         ops.info(f"Installing {package_name}=={version} from PyPI...")
 
-        # Retry loop — PyPI propagation can take a minute
-        for attempt in range(10):
-            result = ops.run(
-                [
-                    "uv",
-                    "tool",
-                    "install",
-                    "--force",
-                    "--refresh",
-                    f"{package_name}=={version}",
-                ],
-                cwd=str(info.root),
-                check=False,
-                capture=False,
-                timeout=UV,
-            )
-            if result.returncode == 0:
-                break
-            if attempt < 9:
-                ops.info(
-                    f"Attempt {attempt + 1}/10 — waiting 30s for PyPI propagation..."
-                )
-                time.sleep(30)
-        else:
-            ops.fail(
-                f"Failed to install {package_name}=={version} from PyPI after "
-                "10 attempts"
-            )
+        with tempfile.TemporaryDirectory(prefix="punt-constraints-") as scratch:
+            flags: Sequence[str] = ()
+            if constraints is not None:
+                pins = Path(scratch) / CONSTRAINTS_FILENAME
+                pins.write_text(constraints, encoding="utf-8")
+                flags = ("--constraints", str(pins))
+            self._install_with_retries(package_name, flags)
 
         ops.ok(f"Installed {package_name}=={version} from PyPI")
+
+        UserService(ServiceSpec.for_project(info), ops=ops).restart()
 
         self._run_doctor()
 
@@ -108,6 +113,37 @@ class Phase8VerifyPypi:
         if restore_result.returncode != 0:
             ops.fail("uv tool install --editable . failed — see output above")
         ops.ok("Editable install restored")
+
+    def _install_with_retries(self, package_name: str, flags: Sequence[str]) -> None:
+        """Install ``package_name==version`` from PyPI, riding out propagation lag."""
+        ops = self._ops
+        for attempt in range(10):
+            result = ops.run(
+                [
+                    "uv",
+                    "tool",
+                    "install",
+                    "--force",
+                    "--refresh",
+                    *flags,
+                    f"{package_name}=={self._version}",
+                ],
+                cwd=str(self._info.root),
+                check=False,
+                capture=False,
+                timeout=UV,
+            )
+            if result.returncode == 0:
+                return
+            if attempt < 9:
+                ops.info(
+                    f"Attempt {attempt + 1}/10 — waiting 30s for PyPI propagation..."
+                )
+                time.sleep(30)
+        ops.fail(
+            f"Failed to install {package_name}=={self._version} from PyPI after "
+            "10 attempts"
+        )
 
     def _run_doctor(self) -> None:
         """Run the freshly installed CLI's ``doctor``, if it has one.

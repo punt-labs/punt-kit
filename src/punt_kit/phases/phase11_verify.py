@@ -8,11 +8,13 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.phase10_homebrew import TAP_SIBLING, tap_formula, tap_sibling
 from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
 from punt_kit.phases.phase11_versions import VersionPinChecks
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
+from punt_kit.phases.shared.formula_version import FormulaVersion
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
@@ -96,6 +98,7 @@ class Phase11Verify:
             checks.extend(self._profile_checks(repo))
             checks.extend(self._readme_checks(repo))
             checks.extend(self._website_checks(repo))
+            checks.extend(self._homebrew_checks(repo))
         checks.extend(self._pypi_checks())
 
         all_pass = True
@@ -171,6 +174,8 @@ class Phase11Verify:
             names.append("README pin")
         if SiblingRepo.resolve(info.root, "public-website", ops=self._ops) is not None:
             names.append("website")
+        if tap_sibling(info, ops=self._ops) is not None:
+            names.append("homebrew-tap")
         return names
 
     def _installs_from_github(self) -> bool:
@@ -489,6 +494,25 @@ class Phase11Verify:
                 )
             )
         return checks
+
+    def _homebrew_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The tap formula's version: it must be this release.
+
+        Runs only where Phase 10e ran: the project has a ``brew-formula``
+        target and the tap carries its formula.
+        """
+        tap = tap_sibling(self._info, ops=self._ops)
+        formula = tap_formula(tap, repo.name) if tap is not None else None
+        if formula is None:
+            return []
+        found = FormulaVersion(TextFile(formula).read()).value()
+        return [
+            VerificationCheck(
+                TAP_SIBLING,
+                found == self._version,
+                f"{formula.name} version={found or 'not found'}",
+            )
+        ]
 
     def _pypi_checks(self) -> list[VerificationCheck]:
         """Confirm the exact published version resolves from the INDEX.
