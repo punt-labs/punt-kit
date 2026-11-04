@@ -2214,8 +2214,11 @@ a dynamic import. An allow-list stops that.
    - a file that does not parse.
 
 The rule rests on one invariant. The tool never reports success while the
-shipped version is a stale hardcoded literal. It also never fails a value
-that really comes from package metadata. One trust remains: an imported
+shipped version is a stale hardcoded literal. The cost is that some values
+that do read metadata fail too, such as `version("x").split("+")[0]` or
+versioneer's `get_versions()["version"]`. They fail loudly with the fix
+named (a plain string, or one call to an imported reader), which is the safe
+direction. No Punt Labs repo uses either form. One trust remains: an imported
 helper is taken to read metadata, because the classifier does not open the
 module it comes from. The project's own helper is the case this exists for
 (vox's `installed_version()`).
@@ -2227,5 +2230,5 @@ module it comes from. The project's own helper is the case this exists for
 | Keep the text rule and widen its evidence (also accept a helper call) | A regex cannot tell an assignment from a docstring, a block, or a later rebinding. Each reviewer round found a new stale-literal-passes case in the text rule. |
 | Treat every call as computed | `str("1.0")`, `os.environ.get("V", "1.0")` and `".".join(map(str, (1, 0)))` ship a stale hardcoded version with a green check. |
 | Block-list: computed when a call is present and no hardcoded version reaches it | Two review rounds each found new hiding places: a same-module helper, separately bound ints, a list, `.format()`, bytes, a dynamic import. The list of ways to hide a literal never closes. |
-| Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module. That breaks the second half of the invariant. |
+| Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module, the case this bead exists to fix. |
 | Follow an imported helper into its module | It needs path resolution across packages and still stops at C extensions and dynamic code. The project's own helper is trusted instead, and that trust is stated above. |
