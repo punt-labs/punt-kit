@@ -186,13 +186,12 @@ handle is engine-issued.
    hours while the user is away, so the lease measures abandonment, not
    activity: its TTL is long enough that only a session whose process is gone
    lapses (hours, not minutes), and an applet that lives as long as the
-   session (§ 3.3) renews it on the session's behalf. If a live but idle
-   session's lease does lapse, the session only *ends* (§ 4.2.6): live-client
-   resources are released, durable state is retained, and the next call
-   resolves to the same record (§ 4.2.7) and makes it live again. The
-   release is recoverable because live-client resources (callbacks,
-   subscriptions) are re-established by their owners on reconnect.
-   SessionEnd remains the normal close.
+   session (§ 3.3) renews it on the session's behalf. A lapse is *dormancy*,
+   not an end: the record and its live-client resources (callbacks,
+   subscriptions, pending deliveries) stay in place, and the next call
+   resolves to the same record (§ 4.2.7) and makes it live again with nothing
+   to re-establish. Only SessionEnd, or the retention period running out on a
+   dormant record, releases them (§ 4.2.6).
 6. **End, then expire.** A Claude Code session can end and be resumed under
    the same `session_id` (measured: SessionEnd at the end of a run, then
    SessionStart with `source: "resume"`). So the SessionEnd hook *ends* the
@@ -202,8 +201,12 @@ handle is engine-issued.
    for that `session_id` within the period — a resume — returns the same
    record, handle, and durable state. The engine deletes the record, and the
    hook's directory goes with it on the next open or a periodic sweep, when
-   the retention period lapses. SessionEnd does not fire on a crash; the lease
-   lapsing ends the session the same way.
+   the retention period lapses. SessionEnd does not fire on a crash; a crashed
+   session goes dormant when its lease lapses (§ 4.2.5) and is released when
+   retention runs out. A SessionEnd presents its `main_agent_id`, and the
+   engine ends the record only if that matches the record's current main
+   thread: a late SessionEnd from a run that a `--resume` has already
+   replaced ends nothing.
 7. **Unknown handle.** A call presenting a well-formed handle the engine does
    not hold (the engine restarted without persisting sessions, or the lease
    lapsed) goes through the same get-or-create as open, keyed by
@@ -234,7 +237,10 @@ engine, not the client, names its sessions, and a handle that names no live
 record is caught. The trust boundary for a local engine stays the loopback
 bind and same-user access. An engine reachable across hosts or across users
 adds real authentication on its transport (and, where it exposes protected
-resources, OAuth per the MCP spec).
+resources, OAuth per the MCP spec), records the authenticated principal on
+each engine session at open, and resolves a `session_id` or handle only for
+that same principal — so one user cannot open, resume, or re-create another
+user's session by naming its `session_id`.
 
 ---
 
@@ -268,9 +274,13 @@ resources, OAuth per the MCP spec).
 6. Layer 2: open twice for one `session_id` returns one handle; a call renews
    the lease; an unknown well-formed handle with no live record re-creates
    it, and one with a live record for its `session_id` resolves to that
-   record (never two records); SessionEnd or a lapsed lease ends it; an open
-   for the same `session_id` within the retention period returns its handle
-   and durable state; after the period the record is gone.
+   record (never two records); a lapsed lease leaves it dormant with its
+   live-client resources intact, and the next call makes it live; SessionEnd
+   ends it only when its `main_agent_id` matches the record's current main
+   thread; an open for the same `session_id` within the retention period
+   returns its handle and durable state; after the period the record is
+   gone. A multi-user engine resolves a session only for the principal that
+   opened it.
 7. Layer 2: a subagent's state is separate from the main thread's, and the
    main thread's state survives a change of `main_agent_id`.
 

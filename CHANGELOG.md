@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `standards/mcp-caller-identity.md` and DES-034 — how an engine learns which
+  Claude Code session and agent is calling: each plugin's PreToolUse hook
+  stamps `_caller {session_id, agent_id}` on its own tools, the server strips
+  it before validation, and an engine holding per-session state owns its
+  sessions and issues a handle every session client presents. Based on
+  measurements against Claude Code 2.1.309. `architecture.md`, `hooks.md`,
+  and `filesystem.md` cross-reference it; `filesystem.md` reserves
+  `sessions/`.
 - `src/punt_kit/templates/pr_agent.toml` — the Qodo review config template
   every repo instantiates as `.pr_agent.toml`: one review at open, no push
   trigger, Highs inline, Mediums in the summary, Lows dropped.
@@ -28,6 +36,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
+  Claude Code keeps the hyphen (`mcp__plugin_biff-dev_tty__…`), as every
+  plugin's matcher already does.
+- `standards/architecture.md` cited quarry as keeping each client's selected
+  database in its daemon; the selection lives in quarry's MCP client. The
+  example is now the lux Hub.
 - ethos config resolves layered again so the engineering team, seeded pipelines and the claude leader identity resolve alongside the vendored gstack team
 
 ### Security
