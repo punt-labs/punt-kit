@@ -54,10 +54,10 @@ Consequences:
 | **Caller facts** | `session_id` and `agent_id`, stated by Claude Code to hooks and never invented by the engine. |
 | **Main thread** | The leader of a session. Its payloads carry no `agent_id` (a payload with `agent_type` but no `agent_id` is still the main thread, as under `claude --agent`). |
 | **Main-thread agent id** | The hook's corroborated `CLAUDE_PID`: the pid in `CLAUDE_PID`, accepted only if that process is a live ancestor of the hook (ethos's check). It identifies the current process, so it changes on resume. |
-| **Engine session** | The engine's own record of one Claude Code session: the state it holds for that caller, its lease, its handle, and the current main-thread agent id. |
+| **Engine session** | The engine's own record of one Claude Code session: the state it holds for that caller, its lease, and its handle. At most one live record exists per `session_id`. |
 | **Handle** | The engine-issued reference to an engine session, opaque to every client. |
 | **Session client** | Any process acting for a Claude Code session against an engine: the MCP leg, the plugin's hooks, and applets the session spawns. |
-| **`_caller`** | The reserved argument that carries caller facts, plus the handle under layer 2, on an MCP tool call. |
+| **`_caller`** | The reserved argument that carries caller facts on an MCP tool call; under layer 2 it adds `handle` and `main_agent_id` (§ 4.2.4). |
 
 ---
 
@@ -116,8 +116,8 @@ own. It returns `updatedInput`: the original arguments plus
    Claude Code to decide whether `_caller` was owed: every client type has a
    declared channel, and a call with none is unidentified.
 4. **Validate the shape.** `session_id` and `agent_id` (and, under layer 2,
-   `handle`) are non-empty and match `[A-Za-z0-9_-]+`. Anything else is a
-   named error.
+   `handle` and `main_agent_id`) are non-empty and match `[A-Za-z0-9_-]+`.
+   Anything else is a named error.
 5. **Work in the stateless protocol.** No identity rides on the connection, so
    a conforming engine accepts the 2026-07-28 era. On streamable HTTP that
    requires fastmcp 4 or later (fastmcp 3 does not serve it). An engine must
@@ -147,13 +147,13 @@ handle is engine-issued.
 
 ### 4.2 Lifecycle
 
-1. **Open is idempotent per `session_id`.** A session client opens the engine
-   session through the engine's own API (REST or CLI, not MCP), declaring the
-   caller facts, the current main-thread agent id, and whatever identity the
-   engine's model wants (repo, cwd, kind, name). If the engine holds a live
-   record for that `session_id` it returns the same handle and updates the
-   main-thread agent id (resume, a reconnecting hook); otherwise it creates the
-   record, starts its lease, and returns a new handle.
+1. **Open is get-or-create per `session_id`.** A session client opens the
+   engine session through the engine's own API (REST or CLI, not MCP),
+   declaring the caller facts and whatever identity the engine's model wants
+   (repo, cwd, kind, name). If the engine holds a live record for that
+   `session_id` it returns that record's handle (resume, a second opener);
+   otherwise it creates the record, starts its lease, and returns a new
+   handle. The engine never holds two live records for one `session_id`.
 2. **Who opens.** The SessionStart hook opens, on every `source`
    (`startup`, `resume`, and the rest). Because SessionStart hooks are
    fail-open and may run asynchronously ([hooks.md](hooks.md) § 7), any session
@@ -167,8 +167,13 @@ handle is engine-issued.
    a hook payload, so it is checked against `[A-Za-z0-9_-]+` (§ 3.2.4) before
    it is used in a path; a value that fails is treated as missing facts.
 4. **Present.** Every session client presents the handle with its caller
-   facts: the PreToolUse hook adds `"handle"` to `_caller`; other hooks read
-   the file and send it directly; applets receive it at spawn.
+   facts and the session's current main-thread agent id: the PreToolUse hook
+   adds `"handle"` and `"main_agent_id"` to `_caller`; other hooks read the
+   file and send the same three values directly; applets receive them at
+   spawn. Every hook can compute `main_agent_id` (the corroborated
+   `CLAUDE_PID`), so the engine never has to remember which agent is the main
+   thread — it is told on every call, including the first call after a resume
+   or an engine restart.
 5. **Renew.** Every call carrying the handle renews the lease, whether it
    comes from the MCP leg, a hook, or an applet. A session can sit idle for
    hours while the user is away, so the lease measures abandonment, not
@@ -181,18 +186,22 @@ handle is engine-issued.
    backstop: a record whose lease lapses is reaped.
 7. **Unknown handle.** A call presenting a well-formed handle the engine does
    not hold (the engine restarted without persisting sessions, or the lease
-   lapsed) is not an error loop the hook cannot see: the engine re-creates the
-   record for the presented `session_id` under that handle, with empty state,
-   and logs the re-creation. State lost to a restart or lapse stays lost; the
-   session keeps working.
+   lapsed) goes through the same get-or-create as open, keyed by
+   `session_id`: if a live record for that `session_id` exists — for example
+   one a concurrent SessionStart just opened — the call resolves to it;
+   otherwise the engine re-creates the record under the presented handle, with
+   empty state. Either way the engine logs it and the call proceeds, because
+   a PreToolUse hook never sees the tool's result and could not act on an
+   error. State lost to a restart or lapse stays lost; the session keeps
+   working, and never splits into two records.
 
 ### 4.3 Per-agent state
 
-The engine scopes state below the session by agent. A subagent's state is
-keyed by its `agent_id`. The main thread's state is held at the session
-level, not under the main-thread agent id, because that id changes on every
-resume; the engine knows which `agent_id` is the main thread from the value
-recorded at open (§ 4.2.1).
+The engine scopes state below the session by agent. A call whose `agent_id`
+equals its `main_agent_id` is the main thread; any other is a subagent. A
+subagent's state is keyed by its `agent_id`. The main thread's state is held
+at the session level, not under the main-thread agent id, because that id
+changes on every resume.
 
 ### 4.4 The handle
 
@@ -236,11 +245,12 @@ resources, OAuth per the MCP spec).
 4. A tool whose schema does not declare `_caller` succeeds with one present,
    and the tool never receives it.
 5. Caller resolution is identical in the stateless and handshake protocols.
-6. Layer 2: open twice for one `session_id` returns one handle and updates the
-   main-thread agent id; a call renews the lease; an unknown well-formed
-   handle re-creates the record; a lapsed lease reaps it; close removes it.
+6. Layer 2: open twice for one `session_id` returns one handle; a call renews
+   the lease; an unknown well-formed handle with no live record re-creates
+   it, and one with a live record for its `session_id` resolves to that
+   record (never two records); a lapsed lease reaps it; close removes it.
 7. Layer 2: a subagent's state is separate from the main thread's, and the
-   main thread's state survives a change of main-thread agent id.
+   main thread's state survives a change of `main_agent_id`.
 
 **Hook**:
 
@@ -253,7 +263,8 @@ resources, OAuth per the MCP spec).
    tools through untouched.
 5. Never emits `allow`.
 6. Layer 2: opens when no handle file exists, writes it with modes
-   `0600`/`0700`, adds the handle to `_caller`, and SessionEnd removes it.
+   `0600`/`0700`, adds `handle` and `main_agent_id` to `_caller`, and
+   SessionEnd removes it.
 
 ---
 
@@ -297,6 +308,9 @@ Go and declares `_caller` on its tools rather than stripping it.
   unknown-handle re-creation (§ 4.2.7).
 - Its roster lives at `~/.punt-labs/ethos/sessions/<session_id>/`; the handle
   file of § 4.2.3 is not used, because its handle is the caller facts.
+- Its stamping matcher (`^mcp__plugin_ethos(-dev)?_self__`) covers the plugin
+  registrations only; a direct registration of the ethos server goes
+  unstamped and is refused (§ 3.1).
 
 ### 8.2 lux — an engine whose sessions own UI
 
@@ -344,8 +358,12 @@ user. Under this standard:
 
 ### 8.4 quarry
 
-quarry's daemon holds each client's selected database (architecture.md
-invariant 4), so it is a layer-2 engine. Its adoption is quarry's own unit.
+quarry's database selection (`use`) lives in the MCP client process today
+(`SELECTION` in `mcp_server.py`), routing each call to a daemon fixed to one
+database; the daemon holds no per-caller state, so quarry is a layer-1 engine
+as built. If quarry moves the selection into its
+engine, as invariant 4 asks, it becomes a layer-2 engine; that is quarry's
+own decision and unit.
 
 ---
 

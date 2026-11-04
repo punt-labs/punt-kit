@@ -50,8 +50,8 @@ directory, active repo, which features are on or off, session context — the
 engine holds these authoritatively. A client carries only its own identity and
 the context it alone can originate, such as its working directory, and pushes
 that into the engine. Keep clients thin; default to holding their state in the
-engine. quarry keys each client's selected database server-side: the
-`quarry serve` daemon holds it, not the client. Where a Claude Code session is
+engine. The lux Hub holds each client's scenes, menu entries, and subscriptions,
+keyed by the client, not the client process. Where a Claude Code session is
 the client, the key comes from the session itself, never from an MCP
 connection or process: see [mcp-caller-identity.md](mcp-caller-identity.md).
 
