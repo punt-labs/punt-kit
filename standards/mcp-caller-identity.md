@@ -161,8 +161,8 @@ handle is engine-issued.
 
 The engine-session lifecycle is model-checked: a Z specification,
 [mcp-caller-identity-lifecycle.tex](mcp-caller-identity-lifecycle.tex), proves
-the invariants below with ProB over every reachable state (36,889 states, no
-violation, no deadlock), and four fidelity controls reproduce the defects
+the invariants below with ProB over every reachable state (95,929 states, no
+violation, no deadlock), and six fidelity controls reproduce the defects
 earlier drafts of this section had
 ([report](mcp-caller-identity-lifecycle.md)). The rules here are the model's;
 a change to them changes the model first.
@@ -171,19 +171,29 @@ A record is **live**, **dormant**, or **ended**; a session with no record is
 **absent**. Every record carries a handle, the session's durable state, its
 live-client resources (callbacks, subscriptions, pending deliveries), and its
 **current main pid** — the main-thread agent id of the session's latest run.
+Durable state belongs to the session; live-client resources belong to the
+**run** that registered them.
 
 1. **Get-or-create by `session_id`.** Open, and any call presenting a handle
    the engine does not hold, resolve by `session_id`: if a record exists for
    it in **any** state — live, dormant, or ended — that record is used and
-   made live; otherwise the engine creates one with a new handle (or, for an
-   unknown handle, under the presented handle) and empty state. The engine
-   never holds two records for one `session_id`. A presented handle that
-   belongs to a different session's record is treated as unknown.
+   made live; otherwise the engine creates one, with no live-client
+   resources and empty durable state. The engine never holds two records for
+   one `session_id`. A presented handle never selects another session's
+   record: one that belongs to a different session is treated as unknown,
+   and a record created for an unknown handle uses the presented handle only
+   if no record owns it, otherwise a fresh one (model control
+   `_handlecollide_buggy`).
 2. **Every open and every call sets the current main pid** to the caller's
    `main_agent_id`. A resume's first call may arrive before (or without) its
    SessionStart, so updating the pid on open alone is not enough: with it,
    a late SessionEnd from the replaced run still ends the resumed record
-   (model control `_nopincall_buggy`).
+   (model control `_nopincall_buggy`). An open or call whose `main_agent_id`
+   differs from the record's current main pid is a **new run**: the engine
+   releases the previous run's live-client resources before the record goes
+   live, and durable state carries over. A crash fires no SessionEnd, so the
+   next run's arrival is what releases a dead run's callbacks and
+   subscriptions (model control `_runres_buggy`).
 3. **Who opens.** The SessionStart hook opens, on every `source` (`startup`,
    `resume`, and the rest). SessionStart hooks are fail-open and may run
    asynchronously ([hooks.md](hooks.md) § 7), so any session client that finds
@@ -203,8 +213,9 @@ live-client resources (callbacks, subscriptions, pending deliveries), and its
 6. **Renew; a lapse is dormancy.** Every call renews the lease. The lease
    measures abandonment, not activity, so its TTL is hours, and an applet that
    lives as long as the session renews it on the session's behalf. A lapse
-   moves a live record to **dormant** and keeps its live-client resources, so
-   the next call revives it with nothing to re-establish.
+   moves a live record to **dormant** and keeps its live-client resources,
+   because dormancy is the same run being quiet: the next call from that run
+   revives it with nothing to re-establish.
 7. **SessionEnd ends a record only for the current run.** SessionEnd
    presents its `main_agent_id`; the engine ends the record (live or dormant
    to **ended**) only if that equals the record's current main pid, and
@@ -213,8 +224,8 @@ live-client resources (callbacks, subscriptions, pending deliveries), and its
    `_noguard_buggy`). Ending releases live-client resources and keeps durable
    state.
 8. **Resume after an end.** Get-or-create revives an ended record with its
-   handle and durable state but no live-client resources: clients re-register
-   their callbacks and subscriptions, as they do on any reconnect.
+   handle and durable state but no live-client resources: the new run's
+   clients register their callbacks and subscriptions. Nothing is restored.
 9. **Expire.** Retention is the only rule that drops durable state. A
    dormant or ended record whose retention period has run (from the lapse or
    the end) is removed, and the hook's directory goes with it on the next
@@ -289,7 +300,9 @@ user's session by naming its `session_id`.
    a lapse keeps live-client resources; SessionEnd from the current run ends
    the record and a late SessionEnd from a replaced run (before and after the
    new run's first call) does not; a resume revives an ended record with its
-   durable state; retention expiry removes it. A multi-user engine resolves a
+   durable state and no resources; a new run releases the previous run's
+   resources; a handle owned by another session never selects or overwrites
+   that session's record; retention expiry removes it. A multi-user engine resolves a
    session only for the principal that opened it.
 7. Layer 2: a subagent's state is separate from the main thread's, and the
    main thread's state survives a change of `main_agent_id`.
