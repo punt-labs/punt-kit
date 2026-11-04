@@ -60,7 +60,12 @@ class WheelVersionCheck:
 
     Each module must be in the wheel, and must import from the wheel's own
     installed files: one that a stdlib module or another installed package of
-    the same name shadows fails. The import runs under the
+    the same name shadows fails, and so does one with any file under its path
+    overwritten since install or listed in RECORD with no hash. A module that
+    defines no ``__version__`` and no ``__getattr__`` and is a plain module is
+    skipped; any other reads ``__version__``, and a read that raises fails
+    with a request to define ``__version__`` as a plain attribute (a lazy
+    module with no version fails loudly, by design). The import runs under the
     project's ``requires-python`` when it sets one. A module that will not
     import fails the release, and one with no ``__version__`` once imported
     is skipped, with the skip recorded for the release recap.
@@ -160,13 +165,24 @@ class WheelVersionCheck:
                 f"which is not one of the files {_distribution(wheel)} installs; "
                 "another installed package shadows the wheel"
             )
-        if record.kind == "overwritten":
-            self._ops.fail(
-                f"{wheel.name}: {module} was overwritten by another installed "
-                f"distribution ({record.origin!r} no longer matches the hash "
-                f"{_distribution(wheel)} recorded for it)"
-            )
         match record.kind:
+            case "overwritten":
+                self._ops.fail(
+                    f"{wheel.name}: {module} was overwritten by another installed "
+                    f"distribution ({record.value!r} no longer matches the hash "
+                    f"{_distribution(wheel)} recorded for it)"
+                )
+            case "malformed":
+                self._ops.fail(
+                    f"{wheel.name}: malformed RECORD: {_distribution(wheel)} lists "
+                    f"the code file {record.value!r} with no hash"
+                )
+            case "raised":
+                # A raising read exits non-zero; _probe reports it there.
+                self._ops.fail(
+                    f"{wheel.name}: reading {module}.__version__ raised "
+                    f"{record.value}; define __version__ as a plain attribute"
+                )
             case "absent":
                 self._skips.record(
                     f"SKIPPED — {wheel.name}: {module} has no __version__ at run "
@@ -246,12 +262,18 @@ class WheelVersionCheck:
             # The package may write any bytes while it imports.
             errors="replace",
         )
+        lines = ProbeRecord.lines(result.stdout, nonce)
         if result.returncode != 0:
+            raised = ProbeRecord.parse(lines[0]) if len(lines) == 1 else None
+            if raised is not None and raised.kind == "raised":
+                self._ops.fail(
+                    f"{wheel.name}: reading {module}.__version__ raised "
+                    f"{raised.value}; define __version__ as a plain attribute"
+                )
             self._ops.fail(
                 f"{wheel.name}: importing {module} to read __version__ failed "
                 f"(release version {self._version}):\n{result.stderr.strip()}"
             )
-        lines = ProbeRecord.lines(result.stdout, nonce)
         if len(lines) != 1:
             self._ops.fail(
                 f"{wheel.name}: importing {module} gave {len(lines)} version "

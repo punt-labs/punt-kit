@@ -42,19 +42,19 @@ class WheelContents:
     def top_level(self) -> tuple[str, ...]:
         """The top-level importable names the wheel installs, sorted.
 
-        Top-level directories count, except ``*.dist-info`` and the
-        ``*.data`` schemes that do not install to site-packages; so do
-        top-level ``.py``, ``.so`` and ``.pyd`` files, by module name.
+        Top-level directories count, and so do top-level ``.py``, ``.so`` and
+        ``.pyd`` files, by module name; only a name that is a Python
+        identifier counts, which leaves out ``*.dist-info``, the ``*.data``
+        schemes that do not install to site-packages, and ``realpkg.libs``.
         """
         names: set[str] = set()
         for path in self._paths:
             head, slash, _ = path.partition("/")
             if slash:
-                if not head.endswith((".dist-info", ".data")):
-                    names.add(head)
+                names.add(head)
             elif head.endswith(_CODE_SUFFIXES):
                 names.add(head.split(".", 1)[0])
-        return tuple(sorted(names))
+        return tuple(sorted(name for name in names if name.isidentifier()))
 
     def shipping(self, module: str) -> Shipping:
         """How the wheel ships the dotted ``module``.

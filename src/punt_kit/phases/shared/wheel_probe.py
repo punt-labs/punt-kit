@@ -6,7 +6,9 @@ import ast
 from dataclasses import dataclass
 from typing import Literal, Self, cast
 
-type ProbeKind = Literal["str", "absent", "type", "unlocated", "overwritten"]
+type ProbeKind = Literal[
+    "str", "absent", "type", "raised", "unlocated", "overwritten", "malformed"
+]
 
 # The probe frames its one answer as a line that starts with this marker and
 # a nonce the parent picks per run, so nothing the package prints by accident
@@ -14,7 +16,7 @@ type ProbeKind = Literal["str", "absent", "type", "unlocated", "overwritten"]
 # is accepted.
 _MARKER = "\x00PUNT_VERSION:"
 _KINDS: frozenset[str] = frozenset(
-    {"str", "absent", "type", "unlocated", "overwritten"}
+    {"str", "absent", "type", "raised", "unlocated", "overwritten", "malformed"}
 )
 
 # Run inside the isolated interpreter: argv[1] is the module, argv[2] the
@@ -37,22 +39,20 @@ _KINDS: frozenset[str] = frozenset(
 #   frozen), or lies under this interpreter's stdlib and not its
 #   site-packages: a stdlib module of the same name shadowed the wheel.
 #   ``from_wheel`` is true when the origin is one of the files the wheel's
-#   distribution installed, or a directory holding one. When the origin is
-#   such a file and its RECORD entry has a hash, the file on disk must still
-#   match it; one that does not was ``overwritten`` by another distribution
-#   installing the same path. A file with no RECORD hash is taken on its path.
-#   All of this is worked out first, and ``__version__`` is read only from an
-#   intact module that came from the wheel, so a shadow is what gets reported.
-# - ``__version__`` is always read, however the module provides it (a binding,
-#   a PEP 562 ``__getattr__``, a property on a swapped module class). It is
-#   absent only when the read raises an ``AttributeError`` whose name and
-#   object, taken as a pair, are ``__version__`` and this very module, or are
-#   both unset (a ``__getattr__`` raising a bare message); and no class in the
-#   module's MRO but ``ModuleType`` and ``object`` declares ``__version__``;
-#   and, when the module defines ``__getattr__``, the error was raised in that
-#   function's own frame. Any other exception exits non-zero: a lazy reader
-#   breaking inside, including one that asks some other object (even
-#   ``None``) for ``__version__``, a helper it calls, or a property.
+#   distribution installed, or a directory holding one.
+# - Every file the distribution's RECORD lists under the module's own path
+#   (its package directory, or its single file) is checked. Where RECORD
+#   lists a path twice, the hashed entry wins. A code file (``.py``, ``.so``,
+#   ``.pyd``) with no hash is ``malformed``; a hashed file whose bytes on
+#   disk no longer match was ``overwritten`` by another distribution
+#   installing the same path. Either names the file.
+# - All of that comes first, and ``__version__`` is read only from an intact
+#   module that came from the wheel, so a shadow is what gets reported.
+# - ``__version__`` is ``absent`` only when the module binds neither it nor
+#   ``__getattr__`` and is a plain ``ModuleType``, not a subclass: then
+#   nothing can compute it. ``hasattr`` is never used. In every other case
+#   the attribute is read directly; any exception is reported as ``raised``
+#   (its type and message) and the probe exits non-zero.
 # - A str subclass is reduced to a plain str, so it cannot choose its own repr;
 #   any other type is reported by name.
 # - The record goes straight to file descriptor 1, after a newline so it
@@ -67,70 +67,73 @@ _write, _exit, _realpath, _isabs, _dirname, _basename, _sep = (
     os.path.dirname, os.path.basename, os.sep,
 )
 _files, _paths = importlib.metadata.files, sysconfig.get_paths()
-_hash, _b64, _open, _ModuleType = (
-    hashlib.new, base64.urlsafe_b64encode, open, types.ModuleType
+_hash, _b64, _open, _ModuleType, _type, _str, _vars = (
+    hashlib.new, base64.urlsafe_b64encode, open, types.ModuleType, type, str, vars
 )
 def located(path):
     return _realpath(_dirname(path)) + _sep + _basename(path)
+def answer(kind, value, code=0):
+    fields = (kind, value, origin, in_stdlib, from_wheel)
+    record = {_MARKER!r} + nonce + ascii(fields)
+    _write(1, ('\\n' + record + '\\n').encode('ascii'))
+    _exit(code)
+origin, in_stdlib, from_wheel = '', False, False
 module = importlib.import_module(name)
 spec = getattr(module, '__spec__', None)
 origin = getattr(spec, 'origin', None)
 if not origin:
     origin = next(iter(getattr(module, '__path__', None) or []), '')
-origin = str(origin)
+origin = _str(origin)
+if not origin:
+    answer('unlocated', '')
 where = located(origin) if _isabs(origin) else ''
-def under(root):
-    return where == root or where.startswith(root + _sep)
+def under(path, root):
+    return path == root or path.startswith(root + _sep)
 def under_path(key):
-    return under(_realpath(_paths[key]))
-in_stdlib = bool(origin) and (not where or (
+    return under(where, _realpath(_paths[key]))
+in_stdlib = not where or (
     (under_path('stdlib') or under_path('platstdlib'))
     and not (under_path('purelib') or under_path('platlib'))
-))
-installed = [(located(str(f.locate())), f) for f in (_files(dist) or [])]
-from_wheel = bool(where) and any(
-    path == where or path.startswith(where + _sep) for path, _ in installed
 )
-own = next((f for path, f in installed if path == where), None)
-intact = True
-if from_wheel and own is not None and own.hash is not None:
-    digest = _hash(own.hash.mode)
-    with _open(where, 'rb') as handle:
+recorded = {{}}
+for entry in _files(dist) or []:
+    path = located(_str(entry.locate()))
+    if path not in recorded or recorded[path].hash is None:
+        recorded[path] = entry
+from_wheel = bool(where) and any(under(path, where) for path in recorded)
+if in_stdlib or not from_wheel:
+    answer('absent', '')
+own = _dirname(where) if _basename(where).startswith('__init__.') else where
+for path, entry in sorted(recorded.items()):
+    if not under(path, own):
+        continue
+    if entry.hash is None:
+        if path.endswith(('.py', '.so', '.pyd')):
+            answer('malformed', path)
+        continue
+    digest = _hash(entry.hash.mode)
+    with _open(path, 'rb') as handle:
         digest.update(handle.read())
-    intact = _b64(digest.digest()).rstrip(b'=').decode() == own.hash.value
-kind, value = ('unlocated' if not origin else 'absent'), ''
-if from_wheel and not intact:
-    kind = 'overwritten'
-elif from_wheel:
+    if _b64(digest.digest()).rstrip(b'=').decode() != entry.hash.value:
+        answer('overwritten', path)
+names = _vars(module)
+if (
+    '__version__' not in names
+    and '__getattr__' not in names
+    and _type(module) is _ModuleType
+):
+    answer('absent', '')
+try:
+    found = module.__version__
+except BaseException as error:
     try:
-        found = module.__version__
-    except AttributeError as error:
-        n, o = getattr(error, 'name', None), getattr(error, 'obj', None)
-        pair = (n == '__version__' and o is module) or (n is None and o is None)
-        declared = any(
-            '__version__' in vars(klass)
-            for klass in type(module).__mro__
-            if klass is not _ModuleType and klass is not object
-        )
-        getter = vars(module).get('__getattr__')
-        frame = error.__traceback__
-        while frame is not None and frame.tb_next is not None:
-            frame = frame.tb_next
-        raised_by_getter = getter is None or (
-            frame is not None
-            and frame.tb_frame.f_code is getattr(getter, '__code__', None)
-        )
-        if not (pair and not declared and raised_by_getter):
-            raise
-    else:
-        if isinstance(found, str):
-            kind, value = 'str', str.__str__(found)
-        else:
-            kind, value = 'type', type(found).__name__
-fields = (kind, value, origin, in_stdlib, from_wheel)
-record = {_MARKER!r} + nonce + ascii(fields)
-_write(1, ('\\n' + record + '\\n').encode('ascii'))
-_exit(0)
+        message = _str(error)
+    except BaseException:
+        message = '<unprintable>'
+    answer('raised', _type(error).__name__ + ': ' + message, 1)
+if isinstance(found, _str):
+    answer('str', _str.__str__(found))
+answer('type', _type(found).__name__)
 """
 
 
@@ -138,8 +141,9 @@ _exit(0)
 class ProbeRecord:
     """What the probe saw: the kind of ``__version__``, and where it imported from.
 
-    ``value`` is the version for ``"str"``, the type name for ``"type"``, and
-    empty for ``"absent"`` and ``"unlocated"``.
+    ``value`` is the version for ``"str"``, the type name for ``"type"``,
+    ``"<ExcType>: <message>"`` for ``"raised"``, the offending file for
+    ``"overwritten"`` and ``"malformed"``, and empty otherwise.
     """
 
     kind: ProbeKind

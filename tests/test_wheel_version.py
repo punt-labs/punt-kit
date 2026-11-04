@@ -93,8 +93,15 @@ def _wheel(
     *,
     name: str = "test_pkg",
     requires: tuple[str, ...] = (),
+    unhashed: tuple[str, ...] = (),
+    also_unhashed: tuple[str, ...] = (),
 ) -> Path:
-    """Write a minimal, installable wheel of distribution ``name`` with ``files``."""
+    """Write a minimal, installable wheel of distribution ``name`` with ``files``.
+
+    RECORD hashes every file, except those in ``unhashed`` (listed with no
+    hash instead) and those in ``also_unhashed`` (listed a second time, with
+    no hash).
+    """
     info = f"{name}-{_RELEASE}.dist-info"
     depends = "".join(f"Requires-Dist: {req}\n" for req in requires)
     contents = {
@@ -108,14 +115,17 @@ def _wheel(
         ),
     }
     record = [
-        f"{name},sha256={_digest(text)},{len(text.encode())}"
-        for name, text in contents.items()
+        f"{path},,"
+        if path in unhashed
+        else f"{path},sha256={_digest(text)},{len(text.encode())}"
+        for path, text in contents.items()
     ]
+    record += [f"{path},," for path in also_unhashed]
     contents[f"{info}/RECORD"] = "\n".join([*record, f"{info}/RECORD,,"]) + "\n"
     wheel = dist / f"{name}-{_RELEASE}-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
-        for name, text in contents.items():
-            archive.writestr(name, text)
+        for path, text in contents.items():
+            archive.writestr(path, text)
     return wheel
 
 
@@ -937,19 +947,8 @@ def test_a_real_wheel_reporting_the_release_version_passes(
             "sys.modules[__name__].__class__ = _Versioned\n",
             id="p_propbare",
         ),
-    ],
-)
-def test_a_real_lazy_reader_that_breaks_inside_fails(
-    tmp_path: Path, skips: SkipRecorder, init: str
-) -> None:
-    with pytest.raises(ReleaseError, match="importing test_pkg to read"):
-        _real(tmp_path, init, skips)
-
-
-@pytest.mark.parametrize(
-    "init",
-    [
-        pytest.param('"""No version here."""\n', id="plain-module"),
+        # A lazy module with no version at all fails too, by design: it is
+        # told to define __version__ as a plain attribute.
         pytest.param(
             "def __getattr__(name):\n    raise AttributeError(name)\n",
             id="pep562-bare",
@@ -962,10 +961,21 @@ def test_a_real_lazy_reader_that_breaks_inside_fails(
         ),
     ],
 )
-def test_a_real_wheel_with_no_version_records_a_skip(
+def test_a_real_version_read_that_raises_fails(
     tmp_path: Path, skips: SkipRecorder, init: str
 ) -> None:
-    _real(tmp_path, init, skips)
+    with pytest.raises(
+        ReleaseError,
+        match=r"reading test_pkg\.__version__ raised \w+.*define __version__ as a "
+        "plain attribute",
+    ):
+        _real(tmp_path, init, skips)
+
+
+def test_a_real_plain_module_with_no_version_records_a_skip(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    _real(tmp_path, '"""No version here."""\n', skips)
 
     assert any("no __version__ at run time" in note for note in skips.drain())
 
@@ -1136,6 +1146,95 @@ def test_a_real_file_no_longer_matching_its_record_hash_fails(
 
     with pytest.raises(ReleaseError, match="was overwritten by another installed"):
         _real(tmp_path, init, skips)
+
+
+_VERSION_FROM_SUBMODULE = "from ._version import __version__\n"
+
+
+def test_a_real_dependency_overwriting_a_submodule_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """The reviewer's ``_version.py`` case: only the submodule is replaced.
+
+    ``__init__.py`` is the wheel's own, so a check of the origin alone would
+    pass; the dependency's copy of ``_version.py`` carries the release
+    version over the wheel's stale one. As with the ``__init__`` case, uv
+    installs the two in no fixed order, so the release fails either as an
+    overwrite or on the stale version.
+    """
+    own = {
+        "sfhpkg/__init__.py": _VERSION_FROM_SUBMODULE,
+        "sfhpkg/_version.py": '__version__ = "0.0.1"\n',
+    }
+    zzdep = _Dependency("zzdep", {"sfhpkg/_version.py": "__version__ = '1.0.0'\n"})
+    either = "was overwritten by another installed|'0.0.1' at run time"
+
+    with pytest.raises(ReleaseError, match=either):
+        _with_dependency(tmp_path, "sfhpkg", own, zzdep, skips)
+
+
+def test_a_real_submodule_no_longer_matching_its_record_hash_fails(
+    tmp_path: Path, skips: SkipRecorder, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The submodule overwrite, made deterministic.
+
+    ``__init__.py`` rewrites the wheel's stale ``_version.py`` before reading
+    it, so the version read is the release version and ``__init__.py`` still
+    matches its hash: only hashing every file under the package catches it.
+    """
+    monkeypatch.setenv("UV_LINK_MODE", "copy")
+    monkeypatch.setenv("UV_CACHE_DIR", str(tmp_path / "private-cache"))
+    init = (
+        "import pathlib\n"
+        "pathlib.Path(__file__).with_name('_version.py').write_text(\n"
+        f"    '__version__ = \"{_RELEASE}\"\\n'\n"
+        ")\n" + _VERSION_FROM_SUBMODULE
+    )
+    files = {
+        "test_pkg/__init__.py": init,
+        "test_pkg/_version.py": '__version__ = "0.0.1"\n',
+    }
+
+    with pytest.raises(ReleaseError, match=r"overwritten.*_version\.py"):
+        _real(tmp_path, init, skips, files=files)
+
+
+def _record_case(
+    tmp_path: Path,
+    skips: SkipRecorder,
+    *,
+    unhashed: tuple[str, ...] = (),
+    also_unhashed: tuple[str, ...] = (),
+) -> None:
+    """Check, for real, a wheel whose RECORD omits or repeats hashes."""
+    root = _project(tmp_path, "")
+    _wheel(
+        root / "dist",
+        {"test_pkg/__init__.py": f'__version__ = "{_RELEASE}"\n'},
+        unhashed=unhashed,
+        also_unhashed=also_unhashed,
+    )
+    ops = fault_ops(real_run=CommandRunner.run, passthrough=[_PROBE])
+    _check(root, ops, skips).verify(root / "dist")
+
+
+def test_a_real_code_file_with_no_record_hash_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    with pytest.raises(ReleaseError, match=r"malformed RECORD.*__init__\.py"):
+        _record_case(tmp_path, skips, unhashed=("test_pkg/__init__.py",))
+
+
+def test_a_real_duplicate_record_entry_prefers_the_hashed_one(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    _record_case(tmp_path, skips, also_unhashed=("test_pkg/__init__.py",))
+
+
+def test_a_non_identifier_top_level_name_is_not_importable() -> None:
+    contents = WheelContents(("realpkg/__init__.py", "realpkg.libs/libfoo.so"))
+
+    assert contents.top_level() == ("realpkg",)
 
 
 def test_a_real_namespace_package_under_symlinked_installs_records_a_skip(
