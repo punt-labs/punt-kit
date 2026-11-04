@@ -16,6 +16,12 @@ _TYPE_CHECKING_ELSE = (
     "if TYPE_CHECKING:\n    __version__: str\n"
     'else:\n    __version__ = "0.1.0"\n'
 )
+_LUX_FALLBACK = (
+    "from importlib.metadata import PackageNotFoundError, version\n\n"
+    'try:\n    __version__ = version("punt-lux")\n'
+    'except PackageNotFoundError:\n    __version__ = "0.0.0"\n'
+)
+_PARSE = "from ._util import parse\n"
 _TRY_EXCEPT = (
     "try:\n    from ._v import __version__\n"
     'except ImportError:\n    __version__ = "0.1.0"\n'
@@ -29,23 +35,32 @@ _TRY_EXCEPT = (
         "__version__ = installed_version()\n",
         'from importlib.metadata import version\n__version__ = version("x")\n',
         'import importlib.metadata\n__version__ = importlib.metadata.version("x")\n',
-        "from ._version import get_versions\n"
-        "__version__ = get_versions()['version']\ndel get_versions\n",
-        "from importlib.metadata import version\n"
-        '__version__ = version("x").split("+")[0]\n',
-        'from importlib.metadata import version\n__version__ = version("x") or "0"\n',
-        'from . import _version\n__version__ = _version.get_versions()["version"]\n',
         'from importlib import metadata\n__version__ = metadata.version("x")\n',
+        'import importlib_metadata\n__version__ = importlib_metadata.version("x")\n',
+        'import importlib.metadata as md\n__version__ = md.version("x")\n',
+        "from importlib.metadata import version\nfrom ._dist import DIST\n"
+        "__version__ = version(DIST)\n",
+        "from importlib.metadata import version\nfrom ._dist import DIST\n"
+        "__version__ = version(name=DIST)\n",
+        "try:\n    from importlib.metadata import version\n"
+        "except ImportError:\n    from importlib_metadata import version\n"
+        '__version__ = version("x")\n',
+        "from .paths import installed_version as iv\n__version__ = iv()\n",
+        "from .paths import installed_version\n"
+        "VERSION = installed_version()\n__version__ = VERSION\n",
     ],
     ids=[
         "helper-call",
         "metadata-call",
         "dotted-metadata-call",
-        "versioneer",
-        "call-then-split",
-        "call-or-fallback",
-        "imported-module-attribute-call",
         "imported-submodule-call",
+        "backport-call",
+        "aliased-module-call",
+        "imported-dist-name",
+        "imported-dist-keyword",
+        "try-either-reader",
+        "aliased-helper-call",
+        "through-a-name",
     ],
 )
 def test_a_call_is_computed(text: str) -> None:
@@ -53,7 +68,10 @@ def test_a_call_is_computed(text: str) -> None:
 
 
 def test_a_computed_version_names_its_source_line() -> None:
-    text = "__version__ = installed_version()  # from metadata\n"
+    text = (
+        "from .paths import installed_version\n"
+        "__version__ = installed_version()  # from metadata\n"
+    )
 
     assert ModuleVersion(text).resolved() == ComputedVersion(
         "__version__ = installed_version()  # from metadata"
@@ -124,7 +142,10 @@ def test_a_name_bound_to_a_literal_resolves_to_that_literal() -> None:
 
 
 def test_a_name_bound_to_a_call_is_computed() -> None:
-    text = 'VERSION = version("x")\n__version__ = VERSION\n'
+    text = (
+        "from importlib.metadata import version\n"
+        'VERSION = version("x")\n__version__ = VERSION\n'
+    )
 
     assert ModuleVersion(text).resolved() == ComputedVersion('VERSION = version("x")')
 
@@ -146,7 +167,8 @@ def test_no_binding_at_all_is_absent(text: str) -> None:
 
 def test_a_docstring_decoy_is_neither_read_nor_rewritten() -> None:
     text = (
-        '"""Package.\n\n__version__ = "9.9"\n"""\n\n__version__ = installed_version()\n'
+        '"""Package.\n\n__version__ = "9.9"\n"""\n\n'
+        "from .paths import installed_version\n__version__ = installed_version()\n"
     )
 
     assert ModuleVersion(text).resolved() == ComputedVersion(
@@ -211,11 +233,65 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         'from ._v import *\n__version__ = "0.1.0"\n',
         '__version__ = "0.1.0"\nfrom ._v import *\n',
         'VERSION = "0.1.0"\n__version__ = VERSION\nfrom ._v import *\n',
-        "from ._about import VERSION\n__version__ = parse(VERSION)\n",
-        "from ._about import VERSION\n__version__ = f(x=VERSION)\n",
-        "from ._about import VERSION\nV = VERSION\n__version__ = parse(V)\n",
-        "from ._about import VERSION\nV = parse(VERSION)\n__version__ = V\n",
+        f"{_PARSE}from ._about import VERSION\n__version__ = parse(VERSION)\n",
+        f"{_PARSE}from ._about import VERSION\n__version__ = parse(x=VERSION)\n",
+        f"{_PARSE}from ._about import VERSION\nV = VERSION\n__version__ = parse(V)\n",
+        f"{_PARSE}from ._about import VERSION\nV = parse(VERSION)\n__version__ = V\n",
+        f"{_PARSE}from . import _about\n__version__ = parse(_about.VERSION)\n",
         "from . import _about\n__version__ = str(_about.VERSION)\n",
+        # The callee must be imported: a same-module def, class or lambda can
+        # return a stale literal.
+        'def _v():\n    return "0.1.0"\n__version__ = _v()\n',
+        "def _v():\n    return MAJOR\nMAJOR = 0\n__version__ = _v()\n",
+        'def _v(x="0.1.0"):\n    return x\n__version__ = _v()\n',
+        'class _V(str):\n    pass\n__version__ = _V("0.1.0")\n',
+        'class _V:\n    def __str__(self):\n        return "0.1.0"\n'
+        "__version__ = str(_V())\n",
+        '_v = lambda: "0.1.0"\n__version__ = _v()\n',
+        'class _Meta:\n    VERSION = "0.1.0"\n__version__ = _Meta.VERSION\n',
+        # Built on a call, or on literals the allow-list does not read.
+        'MAJOR = 0\nMINOR = 1\n__version__ = "{}.{}".format(MAJOR, MINOR)\n',
+        '__version__ = "%d.%d" % (0, 1)\n',
+        '__version__ = ".".join(["0", "1", "0"])\n',
+        '__version__ = b"0.1.0".decode()\n',
+        "__version__ = str(0.1)\n",
+        'PARTS = [0, 1, 0]\n__version__ = ".".join(map(str, PARTS))\n',
+        '__version__ = ".".join(str(n) for n in [1, 2, 3])\n',
+        '__version__ = ".".join(map(str, (1,) + (2,)))\n',
+        "__version__ = str(1.2)\n",
+        "from importlib.metadata import version\n"
+        '__version__ = version("x").split("+")[0]\n',
+        'from importlib.metadata import version\n__version__ = version("x") or "0"\n',
+        "from ._version import get_versions\n"
+        "__version__ = get_versions()['version']\ndel get_versions\n",
+        'from . import _version\n__version__ = _version.get_versions()["version"]\n',
+        # An imported reader fed a hardcoded version or part of one.
+        f"{_PARSE}__version__ = parse(1)\n",
+        f"{_PARSE}__version__ = parse(0.1)\n",
+        f'{_PARSE}__version__ = parse(b"x")\n',
+        f'{_PARSE}__version__ = parse(("0", "1"))\n',
+        f"{_PARSE}__version__ = parse({{0, 1}})\n",
+        f'{_PARSE}V = "0.1.0"\n__version__ = parse(V)\n',
+        'from importlib.metadata import version\n__version__ = version("0.1.0")\n',
+        # A module loaded at run time is not a reader.
+        "import importlib\n"
+        '__version__ = importlib.import_module("._about", __name__).VERSION\n',
+        '__version__ = __import__("x").VERSION\n',
+        # A walrus in a lambda default binds at module scope.
+        '__version__ = "0.1.0"\nf = lambda x=(__version__ := "0.0.9"): x\n',
+        '__version__ = "0.1.0"\nf = lambda *, x=(__version__ := "0.0.9"): x\n',
+        # Every walrus that runs at module scope binds there.
+        '__version__ = "0.1.0"\nmatch x:\n    case _ if (__version__ := "0.0.9"):\n'
+        "        pass\n",
+        '__version__ = "0.1.0"\n@d((__version__ := "0.0.9"))\ndef f():\n    pass\n',
+        '__version__ = "0.1.0"\ndef f(x=(__version__ := "0.0.9")):\n    pass\n',
+        '__version__ = "0.1.0"\ndef f(*, x=(__version__ := "0.0.9")):\n    pass\n',
+        '__version__ = "0.1.0"\ndef f(x: (__version__ := "0.0.9")):\n    pass\n',
+        '__version__ = "0.1.0"\n@d((__version__ := "0.0.9"))\nclass C:\n    pass\n',
+        '__version__ = "0.1.0"\ntype __version__ = str\n',
+        # A method call on a from-imported name reads a value, not a module.
+        "from ._about import VERSION\n__version__ = VERSION.strip()\n",
+        'from .paths import helpers\n__version__ = helpers.installed_version("x")\n',
     ],
     ids=[
         "f-string",
@@ -266,6 +342,47 @@ def test_an_assignment_inside_a_block_cannot_be_pinned() -> None:
         "imported-through-a-name",
         "imported-on-the-chain",
         "imported-attribute-argument",
+        "builtin-on-imported-attribute",
+        "def-helper",
+        "def-helper-separate-int",
+        "def-helper-default",
+        "class-constructor",
+        "class-dunder-str",
+        "lambda-helper",
+        "class-attribute",
+        "format-separate-ints",
+        "percent-format",
+        "join-list",
+        "bytes-decode",
+        "str-of-float",
+        "join-list-of-ints",
+        "join-generator-over-list",
+        "join-tuple-sum",
+        "str-of-float-1-2",
+        "call-then-split",
+        "call-or-fallback",
+        "versioneer",
+        "versioneer-module",
+        "reader-of-int",
+        "reader-of-float",
+        "reader-of-bytes",
+        "reader-of-digit-tuple",
+        "reader-of-int-set",
+        "reader-of-literal-name",
+        "metadata-reader-of-version",
+        "import-module-attribute",
+        "dunder-import-attribute",
+        "walrus-in-lambda-default",
+        "walrus-in-lambda-kw-default",
+        "walrus-in-match-guard",
+        "walrus-in-def-decorator",
+        "walrus-in-def-default",
+        "walrus-in-def-kw-default",
+        "walrus-in-def-annotation",
+        "walrus-in-class-decorator",
+        "type-alias",
+        "method-on-from-imported-value",
+        "attribute-on-from-imported-name",
     ],
 )
 def test_anything_else_cannot_be_pinned(text: str) -> None:
@@ -309,12 +426,35 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         ('from ._v import *\n__version__ = "0.1.0"\n', r"import \*` at line 1"),
         (
             'VI = (0, 1, 0)\n__version__ = ".".join(map(str, VI))\n',
-            r"hardcoded version \(0, 1, 0\) \(line 1\)",
+            r"\(line 2\) calls `'\.'\.join`, which is not a function imported",
         ),
-        ('__version__ = str("0.1.0")\n', "hardcoded version '0.1.0'"),
         (
-            "from ._about import VERSION\n__version__ = parse(VERSION)\n",
-            "from VERSION, which is imported from another module; pin the version",
+            '__version__ = str("0.1.0")\n',
+            r"calls `str`, .*a call to an imported reader such as "
+            r"importlib\.metadata\.version\(\)",
+        ),
+        (
+            f"{_PARSE}from ._about import VERSION\n__version__ = parse(VERSION)\n",
+            "passes VERSION, which is imported from another module; pin the version",
+        ),
+        (
+            f'{_PARSE}V = "0.1.0"\n__version__ = parse(V)\n',
+            r"\(line 3\) passes the hardcoded value '0\.1\.0' \(line 2\)",
+        ),
+        (
+            'from importlib.metadata import version\n__version__ = version("x")[0]\n',
+            r"\(line 2\) is not a plain quoted string .* or a call to an "
+            r"imported reader",
+        ),
+        (
+            "from ._about import VERSION\n__version__ = VERSION.strip()\n",
+            "on a name a from-import binds, which may be a value rather than a module",
+        ),
+        (
+            _LUX_FALLBACK,
+            r"assigned 2 times \(lines 4, 6\); a fallback version is not allowed "
+            r'\(python\.md Version Reporting: no "0\.0\.0" fallback\); remove the '
+            "except branch",
         ),
     ],
     ids=[
@@ -328,6 +468,10 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "tuple-joined",
         "literal-in-call",
         "imported-argument",
+        "hardcoded-argument",
+        "subscripted-call",
+        "method-on-from-imported-value",
+        "metadata-fallback",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:

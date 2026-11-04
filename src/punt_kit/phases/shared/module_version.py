@@ -18,6 +18,17 @@ _PLAIN_STRING = re.compile(r"""(["'])[^"'\\\n]*\1""")
 _TRAILER = re.compile(r"\s*(?:#.*)?")
 # A string that spells a version somewhere in it: digits, a dot, digits.
 _VERSION_TEXT = re.compile(r"\d+\.\d+")
+# Callees that read installed package metadata, however they were imported.
+_METADATA_READERS = ("importlib.metadata.", "importlib_metadata.")
+_ADVICE = (
+    "use a plain string or a call to an imported reader such as "
+    "importlib.metadata.version()"
+)
+_LAST_WINS = "Python keeps the last, so a bump of one could ship a stale version"
+_FALLBACK = (
+    "a fallback version is not allowed (python.md Version Reporting: no "
+    '"0.0.0" fallback); remove the except branch'
+)
 # Statements that open a scope of their own: their bodies bind other names.
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
@@ -57,41 +68,33 @@ class ModuleVersion:
     Read from the syntax tree, never the text, so a docstring that mentions
     ``__version__ = "9.9"`` is not an assignment. Every binding in the
     module's global scope counts: an assignment (plain, annotated with a
-    value, or augmented), an import, a walrus, a ``for``/``with``/``match``
-    target, and an assignment under ``global`` inside a function, whether in
-    the module body or inside an ``if``/``try``/``with``/``for``/``while``/
-    ``match`` block. A bare annotation is not a binding. ``resolved`` answers
-    one of:
+    value, or augmented), an import, a walrus (a lambda default's too), a
+    ``for``/``with``/``match`` target, and an assignment under ``global``
+    inside a function, whether in the module body or inside an
+    ``if``/``try``/``with``/``for``/``while``/``match`` block. A bare
+    annotation is not a binding. ``resolved`` answers one of:
 
     - ``None`` — nothing in the module binds ``__version__``.
-    - ``ComputedVersion`` — the value contains a call (``installed_version()``,
-      ``version("x").split("+")[0]``, versioneer's
-      ``get_versions()["version"]``), no version-like literal reaches it, and
-      no imported name feeds it as data: read from installed metadata at
-      import time, so there is nothing to bump or verify. An imported name
-      may be what is called (``version``, ``importlib`` in
-      ``importlib.metadata.version("x")``), never what is passed or operated
-      on (``parse(VERSION)`` with ``VERSION`` imported).
     - ``LiteralVersion`` — a one-line, unprefixed, single- or double-quoted
       string that ends its statement (a ``# comment`` may follow), optionally
       annotated. A plain name bound once, in the module body, to such a
       literal (``VERSION = "1.0"``; ``__version__ = VERSION``) resolves to
       that literal, and it is the one rewritten.
+    - ``ComputedVersion`` — the value, through the same plain-name aliases,
+      is exactly one call to an imported reader (``installed_version()``,
+      ``version("x")``, ``importlib.metadata.version("x")``): read from
+      installed metadata at import time, so there is nothing to bump or
+      verify. ``_ReaderCall`` holds the rules for the call.
 
-    Anything else raises ``UnpinnableVersionError``, because skipping it would
-    ship a stale version: a file that does not parse; ``__version__``, or a
-    name it resolves through, bound more than once (Python keeps the last),
-    bound only inside a block or a function, or imported from another module;
-    an ``import *`` beside them; an f-, r-, u- or b-string; a parenthesised,
-    concatenated, triple-quoted or conditional value; and a call that a
-    version-like literal reaches (``str("0.1.0")``,
-    ``os.environ.get("V", "0.1.0")``, ``".".join(map(str, VERSION_INFO))``
-    with ``VERSION_INFO = (0, 1, 0)``) or that reads an imported name as data,
-    directly or through a name bound in this module, since the other module
-    may pin a stale literal. A version-like literal is a string
-    holding ``digits.digits`` or a tuple of two or more ints; it reaches a
-    value when it appears inside it or a name inside it is bound in this
-    module to a value it reaches.
+    That is an allow-list: anything else raises ``UnpinnableVersionError``,
+    because skipping it could ship a stale version. That covers a file that
+    does not parse; ``__version__``, or a name it resolves through, bound
+    more than once (Python keeps the last), bound only inside a block or a
+    function, or imported from another module; an ``import *`` beside them;
+    an f-, r-, u- or b-string; a parenthesised, concatenated, triple-quoted
+    or conditional value; and any expression built on a call
+    (``version("x").split("+")[0]``, ``get_versions()["version"]``,
+    ``".".join(...)``, ``__import__("x").VERSION``).
     """
 
     __slots__ = ("_bindings", "_lines")
@@ -129,11 +132,14 @@ class ModuleVersion:
                 return self._resolve(other, seen)
             case ast.Constant(value=str()):
                 return self._literal(stmt, value, name, source)
-            case _ if any(isinstance(node, ast.Call) for node in ast.walk(value)):
-                return self._computed(value, name, source)
+            case ast.Call():
+                fault = _ReaderCall(value, self._bindings).fault()
+                if fault is not None:
+                    msg = f"`{source}` (line {stmt.lineno}) {fault}"
+                    raise UnpinnableVersionError(msg)
+                return ComputedVersion(source)
             case _:
-                msg = f'`{source}` is not a plain quoted string ({name} = "X.Y.Z")'
-                raise UnpinnableVersionError(msg)
+                raise _not_plain(source, stmt.lineno, name)
 
     def _only_binding(self, name: str) -> ast.stmt:
         """The one module-body statement that binds ``name``."""
@@ -149,10 +155,8 @@ class ModuleVersion:
             raise UnpinnableVersionError(msg)
         if len(bindings) > 1:
             lines = ", ".join(str(binding.stmt.lineno) for binding in bindings)
-            msg = (
-                f"{name} is assigned {len(bindings)} times (lines {lines}); "
-                "Python keeps the last, so a bump of one could ship a stale version"
-            )
+            why = _FALLBACK if _is_a_fallback(bindings) else _LAST_WINS
+            msg = f"{name} is assigned {len(bindings)} times (lines {lines}); {why}"
             raise UnpinnableVersionError(msg)
         [binding] = bindings
         if binding.is_import:
@@ -182,41 +186,92 @@ class ModuleVersion:
                 msg = f"`{source}` does not assign one plain name"
                 raise UnpinnableVersionError(msg)
 
-    def _computed(self, value: ast.expr, name: str, source: str) -> ComputedVersion:
-        """``value`` as computed, unless a hardcoded version feeds the call."""
-        literal = self._version_literal(value, frozenset())
-        if literal is not None:
-            msg = (
-                f"`{source}` computes {name} from the hardcoded version "
-                f"{ast.unparse(literal)} (line {literal.lineno}), so a bump could "
-                f'ship a stale version; write {name} = "X.Y.Z" or read it from '
-                "package metadata"
-            )
-            raise UnpinnableVersionError(msg)
-        imported = self._imported_operand(value, frozenset())
-        if imported is not None:
-            msg = (
-                f"`{source}` computes {name} from {imported}, which is imported "
-                "from another module; pin the version there"
-            )
-            raise UnpinnableVersionError(msg)
-        return ComputedVersion(source)
+    def _literal(
+        self, stmt: ast.stmt, node: ast.Constant, name: str, source: str
+    ) -> LiteralVersion:
+        """``node`` located for rewriting, when its source form is plain."""
+        line = self._lines[node.lineno - 1]
+        start = _char_offset(line, node.col_offset)
+        end = _char_offset(line, node.end_col_offset or 0)
+        head = line[_char_offset(line, stmt.col_offset) : start]
+        is_plain = (
+            node.end_lineno == node.lineno == stmt.lineno
+            and re.fullmatch(rf"{re.escape(name)}\s*(?::[^=]*)?=\s*", head)
+            and _PLAIN_STRING.fullmatch(line, start, end)
+            and _TRAILER.fullmatch(line, end)
+        )
+        if not is_plain:
+            raise _not_plain(source, stmt.lineno, name)
+        return LiteralVersion(str(node.value), node.lineno - 1, start + 1, end - 1)
 
-    def _imported_operand(self, expr: ast.expr, seen: frozenset[str]) -> str | None:
-        """An imported name ``expr`` reads as data, not as the function it calls."""
-        callees = _callee_names(expr)
-        for node in ast.walk(expr):
-            if not isinstance(node, ast.Name) or node in callees or node.id in seen:
-                continue
-            seen |= {node.id}
-            bindings = self._bindings.of(node.id)
-            if any(binding.is_import for binding in bindings):
-                return node.id
-            for binding in bindings:
-                for feed in binding.sources:
-                    found = self._imported_operand(feed, seen)
-                    if found is not None:
-                        return found
+    def _source(self, stmt: ast.stmt) -> str:
+        """The first line of ``stmt``, stripped, for messages."""
+        return self._lines[stmt.lineno - 1].strip()
+
+
+@final
+class _ReaderCall:
+    """A call that may read ``__version__`` from package metadata at import time.
+
+    It qualifies only when its callee is a name, or an attribute chain on a
+    name, that the module binds by import alone. An attribute chain must
+    start from a module (``import X``, ``import X.Y``, ``import X as Z``,
+    ``from importlib import metadata``, ``from importlib_metadata import
+    ...``), never another from-import, which may bind a value such as a
+    stale ``VERSION`` string. No argument may hardcode a
+    version (``_is_version_like``) or, unless the callee is
+    ``importlib.metadata``'s or ``importlib_metadata``'s, reads an imported
+    name, directly or through a name bound in this module. An imported
+    argument could be a stale literal pinned in the other module.
+    """
+
+    __slots__ = ("_bindings", "_call")
+
+    _bindings: _ModuleBindings
+    _call: ast.Call
+
+    def __new__(cls, call: ast.Call, bindings: _ModuleBindings) -> Self:
+        self = super().__new__(cls)
+        self._call = call
+        self._bindings = bindings
+        return self
+
+    def fault(self) -> str | None:
+        """Why the call cannot be trusted to read the version; ``None`` if it can."""
+        callee = ast.unparse(self._call.func)
+        base, attributes = _callee_path(self._call.func)
+        bindings = self._bindings.of(base.id) if base is not None else []
+        if not bindings or not all(binding.is_import for binding in bindings):
+            return (
+                f"calls `{callee}`, which is not a function imported from another "
+                f"module; {_ADVICE}"
+            )
+        if attributes and not all(binding.imports_a_module for binding in bindings):
+            return (
+                f"calls `{callee}` on a name a from-import binds, which may be a "
+                f"value rather than a module; {_ADVICE}"
+            )
+        callees = [
+            ".".join([binding.origin or "", *attributes]) for binding in bindings
+        ]
+        arguments = [*self._call.args, *(kw.value for kw in self._call.keywords)]
+        for argument in arguments:
+            literal = self._version_literal(argument, frozenset())
+            if literal is not None:
+                return (
+                    f"passes the hardcoded value {ast.unparse(literal)} "
+                    f"(line {literal.lineno}), which could be a stale version; "
+                    f"{_ADVICE}"
+                )
+        if all(callee.startswith(_METADATA_READERS) for callee in callees):
+            return None
+        for argument in arguments:
+            imported = self._imported_name(argument, frozenset())
+            if imported is not None:
+                return (
+                    f"passes {imported}, which is imported from another module; "
+                    "pin the version there"
+                )
         return None
 
     def _version_literal(self, expr: ast.expr, seen: frozenset[str]) -> ast.expr | None:
@@ -233,28 +288,21 @@ class ModuleVersion:
                             return found
         return None
 
-    def _literal(
-        self, stmt: ast.stmt, node: ast.Constant, name: str, source: str
-    ) -> LiteralVersion:
-        """``node`` located for rewriting, when its source form is plain."""
-        line = self._lines[node.lineno - 1]
-        start = _char_offset(line, node.col_offset)
-        end = _char_offset(line, node.end_col_offset or 0)
-        head = line[_char_offset(line, stmt.col_offset) : start]
-        is_plain = (
-            node.end_lineno == node.lineno == stmt.lineno
-            and re.fullmatch(rf"{re.escape(name)}\s*(?::[^=]*)?=\s*", head)
-            and _PLAIN_STRING.fullmatch(line, start, end)
-            and _TRAILER.fullmatch(line, end)
-        )
-        if not is_plain:
-            msg = f'`{source}` is not a plain quoted string ({name} = "X.Y.Z")'
-            raise UnpinnableVersionError(msg)
-        return LiteralVersion(str(node.value), node.lineno - 1, start + 1, end - 1)
-
-    def _source(self, stmt: ast.stmt) -> str:
-        """The first line of ``stmt``, stripped, for messages."""
-        return self._lines[stmt.lineno - 1].strip()
+    def _imported_name(self, expr: ast.expr, seen: frozenset[str]) -> str | None:
+        """An imported name that reaches ``expr``, through names too."""
+        for node in ast.walk(expr):
+            if not isinstance(node, ast.Name) or node.id in seen:
+                continue
+            seen |= {node.id}
+            bindings = self._bindings.of(node.id)
+            if any(binding.is_import for binding in bindings):
+                return node.id
+            for binding in bindings:
+                for feed in binding.sources:
+                    found = self._imported_name(feed, seen)
+                    if found is not None:
+                        return found
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,23 +311,64 @@ class _Binding:
 
     stmt: ast.stmt  # the statement that holds the binding
     sources: tuple[ast.expr, ...]  # the expressions whose value flows in
-    is_import: bool
+    origin: str | None  # the dotted name an import binds; None otherwise
     is_nested: bool  # inside a block or a function, not the module body
+    is_in_except: bool  # inside an ``except`` branch
+
+    @property
+    def is_import(self) -> bool:
+        """Whether an import statement makes this binding."""
+        return self.origin is not None
+
+    @property
+    def imports_a_module(self) -> bool:
+        """Whether the bound name is surely a module: ``import X`` or metadata."""
+        return isinstance(self.stmt, ast.Import) or (
+            self.origin is not None
+            and (
+                self.origin == "importlib.metadata"
+                or self.origin.startswith("importlib_metadata.")
+            )
+        )
+
+    @property
+    def assigns_a_call(self) -> bool:
+        """Whether the value bound is a call."""
+        return isinstance(self.stmt, ast.Assign | ast.AnnAssign) and isinstance(
+            self.stmt.value, ast.Call
+        )
+
+    @property
+    def assigns_a_string(self) -> bool:
+        """Whether the value bound is a string literal."""
+        return (
+            isinstance(self.stmt, ast.Assign | ast.AnnAssign)
+            and isinstance(self.stmt.value, ast.Constant)
+            and isinstance(self.stmt.value.value, str)
+        )
 
 
 @final
 class _ModuleBindings:
     """Every binding of every name in a module's global scope."""
 
-    __slots__ = ("_by_name", "_stars")
+    __slots__ = ("_by_name", "_excepted", "_stars")
 
     _by_name: defaultdict[str, list[_Binding]]
+    _excepted: set[ast.stmt]
     _stars: list[ast.ImportFrom]
 
     def __new__(cls, tree: ast.Module) -> Self:
         self = super().__new__(cls)
         self._by_name = defaultdict(list)
         self._stars = []
+        self._excepted = {
+            stmt
+            for handler in ast.walk(tree)
+            if isinstance(handler, ast.excepthandler)
+            for stmt in ast.walk(handler)
+            if isinstance(stmt, ast.stmt)
+        }
         body = set(tree.body)
         for stmt in _own_statements(tree):
             self._record(stmt, is_nested=stmt not in body, only=None)
@@ -315,9 +404,11 @@ class _ModuleBindings:
         """Note the names ``stmt`` binds, keeping only ``only`` when given."""
         if isinstance(stmt, ast.ImportFrom) and only is None:
             self._stars.extend(stmt for alias in stmt.names if alias.name == "*")
-        for name, sources, is_import in _bound_names(stmt):
+        for name, sources, origin in _bound_names(stmt):
             if only is None or name in only:
-                binding = _Binding(stmt, sources, is_import, is_nested)
+                binding = _Binding(
+                    stmt, sources, origin, is_nested, stmt in self._excepted
+                )
                 self._by_name[name].append(binding)
 
 
@@ -333,31 +424,53 @@ def _own_statements(node: ast.AST) -> Iterator[ast.stmt]:
 
 
 def _own_expressions(node: ast.AST) -> Iterator[ast.AST]:
-    """Nodes of ``node``'s own expressions: not nested statements or lambdas."""
+    """Nodes of ``node``'s own expressions, not nested statements.
+
+    A lambda's body is its own scope, but its defaults run in this one, as
+    does a ``match`` case's guard.
+    """
     for child in ast.iter_child_nodes(node):
-        if not isinstance(
-            child, ast.stmt | ast.Lambda | ast.excepthandler | ast.match_case
-        ):
+        if isinstance(child, ast.match_case):
+            if child.guard is not None:
+                yield child.guard
+                yield from _own_expressions(child.guard)
+        elif isinstance(child, ast.Lambda):
+            defaults = [*child.args.defaults, *child.args.kw_defaults]
+            for default in defaults:
+                if default is not None:
+                    yield default
+                    yield from _own_expressions(default)
+        elif not isinstance(child, ast.stmt | ast.excepthandler):
             yield child
             yield from _own_expressions(child)
 
 
 def _bound_names(
     stmt: ast.stmt,
-) -> Iterator[tuple[str, tuple[ast.expr, ...], bool]]:
-    """Each name ``stmt`` binds, what flows into it, and whether it is imported."""
+) -> Iterator[tuple[str, tuple[ast.expr, ...], str | None]]:
+    """Each name ``stmt`` binds, what flows into it, and what it imports."""
     match stmt:
         case ast.Assign(targets=targets, value=value):
             for target in targets:
                 yield from _stored(target, (value,))
         case ast.AnnAssign(target=ast.Name(id=name), value=ast.expr() as value):
-            yield name, (value,), False
+            yield name, (value,), None
         case ast.AugAssign(target=ast.Name(id=name), value=value):
-            yield name, (value,), False
-        case ast.Import(names=aliases) | ast.ImportFrom(names=aliases):
+            yield name, (value,), None
+        case ast.TypeAlias(name=ast.Name(id=name), value=value):
+            yield name, (value,), None
+        case ast.Import(names=aliases):
+            for alias in aliases:
+                if alias.asname:
+                    yield alias.asname, (), alias.name
+                else:
+                    package = alias.name.split(".")[0]
+                    yield package, (), package
+        case ast.ImportFrom(module=module, names=aliases, level=level):
+            prefix = "." * level + (f"{module}." if module else "")
             for alias in aliases:
                 if alias.name != "*":
-                    yield (alias.asname or alias.name).split(".")[0], (), True
+                    yield alias.asname or alias.name, (), prefix + alias.name
         case ast.For(target=target, iter=feed) | ast.AsyncFor(target=target, iter=feed):
             yield from _stored(target, (feed,))
         case ast.With(items=items) | ast.AsyncWith(items=items):
@@ -367,31 +480,31 @@ def _bound_names(
         case ast.Match(subject=subject, cases=cases):
             for case in cases:
                 for name in _captured(case.pattern):
-                    yield name, (subject,), False
+                    yield name, (subject,), None
         case ast.Try(handlers=handlers) | ast.TryStar(handlers=handlers):
             for handler in handlers:
                 if handler.name:
-                    yield handler.name, (), False
+                    yield handler.name, (), None
         case (
             ast.FunctionDef(name=name)
             | ast.AsyncFunctionDef(name=name)
             | ast.ClassDef(name=name)
         ):
-            yield name, (), False
+            yield name, (), None
         case _:
             pass
     for node in _own_expressions(stmt):
         if isinstance(node, ast.NamedExpr):
-            yield node.target.id, (node.value,), False
+            yield node.target.id, (node.value,), None
 
 
 def _stored(
     target: ast.expr, sources: tuple[ast.expr, ...]
-) -> Iterator[tuple[str, tuple[ast.expr, ...], bool]]:
+) -> Iterator[tuple[str, tuple[ast.expr, ...], str | None]]:
     """Each plain name ``target`` stores into, fed by ``sources``."""
     for node in ast.walk(target):
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
-            yield node.id, sources, False
+            yield node.id, sources, None
 
 
 def _captured(pattern: ast.pattern) -> Iterator[str]:
@@ -406,33 +519,62 @@ def _captured(pattern: ast.pattern) -> Iterator[str]:
                 pass
 
 
-def _callee_names(expr: ast.expr) -> set[ast.Name]:
-    """Each name a call in ``expr`` invokes: ``f`` in ``f()``, ``a`` in ``a.b.f()``."""
-    callees: set[ast.Name] = set()
-    for node in ast.walk(expr):
-        if isinstance(node, ast.Call):
-            func = node.func
-            while isinstance(func, ast.Attribute):
-                func = func.value
-            if isinstance(func, ast.Name):
-                callees.add(func)
-    return callees
+def _is_version_like(
+    node: ast.AST,
+) -> TypeIs[ast.Constant | ast.List | ast.Set | ast.Tuple]:
+    """Whether ``node`` could hardcode a version or a part of one.
 
-
-def _is_version_like(node: ast.AST) -> TypeIs[ast.Constant | ast.Tuple]:
-    """Whether ``node`` hardcodes a version: ``"1.2"`` text or ``(1, 2)`` ints."""
+    A string holding ``digits.digits``; any int, float or bytes constant; a
+    list, set or tuple of two or more numbers or digit-only strings.
+    """
     match node:
         case ast.Constant(value=str() as text):
             return _VERSION_TEXT.search(text) is not None
-        case ast.Tuple(elts=elts):
-            ints = [
-                elt
-                for elt in elts
-                if isinstance(elt, ast.Constant) and type(elt.value) is int
-            ]
-            return len(ints) >= 2
+        case ast.Constant(value=bool()):
+            return False
+        case ast.Constant(value=int() | float() | bytes()):
+            return True
+        case ast.List(elts=elts) | ast.Set(elts=elts) | ast.Tuple(elts=elts):
+            return sum(map(_is_version_part, elts)) >= 2
         case _:
             return False
+
+
+def _is_version_part(node: ast.expr) -> bool:
+    """Whether ``node`` is a number or a digit-only string."""
+    match node:
+        case ast.Constant(value=bool()):
+            return False
+        case ast.Constant(value=int() | float()):
+            return True
+        case ast.Constant(value=str() as text):
+            return text.isdigit()
+        case _:
+            return False
+
+
+def _callee_path(func: ast.expr) -> tuple[ast.Name | None, list[str]]:
+    """The name a callee starts from and the attributes it then reads."""
+    attributes: list[str] = []
+    while isinstance(func, ast.Attribute):
+        attributes.insert(0, func.attr)
+        func = func.value
+    return (func if isinstance(func, ast.Name) else None), attributes
+
+
+def _is_a_fallback(bindings: list[_Binding]) -> bool:
+    """Whether ``bindings`` read the version but fall back to a literal on error."""
+    return any(binding.assigns_a_call for binding in bindings) and any(
+        binding.is_in_except and binding.assigns_a_string for binding in bindings
+    )
+
+
+def _not_plain(source: str, line: int, name: str) -> UnpinnableVersionError:
+    """The refusal for a value that is neither a plain string nor a reader call."""
+    return UnpinnableVersionError(
+        f"`{source}` (line {line}) is not a plain quoted string "
+        f'({name} = "X.Y.Z") or a call to an imported reader; {_ADVICE}'
+    )
 
 
 def _char_offset(line: str, byte_offset: int) -> int:

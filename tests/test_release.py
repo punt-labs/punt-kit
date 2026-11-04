@@ -13659,16 +13659,16 @@ _HELPER_COMPUTED_INIT = (
 _METADATA_COMPUTED_INIT = (
     'from importlib.metadata import version\n\n__version__ = version("test-pkg")\n'
 )
-_SPLIT_COMPUTED_INIT = (
-    "from importlib.metadata import version\n\n"
-    '__version__ = version("test-pkg").split("+")[0]\n'
+_DIST_COMPUTED_INIT = (
+    "from importlib.metadata import version\n\nfrom ._dist import DIST\n\n"
+    "__version__ = version(DIST)\n"
 )
 
 
 @pytest.mark.parametrize(
     "init_text",
-    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT, _SPLIT_COMPUTED_INIT],
-    ids=["helper-call", "importlib-metadata", "call-then-split"],
+    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT, _DIST_COMPUTED_INIT],
+    ids=["helper-call", "importlib-metadata", "imported-dist-name"],
 )
 def test_phase2_leaves_a_computed_init_version_alone(
     tmp_path: Path, init_text: str
@@ -13761,7 +13761,17 @@ _UNPINNABLE_INITS = {
     "star-import": '__version__ = "0.1.0"\nfrom ._v import *\n',
     # Pinned in another module, which this one cannot see.
     "imported": "from ._v import __version__\n",
-    "imported-argument": "from ._about import VERSION\n__version__ = parse(VERSION)\n",
+    "imported-argument": (
+        "from ._util import parse\nfrom ._about import VERSION\n"
+        "__version__ = parse(VERSION)\n"
+    ),
+    # Only one call to an imported reader is computed.
+    "def-helper": 'def _v():\n    return "0.1.0"\n__version__ = _v()\n',
+    "format-call": 'MAJOR = 0\nMINOR = 1\n__version__ = "{}.{}".format(MAJOR, MINOR)\n',
+    "call-then-split": (
+        "from importlib.metadata import version\n\n"
+        '__version__ = version("test-pkg").split("+")[0]\n'
+    ),
 }
 
 
@@ -13799,8 +13809,8 @@ def test_phase2_fails_when_the_pyproject_version_cannot_be_rewritten(
 
 @pytest.mark.parametrize(
     "init_text",
-    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT, _SPLIT_COMPUTED_INIT],
-    ids=["helper-call", "importlib-metadata", "call-then-split"],
+    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT, _DIST_COMPUTED_INIT],
+    ids=["helper-call", "importlib-metadata", "imported-dist-name"],
 )
 def test_phase11_passes_a_computed_init_version_and_names_it(
     tmp_path: Path,
