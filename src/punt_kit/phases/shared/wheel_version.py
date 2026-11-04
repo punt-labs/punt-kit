@@ -46,7 +46,8 @@ class WheelVersionCheck:
        when that directory or ``.py`` file exists under the module root
        (``module-root``, default ``src``) or, for a flat layout, the repo root;
     3. the one package or ``.py`` module under the module root, or, when it
-       holds none, the one at the repo root.
+       holds none, the one package at the repo root (a lone root ``.py`` is
+       a tooling script such as ``noxfile.py``, so it never counts here).
 
     Anything else fails, naming what was searched. Steps 2 and 3 name one
     module, so a wheel shipping several top-level packages has only that one
@@ -116,7 +117,10 @@ class WheelVersionCheck:
         ):
             return (name,)
         for base in bases:
-            modules = _top_level_modules(base)
+            # The repo root holds tooling scripts (noxfile.py, conftest.py),
+            # so there only a package counts; a root <name>.py is accepted
+            # through the project-name step above.
+            modules = _top_level_modules(base, files=base != self._info.root)
             if len(modules) == 1:
                 return modules
             if modules:
@@ -302,8 +306,11 @@ class WheelVersionCheck:
         return cast("dict[str, object]", table)
 
 
-def _top_level_modules(base: Path) -> tuple[str, ...]:
-    """The regular packages and ``.py`` modules directly under ``base``, sorted."""
+def _top_level_modules(base: Path, *, files: bool) -> tuple[str, ...]:
+    """The regular packages directly under ``base``, sorted.
+
+    With ``files``, its ``.py`` modules count too.
+    """
     if not base.is_dir():
         return ()
     return tuple(
@@ -311,7 +318,7 @@ def _top_level_modules(base: Path) -> tuple[str, ...]:
             child.stem if child.is_file() else child.name
             for child in base.iterdir()
             if (child.is_dir() and (child / "__init__.py").is_file())
-            or (child.is_file() and child.suffix == ".py")
+            or (files and child.is_file() and child.suffix == ".py")
         )
     )
 

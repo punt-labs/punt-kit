@@ -604,6 +604,26 @@ def test_a_flat_layout_resolves(
     assert _check(root, fault_ops(), skips).module_names() == expected
 
 
+def test_root_scripts_do_not_count_as_a_flat_layouts_module(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _flat_project(tmp_path, "other-name", ("thepkg",))
+    for script in ("noxfile.py", "conftest.py"):
+        (root / script).write_text("")
+
+    assert _check(root, fault_ops(), skips).module_names() == ("thepkg",)
+
+
+def test_a_root_module_named_for_the_project_resolves(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _flat_project(tmp_path, "flat-mod", ())
+    for script in ("flat_mod.py", "noxfile.py"):
+        (root / script).write_text("")
+
+    assert _check(root, fault_ops(), skips).module_names() == ("flat_mod",)
+
+
 def _single_file_project(tmp_path: Path, name: str, module: str) -> Path:
     """A project ``name`` whose code is the one file ``src/<module>.py``."""
     root = tmp_path / "single"
