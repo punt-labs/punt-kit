@@ -371,6 +371,10 @@ Setup hook that runs on every session start. Must:
 It never edits a settings file: permission rules come from `<tool> enable`
 ([permissions.md § 6](permissions.md#6-plugin-distributed-permissions)).
 
+An engine that holds per-session state also opens its engine session here,
+and its PreToolUse hook stamps the caller on its MCP tool calls:
+[mcp-caller-identity.md § 3–4](mcp-caller-identity.md).
+
 ### PostToolUse (output suppression)
 
 Every MCP tool must have a corresponding handler in
