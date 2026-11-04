@@ -1,6 +1,6 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19 · **Updated:** 2026-09-10
+**Introduced:** 2026-07-19 · **Updated:** 2026-10-26
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo (and,
 for global tools, on a machine): one bare `@`-import line in a user-owned host
@@ -330,6 +330,10 @@ import-line append.
   (`select(. as $r | $remove | index($r) | not)`). No tag schema is needed or
   implied; the deterministic entry set *is* the identity.
 - Neither touches unrelated entries.
+- For permissions the set is the tool's whole production surface: its CLI
+  (`Bash(<cli>:*)`), its MCP server wildcard, and one `Skill(...)` rule per
+  shipped command, never a `-dev` rule
+  ([permissions.md § 6](permissions.md#6-plugin-distributed-permissions)).
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
 deposit via `enable` is only for genuinely repo-scoped hook behavior.
