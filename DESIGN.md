@@ -2268,23 +2268,33 @@ phase 5 tags, which publishes.
    root or the repo root. Otherwise the single package under `src/`, or at
    the repo root only when `src/` has none. Otherwise the phase fails, naming
    what it searched.
-2. **The probe.** For each wheel in `dist/` and each module, it runs
-   `uv run --isolated --no-project --with <wheel> python -I -c <probe>
-   <module>`. The probe imports the module, writes exactly one framed record
-   to file descriptor 1 (`\x00PUNT_VERSION=` plus the `ascii()` of the
-   value, or an "absent" record), and calls `os._exit(0)` so no atexit
-   handler or buffered print can follow it. Every module is imported. No
-   static pre-filter decides whether to look, because the static reader is
-   blind to exactly the cases this check exists for.
-3. **The comparison.** Exactly one record is required. The value must be a
-   `str` with no surrounding whitespace that parses as a PEP 440 version,
-   and it must equal the release version under `packaging.version.Version`.
-   So `1.0.0-rc1` matches a package reporting `1.0.0rc1`.
+2. **The probe.** The parent first requires the module to be in the wheel
+   zip. For each wheel in `dist/` and each module, it then runs
+   `uv run --isolated --no-project --with <wheel> [--python <requires-python>]
+   python -I -c <probe> <module> <nonce>`, with a fresh
+   `secrets.token_hex(16)` nonce each time. The probe imports the module,
+   writes exactly one record tagged with that nonce to file descriptor 1,
+   and calls `os._exit(0)`, so no atexit handler or buffered print can
+   follow it. The record carries the version (as `ascii(str.__str__(v))`),
+   the module's load origin, and whether that origin is in the standard
+   library. `__version__` counts as absent only when the module defines
+   neither `__version__` nor `__getattr__`; otherwise it is read directly,
+   and an exception fails the release. Every module is imported. No static
+   pre-filter decides whether to look, because the static reader is blind to
+   exactly the cases this check exists for.
+3. **The comparison.** Exactly one record with the run's nonce is required.
+   The value must be a `str` equal to the release version as written, or to
+   its canonical PEP 440 form, so `1.0.0-rc1` matches a package reporting
+   `1.0.0rc1` while `v1.0.0` or `1.0` do not. A module loaded from the
+   standard library fails. Probe output is decoded with replacement, so a
+   stray non-UTF-8 byte cannot crash the release.
 4. **Skips.** A module with no `__version__` at run time is recorded with
    the `SkipRecorder`, so it appears in the end-of-run recap. A run resumed
-   past phase 3 records that the check did not run. An import failure, a
-   mismatch, a malformed record, or an empty `dist/` fails the phase, naming
-   both values and the wheel.
+   past phase 3 records that the check did not run and says to re-run from
+   `build` if `dist/` changed. An import failure, a mismatch, a malformed or
+   missing record, a module absent from the wheel, an invalid release
+   version, or an empty `dist/` fails the phase, naming both values and the
+   wheel.
 
 DES-034 still decides what phase 2 bumps. This check decides whether the
 release may proceed, so a miss in the static classifier becomes a loud
