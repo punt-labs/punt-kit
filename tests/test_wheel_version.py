@@ -735,6 +735,63 @@ def test_a_configured_name_the_wheel_lacks_still_fails(
         )
 
 
+_STRAY_NATIVE = "_widget_native.cpython-313-x86_64-linux-gnu.so"
+
+
+def _widget_project(tmp_path: Path) -> Path:
+    """Project ``widget`` with ``src/widget/``: step 2 names ``widget``."""
+    root = tmp_path / "widget"
+    _layout(root, ("src/widget",))
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "widget"\nversion = "{_RELEASE}"\n'
+    )
+    (root / "dist").mkdir()
+    return root
+
+
+@pytest.mark.parametrize(
+    ("files", "message"),
+    [
+        pytest.param(
+            {"widget/assets/logo.png": "png", _STRAY_NATIVE: ""},
+            "ships widget/ with no Python files",
+            id="shipped-empty",
+        ),
+        pytest.param({_STRAY_NATIVE: ""}, "does not contain widget", id="missing"),
+    ],
+)
+def test_a_project_name_match_the_wheel_dropped_fails(
+    tmp_path: Path, skips: SkipRecorder, files: dict[str, str], message: str
+) -> None:
+    """The build dropped ``widget``; a stray native module must not stand in."""
+    root = _widget_project(tmp_path)
+
+    # No probe: an import would be an unmatched command and fail the test.
+    with pytest.raises(ReleaseError, match=message):
+        _check(root, fault_ops(), skips).verify(_built(root, files))
+
+
+def test_a_module_root_match_the_wheel_dropped_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """Step 3 found ``src/test_pkg``; the wheel holds only a stray module."""
+    root = _project(tmp_path, "", name="other-name")
+
+    with pytest.raises(ReleaseError, match="does not contain test_pkg"):
+        _check(root, fault_ops(), skips).verify(_built(root, {_STRAY_NATIVE: ""}))
+
+
+def test_a_repo_root_guess_the_wheel_ships_empty_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """Only a repo-root guess the wheel holds nothing of falls back."""
+    root = _lib_layout_with_root_tests(tmp_path)
+    files = {"tests/data.txt": "x", "widget/__init__.py": ""}
+
+    with pytest.raises(ReleaseError, match="ships tests/ with no Python files"):
+        _check(root, fault_ops(), skips).verify(_built(root, files))
+
+
 def test_a_data_directory_beside_the_package_is_not_a_module(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
