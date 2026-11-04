@@ -493,6 +493,12 @@ Following the principle from cli.md:
 Async hooks (Notification, PreCompact in some projects) are inherently
 fail-open — they run in the background and their exit code is ignored.
 
+A PreToolUse hook that stamps caller identity on its own MCP tools is a
+mutation hook for those tools and fails closed there
+([mcp-caller-identity.md § 3.1](mcp-caller-identity.md)). Opening an engine
+session from SessionStart stays fail-open, because the PreToolUse hook opens
+the session itself when SessionStart has not.
+
 ---
 
 ## 8. Hook Registration

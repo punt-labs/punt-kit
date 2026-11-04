@@ -1,45 +1,46 @@
 # MCP Caller Identity Standards
 
-**Updated:** 2026-11-04
+**Introduced:** 2026-11-04 · **Decision record:** [DES-034](../DESIGN.md)
 
 How a Punt Labs engine learns which Claude Code session, and which agent
 inside it, is calling — on every client surface that session uses: MCP tool
-calls, hooks, and applets. This standard applies to every engine that holds
-state for its callers. [architecture.md](architecture.md) invariant 4 already
-requires that state to live in the engine, keyed by client; this document
-says where the key comes from.
+calls, hooks, and applets. [architecture.md](architecture.md) invariant 4
+requires client state to live in the engine, keyed by client; this document
+says where the key comes from when the client is a Claude Code session.
 
-The reference implementation is ethos (DES-074, amendments of 2026-11-03).
-The lux and vox applications in § 8 test the boundaries of the standard.
+ethos (DES-074, amendments of 2026-11-03) is the closest existing
+implementation and the source of the hook rules in § 3.1; § 8.1 lists where
+it does not yet conform. lux and vox (§ 8.2–8.3) test the standard's
+boundaries.
 
 ---
 
 ## 1. The Problem, Measured
 
-Measured against Claude Code 2.1.309 with a logging MCP server and a logging
-PreToolUse hook (fastmcp 3.4.11 and 4.1.6, headless `claude -p` sessions,
-2026-11-04):
+Measured against Claude Code 2.1.309, headless `claude -p`, over streamable
+HTTP, with a logging MCP server (fastmcp 3.4.11 and 4.1.6) and logging hooks,
+2026-11-04. stdio servers were not measured.
 
 | Fact | Evidence |
 |---|---|
-| A `tools/call` names no session and no agent. Beyond the arguments it carries only `_meta: {claudecode/toolUseId, progressToken}`. | Raw request bodies |
-| An MCP server's environment has no `CLAUDE_PID` and no session variable. The documented `${VAR}` expansions in `url`, `headers`, and `headersHelper` include none. | ethos DES-074; Claude Code MCP docs |
-| A subagent uses its leader's MCP connection. Two parallel subagents share it too. | Identical `Mcp-Session-Id` for leader and subagents |
-| The connection identifier changes on every reconnect. Claude Code reconnects on its own about 2 s after a server restart. | New `Mcp-Session-Id` after a restart, same caller |
-| Claude Code offers the stateless 2026-07-28 protocol first and stays on it when the server accepts. That protocol has no `initialize`, no `Mcp-Session-Id`, and no connection. | `server/discover` first; fallback to `initialize` only on refusal |
-| Every hook payload carries `session_id`. A subagent's payload adds `agent_id` and `agent_type`. `CLAUDE_PID` is set in the hook's environment. | PreToolUse payload log |
-| `session_id` is unchanged across `claude --resume`. | Same value before and after |
+| A `tools/call` names no session and no agent. In the handshake era its `_meta` is `{claudecode/toolUseId, progressToken}`; in the stateless era `_meta` adds the protocol version, `clientInfo`, and client capabilities. None identifies a session or agent. | Raw request bodies, both eras |
+| An MCP server's environment carries no documented session variable, and the documented `${VAR}` expansions in `url`, `headers`, and `headersHelper` include none. `CLAUDE_PID` does not reach MCP servers; `CLAUDE_CODE_MESSAGING_SOCKET` does, and encodes a process id, not a session (ethos DES-074). | Claude Code MCP docs; ethos DES-074 |
+| A subagent uses its leader's MCP connection: leader and subagent sent the same `Mcp-Session-Id` (handshake era). Two parallel subagents in the stateless era sent no connection id at all and differed only in the hook's `agent_id`. | Request headers; PreToolUse payloads |
+| The connection id changes on every reconnect. Claude Code reconnected on its own about 2 s after a server restart, with a new `Mcp-Session-Id` and the same caller. | Request headers across a restart |
+| Claude Code sends `server/discover` (protocol 2026-07-28) first. fastmcp 4.1.6 accepted it and the session stayed stateless: no `initialize`, no `Mcp-Session-Id`. fastmcp 3.4.11 did not, and Claude Code then sent `initialize` (2025-11-25). | Request sequence on each server |
+| Every hook payload carries `session_id`; a subagent's payload adds `agent_id` and `agent_type`. `CLAUDE_PID` is set in the hook's environment. | Hook payload log |
+| `session_id` is unchanged across `claude --resume`; SessionStart fires again with `source: "resume"`; the main thread's `CLAUDE_PID` changes (a resumed session is a new process). | Hook payloads before and after resume |
+| SessionEnd fired at the end of each headless run (`reason: "other"`). A file written by the SessionStart hook was readable by PreToolUse (leader and subagent), SubagentStop, and Stop, and removed by SessionEnd. | Handoff spike logs |
 | OAuth does not identify the session or agent. An MCP access token authorizes a resource owner through a client, is audience-bound to one server, and is stored per endpoint and reused across sessions. | MCP spec 2025-11-25 § Authorization; Claude Code MCP docs |
 
 Consequences:
 
 - **The connection is not an identity.** It is shared by the leader and every
-  subagent, it is replaced on reconnect, and in the stateless protocol it does
-  not exist. No engine may key caller state on it.
-- **The process is not an identity either.** A stdio server is one process per
-  Claude Code session, but every subagent of that session shares the process.
+  subagent, replaced on reconnect, and absent in the stateless protocol.
+- **The process is not an identity.** A stdio server is one process per
+  session, shared by every subagent; the main thread's pid changes on resume.
 - **Hooks are the only place Claude Code states who is acting.** This standard
-  moves that fact, once, into every call the session makes.
+  moves that fact into every call the session makes.
 - **Authorization and identity are separate concerns.** OAuth answers "may this
   user, through this app, use this server". This standard answers "which
   session and which agent is calling". An engine may need both.
@@ -50,12 +51,13 @@ Consequences:
 
 | Term | Meaning |
 |---|---|
-| **Caller facts** | `session_id` (the Claude Code session) and `agent_id` (who inside it). Stated by Claude Code to hooks; never invented by the engine. |
-| **Main-thread agent id** | For a call with no `agent_id` in the payload: the hook's corroborated `CLAUDE_PID`. A payload carrying `agent_type` but no `agent_id` is still the main thread (`claude --agent`). |
-| **Engine session** | The engine's own record of one Claude Code session: the state it holds for that caller, its lease, and its handle. |
-| **Handle** | The engine-issued reference to an engine session. Opaque to every client. |
+| **Caller facts** | `session_id` and `agent_id`, stated by Claude Code to hooks and never invented by the engine. |
+| **Main thread** | The leader of a session. Its payloads carry no `agent_id` (a payload with `agent_type` but no `agent_id` is still the main thread, as under `claude --agent`). |
+| **Main-thread agent id** | The hook's corroborated `CLAUDE_PID`: the pid in `CLAUDE_PID`, accepted only if that process is a live ancestor of the hook (ethos's check). It identifies the current process, so it changes on resume. |
+| **Engine session** | The engine's own record of one Claude Code session: the state it holds for that caller, its lease, its handle, and the current main-thread agent id. |
+| **Handle** | The engine-issued reference to an engine session, opaque to every client. |
 | **Session client** | Any process acting for a Claude Code session against an engine: the MCP leg, the plugin's hooks, and applets the session spawns. |
-| **`_caller`** | The reserved argument that carries caller facts, plus the handle where § 4 applies, on an MCP tool call. |
+| **`_caller`** | The reserved argument that carries caller facts, plus the handle under layer 2, on an MCP tool call. |
 
 ---
 
@@ -65,9 +67,12 @@ Every engine that needs to know who is calling implements this layer.
 
 ### 3.1 The hook
 
-The plugin's PreToolUse hook matches only its own server's tools
-(`mcp__plugin_<plugin>_<server>__*`) and returns `updatedInput`: the original
-arguments plus
+The plugin's PreToolUse hook stamps `_caller` on its own server's tools under
+every name Claude Code gives them: the plugin registration, the `-dev` plugin
+registration, and a direct registration (for example
+`mcp__(plugin_lux(-dev)?_)?lux__.*`). A hook may match more tools than that —
+ethos matches every tool because it also gates them — but it stamps only its
+own. It returns `updatedInput`: the original arguments plus
 
 ```json
 {"_caller": {"session_id": "<payload session_id>", "agent_id": "<agent id>"}}
@@ -82,41 +87,48 @@ arguments plus
 4. The hook **never returns `permissionDecision: "allow"`**. Its output type
    holds `deny` or no decision; `allow` would bypass the user's permission
    rules for every matched call.
-5. For its own tools the hook **fails closed**: a payload it cannot read or
-   parse is denied with the cause in the reason, never passed through
-   unidentified. For any other tool a hook failure leaves the call untouched.
-6. The hook is small and fast. A stdlib-only Python hook measured 20 ms per
-   call; no heavy imports on this path.
+5. For the tools it stamps, the hook **fails closed**: a payload it cannot read
+   or parse is denied with the cause in the reason. For any other tool it
+   matches, a hook failure leaves the call untouched.
+6. The hook reads its whole payload per [hooks.md](hooks.md) and stays light:
+   a stdlib-only Python hook measured 0.02 s wall time per invocation.
+7. The hook honors the org kill switch like any other hook. A killed stamping
+   hook means the engine refuses the session's calls (§ 3.2.3); that is the
+   intended fail-closed result, and the refusal names the cause.
 
 ### 3.2 The server
 
 1. **Strip before validation.** `_caller` is removed from the arguments before
-   tool argument validation (fastmcp: a `Middleware.on_call_tool`). A tool's
-   schema never declares `_caller`, so agents never see it. Measured: a hook
-   adding `_caller` to a tool whose schema does not declare it fails the call
-   with `Unexpected keyword argument` unless the server strips it. A server
-   whose framework cannot strip (ethos, in Go) may declare `_caller` on each
-   tool instead; the observable contract is the same.
-2. **One source.** The caller comes from `_caller` only. Never from the
-   transport, the connection, the process tree, the environment, git, or the
-   OS user.
-3. **Validate the shape.** `session_id` and `agent_id` are non-empty and match
-   `[A-Za-z0-9_-]+`. Anything else is a named error.
-4. **Refuse a Claude Code call without `_caller`.** The server recognizes Claude
-   Code by `clientInfo.name == "claude-code"`, present in both protocol eras,
-   and answers with an error naming the likely cause (the hook is not
-   installed, disabled, or killed). A client that is not Claude Code keeps its
-   own documented path (for example OpenCode's `_meta`).
-5. **Work in the stateless protocol.** Because no identity rides on the
-   connection, an engine following this standard accepts the 2026-07-28 era.
-   An engine must not refuse it merely to keep a connection-scoped identity.
+   tool argument validation (fastmcp 4: a `Middleware.on_call_tool`). No tool
+   schema declares it, so agents never see it. Measured: adding `_caller` to a
+   tool whose schema does not declare it fails the call with
+   `Unexpected keyword argument` unless the server strips it. A server whose
+   framework cannot strip (ethos, in Go) may declare `_caller` on each tool;
+   the observable contract is the same.
+2. **One source for Claude Code callers.** A call carrying `_caller` is
+   identified by `_caller` alone — never by the transport, the connection, the
+   process tree, the environment, git, or the OS user.
+3. **Refuse an unidentified call.** A tool call that carries neither `_caller`
+   nor the engine's documented credential for another client type (for
+   example OpenCode's `_meta`, or a CLI/REST identity on a non-MCP surface) is
+   refused with a named error that lists the likely causes (the stamping hook
+   is not installed, disabled, or killed). The engine does not try to detect
+   Claude Code to decide whether `_caller` was owed: every client type has a
+   declared channel, and a call with none is unidentified.
+4. **Validate the shape.** `session_id` and `agent_id` (and, under layer 2,
+   `handle`) are non-empty and match `[A-Za-z0-9_-]+`. Anything else is a
+   named error.
+5. **Work in the stateless protocol.** No identity rides on the connection, so
+   a conforming engine accepts the 2026-07-28 era. On streamable HTTP that
+   requires fastmcp 4 or later (fastmcp 3 does not serve it). An engine must
+   not refuse the era to keep a connection-scoped identity.
 
 ### 3.3 Hooks and applets are session clients too
 
-A hook already receives `session_id` and `agent_id` in its payload, so a hook
-calling its engine sends them directly, the same shape as `_caller`. An
-applet spawned by a SessionStart hook receives the caller facts from that
-hook at spawn time.
+A hook receives `session_id` and `agent_id` in its payload, so a hook calling
+its engine sends them directly, in the same shape as `_caller`. An applet
+spawned by a SessionStart hook receives the caller facts (and, under layer 2,
+the handle) from that hook at spawn time.
 
 ---
 
@@ -125,59 +137,75 @@ hook at spawn time.
 ### 4.1 When it applies
 
 An engine implements layer 2 when it holds **any per-session or per-agent
-state for its callers** — which, under architecture.md invariant 4, is any
-engine that holds client state at all. Only an engine that holds nothing per
-caller (every request self-contained, every answer independent of who asked)
-stops at layer 1.
+state for its callers** — under architecture.md invariant 4, any engine that
+holds client state. Machine-global state with no owner (vox's music, DES-041)
+does not count. Only an engine that holds nothing per caller stops at layer 1.
 
-Caller facts identify a Claude Code session; they do not make the engine the
-authority on it. Layer 2 does: the engine opens its own session record,
-issues the handle, and every session client presents that handle.
+Caller facts identify a Claude Code session; layer 2 makes the engine the
+authority on its own record of it. Identity stays caller-declared; only the
+handle is engine-issued.
 
 ### 4.2 Lifecycle
 
-1. **Open.** The plugin's SessionStart hook calls the engine's own API (REST or
-   CLI, not MCP) to open an engine session. It declares the caller facts and
-   whatever identity the engine's model wants (repo, cwd, kind, name). The
-   engine creates the record, starts its lease, and returns the handle.
-   Identity remains caller-declared; only the handle is engine-issued.
-2. **Store.** The hook writes the handle to
-   `~/.punt-labs/<tool>/sessions/<session_id>` with mode `0600`, in a directory
-   with mode `0700`. The file is keyed by Claude's `session_id`, which every
-   later hook payload carries.
-3. **Present.** Every session client presents the handle with its caller facts:
-   - the PreToolUse hook adds `"handle": "<handle>"` to `_caller`;
-   - other hooks read the file and send the handle to the engine directly;
-   - applets receive it from the SessionStart hook that spawned them.
-4. **Renew.** Every call carrying the handle renews the lease.
-5. **Close.** The SessionEnd hook closes the engine session and removes the
-   file. SessionEnd fires on a clean exit only, so the lease is the backstop:
-   a crashed session's record is reaped when its lease lapses.
-6. **Recover.** A call presenting an unknown or expired handle gets a named
-   error that the hook can act on by opening a fresh session (for example
-   after an engine restart without persisted sessions).
+1. **Open is idempotent per `session_id`.** A session client opens the engine
+   session through the engine's own API (REST or CLI, not MCP), declaring the
+   caller facts, the current main-thread agent id, and whatever identity the
+   engine's model wants (repo, cwd, kind, name). If the engine holds a live
+   record for that `session_id` it returns the same handle and updates the
+   main-thread agent id (resume, a reconnecting hook); otherwise it creates the
+   record, starts its lease, and returns a new handle.
+2. **Who opens.** The SessionStart hook opens, on every `source`
+   (`startup`, `resume`, and the rest). Because SessionStart hooks are
+   fail-open and may run asynchronously ([hooks.md](hooks.md) § 7), any session
+   client that finds no handle file opens instead — in practice the
+   PreToolUse hook on the session's first tool call, which is guaranteed to
+   run before that call.
+3. **Store.** The opener writes the handle to
+   `~/.punt-labs/<tool>/sessions/<session_id>/handle`, mode `0600`, in
+   directories with mode `0700`, writing to a temporary file and renaming it
+   into place so a reader never sees a partial handle. `session_id` comes from
+   a hook payload, so it is checked against `[A-Za-z0-9_-]+` (§ 3.2.4) before
+   it is used in a path; a value that fails is treated as missing facts.
+4. **Present.** Every session client presents the handle with its caller
+   facts: the PreToolUse hook adds `"handle"` to `_caller`; other hooks read
+   the file and send it directly; applets receive it at spawn.
+5. **Renew.** Every call carrying the handle renews the lease, whether it
+   comes from the MCP leg, a hook, or an applet. A session can sit idle for
+   hours while the user is away, so the lease measures abandonment, not
+   activity: its TTL is long enough that only a session whose process is gone
+   lapses (hours, not minutes), and an applet that lives as long as the
+   session (§ 3.3) renews it on the session's behalf. SessionEnd remains the
+   normal close.
+6. **Close.** The SessionEnd hook closes the engine session and removes the
+   session directory. SessionEnd does not fire on a crash, so the lease is the
+   backstop: a record whose lease lapses is reaped.
+7. **Unknown handle.** A call presenting a well-formed handle the engine does
+   not hold (the engine restarted without persisting sessions, or the lease
+   lapsed) is not an error loop the hook cannot see: the engine re-creates the
+   record for the presented `session_id` under that handle, with empty state,
+   and logs the re-creation. State lost to a restart or lapse stays lost; the
+   session keeps working.
 
 ### 4.3 Per-agent state
 
-The engine scopes state below the session by `agent_id`: one engine session,
-many agents. A subagent's state is its own; the main thread's agent id is
-`CLAUDE_PID`, matching ethos so the same agent has the same key in every
-engine.
+The engine scopes state below the session by agent. A subagent's state is
+keyed by its `agent_id`. The main thread's state is held at the session
+level, not under the main-thread agent id, because that id changes on every
+resume; the engine knows which `agent_id` is the main thread from the value
+recorded at open (§ 4.2.1).
 
 ### 4.4 The handle
 
-The handle is either an opaque secret or the caller facts themselves:
-
-- **Opaque secret** (required where another local process could act against a
-  session it does not own, and for any engine reachable across hosts). A
-  process that has not seen the SessionStart hook's output cannot present it.
-- **The caller facts** `(session_id, agent_id)`, validated against the engine's
-  own record (the ethos roster model). Acceptable for an engine whose records
-  are local and whose spoofing cost is low.
-
-Either way the handle is routing first. A loopback bind remains the trust
-boundary for a local engine; cross-host engines add transport authentication
-(and, if they expose third-party resources, OAuth per the MCP spec).
+The handle is either an opaque engine-issued value or the caller facts
+themselves (the ethos roster model). Either way it is **routing, not
+authentication**: every process of the same user can read
+`~/.punt-labs/<tool>/sessions/`, so a handle does not keep one same-user
+process from acting as another session. What it adds is engine authority — the
+engine, not the client, names its sessions, and a handle that names no live
+record is caught. The trust boundary for a local engine stays the loopback
+bind and same-user access. An engine reachable across hosts or across users
+adds real authentication on its transport (and, where it exposes protected
+resources, OAuth per the MCP spec).
 
 ---
 
@@ -186,8 +214,9 @@ boundary for a local engine; cross-host engines add transport authentication
 - Keying caller state on `Mcp-Session-Id`, a transport connection, or a
   per-process UUID.
 - A random identity minted per connection, per request, or per process.
-- Walking the process tree from an MCP server to find a Claude process.
-- Reading caller identity from the environment of an MCP server.
+- Deriving a Claude Code caller's identity from the process tree, from the MCP
+  server's environment, or by parsing `CLAUDE_CODE_MESSAGING_SOCKET`.
+- Keying durable main-thread state on the main-thread agent id (§ 4.3).
 - Refusing the stateless protocol to preserve a connection-scoped identity.
 - Splitting one session's state across files, hook processes, and MCP process
   memory with no single owner.
@@ -197,22 +226,34 @@ boundary for a local engine; cross-host engines add transport authentication
 
 ## 6. Conformance Tests
 
-Every engine ships tests at the wire boundary that:
+**Engine**, at the wire boundary:
 
-1. Call a tool with a well-formed `_caller` and assert the engine resolved the
-   caller (and, under layer 2, the session).
-2. Call a tool as `claude-code` without `_caller` and assert the named refusal.
-3. Call a tool with a malformed `_caller` and assert the named error.
-4. Call a tool whose schema does not declare `_caller` with one present and
-   assert the call succeeds and the tool never received it.
-5. Under layer 2: present an unknown handle and assert the named error; let a
-   lease lapse and assert the record is gone.
-6. Run against the stateless protocol and against the handshake protocol and
-   assert identical caller resolution.
+1. A call with a well-formed `_caller` resolves the caller; under layer 2, the
+   engine session too.
+2. A call with neither `_caller` nor another declared credential is refused
+   with the named error.
+3. A malformed `_caller` (missing key, bad characters) is a named error.
+4. A tool whose schema does not declare `_caller` succeeds with one present,
+   and the tool never receives it.
+5. Caller resolution is identical in the stateless and handshake protocols.
+6. Layer 2: open twice for one `session_id` returns one handle and updates the
+   main-thread agent id; a call renews the lease; an unknown well-formed
+   handle re-creates the record; a lapsed lease reaps it; close removes it.
+7. Layer 2: a subagent's state is separate from the main thread's, and the
+   main thread's state survives a change of main-thread agent id.
 
-The hook ships its own tests: overwrite of a model-supplied `_caller`, removal
-when facts are missing, denial on an unreadable payload for its own tools, and
-no `allow` output on any path.
+**Hook**:
+
+1. Stamps the payload's `agent_id` for a subagent and the corroborated
+   `CLAUDE_PID` for the main thread, including a payload with `agent_type`
+   and no `agent_id`.
+2. Overwrites a model-supplied `_caller`; removes it when facts are missing.
+3. Stamps every registration name of its server and no other tool.
+4. Denies an unreadable payload for its stamped tools; passes other matched
+   tools through untouched.
+5. Never emits `allow`.
+6. Layer 2: opens when no handle file exists, writes it with modes
+   `0600`/`0700`, adds the handle to `_caller`, and SessionEnd removes it.
 
 ---
 
@@ -220,76 +261,103 @@ no `allow` output on any path.
 
 - [architecture.md](architecture.md) invariant 4 — client state lives in the
   engine, keyed by client. This standard supplies the key.
-- [hooks.md](hooks.md) — hook structure and dispatch; § 3.1 and § 4.2 add the
-  caller-facts and handle duties.
+- [hooks.md](hooks.md) — hook structure, stdin handling, fail-open/fail-closed,
+  kill switch; § 3.1 and § 4.2 add the stamping and handle duties.
 - [integration.md](integration.md) — tools coordinate without hard
   dependencies. Each plugin ships its own conforming hook; no engine depends on
   another tool's hook to identify its callers.
-- [filesystem.md](filesystem.md) — `sessions/` under the tool's home holds the
-  per-session handle files.
-- [python.md](python.md) — standalone fastmcp is the server framework; its
-  middleware is where `_caller` is stripped.
+- [filesystem.md](filesystem.md) — `sessions/` is the reserved subdirectory
+  for per-session handle directories.
+- [python.md](python.md) — standalone fastmcp is the server framework; § 3.2.5
+  needs fastmcp 4 for streamable HTTP servers. python.md's dependency example
+  moves to fastmcp 4 when the first engine ships on it.
 
 ---
 
 ## 8. Applications
 
-### 8.1 ethos — the reference
+### 8.1 ethos — the source of the hook rules
 
-ethos implements both layers today. Its SessionStart hook writes the session
-roster (the engine session); its PreToolUse hook stamps
-`_caller {session_id, agent_id}` on ethos tools; its server resolves the caller
-by exact-participant lookup in the roster and refuses a Claude Code call
-without `_caller`. The handle is the caller facts (§ 4.4). ethos is written in
+**Conforms:** the PreToolUse hook (`_caller {session_id, agent_id}`, overwrite,
+strip when facts are missing, no `allow`, fail closed); exact-participant
+resolution of `_caller` against the roster; refusal of a Claude Code call
+without `_caller`; the handle is the caller facts (§ 4.4). ethos is written in
 Go and declares `_caller` on its tools rather than stripping it.
+
+**Does not yet conform:**
+
+- It decides whether a call came from Claude Code by `process.UnderClaudeCode()`
+  (the `CLAUDE_PID` and `CLAUDECODE` environment variables, then a process-tree
+  walk), and resolves non-Claude callers from `ETHOS_SESSION`,
+  `ETHOS_AGENT_ID`, and the process tree. § 3.2.3 replaces detection with
+  declared channels per client type; ethos's DES-074 records the
+  misdetection risk (a non-Claude client inheriting `CLAUDECODE=1`).
+- Its roster is reaped by primary-pid liveness or a 24-hour TTL from roster
+  start, not by a lease renewed on each call (§ 4.2.5), and it has no
+  unknown-handle re-creation (§ 4.2.7).
+- Its roster lives at `~/.punt-labs/ethos/sessions/<session_id>/`; the handle
+  file of § 4.2.3 is not used, because its handle is the caller facts.
 
 ### 8.2 lux — an engine whose sessions own UI
 
 The lux Hub (luxd) is the engine; the Display only renders and plays no part
 in identity. The Hub already models callers (`Scope`, `connection_id`,
-`ClientLifecycle`, leases; lux DES-057), but its MCP leg derived the session
-from the transport, which breaks for subagents, reconnects, and the stateless
-protocol. Under this standard:
+`ClientLifecycle`, leases; lux DES-057), but its MCP leg derived the scope
+from the transport session key, which breaks for subagents, reconnects, and
+the stateless protocol. Under this standard:
 
-- The SessionStart hook opens a Hub session over REST and receives a handle:
-  the Hub's `connection_id` plus a secret. The applets the hook already spawns
-  receive the same handle, so a session's scenes, subscriptions, and menu
-  entries belong to one Hub session.
+- A session client opens a Hub session over REST and receives an opaque
+  handle. The applets the SessionStart hook spawns receive the same handle, so
+  a session's scenes, subscriptions, and menu entries belong to one Hub
+  session.
 - `_caller` carries the facts and the handle; Hub middleware resolves the
   `Scope` and an agent sub-scope, so a subagent owns its own scenes.
-- The Hub accepts the stateless protocol. Lease renewal on each call and
+- The Hub accepts the stateless protocol; lease renewal on each call and
   SessionEnd replace connection-scoped cleanup.
-- The handle is a secret: lux is moving cross-host (lux DES-089/090).
+- lux DES-057 rejected Hub-assigned identity and connection-id keying. This is
+  compatible — identity stays declared, and the handle is keyed by
+  `session_id`, not a connection — but it is a change of mechanism that lux
+  records as a DES-057 amendment.
 
 ### 8.3 vox — an engine whose state is spread today
 
-voxd is the engine. It holds no caller state today: voice, provider, and model
-are resolved client-side and sent with each `synthesize`, from the per-repo
-`vox.md`, the per-repo `vox.local.md` (which holds vibe, so two sessions in
-one repo overwrite each other's), and in-memory overrides inside each
-`vox mcp` stdio process that hooks cannot see. Half of vox's speech is driven
-from hooks (Stop, Subagent, notify), so the MCP leg alone is not enough.
-Under this standard:
+voxd is the engine. It holds no per-caller TTS state today: voice, provider,
+and model are resolved client-side and sent with each `synthesize`, from the
+per-repo `vox.md`, the per-repo `vox.local.md` (which holds vibe, so two
+sessions in one repo overwrite each other's), and in-memory overrides inside
+each `vox mcp` stdio process that hooks cannot see. Half of vox's speech is
+driven from hooks (Stop, Subagent, notify), so an MCP-only answer would not
+reach it. voxd's conversation mode already targets a specific Claude
+`session_id`, found today by `claude agents --json` and disambiguated by the
+user. Under this standard:
 
 - voxd owns session state (vibe, voice override) keyed by the handle; repo
-  defaults stay in `vox.md`; each agent's voice resolves from its ethos
-  persona, so a subagent speaks in its own voice.
-- The MCP leg, the hooks, and the vox-panel applet all present the same handle,
-  so a voice chosen through a tool is the voice the Stop hook uses.
-- Music stays machine-global and ownership-free (vox DES-041): layer 2 scopes
-  only the state that is genuinely per session or per agent.
+  defaults stay in `vox.md`; each subagent's voice resolves from its ethos
+  persona.
+- The MCP leg, the hooks, and the vox-panel applet present the same handle,
+  so a voice chosen through a tool is the voice the Stop hook uses, and
+  conversation mode knows the session it serves.
+- Music stays machine-global and ownership-free (vox DES-041); layer 2 scopes
+  only what is genuinely per session or per agent.
 - vox's server moves from the SDK-bundled `mcp.server.fastmcp` to standalone
   fastmcp ([python.md](python.md)) to gain the stripping middleware.
+
+### 8.4 quarry
+
+quarry's daemon holds each client's selected database (architecture.md
+invariant 4), so it is a layer-2 engine. Its adoption is quarry's own unit.
 
 ---
 
 ## 9. Open Items
 
 - Whether `/clear` and compaction change `session_id` has not been measured
-  interactively. `/clear` starting a new session is the expected and correct
-  behavior; the SessionStart hook then opens a new engine session.
-- The SessionStart-to-PreToolUse handle handoff through
-  `~/.punt-labs/<tool>/sessions/` is specified, not yet spiked end to end.
-- The measurements in § 1 are against Claude Code 2.1.309. A Claude Code
-  release that sends caller identity to MCP servers natively supersedes the
-  hook transport in § 3.1, not the rest of this standard.
+  interactively. `/clear` starting a new session is the expected behavior;
+  § 4.2 then opens a new engine session.
+- stdio transports were not measured; § 1's connection facts are for
+  streamable HTTP.
+- Reading `clientInfo` per call from fastmcp 4 middleware was not shown to
+  work; § 3.2.3 deliberately does not depend on it.
+- These measurements are against Claude Code 2.1.309. A release that sends
+  caller identity to MCP servers natively supersedes the hook transport in
+  § 3.1, not the rest of this standard.
