@@ -450,6 +450,7 @@ def _unused_run(
     timeout: int = DEFAULT_RUN,
     check: bool = True,
     capture: bool = True,
+    errors: str = "strict",
 ) -> subprocess.CompletedProcess[str]:
     raise AssertionError(f"reading a changelog runs no commands: {cmd!r}")
 

@@ -43,7 +43,7 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo
-from punt_kit.phases.shared.skips import SkipRecorder
+from punt_kit.phases.shared.skips import RESUMED_PAST_BUILD_SKIP, SkipRecorder
 
 console = Console()
 
@@ -70,10 +70,11 @@ def _run(
     timeout: int = timeouts.DEFAULT_RUN,
     check: bool = True,
     capture: bool = True,
+    errors: str = "strict",
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess through the shared ``CommandRunner``."""
     return CommandRunner.run(
-        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
     )
 
 
@@ -115,8 +116,11 @@ class _ReleaseOpsAdapter:
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
-        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+        return _run(
+            cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
+        )
 
     def ok(self, msg: str) -> None:
         _ok(msg)
@@ -234,9 +238,9 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
-def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
+def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 3: Build validation."""
-    Phase3Build(info, dry_run=dry_run, ops=_ops).run()
+    Phase3Build(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
@@ -543,6 +547,8 @@ def run_release(
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
         resume = f" (resuming from phase {start})" if start > 1 else ""
         console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
+        if info.language == "python" and start > PhaseOrder.NUMBERS["build"]:
+            _skips.record(RESUMED_PAST_BUILD_SKIP)
 
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the
@@ -624,7 +630,7 @@ def run_release(
             def _step3() -> None:
                 nonlocal current_phase_num
                 current_phase_num = 3
-                _phase3_build(info, dry_run=dry_run)
+                _phase3_build(info, version, dry_run=dry_run)
 
             def _step4() -> None:
                 nonlocal current_phase_num, release_sha

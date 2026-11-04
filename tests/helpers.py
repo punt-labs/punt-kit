@@ -364,6 +364,7 @@ def refuse_run(
     timeout: int = 0,
     check: bool = True,
     capture: bool = True,
+    errors: str = "strict",
 ) -> subprocess.CompletedProcess[str]:
     raise AssertionError(f"version checks read files only, not {cmd}")
 
