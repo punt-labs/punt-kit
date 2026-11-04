@@ -536,12 +536,12 @@ class Phase11Verify:
         shown = ops.run(["git", "show", f"origin/main:{path}"], cwd=cwd, check=False)
         if shown.returncode != 0:
             return [VerificationCheck(TAP_SIBLING, False, f"{path} not on origin/main")]
-        found = FormulaVersion(TextFile.without_bom(shown.stdout)).value()
+        formula = FormulaVersion(TextFile.without_bom(shown.stdout))
         return [
             VerificationCheck(
                 TAP_SIBLING,
-                found == self._version,
-                f"{path} version={found or 'not found'}",
+                formula.is_release(self._version),
+                f"{path} version={formula.describe()}",
             )
         ]
 

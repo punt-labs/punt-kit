@@ -39,6 +39,7 @@ if TYPE_CHECKING:
 
 SERVICE_TABLE = '\n[tool.punt-kit.release.service]\nsystemd = "svc"\n'
 CONSTRAINTS = "lancedb==0.40.0\n"
+OVERRIDES = "opencv-python-headless\n"
 SHOW = ["systemctl", "--user", "show", "svc"]
 
 
@@ -53,6 +54,7 @@ class Machine:
     editable_rc: int = 0
     calls: list[list[str]] = field(default_factory=list[list[str]])
     constraints_seen: list[str] = field(default_factory=list[str])
+    overrides_seen: list[str] = field(default_factory=list[str])
 
     def run(
         self,
@@ -81,9 +83,13 @@ class Machine:
             return subprocess.CompletedProcess(cmd, self.editable_rc, "", "")
         elif cmd[:4] == SHOW and "--property=MainPID" in cmd:
             out = str(self._next_pid())
-        elif "--constraints" in cmd:
-            pins = Path(cmd[cmd.index("--constraints") + 1])
-            self.constraints_seen.append(pins.read_text())
+        elif cmd[:3] == ["uv", "tool", "install"]:
+            for flag, seen in (
+                ("--constraints", self.constraints_seen),
+                ("--overrides", self.overrides_seen),
+            ):
+                if flag in cmd:
+                    seen.append(Path(cmd[cmd.index(flag) + 1]).read_text())
         return subprocess.CompletedProcess(cmd, 0, out + "\n", "")
 
     def _next_pid(self) -> int:
@@ -123,7 +129,7 @@ def _systemd_host(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _released_project(
-    tmp_path: Path, *, constraints: bool, service: bool = True
+    tmp_path: Path, *, constraints: bool, service: bool = True, overrides: bool = False
 ) -> Path:
     """A project whose v0.2.0 tag does (or does not) carry install-constraints.txt."""
     root = make_release_project(tmp_path)
@@ -132,6 +138,8 @@ def _released_project(
             f.write(SERVICE_TABLE)
     if constraints:
         (root / "install-constraints.txt").write_text(CONSTRAINTS)
+    if overrides:
+        (root / "install-overrides.txt").write_text(OVERRIDES)
     commit_all(root, "release")
     git(["tag", "v0.2.0"], cwd=str(root))
     return root
@@ -356,6 +364,60 @@ def test_a_declaration_for_an_unavailable_manager_fails(
         _phase8(_launchd_project(tmp_path, LAUNCHD_ONLY), Machine(pids=[100]))
 
 
+# --- Phase 8: install overrides ---
+
+
+def test_phase8_passes_the_tags_overrides_alongside_the_constraints(
+    tmp_path: Path,
+) -> None:
+    machine = Machine(pids=[100, 200])
+    root = _released_project(tmp_path, constraints=True, overrides=True)
+    (root / "install-overrides.txt").write_text("working-tree-edit\n")
+
+    _phase8(root, machine)
+
+    first = machine.uv_installs()[0]
+    assert "--overrides" in first
+    assert (machine.constraints_seen, machine.overrides_seen) == (
+        [CONSTRAINTS],
+        [OVERRIDES],
+    )
+
+
+def test_phase8_without_overrides_passes_none(tmp_path: Path) -> None:
+    machine = Machine(pids=[100, 200])
+    _phase8(_released_project(tmp_path, constraints=True), machine)
+
+    assert "--overrides" not in machine.uv_installs()[0]
+
+
+def test_phase8_overrides_alone_are_still_passed(tmp_path: Path) -> None:
+    machine = Machine(pids=[100, 200])
+    _phase8(_released_project(tmp_path, constraints=False, overrides=True), machine)
+
+    assert machine.overrides_seen == [OVERRIDES]
+
+
+def test_phase8_fails_when_reading_the_overrides_errors(tmp_path: Path) -> None:
+    broken = FaultRule(
+        match=[
+            "git",
+            "ls-tree",
+            "--name-only",
+            "v0.2.0",
+            "--",
+            "install-overrides.txt",
+        ],
+        response=CompletedProcessSpec(returncode=128, stderr="fatal: bad object"),
+    )
+    with pytest.raises(ReleaseError, match="bad object"):
+        _phase8(
+            _released_project(tmp_path, constraints=True, overrides=True),
+            Machine(pids=[100, 200]),
+            broken,
+        )
+
+
 def test_phase8_dry_run_does_not_claim_the_file_is_absent_at_an_uncreated_tag(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -435,8 +497,8 @@ def _brew_project(tmp_path: Path, *, target: bool = True) -> Path:
     return info.root
 
 
-def _tap(tmp_path: Path, *, formula: bool = True) -> Path:
-    files = {"CHANGELOG.md": TAP_CHANGELOG}
+def _tap(tmp_path: Path, *, formula: bool = True, changelog: bool = True) -> Path:
+    files = {"CHANGELOG.md": TAP_CHANGELOG} if changelog else {}
     if formula:
         files["Formula/proj.rb"] = 'class Proj < Formula\n  version "0.1.0"\nend\n'
     return make_sibling(tmp_path, "homebrew-tap", files)
@@ -465,6 +527,8 @@ class Merges:
 class FormulaWriter(Machine):
     """``make brew-formula`` stands in for quarry's target: it writes the formula."""
 
+    formula_text = 'class Proj < Formula\n  version "0.2.0"\nend\n'
+
     def run(
         self,
         cmd: list[str],
@@ -478,9 +542,16 @@ class FormulaWriter(Machine):
             self.calls.append(cmd)
             out = next(a for a in cmd if a.startswith("FORMULA_OUT=")).split("=", 1)[1]
             target = Path(cmd[2]) / out
-            target.write_text('class Proj < Formula\n  version "0.2.0"\nend\n')
+            target.write_text(self.formula_text)
             return subprocess.CompletedProcess(cmd, 0, "", "")
         return super().run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+
+
+class _BumpedVersionStaleArchive(FormulaWriter):
+    formula_text = (
+        'class Proj < Formula\n  url "https://h/proj-0.1.0.tar.gz"\n'
+        '  version "0.2.0"\nend\n'
+    )
 
 
 def _propagate(root: Path, machine: Machine, merges: Merges) -> SkipRecorder:
@@ -575,6 +646,31 @@ def test_an_opted_in_project_with_no_tap_or_formula_records_a_manual_skip(
     assert needle in notice
     assert "manual action required" in notice
     assert (machine.commands(["make"]), merges.calls) == ([], [])
+
+
+def test_a_bumped_version_over_a_stale_archive_fails_the_postcondition(
+    tmp_path: Path,
+) -> None:
+    root = _brew_project(tmp_path)
+    _tap(tmp_path)
+
+    with pytest.raises(ReleaseError, match=r"0\.1\.0, 0\.2\.0|0\.2\.0, 0\.1\.0"):
+        _propagate(root, _BumpedVersionStaleArchive(), Merges())
+
+
+def test_a_tap_without_a_changelog_records_a_manual_skip_and_still_opens_the_pr(
+    tmp_path: Path,
+) -> None:
+    root = _brew_project(tmp_path)
+    _tap(tmp_path, changelog=False)
+    merges = Merges()
+
+    skips = _propagate(root, FormulaWriter(), merges)
+
+    (notice,) = skips.drain()
+    assert "CHANGELOG.md does not exist" in notice
+    assert "manual action required" in notice
+    assert [call[2] for call in merges.calls] == [["Formula/proj.rb"]]
 
 
 def test_a_target_that_ignores_formula_out_fails_naming_the_makefile(
@@ -831,3 +927,10 @@ def test_verify_reads_origin_main_whatever_branch_the_tap_has_checked_out(
     git(["checkout", "-b", "side"], cwd=str(tap))
 
     assert _check(root) == "homebrew-tap True Formula/proj.rb version=0.2.0"
+
+
+def test_verify_fails_a_bumped_version_over_a_stale_archive(tmp_path: Path) -> None:
+    text = 'url "https://h/proj-0.1.0.tar.gz"\n  version "0.2.0"\n  '
+    assert _verify_tap(tmp_path, text) == (
+        "homebrew-tap False Formula/proj.rb version=0.2.0, 0.1.0"
+    )

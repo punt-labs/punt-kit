@@ -141,26 +141,31 @@ class HomebrewTapPropagator:
         )
         if made.returncode != 0:
             ops.fail(f"make {BREW_TARGET} failed for {name} — see output above")
-        written = FormulaVersion(TextFile(formula).read()).value()
-        if written != version:
+        written = FormulaVersion(TextFile(formula).read())
+        if not written.is_release(version):
             ops.fail(
                 f"make {BREW_TARGET} (Makefile in {info.root}) left "
-                f"{formula.name} at version {written or 'none'}, not {version} "
+                f"{formula.name} at version {written.describe()}, not {version} "
                 "— the target must write the formula to FORMULA_OUT"
             )
 
         files = [f"Formula/{formula.name}"]
-        if (tap / "CHANGELOG.md").is_file():
-            if Changelog(tap, ops=ops).add_unreleased_entry(
-                f"{name}: bump to v{version}"
-            ):
-                files.append("CHANGELOG.md")
-            else:
-                self._skips.record(
-                    f"SKIPPED — manual action required: ../{TAP_SIBLING}/CHANGELOG.md "
-                    f"has no [Unreleased] section, so '{name}: bump to v{version}' "
-                    "was not recorded. Add it manually."
-                )
+        if not (tap / "CHANGELOG.md").is_file():
+            self._skips.record(
+                f"SKIPPED — manual action required: ../{TAP_SIBLING}/CHANGELOG.md "
+                f"does not exist, so '{name}: bump to v{version}' was not recorded. "
+                "Add the changelog entry manually."
+            )
+        elif Changelog(tap, ops=ops).add_unreleased_entry(
+            f"{name}: bump to v{version}"
+        ):
+            files.append("CHANGELOG.md")
+        else:
+            self._skips.record(
+                f"SKIPPED — manual action required: ../{TAP_SIBLING}/CHANGELOG.md "
+                f"has no [Unreleased] section, so '{name}: bump to v{version}' "
+                "was not recorded. Add it manually."
+            )
 
         branch = f"propagate/v{version}-{name}-{TAP_SIBLING}"
         if merge_sibling(

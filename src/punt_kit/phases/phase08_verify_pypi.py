@@ -12,11 +12,12 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
-from punt_kit.phases.shared.install_constraints import (
-    CONSTRAINTS_FILENAME,
-    InstallConstraints,
-)
 from punt_kit.phases.shared.project_info import ReleaseProject
+from punt_kit.phases.shared.release_tag_file import (
+    CONSTRAINTS_FILENAME,
+    OVERRIDES_FILENAME,
+    ReleaseTagFile,
+)
 from punt_kit.phases.shared.timeouts import CLI_DOCTOR, UV
 from punt_kit.phases.shared.user_service import ServiceSpec, UserService
 
@@ -28,6 +29,12 @@ if TYPE_CHECKING:
     from punt_kit.phases.shared.skips import SkipRecorder
 
 _console = Console()
+
+# The uv flag each optional install-pin file feeds.
+_PIN_FLAGS = {
+    CONSTRAINTS_FILENAME: "--constraints",
+    OVERRIDES_FILENAME: "--overrides",
+}
 
 
 @final
@@ -74,20 +81,23 @@ class Phase8VerifyPypi:
             self._dry_run_plan(package_name)
             return
 
-        constraints = InstallConstraints(info.root, f"v{version}", ops=ops).text()
-        if constraints is None:
+        pins: dict[str, str] = {}
+        for filename in _PIN_FLAGS:
+            text = ReleaseTagFile(info.root, f"v{version}", filename, ops=ops).text()
+            if text is not None:
+                pins[filename] = text
+                ops.info(f"Installing with {filename} from v{version}")
+        if CONSTRAINTS_FILENAME not in pins:
             ops.info(
                 f"No {CONSTRAINTS_FILENAME} at v{version} — installing unpinned "
                 "(the project's lock is not applied)"
             )
-        else:
-            ops.info(f"Installing with {CONSTRAINTS_FILENAME} from v{version}")
 
         # The editable install is the operator's dev environment. Whatever
         # happens from the first PyPI install on, it is put back.
         primary: BaseException | None = None
         try:
-            self._verify_published(package_name, constraints)
+            self._verify_published(package_name, pins)
         except BaseException as exc:
             primary = exc
             raise
@@ -98,11 +108,13 @@ class Phase8VerifyPypi:
         info = self._info
         ops = self._ops
         tag = f"v{self._version}"
-        if (info.root / CONSTRAINTS_FILENAME).exists():
-            pinned = f"--constraints <{CONSTRAINTS_FILENAME} from {tag}> "
-        else:
-            pinned = ""
-            ops.dry(f"would read {CONSTRAINTS_FILENAME} from {tag}; pinned if present")
+        flags = ""
+        for filename, flag in _PIN_FLAGS.items():
+            if (info.root / filename).exists():
+                flags += f"{flag} <{filename} from {tag}> "
+            else:
+                ops.dry(f"would read {filename} from {tag}; used if present")
+        pinned = flags
         ops.dry(
             f"uv tool install --force --refresh {pinned}{package_name}=={self._version}"
         )
@@ -111,16 +123,16 @@ class Phase8VerifyPypi:
             ops.dry(f"{info.cli_commands[0]} doctor (if available)")
         ops.dry("uv tool install --force --editable .")
 
-    def _verify_published(self, package_name: str, constraints: str | None) -> None:
+    def _verify_published(self, package_name: str, pins: dict[str, str]) -> None:
         ops = self._ops
         ops.info(f"Installing {package_name}=={self._version} from PyPI...")
 
-        with tempfile.TemporaryDirectory(prefix="punt-constraints-") as scratch:
-            flags: Sequence[str] = ()
-            if constraints is not None:
-                pins = Path(scratch) / CONSTRAINTS_FILENAME
-                pins.write_text(constraints, encoding="utf-8")
-                flags = ("--constraints", str(pins))
+        with tempfile.TemporaryDirectory(prefix="punt-pins-") as scratch:
+            flags: list[str] = []
+            for filename, text in pins.items():
+                path = Path(scratch) / filename
+                path.write_text(text, encoding="utf-8")
+                flags += [_PIN_FLAGS[filename], str(path)]
             self._install_with_retries(package_name, flags)
 
         ops.ok(f"Installed {package_name}=={self._version} from PyPI")

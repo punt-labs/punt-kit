@@ -33,8 +33,9 @@ All notable changes to this project will be documented in this file.
   change through a sibling PR, after checking that the target wrote the
   release version. The tap joins the propagation recovery siblings, and
   preflight checks it only for a project that has the target. Phase 11 reads
-  the formula committed on the tap's `main` and fails when it is missing or is
-  not the release.
+  the formula committed on the tap's `origin/main` and fails when it is
+  missing, or when its `version` or its archive url (prereleases included) is
+  not the release. A tap with no `CHANGELOG.md` is a manual-action skip.
 - `punt release` Phase 8 can restart a project's user service. A project
   declares it under `[tool.punt-kit.release.service]` in `pyproject.toml`
   (`systemd` unit and/or `launchd` label). After the PyPI install the phase
@@ -48,7 +49,8 @@ All notable changes to this project will be documented in this file.
 - `punt release` Phase 8 no longer verifies an environment no user gets. When
   the release tag contains `install-constraints.txt` it installs with
   `--constraints` on that file, so the project's locked dependency versions
-  apply; without the file it installs unpinned and logs that it did. An
+  apply, and `install-overrides.txt` from the tag with `--overrides`; without
+  `install-constraints.txt` it installs unpinned and logs that it did. An
   unresolvable tag or a failing git read fails instead of installing unpinned.
 - `punt release` no longer fails the version bump on a computed
   `__version__` that does not name `importlib.metadata` in the same file,

@@ -29,21 +29,21 @@ end
 
 
 def test_a_formulas_main_url_wins_over_resource_blocks() -> None:
-    assert FormulaVersion(WITH_RESOURCES).value() == "3.5.5"
+    assert FormulaVersion(WITH_RESOURCES).stated() == ("3.5.5",)
 
 
 def test_a_top_level_version_wins_over_a_resources_version() -> None:
     text = WITH_RESOURCES.replace(
         '  sha256 "abc"\n', '  sha256 "abc"\n  version "4.0.0"\n', 1
     )
-    assert FormulaVersion(text).value() == "4.0.0"
+    assert FormulaVersion(text).stated() == ("4.0.0", "3.5.5")
 
 
 def test_a_top_level_version_after_the_resources_still_counts() -> None:
     text = WITH_RESOURCES.replace(
         "  def install", '  version "4.1.0"\n\n  def install', 1
     )
-    assert FormulaVersion(text).value() == "4.1.0"
+    assert FormulaVersion(text).stated() == ("4.1.0", "3.5.5")
 
 
 def test_a_version_only_inside_a_resource_is_not_the_formulas() -> None:
@@ -55,13 +55,46 @@ class Proj < Formula
   end
 end
 """
-    assert FormulaVersion(text).value() is None
+    assert FormulaVersion(text).stated() == ()
 
 
 @pytest.mark.parametrize(
     ("url", "version"),
-    [("proj-0.2.0.tar.gz", "0.2.0"), ("v1.2.3.tar.gz", "1.2.3")],
+    [
+        ("proj-0.2.0.tar.gz", "0.2.0"),
+        ("v1.2.3.tar.gz", "1.2.3"),
+        ("proj-1.2.3rc1.tar.gz", "1.2.3rc1"),
+        ("proj-1.2.3.post1.tar.gz", "1.2.3.post1"),
+        ("proj-1.2.3a1.tar.gz", "1.2.3a1"),
+        ("proj-1.2.3b2.tar.gz", "1.2.3b2"),
+        ("proj-1.2.3.dev1.tar.gz", "1.2.3.dev1"),
+        ("proj-1.2.3rc1.post2.dev3.tar.gz", "1.2.3rc1.post2.dev3"),
+    ],
 )
 def test_the_version_comes_from_the_archive_name(url: str, version: str) -> None:
     text = f'class P < Formula\n  url "https://h/{url}"\nend\n'
-    assert FormulaVersion(text).value() == version
+    assert FormulaVersion(text).stated() == (version,)
+
+
+def test_a_bumped_version_over_a_stale_archive_is_not_the_release() -> None:
+    text = (
+        "class P < Formula\n"
+        '  url "https://h/proj-0.1.0.tar.gz"\n'
+        '  version "0.2.0"\n'
+        "end\n"
+    )
+    assert not FormulaVersion(text).is_release("0.2.0")
+
+
+def test_a_formula_whose_version_and_archive_agree_is_the_release() -> None:
+    text = (
+        "class P < Formula\n"
+        '  url "https://h/proj-0.2.0.tar.gz"\n'
+        '  version "0.2.0"\n'
+        "end\n"
+    )
+    assert FormulaVersion(text).is_release("0.2.0")
+
+
+def test_a_formula_stating_no_version_is_not_the_release() -> None:
+    assert not FormulaVersion("class P < Formula\nend\n").is_release("0.2.0")

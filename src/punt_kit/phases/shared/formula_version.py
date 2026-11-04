@@ -12,18 +12,22 @@ _URL = re.compile(r'^\s*url\s+"(?P<url>[^"]+)"')
 _OPENS = re.compile(r"^\s*(?:class|module|def|if|unless|case|while|until|begin)\b")
 _DO_BLOCK = re.compile(r"\bdo(?:\s*\|[^|]*\|)?\s*$")
 _END = re.compile(r"^\s*end\b")
-# ``punt_quarry-3.5.5.tar.gz`` and ``.../v3.5.5.tar.gz`` both end this way.
+# ``punt_quarry-3.5.5.tar.gz`` and ``.../v3.5.5.tar.gz`` both end this way. The
+# version is a PEP 440 release plus any pre, post and dev segments:
+# ``1.2.3rc1``, ``1.2.3.post1``, ``1.2.3a1``, ``1.2.3.dev1``.
 _ARCHIVE_VERSION = re.compile(
-    r"(?:^|[-_/]v?)(?P<version>\d+(?:\.\d+)+)\.(?:tar\.gz|tgz|zip|tar\.bz2)$"
+    r"(?:^|[-_/]v?)(?P<version>\d+(?:\.\d+)+"
+    r"(?:[._-]?(?:a|b|c|rc|alpha|beta|pre|preview)[._-]?\d+)?"
+    r"(?:[._-]?(?:post|rev|r)[._-]?\d+)?"
+    r"(?:[._-]?dev[._-]?\d*)?)"
+    r"\.(?:tar\.gz|tgz|zip|tar\.bz2)$"
 )
 
 
 @final
 class FormulaVersion:
-    """Reads a formula's version the way Homebrew does.
-
-    An explicit ``version "X"`` wins; otherwise the version is the one in the
-    first ``url`` line's archive name.
+    """Reads the versions a formula states: an explicit ``version "X"`` and the
+    one in the first ``url`` line's archive name.
     """
 
     __slots__ = ("_text",)
@@ -35,24 +39,38 @@ class FormulaVersion:
         self._text = text
         return self
 
-    def value(self) -> str | None:
-        """The formula's version, or ``None`` when it states none.
+    def stated(self) -> tuple[str, ...]:
+        """Every version the formula states: its top-level ``version`` and its
+        main url's archive version, whichever are present.
 
         Only the formula's own statements count: a ``resource`` block, a
         platform block or a method body carries other things' versions.
         """
+        explicit: str | None = None
         url: str | None = None
         for line in self._top_level():
-            explicit = _EXPLICIT.match(line)
-            if explicit:
-                return explicit.group("version")
-            found = _URL.match(line)
-            if found and url is None:
+            if explicit is None and (found := _EXPLICIT.match(line)):
+                explicit = found.group("version")
+            if url is None and (found := _URL.match(line)):
                 url = found.group("url")
-        if url is None:
-            return None
-        archive = _ARCHIVE_VERSION.search(url)
-        return archive.group("version") if archive else None
+        archive = _ARCHIVE_VERSION.search(url) if url else None
+        return tuple(
+            v for v in (explicit, archive.group("version") if archive else None) if v
+        )
+
+    def is_release(self, version: str) -> bool:
+        """True when the formula states a version and every one is ``version``.
+
+        A bumped ``version`` over an archive url that still names the old
+        release installs the old release, so both must agree.
+        """
+        stated = self.stated()
+        return bool(stated) and all(v == version for v in stated)
+
+    def describe(self) -> str:
+        """The stated versions as text, for a verdict line."""
+        stated = self.stated()
+        return ", ".join(dict.fromkeys(stated)) if stated else "not found"
 
     def _top_level(self) -> list[str]:
         """The lines directly inside ``class ... < Formula``, nesting excluded."""

@@ -1,4 +1,4 @@
-"""The pin file a project ships so a PyPI install resolves like its lockfile."""
+"""Install-pin files a project ships so a PyPI install resolves like its installer."""
 
 from __future__ import annotations
 
@@ -10,28 +10,33 @@ if TYPE_CHECKING:
     from punt_kit.phases.shared.ops import ReleaseOps
 
 CONSTRAINTS_FILENAME = "install-constraints.txt"
+OVERRIDES_FILENAME = "install-overrides.txt"
 
 
 @final
-class InstallConstraints:
-    """``install-constraints.txt`` as committed at a release tag.
+class ReleaseTagFile:
+    """One optional file, as committed at a release tag.
 
-    ``uv tool install pkg==X`` ignores the project's lock, so a project that
-    wants its users to get the locked dependency set ships this file and passes
-    it to ``--constraints``. Reading it from the tag, not the working tree,
-    verifies what the release published, whatever ``main`` has moved on to.
+    ``uv tool install pkg==X`` ignores the project's lock and its installer's
+    overrides, so a project that wants its users to get the same dependency
+    set ships ``install-constraints.txt`` (for ``--constraints``) and
+    ``install-overrides.txt`` (for ``--overrides``). Reading them from the
+    tag, not the working tree, verifies what the release published, whatever
+    ``main`` has moved on to.
     """
 
-    __slots__ = ("_ops", "_root", "_tag")
+    __slots__ = ("_filename", "_ops", "_root", "_tag")
 
     _root: Path
     _tag: str
+    _filename: str
     _ops: ReleaseOps
 
-    def __new__(cls, root: Path, tag: str, *, ops: ReleaseOps) -> Self:
+    def __new__(cls, root: Path, tag: str, filename: str, *, ops: ReleaseOps) -> Self:
         self = super().__new__(cls)
         self._root = root
         self._tag = tag
+        self._filename = filename
         self._ops = ops
         return self
 
@@ -48,7 +53,7 @@ class InstallConstraints:
         cwd = str(self._root)
         self._require_tag()
         listing = ops.run(
-            ["git", "ls-tree", "--name-only", self._tag, "--", CONSTRAINTS_FILENAME],
+            ["git", "ls-tree", "--name-only", self._tag, "--", self._filename],
             cwd=cwd,
             check=False,
         )
@@ -57,14 +62,13 @@ class InstallConstraints:
         if not listing.stdout.strip():
             return None
         shown = ops.run(
-            ["git", "show", f"{self._tag}:{CONSTRAINTS_FILENAME}"],
+            ["git", "show", f"{self._tag}:{self._filename}"],
             cwd=cwd,
             check=False,
         )
         if shown.returncode != 0:
             ops.fail(
-                f"git show {self._tag}:{CONSTRAINTS_FILENAME} failed:\n"
-                f"{shown.stderr.strip()}"
+                f"git show {self._tag}:{self._filename} failed:\n{shown.stderr.strip()}"
             )
         return shown.stdout
 
@@ -80,7 +84,7 @@ class InstallConstraints:
         if not self._resolves():
             self._ops.fail(
                 f"tag {self._tag} does not resolve locally or on origin — cannot "
-                f"read {CONSTRAINTS_FILENAME} from the release"
+                f"read {self._filename} from the release"
             )
 
     def _resolves(self) -> bool:
