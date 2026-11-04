@@ -16,6 +16,8 @@ _NAME = "__version__"
 _PLAIN_STRING = re.compile(r"""(["'])[^"'\\\n]*\1""")
 # What may follow the closing quote: whitespace and a comment, nothing else.
 _TRAILER = re.compile(r"\s*(?:#.*)?")
+# What a rewrite may put between the quotes: PEP 440 public and local versions.
+_VERSION_CHARS = re.compile(r"[0-9A-Za-z.+!_-]+")
 # One source line with its ending; ``ast`` breaks lines on CRLF, CR and LF.
 _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
 # A string that spells a version somewhere in it: digits, a dot, digits.
@@ -61,6 +63,9 @@ class LiteralVersion:
 
     def rewritten(self, text: str, version: str) -> str:
         """``text`` with this literal set to ``version``, quotes kept."""
+        if not _VERSION_CHARS.fullmatch(version):
+            msg = f"not a version that can sit between quotes: {version!r}"
+            raise ValueError(msg)
         lines = _source_lines(text)
         old = lines[self.line]
         lines[self.line] = f"{old[: self.start]}{version}{old[self.end :]}"
@@ -145,6 +150,11 @@ class ModuleVersion:
         value = self._value(stmt, name, source)
         match value:
             case ast.Name(id=other) if other not in seen:
+                later = self._bindings.bound_after(other, stmt)
+                if later is not None:
+                    raise UnpinnableVersionError(
+                        _read_too_early(other, later, name, stmt)
+                    )
                 return self._resolve(other, seen, chain)
             case ast.Constant(value=str()):
                 self._refuse_a_later_star(chain)
@@ -153,7 +163,7 @@ class ModuleVersion:
                 # A call reads names (its callee, its arguments, __name__) that
                 # a star import can rebind wherever it sits.
                 self._refuse_a_later_star(())
-                fault = _ReaderCall(value, self._bindings).fault()
+                fault = _ReaderCall(value, self._bindings, reader=name).fault()
                 if fault is not None:
                     msg = f"`{source}` (line {binding.line}) {fault}"
                     raise UnpinnableVersionError(msg)
@@ -257,15 +267,17 @@ class _ReaderCall:
     may also take an imported name, ``__name__`` or ``__package__``.
     """
 
-    __slots__ = ("_bindings", "_call")
+    __slots__ = ("_bindings", "_call", "_reader")
 
     _bindings: _ModuleBindings
     _call: ast.Call
+    _reader: str
 
-    def __new__(cls, call: ast.Call, bindings: _ModuleBindings) -> Self:
+    def __new__(cls, call: ast.Call, bindings: _ModuleBindings, *, reader: str) -> Self:
         self = super().__new__(cls)
         self._call = call
         self._bindings = bindings
+        self._reader = reader  # the name the call's value is assigned to
         return self
 
     def fault(self) -> str | None:
@@ -336,6 +348,10 @@ class _ReaderCall:
     def _name_fault(self, name: str, *, reads_metadata: bool) -> str | None:
         """Why the argument ``name`` may feed a stale version; ``None`` if not."""
         bindings = self._bindings.of(name)
+        later = self._bindings.bound_after(name, self._call)
+        if later is not None:
+            early = _read_too_early(name, later, self._reader, self._call)
+            return f"passes {name}, but {early}"
         if name in _MODULE_DUNDERS and not bindings:
             if reads_metadata:
                 return None  # the package's own name, read by the metadata reader
@@ -475,6 +491,14 @@ class _ModuleBindings:
     def of(self, name: str) -> list[_Binding]:
         """Every binding of ``name``, in source order of discovery."""
         return self._by_name.get(name, [])
+
+    def bound_after(self, name: str, reader: ast.stmt | ast.expr) -> _Binding | None:
+        """A binding of ``name`` at or after ``reader``, which reads it."""
+        position = (reader.lineno, reader.col_offset)
+        for binding in self.of(name):
+            if (binding.stmt.lineno, binding.stmt.col_offset) >= position:
+                return binding
+        return None
 
     def star_imports(self) -> list[ast.ImportFrom]:
         """Every ``from x import *`` in the module's global scope."""
@@ -662,6 +686,16 @@ def _is_a_fallback(bindings: list[_Binding]) -> bool:
         and any(
             binding.assigns_a_string for binding in bindings if binding.is_in_except
         )
+    )
+
+
+def _read_too_early(
+    name: str, binding: _Binding, reader: str, node: ast.stmt | ast.expr
+) -> str:
+    """The refusal for ``reader`` reading ``name`` before ``binding`` binds it."""
+    return (
+        f"`{name}` is assigned at line {binding.line}, after `{reader}` reads it "
+        f"at line {node.lineno}"
     )
 
 

@@ -13661,6 +13661,17 @@ def test_phase2_bumps_an_alias_bound_after_a_star_import(tmp_path: Path) -> None
     assert _init_py(root).read_text() == text.replace("0.1.0", "0.2.0")
 
 
+def test_phase2_fails_on_a_version_that_cannot_sit_between_quotes(
+    tmp_path: Path,
+) -> None:
+    root = _make_release_project(tmp_path)  # __version__ = "0.1.0"
+
+    with pytest.raises(ReleaseError):
+        _bump(root, 'x"y')
+
+    assert _init_py(root).read_text() == '__version__ = "0.1.0"\n'
+
+
 def test_phase2_bumps_an_annotated_version(tmp_path: Path) -> None:
     root = _make_release_project(tmp_path)
     _init_py(root).write_text('__version__: str = "0.1.0"\n')

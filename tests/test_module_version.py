@@ -673,6 +673,24 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
             "try:\n    pass\nexcept (__version__ := ValueError):\n    pass\n",
             r"`except \(__version__ := ValueError\):` does not assign one plain name",
         ),
+        (
+            'from x import *\n__version__ = V\nV = "1.0"\n',
+            "`V` is assigned at line 3, after `__version__` reads it at line 2",
+        ),
+        (
+            '__version__ = V\nV = "1.0"\n',
+            "`V` is assigned at line 2, after `__version__` reads it at line 1",
+        ),
+        (
+            'import os\n__version__ = os.getenv("V", D)\nD = "x"\n',
+            "passes D, but `D` is assigned at line 3, after `__version__` reads it "
+            "at line 2",
+        ),
+        (
+            "from importlib.metadata import version\n__version__ = version(DIST)\n"
+            "from ._dist import DIST\n",
+            "`DIST` is assigned at line 3, after `__version__` reads it at line 2",
+        ),
     ],
     ids=[
         "imported-name",
@@ -701,8 +719,31 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "star-beside-a-call",
         "walrus-in-except-star-type",
         "only-a-walrus-in-except-type",
+        "alias-bound-after-star",
+        "alias-bound-after",
+        "argument-bound-after",
+        "imported-argument-bound-after",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:
     with pytest.raises(UnpinnableVersionError, match=reason):
         ModuleVersion(text).resolved()
+
+
+@pytest.mark.parametrize("version", ['x"y', "", "1.0 ", "1\n0", "1.0'"])
+def test_a_rewrite_refuses_what_cannot_sit_between_quotes(version: str) -> None:
+    text = '__version__ = "0.1.0"\n'
+    found = ModuleVersion(text).resolved()
+    assert isinstance(found, LiteralVersion)
+
+    with pytest.raises(ValueError, match="not a version that can sit between quotes"):
+        found.rewritten(text, version)
+
+
+@pytest.mark.parametrize("version", ["1.2.3rc1", "1.0.0+local", "1!2.0.post1.dev3"])
+def test_a_rewrite_takes_a_pep_440_version(version: str) -> None:
+    text = '__version__ = "0.1.0"\n'
+    found = ModuleVersion(text).resolved()
+    assert isinstance(found, LiteralVersion)
+
+    assert found.rewritten(text, version) == f'__version__ = "{version}"\n'
