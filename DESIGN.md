@@ -2187,30 +2187,38 @@ import anywhere in the file skipped a hardcoded literal.
 
 `src/punt_kit/phases/shared/module_version.py` parses the module with `ast`
 and classifies `__version__` into one of three outcomes. Both phases use the
-same result.
+same result. Computed is an allow-list. Each review round on a block-list
+(reject a call when a hardcoded version reaches it) found a new way to hide
+one: a same-module helper, separately bound ints, a list, `.format()`, bytes,
+a dynamic import. An allow-list stops that.
 
 1. **Literal.** A plain string, or a same-module name bound to one. Phase 2
-   rewrites that string in place, keeping quotes, line endings, and
-   comments. Phase 11 checks it.
-2. **Computed.** A value that contains a call, with no hardcoded version (a
-   `N.N` string or a tuple of ints) and no imported name reaching it as
-   data. Following names through same-module bindings counts as reaching.
-   Phase 2 reports it as not bumped. Phase 11 reports a passing line naming
-   the source.
+   rewrites that string in place, keeping quotes, line endings, and comments.
+   Phase 11 checks it.
+2. **Computed.** Exactly one call, reached through same-module name aliases,
+   whose callee is a function imported from another module. An attribute
+   callee must start from a module import, or from `importlib.metadata` or
+   `importlib_metadata`. The arguments hold no hardcoded version (a `N.N`
+   string, a number, bytes, or a collection of numbers). They hold no
+   imported name either, unless the callee is an importlib metadata reader,
+   as in `version(DIST)`. Phase 2 reports it as not bumped. Phase 11 reports
+   a passing line naming the source.
 3. **Unpinnable.** Everything else fails both phases with the reason and the
    line:
-   - more than one binding of the name, including a later import or
-     `import *`;
+   - any other expression;
+   - more than one binding of the name: a later import, `import *`, a walrus
+     anywhere evaluated at module scope, a `type` alias, or a fallback in an
+     `except` branch, which python.md's Version Reporting rule forbids;
    - an assignment only inside a block;
-   - an imported `__version__`, or a value built from an imported name;
-   - a hardcoded version inside a call;
-   - prefixed or concatenated strings, numbers;
+   - an imported `__version__`;
    - a file that does not parse.
-   The release never reports success while a stale literal ships.
 
 The rule rests on one invariant. The tool never reports success while the
 shipped version is a stale hardcoded literal. It also never fails a value
-that really comes from package metadata.
+that really comes from package metadata. One trust remains: an imported
+helper is taken to read metadata, because the classifier does not open the
+module it comes from. The project's own helper is the case this exists for
+(vox's `installed_version()`).
 
 ### Rejected Alternatives
 
@@ -2218,5 +2226,6 @@ that really comes from package metadata.
 |-------------|-------------|
 | Keep the text rule and widen its evidence (also accept a helper call) | A regex cannot tell an assignment from a docstring, a block, or a later rebinding. Each reviewer round found a new stale-literal-passes case in the text rule. |
 | Treat every call as computed | `str("1.0")`, `os.environ.get("V", "1.0")` and `".".join(map(str, (1, 0)))` ship a stale hardcoded version with a green check. |
+| Block-list: computed when a call is present and no hardcoded version reaches it | Two review rounds each found new hiding places: a same-module helper, separately bound ints, a list, `.format()`, bytes, a dynamic import. The list of ways to hide a literal never closes. |
 | Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module. That breaks the second half of the invariant. |
-| Exempt the base of a called attribute only when it came from `import X` | It would catch `VERSION.strip()` on an imported `VERSION`, but it fails `from importlib import metadata; metadata.version("x")`. The syntax cannot separate the two, and the second is the common, correct form. |
+| Follow an imported helper into its module | It needs path resolution across packages and still stops at C extensions and dynamic code. The project's own helper is trusted instead, and that trust is stated above. |

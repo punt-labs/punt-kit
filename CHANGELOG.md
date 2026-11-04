@@ -32,12 +32,13 @@ All notable changes to this project will be documented in this file.
   `__version__` that does not name `importlib.metadata` in the same file,
   such as vox's `__version__ = installed_version()`. Phases 2 and 11 now
   classify `__version__` with `ast`, with three outcomes. A plain string
-  literal, or a same-module name bound to one, is bumped and checked. A value
-  computed by a call that no hardcoded version (a `N.N` string or an int
-  tuple) and no imported name reaches is not bumped, and phase 11 reports it
-  as a passing check. Everything else fails the release with the reason
-  instead of shipping a stale version. A docstring that mentions
-  `__version__` is no longer mistaken for the assignment.
+  literal, or a same-module name bound to one, is bumped and checked. A single
+  call to a reader imported from another module (`importlib.metadata.version`,
+  or a package helper like `installed_version()`), with no hardcoded version
+  in its arguments, is not bumped, and phase 11 reports it as a passing check.
+  Everything else fails the release with the reason instead of shipping a
+  stale version. A docstring that mentions `__version__` is no longer mistaken
+  for the assignment.
 
 - ethos config resolves layered again so the engineering team, seeded pipelines and the claude leader identity resolve alongside the vendored gstack team
 
@@ -56,12 +57,16 @@ All notable changes to this project will be documented in this file.
 
 - `punt release` now fails the bump and the version check, naming the line,
   on a `__version__` it cannot pin, where it used to skip it silently or
-  report it as computed. That covers a hardcoded version inside a call
-  (`str("1.0")`, an environment default, a joined version tuple), an imported
-  `__version__` or a value built from an imported name ("pin the version
-  there"), more than one binding of the name (including a later import or
-  `import *`), an assignment only inside an `if`/`try` block, a prefixed or
-  concatenated string, a number, and a file that does not parse.
+  report it as computed. That covers any value that is neither a plain string
+  nor one call to an imported reader: a same-module helper function or class,
+  `.format()`, `.join()`, `%`, `.decode()`, a subscript or method call on the
+  result (`version("x").split("+")[0]`, versioneer's
+  `get_versions()["version"]`), a dynamic import, and a hardcoded version in
+  the call's arguments. It also covers an imported `__version__`, a non-metadata
+  call given an imported name ("pin the version there"), more than one binding
+  of the name (a later import, `import *`, a walrus, or the `"0.0.0"` fallback
+  python.md forbids), an assignment only inside an `if`/`try` block, and a
+  file that does not parse.
 - `standards/punt-labs-dir.md` § 8: the vendored-subtree seal-manifest fail
   now applies only when the repo tracks any file under
   `.punt-labs/ethos/sessions/` (the ethos trace tier). A repo with nothing
