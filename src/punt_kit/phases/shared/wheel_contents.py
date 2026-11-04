@@ -42,18 +42,18 @@ class WheelContents:
     def top_level(self) -> tuple[str, ...]:
         """The top-level importable names the wheel installs, sorted.
 
-        Top-level directories count, and so do top-level ``.py``, ``.so`` and
-        ``.pyd`` files, by module name; only a name that is a Python
-        identifier counts, which leaves out ``*.dist-info``, the ``*.data``
-        schemes that do not install to site-packages, and ``realpkg.libs``.
+        A top-level directory counts when it holds a ``.py``, ``.so`` or
+        ``.pyd`` file at any depth (a data directory such as ``assets/`` does
+        not), and so does a top-level code file, by module name. Only a name
+        that is a Python identifier counts, which leaves out ``*.dist-info``,
+        the ``*.data`` schemes that do not install to site-packages, and
+        ``realpkg.libs``.
         """
-        names: set[str] = set()
-        for path in self._paths:
-            head, slash, _ = path.partition("/")
-            if slash:
-                names.add(head)
-            elif head.endswith(_CODE_SUFFIXES):
-                names.add(head.split(".", 1)[0])
+        names = {
+            _importable_name(path)
+            for path in self._paths
+            if path.endswith(_CODE_SUFFIXES)
+        }
         return tuple(sorted(name for name in names if name.isidentifier()))
 
     def shipping(self, module: str) -> Shipping:
@@ -73,3 +73,13 @@ class WheelContents:
         if not inside:
             return "missing"
         return "module" if any(n.endswith(_CODE_SUFFIXES) for n in inside) else "empty"
+
+
+def _importable_name(code_path: str) -> str:
+    """The top-level name a code file installs: its directory, or its stem.
+
+    ``pkg/sub/mod.py`` is ``pkg``; ``fast.cpython-313-x86_64-linux-gnu.so``
+    is ``fast``.
+    """
+    head, slash, _ = code_path.partition("/")
+    return head if slash else head.split(".", 1)[0]

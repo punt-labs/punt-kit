@@ -735,6 +735,31 @@ def test_a_configured_name_the_wheel_lacks_still_fails(
         )
 
 
+def test_a_data_directory_beside_the_package_is_not_a_module(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _flat_project(tmp_path, "nothing-here", ())
+    (root / "dist").mkdir()
+    files = {"pkg/__init__.py": "", "assets/logo.png": "png"}
+    probe = _Probe(_version(_RELEASE))
+
+    _check(root, probe.ops(), skips).verify(_built(root, files))
+
+    assert [cmd[-3] for cmd, _, _ in probe.calls] == ["pkg"]
+
+
+def test_no_module_from_the_source_or_the_wheel_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _flat_project(tmp_path, "nothing-here", ())
+    (root / "dist").mkdir()
+    files = {"assets/logo.png": "png"}
+
+    # No probe: an import would be an unmatched command and fail the test.
+    with pytest.raises(ReleaseError, match=r"0 top-level importable names \(none"):
+        _check(root, fault_ops(), skips).verify(_built(root, files))
+
+
 def test_a_wheel_with_several_top_level_names_fails_listing_them(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
@@ -766,6 +791,11 @@ def test_a_wheel_with_several_top_level_names_fails_listing_them(
             ),
             ("datapkg",),
             id="data-schemes",
+        ),
+        pytest.param(
+            ("pkg/__init__.py", "assets/logo.png", "deep/a/b/core.so"),
+            ("deep", "pkg"),
+            id="code-at-any-depth",
         ),
     ],
 )
