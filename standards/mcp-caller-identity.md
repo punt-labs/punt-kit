@@ -92,9 +92,12 @@ own. It returns `updatedInput`: the original arguments plus
    matches, a hook failure leaves the call untouched.
 6. The hook reads its whole payload per [hooks.md](hooks.md) and stays light:
    a stdlib-only Python hook measured 0.02 s wall time per invocation.
-7. The hook honors the org kill switch like any other hook. A killed stamping
-   hook means the engine refuses the session's calls (§ 3.2.3); that is the
-   intended fail-closed result, and the refusal names the cause.
+7. The hook honors the org kill switch like any other hook. With the stamping
+   hook killed or absent, calls arrive without `_caller` and the engine
+   refuses them (§ 3.2.3), naming the cause. The engine cannot tell a stamped
+   `_caller` from one the model wrote itself while no hook was running; the
+   hook prevents that forgery only while it runs. That is acceptable because
+   `_caller` routes rather than authenticates (§ 4.4).
 
 ### 3.2 The server
 
@@ -181,9 +184,17 @@ handle is engine-issued.
    lapses (hours, not minutes), and an applet that lives as long as the
    session (§ 3.3) renews it on the session's behalf. SessionEnd remains the
    normal close.
-6. **Close.** The SessionEnd hook closes the engine session and removes the
-   session directory. SessionEnd does not fire on a crash, so the lease is the
-   backstop: a record whose lease lapses is reaped.
+6. **End, then expire.** A Claude Code session can end and be resumed under
+   the same `session_id` (measured: SessionEnd at the end of a run, then
+   SessionStart with `source: "resume"`). So the SessionEnd hook *ends* the
+   engine session rather than deleting it: the engine releases what needs a
+   live client (callbacks, subscriptions, pending deliveries) and keeps the
+   session's durable state for a retention period the engine sets. An open
+   for that `session_id` within the period — a resume — returns the same
+   record, handle, and durable state. The engine deletes the record, and the
+   hook's directory goes with it on the next open or a periodic sweep, when
+   the retention period lapses. SessionEnd does not fire on a crash; the lease
+   lapsing ends the session the same way.
 7. **Unknown handle.** A call presenting a well-formed handle the engine does
    not hold (the engine restarted without persisting sessions, or the lease
    lapsed) goes through the same get-or-create as open, keyed by
@@ -248,7 +259,9 @@ resources, OAuth per the MCP spec).
 6. Layer 2: open twice for one `session_id` returns one handle; a call renews
    the lease; an unknown well-formed handle with no live record re-creates
    it, and one with a live record for its `session_id` resolves to that
-   record (never two records); a lapsed lease reaps it; close removes it.
+   record (never two records); SessionEnd or a lapsed lease ends it; an open
+   for the same `session_id` within the retention period returns its handle
+   and durable state; after the period the record is gone.
 7. Layer 2: a subagent's state is separate from the main thread's, and the
    main thread's state survives a change of `main_agent_id`.
 
@@ -264,7 +277,8 @@ resources, OAuth per the MCP spec).
 5. Never emits `allow`.
 6. Layer 2: opens when no handle file exists, writes it with modes
    `0600`/`0700`, adds `handle` and `main_agent_id` to `_caller`, and
-   SessionEnd removes it.
+   SessionEnd ends the engine session without deleting the handle a resume
+   will need.
 
 ---
 
