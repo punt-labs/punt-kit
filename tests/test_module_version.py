@@ -664,6 +664,15 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
             '__version__ = version("pkg")\n',
             r"`from x import \*` at line 2 could rebind __version__",
         ),
+        (
+            '__version__ = "0.1.0"\ntry:\n    pass\n'
+            "except* (__version__ := ValueError):\n    pass\n",
+            r"assigned 2 times \(lines 1, 4\)",
+        ),
+        (
+            "try:\n    pass\nexcept (__version__ := ValueError):\n    pass\n",
+            r"`except \(__version__ := ValueError\):` does not assign one plain name",
+        ),
     ],
     ids=[
         "imported-name",
@@ -690,6 +699,8 @@ def test_an_unparseable_module_names_the_syntax_error(text: str) -> None:
         "full-width-digit",
         "unpacked-name",
         "star-beside-a-call",
+        "walrus-in-except-star-type",
+        "only-a-walrus-in-except-type",
     ],
 )
 def test_the_refusal_says_why(text: str, reason: str) -> None:

@@ -137,8 +137,9 @@ class ModuleVersion:
         self, name: str, seen: frozenset[str], chain: tuple[ast.stmt, ...]
     ) -> ComputedVersion | LiteralVersion:
         """Follow ``name`` to its value; ``chain`` holds the bindings so far."""
-        stmt = self._only_binding(name)
-        source = self._source(stmt)
+        binding = self._only_binding(name)
+        stmt = binding.stmt
+        source = self._source(binding.line)
         seen |= {name}
         chain = (*chain, stmt)
         value = self._value(stmt, name, source)
@@ -154,11 +155,11 @@ class ModuleVersion:
                 self._refuse_a_later_star(())
                 fault = _ReaderCall(value, self._bindings).fault()
                 if fault is not None:
-                    msg = f"`{source}` (line {stmt.lineno}) {fault}"
+                    msg = f"`{source}` (line {binding.line}) {fault}"
                     raise UnpinnableVersionError(msg)
                 return ComputedVersion(source)
             case _:
-                raise _not_plain(source, stmt.lineno, name)
+                raise _not_plain(source, binding.line, name)
 
     def _refuse_a_later_star(self, chain: tuple[ast.stmt, ...]) -> None:
         """Raise on an ``import *`` not strictly before every binding in ``chain``.
@@ -174,14 +175,14 @@ class ModuleVersion:
                 )
                 raise UnpinnableVersionError(msg)
 
-    def _only_binding(self, name: str) -> ast.stmt:
-        """The one module-body statement that binds ``name``."""
+    def _only_binding(self, name: str) -> _Binding:
+        """The one module-body binding of ``name``."""
         bindings = self._bindings.of(name)
         if not bindings:
             msg = f"{name} is not assigned at module level"
             raise UnpinnableVersionError(msg)
         if len(bindings) > 1:
-            lines = ", ".join(str(binding.stmt.lineno) for binding in bindings)
+            lines = ", ".join(str(binding.line) for binding in bindings)
             why = _FALLBACK if _is_a_fallback(bindings) else _LAST_WINS
             msg = f"{name} is assigned {len(bindings)} times (lines {lines}); {why}"
             raise UnpinnableVersionError(msg)
@@ -191,11 +192,11 @@ class ModuleVersion:
             raise UnpinnableVersionError(msg)
         if binding.is_nested:
             msg = (
-                f"{name} is assigned inside a block at line {binding.stmt.lineno}; "
+                f"{name} is assigned inside a block at line {binding.line}; "
                 "a bump cannot tell whether it runs, so it could ship a stale version"
             )
             raise UnpinnableVersionError(msg)
-        return binding.stmt
+        return binding
 
     @staticmethod
     def _value(stmt: ast.stmt, name: str, source: str) -> ast.expr:
@@ -231,9 +232,9 @@ class ModuleVersion:
             raise _not_plain(source, stmt.lineno, name)
         return LiteralVersion(str(node.value), node.lineno - 1, start + 1, end - 1)
 
-    def _source(self, stmt: ast.stmt) -> str:
-        """The first line of ``stmt``, stripped, for messages."""
-        return self._lines[stmt.lineno - 1].strip()
+    def _source(self, line: int) -> str:
+        """Source line ``line`` (1-based), stripped, for messages."""
+        return self._lines[line - 1].strip()
 
 
 @final
@@ -355,7 +356,7 @@ class _ReaderCall:
         if _is_version_text(text, reads_metadata=reads_metadata):
             return (
                 f"passes {name}, bound to the hardcoded version {text!r} "
-                f"(line {bindings[0].stmt.lineno}), which could be stale; {_ADVICE}"
+                f"(line {bindings[0].line}), which could be stale; {_ADVICE}"
             )
         return None
 
@@ -389,6 +390,7 @@ class _Binding:
     """One place a name is bound in a module's global scope."""
 
     stmt: ast.stmt  # the statement that holds the binding
+    line: int  # where the binding is: the statement's line, or a walrus's own
     sources: tuple[ast.expr, ...]  # the expressions whose value flows in
     imported: _Import | None  # what an import binds; None for any other binding
     is_nested: bool  # inside a block or a function, not the module body
@@ -497,10 +499,20 @@ class _ModuleBindings:
         """Note the names ``stmt`` binds, keeping only ``only`` when given."""
         if isinstance(stmt, ast.ImportFrom) and only is None:
             self._stars.extend(stmt for alias in stmt.names if alias.name == "*")
-        for name, sources, imported in _bound_names(stmt):
+        is_in_except = stmt in self._excepted
+        bound = [
+            (name, stmt.lineno, sources, imported)
+            for name, sources, imported in _bound_names(stmt)
+        ]
+        bound += [
+            (node.target.id, node.lineno, (node.value,), None)
+            for node in _own_expressions(stmt)
+            if isinstance(node, ast.NamedExpr)
+        ]
+        for name, line, sources, imported in bound:
             if only is None or name in only:
                 binding = _Binding(
-                    stmt, sources, imported, is_nested, stmt in self._excepted
+                    stmt, line, sources, imported, is_nested, is_in_except
                 )
                 self._by_name[name].append(binding)
 
@@ -545,7 +557,10 @@ def _own_expressions(node: ast.AST) -> Iterator[ast.AST]:
 def _bound_names(
     stmt: ast.stmt,
 ) -> Iterator[tuple[str, tuple[ast.expr, ...], _Import | None]]:
-    """Each name ``stmt`` binds, what flows into it, and what it imports."""
+    """Each name ``stmt`` binds, what flows into it, and what it imports.
+
+    A walrus inside ``stmt`` is not here: ``_record`` notes it at its own line.
+    """
     match stmt:
         case ast.Assign(targets=targets, value=value):
             for target in targets:
@@ -594,9 +609,6 @@ def _bound_names(
             yield name, (), None
         case _:
             pass
-    for node in _own_expressions(stmt):
-        if isinstance(node, ast.NamedExpr):
-            yield node.target.id, (node.value,), None
 
 
 def _stored(
