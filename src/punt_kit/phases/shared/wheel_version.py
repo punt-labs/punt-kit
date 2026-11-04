@@ -48,11 +48,14 @@ class WheelVersionCheck:
     3. the one package or ``.py`` module under the module root, or, when it
        holds none, the one package at the repo root (a lone root ``.py`` is
        a tooling script such as ``noxfile.py``, so it never counts here);
-    4. when steps 1 to 3 find nothing, each wheel is read, per wheel, for its
-       top-level importable names: its top-level directories (but not
-       ``*.dist-info`` or ``*.data``), its top-level ``.py``, ``.so`` and
-       ``.pyd`` files, and the same under ``*.data/purelib`` or ``platlib``.
-       Exactly one is used; anything else fails, listing what it holds.
+    4. when steps 2 and 3 find nothing, or guess a name the wheel does not
+       ship (a root ``tests/`` package beside a ``lib/`` layout), each wheel
+       is read, per wheel, for its top-level importable names: its top-level
+       directories, its top-level ``.py``, ``.so`` and ``.pyd`` files, and
+       the same under ``*.data/purelib`` or ``platlib``, identifiers only.
+       Exactly one is used; anything else fails, listing what it holds. A
+       ``module-name`` from step 1 is never second-guessed: if the wheel
+       lacks it, the check fails on that.
 
     Several modules where step 3 wants one fails, naming them. Steps 2 to 4 name one
     module, so a wheel shipping several top-level packages has only that one
@@ -211,15 +214,28 @@ class WheelVersionCheck:
             self._ops.fail(f"{wheel.name} is not a readable wheel: {exc}")
 
     def _modules_in(self, wheel: Path) -> tuple[str, ...]:
-        """The modules to check in ``wheel``: from the source, else from it."""
-        modules = self.module_names()
-        if modules:
-            return modules
-        importable = self._contents(wheel).top_level()
+        """The modules to check in ``wheel``: configured, scanned, else from it.
+
+        A configured ``module-name`` is final: if the wheel lacks it, the
+        check fails on that. A name the source scans guessed is kept only if
+        the wheel ships it; a custom layout can leave the scans looking at,
+        say, a root ``tests/`` package the wheel never ships. Then, as when
+        the scans find nothing, the wheel's one top-level name is used.
+        """
+        configured = self._configured_names()
+        if configured:
+            return configured
+        scanned = self.module_names()
+        contents = self._contents(wheel)
+        if scanned and all(contents.shipping(m) == "module" for m in scanned):
+            return scanned
+        importable = contents.top_level()
         if len(importable) != 1:
+            guessed = f"guessed {', '.join(scanned)}, which {wheel.name} lacks"
             self._ops.fail(
                 "cannot tell which module the wheel ships: no [tool.uv.build-"
-                "backend] module-name, nothing found in the source tree, and "
+                "backend] module-name, the source tree "
+                f"{guessed if scanned else 'gave nothing'}, and "
                 f"{wheel.name} holds {len(importable)} top-level importable "
                 f"names ({', '.join(importable) or 'none'}); set module-name"
             )

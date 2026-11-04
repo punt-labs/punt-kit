@@ -700,6 +700,41 @@ def test_a_package_the_source_scan_misses_is_read_from_the_wheel(
     assert [cmd[-3] for cmd, _, _ in probe.calls] == ["pkg"]
 
 
+def _lib_layout_with_root_tests(tmp_path: Path, extra: str = "") -> Path:
+    """A ``lib/widget`` project whose repo root also holds ``tests/``."""
+    root = _flat_project(tmp_path, "custom-layout", ("tests", "lib/widget"))
+    if extra:
+        with (root / "pyproject.toml").open("a") as pyproject:
+            pyproject.write(extra)
+    (root / "dist").mkdir()
+    return root
+
+
+def test_a_scanned_name_the_wheel_lacks_falls_back_to_the_wheel(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """The root scan guesses ``tests``; the wheel ships only ``widget``."""
+    root = _lib_layout_with_root_tests(tmp_path)
+    probe = _Probe(_version(_RELEASE))
+
+    assert _check(root, fault_ops(), skips).module_names() == ("tests",)
+    dist = _built(root, {"widget/__init__.py": ""})
+    _check(root, probe.ops(), skips).verify(dist)
+
+    assert [cmd[-3] for cmd, _, _ in probe.calls] == ["widget"]
+
+
+def test_a_configured_name_the_wheel_lacks_still_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _lib_layout_with_root_tests(tmp_path, _module_name("tests"))
+
+    with pytest.raises(ReleaseError, match="does not contain tests"):
+        _check(root, fault_ops(), skips).verify(
+            _built(root, {"widget/__init__.py": ""})
+        )
+
+
 def test_a_wheel_with_several_top_level_names_fails_listing_them(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
