@@ -2308,6 +2308,10 @@ phase 5 tags, which publishes.
    replacement, so a stray non-UTF-8 byte cannot crash the release. Code
    inside the package can still read the nonce and forge a record on
    purpose; the check guards against accident, not a hostile package.
+   The wheel is installed exactly as a user would get it, so a dependency
+   that resolves only through a `[tool.uv.sources]` git pin fails the
+   install loudly; the project must publish that dependency or set the pin
+   in its wheel metadata.
 4. **Skips.** A module with no `__version__` at run time is recorded with
    the `SkipRecorder`, so it appears in the end-of-run recap. A run resumed
    past phase 3 records that the check did not run and says to re-run from
