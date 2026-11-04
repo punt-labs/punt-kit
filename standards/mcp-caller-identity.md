@@ -59,7 +59,7 @@ Consequences:
 | **Engine session** | The engine's own record of one Claude Code session: the state it holds for that caller, its lease, and its handle. At most one live record exists per `session_id`. |
 | **Handle** | The engine-issued reference to an engine session, opaque to every client. |
 | **Session client** | Any process acting for a Claude Code session against an engine: the MCP leg, the plugin's hooks, and applets the session spawns. |
-| **`_caller`** | The reserved argument that carries caller facts on an MCP tool call; under layer 2 it adds `handle` and `main_agent_id` (§ 4.2.4). |
+| **`_caller`** | The reserved argument that carries caller facts on an MCP tool call; under layer 2 it adds `handle` and `main_agent_id` (§ 4.2.5). |
 
 ---
 
@@ -72,7 +72,10 @@ Every engine that needs to know who is calling implements this layer.
 The plugin's PreToolUse hook stamps `_caller` on its own server's tools under
 every name Claude Code gives them: the plugin registration, the `-dev` plugin
 registration, and a direct registration (for example
-`mcp__(plugin_lux(-dev)?_)?lux__.*`). A hook may match more tools than that —
+`mcp__(plugin_lux(-dev)?_)?lux__.*`). A direct registration is matched only
+under the server name the plugin documents; a user who registers the server
+under another name gets no stamping, and the engine's refusal (§ 3.2.3) names
+the documented name. A hook may match more tools than that —
 ethos matches every tool because it also gates them — but it stamps only its
 own. It returns `updatedInput`: the original arguments plus
 
@@ -119,7 +122,11 @@ own. It returns `updatedInput`: the original arguments plus
    refused with a named error that lists the likely causes (the stamping hook
    is not installed, disabled, or killed). The engine does not try to detect
    Claude Code to decide whether `_caller` was owed: every client type has a
-   declared channel, and a call with none is unidentified.
+   declared channel, and a call with none is unidentified. An engine may
+   exempt tools it declares caller-free — diagnostics such as ethos's
+   `doctor`, which must still answer when the stamping hook is the thing that
+   is broken. A caller-free tool reads and writes no per-session or per-agent
+   state.
 4. **Validate the shape.** `session_id` and `agent_id` (and, under layer 2,
    `handle` and `main_agent_id`) are non-empty and match `[A-Za-z0-9_-]+`.
    Anything else is a named error.
@@ -152,71 +159,75 @@ handle is engine-issued.
 
 ### 4.2 Lifecycle
 
-1. **Open is get-or-create per `session_id`.** A session client opens the
-   engine session through the engine's own API (REST or CLI, not MCP),
-   declaring the caller facts and whatever identity the engine's model wants
-   (repo, cwd, kind, name). If the engine holds a record for that
-   `session_id` — live, or ended and still within its retention period
-   (§ 4.2.6) — it returns that record's handle and makes it live again
-   (resume, a second opener); otherwise it creates the record, starts its
-   lease, and returns a new handle. The engine never holds two records for
-   one `session_id`.
-2. **Who opens.** The SessionStart hook opens, on every `source`
-   (`startup`, `resume`, and the rest). Because SessionStart hooks are
-   fail-open and may run asynchronously ([hooks.md](hooks.md) § 7), any session
-   client that finds no handle file opens instead — in practice the
-   PreToolUse hook on the session's first tool call, which is guaranteed to
-   run before that call.
-3. **Store.** The opener writes the handle to
+The engine-session lifecycle is model-checked: a Z specification,
+[mcp-caller-identity-lifecycle.tex](mcp-caller-identity-lifecycle.tex), proves
+the invariants below with ProB over every reachable state (36,889 states, no
+violation, no deadlock), and four fidelity controls reproduce the defects
+earlier drafts of this section had
+([report](mcp-caller-identity-lifecycle.md)). The rules here are the model's;
+a change to them changes the model first.
+
+A record is **live**, **dormant**, or **ended**; a session with no record is
+**absent**. Every record carries a handle, the session's durable state, its
+live-client resources (callbacks, subscriptions, pending deliveries), and its
+**current main pid** — the main-thread agent id of the session's latest run.
+
+1. **Get-or-create by `session_id`.** Open, and any call presenting a handle
+   the engine does not hold, resolve by `session_id`: if a record exists for
+   it in **any** state — live, dormant, or ended — that record is used and
+   made live; otherwise the engine creates one with a new handle (or, for an
+   unknown handle, under the presented handle) and empty state. The engine
+   never holds two records for one `session_id`. A presented handle that
+   belongs to a different session's record is treated as unknown.
+2. **Every open and every call sets the current main pid** to the caller's
+   `main_agent_id`. A resume's first call may arrive before (or without) its
+   SessionStart, so updating the pid on open alone is not enough: with it,
+   a late SessionEnd from the replaced run still ends the resumed record
+   (model control `_nopincall_buggy`).
+3. **Who opens.** The SessionStart hook opens, on every `source` (`startup`,
+   `resume`, and the rest). SessionStart hooks are fail-open and may run
+   asynchronously ([hooks.md](hooks.md) § 7), so any session client that finds
+   no handle file opens instead — in practice the PreToolUse hook on the
+   session's first tool call, which runs before that call.
+4. **Store.** The opener writes the handle to
    `~/.punt-labs/<tool>/sessions/<session_id>/handle`, mode `0600`, in
-   directories with mode `0700`, writing to a temporary file and renaming it
-   into place so a reader never sees a partial handle. `session_id` comes from
-   a hook payload, so it is checked against `[A-Za-z0-9_-]+` (§ 3.2.4) before
-   it is used in a path; a value that fails is treated as missing facts.
-4. **Present.** Every session client presents the handle with its caller
-   facts and the session's current main-thread agent id: the PreToolUse hook
-   adds `"handle"` and `"main_agent_id"` to `_caller`; other hooks read the
-   file and send the same three values directly; applets receive them at
-   spawn. Every hook can compute `main_agent_id` (the corroborated
-   `CLAUDE_PID`), so the engine never has to remember which agent is the main
-   thread — it is told on every call, including the first call after a resume
-   or an engine restart.
-5. **Renew.** Every call carrying the handle renews the lease, whether it
-   comes from the MCP leg, a hook, or an applet. A session can sit idle for
-   hours while the user is away, so the lease measures abandonment, not
-   activity: its TTL is long enough that only a session whose process is gone
-   lapses (hours, not minutes), and an applet that lives as long as the
-   session (§ 3.3) renews it on the session's behalf. A lapse is *dormancy*,
-   not an end: the record and its live-client resources (callbacks,
-   subscriptions, pending deliveries) stay in place, and the next call
-   resolves to the same record (§ 4.2.7) and makes it live again with nothing
-   to re-establish. Only SessionEnd, or the retention period running out on a
-   dormant record, releases them (§ 4.2.6).
-6. **End, then expire.** A Claude Code session can end and be resumed under
-   the same `session_id` (measured: SessionEnd at the end of a run, then
-   SessionStart with `source: "resume"`). So the SessionEnd hook *ends* the
-   engine session rather than deleting it: the engine releases what needs a
-   live client (callbacks, subscriptions, pending deliveries) and keeps the
-   session's durable state for a retention period the engine sets. An open
-   for that `session_id` within the period — a resume — returns the same
-   record, handle, and durable state. The engine deletes the record, and the
-   hook's directory goes with it on the next open or a periodic sweep, when
-   the retention period lapses. SessionEnd does not fire on a crash; a crashed
-   session goes dormant when its lease lapses (§ 4.2.5) and is released when
-   retention runs out. A SessionEnd presents its `main_agent_id`, and the
-   engine ends the record only if that matches the record's current main
-   thread: a late SessionEnd from a run that a `--resume` has already
-   replaced ends nothing.
-7. **Unknown handle.** A call presenting a well-formed handle the engine does
-   not hold (the engine restarted without persisting sessions, or the lease
-   lapsed) goes through the same get-or-create as open, keyed by
-   `session_id`: if a record for that `session_id` exists — live, ended within
-   retention, or one a concurrent SessionStart just opened — the call
-   resolves to it and makes it live; otherwise the engine re-creates the
-   record under the presented handle, with empty state. Either way the engine logs it and the call proceeds, because
-   a PreToolUse hook never sees the tool's result and could not act on an
-   error. State lost to a restart or lapse stays lost; the session keeps
-   working, and never splits into two records.
+   directories with mode `0700`, through a temporary file renamed into place.
+   `session_id` comes from a hook payload, so it is checked against
+   `[A-Za-z0-9_-]+` (§ 3.2.4) before it is used in a path; a value that fails
+   is treated as missing facts.
+5. **Present.** Every session client presents the handle, its caller facts,
+   and `main_agent_id`: the PreToolUse hook adds `"handle"` and
+   `"main_agent_id"` to `_caller`; other hooks read the file and send the same
+   values directly; applets receive them at spawn. Every hook can compute
+   `main_agent_id` (the corroborated `CLAUDE_PID`).
+6. **Renew; a lapse is dormancy.** Every call renews the lease. The lease
+   measures abandonment, not activity, so its TTL is hours, and an applet that
+   lives as long as the session renews it on the session's behalf. A lapse
+   moves a live record to **dormant** and keeps its live-client resources, so
+   the next call revives it with nothing to re-establish.
+7. **SessionEnd ends a record only for the current run.** SessionEnd
+   presents its `main_agent_id`; the engine ends the record (live or dormant
+   to **ended**) only if that equals the record's current main pid, and
+   ending an ended record changes nothing. A late SessionEnd from a run that a
+   resume has replaced ends nothing (model controls `_nopin_buggy`,
+   `_noguard_buggy`). Ending releases live-client resources and keeps durable
+   state.
+8. **Resume after an end.** Get-or-create revives an ended record with its
+   handle and durable state but no live-client resources: clients re-register
+   their callbacks and subscriptions, as they do on any reconnect.
+9. **Expire.** Retention is the only rule that drops durable state. A
+   dormant or ended record whose retention period has run (from the lapse or
+   the end) is removed, and the hook's directory goes with it on the next
+   open or a periodic sweep. SessionEnd does not fire on a crash; a crashed
+   session goes dormant at its lease lapse and expires after retention.
+10. **Unknown handles never error.** Rule 1 resolves them and the engine logs
+    it, because a PreToolUse hook never sees the tool's result and could not
+    act on an error. State lost to an engine restart without persistence stays
+    lost; the session keeps working and never splits.
+
+The model assumes a call carrying an older run's `main_agent_id` does not
+arrive after a newer run's call (a replaced process has stopped making calls);
+an engine cannot detect that ordering and does not try.
 
 ### 4.3 Per-agent state
 
@@ -271,16 +282,15 @@ user's session by naming its `session_id`.
 4. A tool whose schema does not declare `_caller` succeeds with one present,
    and the tool never receives it.
 5. Caller resolution is identical in the stateless and handshake protocols.
-6. Layer 2: open twice for one `session_id` returns one handle; a call renews
-   the lease; an unknown well-formed handle with no live record re-creates
-   it, and one with a live record for its `session_id` resolves to that
-   record (never two records); a lapsed lease leaves it dormant with its
-   live-client resources intact, and the next call makes it live; SessionEnd
-   ends it only when its `main_agent_id` matches the record's current main
-   thread; an open for the same `session_id` within the retention period
-   returns its handle and durable state; after the period the record is
-   gone. A multi-user engine resolves a session only for the principal that
-   opened it.
+6. Layer 2, one test per model invariant and per fidelity control
+   (§ 4.2): open twice for one `session_id` yields one record; an unknown
+   handle resolves to an existing live, dormant, or ended record, or creates
+   one, and never a second; every open and call sets the current main pid;
+   a lapse keeps live-client resources; SessionEnd from the current run ends
+   the record and a late SessionEnd from a replaced run (before and after the
+   new run's first call) does not; a resume revives an ended record with its
+   durable state; retention expiry removes it. A multi-user engine resolves a
+   session only for the principal that opened it.
 7. Layer 2: a subagent's state is separate from the main thread's, and the
    main thread's state survives a change of `main_agent_id`.
 
@@ -337,10 +347,10 @@ Go and declares `_caller` on its tools rather than stripping it.
   declared channels per client type; ethos's DES-074 records the
   misdetection risk (a non-Claude client inheriting `CLAUDECODE=1`).
 - Its roster is reaped by primary-pid liveness or a 24-hour TTL from roster
-  start, not by a lease renewed on each call (§ 4.2.5), and it has no
-  unknown-handle re-creation (§ 4.2.7).
+  start, not by a lease renewed on each call (§ 4.2.6), and it has no
+  unknown-handle resolution (§ 4.2.10).
 - Its roster lives at `~/.punt-labs/ethos/sessions/<session_id>.yaml`; the
-  handle file of § 4.2.3 is not used, because its handle is the caller facts.
+  handle file of § 4.2.4 is not used, because its handle is the caller facts.
 - Its stamping matcher (`^mcp__plugin_ethos(-dev)?_self__`) covers the plugin
   registrations only; a direct registration of the ethos server goes
   unstamped and is refused (§ 3.1).
