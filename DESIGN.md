@@ -2295,5 +2295,6 @@ failure instead of a stale ship.
 | Alternative | Why Rejected |
 |-------------|-------------|
 | Keep tightening the static classifier | Each round found a new hiding place; static analysis of arbitrary Python cannot be sealed. |
+| Skip the import when the static reader finds no `__version__` | The static reader is blind to `globals()`, `setattr`, `exec` and PEP 562 versions, the exact cases this check exists for; review showed each one passing. |
 | Verify in phase 11 | Phase 11 runs after the tag publishes, too late to stop a bad release. |
 | Import the source tree instead of the wheel | It tests the checkout, not the artifact that ships; packaging mistakes would pass. |
