@@ -2241,3 +2241,43 @@ module it comes from. The project's own helper is the case this exists for
 | Block-list: computed when a call is present and no hardcoded version reaches it | Two review rounds each found new hiding places: a same-module helper, separately bound ints, a list, `.format()`, bytes, a dynamic import. The list of ways to hide a literal never closes. |
 | Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module, the case this bead exists to fix. |
 | Follow an imported helper into its module | It needs path resolution across packages and still stops at C extensions and dynamic code. The project's own helper is trusted instead, and that trust is stated above. |
+
+## DES-035: The Built Wheel's `__version__` Is Verified at Run Time
+
+**Date:** 2026-11-04
+**Status:** SETTLED
+**Topic:** The behavioural backstop for DES-034's static `__version__` check
+
+### Context
+
+DES-034 classifies `__version__` from the syntax tree. Five rounds of local
+review on it each found new ways a stale literal could pass a static read: a
+same-module helper, an unpacked name, a shadowed import, a monkeypatched
+reader, a `globals()` rebind. A static check cannot be made complete. The
+question it is a proxy for is simply what the shipped package reports.
+
+### Design
+
+`WheelVersionCheck` (`src/punt_kit/phases/shared/wheel_version.py`) runs at
+the end of phase 3, after `uv build` and the twine check. For each wheel in
+`dist/` it runs
+`uv run --isolated --no-project --with <wheel> python -I -c <probe> <module>`,
+reads the version the package reports, and fails the release unless it
+equals the release version. Phase 3 is the last point before anything
+leaves the machine: phase 4 merges the release PR and phase 5 tags, which
+publishes. The module is `[tool.uv.build-backend] module-name`, or the single
+package under the module root. A module with no `__version__` binding is
+skipped with a line. An import failure, a mismatch, or an empty `dist/` fails
+the phase with both values and the wheel named.
+
+DES-034 still decides what phase 2 bumps. This check decides whether the
+release may proceed, so a miss in the static classifier becomes a loud
+failure instead of a stale ship.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep tightening the static classifier | Each round found a new hiding place; static analysis of arbitrary Python cannot be sealed. |
+| Verify in phase 11 | Phase 11 runs after the tag publishes, too late to stop a bad release. |
+| Import the source tree instead of the wheel | It tests the checkout, not the artifact that ships; packaging mistakes would pass. |
