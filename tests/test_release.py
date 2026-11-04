@@ -13659,12 +13659,16 @@ _HELPER_COMPUTED_INIT = (
 _METADATA_COMPUTED_INIT = (
     'from importlib.metadata import version\n\n__version__ = version("test-pkg")\n'
 )
+_SPLIT_COMPUTED_INIT = (
+    "from importlib.metadata import version\n\n"
+    '__version__ = version("test-pkg").split("+")[0]\n'
+)
 
 
 @pytest.mark.parametrize(
     "init_text",
-    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT],
-    ids=["helper-call", "importlib-metadata"],
+    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT, _SPLIT_COMPUTED_INIT],
+    ids=["helper-call", "importlib-metadata", "call-then-split"],
 )
 def test_phase2_leaves_a_computed_init_version_alone(
     tmp_path: Path, init_text: str
@@ -13736,6 +13740,27 @@ _UNPINNABLE_INITS = {
     "syntax-error": '__version__ = "0.1.0\n',
     "number": "__version__ = 1.0\n",
     "tuple": "__version__ = (1, 0)\n",
+    # A call that a hardcoded version feeds is not computed.
+    "literal-in-call": '__version__ = str("0.1.0")\n',
+    "environ-default": 'import os\n__version__ = os.environ.get("V", "0.1.0")\n',
+    "tuple-joined": 'VI = (0, 1, 0)\n__version__ = ".".join(map(str, VI))\n',
+    # Every binding counts, inside a block or under ``global`` too.
+    "type-checking-else": (
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n    __version__: str\n"
+        'else:\n    __version__ = "0.1.0"\n'
+    ),
+    "try-except": (
+        "try:\n    from ._v import __version__\n"
+        'except ImportError:\n    __version__ = "0.1.0"\n'
+    ),
+    "rebound-under-global": (
+        '__version__ = "0.1.0"\ndef _dev():\n    global __version__\n'
+        '    __version__ = "0.1.0-dev"\n'
+    ),
+    "star-import": '__version__ = "0.1.0"\nfrom ._v import *\n',
+    # Pinned in another module, which this one cannot see.
+    "imported": "from ._v import __version__\n",
 }
 
 
@@ -13771,20 +13796,10 @@ def test_phase2_fails_when_the_pyproject_version_cannot_be_rewritten(
     assert "✓ pyproject.toml" not in capsys.readouterr().out
 
 
-def test_phase2_leaves_an_imported_version_alone(tmp_path: Path) -> None:
-    root = _make_release_project(tmp_path)
-    _init_py(root).write_text("from ._v import __version__\n")
-    _commit_all(root, "imported version")
-
-    _bump(root)  # not an assignment: nothing to bump, nothing to fail
-
-    assert _init_py(root).read_text() == "from ._v import __version__\n"
-
-
 @pytest.mark.parametrize(
     "init_text",
-    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT],
-    ids=["helper-call", "importlib-metadata"],
+    [_HELPER_COMPUTED_INIT, _METADATA_COMPUTED_INIT, _SPLIT_COMPUTED_INIT],
+    ids=["helper-call", "importlib-metadata", "call-then-split"],
 )
 def test_phase11_passes_a_computed_init_version_and_names_it(
     tmp_path: Path,

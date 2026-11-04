@@ -92,7 +92,7 @@ class Phase2VersionBump:
                 f"{exc}; set it by hand"
             )
         match found:
-            case None:  # not assigned here, e.g. ``from ._v import __version__``
+            case None:  # the module never binds __version__
                 return
             case ComputedVersion(source=source):
                 # Read from installed metadata at import time (python.md,
