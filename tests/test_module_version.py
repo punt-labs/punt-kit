@@ -148,6 +148,16 @@ def test_a_plain_quoted_string_is_a_literal(text: str, value: str) -> None:
     [
         ("__version__ = '0.1.0'\n", "__version__ = '0.2.0'\n"),
         ('__version__: str = "0.1.0"\r\n', '__version__: str = "0.2.0"\r\n'),
+        (
+            'x = 1\r# c\r__version__ = "0.1.0"  # pin\r',
+            'x = 1\r# c\r__version__ = "0.2.0"  # pin\r',
+        ),
+        (
+            'x = 1\r\n# c\r\n__version__ = "0.1.0"\r\n',
+            'x = 1\r\n# c\r\n__version__ = "0.2.0"\r\n',
+        ),
+        ('x = 1\n# c\n__version__ = "0.1.0"\n', 'x = 1\n# c\n__version__ = "0.2.0"\n'),
+        ('x = 1\n__version__ = "0.1.0"', 'x = 1\n__version__ = "0.2.0"'),
         ('x = "é"; y = 1\n__version__ = "0.1.0"  # é\n', None),
         ('x="é"; __version__ = "0.1.0"\n', 'x="é"; __version__ = "0.2.0"\n'),
         ('__version__: "é" = "0.1.0"\n', '__version__: "é" = "0.2.0"\n'),
@@ -155,6 +165,10 @@ def test_a_plain_quoted_string_is_a_literal(text: str, value: str) -> None:
     ids=[
         "keeps-quote",
         "keeps-crlf",
+        "lone-cr-line-3",
+        "crlf-line-3",
+        "lf-line-3",
+        "no-final-newline",
         "non-ascii-line",
         "non-ascii-before-statement",
         "non-ascii-annotation",
@@ -541,8 +555,10 @@ def test_anything_else_cannot_be_pinned(text: str) -> None:
         '__version__ = "0.1.0"\n__version__ = "0.2.0"\n',
         '__version__ = "0.1.0"\n__version__ += "-dev"\n',
         'VERSION = "0.1.0"\nVERSION = "0.2.0"\n__version__ = VERSION\n',
+        '__version__ = "0.1.0"\ntry:\n    pass\n'
+        "except (__version__ := ValueError):\n    pass\n",
     ],
-    ids=["reassigned", "augmented", "name-reassigned"],
+    ids=["reassigned", "augmented", "name-reassigned", "walrus-in-except-type"],
 )
 def test_more_than_one_module_level_assignment_cannot_be_pinned(text: str) -> None:
     with pytest.raises(UnpinnableVersionError, match="assigned 2 times"):

@@ -16,6 +16,8 @@ _NAME = "__version__"
 _PLAIN_STRING = re.compile(r"""(["'])[^"'\\\n]*\1""")
 # What may follow the closing quote: whitespace and a comment, nothing else.
 _TRAILER = re.compile(r"\s*(?:#.*)?")
+# One source line with its ending; ``ast`` breaks lines on CRLF, CR and LF.
+_LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
 # A string that spells a version somewhere in it: digits, a dot, digits.
 _VERSION_TEXT = re.compile(r"\d+\.\d+")
 # Any digit, full-width ones too: "2", "v2", " 2", "２".
@@ -53,16 +55,16 @@ class LiteralVersion:
     """A plain quoted version, located so it can be set in place."""
 
     value: str
-    line: int  # 0-based index into the text's ``\n``-separated lines
+    line: int  # 0-based index into the text's lines, as ``ast`` counts them
     start: int  # first character inside the quotes
     end: int  # the closing quote
 
     def rewritten(self, text: str, version: str) -> str:
         """``text`` with this literal set to ``version``, quotes kept."""
-        lines = text.split("\n")
+        lines = _source_lines(text)
         old = lines[self.line]
         lines[self.line] = f"{old[: self.start]}{version}{old[self.end :]}"
-        return "\n".join(lines)
+        return "".join(lines)
 
 
 @final
@@ -113,7 +115,7 @@ class ModuleVersion:
             msg = f"the file does not parse ({exc.msg}, line {exc.lineno})"
             raise UnpinnableVersionError(msg) from exc
         self = super().__new__(cls)
-        self._lines = text.split("\n")
+        self._lines = _source_lines(text)
         self._bindings = _ModuleBindings(tree)
         return self
 
@@ -215,7 +217,7 @@ class ModuleVersion:
         self, stmt: ast.stmt, node: ast.Constant, name: str, source: str
     ) -> LiteralVersion:
         """``node`` located for rewriting, when its source form is plain."""
-        line = self._lines[node.lineno - 1]
+        line = self._lines[node.lineno - 1].rstrip("\r\n")
         start = _char_offset(line, node.col_offset)
         end = _char_offset(line, node.end_col_offset or 0)
         head = line[_char_offset(line, stmt.col_offset) : start]
@@ -518,13 +520,17 @@ def _own_expressions(node: ast.AST) -> Iterator[ast.AST]:
     """Nodes of ``node``'s own expressions, not nested statements.
 
     A lambda's body is its own scope, but its defaults run in this one, as
-    does a ``match`` case's guard.
+    do a ``match`` case's guard and an ``except`` clause's type.
     """
     for child in ast.iter_child_nodes(node):
         if isinstance(child, ast.match_case):
             if child.guard is not None:
                 yield child.guard
                 yield from _own_expressions(child.guard)
+        elif isinstance(child, ast.ExceptHandler):
+            if child.type is not None:  # the type is evaluated in this scope
+                yield child.type
+                yield from _own_expressions(child.type)
         elif isinstance(child, ast.Lambda):
             defaults = [*child.args.defaults, *child.args.kw_defaults]
             for default in defaults:
@@ -653,6 +659,11 @@ def _not_plain(source: str, line: int, name: str) -> UnpinnableVersionError:
         f"`{source}` (line {line}) is not a plain quoted string "
         f'({name} = "X.Y.Z") or a call to an imported reader; {_ADVICE}'
     )
+
+
+def _source_lines(text: str) -> list[str]:
+    """``text``'s lines as ``ast`` numbers them, each keeping its own ending."""
+    return _LINE.findall(text)
 
 
 def _char_offset(line: str, byte_offset: int) -> int:
