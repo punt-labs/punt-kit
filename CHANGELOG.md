@@ -28,6 +28,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt release` no longer fails the version bump on a computed
+  `__version__` that does not name `importlib.metadata` in the same file,
+  such as vox's `__version__ = installed_version()`. Any `__version__` whose
+  value is not a plain quoted literal is now skipped by the bump (phase 2)
+  and the version check (phase 11); a literal is still bumped and checked,
+  including one beside an `importlib.metadata` import.
+
 - ethos config resolves layered again so the engineering team, seeded pipelines and the claude leader identity resolve alongside the vendored gstack team
 
 ### Security
