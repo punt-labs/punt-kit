@@ -86,13 +86,13 @@ def _module_name(module: str) -> str:
     return f'\n[tool.uv.build-backend]\nmodule-name = "{module}"\n'
 
 
-def _wheel(dist: Path, files: dict[str, str]) -> Path:
-    """Write a minimal, installable ``test-pkg`` wheel holding ``files``."""
-    info = f"test_pkg-{_RELEASE}.dist-info"
+def _wheel(dist: Path, files: dict[str, str], *, name: str = "test_pkg") -> Path:
+    """Write a minimal, installable wheel of distribution ``name`` with ``files``."""
+    info = f"{name}-{_RELEASE}.dist-info"
     contents = {
         **files,
         f"{info}/METADATA": (
-            f"Metadata-Version: 2.1\nName: test-pkg\nVersion: {_RELEASE}\n"
+            f"Metadata-Version: 2.1\nName: {name}\nVersion: {_RELEASE}\n"
         ),
         f"{info}/WHEEL": (
             "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: true\n"
@@ -104,7 +104,7 @@ def _wheel(dist: Path, files: dict[str, str]) -> Path:
         for name, text in contents.items()
     ]
     contents[f"{info}/RECORD"] = "\n".join([*record, f"{info}/RECORD,,"]) + "\n"
-    wheel = dist / f"test_pkg-{_RELEASE}-py3-none-any.whl"
+    wheel = dist / f"{name}-{_RELEASE}-py3-none-any.whl"
     with zipfile.ZipFile(wheel, "w") as archive:
         for name, text in contents.items():
             archive.writestr(name, text)
@@ -126,10 +126,15 @@ def _built(root: Path, files: dict[str, str] | None = None) -> Path:
 
 
 def _record(
-    kind: str, value: str, *, origin: str = _ORIGIN, in_stdlib: bool = False
+    kind: str,
+    value: str,
+    *,
+    origin: str = _ORIGIN,
+    in_stdlib: bool = False,
+    from_wheel: bool = True,
 ) -> Answer:
     """The probe's one record, under whatever nonce it was handed."""
-    fields = (kind, value, origin, in_stdlib)
+    fields = (kind, value, origin, in_stdlib, from_wheel)
     return lambda head: f"\n{head}{ascii(fields)}\n"
 
 
@@ -167,7 +172,7 @@ class _Probe:
             (Path(cwd) / "dist" / f"test_pkg-{_RELEASE}.tar.gz").write_bytes(b"sdist")
             return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
         self.calls.append((cmd, timeout, errors))
-        stdout = self.answer(f"\x00PUNT_VERSION:{cmd[-1]}")
+        stdout = self.answer(f"\x00PUNT_VERSION:{cmd[-2]}")
         return subprocess.CompletedProcess(cmd, self.returncode, stdout, self.stderr)
 
     def ops(self, *rules: FaultRule) -> FaultInjectingOps:
@@ -205,7 +210,7 @@ def test_probe_imports_the_module_in_an_isolated_interpreter(
 
     [(cmd, timeout, errors)] = probe.calls
     wheel = str(next(dist.glob("*.whl")))
-    shape = (cmd[: len(_PROBE) + 4], cmd[-2], timeout, errors)
+    shape = (cmd[: len(_PROBE) + 4], cmd[-3], timeout, errors)
     assert shape == (
         [*_PROBE, wheel, "python", "-I", "-c"],
         "test_pkg",
@@ -224,7 +229,7 @@ def test_each_probe_carries_a_fresh_random_nonce(
     check.verify(_built(root))
     check.verify(root / "dist")
 
-    nonces = [cmd[-1] for cmd, _, _ in probe.calls]
+    nonces = [cmd[-2] for cmd, _, _ in probe.calls]
     assert all(re.fullmatch(r"[0-9a-f]{32}", n) for n in nonces) and len(
         set(nonces)
     ) == len(nonces)
@@ -341,7 +346,7 @@ def _raw(payload: str) -> Answer:
     [
         pytest.param("<Version('1.0.0')>", id="no-literal"),
         pytest.param("('str', '1.0.0')", id="short-tuple"),
-        pytest.param("('weird', '1.0.0', '/x', False)", id="bad-kind"),
+        pytest.param("('weird', '1.0.0', '/x', False, True)", id="bad-kind"),
     ],
 )
 def test_a_malformed_record_fails(
@@ -362,7 +367,7 @@ def _unframed(head: str) -> str:
 def _forged(head: str) -> str:
     """A record under some other nonce, as a package that guessed would print."""
     del head
-    fields = ("str", _RELEASE, _ORIGIN, False)
+    fields = ("str", _RELEASE, _ORIGIN, False, True)
     return f"\n\x00PUNT_VERSION:{'0' * 32}{ascii(fields)}\n"
 
 
@@ -396,6 +401,27 @@ def test_a_module_loaded_from_the_stdlib_fails(
 
     with pytest.raises(ReleaseError, match="from the standard library"):
         _check(root, _Probe(answer).ops(), skips).verify(_built(root))
+
+
+def test_a_module_not_from_the_wheels_distribution_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _project(tmp_path, "")
+    answer = _record("str", _RELEASE, from_wheel=False)
+
+    with pytest.raises(ReleaseError, match="another installed package shadows"):
+        _check(root, _Probe(answer).ops(), skips).verify(_built(root))
+
+
+def test_the_probe_is_told_the_wheels_distribution(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _project(tmp_path, "")
+    probe = _Probe(_version(_RELEASE))
+
+    _check(root, probe.ops(), skips).verify(_built(root))
+
+    assert [cmd[-1] for cmd, _, _ in probe.calls] == ["test_pkg"]
 
 
 def test_import_error_fails(tmp_path: Path, skips: SkipRecorder) -> None:
@@ -433,7 +459,7 @@ def test_a_module_the_wheel_ships_is_imported_whatever_the_source_tree(
 
     _check(root, probe.ops(), skips).verify(_built(root, files))
 
-    assert [cmd[-2] for cmd, _, _ in probe.calls] == [module]
+    assert [cmd[-3] for cmd, _, _ in probe.calls] == [module]
 
 
 def test_a_module_the_wheel_lacks_fails_before_any_import(
@@ -443,6 +469,68 @@ def test_a_module_the_wheel_lacks_fails_before_any_import(
     # No probe: an import would be an unmatched command and fail the test.
     with pytest.raises(ReleaseError, match="does not contain ghost"):
         _check(root, fault_ops(), skips).verify(_built(root))
+
+
+@pytest.mark.parametrize(
+    ("module", "files"),
+    [
+        pytest.param(
+            "fastmod",
+            {"fastmod.cpython-313-x86_64-linux-gnu.so": ""},
+            id="tagged-so",
+        ),
+        pytest.param("fastmod", {"fastmod.so": ""}, id="bare-so"),
+        pytest.param("fastmod", {"fastmod.cp313-win_amd64.pyd": ""}, id="tagged-pyd"),
+        pytest.param("fastmod", {"fastmod.pyd": ""}, id="bare-pyd"),
+        pytest.param(
+            "datapkg",
+            {f"test_pkg-{_RELEASE}.data/purelib/datapkg/__init__.py": ""},
+            id="purelib",
+        ),
+        pytest.param(
+            "datapkg",
+            {f"test_pkg-{_RELEASE}.data/platlib/datapkg/core.so": ""},
+            id="platlib",
+        ),
+    ],
+)
+def test_extension_and_data_scheme_modules_count_as_shipped(
+    tmp_path: Path, skips: SkipRecorder, module: str, files: dict[str, str]
+) -> None:
+    root = _project(tmp_path, "", pyproject_extra=_module_name(module))
+    probe = _Probe(_version(_RELEASE))
+
+    _check(root, probe.ops(), skips).verify(_built(root, files))
+
+    assert len(probe.calls) == 1
+
+
+def test_a_module_directory_without_python_files_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _project(tmp_path, "", pyproject_extra=_module_name("emptypkg"))
+    files = {"emptypkg/data.txt": "x"}
+
+    with pytest.raises(ReleaseError, match="ships emptypkg/ with no Python files"):
+        _check(root, fault_ops(), skips).verify(_built(root, files))
+
+
+def test_a_wheel_that_is_not_a_zip_fails_naming_it(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    root = _project(tmp_path, "")
+    (root / "dist" / f"test_pkg-{_RELEASE}-py3-none-any.whl").write_bytes(b"no")
+
+    with pytest.raises(ReleaseError, match=r"test_pkg-1\.0\.0-py3-none-any\.whl is"):
+        _check(root, fault_ops(), skips).verify(root / "dist")
+
+
+def test_an_unlocated_module_fails(tmp_path: Path, skips: SkipRecorder) -> None:
+    root = _project(tmp_path, "")
+    answer = _record("unlocated", "", origin="")
+
+    with pytest.raises(ReleaseError, match="has no file origin"):
+        _check(root, _Probe(answer).ops(), skips).verify(_built(root))
 
 
 def test_no_wheel_in_dist_fails(tmp_path: Path, skips: SkipRecorder) -> None:
@@ -516,13 +604,39 @@ def test_a_flat_layout_resolves(
     assert _check(root, fault_ops(), skips).module_names() == expected
 
 
+def _single_file_project(tmp_path: Path, name: str, module: str) -> Path:
+    """A project ``name`` whose code is the one file ``src/<module>.py``."""
+    root = tmp_path / "single"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / f"{module}.py").write_text("")
+    (root / "pyproject.toml").write_text(
+        f'[project]\nname = "{name}"\nversion = "{_RELEASE}"\n'
+    )
+    return root
+
+
+@pytest.mark.parametrize(
+    ("name", "module"),
+    [
+        pytest.param("test-pkg", "test_pkg", id="named-for-project"),
+        pytest.param("other-name", "lonely", id="the-only-module"),
+    ],
+)
+def test_a_single_file_module_resolves(
+    tmp_path: Path, skips: SkipRecorder, name: str, module: str
+) -> None:
+    root = _single_file_project(tmp_path, name, module)
+
+    assert _check(root, fault_ops(), skips).module_names() == (module,)
+
+
 def test_two_packages_none_named_for_the_project_fail(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
     root = _project(tmp_path, "", name="other-name")
     _layout(root, ("src/second",))
 
-    with pytest.raises(ReleaseError, match="2 packages under"):
+    with pytest.raises(ReleaseError, match="2 modules under"):
         _check(root, fault_ops(), skips).module_names()
 
 
@@ -531,7 +645,7 @@ def test_no_package_anywhere_fails_naming_what_was_searched(
 ) -> None:
     root = _flat_project(tmp_path, "nothing-here", ())
 
-    with pytest.raises(ReleaseError, match=r"no nothing_here directory.*src"):
+    with pytest.raises(ReleaseError, match=r"no nothing_here package or module.*src"):
         _check(root, fault_ops(), skips).module_names()
 
 
@@ -645,6 +759,17 @@ _STALE_GETATTR = (
             id="setattr",
         ),
         pytest.param("exec(\"__version__ = '0.0.1'\")\n", id="exec"),
+        pytest.param(
+            "import os\n"
+            "_real_write = os.write\n"
+            "def _forge(fd, data):\n"
+            "    data = data.replace(b\"'0.0.1'\", "
+            f"b\"'{_RELEASE}'\")\n"
+            "    return _real_write(fd, data)\n"
+            "os.write = _forge\n"
+            '__version__ = "0.0.1"\n',
+            id="replaced-os-write",
+        ),
         pytest.param(_STALE_GETATTR, id="pep562"),
         pytest.param(
             f'import atexit\natexit.register(print, "{_RELEASE}")\n'
@@ -688,12 +813,78 @@ def test_a_real_wheel_reporting_the_release_version_passes(
     _real(tmp_path, init, skips)
 
 
-def test_a_real_lazy_version_that_raises_fails(
+def test_a_real_lazy_reader_that_breaks_inside_fails(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
-    init = "def __getattr__(name):\n    raise AttributeError(name)\n"
+    init = (
+        "class _Meta:\n"
+        "    pass\n"
+        "_meta = _Meta()\n"
+        "def __getattr__(name):\n"
+        '    if name == "__version__":\n'
+        "        return _meta.version\n"
+        "    raise AttributeError(name)\n"
+    )
 
     with pytest.raises(ReleaseError, match="importing test_pkg to read"):
+        _real(tmp_path, init, skips)
+
+
+@pytest.mark.parametrize(
+    "init",
+    [
+        pytest.param('"""No version here."""\n', id="plain-module"),
+        pytest.param(
+            "def __getattr__(name):\n    raise AttributeError(name)\n",
+            id="pep562-bare",
+        ),
+        pytest.param(
+            "def __getattr__(name):\n"
+            '    raise AttributeError(f"module {__name__!r} has no attribute '
+            '{name!r}")\n',
+            id="pep562-message",
+        ),
+    ],
+)
+def test_a_real_wheel_with_no_version_records_a_skip(
+    tmp_path: Path, skips: SkipRecorder, init: str
+) -> None:
+    _real(tmp_path, init, skips)
+
+    assert any("no __version__ at run time" in note for note in skips.drain())
+
+
+def test_a_real_module_class_swap_is_read(tmp_path: Path, skips: SkipRecorder) -> None:
+    init = (
+        "import sys, types\n"
+        "class _Versioned(types.ModuleType):\n"
+        "    @property\n"
+        "    def __version__(self):\n"
+        '        return "0.0.1"\n'
+        "sys.modules[__name__].__class__ = _Versioned\n"
+    )
+
+    with pytest.raises(ReleaseError, match="'0.0.1' at run time"):
+        _real(tmp_path, init, skips)
+
+
+def test_a_real_module_rewriting_argv_passes(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    init = f'import sys\nsys.argv[:] = sys.argv[:1]\n__version__ = "{_RELEASE}"\n'
+
+    _real(tmp_path, init, skips)
+
+
+def test_a_real_module_replaced_in_sys_modules_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    init = (
+        "import sys, types\n"
+        f'sys.modules[__name__] = types.SimpleNamespace(__version__="{_RELEASE}")\n'
+    )
+
+    with pytest.raises(ReleaseError, match="has no file origin"):
         _real(tmp_path, init, skips)
 
 
@@ -709,14 +900,6 @@ def test_a_real_forged_record_fails(tmp_path: Path, skips: SkipRecorder) -> None
         _real(tmp_path, init, skips)
 
 
-def test_a_real_wheel_with_no_version_records_a_skip(
-    tmp_path: Path, skips: SkipRecorder
-) -> None:
-    _real(tmp_path, '"""No version here."""\n', skips)
-
-    assert any("no __version__ at run time" in note for note in skips.drain())
-
-
 def test_a_real_namespace_package_records_a_skip(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
@@ -725,13 +908,53 @@ def test_a_real_namespace_package_records_a_skip(
     assert any("nspkg has no __version__" in note for note in skips.drain())
 
 
+@pytest.mark.parametrize("module", ["json", "calendar"])
 def test_a_real_module_shadowed_by_the_stdlib_fails(
-    tmp_path: Path, skips: SkipRecorder
+    tmp_path: Path, skips: SkipRecorder, module: str
 ) -> None:
-    files = {"json/__init__.py": f'__version__ = "{_RELEASE}"\n'}
+    files = {f"{module}/__init__.py": f'__version__ = "{_RELEASE}"\n'}
 
     with pytest.raises(ReleaseError, match="from the standard library"):
-        _real(tmp_path, "", skips, module="json", files=files)
+        _real(tmp_path, "", skips, module=module, files=files)
+
+
+def test_a_real_dependency_shadowing_the_module_fails(
+    tmp_path: Path, skips: SkipRecorder
+) -> None:
+    """An installed package of the same name, not this wheel, answers the import.
+
+    The wheel ships ``shadowed.py``; a second wheel installed beside it ships
+    the package ``shadowed/``, which the import system prefers.
+    """
+    root = _project(tmp_path, "", pyproject_extra=_module_name("shadowed"))
+    _wheel(root / "dist", {"shadowed.py": f'__version__ = "{_RELEASE}"\n'})
+    decoys = tmp_path / "decoys"
+    decoys.mkdir()
+    decoy = _wheel(
+        decoys,
+        {"shadowed/__init__.py": f'__version__ = "{_RELEASE}"\n'},
+        name="decoy",
+    )
+
+    def with_decoy(
+        cmd: list[str],
+        *,
+        cwd: str | None = None,
+        timeout: int = timeouts.DEFAULT_RUN,
+        check: bool = True,
+        capture: bool = True,
+        errors: str = "strict",
+    ) -> subprocess.CompletedProcess[str]:
+        at = cmd.index("--with") + 2
+        cmd = [*cmd[:at], "--with", str(decoy), *cmd[at:]]
+        return CommandRunner.run(
+            cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
+        )
+
+    ops = fault_ops(real_run=with_decoy, passthrough=[_PROBE])
+
+    with pytest.raises(ReleaseError, match="another installed package shadows"):
+        _check(root, ops, skips).verify(root / "dist")
 
 
 def test_a_real_module_missing_from_the_wheel_fails(

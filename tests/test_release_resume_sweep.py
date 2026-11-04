@@ -282,8 +282,14 @@ class _GithubSim:
 
     def _wheel_probe(self, cmd: list[str]) -> subprocess.CompletedProcess[str]:
         """Answer Phase 3's import of the wheel under the nonce it was handed."""
-        fields = ("str", _VERSION, "/venv/site-packages/test_pkg/__init__.py", False)
-        return self._done(cmd, f"\n\x00PUNT_VERSION:{cmd[-1]}{ascii(fields)}\n")
+        fields = (
+            "str",
+            _VERSION,
+            "/venv/site-packages/test_pkg/__init__.py",
+            False,
+            True,
+        )
+        return self._done(cmd, f"\n\x00PUNT_VERSION:{cmd[-2]}{ascii(fields)}\n")
 
 
 def _which_gh_only(name: str) -> str | None:

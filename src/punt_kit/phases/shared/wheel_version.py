@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Self, cast, final
 from packaging.version import InvalidVersion, Version
 
 from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.wheel_contents import WheelContents
 from punt_kit.phases.shared.wheel_probe import PROBE_SOURCE, ProbeRecord
 
 if TYPE_CHECKING:
@@ -42,17 +43,18 @@ class WheelVersionCheck:
 
     1. ``[tool.uv.build-backend] module-name`` (a string or a list);
     2. the project name normalized as uv does (``Punt-Kit`` is ``punt_kit``),
-       when that directory exists under the module root (``module-root``,
-       default ``src``) or, for a flat layout, the repo root;
-    3. the one package under the module root, or, when it holds none, the one
-       package at the repo root.
+       when that directory or ``.py`` file exists under the module root
+       (``module-root``, default ``src``) or, for a flat layout, the repo root;
+    3. the one package or ``.py`` module under the module root, or, when it
+       holds none, the one at the repo root.
 
     Anything else fails, naming what was searched. Steps 2 and 3 name one
     module, so a wheel shipping several top-level packages has only that one
     checked unless ``module-name`` lists them all.
 
-    Each module must be in the wheel, and must import from the wheel: one a
-    stdlib module of the same name shadows fails. The import runs under the
+    Each module must be in the wheel, and must import from the wheel's own
+    installed files: one that a stdlib module or another installed package of
+    the same name shadows fails. The import runs under the
     project's ``requires-python`` when it sets one. A module that will not
     import fails the release, and one with no ``__version__`` once imported
     is skipped, with the skip recorded for the release recap.
@@ -109,34 +111,46 @@ class WheelVersionCheck:
         # entry when module-root is "" and the two are the same directory.
         bases = tuple(dict.fromkeys((self._module_root(), self._info.root)))
         name = _NORMALIZE.sub("_", self._project_name()).lower()
-        if any((base / name).is_dir() for base in bases):
+        if any(
+            (base / name).is_dir() or (base / f"{name}.py").is_file() for base in bases
+        ):
             return (name,)
         for base in bases:
-            packages = _packages(base)
-            if len(packages) == 1:
-                return packages
-            if packages:
+            modules = _top_level_modules(base)
+            if len(modules) == 1:
+                return modules
+            if modules:
                 self._ops.fail(
-                    f"cannot tell which module the wheel ships: {len(packages)} "
-                    f"packages under {base} ({', '.join(packages)}) and none is "
+                    f"cannot tell which module the wheel ships: {len(modules)} "
+                    f"modules under {base} ({', '.join(modules)}) and none is "
                     f"{name}; set [tool.uv.build-backend] module-name"
                 )
         searched = " or ".join(str(base) for base in bases)
         self._ops.fail(
             "cannot tell which module the wheel ships: no [tool.uv.build-backend] "
-            f"module-name, no {name} directory, and no package under {searched}; "
-            "set [tool.uv.build-backend] module-name"
+            f"module-name, no {name} package or module, and nothing under "
+            f"{searched}; set [tool.uv.build-backend] module-name"
         )
 
     def _verify_wheel(self, wheel: Path, module: str) -> None:
         """Fail unless ``module`` imported from ``wheel`` reports the version."""
-        if not _ships(wheel, module):
-            self._ops.fail(f"{wheel.name} does not contain {module}")
+        self._require_shipped(wheel, module)
         record = self._probe(wheel, module)
+        if record.kind == "unlocated":
+            self._ops.fail(
+                f"{wheel.name}: {module} has no file origin (replaced in "
+                "sys.modules?); cannot verify it came from the wheel"
+            )
         if record.in_stdlib:
             self._ops.fail(
                 f"{wheel.name}: importing {module} loaded {record.origin!r}, "
                 "from the standard library, not the wheel; rename the module"
+            )
+        if not record.from_wheel:
+            self._ops.fail(
+                f"{wheel.name}: importing {module} loaded {record.origin!r}, "
+                f"which is not one of the files {_distribution(wheel)} installs; "
+                "another installed package shadows the wheel"
             )
         match record.kind:
             case "absent":
@@ -159,6 +173,21 @@ class WheelVersionCheck:
             case "str":
                 self._ops.ok(f"{wheel.name}: {module}.__version__ == {self._version}")
 
+    def _require_shipped(self, wheel: Path, module: str) -> None:
+        """Fail unless ``wheel`` is a readable zip that ships ``module``."""
+        try:
+            contents = WheelContents.of(wheel)
+        except zipfile.BadZipFile as exc:
+            self._ops.fail(f"{wheel.name} is not a readable wheel: {exc}")
+        match contents.shipping(module):
+            case "missing":
+                self._ops.fail(f"{wheel.name} does not contain {module}")
+            case "empty":
+                path = module.replace(".", "/")
+                self._ops.fail(f"{wheel.name} ships {path}/ with no Python files")
+            case "module":
+                pass
+
     def _probe(self, wheel: Path, module: str) -> ProbeRecord:
         """Import ``module`` from ``wheel`` in isolation; the one record it gave."""
         nonce = secrets.token_hex(16)
@@ -177,6 +206,7 @@ class WheelVersionCheck:
                 PROBE_SOURCE,
                 module,
                 nonce,
+                _distribution(wheel),
             ],
             cwd=str(wheel.parent),
             timeout=UV,
@@ -272,22 +302,20 @@ class WheelVersionCheck:
         return cast("dict[str, object]", table)
 
 
-def _ships(wheel: Path, module: str) -> bool:
-    """Whether ``wheel`` holds ``module``: a package, a module file, or a namespace."""
-    path = module.replace(".", "/")
-    with zipfile.ZipFile(wheel) as archive:
-        names = archive.namelist()
-    return f"{path}.py" in names or any(name.startswith(f"{path}/") for name in names)
-
-
-def _packages(base: Path) -> tuple[str, ...]:
-    """The regular packages directly under ``base``, sorted; empty if none."""
+def _top_level_modules(base: Path) -> tuple[str, ...]:
+    """The regular packages and ``.py`` modules directly under ``base``, sorted."""
     if not base.is_dir():
         return ()
     return tuple(
         sorted(
-            child.name
+            child.stem if child.is_file() else child.name
             for child in base.iterdir()
-            if child.is_dir() and (child / "__init__.py").is_file()
+            if (child.is_dir() and (child / "__init__.py").is_file())
+            or (child.is_file() and child.suffix == ".py")
         )
     )
+
+
+def _distribution(wheel: Path) -> str:
+    """The distribution name a wheel's filename starts with (PEP 427)."""
+    return wheel.name.split("-", 1)[0]
