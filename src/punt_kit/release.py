@@ -43,7 +43,7 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo
-from punt_kit.phases.shared.skips import SkipRecorder
+from punt_kit.phases.shared.skips import RESUMED_PAST_BUILD_SKIP, SkipRecorder
 
 console = Console()
 
@@ -236,7 +236,7 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
 
 def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 3: Build validation."""
-    Phase3Build(info, version, dry_run=dry_run, ops=_ops).run()
+    Phase3Build(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
@@ -543,6 +543,8 @@ def run_release(
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
         resume = f" (resuming from phase {start})" if start > 1 else ""
         console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
+        if info.language == "python" and start > PhaseOrder.NUMBERS["build"]:
+            _skips.record(RESUMED_PAST_BUILD_SKIP)
 
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the

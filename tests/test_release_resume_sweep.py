@@ -340,7 +340,7 @@ def _scripted_release_rules() -> list[FaultRule]:
         FaultRule(
             match=["uv", "run", "--isolated", "--no-project"],
             times=None,
-            response=CompletedProcessSpec(stdout=f"{_VERSION}\n"),
+            response=CompletedProcessSpec(stdout=f"\n\x00PUNT_VERSION={_VERSION!r}\n"),
         ),
         # Phase 1's five no-Makefile quality gates (ruff/format/mypy/
         # pyright/pytest) all arrive as `uv run ...`.

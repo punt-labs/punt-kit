@@ -52,7 +52,11 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.repo_slug import RepoSlug
 from punt_kit.phases.shared.siblings import SiblingRepo
-from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
+from punt_kit.phases.shared.skips import (
+    GITHUB_ABSENT_SKIP,
+    RESUMED_PAST_BUILD_SKIP,
+    SkipRecorder,
+)
 
 # Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
 # wrappers, `_pr_merge`, `_run`, `_wait_for_required_checks`, `_propagate_*`,
@@ -1920,6 +1924,39 @@ def test_run_release_non_go_resume_from_tag_without_version_unaffected(
         run_release(str(root), resume_from="tag")
 
 
+@pytest.mark.parametrize(
+    ("resume_from", "stop_at", "is_recorded"),
+    [
+        pytest.param("release-pr", "_phase4_release_pr", True, id="past-build"),
+        pytest.param("build", "_phase3_build", False, id="at-build"),
+    ],
+)
+def test_run_release_resumed_past_build_records_the_unrun_version_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    skips: SkipRecorder,
+    resume_from: str,
+    stop_at: str,
+    is_recorded: bool,
+) -> None:
+    """Phase 3 imports the wheel; a resume after it must say that never ran."""
+
+    root = _make_release_project(tmp_path)
+
+    class _StopAtPhase(BaseException):
+        """Sentinel raised by the first phase the resumed run reaches."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAtPhase
+
+    monkeypatch.setattr(release, stop_at, _stop)
+
+    with pytest.raises(_StopAtPhase):
+        run_release(str(root), resume_from=resume_from)
+
+    assert (RESUMED_PAST_BUILD_SKIP in skips.drain()) is is_recorded
+
+
 def test_run_release_resume_plugin_only_no_version_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2164,7 +2201,9 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     )
 
     with pytest.raises(ReleaseError, match="uv build failed"):
-        Phase3Build(info, "0.1.0", dry_run=False, ops=ops).run()
+        Phase3Build(
+            info, "0.1.0", dry_run=False, ops=ops, skips=SkipRecorder(ops=ops)
+        ).run()
 
 
 # --- Phase 5: tag ---

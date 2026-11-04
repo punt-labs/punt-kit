@@ -14,6 +14,7 @@ from punt_kit.phases.shared.wheel_version import WheelVersionCheck
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
+    from punt_kit.phases.shared.skips import SkipRecorder
 
 _console = Console()
 
@@ -28,21 +29,29 @@ class Phase3Build:
     in Phase 11, which verifies after the fact.
     """
 
-    __slots__ = ("_dry_run", "_info", "_ops", "_version")
+    __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
     _info: ProjectInfo
     _version: str
     _dry_run: bool
     _ops: ReleaseOps
+    _skips: SkipRecorder
 
     def __new__(
-        cls, info: ProjectInfo, version: str, *, dry_run: bool, ops: ReleaseOps
+        cls,
+        info: ProjectInfo,
+        version: str,
+        *,
+        dry_run: bool,
+        ops: ReleaseOps,
+        skips: SkipRecorder,
     ) -> Self:
         self = super().__new__(cls)
         self._info = info
         self._version = version
         self._dry_run = dry_run
         self._ops = ops
+        self._skips = skips
         return self
 
     def run(self) -> None:
@@ -52,7 +61,9 @@ class Phase3Build:
             return
 
         _console.print("\n[bold]Phase 3: Build validation[/bold]")
-        wheel_version = WheelVersionCheck(info, self._version, ops=ops)
+        wheel_version = WheelVersionCheck(
+            info, self._version, ops=ops, skips=self._skips
+        )
 
         if self._dry_run:
             ops.dry("rm -rf dist/ && uv build && uvx twine check dist/*")

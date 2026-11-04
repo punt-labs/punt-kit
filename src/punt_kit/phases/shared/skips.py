@@ -22,6 +22,12 @@ GITHUB_ABSENT_SKIP = (
     "../.github/profile/README.md manually."
 )
 
+# Phase 3 imports the built wheel to check its run-time __version__; a release
+# resumed after Phase 3 never builds, so that check never runs.
+RESUMED_PAST_BUILD_SKIP = (
+    "SKIPPED — runtime __version__ check not run: resumed past build"
+)
+
 
 @final
 class SkipRecorder:
