@@ -2164,7 +2164,7 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     )
 
     with pytest.raises(ReleaseError, match="uv build failed"):
-        Phase3Build(info, dry_run=False, ops=ops).run()
+        Phase3Build(info, "0.1.0", dry_run=False, ops=ops).run()
 
 
 # --- Phase 5: tag ---

@@ -335,6 +335,13 @@ def _scripted_release_rules() -> list[FaultRule]:
         FaultRule(match=["git", "fetch", "origin"], times=None, response=ok),
         FaultRule(match=["git", "pull"], times=None, response=ok),
         FaultRule(match=["git", "push"], times=None, response=ok),
+        # Phase 3's isolated import of the built wheel reports __version__;
+        # ahead of the blanket `uv run` rule, which answers with no output.
+        FaultRule(
+            match=["uv", "run", "--isolated", "--no-project"],
+            times=None,
+            response=CompletedProcessSpec(stdout=f"{_VERSION}\n"),
+        ),
         # Phase 1's five no-Makefile quality gates (ruff/format/mypy/
         # pyright/pytest) all arrive as `uv run ...`.
         FaultRule(match=["uv", "run"], times=None, response=ok),

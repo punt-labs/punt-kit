@@ -234,9 +234,9 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
-def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
+def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 3: Build validation."""
-    Phase3Build(info, dry_run=dry_run, ops=_ops).run()
+    Phase3Build(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
@@ -624,7 +624,7 @@ def run_release(
             def _step3() -> None:
                 nonlocal current_phase_num
                 current_phase_num = 3
-                _phase3_build(info, dry_run=dry_run)
+                _phase3_build(info, version, dry_run=dry_run)
 
             def _step4() -> None:
                 nonlocal current_phase_num, release_sha
