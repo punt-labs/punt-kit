@@ -1,6 +1,8 @@
 # MCP Caller Identity Standards
 
-**Introduced:** 2026-11-04 · **Decision record:** [DES-034](../DESIGN.md)
+**Introduced:** 2026-11-04
+
+Decision record: [DESIGN.md DES-034](../DESIGN.md).
 
 How a Punt Labs engine learns which Claude Code session, and which agent
 inside it, is calling — on every client surface that session uses: MCP tool
@@ -153,10 +155,12 @@ handle is engine-issued.
 1. **Open is get-or-create per `session_id`.** A session client opens the
    engine session through the engine's own API (REST or CLI, not MCP),
    declaring the caller facts and whatever identity the engine's model wants
-   (repo, cwd, kind, name). If the engine holds a live record for that
-   `session_id` it returns that record's handle (resume, a second opener);
-   otherwise it creates the record, starts its lease, and returns a new
-   handle. The engine never holds two live records for one `session_id`.
+   (repo, cwd, kind, name). If the engine holds a record for that
+   `session_id` — live, or ended and still within its retention period
+   (§ 4.2.6) — it returns that record's handle and makes it live again
+   (resume, a second opener); otherwise it creates the record, starts its
+   lease, and returns a new handle. The engine never holds two records for
+   one `session_id`.
 2. **Who opens.** The SessionStart hook opens, on every `source`
    (`startup`, `resume`, and the rest). Because SessionStart hooks are
    fail-open and may run asynchronously ([hooks.md](hooks.md) § 7), any session
@@ -182,8 +186,13 @@ handle is engine-issued.
    hours while the user is away, so the lease measures abandonment, not
    activity: its TTL is long enough that only a session whose process is gone
    lapses (hours, not minutes), and an applet that lives as long as the
-   session (§ 3.3) renews it on the session's behalf. SessionEnd remains the
-   normal close.
+   session (§ 3.3) renews it on the session's behalf. If a live but idle
+   session's lease does lapse, the session only *ends* (§ 4.2.6): live-client
+   resources are released, durable state is retained, and the next call
+   resolves to the same record (§ 4.2.7) and makes it live again. The
+   release is recoverable because live-client resources (callbacks,
+   subscriptions) are re-established by their owners on reconnect.
+   SessionEnd remains the normal close.
 6. **End, then expire.** A Claude Code session can end and be resumed under
    the same `session_id` (measured: SessionEnd at the end of a run, then
    SessionStart with `source: "resume"`). So the SessionEnd hook *ends* the
@@ -198,10 +207,10 @@ handle is engine-issued.
 7. **Unknown handle.** A call presenting a well-formed handle the engine does
    not hold (the engine restarted without persisting sessions, or the lease
    lapsed) goes through the same get-or-create as open, keyed by
-   `session_id`: if a live record for that `session_id` exists — for example
-   one a concurrent SessionStart just opened — the call resolves to it;
-   otherwise the engine re-creates the record under the presented handle, with
-   empty state. Either way the engine logs it and the call proceeds, because
+   `session_id`: if a record for that `session_id` exists — live, ended within
+   retention, or one a concurrent SessionStart just opened — the call
+   resolves to it and makes it live; otherwise the engine re-creates the
+   record under the presented handle, with empty state. Either way the engine logs it and the call proceeds, because
    a PreToolUse hook never sees the tool's result and could not act on an
    error. State lost to a restart or lapse stays lost; the session keeps
    working, and never splits into two records.
@@ -320,8 +329,8 @@ Go and declares `_caller` on its tools rather than stripping it.
 - Its roster is reaped by primary-pid liveness or a 24-hour TTL from roster
   start, not by a lease renewed on each call (§ 4.2.5), and it has no
   unknown-handle re-creation (§ 4.2.7).
-- Its roster lives at `~/.punt-labs/ethos/sessions/<session_id>/`; the handle
-  file of § 4.2.3 is not used, because its handle is the caller facts.
+- Its roster lives at `~/.punt-labs/ethos/sessions/<session_id>.yaml`; the
+  handle file of § 4.2.3 is not used, because its handle is the caller facts.
 - Its stamping matcher (`^mcp__plugin_ethos(-dev)?_self__`) covers the plugin
   registrations only; a direct registration of the ethos server goes
   unstamped and is refused (§ 3.1).
