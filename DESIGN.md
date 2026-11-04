@@ -2281,14 +2281,19 @@ phase 5 tags, which publishes.
    its arguments, clears `sys.argv`, and binds `os.write`, `os._exit` and
    the path helpers it needs, so a package that rewrites them during import
    changes nothing. After the import it works out the module's origin,
-   whether that origin is in the standard library, whether it is one of
-   the files `<dist>` installs, and whether its content still matches the
-   hash in the wheel's RECORD (a dependency installing the same path would
-   overwrite it). Only a module that came from the wheel has
-   `__version__` read, and it is always read directly. An `AttributeError`
-   whose name and object are `__version__` and the module itself, or a bare
-   one with neither set, means absent; any other exception, including one
-   naming `__version__` on some other object, fails the release. The probe writes exactly one record tagged
+   whether that origin is in the standard library, and whether it is one of
+   the files `<dist>` installs. Only a module that came from the wheel has
+   `__version__` read. It counts as absent only for a plain module: an
+   exact `ModuleType` with neither `__version__` nor `__getattr__` in its
+   namespace. Otherwise it is read directly, and any exception fails the
+   release with a message to define `__version__` as a plain attribute.
+   Earlier rounds tried to tell a missing lazy attribute from a broken
+   reader by inspecting the `AttributeError`; every refinement left a new
+   silent pass, so the check now fails loudly instead of guessing.
+   Every hashed RECORD entry under the module's path must still match the
+   file on disk, so a dependency that overwrites any of them, including a
+   generated `_version.py`, is caught.
+   The probe writes exactly one record tagged
    with the nonce to file descriptor 1 and calls `os._exit(0)`. Every
    module is imported; no static pre-filter decides whether to look,
    because the static reader is blind to exactly the cases this check
