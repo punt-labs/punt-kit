@@ -229,6 +229,13 @@ resume.md
 .punt-labs/ethos/missions/**/.lock
 **/.create.lock
 
+# ethos machine-local runtime state (mission store, ledger, lock, biff identity);
+# untracked files here fail the `punt release` clean-tree preflight.
+.punt-labs/ethos/missions/
+.punt-labs/ethos/missions.jsonl
+.punt-labs/ethos/missions.jsonl.lock
+.punt-labs/ethos/.biff
+
 # ethos runtime (never track) — DES-058 live zone + mission locks
 .punt-labs/ethos/missions/**/*.lock
 .punt-labs/**/*.ethos-tmp*
