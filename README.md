@@ -156,6 +156,7 @@ Standards documents covering the full development lifecycle:
 | [Distribution](standards/distribution.md) | PyPI trusted publishing, `.mcpb` bundles, installers |
 | [Plugins](standards/plugins.md) | Claude Code plugin structure, marketplace publishing |
 | [Hooks](standards/hooks.md) | Claude Code hook events, three-layer dispatch pattern |
+| [MCP Caller Identity](standards/mcp-caller-identity.md) | Which session and agent is calling: hook-stamped `_caller`, engine-owned sessions and handles, no identity on the connection |
 | [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout; reserved subdirectories; migration from legacy dot-directories |
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned); enable/disable verbs; required user-guide doc |

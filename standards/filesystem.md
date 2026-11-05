@@ -1,6 +1,6 @@
 # Filesystem Standards
 
-**Updated:** 2026-09-10
+**Updated:** 2026-11-04
 
 Standards for home directory layout across all Punt Labs projects. Role models: **biff** (reference implementation) and **vox** (early adopter of namespaced paths).
 
@@ -54,6 +54,7 @@ Tools are free to create any subdirectory structure. The following names are res
 | `logs/` | Rotating log files (see [logging.md](logging.md)) | `~/.punt-labs/vox/logs/tts.log` |
 | `cache/` | Content-addressed or ephemeral cache | `~/.punt-labs/vox/cache/` |
 | `data/` | Persistent user data (databases, indexes) | `~/.punt-labs/quarry/data/lancedb/` |
+| `sessions/` | Per-Claude-Code-session state, one directory per `session_id` (see [mcp-caller-identity.md](mcp-caller-identity.md) § 4.2) | `~/.punt-labs/lux/sessions/<session_id>/handle` |
 
 ---
 

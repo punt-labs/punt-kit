@@ -1,6 +1,6 @@
 # Hook Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-04
 
 Standards for Claude Code hook implementation across all Punt Labs projects.
 Hooks integrate tools with Claude Code's lifecycle without containing
@@ -371,6 +371,10 @@ Setup hook that runs on every session start. Must:
 It never edits a settings file: permission rules come from `<tool> enable`
 ([permissions.md § 6](permissions.md#6-plugin-distributed-permissions)).
 
+An engine that holds per-session state also opens its engine session here,
+and its PreToolUse hook stamps the caller on its MCP tool calls:
+[mcp-caller-identity.md § 3–4](mcp-caller-identity.md).
+
 ### PostToolUse (output suppression)
 
 Every MCP tool must have a corresponding handler in
@@ -488,6 +492,12 @@ Following the principle from cli.md:
 
 Async hooks (Notification, PreCompact in some projects) are inherently
 fail-open — they run in the background and their exit code is ignored.
+
+A PreToolUse hook that stamps caller identity on its own MCP tools is a
+mutation hook for those tools and fails closed there
+([mcp-caller-identity.md § 3.1](mcp-caller-identity.md)). Opening an engine
+session from SessionStart stays fail-open, because the PreToolUse hook opens
+the session itself when SessionStart has not.
 
 ---
 

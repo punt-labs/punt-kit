@@ -2388,3 +2388,45 @@ names the release.
 | Treat an unreachable service manager as "no service" | The release would again verify the old daemon, with no signal. |
 | Own all of `Formula/` in the tap | A release of one tool would reset another tool's uncommitted formula edit. |
 | Regenerate the formula with `brew update-python-resources` | It resolves the newest dependency versions, not the lock, which is the drift being fixed. Generation belongs to the project, from its own `uv.lock`. |
+
+## DES-037: MCP Caller Identity Comes From Hooks, and Sessions Belong to the Engine
+
+**Date:** 2026-11-04
+**Status:** SETTLED
+**Topic:** How an engine learns which Claude Code session and agent is calling
+
+### Context
+
+Claude Code tells an MCP server nothing about who is calling. Measured against
+Claude Code 2.1.309: a subagent shares its leader's MCP connection, the
+connection id changes on every reconnect, and Claude Code prefers the
+stateless 2026-07-28 protocol, which has no connection at all. Engines had each
+improvised: lux keyed its MCP scope on a random per-connection key, vox on a
+per-process UUID plus per-repo files, ethos on a hook-declared caller. ethos
+(DES-074) showed hooks are the one place Claude Code states the session and
+agent.
+
+### Design
+
+`standards/mcp-caller-identity.md` is the full specification. In short:
+
+1. **Layer 1, required:** each plugin's PreToolUse hook stamps
+   `_caller {session_id, agent_id}` on its own server's tools; the server
+   strips it before validation and refuses a call that carries neither
+   `_caller` nor another declared credential.
+2. **Layer 2, for any engine holding per-session or per-agent state:** the
+   engine opens its own session record (idempotent per `session_id`), issues a
+   handle, and every session client — MCP leg, hooks, applets — presents it.
+   A lease reaps abandoned sessions; SessionEnd closes them.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Key on the MCP connection (`Mcp-Session-Id`) | Shared by the leader and every subagent, replaced on reconnect, absent in the stateless protocol (all measured). |
+| Bridge through mcp-proxy | It passes only the Claude process id, no session or agent; it speaks WebSocket only; Claude Code already reconnects HTTP servers itself. |
+| Use OAuth identity | An MCP token authorizes a user through a client and is reused across sessions; it does not name a session or agent. Authorization and caller identity are separate concerns. |
+| Detect Claude Code (env, process tree, `clientInfo`) and demand `_caller` only from it | Detection misfires (ethos records `CLAUDECODE=1` inherited by non-Claude clients), and reading `clientInfo` per call from fastmcp middleware was not shown to work. Declared channels per client type remove the guess. |
+| Declare `_caller` on every tool schema | Puts transport plumbing in every tool and in what agents see; middleware stripping keeps tools unchanged. Allowed where a framework cannot strip (ethos, Go). |
+| Stamp Claude's `session_id` only, no engine session | Leaves the engine without authority over its own records and gives hooks and applets nothing shared; vox's split state is the result. |
+| Key main-thread state on `CLAUDE_PID` | The pid changes on every `--resume` (measured), orphaning the leader's state. |

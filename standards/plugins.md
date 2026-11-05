@@ -1,6 +1,6 @@
 # Plugin Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-04
 
 Standards for Claude Code plugins across all Punt Labs projects.
 
@@ -59,7 +59,7 @@ extension points automatically.
 | Layer | Production | Development |
 |-------|-----------|-------------|
 | Commands | `/punt:init` | `/punt-dev:init-dev` |
-| MCP tools | `mcp__plugin_punt_*` | `mcp__plugin_punt_dev_*` |
+| MCP tools | `mcp__plugin_punt_*` | `mcp__plugin_punt-dev_*` |
 | Skills | `punt:reconcile` | `punt-dev:reconcile-dev` |
 
 ### Release flow
@@ -460,12 +460,13 @@ Any project that uses MCP tools inside Claude Code must have a **PostToolUse
 hook** that suppresses raw MCP tool output. Without this, JSON payloads from
 tool calls pollute the conversation.
 
-The hook matcher must use the full plugin tool prefix and cover both dev and
-prod names:
+The hook matcher must use the full plugin tool prefix and cover the dev and
+prod plugin names (Claude Code keeps the plugin name's hyphen: `biff-dev`
+gives `mcp__plugin_biff-dev_tty__…`) and a direct registration of the server:
 
 ```json
 {
-  "matcher": "mcp__plugin_biff(_dev)?_tty__.*",
+  "matcher": "mcp__(plugin_biff(-dev)?_)?tty__.*",
   "hooks": [{
     "type": "command",
     "command": "${CLAUDE_PLUGIN_ROOT}/hooks/suppress-output.sh"

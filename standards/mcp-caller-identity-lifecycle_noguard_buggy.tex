@@ -1,0 +1,369 @@
+%
+% mcp-caller-identity-lifecycle.tex
+%
+% A Z specification of the engine-session lifecycle of the punt-kit standard
+% standards/mcp-caller-identity.md, section 4.2 (Layer 2).
+%
+% Type-check:  fuzz -t standards/mcp-caller-identity-lifecycle.tex
+% Model-check: see standards/mcp-caller-identity-lifecycle.md for the exact
+%   probcli commands.  The safety properties I1--I6 are stated in the schema
+%   Safety and checked as reachability goals (a state invariant would make
+%   ProB disable the violating operation instead of reporting it).
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+
+\begin{document}
+
+\title{Engine-Session Lifecycle for MCP Caller Identity: a Z Specification}
+\author{Formal model of \S4.2 of \texttt{mcp-caller-identity.md}}
+\date{November 2026}
+\maketitle
+
+\section{Introduction}
+
+An engine holds one record per Claude Code session.  A session is named by its
+\texttt{session\_id}; each run of it (a first start, or a \texttt{--resume})
+has its own main-thread process id, and the process id changes on resume while
+the \texttt{session\_id} does not.  The record may be live, dormant (its lease
+lapsed) or ended (SessionEnd seen; durable state kept for a retention period).
+Both Open and a call carrying a handle the session's record does not own are
+get-or-create keyed by \texttt{session\_id}.
+
+Live-client resources (callbacks, subscriptions, pending deliveries) belong to
+a \emph{run}, not to the session: each is registered by the process that is
+the record's current main pid.  A lapse keeps them (the same run may come
+back); a SessionEnd or retention expiry releases them; an Open or call from a
+\emph{different} pid is a new run and releases the previous run's resources
+before the record goes live.  A revived ended record holds none.
+
+The model is flat and bounded: two sessions, three process ids, three handles.
+A record is keyed by its handle.
+
+\begin{description}
+ \item[I1] At most one record per session.
+ \item[I2] A SessionEnd from a run that has been replaced never ends the
+   record: an ended record was ended by the session's latest run.
+ \item[I3] A session whose durable state exists, and whose record has not
+   expired, has a record and that record holds the state.
+ \item[I4] Dormancy never releases live-client resources; an ended record
+   holds none.
+ \item[I5] Every record's current main pid is the pid of the most recent Open
+   (or call) for its session.
+ \item[I6] Every resource a record holds belongs to its current run.
+\end{description}
+
+Handles are injective across records by construction (a record is keyed by its
+handle); a collision shows as an overwritten record, which I3 reports.
+
+\section{Basic Types}
+
+\begin{zed}
+  SID ::= sa | sb \\
+  PID ::= pa | pb | pc \\
+  HND ::= ha | hb | hc \\
+  STATE ::= live | dormant | ended
+\end{zed}
+
+\section{State}
+
+\texttt{hs} is the set of records, each named by its handle.  \texttt{resown}
+gives, for a record that holds live-client resources, the pid of the run that
+registered them.  The last five components are ghost history, used only to
+state the invariants: \texttt{kept} is the dormant records that held resources
+when their lease lapsed; \texttt{ever} relates a session to every pid that has
+run for it; \texttt{lastrun} gives its latest run; \texttt{dursid} is the set
+of sessions with durable state that has not legitimately expired.
+
+\begin{schema}{Engine}
+  hs : \power HND \\
+  hsid : HND \pfun SID \\
+  hst : HND \pfun STATE \\
+  hpid : HND \pfun PID \\
+  dur : \power HND \\
+  resown : HND \pfun PID \\
+  endby : HND \pfun PID \\
+  kept : \power HND \\
+  ever : SID \rel PID \\
+  lastrun : SID \pfun PID \\
+  dursid : \power SID
+\where
+  \dom hsid = hs \\
+  \dom hst = hs \\
+  \dom hpid = hs \\
+  dur \subseteq hs \\
+  \dom resown \subseteq hs \\
+  kept \subseteq hs \\
+  \dom endby = \dom (hst \rres \{ ended \}) \\
+  \dom lastrun = \dom ever
+\end{schema}
+
+\begin{schema}{Init}
+  Engine~'
+\where
+  hs' = \emptyset \\
+  hsid' = \emptyset \\
+  hst' = \emptyset \\
+  hpid' = \emptyset \\
+  dur' = \emptyset \\
+  resown' = \emptyset \\
+  endby' = \emptyset \\
+  kept' = \emptyset \\
+  ever' = \emptyset \\
+  lastrun' = \emptyset \\
+  dursid' = \emptyset
+\end{schema}
+
+\section{Safety}
+
+\begin{schema}{Safety}
+  Engine
+\where
+  \forall a, b : hs | hsid~a = hsid~b @ a = b \\
+  \forall h : hs | hst~h = ended @ endby~h = lastrun (hsid~h) \\
+  (\forall s : dursid @ s \in \ran hsid) \land
+    (\forall h : hs | hsid~h \in dursid @ h \in dur) \\
+  (\forall h : kept @ hst~h = dormant \land h \in \dom resown) \land
+    (\forall h : hs | hst~h = ended @ h \notin \dom resown) \\
+  \forall h : hs @ hpid~h = lastrun (hsid~h) \\
+  \forall h : \dom resown @ resown~h = hpid~h
+\end{schema}
+
+\section{Operations}
+
+A pid may speak for a session if the session has no history, or it is the
+session's latest run, or it is a fresh run (a resume).  Every Open or call
+makes its pid the latest run.
+
+\begin{schema}{PidOk}
+  \Delta Engine; s? : SID; p? : PID
+\where
+  s? \notin \dom ever \lor p? = lastrun~s? \lor p? \notin ever \limg \{ s? \} \rimg \\
+  ever' = ever \cup \{ s? \mapsto p? \} \\
+  lastrun' = lastrun \oplus \{ s? \mapsto p? \}
+\end{schema}
+
+ReviveBase reuses the session's record in any retained state, makes it live
+and clears any end mark.  It says nothing of resources: that is the business
+of ReviveSame and ReviveNew.
+
+\begin{schema}{ReviveBase}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hst' = hst \oplus \{ h! \mapsto live \} \\
+  endby' = \{ h! \} \ndres endby \\
+  kept' = kept \setminus \{ h! \}
+\end{schema}
+
+The same run comes back: its resources, if any, stay.  A new run: the
+previous run's resources are released first.
+
+\begin{schema}{ReviveSame}
+  \Delta Engine; p? : PID; h! : HND
+\where
+  hpid~h! = p? \\
+  resown' = resown
+\end{schema}
+
+\begin{schema}{ReviveNew}
+  \Delta Engine; p? : PID; h! : HND
+\where
+  hpid~h! \neq p? \\
+  resown' = \{ h! \} \ndres resown
+\end{schema}
+
+\begin{zed}
+  Revive \defs ReviveBase \land (ReviveSame \lor ReviveNew)
+\end{zed}
+
+\begin{schema}{Repin}
+  \Delta Engine; p? : PID; h! : HND
+\where
+  hpid' = hpid \oplus \{ h! \mapsto p? \}
+\end{schema}
+
+\begin{schema}{Store}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  dur' = dur \cup \{ h! \} \\
+  dursid' = dursid \cup \{ s? \}
+\end{schema}
+
+\begin{schema}{NoStore}
+  \Delta Engine
+\where
+  dur' = dur \\
+  dursid' = dursid
+\end{schema}
+
+A created record starts live and holds no resources.
+
+\begin{schema}{CreateCore}
+  \Delta Engine; s? : SID; p? : PID; h! : HND
+\where
+  s? \notin \ran hsid \\
+  h! \notin hs \\
+  hs' = hs \cup \{ h! \} \\
+  hsid' = hsid \cup \{ h! \mapsto s? \} \\
+  hst' = hst \cup \{ h! \mapsto live \} \\
+  hpid' = hpid \cup \{ h! \mapsto p? \} \\
+  resown' = resown \\
+  endby' = endby \\
+  kept' = kept
+\end{schema}
+
+\begin{zed}
+  OpenReuse \defs PidOk \land Revive \land Repin \land NoStore \\
+  OpenCreate \defs PidOk \land CreateCore \land NoStore \\
+  OpenSess \defs OpenReuse \lor OpenCreate
+\end{zed}
+
+\begin{schema}{KnownHandle}
+  h? : HND; h! : HND
+\where
+  h? = h!
+\end{schema}
+
+The presented handle is not owned by this session's record: it names no record
+(free) or another session's record (foreign).
+
+\begin{schema}{NotMine}
+  Engine; s? : SID; h? : HND
+\where
+  (h? \mapsto s?) \notin hsid
+\end{schema}
+
+\begin{schema}{FreeHandle}
+  Engine; h? : HND
+\where
+  h? \notin hs
+\end{schema}
+
+\begin{schema}{ForeignHandle}
+  Engine; h? : HND
+\where
+  h? \in hs
+\end{schema}
+
+A call with a handle its session owns renews.  Any other handle resolves by
+\texttt{session\_id}: to the session's record if it has one; otherwise a record
+is created, under the presented handle if that is free, under a fresh handle if
+the presented one belongs to another record.  Either way the call stores
+durable state.
+
+\begin{zed}
+  CallKnown \defs PidOk \land Revive \land Repin \land Store \land KnownHandle \\
+  CallReuse \defs PidOk \land Revive \land Repin \land Store \land NotMine \\
+  CallCreateFree \defs
+    PidOk \land CreateCore \land Store \land KnownHandle \land FreeHandle \\
+  CallCreateFresh \defs PidOk \land CreateCore \land Store \land ForeignHandle \\
+  CallTool \defs CallKnown \lor CallReuse \lor CallCreateFree \lor CallCreateFresh
+\end{zed}
+
+A run registers live-client resources for its record.
+
+\begin{schema}{Register}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hst~h! = live \\
+  resown' = resown \oplus \{ h! \mapsto hpid~h! \} \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hst' = hst \\
+  hpid' = hpid \\
+  dur' = dur \\
+  endby' = endby \\
+  kept' = kept \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid
+\end{schema}
+
+A lapse is dormancy: the record and its resources stay.
+
+\begin{schema}{LeaseLapse}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hst~h! = live \\
+  hst' = hst \oplus \{ h! \mapsto dormant \} \\
+  kept' = kept \cup (\{ h! \} \cap \dom resown) \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hpid' = hpid \\
+  dur' = dur \\
+  resown' = resown \\
+  endby' = endby \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid
+\end{schema}
+
+SessionEnd may arrive from any pid that ever ran for the session.  It ends
+the record only if the pid is the record's current main pid.
+
+\begin{schema}{EndMatch}
+  \Delta Engine; s? : SID; p? : PID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  p? \in ever \limg \{ s? \} \rimg \\
+  hst' = hst \oplus \{ h! \mapsto ended \} \\
+  resown' = \{ h! \} \ndres resown \\
+  kept' = kept \setminus \{ h! \} \\
+  endby' = endby \oplus \{ h! \mapsto p? \} \\
+  hs' = hs \\
+  hsid' = hsid \\
+  hpid' = hpid \\
+  dur' = dur \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid
+\end{schema}
+
+\begin{schema}{EndStale}
+  \Xi Engine; s? : SID; p? : PID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  p? \in ever \limg \{ s? \} \rimg \\
+  hpid~h! \neq p?
+\end{schema}
+
+\begin{zed}
+  SessionEnd \defs EndMatch
+\end{zed}
+
+\begin{schema}{RetentionExpire}
+  \Delta Engine; s? : SID; h! : HND
+\where
+  h! \in hs \\
+  hsid~h! = s? \\
+  hst~h! \in \{ ended, dormant \} \\
+  hs' = hs \setminus \{ h! \} \\
+  hsid' = \{ h! \} \ndres hsid \\
+  hst' = \{ h! \} \ndres hst \\
+  hpid' = \{ h! \} \ndres hpid \\
+  dur' = dur \setminus \{ h! \} \\
+  resown' = \{ h! \} \ndres resown \\
+  kept' = kept \setminus \{ h! \} \\
+  endby' = \{ h! \} \ndres endby \\
+  ever' = ever \\
+  lastrun' = lastrun \\
+  dursid' = dursid \setminus \{ s? \}
+\end{schema}
+
+Resume is not a separate operation: a new run with a new pid calls
+\texttt{OpenSess} (or \texttt{CallTool}), and \texttt{PidOk} admits the fresh
+pid.
+
+\end{document}
