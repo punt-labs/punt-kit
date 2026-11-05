@@ -1,0 +1,70 @@
+results:
+    - mission: m-2026-10-23-022
+      round: 1
+      created_at: "2026-10-23T23:08:51Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/init.py
+          added: 6
+          removed: 6
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/init_beads.py
+          added: 19
+          removed: 6
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/errors.py
+          added: 29
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 4
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/version_assignment.py
+          added: 61
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init.py
+          added: 80
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_beads.py
+          added: 97
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_validation.py
+          added: 3
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_sh_version.py
+          added: 64
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 39
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_errors.py
+          added: 15
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_version_assignment.py
+          added: 84
+          removed: 0
+      evidence:
+        - name: 'make check final: ruff, format, shellcheck, mypy, pyright clean; pytest 1708 passed, 14 skipped (1722 collected, up from 1700)'
+          status: pass
+        - name: Z4 unquoted VERSION, commit 69adf39, 9 tests red before the fix, incl. install-all via Phase 11
+          status: pass
+        - name: Z1 bd stderr via OperationalFailure.one_line, commit dba77d0, red first
+          status: pass
+        - name: Z2 print_timeout redaction, commit 9c67b83, red first
+          status: pass
+        - name: Z5 empty reset and local marking, commit da407a9, red run observed as a type failure for described_lines; behavior tests not separately captured red
+          status: pass
+        - name: Z6 partial .beads/, commit da002db, 2 tests red first
+          status: pass
+        - name: Z7 Rich markup escape, commit efefd31, 5 MarkupError red first
+          status: pass
+        - name: Z3 PY-TS-14 justification comments, commit 8c6b72c
+          status: pass
+      open_questions:
+        - Leftover stash rmh-z4-src is mine; dropping it needs operator consent.
+        - Two pre-existing assertions on the bd failure text were updated (test_init_beads.py, test_init_validation.py) because Z1 changes the format.
+      prose: |
+        Full detail, user-visible changes and the final make check output are in
+        /home/jfreeman/Coding/punt-labs/punt-kit/.tmp/missions/results/release-legacy-helpers-r13.md.

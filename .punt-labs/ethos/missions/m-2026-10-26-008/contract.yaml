@@ -1,0 +1,38 @@
+mission_id: m-2026-10-26-008
+status: open
+type: implement
+created_at: "2026-10-26T12:46:19Z"
+updated_at: "2026-10-26T12:46:19Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: adb
+    pinned_at: "2026-10-26T12:46:19Z"
+    hash: c280e15f90d53f96c9a3ed0e0c37c2ede98f07e0f9bece7272ec635dd6c55964
+inputs: {}
+write_set:
+    - .claude/worktrees/scrub-json-safe/.bin/session/
+    - .claude/worktrees/scrub-json-safe/.bin/test_scrub_local_state.py
+    - .claude/worktrees/scrub-json-safe/.bin/scrub-local-state.sh
+success_criteria:
+    - Failing-first regression tests for the \u003c email escape and at least one other rule inside a JSON escape; every scrubbed .jsonl line json.loads.
+    - Existing scrub tests pass; assertion count does not decrease; zero suppressions.
+    - make check in the worktree exits 0 before every commit; full output read.
+    - Result answers item 4 with ethos file:line evidence.
+    - Commit incrementally — one commit per logical step. Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>. One shell command per Bash call.'
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: |
+    Bead pkit-i24w. Worktree /home/jfreeman/Coding/punt-labs/.claude/worktrees/scrub-json-safe, branch fix/scrub-json-safe (from origin/main ce6f1ee). Commit on that branch; do not push, do not touch PRs or merge — the leader does that.
+
+    Defect (reproduced 2026-10-26): `.bin/scrub-local-state.sh --apply` runs `.bin/session/scrub.py` over `.punt-labs/ethos/sessions/*.jsonl` (ethos audit chunks, one JSON object per line) as raw text. `_EMAIL_RE` (`\b[a-zA-Z0-9._%+-]+@...`) starts matching inside a JSON unicode escape: for the JSON text `<noreply@anthropic.com>` it matches `u003cnoreply@anthropic.com` and leaves the backslash, writing `\[REDACTED:email]` — an invalid JSON escape. Ethos's pre-commit audit seal then refuses the corrupt chunk and every commit in that repo fails. Real evidence: ten chunks in punt-kit's .punt-labs/ethos/sessions/ (now quarantined; `.corrupt` copies beside them show the shape). Any other rule (home-path, hostname, secrets, profanity) can hit the same class: a match beginning or ending inside an escape sequence, or a replacement that splices into one.
+
+    Fix requirements:
+    1. Tests first. Reproduce with the real shape: a .jsonl line containing `<noreply@anthropic.com>` (and a home path / hostname inside a JSON string with escapes). Assert every scrubbed .jsonl line still parses with json.loads, the PII is gone from the decoded value, and the redaction marker appears in the decoded value.
+    2. Make the scrub of .jsonl content structurally JSON-safe: parse each line; scrub string values (recursively, keys too only if they can hold PII — justify); re-serialize. A line that is not valid JSON on input is scrubbed as text as today (it cannot be made worse). Preserve everything else about the line that can be preserved; state in the result what serialization differences remain (key order, spacing, escapes such as <) and why they are acceptable to ethos (check how ethos reads chunks if needed: ../ethos repo).
+    3. Plain-text inputs (.md, .log, transcripts) keep today's behavior; existing tests keep passing; no assertion lost.
+    4. Report — do not decide — whether scrub-local-state should rewrite ethos sealed audit chunks at all (sealed chunks may be tamper-evident; a content rewrite after sealing may itself break or defeat the seal). Read ../ethos to answer with evidence (file:line). This is a design question for the leader.
+    Run the suites by name: `uv run --no-project --with pytest pytest .bin/session/test_scrub.py .bin/test_scrub_local_state.py` and `make check` in the worktree; read full output.

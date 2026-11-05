@@ -1,0 +1,32 @@
+mission_id: m-2026-09-01-001
+status: closed
+type: implement
+created_at: "2026-09-01T01:36:46Z"
+updated_at: "2026-09-02T20:04:37Z"
+closed_at: "2026-09-02T20:04:37Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-01T01:36:46Z"
+    hash: c0d77715c8f3b3c2c9ba058cc40ebf948ac83922513c2e15bab919bc8582d2ef
+inputs:
+    ticket: pkit-d7mz
+write_set:
+    - src/punt_kit/
+    - tests/
+    - CHANGELOG.md
+    - DESIGN.md
+success_criteria:
+    - 'pkit-d8ij: MarketplacePropagator matches catalog entries via source url (strip .git, compare trailing repo segment) with name-equality fallback; unit tests cover punt/punt-kit name-vs-repo split, vox name==repo, url with/without .git, and the not-found failure path'
+    - 'pkit-plxh: wait-for-checks has a bounded no-checks grace window (~5 min) that fails loudly naming [skip ci]/path-filtered workflows and the --resume-from re-entry; never merges on zero checks; ruleset-governed repos (gh api repos/{owner}/{repo}/rules/branches/main) suppress the misleading no-branch-protection warning and honor ruleset-required checks; tests cover timeout expiry, late-arriving checks, ruleset repo, legacy repo'
+    - 'pkit-d7mz: interrupted or partially failed release exits non-zero listing un-landed phases/legs plus the --resume-from command; Phase-10 leg failures appear in the end-of-run recap (thread failures, not just recorded skips); Phase 11 verify runs and reports even when Phase 10 partially failed; reconstructed vox v5.0.4 failure narrative documented in the PR description; regression tests for interrupt/partial-failure reporting'
+    - 'pkit-dlv6: preflight inspects the highest existing v* tag for plugin/hybrid projects and loudly warns (not fails) when plugin.json at that tag has a -dev name or a version not equal to the tag; tests cover clean tag, dev-name tag, version-mismatch tag, no tags'
+    - make check passes before every commit; OO scores do not regress on touched files; no unauthorized suppressions; CHANGELOG.md Fixed entries for all four beads in the PR branch; every changed module has test coverage for happy, invalid, and boundary paths
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes
+    - 'Branch pushed and PR opened against main titled ''fix(release): harden phase 4/10/11 against silent loss and deadlock (pkit-d7mz, pkit-d8ij, pkit-plxh, pkit-dlv6)'' with the vox narrative and verification playbook in the description'
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: Four release defects found live during the vox 5.0.4 and ethos 4.16.1 releases. Full evidence in beads pkit-d7mz, pkit-d8ij, pkit-plxh, pkit-dlv6 (bd show <id>). Detailed spec in .tmp/missions/release-hardening.yaml (read it first — it is the authoritative task description). Work on branch fix/release-hardening off main; finish by pushing and opening a PR.

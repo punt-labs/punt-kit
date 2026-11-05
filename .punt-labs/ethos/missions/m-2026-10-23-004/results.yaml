@@ -1,0 +1,144 @@
+results:
+    - mission: m-2026-10-23-004
+      round: 1
+      created_at: "2026-10-23T02:24:05Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/pyproject.toml
+          added: 1
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase10_propagate.py
+          added: 10
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 67
+          removed: 76
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_parser.py
+          added: 151
+          removed: 195
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_sections.py
+          added: 73
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/gh.py
+          added: 103
+          removed: 186
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/github_repo.py
+          added: 140
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/install_urls.py
+          added: 4
+          removed: 15
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pr_merge.py
+          added: 3
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/repo_slug.py
+          added: 40
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/run_calls.py
+          added: 190
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/test_run_calls.py
+          added: 104
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_changelog.py
+          added: 114
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_gh_fixture_contracts.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 187
+          removed: 141
+        - path: .claude/worktrees/release-legacy-helpers/uv.lock
+          added: 2
+          removed: 0
+      evidence:
+        - name: 'make check on f6d7ab1: ruff, format, shellcheck, mypy, pyright, pytest (880 passed, 14 skipped)'
+          status: pass
+        - name: 'G1 pr merge GIT_HOOK (ae4cee4): test failed first (None == GIT_HOOK), passes after'
+          status: pass
+        - name: 'G2-G4 CommonMark tokens (02666ca): scanner deleted, gvr probes are tests, markdown-it-py added and locked'
+          status: pass
+        - name: 'G5/G6 slug normalized in GithubRepo.resolve / RepoSlug.parse (b68ddab): tests failed first, one failed check for a bad slug'
+          status: pass
+        - name: 'G7 audit hardening (f6d7ab1): starred argv, git global options, subprocess/any receiver, new verbs, identity-keyed allowlist; production passes'
+          status: pass
+        - name: 'OO: all touched files flat or better except install_urls.py avg_params 1.00 to 1.09 and avg_complexity 3.23 to 3.45 (deleting two dead trivial accessors)'
+          status: fail
+      open_questions:
+        - install_urls.py averages regress slightly because G6 deletes dead repo_name and normalize_slug; accept or ask for a different offset?
+        - Phase 11 now reports a malformed GitHub remote as one failed check named GitHub remote; confirm the operator-facing wording.
+        - gh pr create --head runs only read-only git (reasoned from gh behaviour, gh source not read here); confirm if it matters.
+      prose: |
+        Full report with commits, evidence, grep output, OO numbers and user-visible changes:
+        /home/jfreeman/Coding/punt-labs/punt-kit/.tmp/missions/results/release-legacy-helpers-r4.md
+    - mission: m-2026-10-23-004
+      round: 2
+      created_at: "2026-10-23T02:40:55Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+          added: 5
+          removed: 13
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_parser.py
+          added: 7
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/gh.py
+          added: 1
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/github_repo.py
+          added: 6
+          removed: 11
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 5
+          removed: 8
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/repo_slug.py
+          added: 22
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 4
+          removed: 5
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/run_calls.py
+          added: 131
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/test_run_calls.py
+          added: 84
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit.py
+          added: 40
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_changelog.py
+          added: 40
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 28
+          removed: 2
+      evidence:
+        - name: 'make check on f5b1df6: ruff, format, shellcheck, mypy, pyright, pytest (925 passed, 14 skipped)'
+          status: pass
+        - name: 'F1 + HR (af8f9eb): comment-only means only comments remain after removing every comment span; hr is not an entry; tests for all three gvr lines plus adjacent comments'
+          status: pass
+        - name: 'F3/F4/F5 (377114f, f5b1df6): RepoSlug.from_remote_url is the one remote-to-slug rule, .git stripped after slashes in parse; audit._get_github_repo routed through it; README-pin warning names the bad slug again via the strict seam'
+          status: pass
+        - name: 'F2 (c9afec1): non-constant argv[0] unreadable unless the variable is gh or git, path basename taken, gh hook-firing commands classified, constructed receivers audited unless phase objects; every gvr escape is a test; production passes, one new allowlist entry (punt doctor, not git)'
+          status: pass
+        - name: 'F6 not done by instruction: docs/ outside the write set, leader handles it'
+          status: pass
+        - name: 'OO vs 329ab3b: release.py size 663 equal, audit.py 961 to 954, readme_sha.py 188 to 185, changelog_parser.py 272 to 236, gh.py 498 to 423; install_urls.py avg_params 1.00 to 1.09 and avg_complexity 3.23 to 3.45 remain (dead accessors deleted, unchanged since round 1)'
+          status: fail
+      open_questions:
+        - 'install_urls.py averages: accept the small regression from deleting two dead accessors?'
+        - 'gh classification: pr checkout, repo sync, repo clone, pr merge -d, issue develop --checkout, and pr create without --head are treated as hook-firing; confirm the list.'
+      prose: |
+        Round 2 changes: F1 and HR in changelog_parser; F3, F4, F5 around RepoSlug.from_remote_url;
+        F2 in tests/harness/run_calls.py. New user-visible: text after a closing comment now counts as an entry;
+        a thematic break is no longer an entry; the README-pin fallback warning names the malformed slug
+        (not an owner/repo slug: 'proj'); punt audit's GitHub checks use the clean slug and treat a malformed
+        remote as no remote detected; git@github.com:o/r.git/ resolves to o/r.

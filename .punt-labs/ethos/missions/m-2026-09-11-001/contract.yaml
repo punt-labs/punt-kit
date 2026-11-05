@@ -1,0 +1,28 @@
+mission_id: m-2026-09-11-001
+status: closed
+type: implement
+created_at: "2026-09-11T02:09:55Z"
+updated_at: "2026-09-11T03:30:50Z"
+closed_at: "2026-09-11T03:30:50Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T02:09:55Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - tests/
+    - CHANGELOG.md
+success_criteria:
+    - tests/harness/__init__.py and tests/harness/fault_ops.py implement FaultRule (argv-prefix match, times-bounded or unlimited, scripted CompletedProcess response or raised exception), FaultInjectingOps (implements the ReleaseOps protocol, delegates unmatched commands to a real _run, installable at the release_mod._run monkeypatch seam), and interrupt_after (sets release._interrupted before returning from the Nth .run() call), exactly as designed in §2a/§2c
+    - 'FaultInjectingOps is thread-safe: routing-table match-and-consume guarded by a lock; a dedicated unit test drives concurrent .run() calls from a real ThreadPoolExecutor and asserts times-bounded rules are consumed exactly once'
+    - 'Unit tests for the primitives themselves cover: unmatched-command delegation to the real _run, times-bounded rule consumption and exhaustion, unlimited (times=None) rules, injected exception raising including subprocess.TimeoutExpired, FaultRule ordering/first-match semantics, and interrupt_after firing on the exact Nth call — happy, invalid, and boundary paths per the testing standard'
+    - Zero existing tests in tests/test_release.py are modified; no src/ changes; the primitives must satisfy the same quality gates as production code (mypy --strict, pyright, ruff) since tests/ is gated
+    - 'make check green before every commit; commit per logical step; no unauthorized suppressions; CHANGELOG entry under [Unreleased]; branch feat/harness-wave0 off main AFTER PR #351 merges (rebase requirement: the design doc must be on main first); PR opened, not merged'
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: 'Wave 0 of the accepted release failure-path harness design (docs/design-release-failure-harness.md, PR #351 — read it first, especially §2a, §2c, and §5 Wave 0). Epic pkit-f85t. Wave 0 is deliberately the smallest slice: the harness primitives ONLY, zero existing-test migration, so the primitives get scrutinized before anything depends on them.'

@@ -1,0 +1,5 @@
+Review a test-only bug fix in punt-kit against CLAUDE.md and .claude/rules/python-*.md. Report only high-confidence findings.
+
+Diff: `git diff main..fix/pkit-17qo-tmpdir-test` — one file, tests/test_record_gh_fixtures.py (bead pkit-17qo). The test `test_display_path_falls_back_to_absolute_outside_the_repo` was failing when TMPDIR is exported inside the repo (.envrc does this), because pytest's tmp_path inherited TMPDIR and resolved inside the repo. The fix drops tmp_path, clears TMPDIR env AND tempfile.tempdir (the process-level cache), and uses tempfile.TemporaryDirectory() with a precondition assert `not outside.is_relative_to(_ROOT)`.
+
+Check: correctness of the fix, that it doesn't leak temp state across tests (monkeypatch teardown restores env + tempfile.tempdir), that the precondition assert is appropriate, and style/standards. Run the diff yourself. If clean, say so explicitly.

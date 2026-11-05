@@ -1,0 +1,27 @@
+mission_id: m-2026-09-09-005
+status: closed
+type: implement
+created_at: "2026-09-09T05:40:38Z"
+updated_at: "2026-09-09T06:04:44Z"
+closed_at: "2026-09-09T06:04:44Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-09-09T05:40:38Z"
+    hash: 7e20233c2bc7170b38ca9182a1d549177b5e00e0b1027e9bcffffa66b5a8571b
+inputs:
+    ticket: pkit-i48o
+write_set:
+    - standards/go.md
+success_criteria:
+    - 'In standards/go.md section 7, add the formatter-drift principle: state that pinning the golangci-lint version number alone does NOT guarantee identical formatting verdicts, because the gofmt/gofumpt formatters embed the gofmt of the Go toolchain that built the binary; therefore local and CI must run the same prebuilt release artifact, not one side go-install-ing a locally-compiled build. Cite the failure mode (local make check green, CI gofmt failure) as the motivation.'
+    - Do NOT prescribe, name, or copy any specific install command or install-mode into the standard — the exact mechanism is pending a security ruling. Phrase the guidance at the principle level ('pin the artifact, not just the version'); explicitly note the concrete install form is deferred.
+    - 'Run the mandatory fleet reality check (punt-kit CLAUDE.md): survey sibling Go repos (../ethos, ../cryptd, ../beadle-email) for how they currently install golangci-lint in Makefile ''tools'' and in CI workflows; report whether deployed practice already pins the artifact (ethos commit 7da32c6 reportedly switched ''make tools'' to fetch the official prebuilt release). The standard must generalize the most advanced deployed reality or explicitly supersede it with rationale. State in your result what you found.'
+    - markdownlint passes on the changed file (this is a docs-only change; Phase 3 runnable-verification is N/A). Do NOT touch CHANGELOG.md — leader owns it. Do NOT push or open a PR. Work on branch fix/pkit-i48o-go-formatter-pin off main; report branch name and commit SHAs.
+    - Commit incrementally — one commit per logical step. Keep the change additive and scoped to section 7; do not restructure unrelated parts of go.md.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'standards/go.md section 7 (Static Analysis, ~lines 270-294) describes golangci-lint as the Go lint+format gate with a pinned version (''the same pinned version runs in CI'', ''the Makefile is the source of truth for the pinned version''). The earlier egregiously false claim (that golangci-lint needs no GOTOOLCHAIN pin / that local and CI ''can never drift apart'') has already been removed. BUT the positive guidance is still incomplete: golangci-lint''s gofmt/gofumpt FORMATTERS embed the gofmt implementation of whatever Go toolchain BUILT the binary. So two installs of the SAME pinned version can disagree on formatting if one side ''go install''s a locally-compiled build (embedding the local Go''s gofmt) and the other downloads the official prebuilt release (built against a different Go). Demonstrated live in ethos PR #491: a file passed local ''make check'' but CI failed it with ''File is not properly formatted (gofmt)''. The correct principle: pinning the VERSION NUMBER alone is insufficient for formatters; local and CI must run the SAME PREBUILT ARTIFACT. IMPORTANT CONSTRAINT: a security review of the specific curl|sh install mechanism is pending and may change the recommended install FORM. Do NOT prescribe or copy any exact install command into the standard until that ruling lands.'

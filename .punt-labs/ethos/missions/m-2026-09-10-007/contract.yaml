@@ -1,0 +1,25 @@
+mission_id: m-2026-09-10-007
+status: open
+type: design
+created_at: "2026-09-10T22:37:07Z"
+updated_at: "2026-09-10T22:37:07Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-10T22:37:07Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - docs/
+    - .tmp/missions/results/
+success_criteria:
+    - 'A design doc at docs/design-release-failure-harness.md covering: (1) a failure-path test harness architecture that can simulate every external effect the engine touches (git remotes, gh CLI, sibling repos, CI check states, PyPI, time/timeouts, SIGINT) without network — survey what test seams already exist in tests/test_release.py and build on them, naming what is missing; (2) a fault-injection matrix mapping each of the 11 phases x its failure modes (drawn from the live incidents above) to a test scenario, marking which are covered today, which the harness enables, and which are out of scope with rationale; (3) an inventory of remaining known phase-logic defects (from CHANGELOG, DESIGN.md, code reading, and the epic''s children once the DB returns) ranked by severity; (4) an incremental delivery plan — smallest useful harness first, then scenario waves — sized so each wave is one implementation mission'
+    - Design explicitly addresses how the harness avoids drifting from reality (the fake gh/git surfaces must be contract-tested against real tool output shapes or generated from recorded fixtures)
+    - No implementation code in this mission — design doc plus at most illustrative snippets; commit the doc on a branch design/release-failure-harness and open a draft PR; do not merge
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'Design mission for EPIC pkit-f85t: release engine — phase logic fixes and a failure-path test harness. The beads DB (hosted DoltDB) is currently unreachable; retry ''bd show pkit-f85t'' and ''bd list --parent pkit-f85t'' periodically during the mission and fold the epic''s children in when it returns. Primary inputs available now: src/punt_kit/release.py and src/punt_kit/phases/ (the 11-phase engine), DESIGN.md DES-029 (the vox 5.0.4 failure mechanism), CHANGELOG 0.17.2 and [Unreleased] entries (every phase bug found live: prfaq 1.8.0''s five bugs #322, pkit-d7mz/plxh/dlv6/d8ij, pkit-mjcb, pkit-8r6, pkit-9n6q), and tests/test_release.py (what coverage exists today). The pattern to kill: every release defect so far was discovered BY a live release breaking with an operator watching. The harness must move that discovery into tests.'

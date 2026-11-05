@@ -1,0 +1,50 @@
+mission_id: m-2026-10-23-009
+status: closed
+type: implement
+created_at: "2026-10-23T02:45:20Z"
+updated_at: "2026-10-23T04:00:48Z"
+closed_at: "2026-10-23T04:00:48Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T02:45:20Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+    - .claude/worktrees/release-legacy-helpers/docs/designs/release-py-oo-decomposition.md
+success_criteria:
+    - R1-R4 done; result lists each with commit and evidence. TDD-failing-first noted per behavior fix.
+    - Every subprocess spawned by the release phases passes through the single ops choke point that applies the GIT_HOOK floor (grep evidence for subprocess/os.system/Popen usage outside it, each justified or routed).
+    - The AST hook-timeout audit is removed or reduced to what the runtime floor cannot cover, with the reason recorded.
+    - make check exits 0 before every commit; read the full output.
+    - Assertion count may drop ONLY by the deleted AST-audit tests; list them. No new suppressions. OO does not regress on touched files (/home/jfreeman/Coding/punt-labs/vox/tools/oo_score.py), never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox. Re-scoped successor to m-2026-10-23-004 (closed FAILED at its round cap; gvr round-2 reflection at /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers/.tmp/gvr-r2-reflect.yaml). Same worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge — the leader does that. Do NOT edit CHANGELOG.md; list user-visible changes in the result.
+
+    R1 — STRUCTURAL, LEADER RULING: enforce the git-hook timeout at RUNTIME, not by AST heuristic.
+    The AST hook-timeout audit (tests/harness/run_calls.py + its tests in test_release.py) has leaked in two consecutive rounds: clustered gh short flags (`-sd`), wrapper binaries (`env git push`, `sh -c "git push"`), trusted variable names, aliases (`run = ops.run`), and allowlist entries whose recorded fires_hooks can drift from the code. These are all consequences of guessing runtime argv from source. The defect class it guards (G1: a hook-firing command on the 60s default timeout) is removed instead at the one place every command passes through with concrete argv:
+    - Move the hook-firing classification into src (a small, typed class under src/punt_kit/phases/shared/, e.g. HookFiringCommand), operating on the CONCRETE argv list: git with global options skipped (-C <dir>, -c k=v, --git-dir=, --work-tree=, --no-pager, etc.) and the hook-firing verb set (checkout, switch, commit, merge, rebase, reset, cherry-pick, push, pull, am, clone, and any other verb that runs hooks — state the set and why); gh with -R/--repo skipped and the gh subcommands that run local git (pr checkout/co, repo sync, repo clone, repo fork --clone, repo create --push, issue develop -c/--checkout, pr merge with -d/--delete-branch including clustered short flags such as -sd/-ds, pr create without --head); wrappers (env, sh/bash -c, any argv[0] basename of git/gh at any position after env) classified conservatively as hook-firing. Over-approximation is the safe direction: misclassifying only lengthens a timeout ceiling.
+    - The ops layer (ReleaseOps.run and whatever every phase call reaches — find the single choke point) applies a timeout FLOOR of GIT_HOOK to any command the classifier marks hook-firing, regardless of the timeout the caller passed. Callers that already pass GIT_HOOK are unchanged. Do not lower any caller's longer timeout.
+    - Unit-test the classifier exhaustively with concrete argv (every case gvr found escaping, including -sd, -ds, -cb, env/sh -c wrappers, -C/-c globals, `--delete-branch=true`), and test that the ops layer applies the floor (a 60s caller timeout on a hook-firing argv reaches subprocess as GIT_HOOK; a non-hook argv keeps its timeout).
+    - Then delete the AST audit (tests/harness/run_calls.py, its tests, the allowlist, and the audit tests in test_release.py) — it is superseded, and keeping it would be a second, weaker enforcement of the same rule. Keep any part of it that tests something the runtime floor does not cover, and say what and why.
+    - Remove now-redundant explicit timeout=GIT_HOOK arguments ONLY if the floor makes them provably equivalent; otherwise leave them.
+
+    R2 (gvr N3). Delete GithubRepo.resolve() (production-dead twin of slug_text() that swallows the bad-slug diagnostic); repoint its two tests (test_release.py ~1307, ~8757) at slug_text()/resolve_slug(); fix the gh.py ~70 docstring that cites it.
+
+    R3. punt audit (audit.py) reports "no remote detected" for a remote that exists but is not a GitHub owner/repo; distinguish it ("origin remote is not a GitHub owner/repo: <url>"). Test both.
+
+    R4 (gvr F6, deferred from the last mission). docs/designs/release-py-oo-decomposition.md lines ~140, 203, 612 place GithubRepo in shared/gh.py; update those location references to shared/github_repo.py. Leave the rest of the design record as written.
+
+    RULING, no change: a list item holding only a thematic break (`- ***`) stays a non-entry, consistent with an empty bullet.
+
+    ESCALATE instead of deciding if: no single ops choke point exists (some phase spawns processes around it) — report every bypass; or a fix changes a CLI flag, exit code, or operator-scripted message.

@@ -1,0 +1,145 @@
+results:
+    - mission: m-2026-09-11-001
+      round: 1
+      created_at: "2026-09-11T03:06:39Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: tests/harness/__init__.py
+          added: 13
+          removed: 0
+        - path: tests/harness/fault_ops.py
+          added: 323
+          removed: 0
+        - path: tests/harness/test_fault_ops.py
+          added: 375
+          removed: 0
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+      evidence:
+        - name: make check (ruff lint+format, shellcheck, mypy --strict, pyright strict, pytest)
+          status: pass
+        - name: pytest tests/harness/ -v (22/22 new unit tests)
+          status: pass
+        - name: full suite — 455 passed, 0 modified pre-existing tests, 0 src/ changes
+          status: pass
+      open_questions:
+        - 'PR #355 just opened — Copilot/Bugbot review cycle not yet run; this result covers implementation completeness, not review-cycle closure.'
+      prose: |
+        Wave 0 of docs/design-release-failure-harness.md delivered: FaultRule
+        (argv-prefix match by Path(argv[0]).name, skip/times-bounded or
+        unlimited consumption, scripted CompletedProcessSpec response(s) or a
+        raised exception, interrupt_after(event) for the rule-anchored
+        worker-thread interrupt primitive, from_fixture(name) for the recorded-
+        gh-envelope loader) and FaultInjectingOps (a ReleaseOps double delegating
+        unmatched git calls to a real _run, deny-by-default AssertionError for
+        any other unmatched/non-passthrough command, lock-guarded routing table
+        verified thread-safe under a real ThreadPoolExecutor).
+
+        22 unit tests in tests/harness/test_fault_ops.py cover every Wave 0
+        acceptance-criteria bullet in §5, including the required negative test
+        (a ["gh", "--version"] passthrough does not admit ["gh", "pr", "merge"])
+        and the interrupt_after no-op regression test (§2c's "not a
+        phase-boundary tool" correction). Zero changes to tests/test_release.py,
+        zero src/ changes, make check green before both commits.
+
+        Five design-doc-authorized deviations from the mission contract's
+        original text are documented in full in the PR description
+        (https://github.com/punt-labs/punt-kit/pull/355) and in
+        .tmp/missions/results/m-2026-09-11-001.md: (1) interrupt simulation is
+        raises=KeyboardInterrupt plus rule-anchored interrupt_after, not a
+        global-call-count interrupt_after or a blocking FaultRule primitive;
+        (2) interrupt_after is implemented as FaultRule.interrupt_after(event),
+        a method, not a free function taking ops as a parameter — a deliberate
+        PY-OO-7 compliance choice, not a semantic change; (3) FaultRule.from_fixture
+        returns a CompletedProcessSpec (per the design's own text), not a
+        FaultRule; (4) added constructor validation (exactly one of
+        response/responses/raises, skip >= 0, explicit times >= 1, non-empty
+        responses) beyond the design's literal dataclass sketch, per PY-CC-2;
+        (5) kept CompletedProcessSpec/RunFn/_FixtureEnvelope co-located in
+        fault_ops.py rather than a separate types.py, matching the design's
+        explicit two-file Wave 0 deliverable list over the general PY-IC-9
+        guideline.
+
+        PR opened, not merged, per the contract's success criteria. Branch
+        feat/harness-wave0 off main after PR #351 (design doc) merged.
+    - mission: m-2026-09-11-001
+      round: 2
+      created_at: "2026-09-11T03:27:22Z"
+      author: adb
+      verdict: pass
+      confidence: 0.92
+      files_changed:
+        - path: tests/harness/__init__.py
+          added: 13
+          removed: 0
+        - path: tests/harness/fault_ops.py
+          added: 342
+          removed: 0
+        - path: tests/harness/test_fault_ops.py
+          added: 459
+          removed: 0
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+      evidence:
+        - name: make check (ruff lint+format, shellcheck, mypy --strict, pyright strict, pytest)
+          status: pass
+        - name: pytest tests/harness/ -v (28/28 unit tests, up from 22)
+          status: pass
+        - name: full suite — 461 passed, 0 modified pre-existing tests, 0 src/ changes
+          status: pass
+        - name: sanity check — test_run_blocks_on_the_routing_table_lock_until_released fails with the lock removed, passes restored (manual verification, not part of the committed suite)
+          status: pass
+      prose: |
+        Round 2 addresses all three findings from ethos mission show /
+        .tmp/missions/results/m-2026-09-11-001-eval-round1.md, on PR #355
+        (commit a7f457a, branch feat/harness-wave0):
+
+        1. EVALUATOR (rmh, blocking): the concurrency test
+           (test_times_bounded_rule_is_consumed_exactly_once_under_concurrency)
+           passed identically with FaultInjectingOps._lock removed (0/1000
+           failures) — the critical section is too short for the GIL to ever
+           preempt inside it, so the stress test provided no evidence either
+           way. Added test_run_blocks_on_the_routing_table_lock_until_released:
+           holds ops._lock from the test thread, asserts a concurrent run() call
+           blocks (bounded TimeoutError) until released, then asserts it
+           completes and consumes the rule exactly once. Manually verified this
+           new test fails when the lock is removed and passes when restored —
+           the deterministic proof the evaluator asked for. Kept the original
+           stress test as a secondary sanity check per the evaluator's own
+           recommendation ("keep or drop... your call").
+        2. BOT (qodo, thread PRRT_kwDORSgPKM6hU6NT): FaultRule.try_consume set
+           _interrupt_event before checking raises, so an anchored rule that
+           raises signaled completion even though its call never returned.
+           Reordered — the event now fires only immediately before returning a
+           built scripted response, never on the raise path — matching §2c's
+           "fires ... after a rule-matched call returns" exactly. Regression
+           test: test_interrupt_after_does_not_fire_when_the_anchor_raises.
+           Replied to the thread with the fix summary and resolved it via
+           GraphQL.
+        3. BOT (copilot, thread PRRT_kwDORSgPKM6hU75y): an empty match sequence
+           (or empty match[0]) passed FaultRule's constructor validation but
+           _matches_argv_prefix rejects everything against it, so the rule
+           silently never engages, surfacing later only as an unrelated
+           deny-by-default AssertionError. FaultRule.__post_init__ now rejects
+           an empty match or empty match[0] at construction; extended the same
+           rejection to FaultInjectingOps's passthrough entries (identical
+           failure mode, not explicitly asked for but the same bug class — kept
+           the fix narrowly scoped to this one addition). Four new tests cover
+           all four combinations (FaultRule match empty / match[0] empty,
+           passthrough prefix empty / prefix[0] empty). Replied to the thread
+           and resolved it via GraphQL.
+
+        Also declared the previously-undisclosed times-as-InitVar deviation
+        rmh spotted in round 1 (item 6 in the PR description's deviation list)
+        — sound per rmh's own read, just missing from the original disclosure.
+
+        make check green before both commits (fix commit 63fc606, docs commit
+        a7f457a). Test count: 28 (was 22), full suite 461 passed (was 455), zero
+        regressions, zero modifications to tests/test_release.py, zero src/
+        changes. PR description updated with a "Round 2" section covering all
+        three fixes plus updated test counts throughout. PR still open, not
+        merged.

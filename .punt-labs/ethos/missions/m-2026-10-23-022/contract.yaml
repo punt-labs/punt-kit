@@ -1,0 +1,37 @@
+mission_id: m-2026-10-23-022
+status: closed
+type: implement
+created_at: "2026-10-23T22:39:14Z"
+updated_at: "2026-10-23T23:11:38Z"
+closed_at: "2026-10-23T23:11:38Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T22:39:14Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - Z1-Z7 done; result lists each with commit and evidence; failing-first noted per behavior fix.
+    - make check exits 0 before every commit; read the FULL output.
+    - Assertion count does not decrease; zero suppressions added; no source module over 300 lines at 035fb7e grows past that size; OO does not regress, never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call; never chain a commit after a gate. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: |
+    Bead pkit-ewox, fifth final-review round. Worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge. Do NOT edit CHANGELOG.md — list user-visible changes in the result. Test-first for every behavior fix. Reviewer probes: the worktree's .tmp/sfh5/.
+
+    Z1. init_beads.py ~64-66: the bd init failure message prints bd's stderr unredacted and untruncated. Build it through OperationalFailure.one_line (redacted, one line, tail kept) — one stderr-handling path, not two. Test with a credentialed URL in bd's stderr.
+    Z2. pipeline.py ~203-227 print_timeout: redact the timed-out argv with RepoSlug.redacted before escaping. Test.
+    Z3. PY-TS-14: add the inline justification comment on every `| None` this branch added without one — pipeline.py ~184 print_in_flight's parameter, and version_assignment.py read / _readable / _value_at / values.
+    Z4. VersionAssignment.is_pinned_to / values (version_assignment.py ~95-121): an UNQUOTED literal assignment (`VERSION=0.0.9`) is a fixed pin, not a computed value — it must not be accepted as "unknowable". RULING: values() returns the bare literal for an unquoted word value (no `$`, no backtick); is_pinned_to compares it; Phase 2 rewrites it too (keeping it unquoted) so a later unquoted stale pin cannot survive. Only genuinely computed values ($, backtick, glued suffix) are "unknowable" and keep the existing warn/fail behavior. Tests incl. `VERSION="0.1.0"\nVERSION=0.0.9` (both rewritten, verify passes only when both match) and install-all.sh via Phase 11.
+    Z5. RULING on rewriting every plain assignment: do NOT rewrite an empty-string value (`VERSION=""` or `VERSION=''`) — it is a deliberate reset; `local VERSION=` inside a function IS rewritten but the multiple-assignment warning names each rewritten line and marks `local` and empty-reset lines explicitly. Phase 11 ignores empty-reset lines. Tests.
+    Z6. init_beads.py ~61-66: on a timeout or failure, if `.beads/` did not exist before the run and exists after, say so in the error ("bd init left a partial .beads/ — remove it before retrying") and include any partial stderr (redacted, via Z1). Test with a stub that creates .beads/ then hangs/fails.
+    Z7. escape() every caller-supplied or file-derived value interpolated into Rich markup in init.py (~165 root path, ~184 root.name, ~280 choice, ~725 and ~800 rule text) and init_beads.py ~70 (prefix). Test: `punt init` on a path containing `[x][/dim]` shows "not a directory", no MarkupError.

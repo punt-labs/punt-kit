@@ -1,0 +1,28 @@
+mission_id: m-2026-09-09-004
+status: closed
+type: implement
+created_at: "2026-09-09T05:29:31Z"
+updated_at: "2026-09-09T06:04:44Z"
+closed_at: "2026-09-09T06:04:44Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-09-09T05:29:31Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs:
+    ticket: pkit-8r6
+write_set:
+    - src/punt_kit/doctor.py
+    - tests/test_doctor.py
+success_criteria:
+    - 'Fix doctor.py so a not-found optional binary prints exactly ''✗ pyright: not found (optional)'' (one occurrence). Do not lose the required/optional distinction on other lines — give the annotation a single owner (either the message builder or the print-loop suffix, not both).'
+    - 'Create tests/test_doctor.py with regression coverage for all four cases: not-found-optional (assert exactly one ''(optional)''), not-found-required, found-optional, found-required. Use pytest + monkeypatch on shutil.which; capture stdout (capsys) to assert the rendered line.'
+    - make check exits 0 before every commit; no suppressions added. OO score must not regress on doctor.py. If the write-set blocks creating tests/test_doctor.py, STOP and report to the leader rather than working around it.
+    - Do NOT touch CHANGELOG.md — the leader owns the changelog entry. Do NOT push or open a PR. Work on a branch named fix/pkit-8r6-doctor-optional off main. Report the branch name and commit SHAs when done.
+    - Commit incrementally — one commit per logical step. Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'punt doctor prints ''optional'' twice for a not-found optional binary: ''✗ pyright: not found (optional) (optional)''. Root cause in src/punt_kit/doctor.py: _check_binary (line ~34-35) bakes the label into the message as ''not found ({label})'' where label is ''optional'' for non-required binaries, and the print loop in run_doctor (line ~55) ALSO appends '' (optional)'' suffix for non-required checks. For a FOUND optional binary the suffix is correct; the doubling happens only on not-found + optional. There is currently NO tests/test_doctor.py — you must create it (authorized in your write-set).'

@@ -1,0 +1,29 @@
+mission_id: m-2026-09-11-002
+status: failed
+type: implement
+created_at: "2026-09-11T03:31:19Z"
+updated_at: "2026-09-11T05:44:51Z"
+closed_at: "2026-09-11T05:44:51Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T03:31:19Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - tests/
+    - tools/
+    - CHANGELOG.md
+success_criteria:
+    - tools/record_gh_fixtures.py exists, is strictly read-only (no mutating gh subcommand anywhere in it — a test or lint assertion enforces this), covers the design's full recording inventory, scrubs secrets/usernames per §2b, and writes the explicit fixture envelope format
+    - An initial tests/fixtures/gh/*.json set exists covering the shapes the contract tests exercise — recorded live via the script where read-only commands suffice, hand-authored (documented as such in _meta) for mutation-outcome shapes
+    - tests/test_gh_fixture_contracts.py drives the real collaborator parsing paths (RequiredChecksWaiter, TagRunSelector, GithubRepo, PrMerger read paths) against each fixture via FaultInjectingOps and asserts parsed results, failing when parser and fixture disagree; plus the CI-safe version-stamp gate; all offline — zero network in CI
+    - FaultRule.from_fixture is wired to load envelope fixtures by name (completing the Wave 0 stub) with tests
+    - make check green before every commit; commit per logical step; no unauthorized suppressions beyond the repo's established reportPrivateUsage whitebox convention; CHANGELOG entry; zero src/ changes unless a parsing seam genuinely requires a test-only refactor — if so, justify it in the PR and keep it minimal; branch feat/harness-wave1 off main; PR opened, not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: 'Wave 1 of the accepted release failure-path harness design (docs/design-release-failure-harness.md — the merged doc is the sole mechanism authority; read §2b as revised through five review rounds, §5 Wave 1, and the Wave 0 primitives now on main in tests/harness/fault_ops.py). Epic pkit-f85t. Wave 1 delivers the recorded-fixture library and contract tests. Critical design constraints from the review rounds: recording is STRICTLY READ-ONLY (pr list/view, run list, graphql queries — never a mutating gh command; merge/mutation outcome shapes come from sanitized historical captures or documented hand fixtures); the fixture format is the explicit envelope holding the raw gh JSON payload plus a _meta stamp (gh version, recorded date, command shape); the contract test drives the ACTUAL production collaborator parsing methods against each fixture via FaultInjectingOps — not a hand-maintained parallel schema; drift governance is the CI-safe version-stamp gate plus the scheduled live --check diff, both mandatory; the recording inventory covers the full set of gh invocation shapes the release engine makes (the design enumerates ~14 read from every call site).'

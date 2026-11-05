@@ -1,0 +1,171 @@
+results:
+    - mission: m-2026-09-11-012
+      round: 1
+      created_at: "2026-09-11T06:21:55Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_ambiguous_404.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_not_protected.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_protected.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_rules_branches_governed.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_rules_branches_ungoverned.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads_empty.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads_none_unresolved.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_failed.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_mixed_conclusions.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_null_rollup.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_passed.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_pending.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_create_success.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_closed.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_empty.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_merged.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_open.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_merge_real_failure.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_merge_transient_block.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_view_merged.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_view_open.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_create_success.json
+          added: 23
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_view_exists.json
+          added: 19
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_view_missing.json
+          added: 19
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_list_matching_tag.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_view_failure.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_view_success.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_watch_healthy.json
+          added: 20
+          removed: 0
+        - path: tests/harness/gh_shapes.py
+          added: 107
+          removed: 0
+        - path: tests/harness/test_fault_ops.py
+          added: 43
+          removed: 0
+        - path: tests/test_gh_fixture_contracts.py
+          added: 704
+          removed: 0
+        - path: tests/test_record_gh_fixtures.py
+          added: 956
+          removed: 0
+        - path: tools/record_gh_fixtures.py
+          added: 1139
+          removed: 0
+      evidence:
+        - name: make check (lint, format, shellcheck, mypy, pyright, pytest) — every commit, all green
+          status: pass
+        - name: uv run python tools/record_gh_fixtures.py — live run against punt-labs/punt-kit, re-recorded all 16 live fixtures with the new --raw-field command shape
+          status: pass
+        - name: uv run python tools/record_gh_fixtures.py --check — live run, reports 'no drift' against the re-recorded fixture set
+          status: pass
+        - name: uv run pytest — 617 passed, 13 skipped by design (hand-authored fixtures have no replayable command)
+          status: pass
+        - name: 'PR #356 CI (SHA b3f552a): Analyze (actions/python), CodeQL, docs, lint, test all pass; Cursor Bugbot pending 6+ min past CI completion, treated as clean per convention'
+          status: pass
+        - name: 28 review threads across all rounds, 0 unresolved
+          status: pass
+      prose: |
+        Completion mission for Wave 1, scoped to the two criteria carried over
+        from m-2026-09-11-002's exhausted round budget:
+
+        1. STRUCTURAL READ-ONLY INVARIANT. rmh live-proved a third bypass class —
+           POSIX short-flag bundling (gh api -ifx=1 repos/... sent a real
+           mutating POST; -iXPUT/-iX GET/-iXGET all bundle -i with -X
+           identically to the unbundled form) — because
+           _flag_present/_flag_occurrences required the sensitive flag to be the
+           *first* character after the dash, and bundling puts it at any
+           position. Per the mission's explicit directive, replaced the entire
+           enumeration approach with a structural rule:
+           _is_dangerous_short_flag_cluster refuses any short-flag argv token
+           (single leading -, not --) containing X, f, or F anywhere, regardless
+           of position, bundling, or value — false positives accepted and free,
+           since this tool's own recording table needs only the long-form
+           equivalents (--method/--field/--raw-field), which pflag never bundles
+           (only single-dash tokens bundle). Switched the recording table's three
+           GraphQL query commands from -f to --raw-field accordingly.
+           --method/--field/--raw-field/--input retain their own long-form-only
+           equals-form, repeated-occurrence-last-wins, and key=@file checks,
+           since long flags have no bundling surface. Rewrote the parametrized
+           accept/refuse test lists: accepts now covers only long-form flags plus
+           a harmless unbundled short flag (-i, no sensitive character) proving
+           the rule doesn't over-refuse; refuses adds all four live-proven
+           bundled forms plus the now-structurally-caught bare short forms.
+           Re-verified the "structurally incapable of mutating" docstring claim
+           by re-recording all 16 live fixtures against the new command shape and
+           confirming --check reports no drift.
+
+        2. RUN-SELECTION CONCLUSION FILTER. This was already fixed earlier in the
+           same PR (commit 71a3c63, carried forward unchanged in this round):
+           GhTargetDiscovery._latest_release_run requires event == "push" AND
+           conclusion == "success" together, walking past any newer dispatch/
+           failed/in-progress run to the most recent one that actually
+           completed; raises a clear LookupError when none exists rather than
+           recording failure data as the healthy-run fixtures or blocking in
+           gh run watch. Regression tests cover both a failed and a still-running
+           newer run being correctly skipped, and the raise-when-none-succeeded
+           case. The Copilot thread on this finding was replied to and resolved
+           in the same commit.
+
+        No src/ changes. make check green on every commit. All 28 review threads
+        (spanning both missions) read, replied to, and resolved — 0 unresolved.
+        PR #356 not merged.

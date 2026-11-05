@@ -1,0 +1,177 @@
+results:
+    - mission: m-2026-10-22-054
+      round: 1
+      created_at: "2026-10-22T23:56:52Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 6
+          removed: 212
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 32
+          removed: 32
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 673
+          removed: 857
+      evidence:
+        - name: 'make check in worktree, final commit c5117f9: 743 passed, 14 skipped'
+          status: pass
+        - name: 'oo_score: release.py module_size 692 to 679; readme_sha.py module_size 460 to 458, avg_complexity 4.25 to 4.11'
+          status: pass
+        - name: no suppression for PrMerger._select_existing or release._skips in tests/test_release.py
+          status: pass
+      open_questions:
+        - 53 bare pytest.raises(ReleaseError) remain in test_release.py outside SiblingRepo.validate tests; fix in this PR?
+        - tests/test_gh_fixture_contracts.py still suppresses PrMerger._select_existing and _is_merged private access; fix in this PR?
+      prose: |
+        # m-2026-10-22-054 result (round 1)
+
+        All eleven findings addressed. Branch refactor/release-legacy-helpers, 7 new commits, `make check` green on each (final: 743 passed, 14 skipped).
+
+        ## Findings
+
+        - T1 (791c181): all 86+21+38+... function-local imports in tests/test_release.py hoisted to the header; none needed to stay local. release_mod alias collapsed onto the existing `release` import.
+        - T2 (fde8791): dropped the five `_select_existing` tests and the suppressed helper. Covered by tests/test_gh_fixture_contracts.py (open, matching-merged, stale-merged, closed, empty: verified) and merge-level tests (closed, stale, matching merged). The one unique case (OPEN beside MERGED) is kept as new `test_pr_merge_resumes_open_pr_over_a_merged_one`. `release._skips` reach-ins replaced by an autouse `skips` fixture that installs a fresh SkipRecorder via `monkeypatch.setattr(release, "_skips", ...)`; no private-access suppression remains for either.
+        - T3 (b531568, a512aa0): 56 FaultInjectingOps constructions go through `_fault_ops()`. Protection/ruleset payloads built from one source (`_protection_spec`/`_ruleset_spec`, with the MagicMock helpers derived from them).
+        - T4 (a512aa0): GithubRepo branch-protection/ruleset tests match the full argv (`_protection_argv`/`_ruleset_argv`). New test proves the wrong endpoint hits the deny-by-default AssertionError.
+        - T5 (c5117f9): validate wrong-branch and dirty tests have `match=`.
+        - T6 (e7523c3): dry-run bump test asserts the `README.md: install URLs -> <SHA> (v0.2.0)` output line.
+        - S1 (e7523c3): `ReadmeShaPin.land` dry-run calls `bump(dry_run=True, resolve_repo=...)`. Only change to `--dry-run` output: the `bump(...)` placeholder line becomes the real rewrite line, and prints nothing when the README needs no rewrite. The git-commit and merge preview lines are unchanged. No CLI flag or exit code touched. New test proves land(dry_run=True) reaches bump's dry branch, writes nothing, leaves the tree clean.
+        - S2 (e7523c3): bump warns (via ops.warn) when the slug is unresolved (names the fallback) and when install.sh URLs exist but zero substitutions matched. Three tests (both warnings, no false warning).
+        - S3 (6edcd62): verified zero references in src/ and tests/, then deleted: PROPAGATION_SIBLINGS, _GITHUB_ABSENT_SKIP, _PROPAGATION_OWNED_PATHS, _UV_TIMEOUT, _GIT_NETWORK_TIMEOUT, _CI_ADVERSE_CONCLUSIONS, _CI_WATCH_TIMEOUT, _CI_RUN_LIST_TIMEOUT, _normalize_package_name (and the two now-unused imports). Kept, because tests reference them: _DEFAULT_RUN_TIMEOUT, _GIT_HOOK_TIMEOUT, _QUALITY_GATE_TIMEOUT, _CI_RUN_POLL_INTERVAL/ATTEMPTS (monkeypatched), _TagRunSelector (test import only).
+        - S4 (6edcd62, e7523c3, c5117f9): bead IDs stripped from release.py, readme_sha.py, and test_release.py comments/docstrings; text kept.
+        - S5 (6edcd62): checked: ~50 tests still `monkeypatch.setattr(release, "_run", ...)`, so the adapter docstring stays accurate; removed only the stale "zero changes to tests/test_release.py" clause and rewrote the alias-block comment for the surviving aliases.
+
+        ## OO scores (oo_score.py)
+
+        - release.py: before/after method_ratio 0.15, max_complexity 29, avg_complexity 1.73, avg_params 2.04, class_to_func 0.03 (all unchanged); module_size 692 -> 679 (improved).
+        - readme_sha.py: before module_size 460, avg_complexity 4.25, avg_params 2.50; after 458, 4.11, 2.33 (all improved; others unchanged, max_complexity 9). Added `_owner_and_repo` helper and trimmed duplicated comments to avoid a size regression.
+
+        ## Assertion count
+
+        Round start: 756 collected. S1/S2/T6 added 4 tests (760); T2 removed 5 and added 1; T4 added 1. Final 757 collected. Only the five T2 tests were dropped.
+
+        ## Not done / flag for the leader
+
+        - T5 scope: 53 other bare `pytest.raises(ReleaseError)` remain in test_release.py outside the SiblingRepo.validate tests; left for a decision since each needs a message judgement.
+        - tests/test_gh_fixture_contracts.py (untouched by this branch) still carries suppressions for `PrMerger._select_existing` (line ~364) and `_is_merged` (~426). Outside the stated test_release.py scope; say if you want those fixed too.
+        - Commit 6edcd62 message says "eight" aliases; nine names were removed (PROPAGATION_SIBLINGS included).
+
+        ## Commits
+
+        6edcd62 S3/S4/S5; e7523c3 S1/S2/T6; 791c181 T1; b531568 T3; fde8791 T2; a512aa0 T3/T4; c5117f9 T5/S4.
+    - mission: m-2026-10-22-054
+      round: 2
+      created_at: "2026-10-23T00:28:31Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase01_preflight.py
+          added: 1
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase05_tag.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase08_verify_pypi.py
+          added: 1
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase09_post_release.py
+          added: 1
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase10_propagate.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 2
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog.py
+          added: 17
+          removed: 17
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/gh.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/git.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/ops.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pr_merge.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 42
+          removed: 45
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/siblings.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 6
+          removed: 212
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_gh_fixture_contracts.py
+          added: 130
+          removed: 45
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 953
+          removed: 917
+      evidence:
+        - name: 'make check in worktree at 7bbf8b1: 749 passed, 14 skipped'
+          status: pass
+        - name: 'oo_score: no regression on any touched src file (see prose)'
+          status: pass
+        - name: no private-access suppression for PrMerger._select_existing/_is_merged/release._skips in tests
+          status: pass
+        - name: grep -rn pkit- src/punt_kit returns nothing
+          status: pass
+        - name: 'round-2 findings: stale-pin gate narrowed, CRLF Changed detection, single changelog read; tests added'
+          status: pass
+      prose: |
+        # m-2026-10-22-054 result (round 2, consolidated)
+
+        Branch refactor/release-legacy-helpers. `make check` green before every commit; final run 749 passed, 14 skipped (763 collected). No suppression remains for `PrMerger._select_existing`, `PrMerger._is_merged`, or `release._skips` in tests, and none was added anywhere.
+
+        ## Round 1 findings
+
+        - T1 (791c181): every function-local import in tests/test_release.py hoisted to the header; none had to stay local.
+        - T2 (fde8791, d8ab0a5): dropped the five `_select_existing` tests (covered by the contract tests and merge-level tests); kept the unique OPEN-beside-MERGED case as a merge-level test. `release._skips` reach-ins replaced by an autouse `skips` fixture (monkeypatch). In tests/test_gh_fixture_contracts.py the `_select_existing`/`_is_merged` suppressions are gone: promotion rejected (the design doc records both as private), the seven tests now drive `PrMerger.merge` with the recorded fixtures.
+        - T3 (b531568, a512aa0): 56 constructions go through `_fault_ops()`; protection/ruleset payloads share one source.
+        - T4 (a512aa0): GithubRepo protection/ruleset tests match the full argv; new test shows the wrong endpoint hits deny-by-default.
+        - T5 (c5117f9, 33a0843, 8bce2fc): `SiblingRepo.validate` tests and all 53 bare `pytest.raises(ReleaseError)` carry a match. 17 match the raised message; the 36 Phase 11 tests (generic message) assert the printed verdict lines through `_assert_failed_checks`: the exact failed-check list plus cause text. Three tests fail more than their name says because their setup also breaks it (`fails_when_install_all_missing`, `install_all_sha_fails_when_not_ancestor_of_tag` also fail `profile SHA`; `profile_sha_marketplace_chain_missing_sibling` also fails `marketplace`); the assertion records that.
+        - T6 (e7523c3): dry-run bump test asserts the output line.
+        - S1 (e7523c3): `ReadmeShaPin.land` dry-run calls `bump(dry_run=True)`; test proves it writes nothing. Accepted: prints nothing when no rewrite is needed.
+        - S2 (e7523c3): warnings for an unresolved slug and for a stale pin (reworked in round 2, below).
+        - S3 (6edcd62): nine unreferenced aliases deleted. Kept (referenced by tests): `_DEFAULT_RUN_TIMEOUT`, `_GIT_HOOK_TIMEOUT`, `_QUALITY_GATE_TIMEOUT`, `_CI_RUN_POLL_*`, `_TagRunSelector`.
+        - S4 (6edcd62, e7523c3, c5117f9, 6e261c2, 0c2e76e): every tracker/bead ID removed from comments and docstrings under src/punt_kit and tests/test_release.py; `grep -rn "pkit-" src/punt_kit` returns nothing.
+        - S5 (6edcd62): the `monkeypatch.setattr(release, "_run", ...)` seam is still used by about 50 tests, so the adapter docstring stays; only the stale clause was removed.
+
+        ## Defect found and fixed (d91f3c4)
+
+        `test_preflight_fails_empty_unreleased` passed for the wrong reason: the `[Unreleased]` pattern swallowed the blank line, so an empty section captured the next release's notes (preflight reported entries; `suggest_next_version` could read the prior release's `### Added`). One line-anchored pattern now serves both callers; regression test added.
+
+        ## Round 2 findings (gvr)
+
+        1. Stale-pin warning too broad (7bbf8b1): the `/install.sh` substring gate is gone. `bump` and the check now build from one `_PINNED` segment (SHA or vX.Y.Z) and `_url_prefix`, which accepts `owner=None`. The two substitutions merged into one. The warning fires only when the resolved owner's substitution matched nothing AND this repo name appears pinned under another owner. Four no-warning tests: `./install.sh`, `bash scripts/install.sh`, an unpinned same-repo URL, another repo's pinned URL. Note: a repo renamed under the same owner no longer warns (its slug comes from the git remote, so the substitution matches); another tool's pinned URL is also silent. The earlier "renamed" test now uses `other-org/proj`.
+        2. CRLF (18c2b8f): `### Changed` pattern accepts `\r?\n`; CRLF regression test proves a breaking entry bumps the major.
+        3. Double read (18c2b8f): new `Changelog.require_unreleased_entries()` reads once with the same two messages; preflight calls it. Edge: the section heading is now matched at a line start only.
+
+        ## OO scores (before = main, after = HEAD)
+
+        - release.py: module_size 692 to 679; all else unchanged.
+        - readme_sha.py: module_size 460 to 456; avg_complexity 4.25 to 4.11; avg_params 2.50 to 2.33.
+        - changelog.py: module_size 83 to 82; avg_complexity 2.12 to 2.12 (equal); the rest unchanged.
+        - phase01_preflight.py: module_size 339 to 331; max_complexity 36 to 33; avg_complexity 13.25 to 12.5.
+        - Comment-only files: no change.
+
+        ## Assertion count
+
+        Round 1 started at 756 collected tests; now 763. Only the five T2 tests were dropped, each covered as described.
+
+        ## Commits (21 on the branch; this mission)
+
+        6edcd62, e7523c3, 791c181, b531568, fde8791, a512aa0, c5117f9, d8ab0a5, d91f3c4, 33a0843, 6e261c2, 8bce2fc, 0c2e76e, 18c2b8f, 7bbf8b1.

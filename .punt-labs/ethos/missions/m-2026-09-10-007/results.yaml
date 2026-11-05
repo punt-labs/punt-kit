@@ -1,0 +1,18 @@
+results:
+    - mission: m-2026-09-10-007
+      round: 1
+      created_at: "2026-09-10T22:43:53Z"
+      author: adb
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: docs/design-release-failure-harness.md
+          added: 544
+          removed: 0
+      evidence:
+        - name: markdownlint-cli2 docs/design-release-failure-harness.md
+          status: pass
+        - name: 'PR opened as draft (docs-only — Phase 3 verification N/A): https://github.com/punt-labs/punt-kit/pull/351'
+          status: pass
+      prose: |
+        Design mission for EPIC pkit-f85t. Surveyed tests/test_release.py's existing seams (ReleaseOps Protocol, real-git fixtures, ad hoc gh fakes, three independent time.sleep patch points across release.py/gh.py/ pr_merge.py) before designing anything new. Proposes FaultInjectingOps (a scriptable ReleaseOps double built on the existing seam) plus a recorded-fixture + contract-test layer so fake gh/git output cannot drift from real tool shapes unnoticed. Fault-injection matrix covers all 11 phases x failure modes drawn from CHANGELOG/DESIGN.md live incidents (pkit-d7mz/plxh/dlv6/d8ij/mjcb/8r6/9n6q/fwql, the f85t.1-4 quartet, DES-029) plus direct code reading: 32 rows covered today, 23 enabled by the harness, 3 explicitly out of scope with rationale (real GitHub rate-limit/token-expiry timing, PyPI eventual-consistency window, real Dolt hook latency — all exogenous to this codebase). Inventoried 7 remaining phase-logic defects by severity (no P0; three P1: the pr_merge.py 6-attempt retry loop has zero coverage past attempt 1, merge_in_sibling's cleanup finally-block degrades a secondary failure to an info log instead of a SkipRecorder entry, and inconsistent check=True/False error-diagnosis quality across subprocess call sites). Six-wave incremental delivery plan, each wave sized to one implementation mission. Beads DB (hosted Dolt) was unreachable for the mission's entire duration — bd show/list retried repeatedly, never returned — so the epic's children are not folded in; the design's closing section requires a re-check before Wave 1 dispatches. No implementation code — design doc plus illustrative snippets only, per the write-set restriction.

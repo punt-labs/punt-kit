@@ -1,0 +1,61 @@
+results:
+    - mission: m-2026-09-09-007
+      round: 1
+      created_at: "2026-09-09T06:10:00Z"
+      author: adb
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: src/punt_kit/phases/phase11_verify.py
+          added: 54
+          removed: 6
+        - path: tests/test_release.py
+          added: 158
+          removed: 0
+      evidence:
+        - name: make check
+          status: pass
+        - name: uv run pytest (429 passed, including 4 new regression tests)
+          status: pass
+      prose: |
+        Findings on current Phase 11 coverage (pre-change), with citations:
+
+        Check #4 "install-all.sh" (phase11_verify.py, then lines 229-294) verified
+        two things about the pin Phase 10a writes: (a) the SHA resolves as a git
+        object in the project's own repo (`git show {sha}:install.sh` exit 0), and
+        (b) for projects with a VERSION marker, that the content at that SHA
+        contains `VERSION="{version}"`. For projects WITHOUT a VERSION marker
+        (Go/other installers), the check degenerated to `sha_ok = 'VERSION="' not
+        in vr.stdout` — true for essentially any resolvable SHA, stale or not. In
+        no case did it verify the SHA was actually part of the tagged release's
+        history — a SHA on an abandoned/superseded branch with byte-identical
+        content (or, for Go projects, ANY resolvable SHA) passed unconditionally.
+
+        Check #6 "profile SHA" (then lines 364-492, including pkit-f85t.3's
+        marketplace-pin chain for marketplace-only plugins) verified: (a) the
+        profile-pinned SHA resolves in the .github sibling (`git show` exit 0),
+        and (b) the content at that SHA carries the CURRENT project install_sha
+        (byte-content staleness check) or, for marketplace-only plugins, that the
+        claude-plugins SHA embedded there resolves and matches version/ref. Never
+        verified that the pinned commit was actually reachable from (merged into)
+        the .github sibling's main — `git show` resolves any object still in the
+        local database whether or not it's on a live branch, so a commit from a
+        reverted/abandoned PR with byte-identical content would pass.
+
+        Neither check was already-covered (pkit-bnyd-style) — both had a genuine
+        resolution gap distinct from pkit-f85t.3's marketplace-pin chain work,
+        which addressed the marketplace.json linkage, not tag/branch reachability.
+
+        Fix: added `git merge-base --is-ancestor <sha> <tag>` for check #4 (in the
+        project's own repo) and `git merge-base --is-ancestor <profile_sha> main`
+        for check #6 (in the .github sibling) — both fail loud (not warn) when the
+        ancestor check does not hold, reusing the existing VerificationCheck /
+        ops.fail reporting pattern, no new registry or architecture.
+
+        Strictly out of scope, not touched: product README curl|sh lines,
+        public-website projects.json (per the mission's explicit exclusion).
+
+        Branch: fix/pkit-9n6q-verify-install-sha (off main, not pushed, no PR per
+        instructions). Commits:
+          13cb1bc fix(release): Phase 11 verifies install SHA pins are ancestors of the tag
+          c7e0bb4 test(release): regression coverage for install-SHA ancestry checks

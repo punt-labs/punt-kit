@@ -1,0 +1,26 @@
+mission_id: m-2026-09-13-002
+status: closed
+type: implement
+created_at: "2026-09-13T14:43:27Z"
+updated_at: "2026-09-13T15:14:32Z"
+closed_at: "2026-09-13T15:14:32Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-09-13T14:43:27Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs:
+    ticket: pkit-17qo
+write_set:
+    - tests/test_record_gh_fixtures.py
+success_criteria:
+    - Fix the test so its 'outside the repo' path is genuinely outside the repo regardless of TMPDIR — construct the path independent of tmp_path/TMPDIR (e.g. create a temp dir explicitly outside the repo root, such as under the system temp root computed without TMPDIR, or via a path asserted to not be relative to the repo root). Keep the test's intent intact (it verifies display-path fallback to an absolute path when the path is outside the repo).
+    - Verify the fix by running the test with TMPDIR set inside the repo (mimicking .envrc) AND unset — it must pass both ways. Paste the command(s) you used and the result in your report.
+    - make check exits 0 before every commit; no suppressions. Do NOT touch CHANGELOG.md. Do NOT push or open a PR. Work on branch fix/pkit-17qo-tmpdir-test off main; report branch and commit SHA.
+    - Commit incrementally — one commit per logical step. Each commit must pass make check.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: test_display_path_falls_back_to_absolute_outside_the_repo in tests/test_record_gh_fixtures.py fails ONLY when TMPDIR points inside the repo — which this project's .envrc does (it exports TMPDIR into .tmp/ at the repo root). The test uses pytest's tmp_path as its 'outside the repo' path, but when TMPDIR is inside the repo, tmp_path resolves under the repo root, so the outside-the-repo premise collapses and the assertion fails. Pre-existing on main; CI stays green because CI has no such TMPDIR. Test-only bug.

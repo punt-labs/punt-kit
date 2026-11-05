@@ -1,0 +1,28 @@
+mission_id: m-2026-09-10-008
+status: closed
+type: implement
+created_at: "2026-09-10T23:08:15Z"
+updated_at: "2026-09-11T00:56:23Z"
+closed_at: "2026-09-11T00:56:23Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-09-10T23:08:15Z"
+    hash: 7e20233c2bc7170b38ca9182a1d549177b5e00e0b1027e9bcffffa66b5a8571b
+inputs:
+    ticket: pkit-qv4
+write_set:
+    - standards/
+    - CHANGELOG.md
+success_criteria:
+    - 'standards/filesystem.md, standards/punt-labs-dir.md, and standards/tool-enable-disable.md updated so one coherent ruleset states: .punt-labs/<tool>/ is the only per-repo tool location; the tracked/gitignored three-class split; .punt-labs/local/ always-gitignored semantics; root sentinels declared legacy with the migration expectation (tool reads new path with legacy fallback, enable migrates, punt audit flags survivors). No contradictions left between the three docs — if a rule lives in one doc the others reference it rather than restate it'
+    - 'Fleet reality check performed and cited in the deliverable: survey ../*/  for .punt-labs/<tool>/ adoption and surviving root sentinels; the standard generalizes deployed reality or explicitly supersedes it with rationale, stated in the PR description'
+    - 'This is a normative change for ~15 repos but additive-plus-deprecation (no existing followed rule removed): state in the PR description why the cross-repo breaking-change protocol does not require pre-merge acknowledgment from every sibling (root-sentinel deprecation has a fallback window, nothing breaks on merge day)'
+    - make check green before every commit; markdownlint clean on every touched doc; CHANGELOG entry under [Unreleased]; branch docs/config-location-standard off main; PR opened (not draft), not merged
+    - Commit incrementally — one commit per logical step. Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'Operator rulings (2026-09-10) on per-repo tool config location, to be codified in the standards: (1) RATIFIED: everything per-repo a tool owns lives under .punt-labs/<tool>/ — no repo-root sentinels (.biff TOML, .vox/, .lux/, .ethos/ root dirs are all legacy); (2) RATIFIED: .punt-labs/local/ is the non-git working directory — always gitignored, machine-local; (3) PROVISIONAL (leader recommendation, operator not yet confirmed — mark the section accordingly in the PR description, not in the standard text itself): inside .punt-labs/<tool>/, tracked = enabled marker + deposited CLAUDE.md guide + static team-shared config; gitignored = *.local.md overrides, runtime state, and daemon-mutable config files (vox.md precedent from punt-kit#350). Fleet survey already performed (2026-09-10): .punt-labs/<tool>/ exists in 30+ repos for 7 tools; root sentinels survive in ~20 repos (.biff real TOML config incl. punt-kit and .github; .vox/config.md and .lux/config.md root dirs; .ethos/missions.jsonl runtime state at root); many repos carry BOTH forms for the same tool — the migration stalled halfway. biff''s CI workflow already sparse-checkouts .punt-labs/biff. Verify this survey yourself per the fleet-reality-check requirement and cite what you find.'

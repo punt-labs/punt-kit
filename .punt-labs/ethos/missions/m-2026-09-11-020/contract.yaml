@@ -1,0 +1,26 @@
+mission_id: m-2026-09-11-020
+status: closed
+type: implement
+created_at: "2026-09-11T11:15:26Z"
+updated_at: "2026-09-11T11:50:07Z"
+closed_at: "2026-09-11T11:50:07Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T11:15:26Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t.9
+write_set:
+    - src/punt_kit/
+    - tests/
+    - CHANGELOG.md
+success_criteria:
+    - Phase 1's dirty-tree failure, when all dirty paths match the daemon-mutable convention, prints an actionable message naming the exact git stash push command with those paths and the post-release pop step; mixed dirt (daemon files + anything else) keeps the existing failure shape but still lists which paths are daemon-mutable; harness tests cover daemon-only dirt, mixed dirt, and clean tree unchanged
+    - make check green per commit; CHANGELOG entry; bead pkit-f85t.9 closed via direnv exec . bd close citing commits (with the auto-stash future note); branch feat/preflight-stash-hint off main; PR opened, not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'The last open child of epic pkit-f85t. Operator ruling (2026-09-10, codified in standards/punt-labs-dir.md): daemon-rewritten settings files inside .punt-labs/<tool>/ (e.g. vox.md) are git-TRACKED by design, and the operator explicitly accepts stashing them around releases. Consequence: a repo with an active vox/lux session often has dirty daemon-mutable files, which fails punt release Phase 1''s clean-tree preflight today with a generic message. Read bd show pkit-f85t.9 (via direnv exec . bd show) and the standard''s daemon-rewritten note in punt-labs-dir.md. Implement the MINIMUM viable accommodation per the bead: when the ONLY dirty paths are daemon-mutable settings files under .punt-labs/<tool>/ (identify them by the standard''s convention: tracked non-local files directly in a tool root — be conservative, an explicit small allowlist of known shapes like .punt-labs/*/vox.md-style settings files is acceptable if you document it), the preflight failure message names the exact stash command to run (git stash push -- <paths>) and the restore step after release, instead of the generic dirty-tree message. Do NOT auto-stash — that touches the interrupt/resume paths and exceeds this bead''s scope; note auto-stash as a possible future enhancement in the bead-close text.'

@@ -1,0 +1,31 @@
+mission_id: m-2026-09-18-001
+status: closed
+type: implement
+created_at: "2026-09-18T14:31:56Z"
+updated_at: "2026-09-18T23:50:30Z"
+closed_at: "2026-09-18T23:50:30Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: djb
+    pinned_at: "2026-09-18T14:31:56Z"
+    hash: 28db2aed288edd6db93a5468ca83ae0f15d02fb154427a0d2919181eed971931
+inputs:
+    ticket: pkit-fesz
+write_set:
+    - src/punt_kit/phases/phase11_verify.py
+    - tests/test_release.py
+extract_into:
+    - src/punt_kit/phases/shared
+success_criteria:
+    - FIRST read phase11_verify.py and readme_sha.py and report exactly what is verified today for the product README and the website projects.json (cite code). If either is already fully verified against the release tag/version, say so and skip it rather than duplicating.
+    - 'Add a Phase 11 check that FAILS LOUD when any pinned install SHA in the released repo''s own README does not resolve to the release tag''s commit (ancestor-of-tag, matching checks #4/#6 style). Cover every curl|sh pin in the README, not just the first. Reuse the existing README pin regex/helper.'
+    - 'Add a Phase 11 check for the public-website projects.json: the installCommand''s pinned SHA must resolve to the release tag''s commit AND the ''version'' field must equal the release version; fail loud otherwise. Treat an absent public-website sibling as the existing tolerated skip (like the install-all.sh/profile checks do for absent siblings), not a failure.'
+    - If a small (repo,file,pattern) consumer registry makes the checks cleaner, create it under src/punt_kit/phases/shared/ (authorized via extract-into); otherwise inline is fine. Do not over-engineer.
+    - 'Add regression tests in tests/test_release.py following existing phase-11 test patterns: pass case; stale README pin fails; website SHA-not-ancestor fails; website version-mismatch fails; absent website sibling skips cleanly. make check exits 0 before every commit; no suppressions.'
+    - Do NOT touch CHANGELOG.md (leader owns it). Do NOT push or open a PR. Work on branch fix/pkit-fesz-verify-readme-website off main; report branch, commit SHAs, current-coverage findings, and make-check result. Commit incrementally, one logical step per commit.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'Complete the SHA-pin verification scope. Phase 11 (phase11_verify.py) today verifies: git tag, plugin.json version, the .github/install-all.sh entry (check #4, ancestor-of-tag), and the org profile README SHA (check #6, ancestor-of-.github-main). NOT YET VERIFIED, and rotting silently the same way (a stale pin still ''works'', just installs the previous release): (a) the product''s OWN README curl|sh install lines in the repo being released (e.g. vox/README.md is pinned ~4x; the release lands them via ReadmeShaPin/_land_readme_sha_pin — reuse its regex/pattern from phases/shared/readme_sha.py), and (b) the public-website projects.json (installCommand pinned SHA + a ''version'' field), which Phase 10 propagates (website version) but nothing verifies. public-website is an OPTIONAL sibling. Prior narrow-scope work: pkit-9n6q / PR #347.'

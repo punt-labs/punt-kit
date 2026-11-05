@@ -1,0 +1,332 @@
+results:
+    - mission: m-2026-09-11-002
+      round: 1
+      created_at: "2026-09-11T04:14:24Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_ambiguous_404.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_not_protected.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_protected.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_rules_branches_governed.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_rules_branches_ungoverned.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads_empty.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads_none_unresolved.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_failed.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_mixed_conclusions.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_null_rollup.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_passed.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_pending.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_create_success.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_closed.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_empty.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_merged.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_open.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_merge_real_failure.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_merge_transient_block.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_view_merged.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_view_open.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_create_success.json
+          added: 23
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_view_exists.json
+          added: 19
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_view_missing.json
+          added: 19
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_list_matching_tag.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_view_failure.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_view_success.json
+          added: 21
+          removed: 0
+        - path: tests/harness/gh_shapes.py
+          added: 107
+          removed: 0
+        - path: tests/test_gh_fixture_contracts.py
+          added: 476
+          removed: 0
+        - path: tests/test_record_gh_fixtures.py
+          added: 458
+          removed: 0
+        - path: tools/record_gh_fixtures.py
+          added: 825
+          removed: 0
+      evidence:
+        - name: make check (lint, format, shellcheck, mypy, pyright, pytest) — 3 commits, all green
+          status: pass
+        - name: uv run python tools/record_gh_fixtures.py — live run against punt-labs/punt-kit, produced 15 of 27 fixtures
+          status: pass
+        - name: uv run python tools/record_gh_fixtures.py --check — live run, reports 'no drift'
+          status: pass
+        - name: uv run pytest tests/test_record_gh_fixtures.py — read-only allowlist accept/refuse cases (incl. the implicit-POST-on-field-presence gap), no-dispatch proof, sanitizer, drift checker
+          status: pass
+        - name: uv run pytest tests/test_gh_fixture_contracts.py — 67 passed, 13 skipped by design (hand-authored fixtures have no replayable command)
+          status: pass
+        - name: 'PR opened, not merged: https://github.com/punt-labs/punt-kit/pull/356 (branch feat/harness-wave1 off main)'
+          status: pass
+      open_questions:
+        - Makefile's mypy/pyright targets scope to src/+tests/ only, not tools/ — tools/record_gh_fixtures.py is type-checked manually here (clean) but make check's type gate doesn't cover it. Makefile is outside this mission's write-set (tests/, tools/, CHANGELOG.md), so I did not touch it; flagging for the leader to decide whether a follow-up should extend the type target to include tools/.
+      prose: |
+        Delivered the full Wave 1 scope: tools/record_gh_fixtures.py (ReadOnlyGhRunner,
+        GhSanitizer, GhTargetDiscovery, GhRecordingPlan, GhFixtureRecorder,
+        GhFixtureDriftChecker), a 27-fixture library under tests/fixtures/gh/ (15
+        recorded live, 12 hand-authored and marked hand_authored: true in _meta),
+        tests/harness/gh_shapes.py (fixture-authoring TypedDicts + typed loader),
+        tests/test_gh_fixture_contracts.py (drives GithubRepo, RequiredChecksWaiter,
+        TagRunSelector, PrMerger, PrThreadResolver, CiRunWatch against every fixture,
+        plus the version-stamp gate), and tests/test_record_gh_fixtures.py (recorder
+        unit tests). Zero src/ changes.
+
+        One design-extension beyond the explicit ask: gh api silently defaults a REST
+        call to POST the instant a -f/-F/--field/--raw-field/--input body flag is
+        present, with no explicit -X required to trigger it — a mutation path the
+        design's -X/--method check does not by itself close on a repos/... endpoint.
+        Added a dedicated refusal in ReadOnlyGhRunner._require_read_only_api_call plus
+        a regression test proving it. No other deviation from the merged design.
+
+        No src/ changes were needed — every fixture is consumed via the existing
+        ReleaseOps injection seam (GithubRepo, RequiredChecksWaiter, TagRunSelector,
+        PrMerger, PrThreadResolver, CiRunWatch all already take ops at construction).
+    - mission: m-2026-09-11-002
+      round: 2
+      created_at: "2026-09-11T05:38:09Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_ambiguous_404.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_not_protected.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_branch_protection_protected.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_rules_branches_governed.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_api_rules_branches_ungoverned.json
+          added: 16
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads_empty.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_pr_threads_none_unresolved.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_failed.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_mixed_conclusions.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_null_rollup.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_passed.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_graphql_required_checks_pending.json
+          added: 18
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_create_success.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_closed.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_empty.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_merged.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_list_open.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_merge_real_failure.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_merge_transient_block.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_view_merged.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_pr_view_open.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_create_success.json
+          added: 23
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_view_exists.json
+          added: 19
+          removed: 0
+        - path: tests/fixtures/gh/gh_release_view_missing.json
+          added: 19
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_list_matching_tag.json
+          added: 26
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_view_failure.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_view_success.json
+          added: 21
+          removed: 0
+        - path: tests/fixtures/gh/gh_run_watch_healthy.json
+          added: 20
+          removed: 0
+        - path: tests/harness/gh_shapes.py
+          added: 107
+          removed: 0
+        - path: tests/harness/test_fault_ops.py
+          added: 43
+          removed: 0
+        - path: tests/test_gh_fixture_contracts.py
+          added: 704
+          removed: 0
+        - path: tests/test_record_gh_fixtures.py
+          added: 789
+          removed: 0
+        - path: tools/record_gh_fixtures.py
+          added: 1045
+          removed: 0
+      evidence:
+        - name: make check (lint, format, shellcheck, mypy, pyright, pytest) — every commit in round 2, all green
+          status: pass
+        - name: uv run python tools/record_gh_fixtures.py --check — live run, reports 'no drift' against the committed fixture set
+          status: pass
+        - name: uv run pytest — 610 passed, 13 skipped by design (hand-authored fixtures have no replayable command)
+          status: pass
+        - name: 'PR #356 CI: Analyze (actions/python), CodeQL, docs, lint, test, Cursor Bugbot — all pass; mergeStateStatus CLEAN'
+          status: pass
+        - name: 22 bot review threads (17 round-1 + 4 round-2 initial + 1 round-2 follow-up on the -X=PUT fix, plus 2 more from the final push) read, replied to individually, and resolved via GraphQL — 0 unresolved
+          status: pass
+      open_questions:
+        - Makefile's mypy/pyright targets still scope to src/+tests/ only, not tools/ — unchanged from round 1's flag, still outside this mission's write-set.
+      prose: |
+        Round 2 addressed all three of rmh's blocking findings plus every bot
+        review comment across both rounds (25 threads total, 0 unresolved,
+        mergeStateStatus CLEAN):
+
+        1. READ-ONLY INVARIANT (the headline finding). Normalized every -X/
+           --method/-f/-F/--field/--raw-field spelling gh's own pflag parser
+           accepts identically (split, equals-form, short-attached-form,
+           short-attached-with-equals) before comparing, refused --input
+           unconditionally on both endpoint shapes (a mutation's text can live
+           entirely in a file this tool cannot inspect), fixed --method/-X to
+           consider every occurrence together and use the LAST one (matching
+           gh's last-occurrence-wins semantics for a repeated or dual-spelled
+           flag — a genuinely distinct sub-bug the first fix pass missed), and
+           removed the configurable `allowlist` constructor parameter entirely
+           (a caller could otherwise instantiate ReadOnlyGhRunner with a
+           mutating shape baked in). This took four consecutive fix-and-verify
+           cycles as bot review kept finding one more spelling/occurrence
+           variant each pass (-X=PUT missing the leading-'=' strip; -X=POST
+           independently rediscovering the same already-fixed gap) — each is
+           now covered by a parametrized regression test naming the exact
+           spelling. Also fixed a secondary leak: the refusal exception's
+           message initially interpolated the raw secret substring that
+           triggered it, defeating the sanitizer's own guarantee the moment an
+           operator pasted the traceback anywhere — now reports only the
+           redacted form.
+        2. Gave every fixture a real consumer: PrMerger.merge driven end-to-end
+           (push/list/create/wait/view/resolve/squash-merge-retry/post-merge)
+           against both gh_pr_merge_*.json fixtures (the two flagged as most
+           safety-critical, since they validate is_transient's retry
+           classification), Phase7GithubRelease.run against both
+           gh_release_view_*.json fixtures and gh_release_create_success.json,
+           and PrThreadResolver.resolve against gh_graphql_pr_threads_empty.json.
+        3. Added FaultRule.from_fixture's missing-fixture (FileNotFoundError),
+           malformed-JSON (JSONDecodeError), and missing-required-key (KeyError)
+           tests.
+
+        Also fixed, from bot review beyond rmh's three items: GhTargetDiscovery
+        now filters release runs to event=="push" (a workflow_dispatch run
+        could otherwise be mis-recorded as the tag-run fixture); added the
+        missing gh_run_watch_healthy.json fixture to close a real inventory gap
+        (Phase 6's gh run watch, documented as having no contract-test consumer
+        since production only checks its returncode); GhFixtureDriftChecker
+        preserves every distinct list-element shape instead of only the first
+        (a heterogeneous GraphQL contexts array could otherwise drift
+        undetected past element 0); GhFixtureRecorder now REFUSES (rather than
+        silently redacts) a command that needs sanitization, since --check
+        replays _meta.command literally and a silently-redacted branch name
+        would target the wrong ref; GhSanitizer only blanks string values under
+        an identity key, recursing into nested objects instead of corrupting
+        their shape; --check fails loud on an empty/missing --dest instead of
+        reporting a vacuous "no drift"; and main()'s path-printing no longer
+        crashes when --dest is outside the repo root. Reconciled the fixture
+        inventory count (29 total, 16 recorded, 13 hand-authored — corrected
+        from an initial 27/15/12 miscount) in both CHANGELOG.md and the PR
+        description.
+
+        One test made resilient to its own live data source: the
+        ungoverned-checks test depends on a fixture recorded against a real,
+        still-open PR, and re-recording during this round caught it mid-CI-run
+        with a check genuinely pending — the test now chains to a
+        permanently-settled fixture as a guaranteed-terminating fallback and
+        derives its assertions from that fixture's own content instead of a
+        hardcoded check name.

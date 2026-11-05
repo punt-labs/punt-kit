@@ -1,0 +1,120 @@
+results:
+    - mission: m-2026-10-23-009
+      round: 1
+      created_at: "2026-10-23T03:40:57Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/docs/designs/release-py-oo-decomposition.md
+          added: 5
+          removed: 5
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+          added: 6
+          removed: 46
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/git_checkout.py
+          added: 62
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/gh.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/github_repo.py
+          added: 0
+          removed: 5
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/hook_firing.py
+          added: 261
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 5
+          removed: 5
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/run_calls.py
+          added: 0
+          removed: 311
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/test_run_calls.py
+          added: 0
+          removed: 188
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit.py
+          added: 62
+          removed: 31
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_gh_fixture_contracts.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_git_checkout.py
+          added: 69
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_hook_firing.py
+          added: 215
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 79
+          removed: 205
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_resume_sweep.py
+          added: 1
+          removed: 1
+      evidence:
+        - name: 'R1 456cd2e: HookFiringCommand classifier on concrete argv, floor in release._run, AST audit deleted; 4 floor tests failed 60 == 600 before the _run edit'
+          status: pass
+        - name: 'choke point: grep subprocess.run|Popen|call|check_*|os.system|popen|exec|spawn over src/punt_kit/release.py and phases/ finds only release.py:86; test_only_run_spawns_a_release_process pins it; no bypass'
+          status: pass
+        - name: 'R2 4465416: GithubRepo.resolve deleted, tests repointed at slug_text, docstrings fixed'
+          status: pass
+        - name: 'R3 1878149: audit reports ''origin remote is not a GitHub owner/repo: <url>''; GitCheckout class with 9 tests plus 5 audit tests'
+          status: pass
+        - name: 'R4 8a97e12: design record lines 140, 141, 203, 612 point at shared/github_repo.py'
+          status: pass
+        - name: 'make check after final commit 8a97e12: ruff, format, shellcheck, mypy, pyright clean; pytest 991 passed, 14 skipped'
+          status: pass
+        - name: 'OO: release.py 663 unchanged; audit.py size 954 to 917 but avg_params 1.33 to 1.35 and avg_complexity 6.52 to 6.54; github_repo.py size 114 to 110 but avg_params 1.14 to 1.33 and avg_complexity 2.29 to 2.50 (means rise when a below-average function is deleted)'
+          status: fail
+      open_questions:
+        - 'OO ratchet: github_repo.py and audit.py per-file means (avg_params, avg_complexity) rose because R2 and R3 deleted below-average functions; accept, or add a function to hold the means?'
+        - docs/design-release-failure-harness.md:625 cites the deleted test test_hook_firing_git_calls_do_not_use_default_timeout (outside the write set); and the design record's gh.py section (~390) still lists GithubRepo.resolve()
+      prose: |
+        Full detail is in .tmp/missions/results/release-legacy-helpers-r5.md.
+    - mission: m-2026-10-23-009
+      round: 2
+      created_at: "2026-10-23T03:57:03Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/git_checkout.py
+          added: 46
+          removed: 16
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/hook_firing.py
+          added: 45
+          removed: 27
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/spawn_scan.py
+          added: 142
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_git_checkout.py
+          added: 53
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_hook_firing.py
+          added: 39
+          removed: 12
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 1
+          removed: 28
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_spawns.py
+          added: 91
+          removed: 0
+      evidence:
+        - name: 'F1 c4b122b: quiet git verbs cut to rev-parse, log, show, cat-file, ls-remote, rev-list, config, var, version, help, merge-base, name-rev, show-ref, for-each-ref, ls-tree, shortlog (dropped describe, grep, blame, check-ignore: index or worktree reads); fetch/tag/branch/add/status/remote/diff/ls-files/symbolic-ref now fire; tests failed first on fetch'
+          status: pass
+        - name: 'F2 c4b122b: gh pr close -d/--delete-branch and gh repo fork --remote fire; close removed from pr quiet actions (per-group quiet table, issue close stays quiet)'
+          status: pass
+        - name: 'F4 c4b122b: env -S, -Sx, -iSx, --split-string[=] fire; docstring says unknown programs are quiet by design'
+          status: pass
+        - name: 'F3 a5ca8f9, 65ba562: AST SpawnScan over release.py and its transitive package imports; real scan finds only release.py subprocess.run; negative tests for import-as, from-import, star, __import__, import_module, os/pty/asyncio/multiprocessing'
+          status: pass
+        - name: 'F5 679586b: userinfo stripped from the echoed origin URL; messages for git not installed, no git repo at root, no remote detected, and git''s own complaint on other get-url failure; 5 new tests'
+          status: pass
+        - name: 'make check after 679586b: ruff, format, shellcheck, mypy, pyright clean; pytest 1046 passed, 14 skipped (1060 collected)'
+          status: pass
+        - name: 'OO: hook_firing.py 253 lines max_cx 8 all PASS; git_checkout.py 78 lines max_cx 4 all PASS; spawn_scan.py (test harness) max_cx 9 all PASS; release.py unchanged at 663; audit.py and github_repo.py as reported in round 1'
+          status: pass
+      open_questions:
+        - 'Round-1 open question still stands: audit.py and github_repo.py per-file means (avg_params, avg_complexity) rose from deleting below-average functions.'
+      prose: |
+        Round 2 answers gvr F1-F5 per the leader's rulings; see the report to the leader.

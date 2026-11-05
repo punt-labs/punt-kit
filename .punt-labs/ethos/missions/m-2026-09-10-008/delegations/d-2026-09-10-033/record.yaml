@@ -1,0 +1,8 @@
+id: d-2026-09-10-033
+tier: B
+mission: m-2026-09-10-008
+parent_session: dacbba7a-dcfc-4ae0-a2d3-d68accc9097c
+agent_type: rop
+created_at: "2026-09-10T23:24:00Z"
+closed_at: "2026-09-11T00:56:23Z"
+verdict: pass

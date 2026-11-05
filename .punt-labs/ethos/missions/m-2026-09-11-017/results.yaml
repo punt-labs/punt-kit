@@ -1,0 +1,74 @@
+results:
+    - mission: m-2026-09-11-017
+      round: 1
+      created_at: "2026-09-11T08:35:35Z"
+      author: adb
+      verdict: pass
+      confidence: 0.93
+      files_changed:
+        - path: tests/test_release.py
+          added: 281
+          removed: 0
+        - path: CHANGELOG.md
+          added: 2
+          removed: 0
+      evidence:
+        - name: make check (ruff, ruff-format, shellcheck, mypy strict, pyright strict, pytest — 638 passed, 14 skipped) before each commit
+          status: pass
+        - name: 'pytest -k ''mid_poll or owned_file_residue'' — 3 new scenario tests, 0.31s total added wall-clock (budget: 5s)'
+          status: pass
+        - name: 'mutation check — gh.py interrupt guard disabled: row-36a test fails bounded in 30.51s (''Timed out waiting''), no hang; reverted, git diff shows zero src/ changes'
+          status: pass
+        - name: 'PR #358 opened via gh CLI (not merged): https://github.com/punt-labs/punt-kit/pull/358'
+          status: pass
+      open_questions:
+        - 'Row 36a is delivered as two tests rather than one: the design §2c bounded-future.result mechanism test cannot also assert the incomplete-release report, because the report lives in run_release, which installs signal handlers and must run on the pytest main thread (cannot itself be submitted to a bounding executor). The pair jointly covers every clause of the criterion.'
+        - 'Deviation from §2c''s ''test thread polls the rule''s match count then sets the event'': used the rule-anchored interrupt_after primitive instead — the mission context names it as the sanctioned worker-path simulation, it is deterministic (fires only after a rule match completes, i.e. provably mid-loop), and it removes the helper-thread race the polling recipe would reintroduce.'
+      prose: |
+        Branch feat/harness-wave3 off fresh main; commits 08a3826 (tests) and
+        676619e (CHANGELOG). Zero src/ changes — no seam gap surfaced.
+
+        Row 36a mechanism (test_phase10_interrupt_with_worker_mid_poll_join_
+        returns_promptly): a Phase 10 website-propagator worker held genuinely
+        mid-iteration in RequiredChecksWaiter.wait against a pending-forever
+        GraphQL fake — 3 unarmed pending polls prove real iteration, then a
+        times=None pending rule armed with interrupt_after(release._interrupted),
+        the sanctioned rule-anchored worker-path interrupt. Join asserted prompt
+        via bounded future.result(timeout=10.0) around _phase10_propagate: the
+        task completes only after Phase 10's own ThreadPoolExecutor.__exit__
+        joins the interrupted worker, so the bounded result IS the join
+        assertion. The fake is never released early (its only state is pending;
+        consumption counts asserted exactly: warmup == 3, armed == 1); the loop
+        provably exits through the interrupt branch ("Interrupted while waiting
+        for CI checks on PR #123" present, "Timed out waiting" absent).
+
+        Row 36a report (test_run_release_interrupt_mid_poll_reports_incomplete_
+        release): the identical live-worker scenario through run_release
+        --resume-from propagate on the main thread (the incident topology);
+        asserts exit 1, "Cleaning up after interrupt...", "Release incomplete",
+        "phase 10 (propagate)", "Not confirmed landed: propagate, verify",
+        "--resume-from propagate", elapsed < 10s.
+
+        Row 48 (test_run_release_interrupt_mid_propagation_restores_owned_file_
+        residue): the exact v0.14.0 owned-file residue is created by the
+        propagation's own projects.json write AFTER Phase 10's entry
+        auto-recovery already ran, so next-run recovery cannot be the restorer;
+        the dirty-check rule arms the event and git checkout -b raises
+        TimeoutExpired (the incident's own failure shape). A delegating spy
+        proves the interrupt path specifically called
+        _reset_propagation_siblings(fail_on_error=False) with the residue on
+        disk: reset_calls == [(True, False), (False, True)]. The file is
+        asserted byte-identical to HEAD and the sibling git-status clean.
+
+        Bounding, per the mission's ask: two explicit bounds — the
+        future.result(timeout=10.0) join assertion, and gh.CI_WATCH
+        monkeypatched 7200s→30s so a regressed interrupted.is_set() check runs
+        the loop out in ~30s and FAILS the test instead of hanging it
+        (mutation-verified at 30.51s). Sleep patched near-zero (1 ms) via the
+        shared time singleton punt_kit.release.time.sleep per design §1d.
+
+        Only merged primitives (FaultRule, FaultInjectingOps, interrupt_after,
+        from_fixture) and Wave 1 fixtures used; real tmp_path git repos; no new
+        primitive classes. Full narrative also at
+        .tmp/missions/results/m-2026-09-11-017-round1.md; PR #358's body carries
+        the verification playbook.
