@@ -226,7 +226,6 @@ resume.md
 # tracked under .punt-labs/ethos/ and resolves repo-only. Only runtime state
 # is ignored: per-run sessions and mission lock files.
 .punt-labs/ethos/sessions/
-.punt-labs/ethos/missions/**/.lock
 **/.create.lock
 
 # ethos mission records (contract/results/reflections/delegations and the
@@ -241,6 +240,5 @@ resume.md
 .punt-labs/ethos/missions.jsonl.lock
 .punt-labs/ethos/.biff
 
-# ethos runtime (never track) — DES-058 live zone + mission locks
-.punt-labs/ethos/missions/**/*.lock
+# ethos runtime (never track) — DES-058 live zone
 .punt-labs/**/*.ethos-tmp*
