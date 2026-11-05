@@ -48,6 +48,7 @@ class RunFn(Protocol):
         timeout: int = DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]: ...
 
 
@@ -306,6 +307,7 @@ class FaultInjectingOps:
         timeout: int = DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if not cmd:
             raise ValueError("cmd must be a non-empty argv list")
@@ -316,7 +318,12 @@ class FaultInjectingOps:
                     return result
         if Path(cmd[0]).name == "git" or self._passthrough_match(cmd):
             return self._real_run(
-                cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+                cmd,
+                cwd=cwd,
+                timeout=timeout,
+                check=check,
+                capture=capture,
+                errors=errors,
             )
         raise AssertionError(
             f"unmatched network command in a fault-injection test: {cmd!r} — "

@@ -52,7 +52,11 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.repo_slug import RepoSlug
 from punt_kit.phases.shared.siblings import SiblingRepo
-from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP, SkipRecorder
+from punt_kit.phases.shared.skips import (
+    GITHUB_ABSENT_SKIP,
+    RESUMED_PAST_BUILD_SKIP,
+    SkipRecorder,
+)
 
 # Seams: release.py's underscore names are its monkeypatch surface. The `_phaseN`
 # wrappers, `_pr_merge`, `_run`, `_wait_for_required_checks`, `_propagate_*`,
@@ -168,6 +172,7 @@ def _recording_run(recorded: list[list[str]], prefix: list[str]) -> RunFn:
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[: len(prefix)] == prefix:
             recorded.append(cmd)
@@ -513,6 +518,7 @@ def test_preflight_python_prefers_make_check_when_makefile_exists(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd and cmd[0] in ("make", "uv"):
             gate_calls.append(cmd)
@@ -545,6 +551,7 @@ def test_preflight_python_falls_back_to_hardcoded_gates_without_makefile(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd and cmd[0] in ("make", "uv"):
             gate_calls.append(cmd)
@@ -587,6 +594,7 @@ def test_preflight_python_make_check_failure_aborts_phase(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd and cmd[0] in ("make", "uv"):
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="lint failed")
@@ -619,6 +627,7 @@ def test_preflight_fails_actionably_when_git_fetch_origin_fails(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[:3] == ["git", "fetch", "origin"]:
             return subprocess.CompletedProcess(
@@ -660,6 +669,7 @@ def test_preflight_quality_gate_timeout_surfaces_as_diagnosed_exit(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd == hung_cmd:
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -714,6 +724,7 @@ def test_preflight_go_quality_gate_failure_aborts_phase(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[:2] == ["go", "test"]:
             return subprocess.CompletedProcess(
@@ -877,6 +888,7 @@ def test_version_bump_uv_lock_failure_diagnoses(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd == ["uv", "lock"]:
             return subprocess.CompletedProcess(
@@ -1920,6 +1932,39 @@ def test_run_release_non_go_resume_from_tag_without_version_unaffected(
         run_release(str(root), resume_from="tag")
 
 
+@pytest.mark.parametrize(
+    ("resume_from", "stop_at", "is_recorded"),
+    [
+        pytest.param("release-pr", "_phase4_release_pr", True, id="past-build"),
+        pytest.param("build", "_phase3_build", False, id="at-build"),
+    ],
+)
+def test_run_release_resumed_past_build_records_the_unrun_version_check(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    skips: SkipRecorder,
+    resume_from: str,
+    stop_at: str,
+    is_recorded: bool,
+) -> None:
+    """Phase 3 imports the wheel; a resume after it must say that never ran."""
+
+    root = _make_release_project(tmp_path)
+
+    class _StopAtPhase(BaseException):
+        """Sentinel raised by the first phase the resumed run reaches."""
+
+    def _stop(*_args: object, **_kwargs: object) -> None:
+        raise _StopAtPhase
+
+    monkeypatch.setattr(release, stop_at, _stop)
+
+    with pytest.raises(_StopAtPhase):
+        run_release(str(root), resume_from=resume_from)
+
+    assert (RESUMED_PAST_BUILD_SKIP in skips.drain()) is is_recorded
+
+
 def test_run_release_resume_plugin_only_no_version_flag(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -2164,7 +2209,9 @@ def test_phase3_build_uv_build_failure_diagnoses_instead_of_leaking(
     )
 
     with pytest.raises(ReleaseError, match="uv build failed"):
-        Phase3Build(info, dry_run=False, ops=ops).run()
+        Phase3Build(
+            info, "0.1.0", dry_run=False, ops=ops, skips=SkipRecorder(ops=ops)
+        ).run()
 
 
 # --- Phase 5: tag ---
@@ -6692,6 +6739,7 @@ def _patch_pypi_probe(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if len(cmd) == len(_PYPI_PROBE_CMD) + 1 and tuple(cmd[:-1]) == _PYPI_PROBE_CMD:
             calls.append((list(cmd), {"cwd": cwd, "timeout": timeout}))
@@ -11591,6 +11639,7 @@ def test_run_release_default_timeout_fallback_diagnoses_end_to_end(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd == hung_cmd and timeout == timeouts.DEFAULT_RUN:
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -12829,6 +12878,7 @@ def test_phase8_runs_the_installed_cli_doctor_under_an_explicit_budget(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         budgets[cmd[-1]] = timeout
         return subprocess.CompletedProcess(cmd, 0, "", "")
@@ -12894,6 +12944,7 @@ def _resolve_threads(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         seen.append(cmd)
         reply = next(answers)
@@ -13150,6 +13201,7 @@ def test_phase8_doctor_timeout_warns_and_does_not_abort(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[-1] == "doctor":
             raise subprocess.TimeoutExpired(cmd, timeout)
@@ -14024,6 +14076,7 @@ def test_phase8_warns_when_the_installed_cli_doctor_exits_non_zero(
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(cmd, 3 if cmd[-1] == "doctor" else 0, "", "")
 

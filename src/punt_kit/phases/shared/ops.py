@@ -50,6 +50,7 @@ class ReleaseOps(Protocol):
         timeout: int = DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]: ...
 
     def ok(self, msg: str) -> None: ...

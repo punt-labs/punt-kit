@@ -64,10 +64,16 @@ class Machine:
         timeout: int = 60,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "git":
             return CommandRunner.run(
-                cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+                cmd,
+                cwd=cwd,
+                timeout=timeout,
+                check=check,
+                capture=capture,
+                errors=errors,
             )
         self.calls.append(cmd)
         out = ""
@@ -537,6 +543,7 @@ class FormulaWriter(Machine):
         timeout: int = 60,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
         if cmd[0] == "make":
             self.calls.append(cmd)
@@ -544,7 +551,9 @@ class FormulaWriter(Machine):
             target = Path(cmd[2]) / out
             target.write_text(self.formula_text)
             return subprocess.CompletedProcess(cmd, 0, "", "")
-        return super().run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+        return super().run(
+            cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
+        )
 
 
 class _BumpedVersionStaleArchive(FormulaWriter):
@@ -694,8 +703,11 @@ class _FailsAfterWriting(FormulaWriter):
         timeout: int = 60,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
-        done = super().run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+        done = super().run(
+            cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
+        )
         if cmd[0] == "make":
             return subprocess.CompletedProcess(cmd, 2, "", "")
         return done

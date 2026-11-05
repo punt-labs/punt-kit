@@ -2242,7 +2242,98 @@ module it comes from. The project's own helper is the case this exists for
 | Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module, the case this bead exists to fix. |
 | Follow an imported helper into its module | It needs path resolution across packages and still stops at C extensions and dynamic code. The project's own helper is trusted instead, and that trust is stated above. |
 
-## DES-035: Release Verify Matches the User's Install, and the Tap Is Propagated
+## DES-035: The Built Wheel's `__version__` Is Verified at Run Time
+
+**Date:** 2026-11-04
+**Status:** SETTLED
+**Topic:** The behavioural backstop for DES-034's static `__version__` check
+
+### Context
+
+DES-034 classifies `__version__` from the syntax tree. Five rounds of local
+review on it each found new ways a stale literal could pass a static read: a
+same-module helper, an unpacked name, a shadowed import, a monkeypatched
+reader, a `globals()` rebind. A static check cannot be made complete. The
+question it is a proxy for is simply what the shipped package reports.
+
+### Design
+
+`WheelVersionCheck` (`src/punt_kit/phases/shared/wheel_version.py`) runs at
+the end of phase 3, after `uv build` and the twine check. Phase 3 is the last
+point before anything leaves the machine: phase 4 merges the release PR and
+phase 5 tags, which publishes.
+
+1. **Which module.** `[tool.uv.build-backend] module-name` (a string or a
+   list). Otherwise the project name normalised as uv does, as a package or a
+   `<name>.py` module, under the module root or the repo root. Otherwise the
+   single package or `.py` module under the module root (`src/`), or the
+   single package at the repo root when the module root has none; loose
+   `.py` files at the repo root (`noxfile.py`, `conftest.py`) never count.
+   Otherwise the single importable top-level name the built wheel ships,
+   which covers custom layouts such as `lib/`. Otherwise the phase fails,
+   naming what it searched.
+2. **The probe.** The parent first requires the wheel to ship the module:
+   `<path>.py`, an extension module, a `.data/purelib` or `.data/platlib`
+   path, or a directory holding code. For each wheel and module it then runs
+   `uv run --isolated --no-project --with <wheel> [--python <requires-python>]
+   python -I -c <probe> <module> <nonce> <dist>`, with a fresh
+   `secrets.token_hex(16)` nonce each time. Before importing, the probe takes
+   its arguments, clears `sys.argv`, and binds `os.write`, `os._exit` and
+   the path helpers it needs, so a package that rewrites them during import
+   changes nothing. After the import it works out the module's origin,
+   whether that origin is in the standard library, and whether it is one of
+   the files `<dist>` installs. Only a module that came from the wheel has
+   `__version__` read. It counts as absent only for a plain module: an
+   exact `ModuleType` with neither `__version__` nor `__getattr__` in its
+   namespace. Otherwise it is read directly, and any exception fails the
+   release with a message to define `__version__` as a plain attribute.
+   Earlier rounds tried to tell a missing lazy attribute from a broken
+   reader by inspecting the `AttributeError`; every refinement left a new
+   silent pass, so the check now fails loudly instead of guessing.
+   Every hashed RECORD entry under the module's path must still match the
+   file on disk, so a dependency that overwrites any of them, including a
+   generated `_version.py`, is caught.
+   The probe writes exactly one record tagged
+   with the nonce to file descriptor 1 and calls `os._exit(0)`. Every
+   module is imported; no static pre-filter decides whether to look,
+   because the static reader is blind to exactly the cases this check
+   exists for.
+3. **The comparison.** Exactly one record with the run's nonce is required.
+   A module with no file origin, one loaded from the standard library,
+   one that is not among the wheel's files, or one whose file was
+   overwritten fails, each with its own message.
+   The value must be a `str` equal to the release version as written, or to
+   its canonical PEP 440 form, so `1.0.0-rc1` matches a package reporting
+   `1.0.0rc1` while `v1.0.0` or `1.0` do not. Probe output is decoded with
+   replacement, so a stray non-UTF-8 byte cannot crash the release. Code
+   inside the package can still read the nonce and forge a record on
+   purpose; the check guards against accident, not a hostile package.
+   The wheel is installed exactly as a user would get it, so a dependency
+   that resolves only through a `[tool.uv.sources]` git pin fails the
+   install loudly; the project must publish that dependency or set the pin
+   in its wheel metadata.
+4. **Skips.** A module with no `__version__` at run time is recorded with
+   the `SkipRecorder`, so it appears in the end-of-run recap. A run resumed
+   past phase 3 records that the check did not run and says to re-run from
+   `build` if `dist/` changed. An import failure, a mismatch, a malformed or
+   missing record, a module absent from the wheel, an invalid release
+   version, or an empty `dist/` fails the phase, naming both values and the
+   wheel.
+
+DES-034 still decides what phase 2 bumps. This check decides whether the
+release may proceed, so a miss in the static classifier becomes a loud
+failure instead of a stale ship.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep tightening the static classifier | Each round found a new hiding place; static analysis of arbitrary Python cannot be sealed. |
+| Skip the import when the static reader finds no `__version__` | The static reader is blind to `globals()`, `setattr`, `exec` and PEP 562 versions, the exact cases this check exists for; review showed each one passing. |
+| Verify in phase 11 | Phase 11 runs after the tag publishes, too late to stop a bad release. |
+| Import the source tree instead of the wheel | It tests the checkout, not the artifact that ships; packaging mistakes would pass. |
+
+## DES-036: Release Verify Matches the User's Install, and the Tap Is Propagated
 
 **Date:** 2026-11-04
 **Status:** SETTLED
