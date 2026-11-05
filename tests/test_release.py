@@ -5502,6 +5502,14 @@ def test_phase7_github_release_create_failure_diagnoses(
 # --- Phase 8: verify PyPI ---
 
 
+def _run_phase8(info: ProjectInfo, ops: FaultInjectingOps) -> None:
+    """Phase 8 against a project whose release tag exists, as it does in a release."""
+    _git(["tag", "v0.1.0"], cwd=str(info.root))
+    Phase8VerifyPypi(
+        info, "0.1.0", dry_run=False, ops=ops, skips=SkipRecorder(ops=ops)
+    ).run()
+
+
 def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -5539,10 +5547,14 @@ def test_phase8_verify_pypi_install_timeout_mid_retry_loop(
         match=install_cmd,
         raises=subprocess.TimeoutExpired(install_cmd, 600),
     )
-    ops = _fault_ops(rules=[first_attempt, second_attempt])
+    restore = FaultRule(
+        match=["uv", "tool", "install", "--force", "--editable", "."],
+        response=CompletedProcessSpec(),
+    )
+    ops = _fault_ops(rules=[first_attempt, second_attempt, restore])
 
     with pytest.raises(subprocess.TimeoutExpired):
-        Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+        _run_phase8(info, ops)
 
     # Both rules were actually consumed — the failure happened on attempt
     # 2, not attempt 1 (a regression that made the loop stop retrying
@@ -5581,7 +5593,7 @@ def test_phase8_verify_pypi_editable_restore_failure_diagnoses(
     )
 
     with pytest.raises(ReleaseError, match="uv tool install --editable . failed"):
-        Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+        _run_phase8(info, ops)
 
 
 def _merge_env(
@@ -12885,7 +12897,7 @@ def test_phase8_runs_the_installed_cli_doctor_under_an_explicit_budget(
     )
     info = detect(_make_release_project(tmp_path))
 
-    Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+    _run_phase8(info, ops)
 
     assert budgets["doctor"] == timeouts.CLI_DOCTOR
 
@@ -13209,7 +13221,7 @@ def test_phase8_doctor_timeout_warns_and_does_not_abort(
     )
     info = detect(_make_release_project(tmp_path))
 
-    Phase8VerifyPypi(info, "0.1.0", dry_run=False, ops=ops).run()
+    _run_phase8(info, ops)
 
     out = _flat(capsys.readouterr().out)
     assert "doctor did not finish" in out
@@ -14081,9 +14093,7 @@ def test_phase8_warns_when_the_installed_cli_doctor_exits_non_zero(
         passthrough=[["test-cli", "doctor"]],
     )
 
-    Phase8VerifyPypi(
-        detect(_make_release_project(tmp_path)), "0.1.0", dry_run=False, ops=ops
-    ).run()
+    _run_phase8(detect(_make_release_project(tmp_path)), ops)
 
     out = _flat(capsys.readouterr().out)
     assert "WARNING" in out

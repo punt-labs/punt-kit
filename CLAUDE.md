@@ -206,10 +206,10 @@ All main-branch changes go through PRs (zero bypass actors).
 | 5 | tag | Tag main HEAD with `vX.Y.Z`, push tag |
 | 6 | ci | Wait for tag-triggered `release.yml` (build → TestPyPI → test-install → PyPI) |
 | 7 | github-release | Create GitHub release with changelog notes |
-| 8 | pypi | Install from PyPI, run doctor, restore editable install |
+| 8 | pypi | Install from PyPI with the tag's `install-constraints.txt` and `install-overrides.txt` when present (else unpinned, logged), restart the declared user service (`[tool.punt-kit.release.service]`) and confirm a new PID, run doctor, restore editable install |
 | 9 | post-release | Dev plugin restore (hybrid) + README install SHA bump via PR |
-| 10 | propagate | Sibling PRs: install-all.sh SHA, marketplace version+ref, org profile SHA, website version |
-| 11 | verify | Check all repos (pass/fail checklist), exit non-zero on failure |
+| 10 | propagate | Sibling PRs: install-all.sh SHA, marketplace version+ref, org profile SHA, website version, Homebrew tap formula (when the project has a `brew-formula` make target and `../homebrew-tap/Formula/<name>.rb` exists) |
+| 11 | verify | Check all repos, including the tap formula version (pass/fail checklist), exit non-zero on failure |
 
 ### Key assumptions
 

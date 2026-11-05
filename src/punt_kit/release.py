@@ -22,6 +22,7 @@ from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
+from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator, tap_owned_paths
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
@@ -287,7 +288,7 @@ def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 8: Verify PyPI install."""
-    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops).run()
+    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 # ---------------------------------------------------------------------------
@@ -355,6 +356,13 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     )
 
 
+def _propagate_homebrew(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """10e. Regenerate the project's formula in homebrew-tap."""
+    HomebrewTapPropagator(info, ops=_ops, skips=_skips).run(
+        version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
+    )
+
+
 def _reset_propagation_siblings(
     info: ProjectInfo, *, fail_on_error: bool = True
 ) -> None:
@@ -365,7 +373,10 @@ def _reset_propagation_siblings(
     this module and expect ``_reset_propagation_siblings`` to observe it.
     """
     SiblingRegistry(ops=_ops).reset_all(
-        info.root, resolve=_resolve_sibling, fail_on_error=fail_on_error
+        info.root,
+        resolve=_resolve_sibling,
+        fail_on_error=fail_on_error,
+        tap_paths=tap_owned_paths(info, ops=_ops),
     )
 
 
@@ -383,6 +394,7 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         propagate_install_all=_propagate_install_all,
         propagate_marketplace=_propagate_marketplace,
         propagate_website=_propagate_website,
+        propagate_homebrew=_propagate_homebrew,
         interrupted=_interrupted,
     )
 

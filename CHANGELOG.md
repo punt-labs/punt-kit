@@ -36,9 +36,33 @@ All notable changes to this project will be documented in this file.
   deadlock: the two delta-review guard defects, and the earlier
   blocked-fix prose (no re-escalation, and a fix-ruled finding answered only
   by its fix).
+- `punt release` Phase 10e propagates the release to the `homebrew-tap`: when
+  the project's Makefile has a `brew-formula` target and
+  `../homebrew-tap/Formula/<name>.rb` exists, it runs
+  `make brew-formula FORMULA_OUT=../homebrew-tap/Formula/<name>.rb`, files
+  `<name>: bump to vX.Y.Z` under the tap's `[Unreleased]`, and merges the
+  change through a sibling PR, after checking that the target wrote the
+  release version. The tap joins the propagation recovery siblings, and
+  preflight checks it only for a project that has the target. Phase 11 reads
+  the formula committed on the tap's `origin/main` and fails when it is
+  missing, or when its `version` or its archive url (prereleases included) is
+  not the release. A tap with no `CHANGELOG.md` is a manual-action skip.
+- `punt release` Phase 8 can restart a project's user service. A project
+  declares it under `[tool.punt-kit.release.service]` in `pyproject.toml`
+  (`systemd` unit and/or `launchd` label). After the PyPI install the phase
+  restarts it and fails unless the main PID changed. A declaration the phase
+  cannot use, or a manager it cannot query, fails; a declared service the host
+  has not loaded is recorded as a manual-action skip. The editable install is
+  restored even when the phase fails.
 
 ### Fixed
 
+- `punt release` Phase 8 no longer verifies an environment no user gets. When
+  the release tag contains `install-constraints.txt` it installs with
+  `--constraints` on that file, so the project's locked dependency versions
+  apply, and `install-overrides.txt` from the tag with `--overrides`; without
+  `install-constraints.txt` it installs unpinned and logs that it did. An
+  unresolvable tag or a failing git read fails instead of installing unpinned.
 - `punt release` no longer fails the version bump on a computed
   `__version__` that does not name `importlib.metadata` in the same file,
   such as vox's `__version__ = installed_version()`. Phases 2 and 11 now
