@@ -2241,3 +2241,59 @@ module it comes from. The project's own helper is the case this exists for
 | Block-list: computed when a call is present and no hardcoded version reaches it | Two review rounds each found new hiding places: a same-module helper, separately bound ints, a list, `.format()`, bytes, a dynamic import. The list of ways to hide a literal never closes. |
 | Require an `importlib.metadata` import for a call to count as computed | It fails vox, which reads metadata through its own helper module, the case this bead exists to fix. |
 | Follow an imported helper into its module | It needs path resolution across packages and still stops at C extensions and dynamic code. The project's own helper is trusted instead, and that trust is stated above. |
+
+## DES-035: Release Verify Matches the User's Install, and the Tap Is Propagated
+
+**Date:** 2026-11-04
+**Status:** SETTLED
+**Topic:** What Phase 8 installs and restarts, and how the Homebrew tap stays current
+
+### Context
+
+Phase 8 ran `uv tool install <pkg>==<ver>`, which ignores the project's lock.
+For quarry v3.5.5 that put the operator's tool env on lancedb 0.41.0, though
+the release was locked and tested on 0.40.0. Phase 8 also never restarted the
+running daemon, so doctor checked a process still running the previous
+release. The release verified an environment no user receives. Separately,
+no phase touched the Homebrew tap, so quarry's formula stayed on 3.0.3 for
+many releases.
+
+### Design
+
+1. **Pins come from the release tag.** Phase 8 reads `install-constraints.txt`
+   and `install-overrides.txt` with `git show v<X>:<file>`, never from the
+   working tree, so the verified pins are the shipped pins. The tag must
+   resolve; it is fetched once if missing. An empty `ls-tree` means the file
+   is absent, so the install is unpinned and the release logs it. Any other
+   git error fails the phase. A pin read never degrades silently.
+2. **Restart is declared, never guessed.** A project names its user service
+   in `[tool.punt-kit.release.service]` (`systemd`, `launchd`). With no
+   declaration nothing is restarted. With one, the manager is chosen from the
+   declared names that are available on this host, preferring the platform's
+   native manager. If the manager cannot be queried, the phase fails. If the
+   service is not loaded, the release records a manual-action skip. A
+   restart must yield a new nonzero PID. The editable install is restored in
+   a `finally`.
+3. **The tap is propagated like any sibling.** A project opts in by having a
+   `brew-formula` make target. Phase 10e regenerates
+   `../homebrew-tap/Formula/<name>.rb` through that target, requires both the
+   formula's `version` and its archive URL to name the release, adds the tap
+   CHANGELOG entry, and PRs it. Recovery owns only that project's formula and
+   the tap CHANGELOG, and only for an opted-in project, so another tool's
+   in-progress formula edit is never reset. Phase 11 checks the formula
+   committed on `origin/main`, not the working tree.
+
+The invariant: a green release means the published package, installed the
+way users install it, ran as the live service, and every opted-in channel
+names the release.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Read the pins from the working tree | The working tree can differ from the tag, so the release would verify pins it did not ship. |
+| Treat any `git show` failure as "no pins" | A missing local tag (a resumed run on another clone) would silently verify an unpinned install, the exact drift this exists to stop. |
+| Guess the service from the CLI name | It could restart a daemon the project never registered, or miss one named differently. |
+| Treat an unreachable service manager as "no service" | The release would again verify the old daemon, with no signal. |
+| Own all of `Formula/` in the tap | A release of one tool would reset another tool's uncommitted formula edit. |
+| Regenerate the formula with `brew update-python-resources` | It resolves the newest dependency versions, not the lock, which is the drift being fixed. Generation belongs to the project, from its own `uv.lock`. |
