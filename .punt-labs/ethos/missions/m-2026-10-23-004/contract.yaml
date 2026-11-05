@@ -1,0 +1,45 @@
+mission_id: m-2026-10-23-004
+status: failed
+type: implement
+created_at: "2026-10-23T01:53:15Z"
+updated_at: "2026-10-23T02:44:53Z"
+closed_at: "2026-10-23T02:44:53Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T01:53:15Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+    - .claude/worktrees/release-legacy-helpers/pyproject.toml
+    - .claude/worktrees/release-legacy-helpers/uv.lock
+success_criteria:
+    - G1-G7 all done; the result lists each with the commit and evidence (TDD-failing-first noted per behavior fix).
+    - changelog_parser.py contains no hand-rolled fence or HTML-comment scanning; all structure comes from markdown-it-py tokens (grep evidence). gvr's G2/G3/G4 probe inputs are tests with their CommonMark-correct expectations.
+    - Every repo slug consumer receives a normalized slug from GithubRepo.resolve; no `split("/")` slug parsing remains outside it (grep evidence).
+    - make check exits 0 before every commit; read the full output.
+    - Assertion count does not decrease; no new suppressions; OO does not regress on touched files (/home/jfreeman/Coding/punt-labs/vox/tools/oo_score.py), never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox. Re-scoped successor to m-2026-10-23-001, which closed FAILED at its round cap with evaluator findings G1-G7 open (gvr reflection round 2, /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers/.tmp/reflect-r2.yaml, probes alongside). Same worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, branch refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge — the leader does that. Do NOT edit CHANGELOG.md; list user-visible behavior changes in the result.
+
+    G1 (material, do first). pr_merge.py ~230-232: `gh pr merge --squash --delete-branch` runs local git (checks out base, deletes the local branch, pulls) and so fires post-checkout/post-merge hooks (bd), but runs on the 60s default timeout; the audit allowlist entry ("pr_merge.py","merge_cmd") wrongly says "not git". Pass timeout=GIT_HOOK on that call. Determine from gh's source/docs whether `gh pr create` touches local git in this path; if it does, same treatment. Correct both allowlist reasons to the truth. TDD: the audit, or a direct test, must fail on the pre-fix code.
+
+    G2/G3/G4 — STRUCTURAL, LEADER RULING. The hand-rolled fence/comment scanner in changelog_parser.py has failed review two rounds running (stray fence pairing with a later closer hides published releases; `-->` in prose closes a comment; a 4-backtick opener with no closer turns a fenced fake heading into a phantom section; an unclosed opener counts as an entry in an empty [Unreleased]). Per the workflow's rule — same defect class across two rounds means stop empirical rounds and use a formal definition — replace the scanner with a CommonMark parser: add `markdown-it-py` as a runtime dependency (pyproject.toml + `uv lock`; pin a compatible range in the project's existing style) and derive version sections, ### subsections, and entries from its token stream (headings are `heading_open` tokens at the right level; fenced code is `fence`; HTML comments are `html_block`/`html_inline`). CommonMark semantics then decide every edge case: an unclosed fence runs to end of document (so later releases hidden by a stray fence make Phase 11 fail loudly, never produce a phantom section), and comments are only real HTML comments. Keep ChangelogDocument's public API and its CRLF/BOM preservation for the Phase 2 stamp (the stamp still rewrites text by line, using token line maps to locate the heading — tokens carry .map). Delete the hand-rolled scan code entirely. Re-run every existing changelog test plus gvr's G2/G3/G4 probe inputs as tests; state the expected result for each under CommonMark in a comment where it is non-obvious. If markdown-it-py's model genuinely cannot express something the current API needs, STOP and escalate with the case.
+
+    G5. A non-owner/repo slug currently yields two failed checks ("README pin" and "website SHA") for one cause. Validate the slug once and report it once; pin the exact failed-check set with _assert_failed_checks.
+
+    G6. Fix the root cause: GithubRepo.resolve (gh.py ~63) does not strip a trailing slash or validate owner/repo. Normalize and validate there, so every consumer (phase10_propagate.py ~79/255/361 `repo.split("/")[-1]`, gh.py ~499 `repo.split("/",1)`, Phase 11) gets a clean slug; then delete Phase 11's local `_repo_slug` normalization and the dead `InstallUrlRecognizer.repo_name` (no callers). Test `o/r/` and an invalid remote through resolve.
+
+    G7 (hardening of the hook-timeout audit, test_release.py ~11545): treat any Starred element anywhere in a git argv as unreadable (allowlist or fail); skip global options (`--no-pager`, `-C <dir>`, `-c k=v`, `--git-dir=…`, etc.) when finding the verb; audit `subprocess.run` and any `<Call>.run(` receiver for git argv too, not just ops; add switch, rebase, reset, cherry-pick to the hook-firing verb set; key the allowlist by (file, line-independent call identity that distinguishes two calls in one file — e.g. file + enclosing function + variable) so a second gate call is not silently allowed. Production must still pass; if it does not, that is a finding — report it.
+
+    ESCALATE instead of deciding if: markdown-it-py cannot express a needed case; or any fix changes a CLI flag, exit code, or a message an operator scripts against.

@@ -1,0 +1,52 @@
+results:
+    - mission: m-2026-09-11-020
+      round: 1
+      created_at: "2026-09-11T11:28:40Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: src/punt_kit/phases/phase01_preflight.py
+          added: 70
+          removed: 5
+        - path: tests/test_release.py
+          added: 95
+          removed: 0
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+      evidence:
+        - name: make check (per commit, 3 commits)
+          status: pass
+        - name: uv run pytest (700 passed, 14 skipped; up from 697 baseline)
+          status: pass
+        - name: bd close pkit-f85t.9
+          status: pass
+        - name: gh pr create punt-labs/punt-kit#361
+          status: pass
+      open_questions:
+        - Local review agents (code-reviewer, silent-failure-hunter, invariant-completeness-reviewer) were not run — this worker session has no Agent/Task tool available. Recommend the evaluator or leader run those passes on the diff before merge.
+      prose: |
+        Implemented the minimum viable accommodation from pkit-f85t.9:
+        Phase1Preflight._dirty_tree_message names the exact
+        `git stash push -- <paths>` / `git stash pop` commands when every dirty
+        path is in the new `_DAEMON_MUTABLE_PATHS` allowlist (currently just
+        `.punt-labs/vox/vox.md`, per standards/punt-labs-dir.md § 7 — a small,
+        explicit allowlist rather than a path-shape heuristic, since lux's
+        otherwise-identical-looking .punt-labs/lux/config.md is NOT
+        daemon-rewritten). Mixed dirt keeps the original "Working tree is not
+        clean" message shape but still lists which paths are daemon-mutable.
+        No auto-stash, per the bead's explicit scope boundary — noted as future
+        work in the bead-close text, not filed as a new bead.
+
+        While building the daemon-only test, found and fixed a latent off-by-one:
+        whole-block `.strip()` on `git status --porcelain` stdout ate the leading
+        space of the first porcelain line whenever it was an unstaged-only
+        modification (" M path"), corrupting the parsed path for the
+        alphabetically-first dirty entry by one character — this silently
+        defeated the new daemon-path match itself. Fixed by switching to
+        `splitlines()` on the raw (unstripped) stdout.
+
+        Branch feat/preflight-stash-hint off main, 3 commits, each green on
+        `make check`. PR #361 opened against punt-labs/punt-kit main, not merged.
+        Bead pkit-f85t.9 closed citing all three commit SHAs.

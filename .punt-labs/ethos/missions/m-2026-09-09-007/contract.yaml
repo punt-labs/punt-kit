@@ -1,0 +1,29 @@
+mission_id: m-2026-09-09-007
+status: closed
+type: implement
+created_at: "2026-09-09T05:56:55Z"
+updated_at: "2026-09-09T06:23:25Z"
+closed_at: "2026-09-09T06:23:25Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-09T05:56:55Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-9n6q
+write_set:
+    - src/punt_kit/phases/phase11_verify.py
+    - tests/test_release.py
+success_criteria:
+    - Determine and report what phase11_verify.py currently verifies about (a) the project's install-all.sh pin and (b) the profile README pin, relative to the release tag. Cite the code.
+    - 'Close the specific gap: Phase 11 must fail (not warn) when either pin does not resolve to the release tag''s commit for the project being released. Reuse existing phase-11 helpers/patterns; match the existing verify-failure reporting style.'
+    - 'STRICTLY IN SCOPE: only the two pins Phase 10 writes (install-all.sh entry + profile README pin). OUT OF SCOPE (do NOT implement, do NOT add a registry for): product README curl|sh lines, public-website projects.json. Those are a deferred follow-up. If you find yourself adding a (repo,file,pattern) registry, you have exceeded scope — stop.'
+    - 'Add regression tests in tests/test_release.py following existing phase-11 test patterns: pin-matches-tag passes; pin-stale (resolves to a different commit) fails. make check exits 0 before every commit; no suppressions.'
+    - Do NOT touch CHANGELOG.md — leader owns it. Do NOT push or open a PR. Work on branch fix/pkit-9n6q-verify-install-sha off main; report branch, commit SHAs, and your findings on current phase-11 coverage.
+    - Commit incrementally — one commit per logical step. Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'NARROW SCOPE (operator-ruled). Phase 10 (phase10_propagate.py) WRITES two SHA pins during release: (a) the released project''s entry in ../.github/install-all.sh, and (b) the org profile README''s pin to the install-all.sh commit. Nothing currently verifies these pins resolve to the RELEASE TAG''s commit — they can rot silently (stale command still ''works'', just installs the previous release). Phase 11 (phase11_verify.py) already does SOME cross-repo verification (pkit-f85t.3 added a profile-SHA -> install-all.sh -> marketplace-pin chain check for pure-plugin projects). Your job: ensure Phase 11 FAILS the release when the install-all.sh SHA pin for the released project, or the profile README''s install-all.sh pin, does not resolve to the release tag''s commit. FIRST read phase11_verify.py and determine what it already verifies about these two pins; extend to close the specific gap, do NOT duplicate existing checks. If it turns out Phase 11 already fully verifies both against the tag, STOP and report that (we''ll close the bead as already-covered, like pkit-bnyd was) rather than inventing redundant logic.'

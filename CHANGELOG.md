@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-11-04
+
 ### Added
 
 - `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which

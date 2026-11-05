@@ -1,0 +1,94 @@
+mission_id: m-2026-10-23-011
+status: closed
+type: implement
+created_at: "2026-10-23T04:16:43Z"
+updated_at: "2026-10-23T05:24:14Z"
+closed_at: "2026-10-23T05:24:14Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T04:16:43Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+    - .claude/worktrees/release-legacy-helpers/plugin/commands/auto.md
+    - .claude/worktrees/release-legacy-helpers/plugin/commands/auto-dev.md
+success_criteria:
+    - Every item A1-G3 done; result lists each with commit and evidence; failing-first noted per behavior fix.
+    - No production lint/type suppression remains except ones with a cited pre-authorized rule; no new suppressions in tests.
+    - make check exits 0 before every commit; read the full output.
+    - Assertion count does not decrease; OO does not regress on touched files (/home/jfreeman/Coding/punt-labs/vox/tools/oo_score.py), never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox, final pre-PR review round. Worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge. Do NOT edit CHANGELOG.md (leader-owned) — list every user-visible change in the result.
+
+    Four review agents ran on the full diff. Fix EVERYTHING below, test-first for each behavior fix (state per test that it failed first). Leader rulings are marked RULING. Line numbers approximate.
+
+    A. CHANGELOG / STAMP CORRECTNESS
+    A1. Phase 2 stamp loses CRLF: phase02_version_bump.py ~147/152 uses read_text/write_text (universal newlines). Read and write without newline translation (read_bytes().decode / write_bytes, or newline=""). Round-trip test THROUGH Phase2VersionBump with a CRLF+BOM file.
+    A2. Bold "breaking" mid-sentence forces a major bump: changelog_sections.py ~17 `_BREAKING_ENTRY` uses search. Anchor the marker at the START of the entry (optional bullet, then **Breaking / Breaking). Test `- Fix a **breaking** regression` -> minor/patch, not major. Fix the comment at ~12-16 to say what the regex does and that entry markers count only under ### Changed.
+    A3. Re-running Phase 2 double-stamps (H1): stamped() always inserts. If the version section already exists, Phase 2 reports ok("CHANGELOG.md already stamped [X]") and does not insert. If there is no [Unreleased] section, Phase 2 FAILS (it currently prints a false ok). Tests for both.
+    A4. Release notes fail loudly (H2): Phase 7 (phase07_github_release.py ~67) must ops.fail when the version's section is absent or has no entries — never publish a "Release vX" stub or empty notes. notes_for's stub/empty behavior is removed or made unreachable from Phase 7. Test both.
+    A5. Preflight fails when a fence or HTML block opened in the document never closes (runs to end of document) — it would drag older releases into the new notes (M1). Name the line in the message. Test it.
+    A6. A non-version `##` heading inside a section (e.g. `## Migration notes`) ends the current ### subsection, so its entries are not attributed to the previous subsection (M2). Test that an entry after it does not drive a minor bump under Added.
+    A7. Align stamped-heading detection with the parser: `_STAMPED_HEADING` must accept every heading the parser accepts as a version section (indent up to 3, multiple spaces) — derive it from the parsed heading text rather than a separate column-0 regex. Test.
+    A8. suggest_next_version on a pre-release like `1.2.3rc1` raises a raw ValueError; raise ReleaseError (via ops.fail or a typed error the CLI diagnoses) with a clear message. Test.
+
+    B. TIMEOUTS
+    B1. RULING: read-only FORMS of ref-commands are quiet — `git branch --show-current`, `git branch` with only list options (`--list`, `-l`, `-a`, `-r`, `--format=…`, `--contains`, no positional), `git tag` with only list options (`-l`, `--list`, `--points-at`, `--contains`, `--format`, no positional), `git remote get-url …`, `git remote` with no args or `-v`. `status`, `diff`, `ls-files` STAY firing (fsmonitor). Over-approximate when unsure. Tests for each quiet form and for the writing forms staying firing.
+    B2. Rewrite timeouts.py comments so they are true: GIT_NETWORK now governs only hook-free network reads (ls-remote); fetch/push/pull are floored to GIT_HOOK by HookFiringCommand; the 60s DEFAULT still governs quiet metadata calls. Drop now-meaningless explicit GIT_NETWORK on calls the floor overrides, or pass GIT_HOOK there — whichever is truthful.
+    B3. hook_firing: a wrapper running a `.sh` script fires (env/timeout/uv run … x.sh) (M12); fix the docstrings at ~49-50, ~64, ~175 to match the code. Test.
+
+    C. REMOTE / SLUG POLICY (PY-EH-8)
+    C1. RULING: GithubRepo.slug() returns None ONLY for "no github.com origin" (justify the `| None` inline). A failed lookup (timeout, OSError, non-zero git) RAISES a distinct error; a malformed github remote raises ValueError (as now). Remove resolve_slug's swallowing, or keep it only where every caller then records a skip.
+    C2. Phase 10 propagators (phase10_propagate.py ~76/252/358): no silent return. Absent GitHub remote -> skips.record(GITHUB_ABSENT_SKIP-style reason) + ops.warn naming the propagator; malformed or failed lookup -> ops.fail with the exception text. Thread resolver (gh.py ~408) warns likewise. Phase 4 CI wait (gh.py ~86-92) includes the exception text; a timeout is reported as a timeout.
+    C3. Phase 11: when the slug is None but the project has install.sh or is a plugin, add a failed "GitHub remote" check (checks must not be silently skipped). Phase 11's failure output goes through the ops/reporter path, not its own console (phase11_verify.py ~734).
+    C4. ReadmeShaPin: NO guessed `punt-labs/<dir>` fallback. RULING: unresolved remote -> warn + record a skip ("README pin not updated: <reason>"); land must not print "README already pins the current install SHA" unless bump verified that. bump returns a result that tells land whether stale pins remain; land reports them, not a success line.
+    C5. repo_slug.py: parse scp-style `user@host:path` for any user and a case-insensitive host (`org-123@github.com:o/r.git`, `git@GitHub.com:o/r.git`) (M5). Tests.
+    C6. git_checkout.py: _require_toplevel distinguishes timeout/OSError ("did not finish"/"git is not installed") and git's own refusal (include stderr, e.g. dubious ownership) from "no git repo at root" (M9). Run git with LC_ALL=C so "No such remote" matching is locale-independent. Redaction (M10): strip scp-style `user@` before the host, and drop query and fragment. Tests incl. `ghp_SECRET@example.com:o/r/x.git` and `?private_token=SECRET`.
+    C7. audit.py ~396 Dependabot check: parse the HTTP status from `--include`; 204 -> PASS, 404 -> FAIL "Not enabled", anything else -> INFO "could not check: <stderr>". No substring "204" match. Tests.
+
+    D. PINS
+    D1. WebsitePropagator (phase10_propagate.py ~393-400) uses InstallUrlRecognizer (repinned) instead of its own regex.
+    D2. Phase 11 also fails trusted TAG pins (stale after bump) — classify must expose is_pin segments, not only SHA pins (M3). Test.
+    D3. install_urls.py ~114 boundary: `install.sh.bak` / `install.sh-old` are not install.sh references. Test. Fix docstrings ~22-27, ~66-69 (either reject userinfo/port or describe that they are accepted — RULING: reject them, a trusted pin URL has no userinfo or port), ~75-78.
+
+    E. ROBUSTNESS
+    E1. gh.py ~467-471 PrThreadResolver: JSON null at any level must not raise AttributeError (`.get(k) or {}` + isinstance); paginate reviewThreads past 50. Tests.
+    E2. SiblingRepo.validate detached HEAD -> "has a detached HEAD", not "on branch ''" (M13). Test.
+    E3. json.dumps in phase10_propagate.py ~318/408: preserve non-ASCII text as written (ensure_ascii=False) and keep the file's existing trailing newline. Test with a non-ASCII value.
+    E4. Remove dead `return  # unreachable` after NoReturn ops.fail (phase10_propagate.py ~105/266/271).
+
+    F. SUPPRESSIONS / COMMENTS
+    F1. Production suppressions: remove `import time  # noqa: F401 …` in release.py — tests patch `time.sleep` directly; `# noqa: ARG001` -> name the param `_frame`; check whether ruff selects BLE — if not, the `# noqa: BLE001` in pipeline.py is dead, remove it; if it is selected, the broad except must be at a genuine boundary and justified per PY-EH-6, else narrow it.
+    F2. PY-DOC-2 narration and citations: timeouts.py ~77 "ethos #496"; phase01_preflight.py ~136-140 and the USER-FACING message ~361-362 "see ethos v4.16.0 for precedent" (state the rule instead); gh.py ~81-84 and release.py ~483 "vox v5.0.4"; phase05_tag.py ~203-207 broken sentence (restore the full stop); release.py ~572-574, phase01_preflight.py ~246-250 "now"/"escaped" narration; phase10_propagate.py ~462-471 and pr_merge.py ~27-37 documenting behavior by test name. RULING: DES-NNN references stay.
+    F3. Docstrings: changelog_parser.py ~110-112 suggest_next_version mentions the `### Changed (BREAKING)` heading; changelog.py ~69 is_stamped matches Section.is_stamped; changelog_sections.py ~327-331 has_entries lists thematic breaks; github_repo.py ~107-113 slug matches C1.
+    F4. plugin/commands/auto.md ~34 and auto-dev.md: "`${CLAUDE_PLUGIN_ROOT}` is used ONLY for playbook discovery" contradicts line ~30 (it also loads SKILL.md). Reword: "used ONLY to locate plugin files (the auto skill and the playbook YAML)".
+
+    G. SPAWN GUARD
+    G1. test_only_run_spawns_a_release_process must assert the set of (file, enclosing function) spawn sites is exactly {("release.py", "_run")} — a second spawn elsewhere in release.py must fail it. Negative test.
+    G2. spawn_scan.py fails the scan on a relative import (or resolves node.level correctly) — never silently skips. Test.
+    G3. Soften the module docstring's "total" claim to what is actually watched.
+
+    G4. spawn_scan: watch concurrent.futures.ProcessPoolExecutor (and multiprocessing pools, already in scope); start the reach from the `punt release` CLI entry (__main__/cli module) as well as release.py. Tests.
+
+    H. INVARIANT ENFORCEMENT (invariant-completeness review)
+    H1. One pin rule per pin kind, writer == reader: the install-all `$GH/<name>/<sha>/install.sh` pattern (phase10 ~112 vs phase11 ~310) and the profile `punt-labs/.github/<sha>/install-all.sh` pattern (phase10 ~196 vs phase11 ~462) each live in ONE shared definition used by both the writer and the verifier (D1 covers the website). Remove the phase11 comment ~674-681 that relies on WebsitePropagator's own tolerance.
+    H2. Marketplace `source.url` and website `githubUrl` matching (phase10 ~300, ~387; phase11 ~149, ~412 and the website block) parse through RepoSlug.from_remote_url and compare full owner/repo, not `endswith("/" + name)`. Test that `someone-else/<name>` does not match.
+    H3. A test that fails if any module other than the changelog modules reads CHANGELOG.md content (enforces "one parser, every reader").
+    H4. A test that globs plugin/skills/*/SKILL.md and asserts `user-invocable: false` wherever plugin/commands/<same-name>.md exists.
+    H5. test_phase9_post_release_no_longer_bumps_readme was deleted with no replacement: restore an equivalent guard (Phase 9 must not touch README.md / ReadmeShaPin) unless Phase 9 genuinely no longer exists — state which.
+    H6. The `[cli_path, "doctor"]` call (phase08_verify_pypi.py ~101) runs an arbitrary installed CLI on the default timeout: pass an explicit, justified timeout at the call site. Reword the HookFiringCommand docstring claim to "every git, gh, shell, or wrapper argv".
+
+    RULING, no change: OO size of Phase11Verify.run / phase11_verify.py / RequiredChecksWaiter.wait is not required here (PL-OA-1: touched files must not regress; "You are not required to fix an entire file in one pass"). Do not regress them.
+
+    ESCALATE instead of deciding if: a fix changes a CLI flag or exit code; or A4/A5/C2/C3 would block a release path the operator currently relies on in a way not described above.

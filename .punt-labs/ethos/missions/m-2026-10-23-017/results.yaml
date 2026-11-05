@@ -1,0 +1,65 @@
+results:
+    - mission: m-2026-10-23-017
+      round: 1
+      created_at: "2026-10-23T10:11:37Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 5
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/errors.py
+          added: 38
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 24
+          removed: 23
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/version_assignment.py
+          added: 37
+          removed: 8
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 17
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/tests/helpers.py
+          added: 32
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_sh_version.py
+          added: 56
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 14
+          removed: 14
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_errors.py
+          added: 61
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_invariants.py
+          added: 135
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_resume_sweep.py
+          added: 18
+          removed: 24
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_version_assignment.py
+          added: 51
+          removed: 0
+      evidence:
+        - name: 'make check final: ruff, format, shellcheck, mypy, pyright clean; 1641 passed, 14 skipped (start 1595)'
+          status: pass
+        - name: 'X1 c3f8cee: radon cc ThreadedStep.collect 12 to 8'
+          status: pass
+        - name: 'X2 f3f39c6: main-thread OSError/PermissionError/CalledProcessError are one line, KeyError keeps traceback; failed first'
+          status: pass
+        - name: 'X3 a8fd274: ReleaseReachIns guard with 4 positive and 5 negative cases; found 3 reach-ins first, now 0'
+          status: pass
+        - name: 'X4 13aed53: fake_get_github_repo in helpers; 15 test suppression lines removed (61 to 46)'
+          status: pass
+        - name: 'X5 3289f6f: continuation, typeset, later-computed warning; 20 tests failed before the source change'
+          status: pass
+      open_questions:
+        - 'VERSION="1.0"#x counts as plain per the contract (# ends the value); real shells treat mid-word # as part of the word. Tighten?'
+        - stash@{0} rmh-x5-red (1c309d09) is mine and safe to drop; stash drop needs operator consent.
+      prose: |
+        Full report at .tmp/missions/results/release-legacy-helpers-r10.md.
+        Commits on refactor/release-legacy-helpers: c3f8cee, f3f39c6, a8fd274, 13aed53, 3289f6f.
+        test_release.py is unchanged in size (14015 lines) from the start of this mission; it was already
+        over its 035fb7e size from earlier rounds.

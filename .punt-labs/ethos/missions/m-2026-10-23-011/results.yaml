@@ -1,0 +1,279 @@
+results:
+    - mission: m-2026-10-23-011
+      round: 1
+      created_at: "2026-10-23T05:03:01Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.8
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/plugin/commands/auto-dev.md
+          added: 4
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/plugin/commands/auto.md
+          added: 4
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/__main__.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+          added: 24
+          removed: 9
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/detect.py
+          added: 7
+          removed: 9
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/git_checkout.py
+          added: 37
+          removed: 14
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase01_preflight.py
+          added: 8
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 9
+          removed: 15
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase04_release_pr.py
+          added: 5
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase05_tag.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase08_verify_pypi.py
+          added: 5
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase10_propagate.py
+          added: 61
+          removed: 61
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_checks.py
+          added: 164
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 435
+          removed: 648
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog.py
+          added: 43
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_blocks.py
+          added: 86
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_parser.py
+          added: 53
+          removed: 24
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_sections.py
+          added: 17
+          removed: 12
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/entry_matcher.py
+          added: 57
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/errors.py
+          added: 9
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/gh.py
+          added: 19
+          removed: 97
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/git_listing.py
+          added: 101
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/github_repo.py
+          added: 24
+          removed: 26
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/hook_firing.py
+          added: 21
+          removed: 12
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/install_urls.py
+          added: 48
+          removed: 30
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/json_file.py
+          added: 39
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/ops.py
+          added: 2
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pin_rules.py
+          added: 55
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 4
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pr_merge.py
+          added: 7
+          removed: 8
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pr_threads.py
+          added: 161
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/project_remote.py
+          added: 61
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 79
+          removed: 31
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/repo_slug.py
+          added: 6
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/reporter.py
+          added: 5
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/siblings.py
+          added: 5
+          removed: 66
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/skips.py
+          added: 74
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/timeouts.py
+          added: 21
+          removed: 11
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/pii.py
+          added: 9
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 20
+          removed: 19
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/fault_ops.py
+          added: 3
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/harness/spawn_scan.py
+          added: 103
+          removed: 32
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit.py
+          added: 85
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_changelog.py
+          added: 121
+          removed: 12
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_entry_matcher.py
+          added: 81
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_gh_fixture_contracts.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_git_checkout.py
+          added: 119
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_hook_firing.py
+          added: 77
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_urls.py
+          added: 71
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_pin_rules.py
+          added: 65
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 875
+          removed: 90
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_invariants.py
+          added: 150
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_spawns.py
+          added: 109
+          removed: 7
+      evidence:
+        - name: 'make check on HEAD b43a494: ruff, format, mypy (82 files), pyright (0 errors), pytest 1258 passed / 14 skipped'
+          status: pass
+        - name: 'Failed-first runs observed: test_changelog (23 failures), test_install_urls (9), test_hook_firing (26), test_git_checkout (9), test_audit Dependabot (5), test_release_spawns (12), threads (7), CLI_DOCTOR (AttributeError), pin_rules/entry_matcher (ImportError). By-construction only (not run on old code) for the Phase 2/7 integration tests, the C1 to C5 tests, E2, E3, the D/H integration tests; see the report'
+          status: pass
+        - name: 'src has zero noqa, type: ignore, pyright: ignore, or pylint: disable'
+          status: pass
+        - name: Assertions in tests/ 1371 -> 1481; collected cases 1068 -> 1272; no skip or xfail added
+          status: pass
+        - name: 'oo_score.py src/punt_kit: method_ratio 0.80 -> 0.83 PASS, max_complexity 65 -> 33, avg_complexity 4.33 -> 3.91; no file PASS -> FAIL; audit.py size +12 and gh.py avg_complexity +0.6 are the failing-metric regressions, listed in the report'
+          status: pass
+        - name: 'Full report with every item A1 to H6, commit and evidence: .tmp/missions/results/release-legacy-helpers-r6.md'
+          status: pass
+      open_questions:
+        - 'G4: reach starts at the release command in __main__.py, not the whole CLI (audit.py legitimately spawns). Confirm, or name an allowlist for the other commands.'
+        - 'D2: Phase 11 now fails a trusted release-tag pin in the README or website installCommand. Confirm this is the intended release gate.'
+        - docs/designs/release-py-oo-decomposition.md still names SkipRecorder, PrThreadResolver, VerificationCheck and MarketplacePinCheck at their old modules; outside my write set.
+      prose: |
+        All items A1 to H6 are done in 12 commits on refactor/release-legacy-helpers; nothing pushed, CHANGELOG.md untouched.
+        The report lists each item with its commit and evidence, the user-visible changes for the CHANGELOG, the OO numbers, and the final make check output.
+        H5: the Phase 9 README guard was renamed in e4582ef, not deleted; Phase 9 still exists.
+    - mission: m-2026-10-23-011
+      round: 2
+      created_at: "2026-10-23T05:20:21Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.8
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+          added: 3
+          removed: 217
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit_github.py
+          added: 207
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit_verdict.py
+          added: 8
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 7
+          removed: 6
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase08_verify_pypi.py
+          added: 28
+          removed: 13
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase09_post_release.py
+          added: 5
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase10_propagate.py
+          added: 8
+          removed: 8
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 10
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog.py
+          added: 9
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_sections.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/entry_matcher.py
+          added: 9
+          removed: 6
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/gh.py
+          added: 54
+          removed: 29
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/json_file.py
+          added: 13
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pr_threads.py
+          added: 18
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/project_info.py
+          added: 4
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 3
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/text_file.py
+          added: 43
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/timeouts.py
+          added: 3
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit.py
+          added: 15
+          removed: 30
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_changelog.py
+          added: 24
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_entry_matcher.py
+          added: 14
+          removed: 10
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 158
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_invariants.py
+          added: 76
+          removed: 17
+      evidence:
+        - name: 'make check on HEAD 6420391: ruff, format, mypy, pyright 0 errors, pytest 1280 passed / 14 skipped'
+          status: pass
+        - name: 'Failed first, observed: entry_matcher (15 failures), stamped-dash and undated-duplicate (2), doctor timeout, bare-project skip, CRLF/BOM Phase 2 round trip, check-structure strike test (hung until killed on the old retry-forever loop). Thread-response, invariant-scanner and audit-move tests were written with the change (not run on the old code)'
+          status: pass
+        - name: 'oo_score.py src/punt_kit vs the start commit: no PASS->FAIL, no failing metric worse; worst module_size 917 -> 780; audit.py 917 -> 742'
+          status: pass
+        - name: Items 1 to 10 of the round-2 message, each with its test, are in commit 6420391 (items 1 to 9) and cc8f683 (item 10)
+          status: pass
+      prose: |
+        Round 2 items 1 to 10 done in two commits (cc8f683 audit extraction, 6420391 the rest). New user-visible changes:
+        review-thread resolver warns on GraphQL errors or a missing reviewThreads object; the CI check wait fails after five unexpected response structures with the response shape;
+        marketplace/website URLs match only owner/repo (short name matches entry names only); Phase 11 records a skip for a bare project without a GitHub remote;
+        a stamped heading tolerates spaces around the dash and an undated duplicate version section fails Phase 2; a hung CLI doctor warns instead of aborting Phase 8;
+        Phase 2, template pins, README pin, install-all, profile and Phase 9 plugin.json keep each file's line endings and BOM.

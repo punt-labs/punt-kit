@@ -1,0 +1,38 @@
+results:
+    - mission: m-2026-10-22-051
+      round: 1
+      created_at: "2026-10-22T23:12:42Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 0
+          removed: 190
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 149
+          removed: 141
+      evidence:
+        - name: 'make check at HEAD f5cad5b: ruff, mypy, pyright clean; 742 passed, 14 skipped (same as baseline)'
+          status: pass
+        - name: grep reportUnusedFunction src/punt_kit/release.py returns nothing
+          status: pass
+        - name: all 14 helpers classified (a); no (b) or (c); no tests deleted
+          status: pass
+        - name: 'OO ratchet: all metrics improve or hold except release.py avg_complexity 1.57 to 1.73 (still under 5.0)'
+          status: pass
+      open_questions:
+        - avg_complexity on release.py rose 1.57 to 1.73 because 14 trivial wrappers were removed; is that acceptable under the no-metric-worsens bar?
+        - punt-kit has no tools/oo_score.py or check-oo target; scores were measured with the vox copy of oo_score.py.
+      prose: |
+        Full classification table, test mapping, OO numbers, commit list and
+        make check output are in
+        /home/jfreeman/Coding/punt-labs/punt-kit/.tmp/missions/results/release-legacy-helpers.md.
+        All 14 wrappers were pure delegations to live phases/ classes (category a).
+        None was a live dependency of audit.py or readme_sha.py (audit.py has its
+        own private _find_package_dir), and every test that used one was repointed
+        to the live class with its assertions intact. No behavioral divergence and
+        no import-layering issue arose.

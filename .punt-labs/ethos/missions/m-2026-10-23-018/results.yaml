@@ -1,0 +1,127 @@
+results:
+    - mission: m-2026-10-23-018
+      round: 1
+      created_at: "2026-10-23T22:24:04Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/init.py
+          added: 6
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/init_beads.py
+          added: 7
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 6
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_versions.py
+          added: 4
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/errors.py
+          added: 17
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 12
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/timeouts.py
+          added: 5
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/version_assignment.py
+          added: 60
+          removed: 39
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit.py
+          added: 18
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_beads.py
+          added: 12
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_validation.py
+          added: 40
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_sh_version.py
+          added: 64
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 1
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_errors.py
+          added: 120
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_ops.py
+          added: 3
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_resume_sweep.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_version_assignment.py
+          added: 47
+          removed: 11
+      evidence:
+        - name: Y1 bd init via CommandRunner with BD_INIT timeout (e57db7a), failed first on missing BD_INIT
+          status: pass
+        - name: Y5 CalledProcessError one_line carries stderr (a1b40f4), failed first
+          status: pass
+        - name: Y3 ReleaseError alias removed (c0b299e)
+          status: pass
+        - name: Y6 error in flight at interrupt shown once (fb506d1), 4 tests failed first
+          status: pass
+        - name: Y7 every plain VERSION assignment rewritten and verified (5625762), 10 tests failed first
+          status: pass
+        - name: Y8 and Y4 beads failure shown when captured, sys import at top (5112f35), failed first
+          status: pass
+        - name: Y2 escape manifest error text in audit (d7c4396), failed first
+          status: pass
+        - name: 'make check final: 1662 passed, 14 skipped; ruff, mypy, pyright clean'
+          status: pass
+        - name: every subprocess.run in src/punt_kit passes an explicit timeout (7 of 7)
+          status: pass
+      open_questions:
+        - 'Y7: VERSION= followed by a newline is a real empty shell assignment; I treat it as assigned-but-not-plain (bump fails, nothing rewritten) rather than not an assignment. Confirm.'
+      prose: |
+        Full detail, user-visible changes and the timeout grep are in
+        .tmp/missions/results/release-legacy-helpers-r11.md.
+    - mission: m-2026-10-23-018
+      round: 2
+      created_at: "2026-10-23T22:30:28Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 14
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/reporter.py
+          added: 9
+          removed: 6
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/errors.py
+          added: 14
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_errors.py
+          added: 60
+          removed: 0
+      evidence:
+        - name: F1 notices and Reporter messages escaped; bracketed stderr test failed first (a0a4fb6)
+          status: pass
+        - name: F2 collect skips ReportedReleaseError on interrupt; test failed first (a0a4fb6)
+          status: pass
+        - name: 'Y5 ruling: tail kept with ... prefix, URL userinfo redacted via RepoSlug.without_userinfo; both failed first (a0a4fb6)'
+          status: pass
+        - name: 'make check: 1667 passed, 14 skipped; ruff, mypy, pyright clean'
+          status: pass
+      prose: |
+        User-visible: bracketed text in stderr, paths and messages (for example
+        git's [remote rejected]) is shown in the recap and in Reporter lines instead
+        of being swallowed as markup; a failure Reporter.fail already printed is not
+        printed again on interrupt; a failed command's one-line entry keeps the tail
+        of its stderr (prefixed with ...) and shows URLs without user:token.
+        Also escaped the command in the timeout message.

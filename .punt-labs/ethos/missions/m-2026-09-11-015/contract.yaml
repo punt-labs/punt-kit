@@ -1,0 +1,29 @@
+mission_id: m-2026-09-11-015
+status: closed
+type: implement
+created_at: "2026-09-11T06:37:02Z"
+updated_at: "2026-09-11T08:13:40Z"
+closed_at: "2026-09-11T08:13:40Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T06:37:02Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - src/punt_kit/
+    - tests/
+    - CHANGELOG.md
+success_criteria:
+    - 'pkit-f85t.10 P0 fixed: Phase 5''s already-exists path verifies remote tag presence (git ls-remote --tags origin) and pushes when absent; harness scenarios cover fresh-tag-push-fails-then-resume (must re-push) and tag-genuinely-on-remote (must no-op); bead closed with the resolving commit cited'
+    - 'pkit-f85t.5: retry-loop scenarios via the harness — transient-block then success at attempts 2-5, exhaustion at 6 with the diagnosed failure, thread-re-resolve exception swallow at the former line 269 exercised; sleep seam injected so total added test wall-clock stays under 2 seconds; bead closed'
+    - 'pkit-f85t.6: secondary cleanup failure reaches SkipRecorder and the end-of-run recap; scenario asserts recap mentions both primary and secondary; bead closed'
+    - 'pkit-f85t.8: CI_WATCH imported, literal gone, constant-derivation test; bead closed'
+    - make check green before every commit; commit per logical step (one bead-sized concern each); OO scores do not regress on touched files; no unauthorized suppressions; CHANGELOG Fixed entries per bead; branch feat/harness-wave2 off main; PR opened, not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: 'Wave 2 of the accepted release failure-path harness design (docs/design-release-failure-harness.md — sole mechanism authority: §1d as corrected in review [one shared time singleton, ci_run.py''s early-bound default the real exception], §5 Wave 2 as amended, defect inventory §4). Waves 0-1 are merged: primitives at tests/harness/fault_ops.py, fixtures at tests/fixtures/gh/ with from_fixture wired. Wave 2 is the first wave that FIXES ENGINE CODE, driven by four beads — read each with bd show: pkit-f85t.10 (P0: Phase5Tag creates the tag locally before push; a failed push then makes --resume-from tag see the local tag and return without pushing — fix: the already-exists path must verify the tag exists ON THE REMOTE via git ls-remote and push when absent), pkit-f85t.5 (PrMerger.merge 6-attempt retry loop: zero coverage past attempt 1), pkit-f85t.6 (merge_in_sibling finally-block secondary checkout failure only info-logged — route through SkipRecorder per the design''s corrected plumbing: optional recorder param threaded through _sibling_pr_merge), pkit-f85t.8 (gh.py:208 hardcodes 7200 — import CI_WATCH from timeouts, add the constant-derivation test). Plus the design''s Wave 2 seam work: inject pr_merge.py''s time.sleep (per ci_run.py''s injectable-callable pattern or a documented monkeypatch target) so the retry tests take no real wall-clock.'

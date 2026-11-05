@@ -1,0 +1,48 @@
+mission_id: m-2026-10-22-051
+status: closed
+type: implement
+created_at: "2026-10-22T22:48:00Z"
+updated_at: "2026-10-22T23:15:48Z"
+closed_at: "2026-10-22T23:15:48Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-22T22:48:00Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - Zero occurrences of reportUnusedFunction in src/punt_kit/release.py (grep -n reportUnusedFunction src/punt_kit/release.py returns nothing), and no new pyright/mypy/ruff suppression added anywhere.
+    - Every remaining test that previously targeted a deleted release.py helper now exercises production code reachable from `punt release`; no test imports a function that production never calls.
+    - Assertion count does not decrease except for tests deleted under classification (c), each listed with its reason in the result.
+    - make check exits 0 in the worktree before every commit.
+    - 'OO ratchet: run the repo''s OO score tool (make check-oo or tools/oo_score.py per the Makefile) on release.py and every touched module before and after; no metric worsens on any touched file. Report before/after numbers.'
+    - Classification table for all 14 helpers is in the result file.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages. Each commit message ends with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call. If a command is denied by permissions, stop and report the denial.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: |
+    Bead pkit-ewox. WORKTREE: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, branch refactor/release-legacy-helpers (already created from main 035fb7e). Do ALL work and run ALL commands there. Commit on that branch; do not push, do not touch PRs or merge — the leader does that.
+
+    PROBLEM. `punt release` was refactored from a monolithic src/punt_kit/release.py into per-phase modules under src/punt_kit/phases/. release.py still carries 14 private helpers, each tagged `# pyright: ignore[reportUnusedFunction]`:
+      _get_install_sh_sha (~179), _get_package_name (~203), _self_package_name (~215), _find_package_dir (~228), _extract_version_notes (~250), _branch_protection_exists (~284), _has_ruleset (~297), _select_existing_pr (~328), _pr_is_merged (~342), _rewrite_template_pins (~380), _bump_readme_install_sha (~427), _validate_sibling (~490), _reset_sibling_owned_dirt (~546), _phase_summary (~630).
+    The suppression means production code inside release.py never calls them. They are still referenced from tests/test_release.py, tests/test_gh_fixture_contracts.py, src/punt_kit/audit.py, and src/punt_kit/phases/shared/readme_sha.py. Example of the suspected duplication: phases/shared/pr_merge.py uses its own self._is_merged, while release._pr_is_merged survives only for tests. The risk is that tests assert against copies production never runs, so a regression in the live phases/ code would pass CI.
+
+    APPROACH (PY-RF-6, fixing an incomplete extraction). For EACH of the 14 helpers, classify it first, then act:
+      (a) Has a live equivalent in phases/ -> repoint every test and caller to the live equivalent (adapt the test to the live API; keep or strengthen every assertion), then delete the release.py copy and its suppression.
+      (b) Is a genuine live dependency of audit.py or readme_sha.py with no phases/ equivalent -> it is not dead; move it to its correct home (the module whose concept it belongs to, likely under phases/shared/) as a properly-owned method or function, update callers, delete the release.py copy. No suppression.
+      (c) Referenced only by tests and has no live equivalent and no production caller -> the behavior it tests is not shipped; delete the helper AND those tests, and list each deleted test with the reason in your result.
+    Never delete the live phases/ code to "resolve" duplication — the phases/ code is the target architecture (PY-RF-6). Do not change release behavior. Record the classification table (helper -> a/b/c -> live equivalent or new home -> tests touched) in your result file.
+
+    STOP AND ESCALATE to the leader (do not decide yourself) if: a helper's live equivalent behaves differently from the old copy in a way a test encodes (that may be a real regression in phases/ — report it, do not paper over it); or moving a helper would create a circular import or a core->presentation edge.
+
+    WHY THIS LEAVES THE SYSTEM BETTER: removes 14 type-check suppressions, eliminates a second, dead copy of release logic, and makes the test suite cover the code that actually runs.

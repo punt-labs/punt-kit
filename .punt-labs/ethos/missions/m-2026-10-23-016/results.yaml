@@ -1,0 +1,162 @@
+results:
+    - mission: m-2026-10-23-016
+      round: 1
+      created_at: "2026-10-23T09:18:03Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/audit.py
+          added: 38
+          removed: 18
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/detect.py
+          added: 4
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/init.py
+          added: 21
+          removed: 31
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/init_beads.py
+          added: 68
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 20
+          removed: 15
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase10_propagate.py
+          added: 14
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase10_website.py
+          added: 2
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 5
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_versions.py
+          added: 12
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/entry_matcher.py
+          added: 1
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/errors.py
+          added: 10
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 53
+          removed: 7
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/reporter.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/version_assignment.py
+          added: 11
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 35
+          removed: 49
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/seed.py
+          added: 13
+          removed: 13
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit_unreadable.py
+          added: 43
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init.py
+          added: 8
+          removed: 1
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_validation.py
+          added: 95
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_all_profile_skips.py
+          added: 72
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_sh_version.py
+          added: 102
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 7
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_errors.py
+          added: 175
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_invariants.py
+          added: 12
+          removed: 6
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_seed_unreadable.py
+          added: 34
+          removed: 0
+      evidence:
+        - name: make check exit 0 (ruff, format, shellcheck, mypy, pyright, pytest 1570 passed 14 skipped)
+          status: pass
+        - name: every behavior fix has a test that failed first (S1 S2 S3 S4 T1 T2 U1 U2 U3)
+          status: pass
+        - name: 'OO: aggregate improved vs 035fb7e; run_release max complexity 28 to 25; Phase2 20 to 18; small avg_params and module_size growth in a few files, see result file'
+          status: pass
+        - name: 'size rule: no source file over 300 lines at 035fb7e grew; test_init.py +9 and test_release.py +6 lines in modules already past base'
+          status: pass
+      open_questions:
+        - U3 makes punt init exit 1 when bd init fails; confirm operators running punt init in CI accept that.
+      prose: |
+        Full report with per-item commits, OO numbers, user-visible changes and the complete make check output is at /home/jfreeman/Coding/punt-labs/punt-kit/.tmp/missions/results/release-legacy-helpers-r9.md
+    - mission: m-2026-10-23-016
+      round: 2
+      created_at: "2026-10-23T09:38:46Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase02_version_bump.py
+          added: 2
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/pipeline.py
+          added: 13
+          removed: 4
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/version_assignment.py
+          added: 43
+          removed: 9
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 10
+          removed: 2
+        - path: .claude/worktrees/release-legacy-helpers/tests/helpers.py
+          added: 376
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit.py
+          added: 6
+          removed: 135
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_audit_unreadable.py
+          added: 3
+          removed: 3
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init.py
+          added: 6
+          removed: 27
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_beads.py
+          added: 89
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_init_validation.py
+          added: 9
+          removed: 17
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_all_profile_skips.py
+          added: 9
+          removed: 9
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_install_sh_version.py
+          added: 44
+          removed: 20
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_phase11_versions.py
+          added: 3
+          removed: 12
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 33
+          removed: 170
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_errors.py
+          added: 87
+          removed: 20
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release_resume_sweep.py
+          added: 21
+          removed: 20
+      evidence:
+        - name: make check exit 0 (1595 passed, 14 skipped)
+          status: pass
+        - name: F1 tests failed first (15 of 30); F4 tests failed first against HEAD sources (4); F2 and F3 are test-only moves and additions
+          status: pass
+        - name: 'suppressions in src+tests: 65 at 17b8bfa, 61 now (15 added last round all removed, plus 4 more from the resume sweep)'
+          status: pass
+        - name: 'size rule: no file over 300 lines at 035fb7e grew because of this round; test_audit/test_init/test_release shrank'
+          status: pass
+      prose: |
+        F1 version_assignment.in_shell; F2 tests/helpers.py; F3 tests/test_init_beads.py; F4 pipeline._OPERATIONAL and release interrupt wording. OO: version_assignment max_complexity 1 to 6 (limit 10), pipeline max_complexity 11 to 12, aggregate unchanged or better.

@@ -1,0 +1,27 @@
+mission_id: m-2026-09-11-012
+status: closed
+type: implement
+created_at: "2026-09-11T05:45:04Z"
+updated_at: "2026-09-11T06:36:44Z"
+closed_at: "2026-09-11T06:36:44Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T05:45:04Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - tests/
+    - tools/
+    - CHANGELOG.md
+success_criteria:
+    - 'The read-only refusal is structural, not an enumeration: any short-flag cluster containing X/f/F at any position is refused (or full pflag tokenization with adversarial tests proving equivalence); regression tests cover the live-proven bypasses (-ifx=1, -iXPUT, -iX GET, -iXGET) and the round-1/round-2 spellings; the ''structurally incapable of mutating'' docstring claim is re-verified true'
+    - 'The open Copilot thread on run selection is fixed: newest run selected by conclusion == success (not just event == push); no-success-run case fails that fixture''s recording with a clear message instead of blocking gh run watch; regression test; thread replied + resolved'
+    - make check green per commit; zero src/ changes; push to feat/harness-wave1; all review threads at zero; PR not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'Completion mission for Wave 1 (PR #356, branch feat/harness-wave1) after m-2026-09-11-002 exhausted its round budget with one open defect. Items already closed and NOT to be re-litigated: contract-test coverage (29 fixtures, all consumed), from_fixture failure paths, envelope/scrubbing, CI-safety. The single open defect: the recorder''s read-only invariant has been bypassed three times by spelling enumeration gaps; the round-2 evaluation LIVE-PROVED a POSIX short-flag-bundling bypass (gh api -ifx=1 repos/... sent a real POST; -iXPUT passes require_read_only uncaught) because _flag_present/_flag_occurrences require the sensitive flag first-after-dash (startswith). Evaluator''s full evidence: .tmp/missions/results/m-2026-09-11-002-eval-round2.md. THE DIRECTIVE: stop enumerating spellings — implement a STRUCTURAL rule. Either (a) conservative: refuse any short-flag token containing a sensitive flag character (X, f, F) at ANY position (false positives acceptable — this is a dev recording tool, -i can be spelled --include), or (b) real pflag-compatible short-flag-cluster tokenization. Option (a) is recommended for its unbypassable simplicity; justify if you pick (b).'

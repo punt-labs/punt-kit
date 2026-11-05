@@ -1,0 +1,256 @@
+results:
+    - mission: m-2026-09-11-015
+      round: 1
+      created_at: "2026-09-11T07:08:46Z"
+      author: adb
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: CHANGELOG.md
+          added: 4
+          removed: 0
+        - path: src/punt_kit/phases/phase05_tag.py
+          added: 25
+          removed: 3
+        - path: src/punt_kit/phases/shared/gh.py
+          added: 2
+          removed: 2
+        - path: src/punt_kit/phases/shared/pr_merge.py
+          added: 35
+          removed: 10
+        - path: src/punt_kit/release.py
+          added: 1
+          removed: 1
+        - path: tests/test_release.py
+          added: 450
+          removed: 0
+      evidence:
+        - name: make check (ruff, ruff format, shellcheck, mypy --strict, pyright strict, full pytest) — green after every commit (4/4)
+          status: pass
+        - name: uv run pytest — 627 passed, 14 skipped (was 620/14 on main); 9 new test functions (203 -> 212 in tests/test_release.py)
+          status: pass
+        - name: 'Regression-proven, not just added: reverted each of the 4 source fixes locally (git show <commit> -- <file> | git apply -R), re-ran the bead''s new test(s), confirmed each fails against pre-fix code, then restored the fix and confirmed green again'
+          status: pass
+        - name: 'Added wall-clock: the 3 pkit-f85t.5 retry-loop tests run in ~0.05-0.12s total (time.sleep patched at the shared module-object seam per design §1d) — well under the 2s budget. All 9 new tests are sub-second (small real tmp-path git repos, no network, no real sleeps)'
+          status: pass
+        - name: 'PR #357 opened (feat/harness-wave2 -> main), not merged'
+          status: pass
+      open_questions:
+        - 'pkit-f85t.10/.5/.6/.8 are implemented and committed but NOT CLOSED — the hosted DoltDB was unreachable all session (bd show/bd close: ''database "beads" not found on Dolt server''; bd dolt status shows the server running but serving no ''beads'' database; bd bootstrap --dry-run reports it would create a FRESH empty database, which is not a safe unilateral recovery action against a shared org DB). Flagging for the leader/evaluator to close once the DB is reachable, citing the four commits below.'
+      prose: |
+        Implements Wave 2 of the accepted release failure-path harness design
+        (docs/design-release-failure-harness.md, §1d/§4/§5 Wave 2) — the first
+        wave that fixes engine code, not just test infrastructure. Branch
+        feat/harness-wave2 off a fresh main, one commit per bead:
+
+        1. pkit-f85t.10 (P0, commit 7e43310) — Phase5Tag.run created the git
+           tag locally *before* pushing it. A failed push then left the tag
+           at HEAD locally with nothing on the remote; --resume-from tag
+           re-entered the existing-tag branch, saw "exists at HEAD," and
+           returned without ever retrying the push — silently sending Phase 6
+           to wait on CI for a tag that was never pushed. Fixed: the
+           existing-tag branch now checks `git ls-remote --tags origin` and
+           pushes when the tag is missing from the remote, leaving the
+           genuinely-already-pushed case a no-op. Two harness tests: a real
+           git repo with a separate bare remote (a self-remote setup, as used
+           elsewhere in this test file, makes ls-remote trivially "see" an
+           unpushed local tag since origin IS the same directory — the wrong
+           ground truth for this defect) proves the push-fails-then-resume
+           path re-pushes, and a second test proves the already-pushed case
+           stays a no-op (a real-run spy asserts zero `git push` calls).
+
+        2. pkit-f85t.5 (commit 2f6dc86) — PrMerger.merge's 6-attempt
+           squash-merge retry loop had zero coverage past attempt 0. Three
+           new FaultInjectingOps-driven tests: a mid-loop recovery (attempts
+           1-2 transiently blocked, attempt 3 succeeds, asserting
+           resolve_threads is called once up front plus once per retry),
+           full exhaustion at attempt 6 (asserts the ReleaseError message),
+           and the best-effort thread-re-resolve exception swallow at the
+           `except (ReleaseError, SystemExit, subprocess.CalledProcessError)`
+           line (a flaky resolve_threads double raises on its second call;
+           asserts the loop proceeds to success and prints "Could not
+           re-resolve threads, proceeding with retry"). time.sleep is patched
+           via pr_merge.py's own module reference to the shared time module
+           object (design §1d's single-patch-point finding) — no real sleep
+           in any of the three tests. No src/ change for this bead; it is
+           pure coverage of existing (correct) retry logic.
+
+        3. pkit-f85t.6 (commit 829505e) — merge_in_sibling's finally-block
+           secondary cleanup failure (checkout-to-main after a primary merge
+           failure) degraded to an info log invisible in the end-of-run
+           "Manual action required" recap. PrMerger.__new__ now accepts an
+           optional `skips: SkipRecorder | None = None`; _sibling_pr_merge
+           constructs PrMerger(ops=_ops, skips=_skips) while _pr_merge (Phase
+           4's own release-PR merge, no sibling concept) keeps the bare
+           PrMerger(ops=_ops). merge_in_sibling's try block gained an `except
+           BaseException as exc: primary_exc = exc; raise` purely to capture
+           the primary exception for the finally block's message — it always
+           re-raises, never swallows. When the secondary checkout also fails
+           AND a skips recorder is present AND a primary exception was
+           captured, the notice (naming both failures) routes through
+           `self._skips.record(...)`; otherwise it falls back to the original
+           `self._ops.info(...)`. Two tests: one asserts skips.drain() yields
+           a single notice mentioning both the primary ReleaseError text and
+           the secondary checkout stderr; a second (no skips= passed, mirroring
+           _pr_merge's shape) asserts the original info-only behavior is
+           unchanged — the routing is additive, not a replacement for every
+           caller.
+
+        4. pkit-f85t.8 (commit 19634c2) — gh.py's RequiredChecksWaiter.wait
+           computed `deadline = time.time() + 7200` inline, duplicating
+           timeouts.CI_WATCH (same value, no enforced agreement). Now
+           `from ...timeouts import CI_WATCH` and `deadline = time.time() +
+           CI_WATCH`. Two tests: a source-scan asserting the "7200" literal is
+           gone and "CI_WATCH" appears in gh.py's source, and a behavioral
+           test that monkeypatches `gh_mod.CI_WATCH` to -1 and asserts wait()
+           times out immediately — proving the deadline is actually read from
+           the (patchable) module attribute at call time, not a numeric
+           coincidence.
+
+        Verification beyond make check: for each of the 4 fixes, reverted just
+        that fix's source hunk (git apply -R on the single commit's src/ diff),
+        re-ran the bead's new test(s) and confirmed they fail against the
+        pre-fix code (all 4 did — see evidence), then restored the fix and
+        confirmed the full suite green again. Working tree is clean of
+        mission-scoped changes; PR #357 is open against main, not merged.
+
+        Design-doc fidelity: read docs/design-release-failure-harness.md end
+        to end before starting, specifically pkit-f85t's §1d (shared time.sleep
+        seam), §4 defects #1/#2/#4/#8, and §5 Wave 2's exact scope and pairing
+        rationale (fix+test as one unit for the P0 and the SkipRecorder
+        plumbing). Read the merged Wave 0/1 harness (tests/harness/fault_ops.py,
+        tests/fixtures/gh/) before writing new tests against it — all four
+        beads' tests use FaultInjectingOps/FaultRule, no bespoke MagicMock
+        closures, per the design's stated preference for new tests.
+
+        Known session issue (not part of the write-set, flagged for
+        visibility): the hosted beads DoltDB was unreachable for the entire
+        session — `bd show`/`bd close` fail with "database \"beads\" not found
+        on Dolt server," `bd dolt status` shows the server running (PID/port
+        both live) but serving no such database, and `bd bootstrap --dry-run`
+        reports it would create a *fresh, empty* database rather than recover
+        the existing one — not a safe action to take unilaterally against a
+        shared org DB. All four beads are implemented, tested, and committed
+        but not closed; see PR #357's description for the same note.
+    - mission: m-2026-09-11-015
+      round: 2
+      created_at: "2026-09-11T07:52:24Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: CHANGELOG.md
+          added: 4
+          removed: 0
+        - path: src/punt_kit/phases/phase05_tag.py
+          added: 46
+          removed: 4
+        - path: src/punt_kit/phases/shared/gh.py
+          added: 2
+          removed: 2
+        - path: src/punt_kit/phases/shared/pr_merge.py
+          added: 82
+          removed: 10
+        - path: src/punt_kit/release.py
+          added: 1
+          removed: 1
+        - path: tests/test_release.py
+          added: 684
+          removed: 0
+      evidence:
+        - name: 'make check green after every commit this round (4 new commits: 2b58146, 3b949bb, 1eab354, d36fd00)'
+          status: pass
+        - name: uv run pytest — 631 passed, 14 skipped (was 627/14 after round 1); 5 new test functions added this round (212 -> 217 in tests/test_release.py, includes the retry-count-pin/wiring test edits to 2 existing tests)
+          status: pass
+        - name: 'Blocking fix (SHA-compare) proven with revert-and-rerun: reverted 2b58146''s src/ hunk, re-ran the new stale-remote-tag test, confirmed it fails (silently reports ''already exists'' against a wrong-commit remote tag), restored and re-verified green'
+          status: pass
+        - name: 'TimeoutExpired-masking fix proven with revert-and-rerun: reverted 3b949bb''s src/ hunk, re-ran both new tests — the masking test failed with the TimeoutExpired itself surfacing instead of the primary ReleaseError (exactly the reported hazard), the solo-timeout test''s assertion direction was separately verified by keeping the old blanket-swallow shape briefly during development and seeing it also fail (DID NOT RAISE) before landing the primary_exc-is-None re-raise branch. Restored and re-verified green'
+          status: pass
+        - name: 'Wrapper-wiring test proven to catch the exact regression it targets: reverted release.py''s PrMerger(ops=_ops, skips=_skips) to PrMerger(ops=_ops) at the _sibling_pr_merge call site, re-ran the new wrapper test, confirmed it fails (ValueError: not enough values to unpack — empty SkipRecorder). Restored and re-verified green'
+          status: pass
+        - name: 'shutil.which gap proven directly (real PATH manipulation infeasible in-session — gh and git share /usr/bin): a standalone script faking shutil.which(''gh'') -> None reproduced PrMerger.merge''s immediate ''gh CLI not found'' failure, confirming the mechanism the fix (_merge_env''s shutil.which patch) prevents'
+          status: pass
+        - name: 'All 4 PR #357 review threads (2 Qodo, 2 Copilot) replied to individually citing the resolving commit, then resolved via GraphQL resolveReviewThread — reviewThreads query confirms 4/4 isResolved=true, 0 new threads opened since the round-2 push'
+          status: pass
+        - name: 'PR #357 CI green on the round-2 head (d36fd00): CodeQL x2, docs, lint, test all SUCCESS; Cursor Bugbot IN_PROGRESS at result-submission time (< 6 min past CI completion, within the org''s wait convention) — not blocking, not treated as a finding'
+          status: pass
+        - name: 'All 4 beads closed via direnv exec . bd close, each citing its resolving commit(s): pkit-f85t.10 (7e43310, 2b58146), pkit-f85t.5 (2f6dc86, 1eab354, d36fd00), pkit-f85t.6 (829505e, 3b949bb), pkit-f85t.8 (19634c2)'
+          status: pass
+      prose: |
+        Round 2 of m-2026-09-11-015, addressing rmh's evaluation
+        (.tmp/missions/results/m-2026-09-11-015-eval-round1.md) and PR #357's
+        four bot review threads. Session correction: the beads DoltDB was never
+        down — the tool shell simply lacked `direnv` sourcing; `direnv exec .
+        bd show/close` resolves it, as rmh's eval and the team lead's message
+        both noted. All four beads are now closed.
+
+        1. BLOCKING fix (commit 2b58146) — the round-1 remote-tag check proved
+           presence but never compared SHA, so a stale remote tag from an
+           earlier wrong-commit attempt read as "already exists at HEAD" and
+           skipped the correcting push: the exact silent-wrong-state shape
+           pkit-f85t.10 exists to kill, one branch over. Independently flagged
+           by rmh, Qodo, and Copilot. Now compares the remote SHA (parsed from
+           `git ls-remote`'s output) against the local tag_sha and fails loud
+           with a diagnosed message on mismatch, rather than silently
+           proceeding or blind-force-pushing. New test:
+           `test_phase5_tag_resume_fails_loud_when_remote_tag_is_a_stale_different_sha`
+           — recreates a local tag at a corrected commit while an older,
+           different-commit tag of the same name sits on the remote, asserts a
+           loud `ReleaseError`.
+
+        2. Thread replies + resolution — all 4 open bot threads on PR #357:
+           - Qodo "Conflicting remote tags block releases" and Copilot's
+             identical finding on `phase05_tag.py` — both are item 1 above;
+             replied to each individually citing commit 2b58146, verified they
+             describe the same gap (both cite the same code lines, same
+             "presence != identity" mechanism) before treating them as one fix.
+           - Qodo "Cleanup timeouts hide merge failures" — read the full body:
+             `merge_in_sibling`'s cleanup `ops.run(..., check=False)` still
+             raises `subprocess.TimeoutExpired` on a hung git hook regardless
+             of `check=False` (that flag only suppresses non-zero-exit
+             handling, not timeout behavior), and an uncaught timeout inside
+             the `finally` block replaces whatever primary exception was
+             already propagating. Judged real and fixed it (commit 3b949bb):
+             extracted the cleanup into `_return_sibling_to_main` +
+             `_report_cleanup_failure`, wrapped both `ops.run` calls in
+             `try/except TimeoutExpired`, folding the timeout into the same
+             secondary-failure reporting as a non-zero exit when a primary
+             exception is in flight, and re-raising unchanged when the timeout
+             is the only failure (preserving exact pre-existing behavior for
+             that case). Two new tests cover both branches.
+           - Copilot "retry tests require a real gh on PATH" — judged real and
+             fixed (commit 1eab354): `_merge_env` now patches `shutil.which` to
+             a fake resolving "gh", matching the existing convention in
+             `tests/test_gh_fixture_contracts.py`.
+
+        3. rmh's two optional enhancements, both done (commit d36fd00):
+           - Pinned the exhaustion test's retry count to exactly 6 via the
+             `FaultRule`'s own consumed-match counter, with a comment
+             explaining what an off-by-one on either side would and wouldn't
+             already be caught by.
+           - Added `test_sibling_pr_merge_wrapper_wires_skips_through`, driving
+             the actual `release_mod._sibling_pr_merge` wrapper (not a direct
+             `PrMerger(ops=ops, skips=skips)` construction) with a real
+             secondary cleanup failure, closing the gap where a future dropped
+             or misdirected `skips=_skips` argument at that one call site
+             would go uncaught. Verified this specific claim by temporarily
+             reverting the call site and confirming the new test — and only
+             this test — fails.
+
+        4. Beads: all four closed via `direnv exec . bd close <id> --reason
+           "..."`, each citing every resolving commit for that bead.
+
+        Verification discipline this round matched round 1: every fix was
+        proven with a revert-and-rerun cycle (revert just that commit's src/
+        hunk, confirm the corresponding new test fails for the exact reason
+        the review described, restore, confirm green) before being reported as
+        done — not just "tests pass" but "tests pass because of this fix, not
+        incidentally."
+
+        `make check` green after every one of the 4 commits (631 passed / 14
+        skipped final state, up from 627/14 after round 1). PR #357 pushed to
+        the same branch (`feat/harness-wave2`), head now `d36fd00`. CI green
+        (CodeQL x2, docs, lint, test); Bugbot in progress at submission time,
+        well within the org's wait convention, not treated as a blocker. All 4
+        review threads replied to individually and resolved — 0 open threads
+        remain. Not merged, per instruction.

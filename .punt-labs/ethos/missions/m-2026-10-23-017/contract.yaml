@@ -1,0 +1,42 @@
+mission_id: m-2026-10-23-017
+status: closed
+type: implement
+created_at: "2026-10-23T09:43:11Z"
+updated_at: "2026-10-23T10:16:53Z"
+closed_at: "2026-10-23T10:16:53Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T09:43:11Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - X1-X5 done; result lists each with commit and evidence; failing-first noted per behavior fix.
+    - pipeline.py ThreadedStep.collect cyclomatic complexity <= 10; report before/after.
+    - Zero suppressions or vars()-reach-ins added; total suppression count in tests strictly lower than at 4177d85.
+    - make check exits 0 before every commit; read the FULL output.
+    - Assertion count does not decrease; no file over 300 lines at 035fb7e grows past that size; OO does not regress, never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call; never chain a commit after a gate. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: |
+    Bead pkit-ewox. Re-scoped successor to m-2026-10-23-016 (closed FAILED at its round cap; gvr round-2 reflection at the worktree's .tmp/gvr-reflect-r2.yaml). Worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge. Do NOT edit CHANGELOG.md — list user-visible changes in the result. Test-first for every behavior fix.
+
+    X1. OO ratchet: pipeline.py ~86 ThreadedStep.collect cyclomatic complexity rose 11 -> 12 (threshold 10). Extract the record-and-maybe-print step into a private method so collect is <= 10. No behavior change.
+    X2. release.py ~754-759: the main-thread `except Exception` handler prints a traceback unconditionally, so a missing tool (FileNotFoundError) or CalledProcessError in a synchronous phase dumps a stack while the same error in Phase 9/10 is one line. Reuse one public operational-error classification (rename pipeline's `_OPERATIONAL` to a public name in an appropriate shared module) in both places: operational errors get one line with type and message, bugs keep the traceback. Test a main-thread OSError and a main-thread bug.
+    X3. tests/helpers.py ~26 `vars(release)["_run"]` and tests/test_release_errors.py ~221 `vars(release)["_interrupted"]` reach private names while evading the suppression guard. Give release.py public accessors (or take the runner from the ReleaseOps the tests already build) so no test reaches a release.py private name through vars(). Extend the no-suppression guard in tests/test_release_invariants.py to flag `vars(<module>)["_<name>"]` reach-ins as well. Negative test.
+    X4. tests/test_release_resume_sweep.py ~52-54 imports `_fake_get_github_repo` from tests.test_release: move it to tests/helpers.py under a public name; remove the suppressions at ~45, ~53, ~73-77, ~94 by using public names. Net suppression count must fall.
+    X5. version_assignment.py ~92-96 (shell):
+        - a quoted value followed by more characters before whitespace/;/#/end-of-line (`VERSION="1.0"$SUFFIX`, `VERSION='1'"$x"`) is assigned but not plain -> Phase 2 fails naming the line, Phase 11 unverifiable;
+        - recognize `typeset VERSION=`;
+        - when the first assignment is plain but a LATER assignment of VERSION is computed, Phase 2 warns naming the later line (the effective value is computed at run time). Document the first-assignment rule in the docstring.
+        Tests for each.
+    RULING, no code change: pipeline's operational set keeps every OSError (missing tools and permissions are environmental; the one-line entry keeps the exception type). State this in the docstring of the shared classification.

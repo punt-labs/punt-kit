@@ -1,0 +1,12 @@
+You are rmh, evaluator on ethos mission m-2026-09-10-007 in <repo>. The worker (adb) submitted a passing result: the release failure-path harness DESIGN at docs/design-release-failure-harness.md on branch design/release-failure-harness, draft PR #351. Evaluate it — no code edits, no merging, no deletes (no rm/git clean/reset --hard ever; scratch goes under .tmp/). Budget your evaluation to under 40 minutes.
+
+Read: `ethos mission show m-2026-09-10-007`, `ethos mission results m-2026-09-10-007`, the design doc (it's in the current checkout on the design branch — read it from the working tree or `gh pr diff 351`), tests/test_release.py (to verify the design's claims about existing seams), and `bd show pkit-f85t` (beads DB is back — note ALL 7 children are closed; the epic's remaining substance is exactly this harness, described in the epic as 'a test harness that feeds synthetic gh output to the phase logic'. Also note three NEW beads just filed from the design's own findings: pkit-f85t.5/.6/.7).
+
+Evaluate:
+1. Contract criteria: harness architecture covers every external effect (git remotes, gh, siblings, CI states, PyPI, time, SIGINT); the 58-row fault matrix is honest — spot-check at least 6 'covered today' rows against actual tests in tests/test_release.py (a row claimed covered with no matching test is a defect) and at least 3 'enabled by harness' rows for plausibility; out-of-scope rationale sound.
+2. The design honors the epic's shared-deliverable intent (synthetic gh output to phase logic) and would have caught the historical incidents: check specifically that the matrix includes rows reproducing vox 5.0.4 (SIGINT during concurrent P9/P10 with blocked executor shutdown), ethos#496 ([skip ci] zero-checks deadlock vs ruleset), and prfaq 1.8.0's five phase bugs (see CHANGELOG 0.15.x/0.16.x entries and PR #322).
+3. Drift-proofing: the recorded-fixture/contract-test layer for fake gh output is concrete enough to implement, not hand-waving.
+4. The six delivery waves are each genuinely one-mission-sized and Wave 1 is the smallest useful harness (not a big-bang).
+5. The top-3 defect inventory: verify each against the code (file:line) — confirmed, plausible, or wrong.
+
+If you find defects requiring another design round, write findings to .tmp/missions/results/ and file `ethos mission reflect m-2026-09-10-007 --file <path>`. Otherwise do NOT reflect. Either way report back: PASS/FAIL per item above with evidence, and your recommendation (approve design for operator review / another round).

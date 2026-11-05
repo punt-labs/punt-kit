@@ -1,0 +1,86 @@
+results:
+    - mission: m-2026-10-23-001
+      round: 1
+      created_at: "2026-10-23T01:31:00Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.8
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/install_urls.py
+          added: 291
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_parser.py
+          added: 266
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/readme_sha.py
+          added: 91
+          removed: 380
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog.py
+          added: 25
+          removed: 72
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 81
+          removed: 91
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+          added: 12
+          removed: 34
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_changelog.py
+          added: 287
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 641
+          removed: 620
+      evidence:
+        - name: 'make check on HEAD 75ab545: ruff, format, shellcheck, mypy, pyright, pytest (800 passed, 14 skipped)'
+          status: pass
+        - name: assertions 754 -> 810; tests 765 -> 814
+          status: pass
+        - name: test suppressions 73 -> 1 (one justified file-level reportPrivateUsage pragma)
+          status: pass
+        - name: 'one recognizer (install_urls.py) and one parser (changelog_parser.py): grep evidence in the result .md'
+          status: pass
+        - name: fleet breaking-marker survey recorded; bold Breaking lead-in is the dominant convention (7 of 8 repos that mark breaks)
+          status: pass
+        - name: 'OO score: every touched file equal or better except release.py avg_params +0.02 and avg_complexity +0.04'
+          status: fail
+      open_questions:
+        - release.py avg_params 2.04 -> 2.06 and avg_complexity 1.73 -> 1.77 regress because two one-line wrapper functions were deleted; see the OO section of the result .md. Rule on accepting it.
+        - 'Breaking marker has one known gap: a plain mid-sentence ''Breaking change'' with no bold lead-in is not detected. Include it?'
+        - Per-line reportPrivateUsage ignores were collapsed to one justified file-level pragma in tests/test_release.py. Keep, or revert to per-line?
+      prose: |
+        Full report: /home/jfreeman/Coding/punt-labs/punt-kit/.tmp/missions/results/release-legacy-helpers-r3.md
+        Eight commits on refactor/release-legacy-helpers (72841ed..75ab545); nothing pushed.
+    - mission: m-2026-10-23-001
+      round: 2
+      created_at: "2026-10-23T01:48:15Z"
+      author: rmh
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/changelog_parser.py
+          added: 312
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/shared/install_urls.py
+          added: 304
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/phase11_verify.py
+          added: 94
+          removed: 95
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_changelog.py
+          added: 348
+          removed: 0
+        - path: .claude/worktrees/release-legacy-helpers/tests/test_release.py
+          added: 784
+          removed: 602
+      evidence:
+        - name: 'make check on 329ab3b: ruff, format, shellcheck, mypy, pyright, pytest (818 passed, 14 skipped)'
+          status: pass
+        - name: F1-F6 fixed; F1, F2, F3, F6 tests written first and failed before the fix
+          status: pass
+        - name: assertion lines 810 -> 834; no new suppressions (27 per-line pyright ignores unchanged)
+          status: pass
+        - name: hook-timeout audit with the three blind spots closed passes on production; no real finding
+          status: pass
+      prose: |
+        Round-2 detail is the final section of /home/jfreeman/Coding/punt-labs/punt-kit/.tmp/missions/results/release-legacy-helpers-r3.md
+        Commits 9a92861, eed1557, 6ac3fb4, 72ff6fb, 329ab3b. Nothing pushed.

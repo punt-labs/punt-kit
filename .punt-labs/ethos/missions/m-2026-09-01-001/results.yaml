@@ -1,0 +1,115 @@
+results:
+    - mission: m-2026-09-01-001
+      round: 1
+      created_at: "2026-09-01T03:17:34Z"
+      author: adb
+      verdict: pass
+      confidence: 0.85
+      files_changed:
+        - path: CHANGELOG.md
+          added: 7
+          removed: 0
+        - path: DESIGN.md
+          added: 77
+          removed: 0
+        - path: src/punt_kit/phases/phase01_preflight.py
+          added: 66
+          removed: 1
+        - path: src/punt_kit/phases/phase10_propagate.py
+          added: 15
+          removed: 2
+        - path: src/punt_kit/phases/shared/gh.py
+          added: 98
+          removed: 31
+        - path: src/punt_kit/phases/shared/pipeline.py
+          added: 23
+          removed: 10
+        - path: src/punt_kit/phases/shared/timeouts.py
+          added: 15
+          removed: 0
+        - path: src/punt_kit/release.py
+          added: 121
+          removed: 6
+        - path: tests/test_init.py
+          added: 26
+          removed: 2
+        - path: tests/test_release.py
+          added: 722
+          removed: 11
+      evidence:
+        - name: uv run ruff check .
+          status: pass
+        - name: uv run ruff format --check .
+          status: pass
+        - name: shellcheck install.sh scripts/*.sh
+          status: pass
+        - name: uv run mypy src/ tests/
+          status: pass
+        - name: uv run pyright src/ tests/
+          status: pass
+        - name: uv run pytest -q (421 passed)
+          status: pass
+        - name: npx markdownlint-cli2 "**/*.md" (113 files, 0 issues)
+          status: pass
+        - name: gh pr checks 336 (Analyze, docs, lint, test, CodeQL — all pass)
+          status: pass
+        - name: Copilot auto-review on PR
+          status: pass
+      open_questions:
+        - pkit-d8ij's underlying defect was found already fixed on main by pkit-p328 (#328), merged before this mission started — this branch had been cut from a main snapshot 15 commits stale. Only regression-test coverage was added for d8ij (no source change); recommend closing pkit-d8ij as a duplicate of pkit-p328.
+        - 'PR #336 is open, all CI green, Copilot reviewed with zero findings, mergeStateStatus=CLEAN. Not merged per mission instructions — awaiting evaluator/leader review and merge decision.'
+      prose: |
+        Implemented all four hardening fixes plus one incidental fix, across 5 commits
+        on fix/release-hardening (PR #336 against punt-kit main):
+
+        1. fix(test): stop test_init from depending on the local bd binary's gitignore
+           output — 6 tests were failing at session start (unrelated to the four beads
+           but blocking `make check` for every subsequent commit); root cause was the
+           locally installed `bd` binary's own gitignore-seeding output drifting from
+           what byte-for-byte .gitignore assertions expected. Fixed by disabling `bd`
+           via a shutil.which stand-in in the affected tests.
+
+        2. fix(release): warn on a prior tag cut outside the release flow (pkit-dlv6)
+           — Phase 1 preflight now inspects the highest existing v* tag's plugin.json
+           for plugin/hybrid projects and warns (not fails) when the name is still
+           -dev-suffixed or the version doesn't match the tag. Silent on no tags or a
+           missing manifest at that tag.
+
+        3. fix(release): bound the no-checks grace window and recognize rulesets
+           (pkit-plxh) — RequiredChecksWaiter.wait() previously retried up to the full
+           2-hour CI_WATCH deadline on a commit whose statusCheckRollup never
+           populated (a [skip ci] marker or a path-filtered workflow — the ethos #496
+           shape). Added a bounded 5-minute NO_CHECKS_GRACE window covering both
+           zero-check states, GithubRepo.has_ruleset to recognize GitHub rulesets
+           alongside legacy branch protection (fixes a misleading "no branch
+           protection" warning on ruleset-governed repos like ethos), and an
+           interrupt check on every poll iteration.
+
+        4. fix(release): report exactly what didn't land on interrupt or partial
+           failure (pkit-d7mz) — reconstructed the vox v5.0.4 failure narrative from
+           the code: an operator interrupt during a Phase 10 check-wait hang left
+           ThreadPoolExecutor.__exit__'s shutdown(wait=True) blocked for up to 2
+           hours (worker threads never receive SIGINT directly), which is long enough
+           that an operator kills the process outright, bypassing run_release's
+           cleanup and leaving no failure record. run_release now prints an
+           incomplete-release report (stopped phase, unconfirmed phases,
+           --resume-from) on every non-success exit; a Phase 9/10 failure is caught
+           so Phase 11 still runs and reports before the release fails loudly; Phase
+           10 leg failures are recorded into the shared SkipRecorder. DES-029
+           documents the mechanism and supersedes DES-018's untested join-timing
+           assumption.
+
+        5. test(release): pkit-d8ij regression coverage — during a fleet-reality
+           check triggered by discovering this branch had been cut from a stale main
+           (15 commits behind origin/main), found pkit-d8ij's underlying marketplace
+           source.url matching defect already fixed on main by pkit-p328 (#328),
+           independently, before this mission started. Dropped the redundant
+           reimplementation, rebased cleanly onto the real main, and added the
+           missing regression tests (name-diverges-from-repo, url with/without .git,
+           not-found) against the real (already-merged) candidates-based matching
+           code — no source change needed for this bead.
+
+        make check passes on every commit (verified incrementally). Full suite: 421
+        passed. PR #336 open against punt-kit main, all CI checks green, Copilot
+        reviewed with zero findings, mergeStateStatus=CLEAN. Not merged, per mission
+        instructions.
