@@ -1,0 +1,37 @@
+results:
+    - mission: m-2026-09-13-001
+      round: 1
+      created_at: "2026-09-13T15:14:26Z"
+      author: adb
+      verdict: pass
+      confidence: 0.95
+      files_changed:
+        - path: src/punt_kit/phases/phase04_release_pr.py
+          added: 12
+          removed: 3
+        - path: src/punt_kit/phases/phase05_tag.py
+          added: 65
+          removed: 18
+        - path: src/punt_kit/release.py
+          added: 28
+          removed: 9
+        - path: tests/test_release.py
+          added: 172
+          removed: 9
+      evidence:
+        - name: make check
+          status: pass
+        - name: pytest -k tag tests/test_release_resume_sweep.py (verbose, single case)
+          status: pass
+      open_questions:
+        - Escalation approved by leader via direct message (write-set extended to tests/test_release_resume_sweep.py for a one-field harness-fidelity fix), but this mission's recorded write_set was not updated via an ethos CLI command — no such command was found. tests/test_release_resume_sweep.py (15 added, 3 removed) is committed on the branch (commit d56c601) but omitted from files_changed above because the tool refuses a path outside the recorded write_set.
+      prose: |
+        Branch fix/pkit-z9yq-tag-release-commit off main, two commits:
+        d56c601 test(release): synthetic squash-merge carries the real PR title
+          (harness fidelity fix, leader-approved write-set extension)
+        5221fda fix(release): Phase 5 tags the captured release commit, not main HEAD
+          (core SHA-threading fix + all Phase5Tag test updates/additions)
+        Both commits individually pass make check. Full make check on the branch
+        tip: 692 passed, 14 skipped, zero failures. The resume-sweep [tag] case
+        passes via the new git-history fallback against realistic squash-commit
+        history, not a weakened assertion.

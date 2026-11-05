@@ -1,0 +1,29 @@
+reflections:
+    - mission: m-2026-10-23-001
+      round: 1
+      created_at: "2026-10-23T01:38:03Z"
+      author: gvr
+      converging: true
+      signals:
+        - 'make check green: 800 passed, 14 skipped; assertion counts verified 754 to 810'
+        - single recognizer and single parser structurally achieved; all contract cases probed and behave
+        - 'F1 is_stamped now fullmatch on the heading: trailing whitespace or text after the date reports not stamped, where the old prefix regex accepted it (changelog_parser.py:68)'
+        - F2 ChangelogDocument.stamped drops the UTF-8 BOM, contradicting the result's claim that the stamp preserves it (changelog_parser.py:99,135)
+        - F3 Phase 11 website check builds InstallUrlRecognizer directly from repo.split('/')[-1], so a trailing-slash slug gives an empty repo and every URL is flagged untrusted (phase11_verify.py:635)
+        - F4 _assert_failed_checks asserts detail with any() over all failed lines, not the line of a named check (test_release.py:6849)
+        - F5 hook-timeout audits only see literal argv lists whose second element is the git verb; git -C <dir> push or a variable argv is invisible (test_release.py:11410)
+        - F6 a fence-opened or comment-hidden '## [' line still ends or starts a section; unclosed fence swallows later releases (changelog_parser.py:164-174)
+      recommendation: continue
+      reason: Core design accepted; F1, F2, F3 are small real defects worth fixing in round 2; F4, F5, F6 are hardening.
+    - mission: m-2026-10-23-001
+      round: 2
+      created_at: "2026-10-23T01:52:11Z"
+      author: gvr
+      converging: true
+      signals:
+        - 'make check green: 818 passed, 14 skipped; F1, F2, F4 verified fixed by probe'
+        - 'F3 mostly fixed: no hand-built recognizer in Phase 11, o/r/ works; but a bad slug yields two failed checks, and Phase 10 and gh.py still split the unnormalized slug'
+        - F5 audit works, but the gh pr merge allowlist reason is unproven (gh runs git checkout and pull locally under --delete-branch, with the 60s default timeout)
+        - F6 unclosed-fence rule holds only if no later bare fence line or --> exists; a 4-backtick fence missing its closer turns a fenced fake heading into a section
+      recommendation: continue
+      reason: 'Last round in the budget, so the leader decides between a failed successor and an escalation. Material findings: G1 gh pr merge allowlisted as ''not git'' (pr_merge.py:230-232, test_release.py allowlist), G2 F6 swallow cases (changelog_parser.py:186-190, 307), G3 F6 unclosed longer fence exposes fake headings (changelog_parser.py:202). Minor: two failed checks for one bad slug, Phase 10 slug not normalized, dead repo_name property, audit holes for starred argv and git global options.'

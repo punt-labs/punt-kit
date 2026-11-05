@@ -1,0 +1,24 @@
+results:
+    - mission: m-2026-09-09-002
+      round: 1
+      created_at: "2026-09-09T05:36:28Z"
+      author: adb
+      verdict: pass
+      confidence: 0.95
+      files_changed:
+        - path: src/punt_kit/phases/phase01_preflight.py
+          added: 27
+          removed: 10
+        - path: tests/test_release.py
+          added: 82
+          removed: 0
+        - path: CHANGELOG.md
+          added: 4
+          removed: 0
+      evidence:
+        - name: make check
+          status: pass
+        - name: uv run pytest tests/test_release.py -k "preflight_python_prefers_make_check or preflight_python_falls_back_to_hardcoded"
+          status: pass
+      prose: |
+        Mirrored the Go branch's Makefile-preference logic in the Python quality-gate branch of Phase1Preflight: prefer `make check` when info.root/Makefile exists (same timeout=QUALITY_GATE, check=False, capture=False, ops.fail on non-zero), fall back to the hardcoded ruff/mypy/pyright/pytest gate list only when no Makefile is present. Added two regression tests in tests/test_release.py proving each branch invokes the expected command set, and a CHANGELOG entry under Unreleased/Fixed. tools/oo_score.py is not present in this repo (no OO ratchet tooling configured here), so OO-score-before/after could not be run; make check (lint+type+test) passes clean on all touched files. Branch fix/pkit-mjcb-preflight-make-check, three commits: dc203ca (implementation), 7654b06 (tests), f2362bb (changelog). Not pushed and no PR opened per instructions — leader handles branch/PR.

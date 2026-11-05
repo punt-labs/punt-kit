@@ -1,0 +1,5 @@
+Review a release-engine verification change in punt-kit for silent failures. High-confidence only.
+
+Diff: `git diff main..fix/pkit-fesz-verify-readme-website` — phase11_verify.py, shared/readme_sha.py, tests/test_release.py (bead pkit-fesz).
+
+Phase 11 gains Check 7 (README SHA pins ancestor-of-tag) and Check 8 (website installCommand SHA ancestor-of-tag). Focus on SILENT-PASS risk: (1) if `find_pinned_shas` finds ZERO pins (e.g. its regex doesn't match the actual README URL shape), Check 7 emits nothing and the release passes — is that a legitimate no-pins case or could a real stale pin be silently missed because the pattern mismatches what's in the README? (2) the website check's gating (`f"/{project_name}/" in install_cmd`, `install_sh.exists()`) — could a stale website SHA slip through un-checked? (3) does `pinned_ancestor` fail loud on both not-ancestor (rc 1) and git error (rc≥128)? Run the diff. If clean, say so.

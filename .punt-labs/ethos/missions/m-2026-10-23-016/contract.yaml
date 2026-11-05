@@ -1,0 +1,58 @@
+mission_id: m-2026-10-23-016
+status: failed
+type: implement
+created_at: "2026-10-23T08:03:05Z"
+updated_at: "2026-10-23T09:42:43Z"
+closed_at: "2026-10-23T09:42:43Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T08:03:05Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - Every item S1-W3 done; result lists each with commit and evidence; failing-first noted per behavior fix.
+    - make check exits 0 before every commit; read the FULL output, not the tail.
+    - Assertion count does not decrease; no new suppressions; no module that started this branch over 300 lines grows beyond its 035fb7e size; OO does not regress, never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call; never chain a commit after a gate with ; or &&. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox, third final-review round. Worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge. Do NOT edit CHANGELOG.md — list user-visible changes in the result. Test-first for every behavior fix; say per test that it failed first. Reviewer probes are under the worktree's .tmp/rv3/ and .tmp/sfh3/.
+
+    S. ERROR VISIBILITY
+    S1. punt release prints nothing for a ReleaseError raised outside Reporter.fail (TextFile/JsonFile/parse_toml, detection, VersionPinChecks): release.py ~724-726. Add ReportedReleaseError(ReleaseError) raised by Reporter.fail; run_release prints "Error: <message>" for any ReleaseError that was not already reported, before the incomplete-release report. When the failure is before any phase ran (detection), say "failed before any phase ran" instead of "phase 0 (unknown)" and do not list every phase as not landed. Test: malformed pyproject.toml through run_release shows the file name and reason, once.
+    S2. punt audit and punt seed crash and lose all findings on one unreadable/non-UTF-8 file (audit.py ~388, ~577, ~625; seed.py ~394). Each unreadable file becomes a FAIL finding naming the file and reason (audit) / a reported failure with the remaining files still processed (seed); every other finding still prints. Tests for each site.
+    S3. pipeline.py ~102/113: a non-ReleaseError from a Phase 9/10 worker thread keeps its type and traceback — the recap line includes the exception type, and the traceback is printed to stderr once. Test with a KeyError from a propagator.
+    S4. release.py ~689-698/727-752: a timeout or failure in Phase 11 after a recorded Phase 9/10 failure must name the phase where it actually happened; the --resume-from phase stays as now. Test.
+
+    T. VERSION FIELDS AND PROFILE SYNC
+    T1. install.sh version: route Phase 2's rewrite through VersionAssignment("VERSION") (handles quoting/indent/readonly forms the project accepts) and FAIL when VERSION is assigned but cannot be rewritten; Phase 11 reports "assigned but unverifiable" instead of returning no check, and reads with the same rule as the writer (anchored, not a bare substring — a SOMETHING_VERSION= line must not match). Tests incl. single quotes, indent, readonly, and an earlier FOO_VERSION= line.
+    T2. phase10_propagate.py ~182 (profile README absent -> silent return) and ~214-219 (no install-all SHA reference -> info): record each as a skip with the manual fix, matching Phase 11's verdict. Tests.
+
+    U. INIT
+    U1. _validate_inputs loads EVERY plugin manifest init will read (init.py ~218-227, ~651), so validate-before-write holds for hybrids. Test with a nameless first manifest and a malformed second — nothing written.
+    U2. _init_workflows (init.py ~344) compares existing workflows via TextFile (BOM-aware). Test: a BOM'd workflow identical to the template is not reported as different.
+    U3. RULING: _init_beads (init.py ~438-450) — a failed `bd init` (non-zero exit or OSError) makes `punt init` exit non-zero after completing the other steps, and the failure is named. Test both.
+
+    V. DOCSTRINGS / NAMES (CHANGELOG-accuracy review)
+    V1. entry_matcher.py ~16: "Matches entries named for this project, or sourced from its own owner/repo."
+    V2. detect.py ~98: raises when pyproject.toml is not readable TOML, or package.json or the highest-precedence plugin manifest is not a readable JSON object.
+    V3. phase10_website.py ~25: "10d. Updates the project's version and install-URL pin in public-website projects.json."
+    V4. tests/test_release_invariants.py ~120 FileAccess.lines: describe every access it reports (names, methods, open, shutil_calls, git_verbs); rename `_names_bound_to_the_changelog` -> `_names_bound_to_a_file` with an accurate docstring.
+    V5. PY-DOC-2: ~932 header -> "# --- further forms each tripwire catches ---"; ~1017 test name -> test_the_slug_scan_finds_the_colon_keyword_and_suffix_forms.
+
+    W. TEST STRENGTH
+    W1. test_run_release_reports_any_unexpected_exception_with_the_recap (~11811): assert the failure text appears exactly once across stdout+stderr.
+    W2. test_init_validates_every_file_it_will_merge_before_writing and test_init_fails_on_an_unparseable_plugin_manifest: assert SystemExit.code == 1.
+    W3. Add the tests named in S2, S3, T1, U1 (the probes show the shapes).
+
+    ESCALATE instead of deciding if: a fix changes a CLI flag, or an exit code other than U3 (ruled) and S2's audit/seed behavior (audit keeps its existing exit-code rule for FAIL findings).

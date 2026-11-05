@@ -1,0 +1,30 @@
+mission_id: m-2026-09-09-002
+status: closed
+type: implement
+created_at: "2026-09-09T05:27:48Z"
+updated_at: "2026-09-09T05:54:36Z"
+closed_at: "2026-09-09T05:54:36Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-09T05:27:48Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-mjcb
+write_set:
+    - src/punt_kit/phases/phase01_preflight.py
+    - tests/test_release.py
+    - CHANGELOG.md
+success_criteria:
+    - In phase01_preflight.py's Python quality-gate branch, prefer 'make check' when a Makefile exists at info.root, mirroring the Go branch's logic exactly (same timeout=QUALITY_GATE, check=False, capture=False, ops.fail on non-zero). Fall back to the existing hardcoded gate list ONLY when no Makefile is present.
+    - 'Add/extend regression tests in tests/test_release.py: one asserting the Python branch invokes ''make check'' when a Makefile exists, one asserting it falls back to the hardcoded gate list when no Makefile exists. Follow the existing test patterns in that file.'
+    - make check exits 0 before every commit; no suppressions added. OO score must not regress on touched files.
+    - 'Add a CHANGELOG.md entry under ## [Unreleased] (Fixed category) describing the preflight make-check honoring.'
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - Do NOT push or open a PR — the leader handles branch/PR. Work on a branch named fix/pkit-mjcb-preflight-make-check off main. Report the branch name and commit SHAs when done.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: punt release phase01_preflight.py runs a hardcoded Python quality gate (uv run ruff/format/mypy/pyright/pytest on src/ tests/, lines ~151-170) that ignores the project's Makefile. The Go branch (lines ~171-195) already prefers 'make check' when a Makefile exists and falls back to a hardcoded gate list otherwise. This breaks Python projects with optional heavy extras (e.g. lux's [display] extra, pyright-via-npx, OO ratchet) because the base wheel env lacks the extra and bare 'uv run mypy/pyright' reports false errors. Blocked lux v0.32.0.

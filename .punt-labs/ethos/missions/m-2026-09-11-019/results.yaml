@@ -1,0 +1,91 @@
+results:
+    - mission: m-2026-09-11-019
+      round: 1
+      created_at: "2026-09-11T11:04:25Z"
+      author: adb
+      verdict: pass
+      confidence: 0.93
+      files_changed:
+        - path: src/punt_kit/release.py
+          added: 40
+          removed: 33
+        - path: tests/test_release_resume_sweep.py
+          added: 569
+          removed: 0
+        - path: CHANGELOG.md
+          added: 2
+          removed: 0
+      evidence:
+        - name: 11-case parametrized resume sweep — one case per resume point, all pass
+          status: pass
+        - name: 'wall-clock: 11 cases in 3.73s (budget 15s); full make check 681 passed / 14 skipped, green per commit'
+          status: pass
+        - name: post-stop states are genuine fresh-run artifacts (real git; _GithubSim squash-merges are real local commits; anchor._consumed == 1 asserted per case)
+          status: pass
+        - name: genuine engine gap found by case 1 (phase-1 interrupt escapes without report) — bead pkit-f85t.11 filed via bd create, FIXED in-branch, mutation-verified both directions
+          status: pass
+        - name: completeness guard pins the 11 case ids to release._PHASE_ORDER order-exact
+          status: pass
+        - name: zero network — deny-by-default raises on any non-git command not scripted or explicitly passthrough'd
+          status: pass
+        - name: PR punt-labs/punt-kit#360 opened (not merged), branch feat/harness-wave5, CHANGELOG entries in diff
+          status: pass
+      open_questions:
+        - 'Sign-off requested: the contract''s floor for a genuine gap was xfail-with-bead; since src/punt_kit/ is in the write set and the fix is a pure containment move (phase-1 + version-detection blocks shift inside run_release''s existing try — no behavior change on any other exit path), I fixed pkit-f85t.11 instead of xfailing, per the Wave 2/Wave 4 fix-plus-regression-test precedent. If you prefer the engine change to ship separately, the sweep''s preflight case must become the xfail — it cannot pass without the fix.'
+        - 'Deliberate deviation, documented in _ResumeCase''s docstring: the propagate case''s fresh-run report asserts ''phase 9 (post-release)'' — the engine''s own pair-entry credit for a mid-9/10-pair stop (pinned by existing tests) — and then proves the operator''s narrower --resume-from propagate also completes cleanly. ''The right resume phase'' is read as what the engine defines as right.'
+      prose: |
+        Wave 5 delivered: tests/test_release_resume_sweep.py — one parametrized
+        test, 11 cases, one per resume point. Each case drives run_release FRESH
+        against a fully scripted release (real git repos; FaultRules for every
+        gh/uv/PyPI boundary; a stateful _GithubSim behind FaultInjectingOps's
+        explicit passthrough allowlist for gh pr create/view/list, gh pr merge
+        --squash — emulated as a REAL local squash commit so the tag's commit,
+        pyproject-on-main, and every Phase 11 check are genuine git state —
+        gh run list with headSha computed from the tag's actual commit, and
+        uv build producing real dist/ artifacts), stops it during phase N on one
+        of phase N's own commands, asserts the incomplete-release report (phase
+        label + exact --resume-from string) and that the tag exists iff the stop
+        came after Phase 5, then resumes from the genuine post-stop state and
+        asserts clean completion to the identical end state of a never-stopped
+        release.
+
+        Stop mechanisms per the corrected two-path model: main-thread phases use
+        a KeyboardInterrupt subclass whose construction sets release._interrupted
+        (the signal handler's atomic set-and-raise, modeled exactly); phases 9/10
+        (pool workers) use a raised ReleaseError — the contract's sanctioned
+        alternative — because a real signal's KeyboardInterrupt is never
+        delivered to a worker thread; the polled-event worker path is Wave 3's
+        existing coverage.
+
+        Anchors: the phase's first command where its argv is unique to that
+        phase; the first DISTINCTIVE command where the literal first collides
+        with an earlier phase's argv (prefix matching is blind to phase
+        context); verify uses the literal first command with skip=1 (Phase 5's
+        one earlier occurrence). Every case asserts anchor._consumed == 1, so a
+        mis-placed anchor fails loudly rather than passing vacuously.
+
+        Case results: preflight / bump / build / release-pr / tag / ci /
+        github-release / pypi / post-release / propagate / verify — all clean.
+        One genuine gap found, on the sweep's very first case: run_release's
+        interrupt finally (cleanup + incomplete-release report + exit-1) only
+        wrapped phases 2-11; phase 1 preflight and version detection ran outside
+        the try, so a real Ctrl-C during preflight escaped as a raw
+        KeyboardInterrupt with no report, no --resume-from hint, no cleanup —
+        contradicting _print_incomplete_release's own "called from every
+        stop-early path" contract. Filed as pkit-f85t.11 (P1, parent pkit-f85t),
+        fixed in-branch (pure containment move), closed; mutation-verified: with
+        the fix stashed the preflight case dies with the escaping
+        KeyboardInterrupt.
+
+        Verification: make check green per commit (681 passed, 14 skipped);
+        sweep wall-clock 3.73s; the longest case (verify) traced end-to-end
+        showing all 10 prior phases genuinely execute (release PR #1 created and
+        really squash-merged, tag at merged HEAD, CI wait matched against the
+        tag's real commit, concurrent 9/10 with website sibling PR #2 propagated
+        and merged) before the stop lands in Phase 11. Zero network. A
+        completeness guard ties the case list to release._PHASE_ORDER so a 12th
+        phase forces a 12th case.
+
+        PR: punt-labs/punt-kit#360 (open, not merged). Branch feat/harness-wave5,
+        two commits (fix+tests; changelog). Beads: pkit-f85t.11 filed and closed.
+        Full narrative table: .tmp/missions/results/m-2026-09-11-019-wave5-result.md

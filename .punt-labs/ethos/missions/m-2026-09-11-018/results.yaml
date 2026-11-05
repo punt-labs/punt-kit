@@ -1,0 +1,293 @@
+results:
+    - mission: m-2026-09-11-018
+      round: 1
+      created_at: "2026-09-11T09:29:45Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: tests/test_release.py
+          added: 705
+          removed: 0
+        - path: src/punt_kit/phases/phase03_build.py
+          added: 9
+          removed: 1
+        - path: src/punt_kit/phases/phase04_release_pr.py
+          added: 11
+          removed: 1
+        - path: src/punt_kit/phases/phase09_post_release.py
+          added: 21
+          removed: 2
+        - path: src/punt_kit/phases/phase10_propagate.py
+          added: 14
+          removed: 2
+        - path: src/punt_kit/phases/shared/git.py
+          added: 12
+          removed: 1
+        - path: src/punt_kit/phases/shared/siblings.py
+          added: 24
+          removed: 6
+        - path: CHANGELOG.md
+          added: 3
+          removed: 1
+      evidence:
+        - name: make check (ruff, ruff-format, shellcheck, mypy strict, pyright strict, pytest) green before every commit — 12 commits, all passing
+          status: pass
+        - name: full suite after final commit — 652 passed, 14 skipped, zero regressions
+          status: pass
+        - name: 'pytest -k against all 14 new tests (11 matrix rows + 3 pkit-f85t.7 sweep scenarios) — 1.57s total wall-clock (budget: 5s); every timeout scenario uses TimeoutExpired injection, zero real waits/sleeps'
+          status: pass
+        - name: pkit-f85t.7 closed via direnv exec . bd close, citing the six converting commits (15845be, 2157054, 37026e3, c03805a, f328e00, 2cc5142)
+          status: pass
+        - name: 'PR #359 opened via gh CLI (not merged): https://github.com/punt-labs/punt-kit/pull/359'
+          status: pass
+      open_questions:
+        - The contract's row 31/32 line reads 'Phase 8 dry-run hang via TimeoutExpired' — the design doc's own row 31 text (and the actual code) has no dry_run branch for the retry loop; I built the test against the real (dry_run=False) 10-attempt uv tool install retry loop, matching the design doc's literal row 31 definition. Flagging in case 'dry-run' was meant literally and a second, dry-run-specific test is wanted.
+        - 'pkit-f85t.7''s sweep scope: converted every check=True-default call site I judged operationally fragile (network, external tool, hook-firing mutation, or a cross-repo/sibling checkout read) — six sites total, one per commit/table row in the PR description. Left unconverted, uncommented: local git metadata reads (branch/status/rev-parse/tag --list/log/diff/show) against the project''s own repo, already validated clean by Phase 1 before any of them run — treated as the contract''s ''constructor-time invariants OK'' exception rather than requiring per-site inline justification comments (which would have been ~60 near-identical repetitions of the same rationale). Flagging for evaluator judgment on whether that line was drawn in the right place.'
+      prose: |
+        Branch feat/harness-wave4 off fresh main; 12 commits, one logical
+        group per phase/row plus the two pkit-f85t.7-only sites and a final
+        CHANGELOG commit. make check green before every commit; full suite
+        green at the end (652 passed, 14 skipped).
+
+        ELEVEN MATRIX-ROW TESTS (commit → test):
+
+        - Row 3 (00105d2): test_preflight_fails_actionably_when_git_fetch_
+          origin_fails — non-zero git fetch origin during preflight.
+        - Row 6 (00105d2): test_preflight_quality_gate_timeout_surfaces_as_
+          diagnosed_exit — TimeoutExpired at the make-check call site,
+          diagnosed end-to-end through run_release (not a traceback).
+        - Row 55 (00105d2): test_preflight_go_quality_gate_failure_aborts_
+          phase — go test -race failure, parallel to the existing Python
+          make-check-failure test.
+        - Row 12 (15845be): test_phase3_build_uv_build_failure_diagnoses_
+          instead_of_leaking — uv build failure. Phase 3 had zero isolated
+          tests before this.
+        - Row 13 (2157054): test_phase4_release_pr_swap_script_failure_
+          retries_cleanly — the swap script fails via fault injection, then
+          a clean retry (fresh ops) lands the commit and reaches merge.
+          Complements (does not replace) the pre-existing hand-simulated-
+          disk-state test — this one drives the failure through an actual
+          injected ops.run fault instead of hand-writing the partial state.
+        - Row 20 (37026e3): test_phase5_tag_initial_push_failure_diagnoses_
+          and_leaves_tag_unpushed — the initial-push-failure moment itself,
+          isolated from Wave 2's resume-focused test of the same underlying
+          state (that existing test is unchanged and still passes, since its
+          FaultRule uses raises= which bypasses check= entirely).
+        - Row 29 (500ab90): test_phase7_github_release_create_failure_
+          diagnoses — gh release create failure. Phase 7 had zero isolated
+          tests before this.
+        - Row 31 (9fdc425): test_phase8_verify_pypi_install_timeout_mid_
+          retry_loop — genuine TimeoutExpired (not just a non-zero exit) at
+          the uv tool install retry loop's first attempt (a later attempt
+          would hit the loop's own real time.sleep(30), which the harness
+          has no seam for — first-attempt failure proves the same
+          unhandled-TimeoutExpired gap without the real wall-clock cost).
+        - Row 32 (c03805a): test_phase9_post_release_restore_commit_failure_
+          retries_cleanly — same fault-injected-failure-then-clean-retry
+          shape as row 13, targeting the restore commit specifically (the
+          real restore script only stages; Phase 9's own explicit git commit
+          is where a hook rejection actually lands).
+        - Row 52 (c3f6f31): test_phase11_verify_cli_only_project_runs_all_
+          applicable_checks — a from-scratch CLI-only fixture (install.sh,
+          no plugin.json at all) driven through _phase11_verify, asserting
+          it does not raise and that is_plugin/is_hybrid are both False.
+        - Row 54 (2eb4623): test_run_release_default_timeout_fallback_
+          diagnoses_end_to_end — TimeoutExpired at the actual first Phase 1
+          call (git branch --show-current, no explicit timeout=) run through
+          run_release, asserting the diagnosis names the DEFAULT_RUN=60
+          fallback specifically, not a named budget (distinct from the
+          pre-existing test that fabricates a 300s GIT_NETWORK timeout via a
+          patched phase).
+
+        PKIT-F85T.7 SWEEP — six call sites converted check=True → check=False
+        + diagnosed ops.fail, each with its own harness scenario:
+
+        - Phase3Build's uv build (15845be) — scenario is the row 12 test.
+        - Phase4ReleasePr's plugin-swap script call (2157054) — row 13 test.
+        - GitWorkspace.push, Phase 5's only caller (37026e3) — row 20 test.
+        - Phase9PostRelease's restore-script call + its own restore commit
+          (c03805a) — row 32 test.
+        - SiblingRepo.validate's git branch --show-current and git status
+          --porcelain (f328e00) — two new tests,
+          test_validate_sibling_diagnoses_branch_read_command_failure and
+          _status_read_command_failure. Converted because they were locally
+          inconsistent with the git pull --ff-only two lines later in the
+          same method, which was already check=False + diagnosed.
+        - InstallAllPropagator._sync_profile_readme's git log (2cc5142) —
+          design doc defect #3's own named example. One new test,
+          test_propagate_install_all_sync_profile_readme_git_log_failure_
+          diagnoses, distinguishing a genuine command failure (now diagnosed)
+          from the already-handled empty-result "no commit has ever touched
+          install-all.sh" case.
+
+        WHY THIS MATTERS BEYOND MESSAGE QUALITY: run_release only catches
+        ReleaseError and subprocess.TimeoutExpired. All six converted sites
+        live in synchronous, non-threaded phases (3, 4, 5, 9, and the
+        sibling-validation step of 1) — a raw CalledProcessError there had no
+        handler anywhere and would have escaped as a bare traceback instead
+        of the usual "Release incomplete — resume with ..." diagnosis. (Phase
+        10's own call sites are different: ThreadedStep.collect's catch-all
+        already catches a raw CalledProcessError there, so the design doc's
+        framing of that class of gap as "not silent, just lower-quality" is
+        accurate for Phase 10 specifically — but not for the six sites here.)
+
+        SWEEP SCOPE BOUNDARY (see open_questions): left unconverted are local
+        git metadata reads (branch/status/rev-parse/tag --list/log/diff/show)
+        against the project's own repo, already validated clean by Phase 1
+        before any of them run. Treated as the contract's "constructor-time
+        invariants OK" exception, not converted or individually commented.
+
+        WALL-CLOCK: all 14 new tests together run in 1.57s. Every timeout
+        scenario uses a FaultRule raises=TimeoutExpired(...) or a monkeypatched
+        fake_run raising TimeoutExpired — never a real sleep or wait. The one
+        place a real time.sleep(30) exists in production code (Phase 8's
+        retry loop) is deliberately never reached by the row-31 test (fails
+        on the first attempt).
+
+        PR #359: https://github.com/punt-labs/punt-kit/pull/359 (open, not
+        merged). Full narrative also at
+        .tmp/missions/results/m-2026-09-11-018-round1.md.
+    - mission: m-2026-09-11-018
+      round: 2
+      created_at: "2026-09-11T10:23:40Z"
+      author: adb
+      verdict: pass
+      confidence: 0.92
+      files_changed:
+        - path: tests/test_release.py
+          added: 1401
+          removed: 28
+        - path: src/punt_kit/phases/phase02_version_bump.py
+          added: 7
+          removed: 1
+        - path: src/punt_kit/phases/phase03_build.py
+          added: 9
+          removed: 1
+        - path: src/punt_kit/phases/phase04_release_pr.py
+          added: 11
+          removed: 1
+        - path: src/punt_kit/phases/phase05_tag.py
+          added: 18
+          removed: 4
+        - path: src/punt_kit/phases/phase08_verify_pypi.py
+          added: 8
+          removed: 2
+        - path: src/punt_kit/phases/phase09_post_release.py
+          added: 37
+          removed: 4
+        - path: src/punt_kit/phases/phase10_propagate.py
+          added: 14
+          removed: 2
+        - path: src/punt_kit/phases/shared/git.py
+          added: 43
+          removed: 6
+        - path: src/punt_kit/phases/shared/ops.py
+          added: 21
+          removed: 1
+        - path: src/punt_kit/phases/shared/pr_merge.py
+          added: 42
+          removed: 20
+        - path: src/punt_kit/phases/shared/readme_sha.py
+          added: 19
+          removed: 3
+        - path: src/punt_kit/phases/shared/siblings.py
+          added: 24
+          removed: 6
+        - path: CHANGELOG.md
+          added: 3
+          removed: 1
+      evidence:
+        - name: 'sweep completeness re-audit — same AST/grep methodology rmh used in round 1, run against the round-2 diff before closing the bead: found and converted 5 more missed sites (ReadmeShaPin.land''s cleanup checkout/branch-delete, PrMerger.merge_in_sibling''s sibling status read, Phase8VerifyPypi''s editable-install-restore, Phase5Tag''s git ls-remote) on top of the 11 rmh/Copilot named — 24 total converted call sites across 13 methods, three audit passes'
+          status: pass
+        - name: make check (ruff, ruff-format, shellcheck, mypy strict, pyright strict, pytest) green before every commit — 6 round-2 commits, all passing
+          status: pass
+        - name: 'full suite after final commit — 669 passed, 14 skipped, zero regressions (round-1 baseline: 652)'
+          status: pass
+        - name: 'pytest -k against all 31 new tests (11 matrix rows + 20 pkit-f85t.7 sweep scenarios) — well under 2s total wall-clock (budget: 5s)'
+          status: pass
+        - name: pkit-f85t.7 reopened (bd update --status=in_progress) then re-closed with an accurate description citing all converting commits across three passes
+          status: pass
+        - name: 'three open PR bot threads (Copilot sweep-scope, qodo Phase 4 realism, qodo Phase 8 later-attempt) each replied to with the specific fix commit and resolved via GraphQL resolveReviewThread — all three isResolved: true'
+          status: pass
+        - name: 'PR #359 pushed with round-2 commits; CI green (docs/lint/test/CodeQL all SUCCESS, Cursor Bugbot NEUTRAL); mergeStateStatus BLOCKED pending formal review approval, not a check failure'
+          status: pass
+      open_questions:
+        - mergeStateStatus is BLOCKED (not UNSTABLE/CLEAN) after the round-2 push — all checks are green (Bugbot NEUTRAL) and reviewDecision is empty, so this looks like branch protection waiting on a formal approving review rather than any outstanding finding. Not something this worker can resolve (review-thread resolution and a fix commit are the tools available); flagging for the leader/evaluator to check whether an approval is needed before merge.
+      prose: |
+        Round 2 scope: rmh's round-1 evaluation (independently confirmed by
+        Copilot's PR review) found the pkit-f85t.7 sweep incomplete against
+        its own stated criteria — six named sites (GitWorkspace.
+        ensure_on_main, .checkout_or_create, .commit_if_staged, Phase5Tag's
+        tag creation, PrMerger.merge's three inline checkout/pull/rev-parse
+        blocks, Phase9PostRelease's cleanup path) plus a seventh Copilot
+        found independently (Phase2VersionBump's uv lock). All seven
+        converted in commit 6c32ca1, each with its own harness scenario (12
+        new tests): GitWorkspace's checkout/pull/commit sites got dedicated
+        unit tests against the class directly; Phase5's tag creation and
+        Phase2's uv lock got isolated phase tests; PrMerger's three
+        duplicated blocks were extracted into one _sync_local_main helper
+        (a genuine duplication reduction, not just a relocation) with two
+        tests covering its checkout/pull failures and its rev-parse kept
+        check=True with an inline justification; Phase9's cleanup path got
+        two tests (checkout failure, branch-delete failure) plus one more
+        for the restore-script-itself-failing branch Copilot's suppressed
+        review comment flagged separately.
+
+        Two qodo findings were also fixed with code, not just replies
+        (commit c318c4d): the Phase 4 swap-script retry test now uses the
+        REAL release-plugin.sh with a REAL rejecting pre-commit hook instead
+        of intercepting the whole ops.run call, so it genuinely reaches the
+        staged-but-uncommitted partial state and proves the retry lands a
+        production-shaped commit (name swapped, dev command actually removed
+        from disk) before reaching merge. The Phase 8 retry-loop timeout test
+        now fails a non-zero first attempt then raises TimeoutExpired on a
+        genuine second attempt (phase08_verify_pypi's own time.sleep patched
+        to a no-op), with both FaultRules' consumption counts asserted so a
+        regression that stopped retrying after the first failure fails the
+        test for the right reason.
+
+        Before reopening/reclosing the bead, I re-ran the same audit
+        methodology rmh used (grep every check=True-default ops.run/self.
+        _ops.run call in src/punt_kit/phases/, classify each) against the
+        post-round-2 state as a self-check, rather than trusting round 2 was
+        exhaustive. It found five more sites of the identical missed shape:
+        ReadmeShaPin.land has its own separate copy of the exact
+        checkout-main + branch-delete cleanup pattern Phase 9 already had
+        fixed (a second occurrence of the same bug class, not caught because
+        it lives in a different class); PrMerger.merge_in_sibling's git
+        status read against the sibling checkout (cross-repo, same class as
+        SiblingRepo.validate's reads); Phase8VerifyPypi's editable-install-
+        restore call (uv tool install --editable ., same external-tool risk
+        as the retry loop three lines above it); and Phase5Tag's git
+        ls-remote --tags origin in the resume path (network, same class as
+        git fetch origin and this phase's own tag push). All five converted
+        in commit 46cddec with five more tests, and ReleaseOps.run's
+        docstring now states the sweep's boundary explicitly (which
+        call-site classes convert vs. which stay check=True and why) so a
+        future audit has one place to check the criteria against instead of
+        inferring them from scattered comments.
+
+        Total: 24 converted call sites across 13 methods, three audit
+        passes, 31 new tests (11 matrix-row + 20 sweep scenarios), well
+        under 2s combined added wall-clock. Full suite: 669 passed (was 652
+        after round 1), 14 skipped, zero regressions.
+
+        pkit-f85t.7: reopened via bd update --status=in_progress, then
+        re-closed citing all commits across all three passes with an
+        accurate, audited completeness claim (no longer asserting "swept
+        every call site" without the evidence to back it — this time the
+        close text names the audit methodology and its scope explicitly).
+
+        PR #359 (branch feat/harness-wave4, off main, not merged): pushed
+        0c856a7 through the six round-2 commits. All three open bot review
+        threads replied to with the specific fixing commit and resolved via
+        GraphQL resolveReviewThread (isResolved: true for all three). CI is
+        green — docs/lint/test/CodeQL all SUCCESS, Cursor Bugbot NEUTRAL —
+        but mergeStateStatus reads BLOCKED with an empty reviewDecision,
+        which looks like a pending formal-approval gate rather than any
+        outstanding check or finding; flagged as an open question since it's
+        outside what a review-thread reply or fix commit can resolve.
+
+        Full narrative also at
+        .tmp/missions/results/m-2026-09-11-018-round2.md.

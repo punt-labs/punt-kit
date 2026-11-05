@@ -1,0 +1,9 @@
+You have an ethos mission: m-2026-09-13-001 (bead pkit-z9yq). Run `ethos mission show m-2026-09-13-001` and `ethos mission claim m-2026-09-13-001`, then implement it to the letter.
+
+Bug: `punt release` Phase 5 (`src/punt_kit/phases/phase05_tag.py`) tags `main` HEAD at tag-time, not the actual release commit. Phase 4c lands the README-install-SHA pin on main after the squash-merge, so by Phase 5 `main` HEAD is the README-bump commit — the tag drifts off the release commit (observed in biff v1.19.0: v1.19.0 tagged the README bump #430 instead of the release commit #429).
+
+Fix: Phase 4's injected `merge()` callable already returns the squash-merge commit SHA (see `phase04_release_pr.py:46`, `merge: Callable[..., str]`) — that's the release commit. Capture it, thread it through release.py's orchestration to Phase 5, and have Phase 5 create the tag on that explicit SHA (`git tag <tag> <sha>`), not on `main` HEAD. Preserve all existing Phase 5 resume/dry-run behavior (local-tag-exists re-entry, the annotated-vs-lightweight `_remote_tag_commit_sha` comparison). On `--resume-from tag` when the captured SHA isn't in state, fall back to a documented safe source (e.g. the last `chore: release vX.Y.Z` commit) rather than silently tagging HEAD — comment the fallback.
+
+Add regression tests in `tests/test_release.py` proving the tag lands on the captured release SHA even when `main` HEAD has advanced past it (a README-bump commit after the merge). Follow existing phase-5 test patterns.
+
+`make check` must exit 0 before every commit; no suppressions. Do NOT touch CHANGELOG.md (leader owns it). You're in an isolated worktree — do NOT push, do NOT open a PR. Branch `fix/pkit-z9yq-tag-release-commit` off main. Report: branch, commit SHAs, how you threaded the SHA, the resume fallback, and the make-check result. Your write-set is phase05_tag.py, phase04_release_pr.py, release.py, tests/test_release.py — if you need anything beyond those, stop and report.

@@ -1,0 +1,55 @@
+results:
+    - mission: m-2026-09-10-008
+      round: 1
+      created_at: "2026-09-10T23:23:19Z"
+      author: mdm
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: CHANGELOG.md
+          added: 1
+          removed: 0
+        - path: standards/filesystem.md
+          added: 10
+          removed: 3
+        - path: standards/punt-labs-dir.md
+          added: 128
+          removed: 37
+        - path: standards/tool-enable-disable.md
+          added: 48
+          removed: 31
+      evidence:
+        - name: make check (lint + type + test), run before every commit
+          status: pass
+        - name: npx markdownlint-cli2 on every touched doc, run before every commit
+          status: pass
+        - name: 'fleet survey: .punt-labs/<tool>/ + root-sentinel scan across all 31 sibling repos'
+          status: pass
+      open_questions:
+        - Ruling 3 (daemon-mutable zone) is provisional per the leader's context — written into the standard text as instructed, flagged prominently at the top of the PR description with an explicit revert scope if the operator does not ratify it.
+        - AGENTS.md and README.md both describe punt-labs-dir.md's zones as four (vendored/config/local/marker); now stale at five. Outside this mission's write-set (standards/ + CHANGELOG.md only) — flagged in the PR body as a follow-up, not fixed here.
+      prose: |
+        PR #352 (https://github.com/punt-labs/punt-kit/pull/352), branch
+        docs/config-location-standard off main, four incremental commits.
+
+        Codified operator rulings 1 (no repo-root sentinel, any shape) and 2
+        (.punt-labs/local/ always-gitignored — already matched existing text,
+        confirmed rather than changed) plus the leader's provisional ruling 3
+        (daemon-mutable files inside .punt-labs/<tool>/ are gitignored in place)
+        across standards/punt-labs-dir.md (substantive), standards/tool-enable-disable.md
+        and standards/filesystem.md (generalized cross-references, no restatement).
+
+        Fleet survey verified independently (not just cited from the leader's
+        context): confirmed the "30+ repos / 7 tools" and "~20 repos with surviving
+        sentinels" figures, and found two corrections folded into the standard text:
+        .vox/.lux at repo root are directories with live daemon-mutable settings
+        (not "pure presence" as the standard's prior text assumed), and
+        .ethos/missions.jsonl is a previously-undocumented root-tracked runtime log
+        present in every ethos-adopting repo checked. Both are new rows in
+        punt-labs-dir.md §9/§10.
+
+        PR description explains why the cross-repo breaking-change protocol does not
+        apply: additive-plus-deprecation, punt audit grades every open migration row
+        as a warning (never a fail) until its own status reaches Done/Complete, and
+        the daemon-mutable zone is purely additive (removes tracking going forward,
+        changes no runtime behavior).

@@ -1,0 +1,12 @@
+You are rmh, evaluator on ethos mission m-2026-09-11-015 in <repo>. Worker adb submitted a passing round-1 result: PR #357 (feat/harness-wave2) — Wave 2 engine fixes for four beads. No code edits, no merges, no deletes; under 45 minutes.
+
+Read: `ethos mission show m-2026-09-11-015`, `ethos mission results m-2026-09-11-015` (note its revert-verification evidence), `gh pr diff 357`, the four beads (bd show pkit-f85t.10 pkit-f85t.5 pkit-f85t.6 pkit-f85t.8 — run individually; DB works from this session), and design doc §4/§5-Wave-2.
+
+Evaluate against each bead's acceptance criteria:
+1. P0 pkit-f85t.10 — THE ADVERSARIAL FOCUS: read the new remote-check in phase05_tag.py. Does `git ls-remote --tags origin <tag>` get consulted on the right branch of the already-exists path? Think about what the fix might miss: ls-remote output parsing (exact-match vs prefix — a tag v1.2.3 vs v1.2.30 collision?), ls-remote failing (network) — does that path fail loud or silently treat as present/absent (which direction is safe?), annotated-tag deref lines (^{} suffix) in ls-remote output. Do the two harness scenarios genuinely simulate push-fails-then-resume (re-push observed) and tag-on-remote (no-op observed)?
+2. pkit-f85t.5 — the three retry-loop tests: drive the REAL PrMerger.merge; verify mid-loop recovery/exhaustion/exception-swallow actually reach attempts >= 2 (read assertions); TIME the test run yourself (pytest -k on those tests with -q and time it) to verify the sub-second claim and the sleep patch.
+3. pkit-f85t.6 — SkipRecorder plumbing: optional param semantics sound (None keeps old info-only behavior — verify a test covers BOTH), recap actually receives the secondary failure (trace to where print_manual_actions drains).
+4. pkit-f85t.8 — literal gone (grep for 7200 in gh.py), constant-derivation test meaningful.
+5. make check yourself; OO scores not regressed on touched files if a checker exists; CHANGELOG entries per bead; no unauthorized suppressions.
+Spot-verify at least one of the worker's revert-experiments yourself (revert one fix, run its test, confirm fail, restore).
+If defects: findings to .tmp/missions/results/ + `ethos mission reflect m-2026-09-11-015 --file <path>`. Otherwise no reflect. Report PASS/FAIL per bead with file:line evidence and a merge recommendation. Return the checkout to main when done if the tree is clean.

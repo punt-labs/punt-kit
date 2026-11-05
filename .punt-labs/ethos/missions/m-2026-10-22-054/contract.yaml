@@ -1,0 +1,51 @@
+mission_id: m-2026-10-22-054
+status: closed
+type: implement
+created_at: "2026-10-22T23:18:36Z"
+updated_at: "2026-10-23T00:33:34Z"
+closed_at: "2026-10-23T00:33:34Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-22T23:18:36Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - Every finding T1-T6 and S1-S5 is fixed, or (S3/S5 only) verified not applicable with evidence. Result file lists each ID with what was done and the commit.
+    - No pyright/mypy/ruff suppression remains in tests/test_release.py for PrMerger._select_existing or release._skips, and none is added anywhere.
+    - make check exits 0 in the worktree before every commit; read the full output.
+    - Assertion count does not decrease except for tests dropped under T2 (each listed with the covering test that makes it redundant).
+    - OO score on every touched src file does not regress (measure with /home/jfreeman/Coding/punt-labs/vox/tools/oo_score.py, before and after; report numbers).
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call. If a command is denied by permissions, stop and report the denial.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox, review-round fixes. Same worktree and branch as mission m-2026-10-22-051 (closed, pass): /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, branch refactor/release-legacy-helpers, now 6 commits ahead of main. Work and run every command there. Commit on that branch; do not push, do not touch PRs or merge — the leader does that.
+
+    Full-diff local review (evaluator gvr, feature-dev:code-reviewer, silent-failure-hunter, leader) produced the findings below. Fix ALL of them in this mission. Line numbers are approximate; locate by content.
+
+    TESTS (tests/test_release.py, tests/conftest.py)
+    T1. PY-CS-10: hoist function-local imports to the module header — at minimum SiblingRepo, PrMerger, ReleasePipeline, ReleaseProject introduced by the prior mission, AND every other function-local import in test_release.py (the file has ~49). Keep a function-local import ONLY where hoisting would genuinely break something (circular import, or a test that deliberately re-imports after monkeypatching); each kept one gets a one-line comment saying why.
+    T2. No suppressions in tests for the code this branch touches: the `_select_existing_pr` test helper carries `# pyright: ignore[reportPrivateUsage]  # noqa: SLF001` on PrMerger._select_existing, and test_phase_summary_recaps_skipped_propagation uses `release._skips  # pyright: ignore[reportPrivateUsage]`. Remove both. Options: drive selection through the public PrMerger.merge with the existing fixtures, or (if tests/test_gh_fixture_contracts.py already covers _select_existing fully — verify, do not assume) drop the five private tests and say so. For _skips, construct the SkipRecorder the test needs rather than reaching into release's private module state. Your call on mechanism; no suppression may remain.
+    T3. PL-TT-4: `FaultInjectingOps(real_run=_run, rules=[])` is now repeated ~13 times. Provide one shared helper/fixture (conftest.py if used across files, else a module-level helper) and use it at every site, including the pre-existing ones. Likewise the repointed branch-protection/ruleset tests hand-roll the same payloads `_protection_response`/`_ruleset_response` encode — build them from one shared source.
+    T4. Endpoint-pinned fault rules: every `_repo_answering` test uses `match=["gh", "api"]`, so a method calling the wrong endpoint still passes. Match the full argv including the endpoint path (protection vs rules/branches/main), so a wrong endpoint hits FaultInjectingOps' deny-by-default AssertionError.
+    T5. `pytest.raises(ReleaseError)` in test_validate_sibling_fails_wrong_branch / _fails_dirty (and the other SiblingRepo.validate failure tests) has no match=; add match= on the specific message so the test fails for the wrong reason.
+    T6. test_bump_readme_install_sha_dry_run_no_changes asserts only "README unchanged", which also holds when bump is a no-op. Assert the dry-run output line (capsys) so the dry branch is proven to run.
+
+    SOURCE
+    S1. ReadmeShaPin.bump(dry_run=True) has no production caller: ReadmeShaPin.land's dry_run branch prints a literal placeholder and only ever calls bump(dry_run=False). Wire it forward (PY-RF-6): land's dry_run branch calls self.bump(version, dry_run=True, resolve_repo=resolve_repo) so `punt release --dry-run` shows the real README rewrite it would make. Keep the rest of land's dry-run output truthful. Add/adjust a test proving land(dry_run=True) reaches bump's dry branch and writes nothing.
+    S2. Silent no-op: GithubRepo.resolve swallows TimeoutExpired/OSError and returns None; ReadmeShaPin.bump then falls back to punt-labs/<root.name> and, if that slug is wrong, makes zero substitutions and prints nothing — a real release would leave the README pin stale silently. Make bump warn (via ops) when resolve_repo returns None (stating the fallback slug used) and when README contains install.sh URLs but zero substitutions were made. Test both warnings.
+    S3. PL-PP-1: delete the unused backwards-compat aliases in release.py — the reviewer listed _GITHUB_ABSENT_SKIP, _PROPAGATION_OWNED_PATHS, _UV_TIMEOUT, _GIT_NETWORK_TIMEOUT, _CI_ADVERSE_CONCLUSIONS, _CI_WATCH_TIMEOUT, _CI_RUN_LIST_TIMEOUT, _normalize_package_name. VERIFY each has zero references in src/ and tests/ before deleting; keep any that are referenced, and report which.
+    S4. PY-DOC-2: strip bead/tracker IDs from comments and docstrings in the touched files (e.g. test_release.py headings/comments citing pkit-3zu8, pkit-f85t.7, pkit-plxh; release.py citing pkit-f85t.11, pkit-d7mz). Keep the explanatory substance; remove only the citation.
+    S5. Docs drift: the _ReleaseOpsAdapter docstring and the comment near release.py's alias block describe a `monkeypatch.setattr(release_mod, "_run", ...)` workflow. Check whether any test still uses that seam; if yes, leave the description accurate; if no, update it to describe what is true.
+
+    ESCALATE to the leader instead of deciding if: S1 would change what `punt release --dry-run` prints in a way beyond replacing the placeholder with the real rewrite; or any fix would require changing a public CLI flag or exit code.

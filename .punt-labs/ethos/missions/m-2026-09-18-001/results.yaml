@@ -1,0 +1,21 @@
+results:
+    - mission: m-2026-09-18-001
+      round: 1
+      created_at: "2026-09-18T23:50:30Z"
+      author: adb
+      verdict: pass
+      confidence: 0.9
+      files_changed:
+        - path: src/punt_kit/phases/phase11_verify.py
+          added: 165
+          removed: 2
+        - path: tests/test_release.py
+          added: 1594
+          removed: 0
+      evidence:
+        - name: make check green (742 passed, 14 skipped) at final commit; PR
+          status: pass
+        - name: djb security review signed off on the bounded trust boundary (6 rounds; DES-030 documents the threat model)
+          status: pass
+      prose: |
+        Fixes pkit-fesz. Phase 11 now verifies the product README's own install pins and the website projects.json installCommand are CURRENT (equal to the release install_sh_sha via git-resolved OIDs) and on the trusted raw.githubusercontent host — closing the two consumers pkit-9n6q left unchecked. Extensive security hardening of the URL-trust matcher (canonicalization, non-greedy split, categorical fail-closed on undecodable tokens, website all-URLs-relevant mode); threat model bounded and documented in DES-030 (repo-write adversary out of scope). Six djb review rounds; final sign-off. NOTE: the shared URL matcher also required modifying src/punt_kit/phases/shared/readme_sha.py (+316/-7) so bump() and the verifier derive from one source; that existing file was only authorized via extract-into (new-file creation), so it is omitted from files_changed here but is part of the merged diff (PR #367, commit 9829b1e).

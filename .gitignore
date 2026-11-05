@@ -226,9 +226,19 @@ resume.md
 # tracked under .punt-labs/ethos/ and resolves repo-only. Only runtime state
 # is ignored: per-run sessions and mission lock files.
 .punt-labs/ethos/sessions/
-.punt-labs/ethos/missions/**/.lock
 **/.create.lock
 
-# ethos runtime (never track) — DES-058 live zone + mission locks
+# ethos mission records (contract/results/reflections/delegations and the
+# missions.jsonl ledger) are the blame tier and are tracked, per
+# standards/punt-labs-dir.md (ethos DES-079). Only the session-trace tier and
+# locks are machine-local; ignore those so the `punt release` clean-tree
+# preflight passes.
 .punt-labs/ethos/missions/**/*.lock
+.punt-labs/ethos/missions/*/.lock
+.punt-labs/ethos/missions/.create.lock
+.punt-labs/ethos/missions/**/log-*.jsonl
+.punt-labs/ethos/missions.jsonl.lock
+.punt-labs/ethos/.biff
+
+# ethos runtime (never track) — DES-058 live zone
 .punt-labs/**/*.ethos-tmp*

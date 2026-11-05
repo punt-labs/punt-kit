@@ -1,0 +1,8 @@
+id: d-2026-09-09-019
+tier: B
+mission: m-2026-09-09-004
+parent_session: d5556606-2a7f-4982-9049-396952f30e11
+agent_type: silent-failure-hunter
+created_at: "2026-09-09T05:40:18Z"
+closed_at: "2026-09-09T06:04:44Z"
+verdict: pass

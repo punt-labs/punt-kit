@@ -1,0 +1,62 @@
+mission_id: m-2026-10-23-001
+status: failed
+type: implement
+created_at: "2026-10-23T00:43:16Z"
+updated_at: "2026-10-23T01:52:47Z"
+closed_at: "2026-10-23T01:52:47Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T00:43:16Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/release.py
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/phases/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - Every item A-H is done; the result file lists each with what was done, the commit, and evidence.
+    - Exactly one pinned-install-URL recognizer exists and both ReadmeShaPin.bump and Phase 11 use it; exactly one changelog section parser exists and every changelog reader uses it (grep evidence in the result).
+    - Breaking-marker fleet survey recorded in the result (repo -> marker), and the chosen marker matches it.
+    - 'Bug fixes are TDD: each of A, B, C has a test that fails on the pre-fix code; say so per test in the result.'
+    - make check exits 0 before every commit; read the full output.
+    - Assertion count does not decrease. Suppression count in the two test files strictly decreases; every survivor is justified in a comment and listed in the result.
+    - OO score on every touched src file does not regress, measured with /home/jfreeman/Coding/punt-labs/vox/tools/oo_score.py; do not cut documentation to hit a number.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox, third pass. Same worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, branch refactor/release-legacy-helpers. Prior missions m-2026-10-22-051 and m-2026-10-22-054 are closed (pass). Work and run every command there. Commit on that branch; do not push, do not touch PRs or merge — the leader does that. Do NOT edit CHANGELOG.md (leader-owned); list in your result every user-visible behavior change so the leader can write the entries.
+
+    A full-diff review round (code-reviewer, silent-failure-hunter, invariant-completeness-reviewer) found the defects below. Two areas — README pin handling and changelog parsing — have now produced defects in three consecutive rounds. Stop point-patching them: the fix for each is STRUCTURAL (A and B). Everything else is a targeted fix. Fix ALL of it. Line numbers approximate.
+
+    A. README INSTALL PIN — one recognizer (src/punt_kit/phases/shared/readme_sha.py, phase11_verify.py)
+    Root cause: ReadmeShaPin.bump and Phase 11's classify_install_urls each recognize "a pinned install URL" with their own pattern; they disagree on case (bump is case-sensitive, classify is IGNORECASE), owner handling, and URL shape. Result: stale pins that bump neither rewrites nor warns about, which Phase 11 only catches AFTER PyPI publish. Observed cases: mixed-case repo segment (no rewrite, no warning); owner case mismatch (false "different owner" warning); a second pin under another owner silently skipped when any pin matched (warning gated on count == 0); /install.SH; tag shapes outside _PINNED; a trailing-slash slug from GithubRepo.resolve defeats both patterns; a slug with no "/" crashes in split instead of warning.
+    Required design: bump and Phase 11 share ONE pinned-install-URL recognizer (case-insensitive owner/repo, as GitHub routes them). After substitution, bump verifies its own output with that same recognizer: any pin it would trust whose SHA differs from the new SHA produces a warning naming the URL. Normalize and validate the resolved slug (strip slashes, exactly one owner/repo separator); an invalid slug takes the existing fallback-with-warning path, never a crash. Document in the recognizer's docstring exactly which URL shapes are in scope (pinned raw.githubusercontent and any others classify handles) and which are deliberately out.
+    Dry-run: bump returns whether it would change anything. land(dry_run=True) prints the commit/merge preview lines ONLY when bump would change something; when the README is already current it says so. Compute the real install.sh SHA in dry-run (it is a read-only git query) instead of the "<SHA>" placeholder, so "already current" is detectable.
+    Tests: case-mismatch repo, case-mismatch owner (no false warning), two pins one stale, trailing-slash slug, no-slash slug, out-of-scope shapes untouched. test_land_dry_run_previews_readme_rewrite_without_writing must also assert no release-readme-pin/* branch exists and the current branch is unchanged. The "README already pins the current SHA" fixtures (~test_release.py:6305/6358/6409) use "currentsha", which is not hex and never matches — use a real hex SHA so those tests prove recognition, and fold their three copy-pasted ~25-line fake_run/_repo_slug setups into one helper.
+
+    B. CHANGELOG PARSING — a real section parser (src/punt_kit/phases/shared/changelog.py, phase01_preflight.py)
+    Root cause: regex over prose. Observed: an [Unreleased] containing only "### Added"/"### Fixed" headings or an HTML comment counts as non-empty, so preflight passes and an empty release ships (and suggest_next_version proposes a minor bump); "breaking" is a substring match, so "- Non-breaking tweak" under ### Changed auto-applies a MAJOR bump (release.py ~627 uses the suggestion without asking); an empty "### Changed" heading swallows the next subsection; a "## [" line inside a fenced code block ends the section; a UTF-8 BOM before "## [Unreleased]" now fails "No [Unreleased] section".
+    Required design: one parser that splits the changelog into versioned sections and their ### subsections, aware of fenced code blocks and a leading BOM, with "has entries" defined as at least one line that is not blank, not a heading, and not an HTML comment. Preflight, has-entries, require_unreleased_entries, suggest_next_version, and extract_version_notes all use it — no second parse anywhere.
+    Breaking-change marker: before choosing, survey how breaking changes are actually marked in the sibling repos' CHANGELOG.md files (/home/jfreeman/Coding/punt-labs/*/CHANGELOG.md) and match the convention the fleet already uses; record the survey (repo -> marker form) in your result. If there is no consistent convention, STOP and escalate to the leader with the survey — do not invent one. "Non-breaking" must never trigger a major bump.
+    Tests: headings-only and comment-only [Unreleased] are empty (preflight fails, no bump); "Non-breaking" is not breaking; empty ### Changed does not swallow the next subsection; fenced "## [" does not end the section; BOM accepted; the "No [Unreleased] section in CHANGELOG.md" path is tested (it has no test today).
+
+    C. siblings.py ~170-176: SiblingRepo.validate does stdout.strip().splitlines() then ln[3:]; the strip eats the first line's leading space, so " M .beads/issues.jsonl" parses as "beads/issues.jsonl" and falsely blocks a release. Use splitlines() without strip (as reset_owned_dirt in the same file already does). TDD: failing test first.
+
+    D. Vacuous guard tests: test_hook_firing_git_calls_do_not_use_default_timeout (~test_release.py:11316) and its bash-script variant (~11760) scan only release.py, where no phase code lives any more, so offenders is always []. Scan src/punt_kit/phases/**/*.py for ops.run calls of hook-firing git commands, require the hook timeout, and assert the number inspected is > 0 so the guard cannot go vacuous again.
+
+    E. PL-PP-1 and test suppressions. Delete the remaining compat aliases in release.py: _TagRunSelector, _GIT_HOOK_TIMEOUT, _QUALITY_GATE_TIMEOUT; tests import the real names (TagRunSelector from phases.shared.ci_run; timeouts.GIT_HOOK / timeouts.QUALITY_GATE). Then every lint/type suppression in tests/test_release.py (about 72) and tests/test_gh_fixture_contracts.py is either removed — by testing through the real class/public API instead of release.py private names (e.g. the release._land_readme_sha_pin calls) — or, if it is genuinely irreducible, carries a one-line justification naming why. Report the count before and after and list every survivor with its justification.
+
+    F. PY-DOC-2 residue in src/punt_kit/phases/**, release.py, and both test files: remove review-thread IDs (PRRT_...), PR numbers, "round 1"/"qodo"/"Copilot flagged" narration, plan-section references (§0, §1a, §1d, §2b), and "previously/the prior design/this sweep/extracted from" history narration; keep each comment's why. RULING: DES-NNN references to DESIGN.md are durable design records and STAY. Also fix the two comments still naming deleted aliases (~test_release.py:4973, 11360).
+
+    G. tests/test_gh_fixture_contracts.py: pin fault rules to full argv (endpoint included), not bare ["gh","api"], including the GraphQL fixture at ~286; replace the near-vacuous match="test" at ~187 with the full failed-check message; restore the lost fixture-precondition assert (fixture state == expected) in the parametrized merge test.
+
+    H. _assert_failed_checks (~test_release.py:6815): assert detail on the matching "✗ <name>:" line itself, not anywhere in the output.
+
+    ESCALATE instead of deciding if: the breaking-marker survey shows no consistent convention; or any fix would change a CLI flag, exit code, or a message an operator scripts against.

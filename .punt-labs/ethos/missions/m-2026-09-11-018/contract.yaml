@@ -1,0 +1,27 @@
+mission_id: m-2026-09-11-018
+status: closed
+type: implement
+created_at: "2026-09-11T08:44:50Z"
+updated_at: "2026-09-11T10:33:39Z"
+closed_at: "2026-09-11T10:33:39Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T08:44:50Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - tests/
+    - src/punt_kit/
+    - CHANGELOG.md
+success_criteria:
+    - 'Matrix-row tests added, one logical commit per phase group: row 3 (preflight git fetch failure), row 6 (quality-gate subprocess TimeoutExpired at its call site), row 12 (Phase 3 uv build/twine failure), row 13 (Phase 4 failed commit mid-plugin-swap, HEAD-consult retry), row 20 (Phase 5 tag push failure — beyond the Wave 2 resume scenarios: the initial-push failure path itself), row 29 (Phase 7 gh release create failure), rows 31/32 (Phase 8 dry-run hang via TimeoutExpired; Phase 9 failed restore commit HEAD-consult), row 52 (Phase 11 full check run against a hybrid project with install.sh but no plugin.json), row 54 (a forced DEFAULT_RUN timeout firing end-to-end with its diagnosis message asserted), row 55 (Go quality-gate failure parallel to the Python one)'
+    - 'pkit-f85t.7 sweep: every ops.run call site in src/punt_kit/phases/ that can fail operationally either passes check=False with a diagnosed ops.fail message or has a written justification for check=True (constructor-time invariants OK); each converted site gets a harness scenario; bead closed via direnv exec . bd close citing commits'
+    - make check green per commit; added wall-clock under 5 seconds total (use TimeoutExpired injection, never real waits); src/ changes limited to the f85t.7 sweep and any genuinely-required seam (justified in PR); CHANGELOG entries; branch feat/harness-wave4 off main; PR opened, not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: 'Wave 4 of the accepted release failure-path harness design (docs/design-release-failure-harness.md — sole mechanism authority: §5 Wave 4 as amended, §4 defects #5/#6, matrix rows 3, 6, 12, 13, 20, 29, 31, 32, 52, 54, 55). Waves 0-3 merged. Wave 4 is the thin-phase coverage sweep — the isolated failure-path tests the incident-driven suite never needed to write, plus the pkit-f85t.7 diagnosed-error sweep (bd show pkit-f85t.7 — a few ops.run call sites still default check=True and leak raw CalledProcessError instead of a diagnosed message; sweep them to check=False + ops.fail with context). Use the merged harness primitives and fixtures throughout; real tmp_path git repos per §1b.'

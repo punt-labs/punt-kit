@@ -1,0 +1,42 @@
+results:
+    - mission: m-2026-09-13-002
+      round: 1
+      created_at: "2026-09-13T14:47:04Z"
+      author: rmh
+      verdict: pass
+      confidence: 1
+      files_changed:
+        - path: tests/test_record_gh_fixtures.py
+          added: 20
+          removed: 3
+      evidence:
+        - name: TMPDIR=$PWD/.tmp uv run pytest tests/test_record_gh_fixtures.py::test_display_path_falls_back_to_absolute_outside_the_repo -v
+          status: pass
+        - name: unset TMPDIR; uv run pytest tests/test_record_gh_fixtures.py::test_display_path_falls_back_to_absolute_outside_the_repo -v
+          status: pass
+        - name: TMPDIR=$PWD/.tmp uv run pytest tests/test_record_gh_fixtures.py -q (81 passed)
+          status: pass
+        - name: unset TMPDIR; uv run pytest tests/test_record_gh_fixtures.py -q (81 passed)
+          status: pass
+        - name: make check (688 passed, 14 skipped)
+          status: pass
+      prose: |
+        The test built its "outside the repo" path from pytest's tmp_path,
+        which inherits TMPDIR. This project's .envrc exports TMPDIR into
+        .tmp/ under the repo root, so tmp_path landed inside the repo and the
+        outside-the-repo premise collapsed.
+
+        Fix: build the temp dir independent of TMPDIR. Clear the env var via
+        monkeypatch.delenv and also clear tempfile's cached answer
+        (monkeypatch.setattr(tempfile, "tempdir", None)) — gettempdir()
+        resolves once per process and remembers the answer in the tempfile.tempdir
+        module attribute, so deleting the env var alone is not sufficient once
+        another test has already triggered resolution. With both cleared,
+        tempfile.TemporaryDirectory() falls through to the real system temp
+        root regardless of what TMPDIR was set to. Test intent (display-path
+        falls back to an absolute path outside the repo) is preserved; a
+        precondition assertion (not outside.is_relative_to(_ROOT)) makes the
+        outside-the-repo premise explicit rather than assumed.
+
+        Branch: fix/pkit-17qo-tmpdir-test
+        Commit: 810cddc

@@ -1,0 +1,44 @@
+mission_id: m-2026-10-23-018
+status: closed
+type: implement
+created_at: "2026-10-23T10:25:45Z"
+updated_at: "2026-10-23T22:33:06Z"
+closed_at: "2026-10-23T22:33:06Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-10-23T10:25:45Z"
+    hash: 0d8461da6f9a08d8b6a702ddbec8975f6edd4c3d8b18efe8c71ee542b8a484aa
+inputs: {}
+write_set:
+    - .claude/worktrees/release-legacy-helpers/src/punt_kit/
+    - .claude/worktrees/release-legacy-helpers/tests/
+success_criteria:
+    - Y1-Y8 done; result lists each with commit and evidence; failing-first noted per behavior fix.
+    - Every subprocess.run in src/punt_kit passes an explicit timeout (grep evidence in the result).
+    - make check exits 0 before every commit; read the FULL output.
+    - Assertion count does not decrease; zero suppressions added; no source module over 300 lines at 035fb7e grows past that size; OO does not regress, never by cutting docs.
+    - Commit incrementally — one commit per logical step (file group, single concern, or single PR-equivalent slice). Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes.
+    - 'Commit only files you changed (git add <file>, never -A or -a). Conventional Commits messages ending with: Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>'
+    - Commit on branch refactor/release-legacy-helpers; do not push, do not touch PRs or merge — the leader does that. One shell command per Bash call; never chain a commit after a gate. If a command is denied, stop and report it.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+context: |
+    Bead pkit-ewox, fourth final-review round. Worktree/branch: /home/jfreeman/Coding/punt-labs/punt-kit/.claude/worktrees/release-legacy-helpers, refactor/release-legacy-helpers. Commit on that branch; do not push, do not touch PRs or merge. Do NOT edit CHANGELOG.md — list user-visible changes in the result. Test-first for every behavior fix. Reviewer probes: the worktree's .tmp/sfh4/.
+
+    Y1. init_beads.py ~54-60 spawns `bd init` with subprocess.run directly and NO timeout — a hung bd hangs `punt init` forever. Route it through CommandRunner with a named budget (timeouts.DEFAULT_RUN or a new justified constant); catch subprocess.TimeoutExpired alongside CalledProcessError/OSError and raise BeadsInitError naming the timeout. Check the other spawn sites outside the release path (audit.py, git_checkout.py, pii.py, audit_github.py, init.py): every subprocess.run must pass an explicit timeout; route through CommandRunner where it fits. CommandRunner's docstring states its real scope. Tests: a hanging bd stub times out and init exits 1 naming it.
+    Y2. audit.py ~567 and ~685: escape() the error text in the finding detail, like _guarded and the detect handler. Test with a path containing `[x]` and `[/dim]`.
+    Y3. PL-PP-1: release.py ~35 `from ...errors import ReleaseError as ReleaseError` is a re-export alias; tests import ReleaseError from punt_kit.phases.shared.errors and the alias goes.
+    Y4. init.py ~249 inline `import sys` -> module top (PY-CS-10).
+    Y5. OperationalFailure.one_line (errors.py ~557-567): a CalledProcessError includes its captured stderr (and output, when stderr is empty), stripped and truncated sensibly. Tests pass `stderr=` and assert the text appears, in both the worker-thread and main-thread paths.
+    Y6. Interrupt path (release.py ~732-737 finally; pipeline.py ~641-642 collect): an error in flight when the interrupt flag is set is still shown — a ReleaseError via print_unreported, a bug via print_crash, an operational error as one line — before the interrupt report and exit. In collect, the gathered errors are retained into the recap (or printed) before KeyboardInterrupt is raised. Test: interrupt set + Phase 11 ReleaseError/KeyError — the message appears exactly once.
+    Y7. VersionAssignment (shell), RULING on multiple assignments:
+        - rewrite EVERY plain line-start VERSION assignment (not only the first), so a later re-pin cannot stay stale; Phase 11 verifies every plain assignment equals the version;
+        - a computed first assignment still fails; a computed later assignment still warns naming the line;
+        - more than one assignment (plain or computed) produces a warning naming every line, since a heredoc or conditional may make some of them non-effective;
+        - use `[ \t]*` not `\s*` around `=` so an assignment never spans a newline.
+        Tests: plain + indented plain re-pin in an if-block (both rewritten, Phase 11 checks both), a heredoc line + a real pin (both rewritten, warning names both), `VERSION=\n"0.1.0"` (not an assignment).
+    Y8. init.py ~136-146: print the beads failure when it is captured (not only after later steps), so a later step raising cannot hide it; still exit 1 at the end. Test: bd fails and a later step raises OSError — both are reported.

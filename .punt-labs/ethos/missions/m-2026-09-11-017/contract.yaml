@@ -1,0 +1,28 @@
+mission_id: m-2026-09-11-017
+status: closed
+type: implement
+created_at: "2026-09-11T08:14:01Z"
+updated_at: "2026-09-11T08:44:33Z"
+closed_at: "2026-09-11T08:44:33Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T08:14:01Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - tests/
+    - src/punt_kit/
+    - CHANGELOG.md
+success_criteria:
+    - 'Row 36a: a test reproduces the DES-029 join mechanism — a Phase 10 propagator worker held in a scripted pending-forever RequiredChecksWaiter poll (fake pending response + patched sleep), interrupt delivered per the corrected model, executor join asserted prompt within a bounded timeout WHILE the fake would still be pending (never released early), and the incomplete-release report asserted'
+    - 'Row 48: SIGINT mid-propagation with sibling mid-write residue — the test builds the exact owned-file residue state, interrupts, and asserts reset_propagation_siblings(fail_on_error=False) restores it in the interrupt path specifically (distinct from the next-run auto-recovery already covered)'
+    - Tests use only merged harness primitives and fixtures (FaultRule raises/pending responses, patched sleep per the shared time singleton finding, real tmp_path git repos); no new primitive classes without design justification; total added wall-clock under 5 seconds
+    - make check green before every commit; commit per logical step; zero src/ changes unless a genuine seam gap surfaces (justify in PR if so, keep minimal); CHANGELOG entry; branch feat/harness-wave3 off main; PR opened, not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'Wave 3 of the accepted release failure-path harness design (docs/design-release-failure-harness.md — sole mechanism authority: §2c and §5 Wave 3 AS REVISED through the five design review rounds — the blocking-FaultRule primitive was REMOVED; the sanctioned mechanism is a pending-forever fake response plus patched sleep with bounded-timeout assertions, workers never released early; interrupt simulation is raises=KeyboardInterrupt on rules plus rule-anchored interrupt_after; run_release does NOT poll _interrupted between phases 1-8 — only RequiredChecksWaiter''s poll loop checks the event, per the corrected two-path interrupt model). Waves 0-2 merged: primitives, fixtures, and the engine fixes (incl. interrupt-aware polling). Wave 3 delivers the SIGINT/concurrency scenarios — matrix rows 36a and 48: reproduce the DES-029 mechanism DIRECTLY (Phase 10 propagator worker blocked in a scripted pending-forever gh call, interrupt raised, assert ThreadPoolExecutor.__exit__ returns promptly within a bounded timeout and reset_propagation_siblings(fail_on_error=False) runs against the exact mid-write residue state), rather than only the post-fix reporting path covered today.'

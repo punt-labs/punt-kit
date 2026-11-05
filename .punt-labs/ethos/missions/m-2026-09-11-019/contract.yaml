@@ -1,0 +1,28 @@
+mission_id: m-2026-09-11-019
+status: closed
+type: implement
+created_at: "2026-09-11T10:33:57Z"
+updated_at: "2026-09-11T11:14:57Z"
+closed_at: "2026-09-11T11:14:57Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: rmh
+    pinned_at: "2026-09-11T10:33:57Z"
+    hash: 261e5796cde8b6ffe44260341f8b9f415ab4a6486c75caf0bb2a0a3f36560f83
+inputs:
+    ticket: pkit-f85t
+write_set:
+    - tests/
+    - src/punt_kit/
+    - CHANGELOG.md
+success_criteria:
+    - One parametrized test (11 cases, one per resume point) drives run_release fresh to a stop after phase N, asserts the incomplete-release report names the right resume phase, then invokes run_release --resume-from <phase-N+1-name> against the same tmp_path project and asserts clean completion — real git repos, all gh/PyPI via fixtures/FaultRules, zero network
+    - Every phase's post-stop on-disk state is the genuine artifact of the fresh run (no hand-built states); where a resume genuinely cannot be clean today (a real engine gap), the test documents it via a targeted xfail-with-bead only after filing that bead — expected-clean is the default, xfail requires my sign-off via the mission result, not silent accommodation
+    - Added wall-clock under 15 seconds for all 11 cases combined (this is the heaviest integration sweep; TimeoutExpired/KeyboardInterrupt injection, patched sleeps, no real waits)
+    - make check green per commit; CHANGELOG entry; branch feat/harness-wave5 off main; PR opened, not merged
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 1
+context: 'Wave 5 — the FINAL wave of the accepted release failure-path harness design (docs/design-release-failure-harness.md §5 Wave 5, matrix row 53, defect #7; the merged design is the sole mechanism authority, including the corrected two-path interrupt model). Waves 0-4 are merged: primitives, fixtures, DES-029 scenarios, thin-phase coverage, and the 24-site diagnosed-error sweep. Wave 5 is the exhaustive resume-point sweep — sequenced last by design so any failure it finds points at a genuine gap rather than a harness bug: one parametrized test driving run_release FRESH through a scripted-complete release, stopping it after each of the 11 phases in turn, then asserting --resume-from <next-phase-name> picks up cleanly from that exact on-disk state and completes. Stopping mechanism per the corrected model: a FaultRule raises=KeyboardInterrupt (or ReleaseError) on the first command of phase N+1, not a fictional between-phase event poll.'
