@@ -14,7 +14,14 @@ if TYPE_CHECKING:
 
 # Sibling repos checked during preflight and used during propagation (phase 10).
 # Must stay in sync with the propagator classes in phase10_propagate.py.
-PROPAGATION_SIBLINGS: tuple[str, ...] = ("claude-plugins", ".github", "public-website")
+TAP_SIBLING = "homebrew-tap"
+
+PROPAGATION_SIBLINGS: tuple[str, ...] = (
+    "claude-plugins",
+    ".github",
+    "public-website",
+    TAP_SIBLING,
+)
 
 # Files each sibling's propagation writes. SiblingRegistry.reset_all uses this
 # map to reconcile a sibling left dirty by an interrupted phase 10 — the
@@ -24,6 +31,9 @@ PROPAGATION_SIBLINGS: tuple[str, ...] = ("claude-plugins", ".github", "public-we
 # unrelated operator work in the same repo survives the reset — the guard in
 # SiblingRepo.validate still trips on anything outside this set. Must stay in
 # sync with the propagator classes and InstallAllPropagator._sync_profile.
+# The tap has no entry: which formula a release owns depends on the project, so
+# SiblingRegistry.reset_all is handed it (``tap_paths``) and never touches the
+# tap without it.
 PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
     ".github": ("install-all.sh", "profile/README.md"),
     "claude-plugins": (".claude-plugin/marketplace.json",),
@@ -131,7 +141,9 @@ class SiblingRepo:
                 f"{result.stderr.strip()}"
             )
 
-    def reset_owned_dirt(self, *, fail_on_error: bool) -> None:
+    def reset_owned_dirt(
+        self, *, fail_on_error: bool, owned: tuple[str, ...] | None = None
+    ) -> None:
         """Restore propagation-owned files if this sibling is dirty in them.
 
         The propagation writes a tracked file before calling into
@@ -147,7 +159,7 @@ class SiblingRepo:
         human's unrelated work in the sibling survives the reset. On sibling
         names with no ownership entry, also do nothing rather than guess.
         """
-        owned = PROPAGATION_OWNED_PATHS.get(self._name)
+        owned = owned or PROPAGATION_OWNED_PATHS.get(self._name)
         if not owned:
             return
 
@@ -222,6 +234,7 @@ class SiblingRegistry:
         *,
         resolve: Callable[[Path, str], Path | None],
         fail_on_error: bool = True,
+        tap_paths: tuple[str, ...] = (),
     ) -> None:
         """Return all propagation sibling repos to the main branch.
 
@@ -247,6 +260,10 @@ class SiblingRegistry:
         that seam through unchanged.
         """
         for sib_name in PROPAGATION_SIBLINGS:
+            # The tap is shared with every other project's formulas: a project
+            # that does not propagate into it must never reset anything there.
+            if sib_name == TAP_SIBLING and not tap_paths:
+                continue
             sib_path = resolve(root, sib_name)
             if sib_path is None:
                 continue
@@ -294,5 +311,6 @@ class SiblingRegistry:
             # it). Reconcile a dirty propagation-owned file left by an
             # interrupted write; leave unrelated modifications alone.
             SiblingRepo(sib_path, sib_name, ops=self._ops).reset_owned_dirt(
-                fail_on_error=fail_on_error
+                fail_on_error=fail_on_error,
+                owned=tap_paths if sib_name == TAP_SIBLING else None,
             )

@@ -8,10 +8,15 @@ from typing import TYPE_CHECKING, Self, final
 
 from rich.console import Console
 
+from punt_kit.phases.phase10_homebrew import has_brew_formula_target
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.json_file import JsonFile
-from punt_kit.phases.shared.siblings import PROPAGATION_SIBLINGS, SiblingRepo
+from punt_kit.phases.shared.siblings import (
+    PROPAGATION_SIBLINGS,
+    TAP_SIBLING,
+    SiblingRepo,
+)
 from punt_kit.phases.shared.timeouts import GIT_HOOK, QUALITY_GATE
 
 if TYPE_CHECKING:
@@ -149,6 +154,10 @@ class Phase1Preflight:
         # Also catches stale propagation branches from prior releases.
         siblings_checked = 0
         for sib_name in PROPAGATION_SIBLINGS:
+            # The tap is checked only for a project that propagates into it: a
+            # dirty tap must not block releases of projects that never touch it.
+            if sib_name == TAP_SIBLING and not has_brew_formula_target(info.root):
+                continue
             sibling = SiblingRepo.resolve(info.root, sib_name, ops=ops)
             if sibling is not None:
                 sibling.validate()

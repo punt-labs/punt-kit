@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- `standards/mcp-caller-identity.md` and DES-035 — how an engine learns which
+- `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which
   Claude Code session and agent is calling: each plugin's PreToolUse hook
   stamps `_caller {session_id, agent_id}` on its own tools, the server strips
   it before validation, and an engine holding per-session state owns its
@@ -14,6 +14,17 @@ All notable changes to this project will be documented in this file.
   measurements against Claude Code 2.1.309. `architecture.md`, `hooks.md`,
   and `filesystem.md` cross-reference it; `filesystem.md` reserves
   `sessions/`.
+- `punt release` phase 3 now installs each built wheel in an isolated
+  environment, imports the package, and fails the release unless its
+  `__version__` equals the release version as written or in its canonical
+  PEP 440 form (so `1.0.0-rc1` matches `1.0.0rc1`, but `v1.0.0` and `1.0` do
+  not), before anything is published. This catches a stale version that a
+  static read of `__init__.py` cannot see, such as a `globals()` rebind, a
+  PEP 562 `__getattr__`, or a monkeypatched reader. The module must ship in
+  the wheel and must not resolve to the standard library or to another
+  installed package. A module with no
+  `__version__`, or a run resumed past the build step, is listed under the
+  end-of-run skips (DES-035). `packaging` is now a runtime dependency.
 - `src/punt_kit/templates/pr_agent.toml` — the Qodo review config template
   every repo instantiates as `.pr_agent.toml`: one review at open, no push
   trigger, Highs inline, Mediums in the summary, Lows dropped.
@@ -33,6 +44,24 @@ All notable changes to this project will be documented in this file.
   deadlock: the two delta-review guard defects, and the earlier
   blocked-fix prose (no re-escalation, and a fix-ruled finding answered only
   by its fix).
+- `punt release` Phase 10e propagates the release to the `homebrew-tap`: when
+  the project's Makefile has a `brew-formula` target and
+  `../homebrew-tap/Formula/<name>.rb` exists, it runs
+  `make brew-formula FORMULA_OUT=../homebrew-tap/Formula/<name>.rb`, files
+  `<name>: bump to vX.Y.Z` under the tap's `[Unreleased]`, and merges the
+  change through a sibling PR, after checking that the target wrote the
+  release version. The tap joins the propagation recovery siblings, and
+  preflight checks it only for a project that has the target. Phase 11 reads
+  the formula committed on the tap's `origin/main` and fails when it is
+  missing, or when its `version` or its archive url (prereleases included) is
+  not the release. A tap with no `CHANGELOG.md` is a manual-action skip.
+- `punt release` Phase 8 can restart a project's user service. A project
+  declares it under `[tool.punt-kit.release.service]` in `pyproject.toml`
+  (`systemd` unit and/or `launchd` label). After the PyPI install the phase
+  restarts it and fails unless the main PID changed. A declaration the phase
+  cannot use, or a manager it cannot query, fails; a declared service the host
+  has not loaded is recorded as a manual-action skip. The editable install is
+  restored even when the phase fails.
 
 ### Fixed
 
@@ -42,6 +71,12 @@ All notable changes to this project will be documented in this file.
 - `standards/architecture.md` cited quarry as keeping each client's selected
   database in its daemon; the selection lives in quarry's MCP client. The
   example is now the lux Hub.
+- `punt release` Phase 8 no longer verifies an environment no user gets. When
+  the release tag contains `install-constraints.txt` it installs with
+  `--constraints` on that file, so the project's locked dependency versions
+  apply, and `install-overrides.txt` from the tag with `--overrides`; without
+  `install-constraints.txt` it installs unpinned and logs that it did. An
+  unresolvable tag or a failing git read fails instead of installing unpinned.
 - `punt release` no longer fails the version bump on a computed
   `__version__` that does not name `importlib.metadata` in the same file,
   such as vox's `__version__ = installed_version()`. Phases 2 and 11 now

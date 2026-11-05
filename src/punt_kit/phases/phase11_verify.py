@@ -8,21 +8,23 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 from rich.console import Console
 
+from punt_kit.phases.phase10_homebrew import has_brew_formula_target, tap_sibling
 from punt_kit.phases.phase11_checks import MarketplacePinCheck, VerificationCheck
 from punt_kit.phases.phase11_versions import VersionPinChecks
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.entry_matcher import EntryMatcher
 from punt_kit.phases.shared.errors import RemoteLookupError
+from punt_kit.phases.shared.formula_version import FormulaVersion
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.install_urls import InstallUrlRecognizer
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.pin_currency import PinCurrency
 from punt_kit.phases.shared.pin_rules import ShaPin
 from punt_kit.phases.shared.project_info import ReleaseProject
-from punt_kit.phases.shared.siblings import SiblingRepo
+from punt_kit.phases.shared.siblings import TAP_SIBLING, SiblingRepo
 from punt_kit.phases.shared.skips import GITHUB_ABSENT_SKIP
 from punt_kit.phases.shared.text_file import TextFile
-from punt_kit.phases.shared.timeouts import UV
+from punt_kit.phases.shared.timeouts import GIT_HOOK, UV
 from punt_kit.phases.shared.version_assignment import VersionAssignment
 
 if TYPE_CHECKING:
@@ -96,6 +98,7 @@ class Phase11Verify:
             checks.extend(self._profile_checks(repo))
             checks.extend(self._readme_checks(repo))
             checks.extend(self._website_checks(repo))
+            checks.extend(self._homebrew_checks(repo))
         checks.extend(self._pypi_checks())
 
         all_pass = True
@@ -171,6 +174,8 @@ class Phase11Verify:
             names.append("README pin")
         if SiblingRepo.resolve(info.root, "public-website", ops=self._ops) is not None:
             names.append("website")
+        if has_brew_formula_target(info.root):
+            names.append("homebrew-tap")
         return names
 
     def _installs_from_github(self) -> bool:
@@ -489,6 +494,56 @@ class Phase11Verify:
                 )
             )
         return checks
+
+    def _homebrew_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
+        """The tap's committed formula must be this release.
+
+        Applies to every project with a ``brew-formula`` target, so a missing
+        tap or formula fails here rather than vanishing. Reads the formula as
+        committed on the tap's ``origin/main``, not the working tree,
+        which can hold an unmerged write.
+        """
+        info = self._info
+        ops = self._ops
+        if not has_brew_formula_target(info.root):
+            return []
+        tap = tap_sibling(info, ops=ops)
+        if tap is None:
+            return [
+                VerificationCheck(
+                    TAP_SIBLING, False, f"sibling {TAP_SIBLING} not found"
+                )
+            ]
+        path = f"Formula/{repo.name}.rb"
+        cwd = str(tap.path)
+        # Fetch and read origin/main: `git pull` would merge into whatever
+        # branch the tap has checked out, and a stale local main is not the
+        # published formula.
+        fetched = ops.run(
+            ["git", "fetch", "origin", "main"],
+            cwd=cwd,
+            check=False,
+            timeout=GIT_HOOK,
+        )
+        if fetched.returncode != 0:
+            return [
+                VerificationCheck(
+                    TAP_SIBLING,
+                    False,
+                    f"git fetch in {TAP_SIBLING} failed: {fetched.stderr.strip()}",
+                )
+            ]
+        shown = ops.run(["git", "show", f"origin/main:{path}"], cwd=cwd, check=False)
+        if shown.returncode != 0:
+            return [VerificationCheck(TAP_SIBLING, False, f"{path} not on origin/main")]
+        formula = FormulaVersion(TextFile.without_bom(shown.stdout))
+        return [
+            VerificationCheck(
+                TAP_SIBLING,
+                formula.is_release(self._version),
+                f"{path} version={formula.describe()}",
+            )
+        ]
 
     def _pypi_checks(self) -> list[VerificationCheck]:
         """Confirm the exact published version resolves from the INDEX.

@@ -92,6 +92,15 @@ Init is idempotent — re-running it updates existing files without overwriting 
 
 `punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated.
 
+`punt release` verifies the published package the way users install it, and keeps the Homebrew tap current. A project opts in to each part:
+
+| Opt-in | Effect |
+|--------|--------|
+| `install-constraints.txt` at the repo root, exported from `uv.lock` | The verify install (Phase 8) reads it from the release tag and passes it as `uv tool install --constraints`. Without it the install is unpinned and the release says so. |
+| `install-overrides.txt` at the repo root | Read from the release tag and passed as `--overrides`, so the verified environment matches the project's installer. |
+| `[tool.punt-kit.release.service]` in `pyproject.toml`, with `systemd = "<unit>"` and/or `launchd = "<label>"` | After the verify install, the declared user service is restarted and must come back with a new PID. If the service manager cannot be queried, the release fails. If the service isn't loaded on this host, the release records a manual-action skip. |
+| A `brew-formula` make target that honours `FORMULA_OUT=<path>`, plus `../homebrew-tap/Formula/<name>.rb` | Propagation (Phase 10) regenerates the formula, checks its version and archive URL name the release, adds a tap CHANGELOG entry, and opens the tap PR. Verify (Phase 11) checks the formula committed on the tap's `main`. |
+
 `punt pii` scans tracked files for personally identifiable information — email addresses, home directory paths (`/Users/X/`, `/home/X/`), and `.local` hostnames. Configure allow/deny lists in `[tool.punt.pii]` in `pyproject.toml`.
 
 ## Claude Code Plugin

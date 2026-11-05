@@ -1,5 +1,5 @@
 """Phase 10: local cross-repo propagation via PRs — install-all.sh SHA,
-marketplace.json, and public-website projects.json."""
+marketplace.json, public-website projects.json, and the homebrew-tap formula."""
 
 from __future__ import annotations
 
@@ -389,13 +389,14 @@ class Phase10Propagate:
         propagate_install_all: Callable[..., None],
         propagate_marketplace: Callable[..., None],
         propagate_website: Callable[..., None],
+        propagate_homebrew: Callable[..., None],
         interrupted: threading.Event,
     ) -> None:
-        """Run the three propagators concurrently.
+        """Run the four propagators concurrently.
 
         Every collaborator here is injected rather than composed directly, so
         a caller that rebinds ``punt_kit.release._propagate_install_all``/
-        ``_propagate_marketplace``/``_propagate_website``/
+        ``_propagate_marketplace``/``_propagate_website``/``_propagate_homebrew``/
         ``_reset_propagation_siblings`` has each observed by
         ``punt_kit.release._phase10_propagate``. ``interrupted`` is release.py's
         own ``threading.Event`` (its signal handler sets it), so it is passed
@@ -412,7 +413,7 @@ class Phase10Propagate:
         if not dry_run:
             reset_propagation_siblings(info)
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             futures: dict[Future[None], str] = {
                 pool.submit(
                     propagate_install_all, info, version, dry_run=dry_run
@@ -423,5 +424,8 @@ class Phase10Propagate:
                 pool.submit(
                     propagate_website, info, version, dry_run=dry_run
                 ): "public-website",
+                pool.submit(
+                    propagate_homebrew, info, version, dry_run=dry_run
+                ): "homebrew-tap",
             }
             ThreadedStep(ops=ops).collect(futures, interrupted=interrupted)

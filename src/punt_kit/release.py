@@ -22,6 +22,7 @@ from punt_kit.phases.phase06_ci_wait import Phase6CiWait
 from punt_kit.phases.phase07_github_release import Phase7GithubRelease
 from punt_kit.phases.phase08_verify_pypi import Phase8VerifyPypi
 from punt_kit.phases.phase09_post_release import Phase9PostRelease
+from punt_kit.phases.phase10_homebrew import HomebrewTapPropagator, tap_owned_paths
 from punt_kit.phases.phase10_propagate import (
     InstallAllPropagator,
     MarketplacePropagator,
@@ -43,7 +44,7 @@ from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.readme_sha import ReadmeShaPin
 from punt_kit.phases.shared.reporter import reporter
 from punt_kit.phases.shared.siblings import SiblingRegistry, SiblingRepo
-from punt_kit.phases.shared.skips import SkipRecorder
+from punt_kit.phases.shared.skips import RESUMED_PAST_BUILD_SKIP, SkipRecorder
 
 console = Console()
 
@@ -70,10 +71,11 @@ def _run(
     timeout: int = timeouts.DEFAULT_RUN,
     check: bool = True,
     capture: bool = True,
+    errors: str = "strict",
 ) -> subprocess.CompletedProcess[str]:
     """Run a subprocess through the shared ``CommandRunner``."""
     return CommandRunner.run(
-        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture
+        cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
     )
 
 
@@ -115,8 +117,11 @@ class _ReleaseOpsAdapter:
         timeout: int = timeouts.DEFAULT_RUN,
         check: bool = True,
         capture: bool = True,
+        errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
-        return _run(cmd, cwd=cwd, timeout=timeout, check=check, capture=capture)
+        return _run(
+            cmd, cwd=cwd, timeout=timeout, check=check, capture=capture, errors=errors
+        )
 
     def ok(self, msg: str) -> None:
         _ok(msg)
@@ -234,9 +239,9 @@ def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
-def _phase3_build(info: ProjectInfo, *, dry_run: bool) -> None:
+def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 3: Build validation."""
-    Phase3Build(info, dry_run=dry_run, ops=_ops).run()
+    Phase3Build(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
@@ -283,7 +288,7 @@ def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) ->
 
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Phase 8: Verify PyPI install."""
-    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops).run()
+    Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 # ---------------------------------------------------------------------------
@@ -351,6 +356,13 @@ def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
     )
 
 
+def _propagate_homebrew(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
+    """10e. Regenerate the project's formula in homebrew-tap."""
+    HomebrewTapPropagator(info, ops=_ops, skips=_skips).run(
+        version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
+    )
+
+
 def _reset_propagation_siblings(
     info: ProjectInfo, *, fail_on_error: bool = True
 ) -> None:
@@ -361,7 +373,10 @@ def _reset_propagation_siblings(
     this module and expect ``_reset_propagation_siblings`` to observe it.
     """
     SiblingRegistry(ops=_ops).reset_all(
-        info.root, resolve=_resolve_sibling, fail_on_error=fail_on_error
+        info.root,
+        resolve=_resolve_sibling,
+        fail_on_error=fail_on_error,
+        tap_paths=tap_owned_paths(info, ops=_ops),
     )
 
 
@@ -379,6 +394,7 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         propagate_install_all=_propagate_install_all,
         propagate_marketplace=_propagate_marketplace,
         propagate_website=_propagate_website,
+        propagate_homebrew=_propagate_homebrew,
         interrupted=_interrupted,
     )
 
@@ -543,6 +559,8 @@ def run_release(
         mode = "[bold yellow]DRY RUN[/bold yellow] — " if dry_run else ""
         resume = f" (resuming from phase {start})" if start > 1 else ""
         console.print(f"\n{mode}[bold]punt release[/bold] — {root.name}{resume}")
+        if info.language == "python" and start > PhaseOrder.NUMBERS["build"]:
+            _skips.record(RESUMED_PAST_BUILD_SKIP)
 
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the
@@ -624,7 +642,7 @@ def run_release(
             def _step3() -> None:
                 nonlocal current_phase_num
                 current_phase_num = 3
-                _phase3_build(info, dry_run=dry_run)
+                _phase3_build(info, version, dry_run=dry_run)
 
             def _step4() -> None:
                 nonlocal current_phase_num, release_sha
