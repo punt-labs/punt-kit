@@ -4,8 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-## [0.18.0] - 2026-11-04
-
 ### Added
 
 - `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which
@@ -16,6 +14,20 @@ All notable changes to this project will be documented in this file.
   measurements against Claude Code 2.1.309. `architecture.md`, `hooks.md`,
   and `filesystem.md` cross-reference it; `filesystem.md` reserves
   `sessions/`.
+
+### Fixed
+
+- `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
+  Claude Code keeps the hyphen (`mcp__plugin_biff-dev_tty__…`), as every
+  plugin's matcher already does.
+- `standards/architecture.md` cited quarry as keeping each client's selected
+  database in its daemon; the selection lives in quarry's MCP client. The
+  example is now the lux Hub.
+
+## [0.18.0] - 2026-11-04
+
+### Added
+
 - `punt release` phase 3 now installs each built wheel in an isolated
   environment, imports the package, and fails the release unless its
   `__version__` equals the release version as written or in its canonical
@@ -67,12 +79,6 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
-  Claude Code keeps the hyphen (`mcp__plugin_biff-dev_tty__…`), as every
-  plugin's matcher already does.
-- `standards/architecture.md` cited quarry as keeping each client's selected
-  database in its daemon; the selection lives in quarry's MCP client. The
-  example is now the lux Hub.
 - `punt release` Phase 8 no longer verifies an environment no user gets. When
   the release tag contains `install-constraints.txt` it installs with
   `--constraints` on that file, so the project's locked dependency versions
@@ -91,6 +97,7 @@ All notable changes to this project will be documented in this file.
   Everything else fails the release with the reason instead of shipping a
   stale version. A docstring that mentions `__version__` is no longer mistaken
   for the assignment.
+
 - ethos config resolves layered again so the engineering team, seeded pipelines and the claude leader identity resolve alongside the vendored gstack team
 
 ### Security
