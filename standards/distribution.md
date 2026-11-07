@@ -561,38 +561,35 @@ user-owned prose: no marker block, no tool-owned section, no reconcile that
 owns bytes inside it
 ([tool-enable-disable.md § 2.1](tool-enable-disable.md#21-core-principle)).
 
-### Scope follows the tool — global by default
+### Scope follows the tool — repo only
 
-A tool's doc lives where the tool applies:
+A tool's doc is vendored in the repo and imported from the repo `CLAUDE.md`:
 
 ```text
-~/.punt-labs/<tool>/CLAUDE.md       # GLOBAL tool (default) — imported from ~/.claude/CLAUDE.md
-<repo>/.punt-labs/<tool>/CLAUDE.md  # PROJECT tool — vendored in the repo, imported from <repo>/CLAUDE.md
+<repo>/.punt-labs/<tool>/CLAUDE.md  # vendored in the repo, imported from <repo>/CLAUDE.md
 ```
 
-Most tools that use this mechanism (quarry, biff, vox) are **global** — they
-work in every project, including ones with no repo `CLAUDE.md` and no `punt`
-scaffolding. A global tool writes `~/.punt-labs/<tool>/CLAUDE.md` and appends
-one bare `@~/.punt-labs/<tool>/CLAUDE.md` line to `~/.claude/CLAUDE.md` **at
-install time** (runs once, covers every project deterministically). A
-repo-scoped tool deposits its doc and adds `@.punt-labs/<tool>/CLAUDE.md` to
-`<repo>/CLAUDE.md` via `<tool> enable`, run per repo
-([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-repo-versus-user)).
+Every tool that uses this mechanism (quarry, biff, vox included) deposits its
+doc and adds `@.punt-labs/<tool>/CLAUDE.md` to `<repo>/CLAUDE.md` via
+`<tool> enable`, run per repo
+([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-one-layer-repo-only)).
+`enable` is the sole import path; `install` sets up software only and writes no
+import line and no guide. `~/.punt-labs/<tool>/` may hold machine-scoped config
+and state, but never an imported guide, and `~/.claude/CLAUDE.md` is never
+written by a tool.
 
-In both scopes the mutation is the single bare line — no heading, no comment,
-no marker — written, matched, and removed under the write contract in
+The mutation is the single bare line — no heading, no comment, no marker —
+written, matched, and removed under the write contract in
 [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules)
 (exclusive lock, exact match, atomic, symlink-resolving, byte-preserving).
-`<tool> uninstall` (or `disable --global`) removes the user-scope line under
-the same contract (§ Uninstall Requirements below).
 
 Migration from legacy injected blocks and repo-root sentinels:
 [tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration).
 
 Pattern: [CLAUDE.md `@`-import includes](../patterns/claude-md-import-includes.md).
-Reference implementation: **vox** — `GlobalClaudeImports`
-(`src/punt_vox/claude_md.py`) satisfies the atomic / symlink-resolving /
-byte-preserving / deterministic write contract for the global case; the
+Reference implementation: **biff** — `ClaudeMdImport`
+(`src/biff/claude_md.py`) satisfies the atomic / symlink-resolving /
+byte-preserving / deterministic write contract for the repo import line; the
 `@`-import load is empirically verified against Claude Code.
 
 ---
@@ -662,7 +659,7 @@ handles all cleanup:
 | Plugin registration | `claude plugin install` | `claude plugin uninstall` |
 | Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
 | Permission rules in `<repo>/.claude/settings.json` | `<tool> enable` | `<tool> disable`, per repo |
-| User-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` | `<tool> install` | Project `uninstall` (or `disable --global`) — removed under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract; `~/.punt-labs/<tool>/` stays dormant unless the user purges it |
+| Legacy user-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` (written by a pre-enable-only release only) | A retired release's `install` | Stripped on next `<tool> enable` or `uninstall` under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract. `install` no longer writes it ([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-one-layer-repo-only)) |
 | Status line wrapping | `install-statusline` | Project `uninstall` |
 | Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
 | Orphaned local plugin dirs | Previous install method | `uninstall` (migration cleanup) |
