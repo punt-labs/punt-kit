@@ -2,10 +2,9 @@
 
 **Introduced:** 2026-07-19 · **Updated:** 2026-09-10
 
-How a tool turns its CLAUDE.md guidance composition on and off in a repo (and,
-for global tools, on a machine): one bare `@`-import line in a user-owned host
-file, one tool-owned `.punt-labs/<tool>/` directory, and the `enable` /
-`disable` verbs. Section numbering follows the design this standard was
+How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
+bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
+`.punt-labs/<tool>/` directory, and the `enable` / `disable` verbs. Section numbering follows the design this standard was
 extracted from (`docs/claude-md-include-standard-design.md` § 2); external
 cross-references cite these section numbers.
 
@@ -36,9 +35,9 @@ dev standards and not the tool repo's own developer `CLAUDE.md`.
 
 | Path | Owner | Lifecycle |
 |------|-------|-----------|
-| `<repo>/CLAUDE.md`, `~/.claude/CLAUDE.md` | The user | Tool adds or removes one import line; every other byte is untouched |
+| `<repo>/CLAUDE.md` | The user | `enable` adds one import line, `disable` removes it; every other byte is untouched. `~/.claude/CLAUDE.md` is user-owned and no tool ever writes it |
 | `<repo>/.punt-labs/<tool>/` | Zoned ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)): tool (vendored + `enabled` marker), repo (config, including any file a daemon rewrites), user (local-convention) | Deposited on `enable`, vendored zone overwritten wholesale on upgrade (config and local-convention zones untouched), left dormant on `disable` |
-| `~/.punt-labs/<tool>/` | Zoned: tool (vendored), user (local-convention) | Deposited on `install` (global tools), vendored zone overwritten wholesale on upgrade |
+| `~/.punt-labs/<tool>/` | Zoned: tool (machine config/state), user (local-convention) | Holds machine-scoped config and state written by `install`; carries no imported guide and no import line |
 
 Each tool owns the **vendored zone** (and the `enabled` marker) of its
 `.punt-labs/<tool>/` subtree — not the whole subtree: the config zone is
@@ -108,9 +107,8 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
 
 ## 2.4 Import Line Rules
 
-- **Canonical import string.** The line is exactly `@.punt-labs/<tool>/CLAUDE.md`
-  (repo) or `@~/.punt-labs/<tool>/CLAUDE.md` (user), with `<tool>` the CLI binary
-  name. Forward slashes; no `./` prefix; no trailing slash; no leading or trailing
+- **Canonical import string.** The line is exactly `@.punt-labs/<tool>/CLAUDE.md`,
+  repo-relative, with `<tool>` the CLI binary name. Forward slashes; no `./` prefix; no trailing slash; no leading or trailing
   whitespace; one physical line, no embedded newline. This exact string is what
   `enable` writes, what `disable` matches, and what `punt audit` greps — all 15
   CLIs must produce byte-identical lines.
@@ -167,12 +165,13 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
     Hold an exclusive lock (`flock`, or the platform equivalent) for the whole
     read-modify-write. The lock file is the sibling
     `.<host-file-name>.punt-import.lock` in the host file's own directory — for
-    `~/.claude/CLAUDE.md`, exactly `~/.claude/.CLAUDE.md.punt-import.lock`. That
+    `<repo>/CLAUDE.md`, exactly `<repo>/.CLAUDE.md.punt-import.lock`. That
     name is mandated and **tool-agnostic by requirement, not by taste**: vox,
-    quarry, and biff all mutate the same `~/.claude/CLAUDE.md` (§ 2.6), so a
-    per-tool lock name (`.CLAUDE.md.<tool>-import.lock`) serializes only a tool
-    against itself and leaves the cross-tool lost update in place — all 15 CLIs
-    must take the identical lock. Locking the **target itself is forbidden**: the
+    quarry, and biff all mutate the same `<repo>/CLAUDE.md` when each is enabled
+    in the same repo (§ 2.6), so a per-tool lock name
+    (`.CLAUDE.md.<tool>-import.lock`) serializes only a tool against itself and
+    leaves the cross-tool lost update in place — all 15 CLIs must take the
+    identical lock. Locking the **target itself is forbidden**: the
     atomic rename below replaces the target's inode, so a lock held on the target
     travels with the dead inode and the next writer serializes against nothing.
     This requirement governs **every shared host-file mutation in this standard**
@@ -212,13 +211,13 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
 
 ## 2.5 Every tool ships a user-guide doc
 
-**Every tool MUST ship a user-guide `CLAUDE.md`, installed into
-`.punt-labs/<tool>/CLAUDE.md` by `enable` (repo scope) or `install` (user
-scope).** It is the tool's agent-facing manual — how an agent or user *drives*
-the tool: slash commands, auto-behaviors, tips, gotchas. It is not the tool
-repo's developer `CLAUDE.md` and not a reference dump. Precedent: vox's installed
-`~/.punt-labs/vox/CLAUDE.md`, whose opening line is "how an *agent* drives vox —
-not how to develop vox itself," and the beads `AGENTS.md` concept.
+**Every tool MUST ship a user-guide `CLAUDE.md`, deposited into
+`<repo>/.punt-labs/<tool>/CLAUDE.md` by `enable` — repo scope only.** It is the
+tool's agent-facing manual — how an agent or user *drives* the tool: slash
+commands, auto-behaviors, tips, gotchas. It is not the tool repo's developer
+`CLAUDE.md` and not a reference dump. Precedent: vox's deposited
+`<repo>/.punt-labs/vox/CLAUDE.md`, whose opening line is "how an *agent* drives
+vox — not how to develop vox itself," and the beads `AGENTS.md` concept.
 
 The doc is **static content shipped with the tool**. It needs no per-repo
 localization or rendering — the same guide is deposited everywhere. How the tool
@@ -230,36 +229,38 @@ guidance, not an exhaustive reference. Keep imports shallow: Claude Code resolve
 `@`-imports recursively only to a bounded depth, so do not chain deep import
 trees from the tool doc.
 
-## 2.6 Scope: repo versus user
+## 2.6 Scope: one layer, repo only
 
-Two layers, composed additively:
+There is one layer, and it is the repo:
 
 | Layer | Host file | Written by | Import line |
 |-------|-----------|-----------|-------------|
 | Repo | `<repo>/CLAUDE.md` | `<tool> enable` (run in the repo) | `@.punt-labs/<tool>/CLAUDE.md` |
-| User | `~/.claude/CLAUDE.md` | `<tool> install` (once per machine) | `@~/.punt-labs/<tool>/CLAUDE.md` |
 
-A tool targets the layer its guidance belongs to:
+`enable` is the **sole** path that deposits a guide and writes an import line,
+and it always writes the repo `CLAUDE.md`. `install` installs software only (the
+MCP server, binaries, models, data directories); it deposits no guide and writes
+no import line, and it never touches a `CLAUDE.md` (§2.3, §2.5). There is no
+user-scope import: `~/.claude/CLAUDE.md` carries no tool guides, and no guide is
+deposited at `~/.punt-labs/<tool>/CLAUDE.md`.
 
-- **Global tools** (vox, quarry, biff) work in every project. Their guidance is
-  universal, so they register the user-scope import once at `install` and do not
-  need per-repo `enable` for guidance.
-- **Repo-scoped tools** carry a guide meant to travel with a repo that has opted
-  in, so contributors who clone get it via the repo's `CLAUDE.md` import without
-  installing the tool globally. They use `enable` / `disable`.
-- A tool may do both. The two host files are independent; Claude Code loads both,
-  so a repo import and a user import never collide.
+Repo scope is correct for every real deployment. A flat single repo gets the
+guide via one `enable`; the guide travels with the repo, so a contributor who
+clones gets it through the repo `CLAUDE.md` import without installing the tool
+globally; and a non-Claude agent that ignores `@`-imports is unaffected either
+way. The one residual duplication — a parent and a child `CLAUDE.md` both loaded
+in a nested checkout, both enabling the same tool — is specific to the Punt Labs
+metarepo and is solved in metarepo config, never by bending the standard toward a
+global import.
 
-**User-scope teardown is mandatory and symmetric with install.** The retired
-shared reconcile pruned `~/.claude/CLAUDE.md` when a tool was removed; the bare
-import model must not lose that. Install adds the user-scope line, so removal must
-take it away: `<tool> uninstall` (or `disable --global`) MUST remove the
-`@~/.punt-labs/<tool>/CLAUDE.md` line using the **same write contract as § 2.4** —
-exclusive lock, exact-match, atomic, byte-preserving. The `~/.punt-labs/<tool>/`
-directory then follows the same dormant rule as repo scope (2.9): the import line
-goes, the vendored subtree stays unless the user purges it. Without this, an
-uninstalled global tool leaves a dangling `@`-import that 404s at read time in
-every session.
+**No user-scope import to tear down.** Forward integration, no compatibility shim
+([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)): because
+`install` never writes `~/.claude/CLAUDE.md`, there is nothing for `uninstall` to
+remove there. A tool that in a previous release wrote a legacy
+`@~/.punt-labs/<tool>/CLAUDE.md` line strips that line on its next `enable` or
+`uninstall`, under the **same write contract as § 2.4** (exclusive lock,
+exact-match, atomic, byte-preserving), so no clone is left with a dangling
+`@`-import that 404s at read time.
 
 ## 2.7 The enabled marker
 
@@ -407,9 +408,12 @@ dormant tool is not flagged.
 Forward integration, no compatibility shim
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)):
 
-- A tool currently injecting a marker block into `~/.claude/CLAUDE.md` moves that
-  content to `~/.punt-labs/<tool>/CLAUDE.md`, registers the bare import line, and
-  deletes its legacy block in the same release.
+- A tool currently injecting a marker block into a `CLAUDE.md` moves that
+  content to `<repo>/.punt-labs/<tool>/CLAUDE.md`, registers the bare repo import
+  line via `enable`, and deletes its legacy block in the same release. A tool
+  that in a previous release wrote a user-scope `@~/.punt-labs/<tool>/CLAUDE.md`
+  line strips it on next `enable` or `uninstall` (§2.6) — no guide and no import
+  survive at user scope.
 - The `punt auto claude` target and the `CLAUDE_SECTIONS` registry are
   **removed, not deprecated**. The four managed sections stop being rendered into
   any user-owned `CLAUDE.md`. `punt`'s deposited file is punt's user guide (2.10),
