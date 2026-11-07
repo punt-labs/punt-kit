@@ -257,10 +257,13 @@ global import.
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)): because
 `install` never writes `~/.claude/CLAUDE.md`, there is nothing for `uninstall` to
 remove there. A tool that in a previous release wrote a legacy
-`@~/.punt-labs/<tool>/CLAUDE.md` line strips that line on its next `enable` or
-`uninstall`, under the **same write contract as § 2.4** (exclusive lock,
-exact-match, atomic, byte-preserving), so no clone is left with a dangling
-`@`-import that 404s at read time.
+`@~/.punt-labs/<tool>/CLAUDE.md` line strips that line **opportunistically** — on
+the next `enable` or `uninstall` run for that tool — under the **same write
+contract as § 2.4** (exclusive lock, exact-match, atomic, byte-preserving). The
+strip is a migration convenience, not an enforced invariant: the repo-scoped
+audit (§ 2.11) does not scan `~/.claude/CLAUDE.md`, so a user who never re-runs
+either verb keeps the stale line until they do. No tool writes that file under
+the current model, so no *new* user-scope import is ever created.
 
 ## 2.7 The enabled marker
 
