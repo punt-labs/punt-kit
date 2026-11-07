@@ -229,11 +229,11 @@ documented in Claude Code's skills architecture:
 > - otherwise, the runtime asks the user and offers exact-skill and
 >   `skill:*` local-settings rule suggestions.
 
-So a seeded `Skill()` allow entry is load-bearing: without it, a skill whose
-prompt-command properties fall outside the safe-property allowlist prompts the user on
-every invocation. The design is deliberately future-conservative — new
-properties default to requiring permission until reviewed — which means a
-skill that is auto-allowed today can start prompting after an upstream change.
+A seeded `Skill()` allow entry is required: without it, a skill whose
+prompt-command properties fall outside the safe-property allowlist prompts the
+user on every invocation. New properties default to requiring permission until
+reviewed, so a skill that is auto-allowed today can start prompting after an
+upstream change.
 
 **Scoped names only — short forms are banned.** Every skill is named, invoked,
 and granted only by its plugin-scoped name: `biff:who`, `quarry:find`,
