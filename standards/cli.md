@@ -474,7 +474,12 @@ Current state summary --- what the tool knows right now. Not health (that's `doc
 
 ### `install`
 
-Machine-scoped setup --- run once per machine to register the MCP server, download models, or create global data directories.
+Machine-scoped setup --- run once per machine to register the MCP server,
+download models, or create global data directories. It installs **software
+only**: it touches no `CLAUDE.md`, writes no `@`-import line, and deposits no
+user-guide doc. Depositing the guide and writing the repo import line is
+`enable`'s job, and `enable`'s alone (see below and the
+[Tool Enable/Disable Standard](tool-enable-disable.md#26-scope-one-layer-repo-only)).
 
 ### `enable` / `disable`
 
