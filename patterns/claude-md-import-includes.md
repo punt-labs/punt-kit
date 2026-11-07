@@ -46,21 +46,20 @@ The tool writes its agent-facing user guide to its own directory and adds one
 bare `@`-import line to the host `CLAUDE.md`:
 
 ```text
-~/.punt-labs/<tool>/CLAUDE.md       # GLOBAL tool — @~/.punt-labs/<tool>/CLAUDE.md in ~/.claude/CLAUDE.md
-<repo>/.punt-labs/<tool>/CLAUDE.md  # REPO tool — @.punt-labs/<tool>/CLAUDE.md in <repo>/CLAUDE.md
+<repo>/.punt-labs/<tool>/CLAUDE.md  # @.punt-labs/<tool>/CLAUDE.md in <repo>/CLAUDE.md
 ```
 
-- A **global** tool (vox, quarry, biff) deposits its guide and appends the
-  user-scope line at `install`, once per machine; `uninstall` removes the line.
-- A **repo-scoped** tool deposits its guide, the `enabled` marker, and the
-  repo-scope line via `<tool> enable`; `disable` reverses them.
+- `install` installs software only — no guide, no marker, no import line.
+- A tool deposits its guide, the `enabled` marker, and the import line via
+  `<tool> enable`; `disable` reverses them. Enable is the sole path that writes
+  the import; nothing is written to any user-scope file.
 - The line is bare — no heading, no comment, no marker — appended at end of
   file, matched exactly, removed exactly. The write is locked, atomic,
   symlink-resolving, and byte-preserving
   ([tool-enable-disable.md § 2.4](../standards/tool-enable-disable.md#24-import-line-rules)).
-- The tool overwrites its own `.punt-labs/<tool>/` subtree wholesale on every
-  install/upgrade — the guide is the single source of truth, so updates flow
-  automatically.
+- `enable` deposits the guide and overwrites its own `.punt-labs/<tool>/`
+  subtree wholesale; re-running `enable` is the upgrade path — the guide is the
+  single source of truth, so updates flow automatically.
 
 ## Consequences
 
@@ -83,11 +82,12 @@ bare `@`-import line to the host `CLAUDE.md`:
 
 ## Known Uses
 
-- **vox** — reference implementation. Writes `~/.punt-labs/vox/CLAUDE.md` and
-  registers the `@`-import at install; `GlobalClaudeImports`
-  (`src/punt_vox/claude_md.py`) is the atomic, symlink-safe, byte-preserving
-  writer whose correctness each tool ports. The `@`-import load is empirically
-  verified against Claude Code.
+- **biff** — reference implementation. `ClaudeMdImport`
+  (`src/biff/claude_md.py`) is the atomic, symlink-safe, byte-preserving,
+  fence-aware writer whose correctness each tool ports. The `@`-import load is
+  empirically verified against Claude Code.
+- **vox** — deposits its guide and the `@`-import line via `vox enable`;
+  `vox disable` reverses them.
 - **quarry** (migration target) — currently injects a
   `<!-- quarry:capabilities -->` block via `_inject_claude_md()`; to move to a
   tool-owned `.punt-labs/quarry/CLAUDE.md` + bare import line.
