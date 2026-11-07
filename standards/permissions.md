@@ -244,8 +244,7 @@ Short-form aliases are retired: the skill namespace is noisy — bare names like
 `mail`, `send`, `inbox`, `find` collide across plugins, so an unqualified
 `Skill(mail)` grant is ambiguous and over-broad. A tool must not expose a
 short-form skill name, and no repo grants one. A short-form `Skill()` entry —
-any skill name with no `plugin:` prefix — is a defect; `punt audit` does not yet
-check this and should grow the check (tracked in beadle-acl8's rollout).
+any skill name with no `plugin:` prefix — is non-conformant.
 
 - **biff**: `biff:biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
   `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
