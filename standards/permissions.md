@@ -1,6 +1,6 @@
 # Permissions Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-07
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
@@ -243,13 +243,13 @@ prefixes **everything** — commands, MCP server tools, skills, agents, hooks").
 Short-form aliases are retired: the skill namespace is noisy — bare names like
 `mail`, `send`, `inbox`, `find` collide across plugins, so an unqualified
 `Skill(mail)` grant is ambiguous and over-broad. A tool must not expose a
-short-form skill name, and no repo grants one. `punt audit` flags a short-form
-`Skill()` entry — any skill name with no `plugin:` prefix — as a defect, and a
-scoped entry with no matching exposed skill as dead weight.
+short-form skill name, and no repo grants one. A short-form `Skill()` entry —
+any skill name with no `plugin:` prefix — is a defect; `punt audit` does not yet
+check this and should grow the check (tracked in beadle-acl8's rollout).
 
 - **biff**: `biff:biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
   `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
-- **dungeon**: `dungeon:dungeon`
+- **dungeon**: `dungeon:d`, `dungeon:dungeon`
 - **prfaq**: `prfaq:prfaq`, `prfaq:vote`, `prfaq:meeting`,
   `prfaq:meeting-hive`, `prfaq:streamline`, `prfaq:research`, `prfaq:review`,
   `prfaq:feedback`, `prfaq:feedback-to-us`, `prfaq:externalize`, `prfaq:import`
