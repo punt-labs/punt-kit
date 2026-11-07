@@ -1,6 +1,6 @@
 # Permissions Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-07
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
@@ -229,33 +229,35 @@ documented in Claude Code's skills architecture:
 > - otherwise, the runtime asks the user and offers exact-skill and
 >   `skill:*` local-settings rule suggestions.
 
-So a seeded `Skill()` allow entry is load-bearing: without it, a skill whose
-prompt-command properties fall outside the safe-property allowlist prompts the user on
-every invocation. The design is deliberately future-conservative — new
-properties default to requiring permission until reviewed — which means a
-skill that is auto-allowed today can start prompting after an upstream change.
+A seeded `Skill()` allow entry is required: without it, a skill whose
+prompt-command properties fall outside the safe-property allowlist prompts the
+user on every invocation. New properties default to requiring permission until
+reviewed, so a skill that is auto-allowed today can start prompting after an
+upstream change.
 
-This section previously stated the opposite. It was wrong, and the error was
-load-bearing in both directions: it invited deleting 76 working entries as
-dead weight, and it told `punt audit` to flag them as a defect.
+**Scoped names only — short forms are banned.** Every skill is named, invoked,
+and granted only by its plugin-scoped name: `biff:who`, `quarry:find`,
+`tts:say` — never the bare alias `who`, `find`, `say`. This matches the plugin
+namespace invariant ([plugins.md](plugins.md#namespace-scope): "the plugin name
+prefixes **everything** — commands, MCP server tools, skills, agents, hooks").
+Short-form aliases are retired: the skill namespace is noisy — bare names like
+`mail`, `send`, `inbox`, `find` collide across plugins, so an unqualified
+`Skill(mail)` grant is ambiguous and over-broad. A tool must not expose a
+short-form skill name, and no repo grants one. A short-form `Skill()` entry —
+any skill name with no `plugin:` prefix — is non-conformant.
 
-- **biff**: `biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
+- **biff**: `biff:biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
   `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
-  (plus short names: `biff`, `finger`, `last`, `mesg`, `plan`, `read`, `talk`,
-  `tty`, `wall`, `who`, `write`)
-- **dungeon**: `d`
+- **dungeon**: `dungeon:d`, `dungeon:dungeon`
 - **prfaq**: `prfaq:prfaq`, `prfaq:vote`, `prfaq:meeting`,
   `prfaq:meeting-hive`, `prfaq:streamline`, `prfaq:research`, `prfaq:review`,
   `prfaq:feedback`, `prfaq:feedback-to-us`, `prfaq:externalize`, `prfaq:import`
 - **punt-kit**: `punt:audit`, `punt:auto`, `punt:init`, `punt:pii`,
   `punt:reconcile`
-- **quarry**: `quarry`, `quarry:find`, `quarry:explain`, `quarry:ingest`,
-  `quarry:quarry`, `quarry:source` (plus short names: `find`, `explain`,
-  `ingest`, `source`)
+- **quarry**: `quarry:find`, `quarry:explain`, `quarry:ingest`,
+  `quarry:quarry`, `quarry:source`
 - **tts**: `tts:notify`, `tts:recap`, `tts:say`, `tts:speak`, `tts:vibe`,
-  `tts:voice` (plus short names: `notify`, `recap`, `say`, `speak`, `vibe`,
-  `voice`)
-- **local commands**: `auto`
+  `tts:voice`
 - **z-spec**: `z-spec:audit`, `z-spec:check`, `z-spec:cleanup`,
   `z-spec:code2model`, `z-spec:elaborate`, `z-spec:help`, `z-spec:model2code`,
   `z-spec:partition`, `z-spec:setup`, `z-spec:test`
