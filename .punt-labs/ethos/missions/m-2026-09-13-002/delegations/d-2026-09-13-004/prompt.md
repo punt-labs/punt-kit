@@ -1,5 +1,0 @@
-Analyze a test fix in punt-kit for correctness and robustness. Report only high-confidence issues.
-
-Diff: `git diff main..fix/pkit-17qo-tmpdir-test` — tests/test_record_gh_fixtures.py (bead pkit-17qo). The fix makes `test_display_path_falls_back_to_absolute_outside_the_repo` construct its "outside the repo" path independent of TMPDIR (clears TMPDIR + tempfile.tempdir cache, uses TemporaryDirectory, asserts the path is not under the repo root).
-
-Verify: the test still genuinely proves the original behavior (display-path falls back to absolute when outside the repo), the new premise assert is correct, and it now passes regardless of TMPDIR (both inside-repo and unset). Flag any way the fix could make the test vacuous or leak state to other tests. Run the diff yourself. If adequate, say so explicitly.

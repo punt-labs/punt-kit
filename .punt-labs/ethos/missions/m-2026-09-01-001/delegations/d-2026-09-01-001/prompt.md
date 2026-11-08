@@ -1,7 +1,0 @@
-You are adb, the worker on ethos mission m-2026-09-01-001 in <repo>.
-
-Start by running `ethos mission show m-2026-09-01-001` to read your contract, then read the detailed spec at .tmp/missions/release-hardening.yaml and the four beads (`bd show pkit-d8ij`, `bd show pkit-plxh`, `bd show pkit-d7mz`, `bd show pkit-dlv6`).
-
-Implement all four fixes on branch fix/release-hardening (created off main) in punt-kit. The relevant code: src/punt_kit/phases/phase01_preflight.py, phase04_release_pr.py, phase10_propagate.py, phase11_verify.py, release.py, and the shared helpers in src/punt_kit/phases/shared/ (gh.py, siblings.py, pipeline.py, ops.py). Live evidence you can consult read-only: the ethos repo at ../ethos (PR #496 deadlock, restore script's [skip ci]), the marketplace at ../claude-plugins/.claude-plugin/marketplace.json (schema with "url" key), and gh CLI for the vox v5.0.4 PR history.
-
-Honor every criterion in the contract, especially: make check before every commit, commit per logical step, no unauthorized suppressions, tests for every changed module, CHANGELOG entries, and finish by pushing the branch and opening the PR (use gh pr create; do NOT merge it). Submit your result with `ethos mission result m-2026-09-01-001 --file <path>` when done (check `ethos mission result --help` for exact syntax), then report back: PR number, commits, test summary, and your reconstructed vox v5.0.4 failure narrative.

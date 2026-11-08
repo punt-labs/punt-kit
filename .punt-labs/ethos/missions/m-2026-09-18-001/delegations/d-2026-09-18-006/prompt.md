@@ -1,3 +1,0 @@
-Analyze test coverage for a release-engine verification change in punt-kit. High-confidence gaps only.
-
-Diff: `git diff main..fix/pkit-fesz-verify-readme-website` — new tests in tests/test_release.py (bead pkit-fesz). They should cover Phase 11's new Check 7 (README SHA pins) and Check 8 (website installCommand SHA): pass case, stale README pin fails, a README with multiple install snippets catches the stale one among several, website SHA-not-ancestor fails, website version-mismatch fails (independent of the new SHA check), and absent public-website sibling skips cleanly. Verify the negative tests genuinely fail on pre-fix code (not vacuous) and that the multi-pin test actually exercises >1 pin. Run the diff. If adequate, say so.
