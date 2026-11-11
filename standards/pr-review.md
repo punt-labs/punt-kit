@@ -535,10 +535,14 @@ The standard fixes the shape of `verified_ok`; each repo fills in its own
 
 ```text
 verify_exempt(f) = f is a file the repo lists as not changing behavior (for
-                 example *.md, docs/, tests/, .github/, ratchet files), and
-                 is not under plugin/ — commands, skills, agents, and hooks
-                 there are behavior even when Markdown, because Claude Code
-                 executes them
+                 example *.md, docs/, tests/, ratchet files), and is not under
+                 plugin/ or .github/workflows/ — commands, skills, agents, and
+                 hooks under plugin/ are behavior even when Markdown (Claude Code
+                 executes them), and a workflow under .github/workflows/ is
+                 behavior that runs in CI. A PR changing .github/workflows/
+                 states how the workflow was exercised (its own run on the PR
+                 head, or the release workflow's build-only check where a full
+                 run cannot precede merge)
 verified_ok(pr) = the repo explicitly declares it has no verification (in its
                  docs/WORKFLOW.md or CLAUDE.md); or the repo defines a
                  verification and either every file the PR changes is
