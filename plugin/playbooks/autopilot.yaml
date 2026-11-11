@@ -1,5 +1,5 @@
 name: autopilot
-description: Autonomous bead-driven development loop
+description: Autonomous issue-driven development loop (beads-tracked repos)
 mode: loop
 
 preconditions:
@@ -9,6 +9,31 @@ preconditions:
     check: test -f Makefile || test -f CLAUDE.md
 
 steps:
+  - id: check-tracker
+    description: Confirm beads is this repo's tracker of record
+    type: llm
+    context: |
+      Run `bd config get linear.pull_label` and read its output text. Do
+      not test the exit code (it is 0 either way) and do not pipe the
+      output through a shell filter.
+
+      If the output starts with `repo:` (for example `repo:quarry`), this
+      repo is migrated to Linear: Linear is its planning source of truth
+      and beads is a local mirror kept in step by `bd linear sync`.
+      Autopilot's claim (`bd update --status=in_progress`) and close
+      (`bd close`) write beads only, a push sends no labels, and a pull
+      re-opens any bead closed locally while its Linear issue is still
+      open — so both writes would be reverted and nothing would reach
+      Linear. Report exactly that: this repo is migrated to Linear, the
+      claim and close in this playbook write beads only and would be
+      reverted, and autopilot halts here. Then stop the playbook; run no
+      further step and no `bd` write.
+
+      Any other output (on a beads-tracked repo it is
+      `linear.pull_label (not set in config.yaml)`) means beads is the
+      tracker of record: continue to the next step.
+    on_failure: abort
+
   - id: check-sessions
     description: Check for other active sessions and use worktree if needed
     type: llm
