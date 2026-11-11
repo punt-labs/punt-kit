@@ -113,17 +113,20 @@ local review:
 5. A QA agent runs the complete user-facing workflow from install through
    terminal output, including at least one path through a dependency (file I/O,
    network, subprocess), and certifies the unit works (see "The verification
-   gate"). The agent records the output, verifies the changed code was actually
-   exercised by checking that expected behavior changed in the expected way, and
-   keeps verified, inferred, and unknown apart. This is `verified_ok`: it holds
-   before the PR opens.
+   gate"). The agent records the output and verifies the changed code was
+   actually exercised by checking that expected behavior changed in the expected
+   way. The certification is bound to the commit SHA it ran against; that SHA is
+   the branch head when the PR opens.
 6. Every fix diff goes through `local_review` again before it is pushed,
    including fixes made for PR findings
 
-Only open the PR after step 6 passes and `verified_ok` holds. A PR opened
-before local review is clean, or before the QA agent has certified the unit, is
-a procedural violation. Verification runs against the PR head; it does not
-change the review sequence.
+Only open the PR after step 6 passes and the QA agent has certified the branch
+head. A PR opened before local review is clean, or before that certification, is
+a procedural violation. The certification is recorded on the PR at open (the
+leader's `verified: <sha>` comment names the certified commit); a later push
+re-certifies the new head before merge. Verification is a check on observed
+behavior at a commit, not a diff review, and it does not change the review
+sequence.
 
 ### Local review
 
@@ -543,11 +546,13 @@ verified_ok(pr) = the repo explicitly declares it has no verification (in its
                  ancestor of it, and every file changed since it is
                  verify_exempt. With no verification definition and no
                  declaration, verified_ok is false.
-verified_head  = the commit named in the leader's latest "verified:" PR
-                 comment, newer than any "verification failed:" comment; the
-                 leader posts the comment once the QA agent certifies the unit
-                 works on that commit, with the operator's confirmation only for
-                 a human-judged part the repo's verification names
+verified_head  = the commit the QA agent has certified works, newer than any
+                 "verification failed:" record; the leader records it on the PR
+                 as a "verified: <sha>" comment (the first one captures the
+                 pre-open certification of the head the PR opened on; each later
+                 push adds one for the new head), with the operator's
+                 confirmation only for a human-judged part the repo's
+                 verification names
 ```
 
 A plugin-only Markdown PR is therefore not docs-only, and an edit to
