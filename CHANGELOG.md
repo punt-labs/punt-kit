@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `docs/WORKFLOW.md` — punt-kit's instantiation of `standards/workflow.md`:
+  the verification (`punt` from the installed wheel; `plugin/` through a
+  headless `claude -p --plugin-dir plugin` session; `sh install.sh`;
+  `gstack-qa` certifies the commit SHA before the PR opens; human-judged
+  exception: none), `verify_exempt`, the
+  worker/evaluator table's home, the standing worker contract, the
+  architectural units, the two formal classes (the PR review state machine
+  and the `punt release` phase sequence), and what each backlog rank means
+  here. `CLAUDE.md` now points at it instead of describing the gate itself.
 - `src/punt_kit/templates/punt-guide.md` — the tracker doctrine that
   `punt enable` will deposit into every repo as `.punt-labs/punt/CLAUDE.md`
   (the path `standards/tool-enable-disable.md` § 2.10 reserves). It tells an

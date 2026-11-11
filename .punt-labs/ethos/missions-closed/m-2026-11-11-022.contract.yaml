@@ -1,0 +1,56 @@
+mission_id: m-2026-11-11-022
+status: closed
+type: implement
+created_at: "2026-11-11T16:17:34Z"
+updated_at: "2026-11-11T17:06:32Z"
+closed_at: "2026-11-11T17:06:32Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-11T16:17:34Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs: {}
+write_set:
+    - .claude/worktrees/punt-kit-workflow/docs/WORKFLOW.md
+    - .claude/worktrees/punt-kit-workflow/CLAUDE.md
+success_criteria:
+    - 'docs/WORKFLOW.md exists and is punt-kit''s instantiation of punt-kit/standards/workflow.md: it names (1) the verification, (2) the worker/evaluator table, (3) the formal classes, (4) backlog-ordering specifics, and points to the standard for the frame. It restates nothing the standard already says — a reader with both files open finds no duplicated paragraph. Target length under 200 lines.'
+    - 'The verification section satisfies standards/pr-review.md ''The verification gate'' exactly: what is driven, through which entry point, which QA agent drives it. For punt-kit: a `punt` subcommand runs from the installed wheel (`make build`; `uv tool install --force dist/*.whl`); a plugin command, skill, agent, or hook runs in a dev session launched with `claude --plugin-dir plugin`; `gstack-qa` drives both, records expected-versus-actual, and certifies the commit SHA before the PR opens. The section states the human-judged exception for punt-kit is NONE (punt-kit has no audio or rendered output a human must judge) and that an internal change the QA agent certifies does not wait on the operator.'
+    - 'verify_exempt is defined for punt-kit using the standard''s term `verify_exempt` (NOT `demo_exempt`), carrying the set CLAUDE.md line ~255 lists today: *.md outside plugin/, docs/, standards/, lang-rules/, patterns/, tests/, .github/ other than .github/workflows/, .pr_agent.toml; workflow files demoed by their own run; release.yml and biff-notify.yml exempt because they cannot run pre-merge, with the post-merge run named; anything under plugin/ is behavior even when Markdown.'
+    - CLAUDE.md's 'Demo' paragraph (currently line ~255, beginning '**Demo.** punt-kit ships...') is replaced by a short pointer to docs/WORKFLOW.md's verification section and uses the standard's names (`verified_ok`, `verify_exempt`). After the edit, `grep -n -iE 'demo_exempt|demo_ok|demoed_head|\bdemo\b' CLAUDE.md docs/WORKFLOW.md` returns zero matches. Record that grep output in the result.
+    - The worker/evaluator table is the one already in CLAUDE.md 'Ethos & Delegation' (standards doc authoring mdm/rop; workflow standards adt/mdm; Python rmh/gvr; release playbook adb/rmh; plugin scaffolding mdm/rmh; CI adb/djb; cross-repo rollout adb/mdm; security review djb/adb; audit/init/reconcile rmh/adt; load-bearing standards mdm/rop+adt). WORKFLOW.md either carries it and CLAUDE.md points at it, or CLAUDE.md keeps it and WORKFLOW.md points there — one home, stated which. Worker chooses and says why.
+    - 'Formal classes: name the PR review state machine (already model-checked: standards/pr-review-model.tex and pr-review-model-bugbot.tex) and decide, with one sentence of reasoning, whether the `punt release` phase sequence (src/punt_kit/release.py, phases 1–11, --resume-from) is a formal class. If yes, name it as one with its model pending; if no, say why.'
+    - 'Fleet reality, stated in the result: quarry/docs/WORKFLOW.md and beadle/docs/WORKFLOW.md are on the pre-#437 demo model (''the one human gate is the demo'', demoConfirmed). This file is the FIRST instantiation under verified_ok. The worker does not copy their demo-gate shape; the result names the drift so the leader files one bead per child repo.'
+    - 'No status, history, or migration commentary in either file: no ''this replaces the demo'', no ''as of #437'', no bead IDs in the body. The files state the current rule only (operator rule 2026-11-11).'
+    - make check in the worktree exits 0 before every commit; full output read. npx markdownlint-cli2 docs/WORKFLOW.md CLAUDE.md returns zero findings; output in the result.
+    - Result cites bead pkit-oen5, gives file:line for the verification section, the verify_exempt definition, the CLAUDE.md pointer, the table's chosen home, and the formal-class decision.
+    - 'Time box: budget.minutes = 60 (T3). Commit incrementally — one commit per logical step. Each commit must pass make check. Do not accumulate more than 30 minutes of uncommitted changes. First commit within 30 minutes.'
+    - Commit only files you changed (git add <file>). Conventional Commits messages. One shell command per Bash call. Commit on branch docs/punt-kit-workflow; do not push, do not touch PRs or merge — the leader does that.
+budget:
+    rounds: 2
+    reflection_after_each: true
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: e7d573b5c64cf5d60cda074430d9b27c
+          round: 1
+          created_at: "2026-11-11T16:49:05Z"
+          author: mdm
+          recommendation: continue
+        - id: de9c7bf7d97ad94b36776f5ff462ec9c
+          round: 2
+          created_at: "2026-11-11T17:06:07Z"
+          author: mdm
+          recommendation: continue
+context: |
+    Bead pkit-oen5 (P2, T3). Worktree <repo>/.claude/worktrees/punt-kit-workflow, branch docs/punt-kit-workflow, cut from origin/main 238b02d. Run every command from that worktree.
+
+    Why: standards/pr-review.md 'The verification gate' (on origin/main, merged in #437 under operator ruling 2026-11-11) says each repo's docs/WORKFLOW.md or CLAUDE.md defines its verification — what is driven, through which entry point, which QA agent drives it — or declares it has none; a repo that does neither has an incomplete merge gate. punt-kit has no docs/WORKFLOW.md and its CLAUDE.md still describes the gate under the retired name 'Demo' with demo_exempt/demo_ok. This unit closes the gap.
+
+    Read first, in this order: standards/pr-review.md 'The verification gate' and the verify_exempt block that follows it; standards/workflow.md top matter (the paragraph starting 'Each repo deploys a docs/WORKFLOW.md') and §1 ownership table, §5 pr_loop step C, ExitPR; CLAUDE.md lines ~240–270 ('Demo' paragraph and 'Ethos & Delegation'); then ../quarry/docs/WORKFLOW.md lines 1–60 and 336–380 ONLY to see the per-repo file's established shape — its content is pre-#437 and is not the template.
+
+    Settled, not yours to reopen: the gate is verified_ok (QA agent certifies the SHA pre-PR); gstack-qa is the QA agent; the human-judged exception for punt-kit is none; the operator confirms nothing by default. If writing the file surfaces a question the standard does not answer, stop and surface it in the result instead of deciding.
+
+    Language: Markdown. The file is an instantiation: short, specific, pointing at the standard for everything shared.

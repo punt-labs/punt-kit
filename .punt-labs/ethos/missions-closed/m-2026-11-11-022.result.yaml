@@ -1,0 +1,45 @@
+mission: m-2026-11-11-022
+round: 2
+created_at: "2026-11-11T17:04:48Z"
+author: claude
+verdict: escalate
+confidence: 1
+files_changed:
+    - path: .claude/worktrees/punt-kit-workflow/docs/WORKFLOW.md
+      added: 131
+      removed: 0
+    - path: .claude/worktrees/punt-kit-workflow/CLAUDE.md
+      added: 1
+      removed: 1
+evidence:
+    - name: 'Finding 1 fixed: docs/WORKFLOW.md:24-28 drops the happy/invalid/missing/boundary list; keeps expected-first, install-or-launch per table, expected-versus-actual, SHA certification'
+      status: pass
+    - name: 'Finding 2 fixed: docs/WORKFLOW.md:89-90 names fuzz and probcli and the model''s home; dispatch-timing rule removed'
+      status: pass
+    - name: 'Finding 3 fixed: docs/WORKFLOW.md:57-60 one sentence: pre-PR certification is gstack-qa running the changed job''s commands locally; the named run is the post-open re-certification'
+      status: pass
+    - name: 'Finding 4 fixed: standards/release-model.tex created in commit cd14b9d (comment header, Introduced 2026-11-11, documentclass/begin/end only); fuzz -t exit 0 re-run by the leader. The path is outside this contract''s write_set; see open_questions'
+      status: pass
+    - name: 'Finding 5 fixed: docs/WORKFLOW.md:67-68 a post-merge failure on an exempt workflow is a finding, fixed in a fix PR on the spot'
+      status: pass
+    - name: 'make check in the worktree before the commit (worker): ruff, mypy, pyright clean; 2320 passed, 14 skipped; exit 0'
+      status: pass
+    - name: 'Leader re-run: grep -n -iE ''demo_exempt|demo_ok|demoed_head|\bdemo\b|next unit|before its implementation mission'' CLAUDE.md docs/WORKFLOW.md: zero matches (exit 1)'
+      status: pass
+    - name: 'Leader re-run: npx markdownlint-cli2 on docs/WORKFLOW.md and CLAUDE.md via temp copies under standards/ (removed): 0 issues in 0 files'
+      status: pass
+    - name: 'Leader re-run: docs/WORKFLOW.md 131 lines, standards/release-model.tex 13 lines'
+      status: pass
+    - name: commit cd14b9d on docs/punt-kit-workflow on top of 184e4aa; git status clean; not pushed
+      status: pass
+open_questions:
+    - 'Request write_set expansion: standards/release-model.tex. The leader''s round-2 instruction asked the worker to create this file to close finding 4 (a dangling path at docs/WORKFLOW.md:104); the contract''s write_set did not include it. The commit landed; the result record restricts files_changed to the write_set and names the gap here. The leader owns the contract error.'
+prose: |
+    Round 2: five findings fixed in one commit, cd14b9d. Worker evidence
+    reproduced by the leader (grep, markdownlint, fuzz, line counts). The
+    round-1 open question on biff-notify.yml is closed per the evaluator's
+    verdict (legitimate instantiation; standard unchanged). Verdict is
+    escalate only because files_changed cannot list standards/release-model.tex
+    under this contract; the work itself passes. Worker's own round-2 record:
+    .tmp/missions/results/m-2026-11-11-022-r2.yaml (refused at the write_set
+    boundary). Bead pkit-oen5.
