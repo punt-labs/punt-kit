@@ -263,6 +263,49 @@ depends on who is reading and when; a pasted SHA is unambiguous forever.
 
 ---
 
+## 10. Secret scanning (pre-commit)
+
+A secret must never reach git history. The first gate is local: a `gitleaks`
+pre-commit hook scans the staged change and blocks a commit that introduces a
+key, token, or credential. `gitleaks` is the single secret-scanning tool across
+the fleet — one tool, one config, one allowlist convention to learn and
+maintain.
+
+- **Pre-commit hook.** The hook runs `gitleaks` on the staged content only
+  (`gitleaks protect --staged`), so it reads the diff about to be committed, not
+  the working tree or history. It is a local Go binary, offline, with no network
+  call, so it adds negligible time to a commit. A finding blocks the commit and
+  names the rule and location; the commit proceeds only once the secret is
+  removed or the finding is allowlisted (below).
+- **Pinned version.** The `gitleaks` version is pinned (a `gitleaks-pins` or
+  equivalent version record committed in the repo), so every machine and CI run
+  the same scanner and the same rules. A floating version silently changes what
+  the gate catches.
+- **Config in the repo.** Scanner config lives in a committed `.gitleaks.toml`
+  (or `gitleaks.toml`): the rule set the repo extends, plus a global allowlist
+  that matches a reviewed value by its whole shape, never by path. A path
+  allowlist exempts a whole file and rots into a hole; a shape/content allowlist
+  stays bound to the specific reviewed value.
+- **Allowlist convention.** A reviewed false positive — an inert test fixture, a
+  documented example credential — is pinned by the content it matched, not by
+  its location: one entry per line as `<rule-id>|<sha256-of-the-matched-bytes>`,
+  grouped under a `## reason` header that says why it is safe. An unpinned
+  finding fails the scan; a pin that no finding uses is removed. This keeps the
+  allowlist auditable and prevents a stale exemption from hiding a new secret.
+
+This is the local gate; CI re-runs `gitleaks` as a required check so a commit
+made with `--no-verify` (or on a machine without the hook) is still caught
+([ci.md § 9](ci.md), § "Security hardening"). GitHub's push protection and
+secret scanning are the server-side backstop behind both
+([github.md](github.md)). `gitleaks` catches **secrets** (keys, tokens,
+credentials); it is distinct from the committed-content PII/profanity scrub
+([punt-labs-dir.md § 4](punt-labs-dir.md)), which covers personal data about
+people — a different detector class. A repo whose threat model needs more than
+regex+entropy secret detection (image or artifact scanning) may add a stricter
+layer on top; the `gitleaks` pre-commit gate is the floor every repo meets.
+
+---
+
 ## Related Standards
 
 - [Workflow](workflow.md) — the three loops, branch-prefix table, commit format, PR loop, merge gate, session close-out
