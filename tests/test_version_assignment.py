@@ -19,7 +19,10 @@ from punt_kit.phases.shared.version_assignment import VersionAssignment
 def test_reads_a_quoted_assignment(text: str, value: str) -> None:
     name = "__version__" if "__version__" in text else "version"
 
-    assert VersionAssignment(name).read(text) == value
+    assert VersionAssignment(name).rewritten(text, "9.9.9") == (
+        text.replace(value, "9.9.9"),
+        1,
+    )
 
 
 @pytest.mark.parametrize(
@@ -32,14 +35,17 @@ def test_reads_a_quoted_assignment(text: str, value: str) -> None:
     ],
 )
 def test_does_not_read_what_is_not_a_line_start_quoted_assignment(text: str) -> None:
-    assert VersionAssignment("version").read(text) is None
+    assert VersionAssignment("version").rewritten(text, "2") == (text, 0)
 
 
 def test_a_computed_value_is_assigned_but_not_readable() -> None:
     assignment = VersionAssignment("__version__")
     text = "__version__ = compute()\n"
 
-    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+    assert (assignment.is_assigned(text), assignment.rewritten(text, "2")) == (
+        True,
+        (text, 0),
+    )
 
 
 def test_rewriting_keeps_the_quote_style_and_reports_the_count() -> None:
@@ -64,7 +70,7 @@ def test_a_shell_value_continued_after_its_quote_is_assigned_but_not_plain(
 ) -> None:
     assignment = VersionAssignment.in_shell("VERSION")
 
-    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+    assert (assignment.is_assigned(text), assignment.values(text)) == (True, (None,))
 
 
 @pytest.mark.parametrize(
@@ -80,7 +86,7 @@ def test_a_shell_value_continued_after_its_quote_is_assigned_but_not_plain(
 def test_a_shell_value_ends_at_whitespace_a_semicolon_a_spaced_hash_or_the_end(
     text: str,
 ) -> None:
-    assert VersionAssignment.in_shell("VERSION").read(text) == "1.0"
+    assert VersionAssignment.in_shell("VERSION").values(text) == ("1.0",)
 
 
 def test_every_shell_assignment_is_listed_in_order() -> None:
@@ -116,17 +122,18 @@ def test_a_shell_value_never_spans_a_newline() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
     text = 'VERSION=\n"0.1.0"\n'
 
-    assert (assignment.read(text), assignment.rewritten(text, "2")) == (
-        "",
-        (text, 0),
-    )
+    assert (
+        assignment.is_assigned(text),
+        assignment.values(text),
+        assignment.rewritten(text, "2"),
+    ) == (True, (), (text, 0))
 
 
 def test_an_unquoted_shell_literal_is_a_readable_pin() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
     text = "VERSION=0.0.9\n"
 
-    assert (assignment.read(text), assignment.values(text)) == ("0.0.9", ("0.0.9",))
+    assert assignment.values(text) == ("0.0.9",)
 
 
 @pytest.mark.parametrize(
@@ -143,7 +150,7 @@ def test_an_unquoted_shell_literal_is_a_readable_pin() -> None:
 def test_a_computed_unquoted_shell_value_is_still_not_plain(text: str) -> None:
     assignment = VersionAssignment.in_shell("VERSION")
 
-    assert (assignment.is_assigned(text), assignment.read(text)) == (True, None)
+    assert (assignment.is_assigned(text), assignment.values(text)) == (True, (None,))
 
 
 def test_a_stale_unquoted_pin_after_a_current_quoted_one_is_not_pinned() -> None:

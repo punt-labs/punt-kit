@@ -112,12 +112,6 @@ class VersionAssignment:
         bodies = HeredocBodies(text)
         return [m for m in heads if not bodies.contains(m.start())]
 
-    # None: absence is the contract; callers branch on "no plain value assigned".
-    def read(self, text: str) -> str | None:
-        """The first plain value assigned, or ``None`` when there is none."""
-        match = self._readable(text)
-        return match.group(3) if match else None
-
     def is_pinned_to(self, text: str, value: str) -> bool:
         """True when the first value is plain and every plain one is ``value``.
 
