@@ -11,9 +11,11 @@ reachable from the terminal. The CLI is one of four client surfaces of the
 engine — library, CLI, MCP, REST (see the
 [Projection Model](architecture.md#the-projection-model-canonical)); the library
 import, MCP server, and REST API are peer clients, and they add nothing the
-terminal cannot reach. Slash commands and plugin hooks are distribution channels
-for the MCP surface, not surfaces of their own. This is why the CLI must expose
-every engine capability as a command.
+terminal cannot reach. Slash commands and plugin hooks are distribution
+channels, not surfaces of their own: a slash command ships the MCP surface
+through the plugin channel, and a plugin hook dispatches through the CLI (it
+calls `<tool> hook <event>`). This is why the CLI must expose every engine
+capability as a command.
 
 A user who never opens Claude Code can use every feature. A user inside Claude Code gets the same features surfaced through the plugin layer.
 
@@ -72,8 +74,10 @@ programmatic-only registrations).
 `enable` / `disable` are **not** admin-tier — they are their own
 tier, per-repo tool integration, defined in full in
 [tool-enable-disable.md](tool-enable-disable.md#23-the-enable--disable-convention).
-Every Punt Labs tool implements them across the library, CLI, and MCP
-surfaces (and REST where it has callers); the slash command rides the
+Every Punt Labs tool implements them across all four surfaces — library,
+CLI, MCP, and REST — unless an omission is recorded as a considered
+exception in the project's design record (the equivalence default above);
+the slash command rides the
 MCP surface's plugin channel, so it comes with the MCP tool rather than
 counting as a fourth surface.
 
