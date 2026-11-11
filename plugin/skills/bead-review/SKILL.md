@@ -1,6 +1,6 @@
 ---
 name: bead-review
-description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work
+description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work. Refuses in a Linear-migrated repo and redirects to Linear.
 disable-model-invocation: true
 user-invocable: false
 ---
@@ -36,6 +36,53 @@ Set `REPO` once at the start of the run: `args` if given, otherwise the
 current directory. **Never `cd`** — every `bd` command below takes `-C
 "$REPO"` instead, so the skill works regardless of what tools are
 allow-listed for the invoking command.
+
+## Step 0: Confirm beads is the tracker of record
+
+Some repos have migrated their backlog to Linear. There, Linear is the
+planning source of truth and beads is a local mirror kept in step by
+`bd linear sync`. This skill writes beads only — it rewrites titles,
+bodies, and priorities, closes beads, and adds `theme:*` labels, all via
+`bd` — so in a migrated repo it must not run at all. Check before
+anything else:
+
+```bash
+bd -C "$REPO" config get linear.pull_label
+```
+
+Read the output text and decide on that alone:
+
+- Output **starts with `repo:`** (for example `repo:quarry`) — the repo is
+  migrated. Go to the refusal below.
+- Any other output (on a beads-tracked repo it is
+  `linear.pull_label (not set in config.yaml)`) — beads is the tracker of
+  record. Continue to Step 1.
+
+Do not test the exit code: `bd config get` exits 0 whether or not the key
+is set. Do not use `issue-prefix` as the signal: `bd config get
+issue-prefix` prints `issue-prefix (not set)` on migrated repos even
+though the key is in their `config.yaml`. And no shell pipe — read the
+output directly, as everywhere else in this skill.
+
+Why refuse rather than proceed: `bd linear sync --push` sends no labels,
+and a pull replaces each bead's label set with Linear's and re-opens any
+bead closed locally while its Linear issue is still open. So every write
+this skill makes in a migrated repo — the rewrites, the closes, the
+`theme:*` labels — is reverted by the next sync and none of it reaches
+Linear, which is where that backlog is actually planned.
+
+**Refusal.** `cat "$REPO/.beads/metadata.json"` for the prefix (the same
+read Step 1 makes), take the repo name from the output after `repo:`, and
+print exactly this one paragraph, then stop — no enumeration, no rubric,
+no report, no `bd` write of any kind:
+
+```text
+<repo> (prefix <prefix>) is migrated to Linear: Linear is its planning
+source of truth and beads is a local mirror, so bead-review will not run
+here — its edits are beads-only and the next `bd linear sync` would revert
+them. Audit this backlog in Linear instead: team Punt Labs, view "<repo>"
+(issues labelled repo:<repo>).
+```
 
 ## Step 1: Confirm scope
 
