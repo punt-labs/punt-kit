@@ -59,11 +59,13 @@ it — see
 [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).
 
 Everything a tool commits into this subtree — the deposited guide, repo config,
-the ethos registry, `missions-closed/` exports, and vended agent content — is
-PII- and profanity-scrubbed before it enters git, per
-[punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention),
-which owns that contract. The gitignored local zone and the home tree are out
-of scope — they are never committed.
+the ethos registry, `missions-closed/` exports, and vended agent content —
+carries no incidental third-party PII and no profanity before it enters git.
+[punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)
+owns that contract and defines exactly what is scrubbed versus what a record is
+meant to carry (an identity record's own declared fields are in scope for its
+tool, not stripped). The gitignored local zone and the home tree are out of
+scope — they are never committed.
 
 ## 2.3 The `enable` / `disable` Convention
 
