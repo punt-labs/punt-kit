@@ -1,0 +1,98 @@
+mission: m-2026-11-11-019
+round: 1
+created_at: "2026-11-11T09:07:53Z"
+author: mdm
+verdict: pass
+confidence: 0.93
+files_changed:
+    - path: .claude/worktrees/punt-guide/src/punt_kit/templates/punt-guide.md
+      added: 22
+      removed: 22
+evidence:
+    - name: 'F1 source: internal/storage/issueops/close.go:26-31 CloseIssueInTx sets updated_at = now alongside status and closed_at'
+      status: pass
+    - name: 'F1 source: internal/tracker/engine.go:462 pull guard skips an existing bead when existing.UpdatedAt.After(*lastSync) unless in allowOverwriteIDs (bidirectional conflict resolution only, engine.go:154-163) or prelinkedHydrateIDs (bulk pull only, engine.go:397-405)'
+      status: pass
+    - name: 'F1 source: a scoped --issues pull does not bypass the guard: engine.go:355-385 builds extIssues from opts.IssueIDs, then the same loop at engine.go:412-466 applies the guard to every fetched issue'
+      status: pass
+    - name: 'F1 source: the cursor advances on every non-dry-run sync, push or pull, scoped or not: engine.go:215-223 SetLocalMetadata(e.lastSyncKey(), now) after Sync'
+      status: pass
+    - name: 'F1 source: the eventual overwrite includes status: engine.go:568-573 buildPullIssueUpdates writes status: string(remote.Status); pullIssueEqual at 548-555 treats a status difference as a change'
+      status: pass
+    - name: 'F1 fix: line 44-45 now says ''undone by a later pull (the cursor bullet says when)''; the mechanism is stated once, in the cursor bullet (lines 54-59); wc -l 79'
+      status: pass
+    - name: 'F2 proof: git -C quarry log -1 --format=%h prints 74ac563; git rev-parse --short origin/main prints 4bce746; git rev-list --count 74ac563..origin/main prints 82'
+      status: pass
+    - name: 'F2 proof: git show origin/main:.beads/config.yaml line 17 is ''linear.pull_label: repo:quarry'' (added in 223e119, 2026-10-25); grep of the checked-out quarry/.beads/config.yaml for linear.pull_label or issue-prefix prints nothing'
+      status: pass
+    - name: 'F2 proof: bd -C quarry config get linear.pull_label prints ''linear.pull_label (not set in config.yaml)'' while bd -C quarry config get linear.push_prefix prints ''ethos,quarry,qmb,beadle,biff,punt'''
+      status: pass
+    - name: 'F2 proof: bd linear status prints ''Status: Not configured'' in quarry, vox and ethos (ethos is a current, migrated checkout: bd -C ethos config get linear.pull_label prints repo:ethos; git status --short --branch prints ''## main...origin/main''); cause: cmd/bd/linear.go:808 configured := (apiKey != "" || hasOAuth) && len(teamIDs) > 0, and no repo sets linear.team_id in config'
+      status: pass
+    - name: 'F2 fix: the contract''s tiebreak sentence is inserted verbatim as the last sentence of the which-tracker paragraph (lines 20-22); the bd linear status decoy is added beside issue-prefix (line 19)'
+      status: pass
+    - name: 'F3 proof: bd list --help on 769f8a1f shows ''--all  Show all issues including closed (overrides default filter)'', ''-n, --limit int  Limit results (default 50, use 0 for unlimited) (default 50)'', ''--label-any strings  Filter by labels (OR: must have AT LEAST ONE)''; every flag in the contract''s command form exists'
+      status: pass
+    - name: 'F3 proof: bd -C ethos list --json --all --limit 0 --label-any repo:ethos returned 488 rows, 394 closed, 70 with external_ref, 7 closed with external_ref; bd -C ethos list --json --label-any repo:ethos (default flags) returned 50 rows, 0 closed, plus ''Showing 50 issues; more results matched but were hidden by --limit''; bd -C ethos list --json --all --limit 0 (unscoped) returned 4415 rows across 33 id prefixes'
+      status: pass
+    - name: 'F3 fix: line 66 reads ''bd list --json --all --limit 0 --label-any <the repo label> and match on external_ref'''
+      status: pass
+    - name: 'F4 fix: ''workspace'' is defined on its first use at lines 71-72 (''the punt-labs/punt-labs meta-repo one directory above this repo, whose .claude/skills/ holds it''); ls ~/Coding/punt-labs/.claude/skills lists add-credential beads-to-linear linear-migrate linear-unmigrate review-metrics; lines 78-79 reuse the defined word'
+      status: pass
+    - name: 'F5 source: internal/linear/tracker.go:129-136 LastSyncKey returns ''linear.last_sync.'' + t.pullLabel (pullLabel read from linear.pull_label at tracker.go:86-88); engine.go:1452-1459 lastSyncKey uses it for both the write at 218 and the pull read at 309; the cursor is one per pull label, stored in the dolt-ignored local_metadata table (internal/storage/dolt/config.go:110-116)'
+      status: pass
+    - name: 'F5 fix: line 54 reads ''One cursor per repo label, shared by push and pull''; line 56-57 states that a push hides edits from this repo''s next incremental pull, not another repo''s'
+      status: pass
+    - name: wc -l src/punt_kit/templates/punt-guide.md prints 79
+      status: pass
+    - name: 'npx markdownlint-cli2 src/punt_kit/templates/punt-guide.md: ''Linting: 1 file'', ''Summary: 0 issues in 0 files'''
+      status: pass
+    - name: 'make check in the worktree on the final text, run in the background with a 600 s timeout, log read in full from .tmp/m019-make-check.log: ruff ''All checks passed!'', ''297 files already formatted'', shellcheck silent, mypy ''Success: no issues found in 125 source files'', pyright ''0 errors, 0 warnings, 0 informations'', pytest ''2320 passed, 14 skipped in 314.10s''; harness task file shows ''[exited with code 0]''; grep -c of FAILED|ERROR|make: *** over the log prints 0'
+      status: pass
+    - name: 'git diff --stat: 1 file changed, 22 insertions(+), 22 deletions(-), src/punt_kit/templates/punt-guide.md only'
+      status: pass
+prose: |
+    One commit on feat/punt-guide fixing exactly the five findings; every
+    mechanical claim re-derived against the fork checkout at
+    ~/Coding/punt-labs/.tmp/beads-fork (HEAD 769f8a1fce0a, the
+    installed bd 1.0.4 main@769f8a1fce0a) and against the binary.
+
+    F1. close.go:29 stamps updated_at; engine.go:462 skips a bead whose
+    updated_at is after the cursor; engine.go:216-223 advances the cursor on
+    every non-dry-run sync. The scoped --issues path (engine.go:355-385) feeds
+    the same guarded loop, so a scoped pull does not bypass the guard. The two
+    bypass sets are allowPullOverwriteIDs (only populated by bidirectional
+    conflict resolution, engine.go:154-163, which the guide forbids as "a bare
+    bd linear sync") and prelinkedHydrateIDs (bulk pulls only, for beads whose
+    external_ref changed after the cursor, engine.go:397-405). The mechanism
+    now lives once, in the cursor bullet; the proven-facts bullet points at it
+    with "undone by a later pull".
+
+    F2. The contract sentence is inserted verbatim. Verified the stale
+    checkout on this machine: quarry local main 74ac563, origin/main 4bce746,
+    82 commits behind; origin/main's .beads/config.yaml carries
+    linear.pull_label: repo:quarry since 223e119 (2026-10-25); the checked-out
+    copy has neither linear.pull_label nor issue-prefix. bd linear status
+    prints Not configured in quarry, vox and ethos alike; ethos is current with
+    origin and migrated, so the decoy is real on a working setup. Cause is
+    cmd/bd/linear.go:808, which requires linear.team_id in config.
+
+    F3. All three flags exist on 769f8a1f (help lines in the evidence). Run in
+    ethos: the contract form returns 488 beads of which 394 are closed and 7
+    are closed with an external_ref; the old form returns 50 open beads and a
+    truncation notice; the unscoped form returns 4415 beads across 33 repos.
+
+    F4. "workspace" is defined on first use in the beads-only section, in the
+    contract's words; the two later uses in "Both" reuse the defined term.
+
+    F5. tracker.go:129-136 and engine.go:1452-1459: the cursor key is
+    linear.last_sync.<pull_label>, one per repo label, shared by that repo's
+    push and pull. The heading and the push warning now say so: a push in
+    repo A hides nothing from repo B's next incremental pull.
+
+    Line budget: the file must stay under 80 lines while adding two sentences
+    (F2) and a definition (F4), so the edited paragraphs are wrapped to ~100
+    columns; MD013 is disabled in .markdownlint.jsonc and the file already
+    carried a 102-column line at 4cea16a. First edit landed at 80 lines; the
+    cursor bullet was tightened by one line to 79 before the gate ran, so the
+    make check below is on the committed text.
