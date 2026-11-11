@@ -204,12 +204,20 @@ repo-bound data, which stays in the repo tree:
 | Repo config and first-class repo-bound data | `<repo>/.punt-labs/<tool>/` (committed) | [punt-labs-dir.md](punt-labs-dir.md) |
 | Repo-bound ephemeral live state — a running tool's pre-seal session/audit stream, locks, live mission logs, trace | `<repo>/.punt-labs/local/<tool>/` (gitignored) | [punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone) |
 
-A **durable** diagnostic log — the rotating `<tool>.log` this standard
-configures — is home-tree because it is the same regardless of which repo the
-tool runs in. A **repo-bound live stream** that must travel with the work it
-documents (an audit trail sealed into a PR) is not a durable diagnostic log:
-it lands in the repo's local zone while live and is sealed into the committed
-subtree per [punt-labs-dir.md § 5](punt-labs-dir.md#5-live-state-is-never-a-tracked-file).
+The test for which root a given log belongs in is a single question: **does
+this log belong to the tool, or to the work in one repo?** A **durable
+diagnostic log** — the rotating `<tool>.log` this standard configures,
+`repair.log`, crash/hook-error logs — records the tool's own operation, is the
+same regardless of which repo the tool runs in, and outlives any one repo's
+work; it is home-tree (`~/.punt-labs/<tool>/logs/`). A **repo-bound live
+stream** is scoped to the work in one checkout — an audit/session trail that
+must travel with the PR it documents, sealed into that repo's history; it lands
+in that repo's local zone while live (`<repo>/.punt-labs/local/<tool>/`) and is
+sealed into the committed subtree per
+[punt-labs-dir.md § 5](punt-labs-dir.md#5-live-state-is-never-a-tracked-file).
+If a log would read identically no matter which repo triggered it, it is
+durable (home); if it only makes sense alongside one repo's commits, it is
+repo-bound (local zone).
 Do not pull such repo-bound first-class state into the home tree, and do not
 push a durable diagnostic log into a repo.
 

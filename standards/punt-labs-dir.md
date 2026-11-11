@@ -110,7 +110,9 @@ entirely — [§ 1](#1-core-principle) states the exemption):
   tools' live state never collide. This is the ethos v4.21 deployed layout:
   `.punt-labs/local/ethos/` holds `locks/`, `trace/{missions,sessions}/`,
   `missions/` live logs, `artifacts/`, and `tmp/`, while the durable
-  `repair.log` and `hook-errors.log` sit in the home tree `~/.punt-labs/ethos/`.
+  `repair.log` and `hook-errors.log` sit in the home-tree log directory
+  `~/.punt-labs/ethos/logs/` (durable logs live under `<tool>/logs/`, per the
+  rule above — not loose in the tool root).
 
 The local zone is **not** a second ignore mechanism. `.punt-labs/local/` is a
 local-convention path — a `local` path segment directly under `.punt-labs/`
