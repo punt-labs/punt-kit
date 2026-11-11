@@ -183,15 +183,24 @@ Status check names must match the job names in the workflow files so GitHub can 
 | Allow squash merging | Yes (default) |
 | Allow rebase merging | Yes |
 | Auto-delete head branches | Yes — clean up after merge |
-| Allow auto-merge | No — the leader merges explicitly once the `merge_gate` in [pr-review.md](pr-review.md) is satisfied |
+| Allow auto-merge | Repo-dependent — see below. Off for human-reviewed PRs; on only where an automated propagation workflow requires it |
 
-GitHub-native auto-merge is left disabled because it fires on CI passing
-alone. The `merge_gate` in [pr-review.md](pr-review.md) requires more: CI
-green **and** no review pending **and** every finding answered **and** zero
-unresolved review threads **and** `mergeStateStatus` in `{CLEAN, HAS_HOOKS}`.
-GitHub cannot represent that gate, so it would merge too early. The leader
-merges explicitly when the gate returns true — "No auto-merge. No admin
-override." ([pr-review.md](pr-review.md)).
+For a **human-authored PR**, GitHub-native auto-merge stays disabled: it fires
+on CI passing alone, and the `merge_gate` in [pr-review.md](pr-review.md)
+requires more — CI green **and** no review pending **and** every finding
+answered **and** zero unresolved review threads **and** `mergeStateStatus` in
+`{CLEAN, HAS_HOOKS}`. GitHub cannot represent that gate, so it would merge too
+early. The leader merges explicitly when the gate returns true — "No auto-merge.
+No admin override." ([pr-review.md](pr-review.md)).
+
+The one exception is an **automated cross-repo propagation PR** — a
+deterministic SHA/version bump opened by the release workflow
+(`enablePullRequestAutoMerge`, see [DESIGN.md](../DESIGN.md) propagation). No
+human is in that loop and there is no review judgment to apply: the PR's own
+required CI *is* its gate. Those repos keep repo-level auto-merge enabled so the
+release can land its propagation PRs unattended. The distinction is the author,
+not the convenience: a PR a human opened waits for the leader; a PR the release
+machine opened merges on its own green CI.
 
 ### Security
 
@@ -217,7 +226,7 @@ Use this checklist when creating a new repo:
 5. Configure branch protection ruleset with required status checks (sections 1, 4)
 6. Add `.pr_agent.toml` from the template and configure Qodo and Bugbot (section 3); do not enable Copilot code review
 7. Enable Dependabot and secret scanning (section 5)
-8. Enable auto-delete head branches; leave GitHub auto-merge disabled — the leader merges explicitly on `merge_gate` ([pr-review.md](pr-review.md), section 5)
+8. Enable auto-delete head branches. Leave GitHub auto-merge disabled — the leader merges human-authored PRs explicitly on `merge_gate` ([pr-review.md](pr-review.md), section 5) — unless the repo runs an automated propagation workflow that needs it (see the auto-merge row above), in which case keep it enabled for that path
 9. Verify with a test PR that CI runs and protection works
 
 ### Existing repositories
