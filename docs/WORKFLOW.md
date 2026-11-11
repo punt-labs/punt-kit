@@ -40,11 +40,12 @@ A plugin command, skill, agent, hook, or playbook under `plugin/` is behavior
 even when it is Markdown or YAML, because Claude Code executes it. A change
 there is never docs-only and is re-certified after every edit.
 
-A script under `scripts/` (`audit-all.sh`, `release-plugin.sh`,
-`restore-dev-plugin.sh`) is behavior that `punt release` and `punt audit`
-run. Because `punt release` performs irreversible steps, a change to a
-script is certified by invoking the script directly against a scratch
-checkout under `.tmp/`, expected output written first.
+A script under `scripts/` is behavior. `release-plugin.sh` and
+`restore-dev-plugin.sh` are run by `punt release` phases 4 and 9;
+`audit-all.sh` is run by hand (`bash scripts/audit-all.sh [--fix]`). Because
+`punt release` performs irreversible steps, a change to any of the three is
+certified by invoking the script directly against a scratch checkout under
+`.tmp/`, expected output written first.
 
 ### `verify_exempt`
 
@@ -64,22 +65,25 @@ A file is `verify_exempt` when it matches one of these and is not under
 A file under `.github/workflows/` is behavior and is never exempt. For a
 change there the pre-PR certification is `gstack-qa` running the changed
 job's commands locally (the same steps the YAML runs) and certifying the
-head; the run named below is the post-open re-certification the PR
+head; the run named below is the CI re-certification — on the PR head for
+`docs.yml`, `lint.yml`, and `test.yml`, after merge for the other two — that the PR
 description names:
 
 | Workflow | Pre-PR certification | Named run |
 |---|---|---|
 | `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`, and `push` to `main`) | The job's commands run locally | The run on the PR head |
 | `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | The build job: `uv build`, then `uvx twine check dist/*` | The next tagged release; the leader checks it after merge |
-| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command it runs executed locally | Its first failure-triggered `workflow_run` on `main`; until one occurs the post-merge run has not happened, and the leader records that |
+| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command it runs executed locally with a `QA test of biff-notify` message and `--duration 1m`, never the workflow's own `CI failed` text | Its first `workflow_run` whose upstream failed on a `push` or `workflow_dispatch` event; until one occurs the post-merge run has not happened, and the leader records that |
 
 A failure in a named post-merge run is a finding, fixed in a fix PR on the
 spot.
 
 A docs-only PR (every changed file `verify_exempt`) is verified by
 `npx markdownlint-cli2` on each changed `.md` with zero findings and a
-read-through of the rendered text, and by `fuzz -t` plus `probcli` per the
-file's own header on each changed `.tex`; no QA certification is needed.
+read-through of the rendered text, and on each changed `.tex` by `fuzz -t`
+plus `probcli` as the file's header or the companion `.md` it names
+prescribes (a `*_buggy.tex` passes when `probcli` reports the violation it
+was built to show); no QA certification is needed.
 
 ## Worker/evaluator table
 
@@ -140,8 +144,9 @@ implementation mission, and the operator ratifies the design:
 
 ## Formal classes
 
-Each class has a model checked by `fuzz` (type-check) and `probcli`
-(model-check) and kept beside the standard or code it describes.
+Each class has a model, or acquires one with its first change, checked by
+`fuzz` (type-check) and `probcli` (model-check) and kept beside the standard
+or code it describes.
 
 1. **The PR review state machine.** `standards/pr-review.md`'s review
    markers, Qodo sessions and the outage fallback, findings and `answered`,
@@ -155,8 +160,8 @@ Each class has a model checked by `fuzz` (type-check) and `probcli`
    sequential state machine with irreversible transitions (tag push, PyPI
    publish, sibling-repo PRs) and re-entry at any phase, so a wrong
    `--resume-from` precondition can re-run or skip an irreversible step.
-   The model lives at `standards/release-model.tex`, beside the other two;
-   the first change in this class writes it.
+   The first change in this class writes its model at
+   `standards/release-model.tex`, beside the other two.
 
 ## Backlog ordering for punt-kit
 
