@@ -74,8 +74,8 @@ iteration and what must be true to leave it. The state those schemas observe:
 LoopState
   signals       : ℙ SIGNAL  -- issues, alerts, messages not yet triaged
   open          : ℙ BEAD    -- open items in the tracker (Linear where
-                            --   migrated), observed through the beads
-                            --   mirror
+                            --   migrated, observed through the beads
+                            --   mirror)
   validated     : ℙ BEAD    -- re-proven against current main
   claimed       : ℙ BEAD    -- the current batch
   closed        : ℙ BEAD    -- closed in the tracker at ship time,
@@ -221,18 +221,20 @@ ExitBatch ≙ [ Δ LoopState; mergedPRs : ℙ PR |   -- the PRs merged this batc
 
 Every repo has exactly one **tracker of record**: the durable, cross-session
 source of truth for what work exists and what state it is in. It is
-**Linear** for a repo whose `.beads/config.yaml` sets `linear.pull_label`
-(flat `linear.pull_label:` or nested `linear:` / `pull_label:` — both count)
-or whose prefix is in `linear.push_prefix`, a key of the shared beads
-database config, not of any repo's file (`bd config get linear.push_prefix`
-from any repo); it is **beads** (`bd`) otherwise.
+**Linear** where `bd config get linear.pull_label` prints a value starting
+with `repo:` — set in that repo's `.beads/config.yaml`, flat
+(`linear.pull_label:`) or nested (`linear:` / `pull_label:`); it is **beads**
+(`bd`) otherwise. The migrated set is `bd config get linear.push_prefix`, a
+key of the shared beads database config, read live from any repo and
+maintained nowhere else — a roster, not a second test.
 
 Beads exists in every repo — as the tracker where nothing else is, and as a
 read-mostly mirror where Linear is; do not use it as the record when Linear
 is available.
 
 - Create, edit, claim, and close in the tracker of record.
-- Where Linear is the record, status reaches beads only after Linear.
+- Where Linear is the record, status reaches beads only after Linear, except
+  the one sanctioned scoped push (see the guide).
 - A push sends no labels, and every sync moves one shared cursor.
 
 Every mechanic — commands, sync, labels, cursors, the migration itself — is
@@ -419,9 +421,10 @@ function pr_loop(unit):
 
     # D. SHIP
     close the unit's issue(s) in the tracker
-                                          # Linear Done, then bd close; close
-                                          #   before push, once the unit is
-                                          #   verified and merge-ready
+                                          # Linear Done first where migrated,
+                                          #   then bd close; close before
+                                          #   push, once the unit is verified
+                                          #   and merge-ready
     push; create the PR
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open — no "bugbot run" comment for round 1; a
@@ -1079,8 +1082,8 @@ state machine and model-check it.
 1. **The tracker is the single funnel.** Every piece of work above T4 is an
    issue in the repo's tracker of record — Linear where the repo is
    migrated, beads otherwise — before it is anything else; external queues
-   (issues, alerts) drain into it at intake. Beads never records what Linear
-   does not.
+   (issues, alerts) drain into it at intake. In a migrated repo, beads never
+   records what Linear does not.
 2. **A satisfied merge gate means merge now.** The gate is the only path to
    a merge, and nothing waits once it passes.
 3. **Findings never wait.** Review feedback is handled the moment it
