@@ -17,7 +17,7 @@ Three systems compete to control the development flow:
 
 2. **`/feature-dev`** (Anthropic) — 7-phase prompt-driven state machine with hard gates. Reliable but generic: no beads, no biff, no standards enforcement, no shipping pipeline. Stops too often (user gates at phases 3, 4, 5, 6).
 
-3. **`/punt:auto autopilot`** — bead-driven loop with 13 LLM steps. Right intent but every step is `type: llm` with loose guidance. No specialist delegation, no parallel agents, no competing architectures. No demo step — features ship without being shown working. The model is still doing everything.
+3. **`/punt:auto autopilot`** — bead-driven loop with 15 LLM steps. Right intent but every step is `type: llm` with loose guidance. No specialist delegation, no parallel agents, no competing architectures. No demo step — features ship without being shown working. The model is still doing everything.
 
 None of these achieve what we need: a reliable, ecosystem-aware, team-structured workflow that ships code with minimal user intervention.
 
