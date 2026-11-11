@@ -8,7 +8,23 @@ Standards for home directory layout across all Punt Labs projects. Role models: 
 
 ## Core Principle
 
-**One namespace, one root.** All Punt Labs tools store user data under `~/.punt-labs/<tool>/`. No tool creates its own top-level dot-directory. This keeps `$HOME` clean and makes it obvious which files belong to which org.
+**One namespace; location keyed by the kind of data.** All Punt Labs state
+lives under a `.punt-labs/<tool>/` namespace, and no tool creates its own
+top-level dot-directory — at `$HOME` or at a repo root. Which `.punt-labs/`
+root a file lands in is decided by **what kind of data it is**, not by a
+one-root-wins rule:
+
+| Kind of data | Root | Committed? |
+|--------------|------|-----------|
+| **(a)** Repo config and first-class repo-bound data — team-shareable | `<repo>/.punt-labs/<tool>/` | Yes |
+| **(b)** Repo-bound per-user/per-machine static overrides, and ephemeral per-checkout live state (locks, pre-seal live streams, trace, scratch) | `<repo>/.punt-labs/local/<tool>/`, or a local-convention path within the tool root | No (gitignored) |
+| **(c)** Durable diagnostic logs, daemon runtime, caches, and global/machine-scoped config — repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) |
+
+This document governs the **home tree (c)** — `~/.punt-labs/<tool>/`. The
+repo tree, rows (a) and (b), is governed by
+[punt-labs-dir.md](punt-labs-dir.md); durable logs under (c) are detailed in
+[logging.md](logging.md). The namespace keeps `$HOME` and every repo root
+clean, and makes it obvious which files belong to which org.
 
 ---
 
@@ -60,14 +76,26 @@ Tools are free to create any subdirectory structure. The following names are res
 
 ## Per-Project Activation
 
-Per-project enablement uses the marker file `.punt-labs/<tool>/enabled` inside
-the tool's committed vendored subtree `<repo>/.punt-labs/<tool>/`, written by
-`<tool> enable` and deleted by `<tool> disable`
-([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
-This supersedes every legacy repo-root sentinel as the enabled signal — a
-settings dotfile, a config-bearing root directory, or a bare presence marker;
-[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) enumerates the
-attested shapes and [§ 9](punt-labs-dir.md#9-migration) is the migration table.
+Per-project enablement uses the tool's committed subtree
+`<repo>/.punt-labs/<tool>/` — **not a repo-root sentinel file**. Inside that
+subtree:
+
+- `config.yaml` (or `config.md`) — tracked shared team config (roster,
+  database name, poll interval), the same for everyone working the repo;
+- `config.local.yaml` — gitignored per-user override, carrying a local-convention
+  name ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention));
+- `enabled` — the marker file, written by `<tool> enable` and deleted by
+  `<tool> disable`
+  ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
+
+This is the ethos precedent (`.punt-labs/ethos/`) generalized: **no tool
+creates a dot-file or dot-directory at the repo root.** The subtree supersedes
+every legacy repo-root sentinel as the enabled signal — a settings dotfile
+(e.g. a bare `.biff`), a config-bearing root directory (`.vox/`, `.lux/`), or a
+bare presence marker;
+[punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)
+enumerates the attested shapes and [§ 9](punt-labs-dir.md#9-migration) is the
+migration table.
 **No per-repo state for a Punt Labs tool built to this convention lives
 outside `.punt-labs/` at all, in any form** — this Core Principle's "no
 top-level dot-directory" rule holds at the repo root exactly as it holds under
