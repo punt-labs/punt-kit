@@ -35,7 +35,7 @@ The notification must be sent through two code paths because MCP tool handlers a
 
 ### 3. Status line file
 
-A background poller writes state to a JSON file (e.g., `~/.biff/unread/{key}.json`, where `key` is the topmost `claude` ancestor PID — see [Sibling PPID](sibling-ppid.md)). The status line script reads and displays it. This is the **human-visible** channel — the model cannot read the status line, and the human cannot easily read tool descriptions.
+A background poller writes state to a JSON file keyed on the harness-declared `session_id` (e.g., `~/.punt-labs/<tool>/sessions/<session_id>/unread.json`). The MCP server and the status line command are both session clients that receive `session_id` directly, so they agree on the key without inferring it ([MCP Caller Identity standard](../standards/mcp-caller-identity.md) §3.3, §4.2.4). The status line script reads and displays it. This is the **human-visible** channel — the model cannot read the status line, and the human cannot easily read tool descriptions.
 
 ## Consequences
 
@@ -48,7 +48,7 @@ A background poller writes state to a JSON file (e.g., `~/.biff/unread/{key}.jso
 ## Related Patterns
 
 - [Two-Channel Display](two-channel-display.md) — Handles the pull path (user requests data); Dynamic Description Notify handles the push path (data arrives while idle).
-- [Sibling PPID](sibling-ppid.md) — The status line file (mechanism 3) uses the topmost `claude` ancestor PID as the shared key between the MCP server that writes it and the status line command that reads it.
+- [MCP Caller Identity standard](../standards/mcp-caller-identity.md) §3.3, §4.2.4 — The status line file (mechanism 3) is keyed on the harness-declared `session_id`, which the MCP server that writes it and the status line command that reads it both receive directly as session clients.
 - [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the unread file is installed via the Stash and Wrap pattern.
 
 ## Known Uses
