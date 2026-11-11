@@ -273,13 +273,13 @@ maintain.
 
 - **Pre-commit hook.** The hook runs `gitleaks` on the staged content only
   (`gitleaks git --pre-commit --staged`; the older `gitleaks protect --staged`
-  is deprecated since v8.19.0), so it reads the diff about to be committed, not
+  is deprecated), so it reads the diff about to be committed, not
   the working tree or history. It is a local Go binary, offline, with no network
   call, so it adds negligible time to a commit. A finding blocks the commit and
   names the rule and location; the commit proceeds only once the secret is
   removed or the finding is allowlisted (below).
 - **Pinned version.** The `gitleaks` version is pinned in a committed record, at
-  v8.19.0 or later (the minimum that supports the `git --pre-commit` form), so
+  a version that supports the `git --pre-commit` form, so
   every machine and CI run the same scanner and the same rules. A floating
   version silently changes what the gate catches.
 - **Config in the repo.** Scanner config lives in a committed `.gitleaks.toml`:
@@ -289,10 +289,17 @@ maintain.
   bound to the specific reviewed value.
 - **Allowlist convention.** A reviewed false positive — an inert test fixture, a
   documented example credential — is exempted by its **gitleaks fingerprint**, the
-  native mechanism: add the fingerprint (`commit:path:rule:line`, as gitleaks
-  prints it) to a committed `.gitleaksignore`, one per line, each with a comment
-  saying why it is safe. This is bound to the specific finding, not to a path, so
-  a stale exemption cannot hide a new secret, and it needs no tooling beyond
+  native mechanism: add the three-part fingerprint `path:rule:line` to a
+  committed `.gitleaksignore`, one per line, each with a comment saying why it is
+  safe. Use the three-part form, not the four-part `commit:path:rule:line` the
+  history scan prints: only `path:rule:line` suppresses the pre-commit staged
+  scan (which has no commit yet), and it also suppresses the CI history scan, so
+  one entry covers both gates; the four-part form leaves the pre-commit hook
+  blocking forever (training developers into the `--no-verify` habit this gate
+  exists to prevent) and rots on the next squash-merge, when the embedded SHA
+  changes. The three-part form is an exact `path:rule:line` match bound to the
+  reviewed value's location and is SHA-independent, so a stale exemption cannot
+  hide a new secret, and it needs no tooling beyond
   gitleaks itself. A repo that builds its own scan orchestration may use a
   stricter content-bound pin (agent-image pins each reviewed finding by the
   `sha256` of the matched bytes via custom tooling in `internal/scan`); that is a
