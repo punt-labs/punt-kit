@@ -58,6 +58,13 @@ This wholesale-overwrite/determinism contract is scoped to the subtree's
 it — see
 [punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones).
 
+Everything a tool commits into this subtree — the deposited guide, repo config,
+the ethos registry, `missions-closed/` exports, and vended agent content — is
+PII- and profanity-scrubbed before it enters git, per
+[punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention),
+which owns that contract. The gitignored local zone and the home tree are out
+of scope — they are never committed.
+
 ## 2.3 The `enable` / `disable` Convention
 
 Every tool CLI with per-repo presence exposes two commands, run from inside a
