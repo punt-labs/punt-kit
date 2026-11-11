@@ -55,11 +55,23 @@ Spend disproportionate care on them.
 
 ## 5. Ship reversibly
 
-Prefer reversible changes over irreversible ones. For the definition of what
-belongs in a single PR and how to sequence review, see the [PR and Review
-Standard](pr-review.md).
+Prefer reversible changes over irreversible ones. **Reversible means you can
+roll the change back** — revert the commit, redeploy the prior release, restore
+the prior state. It does **not** mean keeping the old interface, name, or alias
+alive alongside the new one so a caller can fall back to it. Backwards
+compatibility is not reversibility, and a reversible change is never a license
+to leave a compatibility shim behind: §17 bans that machinery in a pre-scale
+product, and a rename is atomic across every surface in one release
+(architecture.md's rename-train rule, § "Rename trains, never aliases", and
+integration.md's
+[cross-repo rename trains](integration.md#cross-repo-rename-trains) for
+consumers in other repos). For the definition of what belongs in a single PR
+and how to sequence review, see the [PR and Review Standard](pr-review.md).
 
-- Behind a feature flag when feasible; staged rollout when not.
+- Make the change revertible: one commit, or one rollback-coherent PR, whose
+  revert restores the prior behavior cleanly.
+- Behind a feature flag when feasible; staged rollout when not. A flag gates one
+  path on and off; it is not a second permanent interface kept for old callers.
 - For destructive operations (deletes, migrations, schema changes), confirm
   before executing and prefer reversible intermediate states.
 - "Release early and often" does not license shipping broken work. Quality bar
@@ -149,13 +161,19 @@ what?" test. Replace adjectives with measurements where possible.
 ## 13. Reversibility is a feature
 
 Decisions vary in how hard they are to undo. Spend deliberation budget
-proportional to reversibility, not to apparent importance.
+proportional to reversibility — the cost of rolling the decision back — not to
+apparent importance. Blast radius is proportional to reversibility: the harder a
+change is to undo, the more care it earns before it ships.
 
 - One-way doors (schema changes, public API contracts, deletions, sent emails):
   slow down, verify, get confirmation.
 - Two-way doors (internal refactors, feature flag changes, new functions): move
   fast, learn from the result.
 - When uncertain, prefer the path that preserves optionality.
+- Preserving optionality is about keeping the *decision* reversible, not about
+  keeping two interfaces alive. A rename is still a two-way door — you can revert
+  it — and it is still atomic across every surface in one release (§5, §17); the
+  optionality you keep is the revert, not a lingering old name.
 
 ## 14. Surface mistakes early; don't hide them
 
@@ -214,3 +232,39 @@ Motivating case: `ethos-kptv`. A release-tooling defect was diagnosed from
 observed behavior and queued for implementation. Both fixes were already
 correct on `main`, merged five days earlier and present in no tag; the installed
 CLI predated them. The assigned work was a release, not a code change.
+
+## 17. No backwards-compatibility cruft in pre-scale products
+
+A product that has not found scale carries **no** backwards-compatibility
+machinery. There is no installed base to protect yet, so every shim, alias,
+tombstone, or dual interface is pure cost — a second thing to maintain, review,
+and reason about — bought to serve callers that do not exist. When the code
+changes, the callers change *in the same change*. This is the cross-language,
+cross-product principle; python.md's "No backwards-compatibility shims"
+(Prohibited Patterns) is its per-language instance, and architecture.md's
+"Rename trains, never aliases" is the surface-vocabulary instance. Do not
+reinvent either here — they bind their own domains; this section states the rule
+that spans them.
+
+Banned in a pre-scale product, in every language and on every surface:
+
+- **Aliases** — `old_name = new_name`, re-exports of a moved symbol, a CLI verb
+  kept as a hidden synonym, an MCP tool answering to two names.
+- **Shims and migration shims** — a wrapper that translates the old call shape
+  into the new one, a dual-read path that accepts old-format and new-format data.
+- **Tombstones and dead re-exports** — `# removed`/`# deprecated` markers left in
+  place of a symbol, an empty module kept so an old import still resolves.
+- **Deprecated-but-still-works paths** — an interface documented as going away
+  while it keeps functioning, a flag that silently maps an old value to a new one.
+- **Dual old/new interfaces** — two public contracts for one operation, kept side
+  by side so a caller may choose. A rename removes the old name in the same
+  commit the new one appears (architecture.md § "Rename trains, never aliases");
+  consumers in other repos move in lockstep
+  ([integration.md § Cross-repo rename trains](integration.md#cross-repo-rename-trains)).
+
+This is not a license to break callers carelessly. It is the opposite: because
+there is no compatibility layer to hide behind, every call site is found and
+updated in the same change, and the change ships reversibly (§5) — one revert
+restores the prior state, old name and all. Scale changes the calculus; a
+product with a real installed base to protect is a decision for the operator,
+not a default to assume.
