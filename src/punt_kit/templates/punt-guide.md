@@ -38,28 +38,28 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
   carrying that repo label. Edit title, description and priority there. Claim, finish
   and cancel with the states In Progress, Done and Canceled. Labels, `blocks`
   relations and projects are Linear-only.
-- **Two proven facts about labels.** A push sends no labels. A pull replaces a
-  bead's label set with the issue's, so a beads-only label is wiped.
-- **Blocked** means a `blocks` relation in Linear plus
-  `bd dep add <bead> <blocker>`: a pull imports relations only with
-  `--relations` and never removes one.
+- **Three proven facts about sync.** A push sends no labels. A pull replaces
+  a bead's label set with the issue's, so a beads-only label is wiped. A pull
+  resets a bead's status to the issue's state, so a `bd close` made only in
+  beads is reopened by the next pull.
+- **Blocked** means a `blocks` relation in Linear plus `bd dep add <bead>
+  <blocker>`: a pull imports relations only with `--relations`, removes none.
 - **Deferred** means state Backlog plus the `deferred` label; pick work with
   `bd ready --exclude-label deferred`.
-- **Automated loops** write Linear first, then the same status to beads.
-  Never beads only.
-- **The one sanctioned beads-first write** is
-  `bd linear sync --push --issues <bead ids> --team <id>`, which sends title,
-  description, priority and state only. Then add labels in Linear, then
-  `bd linear sync --pull --issues <PL ids> --team <id>`.
+- **Automated loops** write Linear first, then the same status to beads; never beads only.
+- **The one sanctioned beads-first write** is `bd linear sync --push --issues
+  <bead ids> --team <id>` (title, description, priority, state only); then add
+  labels in Linear, then `bd linear sync --pull --issues <PL ids> --team <id>`.
 - **One shared cursor.** The cursor is a saved timestamp; an incremental
-  pull fetches only Linear changes after it. Every non-dry-run sync, a push
-  included, moves it. A push hides Linear edits made since the last pull from
-  the next incremental pull. A pull skips a bead edited locally since the
-  cursor, then moves the cursor past that edit, so a later pull overwrites it.
+  pull fetches only Linear changes after it, and every non-dry-run sync, a
+  push included, moves it. A push hides Linear edits made since the last pull
+  from the next incremental pull. Do not edit a migrated bead locally: the
+  next pull skips it and advances the cursor past the edit, so the divergence
+  is never reconciled and a later pull overwrites the bead.
 - **Never:** a bare `bd linear sync`; an unscoped `--push`;
   `bd config set linear.*` (shared by every repo); removing `issue-prefix` or
   `linear.pull_label` from `.beads/config.yaml` (an unscoped pull imports the
-  whole PL team as new beads).
+  whole PL team).
 - **ID bridge.** Bead to Linear: `bd show <id>` prints the `external_ref`
   URL. Linear to bead: `bd list --json` and match on `external_ref`.
 
