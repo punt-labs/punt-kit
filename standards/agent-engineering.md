@@ -61,11 +61,12 @@ the prior state. It does **not** mean keeping the old interface, name, or alias
 alive alongside the new one so a caller can fall back to it. Backwards
 compatibility is not reversibility, and a reversible change is never a license
 to leave a compatibility shim behind: §17 bans that machinery in a pre-scale
-product, and a rename is atomic across every surface in one release
-(architecture.md's rename-train rule, § "Rename trains, never aliases", and
-integration.md's
-[cross-repo rename trains](integration.md#cross-repo-rename-trains) for
-consumers in other repos). For the definition of what belongs in a single PR
+product, and a rename is atomic across every surface *within one repo* in a
+single release (architecture.md's rename-train rule, § "Rename trains, never
+aliases"); across repos the rename train lands in lockstep — the producer's
+rename first, then each consumer inside its own release cycle (integration.md's
+[cross-repo rename trains](integration.md#cross-repo-rename-trains)), and it
+reverts in lockstep too. For the definition of what belongs in a single PR
 and how to sequence review, see the [PR and Review Standard](pr-review.md).
 
 - Make the change revertible: one commit, or one rollback-coherent PR, whose
@@ -175,9 +176,11 @@ change is to undo, the more care it earns before it ships.
 - Preserving optionality is about keeping the *decision* reversible, not about
   keeping two interfaces alive. A rename of a public surface is a one-way door by
   coordination cost — slow down and confirm it like any public-contract change —
-  yet it is still reversible: it is atomic across every surface in one release
-  (§5, §17), and the optionality you keep is the revert, not a lingering old
-  name. Reversible does not mean cheap; it means a revert restores the prior
+  yet it is still reversible: within one repo it is atomic across every surface
+  in a single release, and across repos it lands and reverts in lockstep (§5,
+  §17, integration.md § Cross-repo rename trains). The optionality you keep is
+  the revert, not a lingering old name. Reversible does not mean cheap; it means
+  a revert — single-repo, or a lockstep revert across repos — restores the prior
   state.
 
 ## 14. Surface mistakes early; don't hide them
