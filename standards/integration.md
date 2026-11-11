@@ -125,9 +125,19 @@ Examples:
 - Biff suggests `/wall` on PR creation (biff's own messaging reaction).
 - Quarry ingests URLs on WebFetch completion (quarry's own capture behavior).
 
-**Rule 1: Additive only.** A hook may enrich output or trigger a side
-effect, but must never block or modify the primary tool's operation. If
-the peer is absent, the hook is a no-op.
+**Rule 1: Additive only — for peer / cross-tool reactions.** When a hook
+reacts to *another* tool's operation (the L2 case here: vox reacting to a
+PR creation, quarry reacting to a WebFetch), it may enrich output or trigger
+a side effect, but must never block or modify that primary operation. If the
+peer is absent, the hook is a no-op.
+
+This scopes to peer reactions only. A hook acting on **its own tool's**
+operation legitimately blocks or mutates it — a mutation/stamping `PreToolUse`
+hook (e.g. the caller-identity stamper that rewrites its own server's
+arguments via `updatedInput`, [mcp-caller-identity.md § 3.1](mcp-caller-identity.md#31-the-hook),
+or a workflow gate that denies an edit, [hooks.md](hooks.md#mutation-hooks-blocking))
+is doing exactly that by design. The "additive only" rule does not reach a
+tool governing its own calls.
 
 **Rule 2: Each building block owns its reaction to shared events.**
 When multiple plugins hook the same Claude Code event (e.g., PostToolUse
