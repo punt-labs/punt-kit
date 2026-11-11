@@ -25,11 +25,13 @@ Beads is a read-mostly local mirror. Do not use it as the record when Linear
 is available. Every migrated bead stores its Linear URL in `external_ref`.
 
 - **Plan from Linear.** `bd ready` and `bd show` are fine as local reads
-  because the mirror carries the dependency graph. Pull first when
-  `.beads/last_pull` is missing or older than about 20 minutes:
-  `bd linear sync --pull --team c1dfbb2c-985e-40cf-b004-5127646efc9d` (needs
-  `LINEAR_API_KEY` in the environment). Auto-pull (`bd prime` pulling on its
-  own at session start) is not on in every repo, so never assume it ran.
+  because the mirror carries the dependency graph; `bd list` and `bd ready`
+  need `--label-any <the repo label>` to stay inside this repo, because the
+  shared database holds every repo's beads. Refresh the mirror first:
+  `bd linear sync --pull-if-stale --team c1dfbb2c-985e-40cf-b004-5127646efc9d`
+  pulls only when `.beads/last_pull` is missing or older than 20 minutes, never
+  twice within 5 minutes (needs `LINEAR_API_KEY`). Auto-pull (`bd prime`
+  pulling on its own at session start) is not on in every repo; never assume it ran.
 - **Write in Linear, not beads.** Create an issue with the mandatory repo
   label (the value `bd config get linear.pull_label` printed) plus a type
   label (`Bug`, `Feature`, `Improvement`, `Epic`); a pull imports only issues
