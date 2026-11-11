@@ -444,14 +444,14 @@ as built. If quarry moves the selection into its
 engine, as invariant 4 asks, it becomes a layer-2 engine; that is quarry's
 own decision and unit.
 
-### 8.5 biff — one hook, one engine path, four harnesses
+### 8.5 biff — one engine path, four harnesses
 
 biff resolves the caller's `session_id` and `agent_id` to route messages, track
-presence, and gate the plan. § 1's intro names biff's `session_pin` as the prior
-art this standard generalizes. Caller identity rides a per-harness declared
-channel; biff's engine side runs one channel-agnostic path (strip the identity
-argument before schema validation, validate the shape, refuse an unidentified
-call, resolve):
+presence, and gate the plan. Caller identity arrives on a per-harness declared
+channel, never inferred from the process tree and never read from another
+engine's CLI; biff's engine side runs one channel-agnostic path — strip the
+identity argument before schema validation, validate its shape, refuse an
+unidentified call, resolve:
 
 - **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
   under the matcher `mcp__(plugin_biff(-dev)?_)?tty__.*`.
@@ -462,24 +462,9 @@ call, resolve):
   directly to biff's thin-client calls (§ 3.3, hooks and applets are session
   clients too).
 
-These are three producer mechanisms, not four: the Claude-style hook stamp
-serves Claude Code and codex, OpenCode uses MCP `_meta`, and pi (and any applet)
-passes the facts in-process.
-
-**Does not yet conform:**
-
-- biff still resolves the caller from the process tree — the topmost `claude`
-  ancestor PID found by walking it (`find_session_key` and `topmost_claude_pid`
-  in `src/biff/session_key.py`). § 5 forbids deriving a Claude Code caller's
-  identity from the process tree; this walk is removed under biff DES-064 and
-  biff-ork0.
-- Its OpenCode session pin resolves identity by shelling out to the `ethos` CLI
-  (`ethos session roster`, `ethos show` in `src/biff/ethos_session.py`); § 3.2.2
-  admits only the declared channel, never another engine's CLI. The pin is
-  deleted under biff DES-064 and biff-khr9.
-
-Once the process-tree walk and the ethos-CLI pin land removed (biff DES-064,
-biff-ork0), biff resolves every harness through the declared channel above.
+Four harnesses, three producer mechanisms: the hook stamp serves Claude Code and
+codex, OpenCode uses MCP `_meta`, and pi (and any applet) passes the facts
+in-process.
 
 ---
 
