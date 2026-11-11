@@ -26,7 +26,10 @@ All notable changes to this project will be documented in this file.
   They proceed only on the exact not-set output; any other output (a `bd`
   error, an empty result, an unrecognised label) stops them with the
   output printed, and `bead-review` also stops before calling `bd` when
-  its repo argument is empty or has no `.beads/`.
+  its repo argument is empty or has no `.beads/`. The redirect links the
+  repo's Linear label filter; `autopilot`'s halt is a shell postcondition
+  on the step, so the executor aborts rather than relying on the step's
+  prose.
 
 ### Fixed
 

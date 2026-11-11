@@ -48,10 +48,13 @@ anything else.
 
 First confirm `REPO` itself: it must be a non-empty path to an existing
 directory that contains `.beads/`. `bd -C ""` does not fail — it silently
-reads the current working directory and reports on that repo instead of
-the one named — so an empty or wrong `REPO` passes every check below for
-the wrong repo. If `REPO` is empty, or `$REPO/.beads/` does not exist,
-stop here: say which path was checked and make no `bd` call at all.
+reads the current working directory — and `bd -C <dir>` where `<dir>` has
+no `.beads/` climbs to the nearest ancestor that does (a sibling checkout
+with no beads database under the workspace root reports the workspace's
+own `repo:punt`), so an empty or wrong `REPO` passes every check below
+for the wrong repo. If `REPO` is empty, or `$REPO/.beads/` does not
+exist, stop here: print `<REPO> has no beads database`, name the path you
+checked, and make no `bd` call at all — not `config get`, not `where`.
 
 Then run:
 
@@ -90,18 +93,26 @@ this skill makes in a migrated repo — the rewrites, the closes, the
 `theme:*` labels — is reverted by the next sync and none of it reaches
 Linear, which is where that backlog is actually planned.
 
-**Refusal.** `cat "$REPO/.beads/metadata.json"` for the prefix (the same
-read Step 1 makes), take the repo name from the output after `repo:`, and
-print exactly this one paragraph, then stop — no enumeration, no rubric,
-no report, no `bd` write of any kind:
+**Refusal.** Take `<label>` from the `config get` output: everything
+after `repo:` (`quarry` from `repo:quarry`). Never derive it from the
+directory name or from `metadata.json` — for some repos the Linear label
+and the checkout name differ, and the Linear side is keyed on the label.
+For the prefix, run `bd -C "$REPO" where` and read its `prefix:` line (it
+resolves the same database Step 1 would use; do not `cat metadata.json`
+here). Then print exactly this one paragraph, then stop — no enumeration,
+no rubric, no report, no `bd` write of any kind:
 
 ```text
-<repo> (prefix <prefix>) is migrated to Linear: Linear is its planning
-source of truth and beads is a local mirror, so bead-review will not run
-here — its edits are beads-only and the next `bd linear sync` would revert
-them. Audit this backlog in Linear instead: team Punt Labs, view "<repo>"
-(issues labelled repo:<repo>).
+<label> (beads prefix <prefix>) is migrated to Linear: Linear is its
+planning source of truth and beads is a local mirror, so bead-review will
+not run here — its edits are beads-only and the next `bd linear sync`
+would revert them. Audit this backlog in Linear instead: team Punt Labs,
+issues labelled repo:<label>:
+https://linear.app/punt-labs/team/PL/all?label=repo:<label>
 ```
+
+Do not name a Linear view: not every migrated repo has one, and where one
+exists its name is not always the label.
 
 ## Step 1: Confirm scope
 
