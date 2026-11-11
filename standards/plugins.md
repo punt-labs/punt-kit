@@ -572,7 +572,16 @@ to the repo's `.claude/settings.json` by `<tool> enable` and removed by
 
 ### Requirements
 
-1. **Repo scope only.** Never write `~/.claude/settings.json`.
+1. **Repo scope only — for permission rules.** Never write **permission
+   rules** to `~/.claude/settings.json`; permission rules are repo-scoped
+   (`<repo>/.claude/settings.json`) so a plugin never grants itself tools
+   user-wide. This bounds permission rules, not the whole file: a tool may
+   write a **non-permission** key to `~/.claude/settings.json` when that key
+   is inherently user-global — e.g. biff's `install-statusline` writes the
+   `statusLine` key (the status line is a per-user display setting, not a
+   permission), stashing and restoring the prior value. The carve-out is for
+   genuinely user-global, non-permission config; permission rules stay
+   repo-scoped without exception.
 
 2. **`disable` removes exactly what `enable` added.** Recompute the same rule
    set and remove those exact values.
