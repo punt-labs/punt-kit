@@ -23,7 +23,7 @@ rules bind the levels together:
 
 - **Scope escalates up, never down.** A mission that uncovers a bigger
   problem grows its PR; a PR that uncovers a genuinely new line of work files
-  a bead for the backlog loop. Never demote mid-flight.
+  an issue in the tracker for the backlog loop. Never demote mid-flight.
 - **Defects flow down, never up.** Anything found while a PR is open is
   fixed in that PR — never sent back to the backlog as a "follow-up bead."
 
@@ -297,7 +297,7 @@ Selection also decides how much workflow a unit gets. The deciding factor is
 | **T3** | Tasks and bugs with an obvious implementation path, worth tracking | `quick` | Issues + one mission |
 | **T4** | Trivial: typo, single-line fix, mechanical refactor with no design choice | none — direct change | No issue; the commit is the record |
 
-T4 is the one exit from the funnel: work too trivial to track skips the bead
+T4 is the one exit from the funnel: work too trivial to track skips the issue
 and the mission — the commit is its whole record. Default to T4 when in
 doubt: the cost of under-tiering is one escalation; the cost of over-tiering
 is ceremony on every trivial change.
@@ -814,7 +814,7 @@ contract, or amends a standard consumed by other repos.
 
 A mission is **not required** for:
 
-- T4 changes — no bead, no mission; the commit is the record
+- T4 changes — no issue, no mission; the commit is the record
 - Review-cycle fix rounds — findings from local review agents or remote
   reviewers (Qodo, Bugbot) may be fixed by a bare `Agent()` spawn without
   a mission contract. The finding is the spec and the write set is obvious,
@@ -1083,7 +1083,7 @@ state machine and model-check it.
    High fix.
 5. **Defects flow inward, scope flows outward.** A defect found while a PR
    is open is fixed in that PR. Only genuinely new lines of work become
-   beads.
+   issues in the tracker.
 6. **The operator gates designs, the human-judged part of verification, and
    direction — never diffs or sequencing.**
 7. **Close-out is inside the loop.** The recap email, branch hygiene, and
