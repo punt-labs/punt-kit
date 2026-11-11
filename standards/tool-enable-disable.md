@@ -416,6 +416,9 @@ of a toggle.
 the `punt` CLI: `init`, `audit`, `reconcile`, and so on) — and adds
 `@.punt-labs/punt/CLAUDE.md` to the repo `CLAUDE.md`. It is the same kind of
 static user-guide doc every tool ships (2.5), not a per-repo rendered file.
+Its permission set is its `Skill(punt:<cmd>)` rules only; `Bash(punt:*)` is
+the permissions.md § 3 baseline, because `punt init` scaffolds that file and
+must run unprompted from the first scaffold.
 
 `punt`'s deposited guide is **not** the new home for the four per-repo sections
 the retired `punt auto claude` target rendered (quality gates, beads, standards

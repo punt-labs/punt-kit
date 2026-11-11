@@ -218,8 +218,11 @@ Projects add their own build tools as needed:
 | Swift | `Bash(xcodebuild:*)`, `Bash(xcodegen:*)`, `Bash(swiftformat:*)`, `Bash(swiftlint:*)` |
 | CLI project | `Bash(<cli-name>-server:*)` only. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
 
-`Bash(bd:*)` and `Bash(punt:*)` are baseline because no `<tool> enable` exists
-for either.
+`Bash(bd:*)` is baseline because `bd` is an external tool with no `enable`.
+`Bash(punt:*)` is baseline because `punt init` scaffolds this file and the
+standards tool must run unprompted from the first scaffold; `punt enable`'s
+set (tool-enable-disable.md § 2.10) is its guide import and its
+`Skill(punt:<cmd>)` rules, never a CLI rule, so the value is in one place.
 
 ### Skills
 
@@ -241,7 +244,7 @@ upstream change.
 
 **Scoped names only — short forms are banned.** Every skill is named, invoked,
 and granted only by its plugin-scoped name: `biff:who`, `quarry:find`,
-`vox:say` — never the bare alias `who`, `find`, `say`. This matches the plugin
+`vox:recap` — never the bare alias `who`, `find`, `recap`. This matches the plugin
 namespace invariant ([plugins.md](plugins.md#namespace-scope): "the plugin name
 prefixes **everything** — commands, MCP server tools, skills, agents, hooks").
 Short-form aliases are retired: the skill namespace is noisy — bare names like
@@ -252,7 +255,7 @@ any skill name with no `plugin:` prefix — is non-conformant.
 
 **`Skill()` rules are owned by the plugin's `enable`, not the baseline.** Each
 plugin's `Skill(<plugin>:<cmd>)` rules are that plugin's `enable` set, one per
-shipped command (`Skill(vox:say)`, `Skill(quarry:find)`), derived from the
+shipped command (`Skill(vox:recap)`, `Skill(quarry:find)`), derived from the
 plugin's `commands/` directory. `punt init` never seeds a `Skill()` rule; a
 repo carries one only because that tool is enabled there, and `<tool> disable`
 removes it.
@@ -465,6 +468,8 @@ whole of this section.
    name (`Bash(<cli> status:*)`), with the rest at the prompt tier. A tool
    with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
    ever granted — the dev plugin only exists in a maintainer's checkout.
+   `punt` is the one tool whose `enable` set carries no CLI rule:
+   `Bash(punt:*)` is section 3 baseline (see Build tools).
 
 4. **Least privilege.** Only allow operations the plugin performs
    autonomously. Risky, rare, or destructive operations stay at the prompt
