@@ -8,24 +8,27 @@ The PR loop's review sequence, `merge_gate`, and the shape of `verified_ok`
 are owned by [standards/pr-review.md](../standards/pr-review.md). Nothing in
 either standard is repeated here.
 
-This file supplies the four things the standard leaves to each repo: the
-verification, the worker/evaluator table, the formal classes, and what the
-backlog ranks mean for punt-kit.
+This file supplies what the standard leaves to each repo: the verification,
+the worker/evaluator table, the standing worker contract, the architectural
+units, the formal classes, and what the backlog ranks mean for punt-kit.
 
 ## Verification
 
-punt-kit ships two surfaces, and each has one entry point:
+punt-kit ships three artifacts, each with one entry point:
 
-| Surface | Entry point | Install step before driving it |
+| Artifact | Entry point | Install step before driving it |
 |---|---|---|
 | The `punt` CLI (`src/punt_kit/`) | The installed wheel: run `punt <subcommand>` from `PATH` | `make build`, then `uv tool install --force dist/*.whl` |
-| The plugin (`plugin/`: commands, skills, agents, hooks, playbooks) | A dev session: `claude --plugin-dir plugin` from the repo root, then the command, skill, agent, or hook as a user would invoke it | None; the dev session loads `plugin/` directly |
+| The plugin (`plugin/`: commands, skills, agents, hooks, playbooks) | A headless session from the repo root: `claude -p --plugin-dir plugin "<the command as a user would type it>"`, for example `claude -p --plugin-dir plugin "/punt-dev:audit --help"` | None; the session loads `plugin/` directly |
+| The installer (`install.sh`) | `sh install.sh`, as the README's `curl … \| sh` line runs it; it takes no arguments | A clean `uv tool` state: `uv tool uninstall punt-kit` first |
 
-`gstack-qa` drives both. For each changed surface it writes the expected
-outcome first, installs or launches as the table says, records
-expected-versus-actual, and certifies the commit SHA it exercised. The
-certification happens before the PR opens and again after any push that
-changes a non-exempt file.
+The interactive `claude` cannot start inside a session (`CLAUDE.md`,
+"Claude Code CLI Reference"); the headless `-p` form can, and it executes
+plugin commands, so `gstack-qa` drives all three. For each changed artifact
+it writes the expected outcome first, installs or launches as the table
+says, records expected-versus-actual, and certifies the commit SHA it
+exercised. The certification happens before the PR opens and again after
+any push that changes a non-exempt file.
 
 **Human-judged exception: none.** punt-kit produces no audio and no rendered
 output that only a human can judge; every behavior it ships is text on a
@@ -37,10 +40,16 @@ A plugin command, skill, agent, hook, or playbook under `plugin/` is behavior
 even when it is Markdown or YAML, because Claude Code executes it. A change
 there is never docs-only and is re-certified after every edit.
 
+A script under `scripts/` (`audit-all.sh`, `release-plugin.sh`,
+`restore-dev-plugin.sh`) is behavior that `punt release` and `punt audit`
+run. Because `punt release` performs irreversible steps, a change to a
+script is certified by invoking the script directly against a scratch
+checkout under `.tmp/`, expected output written first.
+
 ### `verify_exempt`
 
 A file is `verify_exempt` when it matches one of these and is not under
-`plugin/`:
+`plugin/` or `.github/workflows/`:
 
 - `*.md` outside `plugin/`
 - `docs/`
@@ -52,37 +61,82 @@ A file is `verify_exempt` when it matches one of these and is not under
 - `.github/` other than `.github/workflows/`
 - `.pr_agent.toml` (the next Qodo review on the PR is its check)
 
-A file under `.github/workflows/` is behavior. For a change there the pre-PR
-certification is `gstack-qa` running the changed job's commands locally (the
-same steps the YAML runs), and the run named below is the post-open
-re-certification the PR description names:
+A file under `.github/workflows/` is behavior and is never exempt. For a
+change there the pre-PR certification is `gstack-qa` running the changed
+job's commands locally (the same steps the YAML runs) and certifying the
+head; the run named below is the post-open re-certification the PR
+description names:
 
-| Workflow | Verifying run |
-|---|---|
-| `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`) | The run on the PR head; the PR description names it |
-| `release.yml` (trigger: tag push `v*`; publishes to PyPI on any run) | `verify_exempt`: it cannot run before merge. Its build job runs locally first (`uv build`, then `uvx twine check dist/*`); the full run is the next tagged release, which the leader checks after merge |
-| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; skips PR-sourced events) | `verify_exempt`: it cannot run before merge. The verifying run is its first `workflow_run` on `main` after the merge, which the leader checks |
+| Workflow | Pre-PR certification | Named run |
+|---|---|---|
+| `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`, and `push` to `main`) | The job's commands run locally | The run on the PR head |
+| `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | The build job: `uv build`, then `uvx twine check dist/*` | The next tagged release; the leader checks it after merge |
+| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command it runs executed locally | Its first failure-triggered `workflow_run` on `main`; until one occurs the post-merge run has not happened, and the leader records that |
 
-A PR that changes a workflow names the run that exercises it, and for the
-two exempt workflows the leader checks the named post-merge run; a failure
-there is a finding, fixed in a fix PR on the spot.
+A failure in a named post-merge run is a finding, fixed in a fix PR on the
+spot.
 
 A docs-only PR (every changed file `verify_exempt`) is verified by
-`npx markdownlint-cli2` on each changed file with zero findings and a
-read-through of the rendered text; no QA certification is needed.
+`npx markdownlint-cli2` on each changed `.md` with zero findings and a
+read-through of the rendered text, and by `fuzz -t` plus `probcli` per the
+file's own header on each changed `.tex`; no QA certification is needed.
 
 ## Worker/evaluator table
 
-The table lives in [CLAUDE.md](../CLAUDE.md) under "Ethos & Delegation" and
-is not repeated here. It stays there because it is consulted at every mission
-dispatch, and `CLAUDE.md` is loaded into every session while this file is
-read on demand; the two paragraphs around it (the cross-repo breaking-change
-protocol for standards diffs and the fleet reality check) are rules that bind
-the same dispatch and belong beside it.
+The table lives in [CLAUDE.md](../CLAUDE.md) under "Ethos & Delegation",
+beside the two rules that bind the same dispatch (standards diffs are
+cross-repo breaking changes; the fleet reality check), and is not repeated
+here.
 
 The mission-dispatchable workers for punt-kit are the handles in that table.
 `gstack-qa` is the QA agent for the verification above and is never a mission
 worker or evaluator.
+
+## The standing worker contract
+
+Every implementation mission in punt-kit carries this block verbatim in its
+contract. punt-kit has no ratchet gate (`make check` runs ruff, mypy,
+pyright, shellcheck, and pytest; there is no `check-oo`, baseline file, or
+update target), so the ratchet clauses of the standard's reference block
+name nothing here and the block reads:
+
+> **Goal.** Good design, stated as responsibilities: which unit (type,
+> module, or package) owns what, who depends on what.
+> `standards/python.md` says what good design means in Python; for a plugin
+> command, skill, or playbook, `standards/plugins.md`. A change that moves a
+> number without improving responsibilities — a grab-bag unit, a bundle of
+> collaborators handed out for callers to reach through, a second facade
+> forwarding to the first — is rejected even when the gate goes green.
+>
+> **Forbidden.** Restoring any file from git (`git show REV:path > path`,
+> `checkout --`, `restore`, `reset`, `stash`), `rm`, `clean`, or switching
+> branches. Pushing, or touching a PR. Piping a gate through `head`,
+> `tail`, or `grep`. Suppressions (`# noqa`, `# type: ignore`, `xfail`,
+> `--no-verify`).
+>
+> **On any test or type regression: stop.** Do not delete or skip the test,
+> do not commit. Report the design and the failure to the leader, who
+> decides.
+>
+> **Evidence, not claims.** Run `make check` with output saved to a file
+> under `.tmp/`; cite the file and its final summary line. Commit only after
+> that file shows exit 0. The evaluator and the leader re-run it; a report
+> that disagrees with their run rejects the work.
+
+## Architectural units
+
+A unit in one of these classes gets a design mission before any
+implementation mission, and the operator ratifies the design:
+
+- A new `punt` subcommand, or a change to a subcommand's arguments or
+  output format.
+- A new standard under `standards/`, or a change that removes or shifts a
+  documented rule in one (a cross-repo breaking change; `CLAUDE.md`,
+  "Ethos & Delegation").
+- A change to the plugin's layout: what `plugin/` contains, how a command
+  resolves `${CLAUDE_PLUGIN_ROOT}`, or the dev/prod command pairing.
+- A change to the `punt release` phase sequence or its `--resume-from`
+  contract (also a formal class, below).
 
 ## Formal classes
 
@@ -101,8 +155,8 @@ Each class has a model checked by `fuzz` (type-check) and `probcli`
    sequential state machine with irreversible transitions (tag push, PyPI
    publish, sibling-repo PRs) and re-entry at any phase, so a wrong
    `--resume-from` precondition can re-run or skip an irreversible step.
-   Model: `standards/release-model.tex`, written with the first change in
-   this class and kept beside the other two.
+   The model lives at `standards/release-model.tex`, beside the other two;
+   the first change in this class writes it.
 
 ## Backlog ordering for punt-kit
 
@@ -122,7 +176,7 @@ The sort is the standard's. What each rank means here:
    repos keeps its claim until every affected repo has acknowledged it.
 4. **Debt that blocks throughput.** Release phases without a failure
    harness; standards text that duplicates another standard; plugin
-   surfaces that reach outside `plugin/` at runtime.
+   commands, skills, or hooks that reach outside `plugin/` at runtime.
 5. **Features.** New `punt` subcommands, new standards, new plugin commands
    or playbooks.
 

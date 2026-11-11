@@ -10,10 +10,10 @@ All notable changes to this project will be documented in this file.
   the verification (`punt` from the installed wheel; `plugin/` in a
   `claude --plugin-dir plugin` session; `gstack-qa` certifies the commit SHA
   before the PR opens; human-judged exception: none), `verify_exempt`, the
-  worker/evaluator table's home, the two formal classes (the PR review state
-  machine and the `punt release` phase sequence, the latter's model reserved
-  at `standards/release-model.tex`), and what each backlog rank means here.
-  `CLAUDE.md` now points at it instead of describing the gate itself.
+  worker/evaluator table's home, the standing worker contract, the
+  architectural units, the two formal classes (the PR review state machine
+  and the `punt release` phase sequence), and what each backlog rank means
+  here. `CLAUDE.md` now points at it instead of describing the gate itself.
 - `src/punt_kit/templates/punt-guide.md` — the tracker doctrine that
   `punt enable` will deposit into every repo as `.punt-labs/punt/CLAUDE.md`
   (the path `standards/tool-enable-disable.md` § 2.10 reserves). It tells an

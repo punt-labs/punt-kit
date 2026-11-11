@@ -252,7 +252,7 @@ PR review follows punt-kit/standards/pr-review.md: local review (qodo review + s
 4. **Fix and push once per round.** The second round happens only after a High finding was fixed.
 5. **Merge when `merge_gate` in [pr-review.md](standards/pr-review.md) returns true.** CI green and resolved threads are not enough: Qodo and Bugbot must be in for the round, the head must be reviewed, every finding answered, and no escalation open. Use `mcp__github__merge_pull_request` (not `gh pr merge`, which has local side effects).
 
-**Verification.** `merge_gate` requires `verified_ok`: `gstack-qa` drives the changed surface through its real entry point and certifies the commit SHA before the PR opens. punt-kit's verification — the two entry points (the installed `punt` wheel; a `claude --plugin-dir plugin` dev session for anything under `plugin/`), its `verify_exempt` set, the per-workflow verifying runs, and its human-judged exception (none) — is defined in [docs/WORKFLOW.md](docs/WORKFLOW.md) under "Verification".
+**Verification.** `merge_gate` requires `verified_ok`: `gstack-qa` drives the changed artifact through its real entry point and certifies the commit SHA before the PR opens. punt-kit's verification — the three entry points (the installed `punt` wheel; a headless `claude -p --plugin-dir plugin` session for anything under `plugin/`; `sh install.sh`), its `verify_exempt` set, the per-workflow certifications, and its human-judged exception (none) — is defined in [docs/WORKFLOW.md](docs/WORKFLOW.md) under "Verification".
 
 ## Design Decisions
 
