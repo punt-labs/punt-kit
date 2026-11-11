@@ -62,6 +62,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt init` seeds only the permissions baseline. It no longer writes every
+  Punt Labs plugin's MCP wildcard, the `Skill()` rules, or a CLI project's
+  own `Bash(<cli>:*)` into `.claude/settings.json`; those belong to each
+  tool's `enable` and are removed by its `disable`, which only works when
+  init never seeds them. A CLI project still gets `Bash(<cli>-server:*)`.
+  `punt audit` no longer requires those tool-owned entries, and fails a
+  checked-in `settings.json` carrying a direct-server `mcp__<server>__*`
+  form, naming the value and pointing at `settings.local.json`.
 - `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
   Claude Code keeps the hyphen (`mcp__plugin_biff-dev_tty__…`), as every
   plugin's matcher already does.
