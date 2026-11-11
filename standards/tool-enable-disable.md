@@ -1,6 +1,6 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19 · **Updated:** 2026-09-10
+**Introduced:** 2026-07-19 · **Updated:** 2026-10-26
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
 bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
@@ -342,8 +342,22 @@ import-line append.
 - `disable` recomputes the identical set and removes those entries by **exact
   value-match** — the removal pattern permissions.md § 6 actually provides
   (`select(. as $r | $remove | index($r) | not)`). No tag schema is needed or
-  implied; the deterministic entry set *is* the identity.
+  implied; the deterministic entry set *is* the identity. Exact value-match
+  is safe because a permission value lives in exactly one place: either in
+  the [permissions.md § 3](permissions.md#3-required-allow-rules) baseline or
+  in exactly one tool's `enable` set, never both. A baseline value is never in
+  an `enable` set, so `disable` cannot remove one; no author attribution is
+  needed, and a flat string array carries none.
 - Neither touches unrelated entries.
+- For permissions the set is the tool's whole production surface: its CLI,
+  its plugin-bundled MCP server wildcard (`mcp__plugin_<plugin>_<server>__*`;
+  never the direct-server `mcp__<server>__*` form, which is a local choice
+  and stays in `settings.local.json`), and one `Skill(<plugin>:<cmd>)` rule
+  per shipped command, never a `-dev` rule. The CLI rule is `Bash(<cli>:*)`
+  only when every subcommand meets
+  [permissions.md § 6](permissions.md#6-plugin-distributed-permissions)
+  principle 4 and [plugins.md](plugins.md) principle 4; otherwise the safe
+  subcommands by name (`Bash(<cli> status:*)`), the rest at the prompt tier.
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
 deposit via `enable` is only for genuinely repo-scoped hook behavior.

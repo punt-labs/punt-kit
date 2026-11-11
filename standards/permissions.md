@@ -110,9 +110,10 @@ Portable permissions that apply to all collaborators on the project.
 
 Contains:
 
-- MCP plugin tool wildcards
+- MCP wildcards: the baseline `mcp__github__*`, plus each enabled tool's
+  plugin wildcard (section 3)
 - Build tool Bash commands
-- Skills catalog (informational, not enforced)
+- `Skill()` rules, each owned by its plugin's `enable` (section 3)
 - WebFetch domain allowlist
 - Deny rules
 - Project-specific entries (hooks, env, additionalDirectories)
@@ -138,26 +139,25 @@ Contains:
 
 ### MCP wildcards
 
-**All Punt Labs plugin MCP servers, or none.** A subset is not a policy — it
-is whoever edited the list last. Every plugin that ships an MCP server is
-allowed; plugins without one contribute nothing:
+**A permission value lives in exactly one place**: either in this section's
+baseline, or in exactly one tool's `<tool> enable` set (section 6, principle
+3). Never both. The baseline holds only values no `enable` owns.
+
+The baseline MCP wildcard is one entry:
 
 ```json
-"mcp__github__*",
-"mcp__plugin_beadle_email__*",
-"mcp__plugin_biff_tty__*",
-"mcp__plugin_dungeon_grimoire__*",
-"mcp__plugin_ethos_self__*",
-"mcp__plugin_lux_lux__*",
-"mcp__plugin_quarry_quarry__*",
-"mcp__plugin_vox_mic__*",
-"mcp__plugin_z-spec_zspec__*"
+"mcp__github__*"
 ```
 
-`github` is not a Punt Labs plugin — it ships with Claude Code. It is included
-because these settings scaffold a development environment.
+`github` is not a Punt Labs plugin — it ships with Claude Code, no `enable`
+owns it, and these settings scaffold a development environment.
 
-Each entry is the tool prefix Claude Code derives from the plugin manifest:
+Every Punt Labs plugin wildcard (`mcp__plugin_vox_mic__*`,
+`mcp__plugin_quarry_quarry__*`, and so on) is granted by that tool's `enable`
+and removed by its `disable`. `punt init` never seeds one, and a repo carries a
+plugin wildcard only because that tool is enabled there.
+
+Each plugin wildcard is the tool prefix Claude Code derives from the plugin manifest:
 `mcp__plugin_<plugin>_<server>__*`, where `<server>` is a key under
 `mcpServers` in the plugin's manifest — `.claude-plugin/plugin.json` under the
 plugin root, which is `plugin/.claude-plugin/plugin.json` in a DES-025 repo and
@@ -166,10 +166,11 @@ from the manifest rather than guessing it — `prfaq` and `punt` ship no MCP
 server, and a wildcard naming a plugin that has none matches nothing while
 looking like a working grant.
 
-A server configured directly rather than through its plugin has a different
-prefix (`mcp__quarry__*` instead of `mcp__plugin_quarry_quarry__*`). Which one
-a machine uses is a local choice, so it belongs in `settings.local.json`, not
-in the checked-in file.
+A server registered directly with `claude mcp add` rather than through its
+plugin has a different prefix (`mcp__quarry__*` instead of
+`mcp__plugin_quarry_quarry__*`). Which one a machine uses is a local choice, so
+the direct-server form belongs in `settings.local.json`, never in the
+checked-in file, and no `enable` grants it.
 
 ### Build tools
 
@@ -215,7 +216,10 @@ Projects add their own build tools as needed:
 | Python | `Bash(uv:*)`, `Bash(uvx:*)`, `Bash(python3:*)` |
 | Node.js | `Bash(npx:*)`, `Bash(npm:*)` |
 | Swift | `Bash(xcodebuild:*)`, `Bash(xcodegen:*)`, `Bash(swiftformat:*)`, `Bash(swiftlint:*)` |
-| CLI project | `Bash(<cli-name>:*)`, `Bash(<cli-name>-server:*)` |
+| CLI project | `Bash(<cli-name>-server:*)` only. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
+
+`Bash(bd:*)` and `Bash(punt:*)` are baseline because no `<tool> enable` exists
+for either.
 
 ### Skills
 
@@ -229,7 +233,7 @@ documented in Claude Code's skills architecture:
 > - otherwise, the runtime asks the user and offers exact-skill and
 >   `skill:*` local-settings rule suggestions.
 
-A seeded `Skill()` allow entry is required: without it, a skill whose
+A `Skill()` allow entry is required: without it, a skill whose
 prompt-command properties fall outside the safe-property allowlist prompts the
 user on every invocation. New properties default to requiring permission until
 reviewed, so a skill that is auto-allowed today can start prompting after an
@@ -237,7 +241,7 @@ upstream change.
 
 **Scoped names only — short forms are banned.** Every skill is named, invoked,
 and granted only by its plugin-scoped name: `biff:who`, `quarry:find`,
-`tts:say` — never the bare alias `who`, `find`, `say`. This matches the plugin
+`vox:say` — never the bare alias `who`, `find`, `say`. This matches the plugin
 namespace invariant ([plugins.md](plugins.md#namespace-scope): "the plugin name
 prefixes **everything** — commands, MCP server tools, skills, agents, hooks").
 Short-form aliases are retired: the skill namespace is noisy — bare names like
@@ -246,21 +250,12 @@ Short-form aliases are retired: the skill namespace is noisy — bare names like
 short-form skill name, and no repo grants one. A short-form `Skill()` entry —
 any skill name with no `plugin:` prefix — is non-conformant.
 
-- **biff**: `biff:biff`, `biff:finger`, `biff:last`, `biff:mesg`, `biff:plan`,
-  `biff:read`, `biff:talk`, `biff:tty`, `biff:wall`, `biff:who`, `biff:write`
-- **dungeon**: `dungeon:d`, `dungeon:dungeon`
-- **prfaq**: `prfaq:prfaq`, `prfaq:vote`, `prfaq:meeting`,
-  `prfaq:meeting-hive`, `prfaq:streamline`, `prfaq:research`, `prfaq:review`,
-  `prfaq:feedback`, `prfaq:feedback-to-us`, `prfaq:externalize`, `prfaq:import`
-- **punt-kit**: `punt:audit`, `punt:auto`, `punt:init`, `punt:pii`,
-  `punt:reconcile`
-- **quarry**: `quarry:find`, `quarry:explain`, `quarry:ingest`,
-  `quarry:quarry`, `quarry:source`
-- **tts**: `tts:notify`, `tts:recap`, `tts:say`, `tts:speak`, `tts:vibe`,
-  `tts:voice`
-- **z-spec**: `z-spec:audit`, `z-spec:check`, `z-spec:cleanup`,
-  `z-spec:code2model`, `z-spec:elaborate`, `z-spec:help`, `z-spec:model2code`,
-  `z-spec:partition`, `z-spec:setup`, `z-spec:test`
+**`Skill()` rules are owned by the plugin's `enable`, not the baseline.** Each
+plugin's `Skill(<plugin>:<cmd>)` rules are that plugin's `enable` set, one per
+shipped command (`Skill(vox:say)`, `Skill(quarry:find)`), derived from the
+plugin's `commands/` directory. `punt init` never seeds a `Skill()` rule; a
+repo carries one only because that tool is enabled there, and `<tool> disable`
+removes it.
 
 ### Cross-project file access
 
@@ -454,7 +449,22 @@ whole of this section.
 3. **The user asks for it.** The installer installs; it does not grant. Rules
    land when the user runs `<tool> enable` (or the plugin's own permissions
    command) inside a repo. Installing a plugin is not consent to edit files in
-   every repo on the machine.
+   every repo on the machine. `enable` grants every surface the tool ships, and
+   `disable` removes exactly the set `enable` computes, by exact value-match.
+   A permission value lives in exactly one place: either in the section 3
+   baseline or in exactly one tool's `enable` set, never both. That partition
+   is what makes exact value-match safe: a value in section 3 is never in an
+   `enable` set, so `disable` cannot remove a baseline rule, and a flat string
+   array needs no author attribution. The set: the CLI, the plugin-bundled MCP
+   server's tool wildcard as Claude Code names it
+   (`mcp__plugin_<plugin>_<server>__*`; see [MCP wildcards](#mcp-wildcards),
+   which also rules the direct-server form out of the checked-in file), and
+   one `Skill(<plugin>:<cmd>)` rule per shipped command. The CLI grant is
+   `Bash(<cli>:*)` only when every subcommand meets principle 4 and
+   [plugins.md](plugins.md) principle 4; otherwise the safe subcommands by
+   name (`Bash(<cli> status:*)`), with the rest at the prompt tier. A tool
+   with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
+   ever granted — the dev plugin only exists in a maintainer's checkout.
 
 4. **Least privilege.** Only allow operations the plugin performs
    autonomously. Risky, rare, or destructive operations stay at the prompt
@@ -623,8 +633,10 @@ takes an exclusive lock. See
 
 ### New repositories
 
-1. Create `settings.json` with shared allow rules (sections 3) and deny rules
-   (section 4), plus any project-specific build tool allows.
+1. Create `settings.json` with the baseline allow rules (section 3) and deny
+   rules (section 4), plus any project-specific build tool allows. Plugin MCP
+   wildcards and `Skill()` rules are not part of this step; each arrives when
+   its tool's `enable` runs in the repo.
 2. Create `settings.local.json` with local path permissions (section 5).
 3. Add `.claude/settings.local.json` to `.gitignore`.
 4. Verify with `punt audit`.
@@ -634,7 +646,8 @@ takes an exclusive lock. See
 Run `punt audit` to check compliance. The audit checks:
 
 - All required deny rules are present
-- All required MCP wildcards are present
+- `mcp__github__*` is present, and no direct-server `mcp__<server>__*` form
+  appears in the checked-in file (section 3)
 - No unmatched path rules (`Write(path)`, `MultiEdit(path)`,
   `NotebookEdit(path)`, `Glob(path)`) in any tier of either settings file
 - `settings.local.json` is gitignored
