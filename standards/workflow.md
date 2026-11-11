@@ -12,7 +12,7 @@ with declared roles, file boundaries, success criteria, and bounded review
 rounds.
 
 ```text
-Level 1 — Backlog loop   one iteration = one work batch     (beads)
+Level 1 — Backlog loop   one iteration = one work batch     (the tracker)
   Level 2 — PR loop      one iteration = one pull request
     Level 3 — Mission    one iteration = one delegated mission
                          (design, code, test — a do-while)
@@ -73,12 +73,15 @@ iteration and what must be true to leave it. The state those schemas observe:
 ```text
 LoopState
   signals       : ℙ SIGNAL  -- issues, alerts, messages not yet triaged
-  open          : ℙ BEAD    -- open beads: the single work funnel
+  open          : ℙ BEAD    -- open items in the tracker (Linear where
+                            --   migrated), observed through the beads
+                            --   mirror
   validated     : ℙ BEAD    -- re-proven against current main
   claimed       : ℙ BEAD    -- the current batch
-  closed        : ℙ BEAD    -- beads closed at ship time; merged at
-                            --   every batch exit (reopened if their
-                            --   PR is abandoned)
+  closed        : ℙ BEAD    -- closed in the tracker at ship time,
+                            --   mirrored to beads; merged at every
+                            --   batch exit (reopened if their PR is
+                            --   abandoned)
   activeWorkers : ℙ WORKER  -- sub-agents editing a shared worktree
   testCount     : ℕ         -- tests collected by the suite
   ------------------------------------------------------------------
@@ -136,11 +139,11 @@ only for the human-judged exception — never on the diff between.
 
 ## 4. Level 1 — The Backlog Loop
 
-The backlog loop keeps the bead tracker true and decides what to work on
-next. Beads are the single funnel: every piece of work above the trivial
-tier (T4, below), whatever its origin, is a bead before it is anything else.
-One iteration selects and completes one batch of work. The loop runs at
-session start and again whenever the current batch is done.
+The backlog loop keeps the tracker true and decides what to work on next.
+The tracker is the single funnel: every piece of work above the trivial tier
+(T4, below), whatever its origin, is an issue in the tracker before it is
+anything else. One iteration selects and completes one batch of work. The
+loop runs at session start and again whenever the current batch is done.
 
 ```text
 function backlog_loop():
@@ -152,10 +155,13 @@ function backlog_loop():
                    # never filed — only genuinely NEW scope arrives here
         if duplicate(signal):  close_at_door(signal, link_existing_bead)
         elif invalid(signal):  close_at_door(signal, stated_reason)
-        else:                  bd_create(signal, labels, link_back_to_source)
+        else:                  tracker_create(signal, labels, link_back_to_source)
+                               # Linear save_issue where migrated; bd create
+                               #   otherwise
 
     # 2. VALIDATE — a bead must be true before it is workable
-    for bead in candidates(bd_ready):
+    for bead in candidates(bd_ready):      # the local mirror; pull first if
+                                           #   stale
         confirm it is still real against current main
         confirm nothing merged or decided has superseded it
         confirm it is one rollback-coherent unit (split or merge if not)
@@ -206,24 +212,28 @@ ExitBatch ≙ [ Δ LoopState; mergedPRs : ℙ PR |   -- the PRs merged this batc
   ∧ batchRecapSent(claimed) ]
 ```
 
-### Beads: the single funnel
+### The tracker: the single funnel
 
-All projects use **beads** (`bd`) for issue tracking. Beads are the durable,
-cross-session source of truth for what work exists and what state it is in.
-Every repo must have beads initialized (`bd init`); the `.beads/` directory
-is committed to git.
+Every repo has exactly one **tracker of record**: the durable, cross-session
+source of truth for what work exists and what state it is in. It is
+**Linear** for a repo whose `.beads/config.yaml` sets `linear.pull_label` or
+whose prefix is in `linear.push_prefix`; it is **beads** (`bd`) otherwise.
 
-- `bd create "title"` to create issues with `--type` (task, bug, feature,
-  spike) and `--priority` (1-5)
-- `bd ready` to find available work
-- `bd update <id> --status in_progress` before starting
-- `bd close <id>` when complete
-- Work is not complete until `git push` succeeds
+Beads exists in every repo — as the tracker where nothing else is, and as a
+read-mostly mirror where Linear is; do not use it as the record when Linear
+is available.
+
+- Create, edit, claim, and close in the tracker of record.
+- Where Linear is the record, status reaches beads only after Linear.
+- A push sends no labels, and every sync moves one shared cursor.
+
+Every mechanic — commands, sync, labels, cursors, the migration itself — is
+in the deposited guide `.punt-labs/punt/CLAUDE.md`, not here.
 
 Issues must have: a clear title in imperative form; a description with
 enough context for another engineer (or agent) to act on; correct type and
-priority; dependencies declared (`--blocks`, `--blocked-by`) when
-applicable.
+priority; dependencies declared when applicable — a Linear `blocks` relation
+plus `bd dep add`, or `--blocks` and `--blocked-by` in a beads-only repo.
 
 ### Intake
 
@@ -282,10 +292,10 @@ Selection also decides how much workflow a unit gets. The deciding factor is
 
 | Tier | Scope | Pipeline | Tracking |
 |------|-------|----------|----------|
-| **T1** | Epics, cross-cutting work, competing design approaches | `full` | Beads with dependencies |
-| **T2** | Features: multi-file, clear goal, needs exploration | `standard` | Beads + missions |
-| **T3** | Tasks and bugs with an obvious implementation path, worth tracking | `quick` | Beads + one mission |
-| **T4** | Trivial: typo, single-line fix, mechanical refactor with no design choice | none — direct change | No bead; the commit is the record |
+| **T1** | Epics, cross-cutting work, competing design approaches | `full` | Issues with dependencies |
+| **T2** | Features: multi-file, clear goal, needs exploration | `standard` | Issues + missions |
+| **T3** | Tasks and bugs with an obvious implementation path, worth tracking | `quick` | Issues + one mission |
+| **T4** | Trivial: typo, single-line fix, mechanical refactor with no design choice | none — direct change | No issue; the commit is the record |
 
 T4 is the one exit from the funnel: work too trivial to track skips the bead
 and the mission — the commit is its whole record. Default to T4 when in
@@ -303,12 +313,13 @@ write set; the suggestion is advisory and the leader decides.
 **Escalation only goes up.** If T3 work reveals unexpected scope, escalate
 to T2. Never demote mid-flight — the loop-frame scope rule applied to tiers.
 
-### Beads vs session task lists
+### Issues vs session task lists
 
-Beads are the record; in-session task lists are the display. Use the session
-task list (e.g. `TaskCreate`) only to make the current batch visible to the
-operator — one entry per claimed bead, marked complete as each bead closes.
-Work that spans sessions must be a bead, never only a session task.
+The tracker is the record; in-session task lists are the display. Use the
+session task list (e.g. `TaskCreate`) only to make the current batch visible
+to the operator — one entry per claimed issue, marked complete as each closes.
+Work that spans sessions must be an issue in the tracker, never only a session
+task.
 
 ### Batch close-out and session close
 
@@ -321,7 +332,6 @@ Before ending any session:
 git status              # Check for uncommitted work
 git add <files>         # Stage changes
 git commit -m "..."     # Commit
-bd sync                 # Sync beads with git
 git push                # Push to remote
 ```
 
@@ -400,8 +410,10 @@ function pr_loop(unit):
                                           # verification and its human-judged part
 
     # D. SHIP
-    bd close the bead(s)                  # close before push, once the unit
-                                          #   is verified and merge-ready
+    close the unit's issue(s) in the tracker
+                                          # Linear Done, then bd close; close
+                                          #   before push, once the unit is
+                                          #   verified and merge-ready
     push; create the PR
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open — no "bugbot run" comment for round 1; a
@@ -410,10 +422,11 @@ function pr_loop(unit):
                                           #   after; never a blocking watch,
                                           #   never a foreground sleep loop
     # Closing at ship time declares the work complete, not the merge: if the
-    # PR is later abandoned or closed unmerged, reopen its bead(s)
-    # (bd update <id> --status=open) as part of abandoning the PR — the one
-    # case where a closed bead returns to the funnel, so "closed" still
-    # means merged at every batch exit.
+    # PR is later abandoned or closed unmerged, reopen its issue(s) in the
+    # tracker (Linear first where migrated, then bd update <id>
+    # --status=open) as part of abandoning the PR — the one case where a
+    # closed bead returns to the funnel, so "closed" still means merged at
+    # every batch exit.
 
 # Terms (round, trigger, head, qodo_in, bugbot_in, rerun, copilot_in,
 # pending, finding, answered, new High, escalation, skipped, reviewed_head,
@@ -1055,9 +1068,11 @@ state machine and model-check it.
 
 ## 8. Invariants
 
-1. **Beads are the single funnel.** Every piece of work above T4 is a bead
-   before it is anything else; external queues (issues, alerts) drain into
-   it at intake.
+1. **The tracker is the single funnel.** Every piece of work above T4 is an
+   issue in the repo's tracker of record — Linear where the repo is
+   migrated, beads otherwise — before it is anything else; external queues
+   (issues, alerts) drain into it at intake. Beads never records what Linear
+   does not.
 2. **A satisfied merge gate means merge now.** The gate is the only path to
    a merge, and nothing waits once it passes.
 3. **Findings never wait.** Review feedback is handled the moment it
