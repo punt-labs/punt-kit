@@ -315,9 +315,10 @@ tool's directory, that both hook gates and `punt audit` read.
 
 ## 2.8 Hooks and config
 
-`enable` may register repo-scoped hooks or permissions. It may touch exactly one
-file outside its own subtree — `<repo>/.claude/settings.json` — and only
-additively. Because that file is shared with other tools and invocations, the
+`enable` may register repo-scoped hooks or permissions. Its primary file outside
+its own subtree is `<repo>/.claude/settings.json`, touched only additively (a
+tool-owned CI workflow file is the one further exception — see the carve-out at
+the end of this section). Because that file is shared with other tools and invocations, the
 read-modify-write **must take the same exclusive lock as § 2.4** (the lock
 requirement there covers every shared host-file mutation, `settings.json`
 included); an unlocked merge has the identical lost-update race as an unlocked
@@ -337,6 +338,24 @@ import-line append.
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
 deposit via `enable` is only for genuinely repo-scoped hook behavior.
+
+**Carve-out: tool-owned CI workflow files.** Beyond `<repo>/.claude/settings.json`,
+`enable` may own and install a CI workflow file it fully owns —
+`<repo>/.github/workflows/<tool>-notify.yml` — when the tool's behavior requires
+a committed GitHub Actions workflow. biff's `enable` installs
+`.github/workflows/biff-notify.yml` (and `disable` removes it), the workflow that
+drives `/biff:wall`-on-CI-failure notifications (biff decision B3). This is a
+second file outside the subtree, held to the same discipline as `settings.json`:
+the tool owns the file wholesale (deterministic render, `enable` writes it,
+`disable` removes it), touches nothing else under `.github/`, and never edits a
+workflow it does not own. Because that workflow runs in the repo's CI with its
+token and secrets, the rendered file must: declare a least-privilege
+`permissions:` block (only the scopes it needs, never the default write-all);
+pin every third-party action to a commit SHA, not a floating tag; and `enable`
+must refuse to overwrite a file already present at that path whose content is
+not the tool's own current rendered output, unless the operator passes an
+explicit override — so a user-authored or tampered workflow is never silently
+replaced.
 
 ## 2.9 `disable` is non-destructive
 

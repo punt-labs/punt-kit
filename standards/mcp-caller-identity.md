@@ -159,6 +159,19 @@ handle is engine-issued.
 
 ### 4.2 Lifecycle
 
+**Scope: this is a daemon-tier concern.** The stateful session-record
+lifecycle below — get-or-create by `session_id`, the live/dormant/ended
+record states, resume reviving a record and preserving its handle — presupposes
+a long-lived engine that *holds* records across calls. That is a daemon. Per
+[architecture.md's daemon-deferral criteria](architecture.md#bounded-choices-product-judgment),
+a daemon is required only once clients share mutable state, contend for a
+device, or run concurrently, and is deferrable before that. A **daemonless**
+tool holds no cross-call record: it resolves caller identity per invocation
+from the facts on that call (§ 3) and has nothing to keep live, make dormant,
+or revive. It adopts this full lifecycle only when it grows a daemon — the same
+point architecture.md defers the daemon to. The spec below is the contract for
+that daemon-tier engine; it is not mandatory for a daemonless tool.
+
 The engine-session lifecycle is model-checked: a Z specification,
 [mcp-caller-identity-lifecycle.tex](mcp-caller-identity-lifecycle.tex), proves
 the invariants below with ProB over every reachable state (95,929 states, no
