@@ -42,10 +42,12 @@ there is never docs-only and is re-certified after every edit.
 
 A script under `scripts/` is behavior. `release-plugin.sh` and
 `restore-dev-plugin.sh` are run by `punt release` phases 4 and 9;
-`audit-all.sh` is run by hand (`bash scripts/audit-all.sh [--fix]`). Because
-`punt release` performs irreversible steps, a change to any of the three is
-certified by invoking the script directly against a scratch checkout under
-`.tmp/`, expected output written first.
+`audit-all.sh` is run by hand (`bash scripts/audit-all.sh [--fix]`) and
+walks `../*/`, the sibling repos. Expected output is written first. Because
+`punt release` performs irreversible steps, a change to either release
+script is certified by invoking it directly against a scratch checkout
+under `.tmp/`; a change to `audit-all.sh` is certified by running it from
+the repo root without `--fix`, which only reads.
 
 ### `verify_exempt`
 
