@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `src/punt_kit/templates/punt-guide.md` — the tracker doctrine that
+  `punt enable` will deposit into every repo as `.punt-labs/punt/CLAUDE.md`
+  (the path `standards/tool-enable-disable.md` § 2.10 reserves). It tells an
+  agent how to find out whether a repo is migrated to Linear
+  (`bd config get linear.pull_label`), that in a migrated repo Linear is the
+  tracker of record and beads a read-mostly mirror, and how to plan, write,
+  block, defer, and sync without tripping the `bd linear sync` label and
+  cursor hazards. Harness-neutral; ships in the wheel, not under `plugin/`.
 - `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which
   Claude Code session and agent is calling: each plugin's PreToolUse hook
   stamps `_caller {session_id, agent_id}` on its own tools, the server strips

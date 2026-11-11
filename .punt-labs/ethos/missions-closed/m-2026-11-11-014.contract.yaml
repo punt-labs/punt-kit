@@ -1,0 +1,61 @@
+mission_id: m-2026-11-11-014
+status: failed
+type: design
+created_at: "2026-11-11T05:44:03Z"
+updated_at: "2026-11-11T08:26:51Z"
+closed_at: "2026-11-11T08:26:51Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-11-11T05:44:03Z"
+    hash: 6e1a3cdfadb9e663c7a9ff6b37cad82ad05a05e94bb6f458ca592d20d1e5839b
+inputs: {}
+write_set:
+    - .claude/worktrees/punt-guide/src/punt_kit/templates/punt-guide.md
+    - .claude/worktrees/punt-guide/CHANGELOG.md
+success_criteria:
+    - src/punt_kit/templates/punt-guide.md exists, is under 80 lines, and is the ONE canonical tracker doctrine. It will be deposited verbatim into every repo as .punt-labs/punt/CLAUDE.md (the path tool-enable-disable.md section 2.10 already reserves for punt's guide) and loaded into every agent session, so every sentence passes the so-what test and every product-internal term is defined in plain words on first use.
+    - 'Section 1, header: how an agent tracks work in a Punt Labs repo; deposited by punt-kit; edit the source in punt-kit never this copy; normative text is standards/workflow.md section 4.'
+    - 'Section 2, which tracker: run bd config get linear.pull_label; output starting with repo: means migrated and Linear is the tracker; anything else means beads is. It states plainly that bd config get issue-prefix cannot be used (it prints "(not set)" on migrated repos) and that the migrated set is bd config get linear.push_prefix, read live, maintained nowhere else.'
+    - 'Section 3, migrated repos: contains verbatim the sentence "Beads is a read-mostly local mirror. Do not use it as the record when Linear is available." Then covers: plan from Linear; bd ready and bd show are fine as local reads because the mirror carries the dependency graph, but pull first if .beads/last_pull is older than about 20 minutes with bd linear sync --pull --team c1dfbb2c-985e-40cf-b004-5127646efc9d, because auto-pull is NOT on in every repo; write in Linear not beads (create with the mandatory repo:<prefix> label plus a type label since the pull never imports an unlabeled issue; edit title, description and priority there; claim, finish and cancel with In Progress, Done and Canceled; labels, blocks relations and projects are Linear-only).'
+    - Section 3 also states the two proven facts (a push sends NO labels; a pull REPLACES a bead's label set so a beads-only label is wiped); blocked means a blocks relation in Linear plus bd dep add <bead> <blocker>; deferred means Backlog plus the deferred label and bd ready --exclude-label deferred; automated loops write Linear first then the same status to beads, never beads only; the one sanctioned beads-first write is bd linear sync --push --issues <bead ids> --team <id> (title, description, priority, state only), then add labels in Linear, then bd linear sync --pull --issues <PL ids> --team <id>; every non-dry-run sync including a push moves one shared cursor (a push hides Linear edits since the last pull from the next incremental pull; a pull overwrites local edits since the cursor); never a bare bd linear sync, never an unscoped --push; never bd config set linear.* (shared by every repo); never remove issue-prefix or linear.pull_label (an unscoped pull imports the whole PL team as new beads); the ID bridge is bd show <id> external_ref (bead to PL) and bd list --json external_ref (PL to bead).
+    - 'Section 4, beads-only repos: beads is the tracker with bd create, ready, show, update --status in_progress, close; labels and deps in beads; migrate with the workspace linear-migrate skill.'
+    - 'Section 5, both: T4 needs no issue; work is not complete until git push succeeds; beads mechanics live in the workspace .docs/BEADS-SETUP.md; migration and reversal are the workspace linear-migrate, beads-to-linear and linear-unmigrate skills, named never pathed.'
+    - 'Harness-neutral: no instruction is reachable only through a Claude-specific tool name; wherever an MCP tool is named, the equivalent bd command or Linear UI path is named beside it. The file reads correctly to an OpenCode agent that never sees a Claude import line.'
+    - 'Every mechanical claim is true of the installed bd (fork punt-labs/beads at factory-fixes commit 769f8a1f). Proof in the result: for each claim, the command run on this machine and its pasted output (for example bd -C ../../../../quarry config get issue-prefix printing "(not set)" while grep shows the YAML key). The evaluator verifies claims against the binary, not the prose.'
+    - 'Not done here: no punt enable implementation; standards/ untouched; nothing added under plugin/ (the plugin surface may not reference files outside CLAUDE_PLUGIN_ROOT; the guide ships in the wheel for the CLI to deposit).'
+    - CHANGELOG.md gains an Unreleased Added entry for the guide template. npx markdownlint-cli2 on both files returns zero findings and wc -l on the guide is under 80; both outputs pasted. make check in the worktree exits 0 before every commit, output read in full.
+    - 'Commit on branch feat/punt-guide in the worktree only: one commit for the guide, one for CHANGELOG, each passing make check. git add each file by name. Do not push, do not create or touch PRs, do not merge; the leader does that. First commit within 30 minutes. A design question is surfaced to the leader, not decided.'
+budget:
+    rounds: 3
+    reflection_after_each: true
+current_round: 3
+round_decisions:
+    version: 1
+    entries:
+        - id: 60db740e9ebc1b0af5b8c4e08cc88681
+          round: 1
+          created_at: "2026-11-11T07:15:18Z"
+          author: claude
+          recommendation: continue
+        - id: 94c896baecea4a1b1be73e96287ad0a2
+          round: 2
+          created_at: "2026-11-11T07:23:22Z"
+          author: claude
+          recommendation: continue
+        - id: 84c4d675892742964121e947a862f9b9
+          round: 3
+          created_at: "2026-11-11T08:26:13Z"
+          author: rop
+          recommendation: continue
+context: |
+    Worktree <repo>/.claude/worktrees/punt-guide, branch feat/punt-guide from origin/main af11a57. Write-set paths above are relative to the main checkout; inside the worktree they are src/punt_kit/templates/punt-guide.md and CHANGELOG.md. src/punt_kit/templates/ already exists (jinja templates and a seed/ dir live there).
+
+    Six punt-labs repos are migrated to Linear; the set is bd config get linear.push_prefix (today ethos,quarry,qmb,beadle,biff,punt; one team Punt Labs, key PL, id c1dfbb2c-985e-40cf-b004-5127646efc9d). Linear is the planning source of truth there and beads is the agents' local mirror; each migrated bead stores its Linear URL in external_ref. Every doctrine location in the org (standards/workflow.md, every WORKFLOW.md, every CLAUDE.md, AGENTS.md) still says beads is the single funnel and never mentions Linear, so agents treat Linear as a post-merge afterthought. This file is the one source that fixes that; a rollout deposits it everywhere now and punt enable will deposit it later.
+
+    Verified on this machine today, cite as needed: a live push of bead quarry-dic3 created Linear PL-307 with labels: [] although the bead carried a label (push sends no labels: var labelIDs []string is hardcoded empty in the fork's internal/linear/tracker.go). Adding theme:testing on PL-307 then a scoped pull left the bead with exactly [theme:testing] and the local label gone (pull replaces labels). The pull reported 0 created, 1 updated (idempotency marker match). bd -C quarry config get linear.pull_label prints repo:quarry; bd -C quarry config get issue-prefix prints "issue-prefix (not set)" though the YAML has the key. .beads/last_pull exists only in biff, quarry and the workspace root, so auto-pull is not uniform. Both test objects were deleted afterward.
+
+    Read before writing: ~/Coding/punt-labs/.claude/skills/linear-migrate/SKILL.md (policy), ~/Coding/punt-labs/.claude/skills/beads-to-linear/references/sync-hazards.md (traps), and standards/tool-enable-disable.md sections 2.5 and 2.10 (what a deposited guide is). Model the voice on the deposited vox and ethos guides at ~/Coding/punt-labs/.punt-labs/vox/CLAUDE.md and .punt-labs/ethos/CLAUDE.md: how an agent drives the thing, not how to develop it.
+
+    Language: Markdown. One shell command per Bash call; no chains.

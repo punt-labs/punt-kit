@@ -1,0 +1,44 @@
+mission_id: m-2026-11-11-019
+status: closed
+type: implement
+created_at: "2026-11-11T08:26:58Z"
+updated_at: "2026-11-11T09:29:26Z"
+closed_at: "2026-11-11T09:29:26Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-11-11T08:26:58Z"
+    hash: 6e1a3cdfadb9e663c7a9ff6b37cad82ad05a05e94bb6f458ca592d20d1e5839b
+inputs: {}
+write_set:
+    - .claude/worktrees/punt-guide/src/punt_kit/templates/punt-guide.md
+success_criteria:
+    - Successor to m-2026-11-11-014, which reached its round cap with five evaluator findings open. One commit on feat/punt-guide fixing exactly these five, nothing else; the guide stays under 80 lines; every changed mechanical claim is re-proven against the installed bd (fork punt-labs/beads@factory-fixes 769f8a1f) with the source line or the command and its pasted output in the result.
+    - 'F1, lines 44 and 56 contradict: line 44 says a beads-only bd close is reopened by the next pull; line 56 says the next pull skips it. CloseIssueInTx stamps updated_at (issueops/close.go:29) and the pull guard at engine.go:462 skips a bead whose updated_at is after the cursor, so an incremental pull skips it and a later pull, once the cursor passes, overwrites status from Linear. Verify against the source (and whether a scoped --issues pull bypasses the guard), state the mechanism ONCE in one place, and make both sentences agree with it.'
+    - 'F2, the which-tracker test is false-negative on a stale checkout: quarry local main at 74ac563 is 82 commits behind origin/main 223e119, which carries linear.pull_label; bd config get linear.pull_label prints the not-set line there while push_prefix lists quarry. Add after line 20, verbatim: "If the output is not repo: but this repo prefix is in linear.push_prefix, this checkout is behind main: pull it and re-run; until then do not write to beads." Also add to the line-18 decoys: bd linear status says Not configured on a working setup, so it is not a test either (verify by running it in quarry and vox; paste).'
+    - 'F3, line 64: bd list --json external_ref is unscoped (PL-309), capped at 50 rows, and omits closed beads, so a Done issue has no bead in it. Write: bd list --json --all --limit 0 --label-any <the repo label>. Verify each flag against bd list --help on 769f8a1f and paste the help lines; if a flag does not exist, say so to the leader and use the nearest form that is proven.'
+    - F4, "workspace" is undefined at lines 70, 77 and 78. Define it on first use in plain words (the punt-labs/punt-labs meta-repo one directory above this repo, whose .claude/skills/ holds the migration skills) or drop the word.
+    - 'F5, line 53 "every non-dry-run sync moves one shared cursor": at tracker.go:129-136 the cursor is per pull label, not one shared value. Verify and state correctly, then make the warning that follows match the real mechanism: whether a push in repo A hides Linear edits from repo B next incremental pull depends on this and the text must say what is true.'
+    - 'Proof: wc -l on the guide under 80; npx markdownlint-cli2 on the guide 0 findings; make check in the worktree exit 0 before the commit, output read in full from its file (poll the output file; never wait on the completion notification). Pasted in the result with the five per-finding proofs.'
+    - Commit on branch feat/punt-guide in the worktree only; git add src/punt_kit/templates/punt-guide.md by name; do not push, do not touch PRs; do not run biff plan or /plan; one shell command per Bash call; first commit within 30 minutes; SendMessage one line to the leader at the commit and at the result.
+budget:
+    rounds: 1
+    reflection_after_each: true
+current_round: 1
+round_decisions:
+    version: 1
+    entries:
+        - id: a4b11dec57b03c87f9e42e882cab10ff
+          round: 1
+          created_at: "2026-11-11T09:28:43Z"
+          author: rop
+          recommendation: stop
+context: |
+    Worktree <repo>/.claude/worktrees/punt-guide, branch feat/punt-guide at 4cea16a (four commits over af11a57). Inside the worktree the file is src/punt_kit/templates/punt-guide.md, 79 lines. Read it in full first; every line number above is as of 4cea16a.
+
+    The guide is the ONE canonical tracker doctrine, deposited verbatim into every repo as .punt-labs/punt/CLAUDE.md, so a wrong mechanical claim becomes org-wide doctrine. The evaluator (rop) re-derived every finding against the fork source and the installed binary; your job is to re-derive them yourself and fix the text, not to take them on faith. The fork source is wherever .bin/install-bd.sh in the workspace clones it (read that script to find the path); bd --help and bd list --help are the flag authority.
+
+    The parent mission's contract (ethos mission show m-2026-11-11-014) has the full doctrine spec and the verified facts; its criteria still bind except where these five findings correct them.
+
+    Language: Markdown. One shell command per Bash call; no chains.
