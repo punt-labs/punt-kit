@@ -55,13 +55,28 @@ Spend disproportionate care on them.
 
 ## 5. Ship reversibly
 
-Prefer reversible changes over irreversible ones. For the definition of what
-belongs in a single PR and how to sequence review, see the [PR and Review
-Standard](pr-review.md).
+Prefer reversible changes over irreversible ones. **Reversible means you can
+roll the change back** — revert the commit, redeploy the prior release, restore
+the prior state. It does **not** mean keeping the old interface, name, or alias
+alive alongside the new one so a caller can fall back to it. Backwards
+compatibility is not reversibility, and a reversible change is never a license
+to leave a compatibility shim behind: §17 bans that machinery in a pre-scale
+product, and a rename is atomic across every surface *within one repo* in a
+single release (architecture.md's rename-train rule, § "Rename trains, never
+aliases"); across repos the rename train lands in lockstep — the producer's
+rename first, then each consumer inside its own release cycle (integration.md's
+[cross-repo rename trains](integration.md#cross-repo-rename-trains)), and it
+reverts in lockstep too. For the definition of what belongs in a single PR
+and how to sequence review, see the [PR and Review Standard](pr-review.md).
 
-- Behind a feature flag when feasible; staged rollout when not.
+- Make the change revertible: one commit, or one rollback-coherent PR, whose
+  revert restores the prior behavior cleanly.
+- Behind a feature flag when feasible; staged rollout when not. A flag gates one
+  path on and off; it is not a second permanent interface kept for old callers.
 - For destructive operations (deletes, migrations, schema changes), confirm
-  before executing and prefer reversible intermediate states.
+  before executing and prefer reversible intermediate states. A migration is the
+  one bounded exception to §17's no-dual-read rule: old and new readers may
+  coexist for the migration's duration, removed in the change that completes it.
 - "Release early and often" does not license shipping broken work. Quality bar
   holds.
 
@@ -149,13 +164,24 @@ what?" test. Replace adjectives with measurements where possible.
 ## 13. Reversibility is a feature
 
 Decisions vary in how hard they are to undo. Spend deliberation budget
-proportional to reversibility, not to apparent importance.
+proportional to reversibility — the cost of rolling the decision back — not to
+apparent importance. Blast radius is proportional to reversibility: the harder a
+change is to undo, the more care it earns before it ships.
 
 - One-way doors (schema changes, public API contracts, deletions, sent emails):
   slow down, verify, get confirmation.
 - Two-way doors (internal refactors, feature flag changes, new functions): move
   fast, learn from the result.
 - When uncertain, prefer the path that preserves optionality.
+- Preserving optionality is about keeping the *decision* reversible, not about
+  keeping two interfaces alive. A rename of a public surface is a one-way door by
+  coordination cost — slow down and confirm it like any public-contract change —
+  yet it is still reversible: within one repo it is atomic across every surface
+  in a single release, and across repos it lands and reverts in lockstep (§5,
+  §17, integration.md § Cross-repo rename trains). The optionality you keep is
+  the revert, not a lingering old name. Reversible does not mean cheap; it means
+  a revert — single-repo, or a lockstep revert across repos — restores the prior
+  state.
 
 ## 14. Surface mistakes early; don't hide them
 
@@ -214,3 +240,52 @@ Motivating case: `ethos-kptv`. A release-tooling defect was diagnosed from
 observed behavior and queued for implementation. Both fixes were already
 correct on `main`, merged five days earlier and present in no tag; the installed
 CLI predated them. The assigned work was a release, not a code change.
+
+## 17. No backwards-compatibility cruft in pre-scale products
+
+A product that has not found scale carries **no** backwards-compatibility
+machinery. There is no installed base to protect yet, so every shim, alias,
+tombstone, or dual interface is pure cost — a second thing to maintain, review,
+and reason about — bought to serve callers that do not exist. When the code
+changes, the callers change *in the same change*. This is the cross-language,
+cross-product principle; python.md's "No backwards-compatibility shims"
+(Prohibited Patterns) is its per-language instance, and architecture.md's
+"Rename trains, never aliases" is the surface-vocabulary instance. Do not
+reinvent either here — they bind their own domains; this section states the rule
+that spans them.
+
+Banned in a pre-scale product, in every language and on every surface:
+
+- **Aliases** — `old_name = new_name`, re-exports of a moved symbol, a CLI verb
+  kept as a hidden synonym, an MCP tool answering to two names.
+- **Shims and migration shims** — a wrapper that translates the old call shape
+  into the new one, or a dual-read path kept as a *permanent* fallback. (A
+  dual-read path that exists only for the span of a destructive migration and is
+  removed when it completes is the one bounded exception — see §5.)
+- **Tombstones and dead re-exports** — `# removed`/`# deprecated` markers left in
+  place of a symbol, an empty module kept so an old import still resolves.
+- **Deprecated-but-still-works paths** — an interface documented as going away
+  while it keeps functioning, a flag that silently maps an old value to a new one.
+- **Dual old/new interfaces** — two public contracts for one operation, kept side
+  by side so a caller may choose. A rename removes the old name in the same
+  commit the new one appears (architecture.md § "Rename trains, never aliases");
+  consumers in other repos move in lockstep
+  ([integration.md § Cross-repo rename trains](integration.md#cross-repo-rename-trains)).
+
+This is not a license to break callers carelessly. It is the opposite: because
+there is no compatibility layer to hide behind, every call site is found and
+updated in the same change, and the change ships reversibly (§5). Within one
+repo, that revert restores the prior state, old name and all. Across repos a
+rename train is reversible only in lockstep: the producer's rename and each
+consumer's update are separate commits (integration.md § Cross-repo rename
+trains), so rolling back means reverting the producer *and* every consumer that
+already moved — revert them in the reverse of the order they landed.
+
+The one bounded exception to the no-dual-read rule is a destructive data
+migration (§5): a schema or format change may run old and new readers side by
+side *for the duration of the migration only*, removed in the same change that
+completes it. That transient reader is a migration step with an end, not a
+retained compatibility path. "Pre-scale" is the default state of every Punt Labs
+product until the operator declares otherwise; promoting a product to
+scale — and thereby licensing a retained compatibility layer — is the operator's
+decision, never an agent's assumption.
