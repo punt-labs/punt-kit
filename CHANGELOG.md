@@ -56,9 +56,6 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- Removed `VersionAssignment.read()`. Its last caller, the `__init__.py`
-  `__version__` check in Phase 11, now uses `ModuleVersion` (pkit-bl6s), so
-  its tests now assert through `rewritten` and `values`.
 - `punt release` now fails the bump and the version check, naming the line,
   on a `__version__` it cannot pin, where it used to skip it silently or
   report it as computed. That covers any value that is neither a plain string

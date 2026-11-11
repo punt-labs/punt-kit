@@ -122,10 +122,11 @@ def test_a_shell_value_never_spans_a_newline() -> None:
     assignment = VersionAssignment.in_shell("VERSION")
     text = 'VERSION=\n"0.1.0"\n'
 
-    assert (assignment.values(text), assignment.rewritten(text, "2")) == (
-        (),
-        (text, 0),
-    )
+    assert (
+        assignment.is_assigned(text),
+        assignment.values(text),
+        assignment.rewritten(text, "2"),
+    ) == (True, (), (text, 0))
 
 
 def test_an_unquoted_shell_literal_is_a_readable_pin() -> None:
