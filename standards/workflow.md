@@ -92,7 +92,9 @@ LoopState
 
 A bead's lifecycle is a walk through these sets: `open → validated →
 claimed → closed`. Steps that were performed ("the recap was sent") appear
-as named predicates over declared terms, never as bare primed flags.
+as named predicates over declared terms, never as bare primed flags. Below,
+"bead" names an item in the tracker of record (§4); in a migrated repo its
+ID is the Linear identifier.
 
 The schemas in this standard are the org-wide minimum. A per-repo
 `docs/WORKFLOW.md` **may** extend them — add state components, or strengthen
@@ -160,8 +162,11 @@ function backlog_loop():
                                #   otherwise
 
     # 2. VALIDATE — a bead must be true before it is workable
-    for bead in candidates(bd_ready):      # the local mirror; pull first if
-                                           #   stale
+    sync mirror from tracker               # migrated repos: bd linear sync
+                                           #   --pull-if-stale; an issue the
+                                           #   mirror has not pulled is never
+                                           #   validated
+    for bead in candidates(bd_ready):      # the local mirror
         confirm it is still real against current main
         confirm nothing merged or decided has superseded it
         confirm it is one rollback-coherent unit (split or merge if not)
@@ -216,8 +221,11 @@ ExitBatch ≙ [ Δ LoopState; mergedPRs : ℙ PR |   -- the PRs merged this batc
 
 Every repo has exactly one **tracker of record**: the durable, cross-session
 source of truth for what work exists and what state it is in. It is
-**Linear** for a repo whose `.beads/config.yaml` sets `linear.pull_label` or
-whose prefix is in `linear.push_prefix`; it is **beads** (`bd`) otherwise.
+**Linear** for a repo whose `.beads/config.yaml` sets `linear.pull_label`
+(flat `linear.pull_label:` or nested `linear:` / `pull_label:` — both count)
+or whose prefix is in `linear.push_prefix`, a key of the shared beads
+database config, not of any repo's file (`bd config get linear.push_prefix`
+from any repo); it is **beads** (`bd`) otherwise.
 
 Beads exists in every repo — as the tracker where nothing else is, and as a
 read-mostly mirror where Linear is; do not use it as the record when Linear
