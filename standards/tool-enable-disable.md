@@ -557,13 +557,12 @@ duplicates:
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
 | `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.md`). `.beads/` is not this row's business — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the canonical exemption |
-| *(legacy, retired)* | — | `.biff` at the repo root — the shape [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table migrates into the row above. `.quarry.toml` is not listed here — it never shipped |
 
-The repo config file is **no longer the enabled signal** — the `enabled`
-marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
-turn on; `enable` may call `init` when enabling requires config, but the two
-concerns stay separate. Tools that used `init` *only* to drop an enabled
-sentinel fold that into `enable` and retire the bare repo-root sentinel.
+The `enabled` marker (2.7) is the enabled signal; the repo config file is
+not, and no tool reads a bare repo-root sentinel (`.biff`, `.quarry.toml`)
+for it. A tool with both verbs runs `init` to configure and `enable` to turn
+on; `enable` may call `init` when enabling requires config, but the two
+concerns stay separate.
 
 ## 2.14 Dual surface, and the separate per-user layer
 
