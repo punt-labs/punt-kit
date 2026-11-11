@@ -294,3 +294,4 @@ Standards changes are normative for ~15 repos — treat every diff as a cross-re
 @.punt-labs/vox/CLAUDE.md
 @.punt-labs/beadle/CLAUDE.md
 @.punt-labs/ethos/CLAUDE.md
+@.punt-labs/punt/CLAUDE.md
