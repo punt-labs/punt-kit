@@ -396,7 +396,8 @@ function pr_loop(unit):
     write down the expected outcome, then a QA agent exercises the change
         through its real entry point; compare actual to expected
     the operator confirms only the human-judged part a machine cannot attest
-                                          # each repo's WORKFLOW.md defines its own
+                                          # each repo's WORKFLOW.md names its own
+                                          # verification and its human-judged part
 
     # D. SHIP
     bd close the bead(s)                  # close before push, once the unit
