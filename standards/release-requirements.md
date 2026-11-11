@@ -12,11 +12,13 @@ These artifacts are modified in the project being released.
 | File | Field | Example |
 |------|-------|---------|
 | `pyproject.toml` | `version` | `"0.7.1"` |
-| `src/<pkg>/__init__.py` | `__version__` | `"0.7.1"` |
 | `.claude-plugin/plugin.json` under the plugin root | `version` | `"0.7.1"` (hybrid/plugin only) |
 | `install.sh` | `VERSION` | `VERSION="0.7.1"` |
 
-All four locations must agree on the same version string.
+All three locations must agree on the same version string. A package's
+`__version__` is not a bump location: it is computed at runtime from the
+installed metadata, never a hand-written literal (see
+[python.md Version Reporting](python.md#version-reporting)).
 
 The manifest row is deliberately relative to the plugin root rather than the
 repo root: in a DES-025 repo it is `plugin/.claude-plugin/plugin.json`, and in
