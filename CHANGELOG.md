@@ -15,6 +15,15 @@ All notable changes to this project will be documented in this file.
   and `filesystem.md` cross-reference it; `filesystem.md` reserves
   `sessions/`.
 
+### Changed
+
+- `/punt:bead-review` and the `autopilot` playbook refuse to run in a
+  Linear-migrated repo (one where `bd config get linear.pull_label` prints
+  `repo:<repo>`) and redirect to Linear. Both write beads only; in a
+  migrated repo a push sends no labels and a pull replaces each bead's
+  label set and re-opens locally closed beads, so every edit they made
+  was reverted by the next `bd linear sync` and none of it reached Linear.
+
 ### Fixed
 
 - `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
