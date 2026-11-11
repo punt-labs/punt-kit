@@ -170,6 +170,9 @@ change is to undo, the more care it earns before it ships.
 
 - One-way doors (schema changes, public API contracts, deletions, sent emails):
   slow down, verify, get confirmation.
+- Confirmation must come from the authority that actually holds it — the
+  operator for operator-reserved actions, the leader for leader-owned ones —
+  never from a peer relaying claimed authority on their behalf.
 - Two-way doors (internal refactors, feature flag changes, new functions): move
   fast, learn from the result.
 - When uncertain, prefer the path that preserves optionality.
@@ -205,13 +208,12 @@ pressure is not a license to skip testing, skip review, skip thinking.
 
 ## 16. When behavior contradicts the source, suspect a stale binary
 
-Before writing a fix for a tool that misbehaves, confirm the tool you ran is
-built from the source you read. If the source already handles the case you are
-debugging — and especially if a comment or docstring describes your exact
-failure — the likely explanation is that the fix exists but was never released.
-Writing it again is the expensive outcome: you spend a round implementing
-something that is already on `main`, and the real defect (an unshipped release)
-survives untouched.
+Before writing a fix for a tool that misbehaves, confirm the binary you ran is
+built from the source you read. If the source already handles the case — and
+especially if a comment or docstring describes your exact failure — the fix
+likely exists but was never released. The remedy is then a release, not a
+re-implementation; writing the fix again leaves the real defect (an unshipped
+release) untouched.
 
 Two commands settle it:
 
@@ -224,22 +226,14 @@ git tag --contains <fix-commit>     # empty output → the fix is in no release
   from source. It costs a minute; a wasted implementation round costs hours.
 - Report the corrected root cause even when it contradicts the assignment you
   were given. An assignment's decision binds; its stated premise does not
-  survive contrary evidence. See §14 — this is the same duty applied to a
-  premise rather than a mistake.
-- When the fix turns out to be unshipped, the remedy is a release, not a patch.
-  Say so plainly rather than writing the patch anyway because it was what you
-  were asked for.
-- Expect it to recur. An unshipped fix keeps reproducing its symptom on every
-  run until the release lands, so note what will regress and when.
+  survive contrary evidence. See §14 — the same duty applied to a premise
+  rather than a mistake.
+- An unshipped fix keeps reproducing its symptom until the release lands, so
+  note what will regress and when.
 
 Distinct from the operational rule against `make install` while a tool is
-running: that is about not overwriting a binary in use. This is about not
+running: that is about not overwriting a binary in use; this is about not
 trusting that the binary in use matches the tree in front of you.
-
-Motivating case: `ethos-kptv`. A release-tooling defect was diagnosed from
-observed behavior and queued for implementation. Both fixes were already
-correct on `main`, merged five days earlier and present in no tag; the installed
-CLI predated them. The assigned work was a release, not a code change.
 
 ## 17. No backwards-compatibility cruft in pre-scale products
 
