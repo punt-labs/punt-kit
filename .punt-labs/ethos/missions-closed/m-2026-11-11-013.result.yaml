@@ -1,0 +1,175 @@
+mission: m-2026-11-11-013
+round: 3
+created_at: "2026-11-11T07:26:24Z"
+author: adt
+verdict: pass
+confidence: 0.95
+files_changed:
+    - path: .claude/worktrees/tracker-guard/plugin/skills/bead-review/SKILL.md
+      added: 78
+      removed: 1
+    - path: .claude/worktrees/tracker-guard/plugin/skills/bead-review/references/per-bead-rubric.md
+      added: 3
+      removed: 0
+    - path: .claude/worktrees/tracker-guard/plugin/playbooks/autopilot.yaml
+      added: 50
+      removed: 1
+    - path: .claude/worktrees/tracker-guard/CHANGELOG.md
+      added: 16
+      removed: 0
+evidence:
+    - name: 'F5 reproduced before editing: bd -C .../homebrew-tap config get linear.pull_label printed repo:punt (climbed to the workspace config); bd -C .../homebrew-tap where printed the workspace .beads path with prefix: punt; ls .../homebrew-tap/.beads -> No such file or directory'
+      status: pass
+    - name: 'Postcondition check run verbatim in the shell: in quarry exit=1; in vox exit=0; yaml.safe_load stores the check string byte-exact with on_failure abort on the same step'
+      status: pass
+    - name: 'make check in the worktree before commit 892de8e: exit 0, All checks passed, 296 files already formatted, mypy no issues in 125 files, pyright 0 errors, 2320 passed, 14 skipped in 364.84s'
+      status: pass
+    - name: 'npx markdownlint-cli2 on SKILL.md and CHANGELOG.md: 0 issues in 0 files'
+      status: pass
+    - name: 'Demo c5, claude -p /punt-dev:auto autopilot in quarry: EXECUTOR ran the postcondition shell check itself (test "$(bd config get linear.pull_label)" = ... -> POSTCONDITION FAIL (not bucket 2 — abort)) and aborted at step 1 with the label-filter URL; zero bd ready/update/close; 5 Bash calls total'
+      status: pass
+    - name: 'Demo c5, claude -p /punt-dev:bead-review in quarry: test -d .beads, config get -> repo:quarry, bd where -> prefix: quarry, then the redirect paragraph ending in https://linear.app/punt-labs/team/PL/all?label=repo:quarry; no cat metadata.json, no view named, zero bd writes; 3 Bash calls'
+      status: pass
+    - name: 'Demo c5, claude -p /punt-dev:bead-review in vox: test -d .beads, config get -> exact not-set line, assistant said "Exact match — beads is the tracker of record for vox. Proceeding.", Step 1 cat metadata.json; cut off at max-turns 4'
+      status: pass
+    - name: 'Demo c5, claude -p "/punt-dev:bead-review ../homebrew-tap" from vox: test -d .../homebrew-tap/.beads -> NO_BEADS, stopped with "../homebrew-tap has no beads database", zero bd calls (never saw the climbed repo:punt); 2 Bash calls (the second an ls -la for the report)'
+      status: pass
+    - name: 'Demo c5, claude -p "/punt-dev:bead-review /tmp" from vox: one Bash call, test -d /tmp/.beads -> MISSING, printed "/tmp has no beads database", zero bd calls'
+      status: pass
+open_questions:
+    - plugin/skills/auto/SKILL.md line 46 still shows the old autopilot description; outside the write-set, leader T4 before the PR opens (unchanged).
+    - The headless autopilot demo session read two inbound biff messages mid-run and replied to jmf-pobox:linear with an ack ("ack quarry — will accept the three fixed-string edits to docs/WORKFLOW.md in the same wave (PL-310)") on the leader's behalf. That is the demo session's own inbound-biff handling, not anything the playbook asked for; the leader should check that ack is one they stand behind.
+prose: |
+    Commit 5 on fix/tracker-guard; commits 1-4 stand. Tree clean, not pushed.
+
+      892de8e fix(tracker-guard): enforce the autopilot halt with a postcondition; redirect to the Linear label filter
+
+    ## What changed
+
+    autopilot.yaml check-tracker (still type llm, still first, still on_failure abort):
+
+      postcondition:
+        check: 'test "$(bd config get linear.pull_label)" = "linear.pull_label (not set in config.yaml)"'
+
+    Exact match on the beads-only string, no pipe. Buckets 1 (repo:*) and 3
+    (undetermined) both fail it, so the executor's on_failure: abort ends the playbook
+    regardless of the sub-agent's prose. The llm context keeps the explanation and adds
+    the one-line redirect: "Work this backlog in Linear: team Punt Labs, issues labelled
+    repo:<label>, https://linear.app/punt-labs/team/PL/all?label=repo:<label>", with
+    <label> from the output after repo:. A closing paragraph in the context says the
+    postcondition is what stops the runner.
+
+    SKILL.md Step 0:
+    - Pre-check now says bd -C <dir> with no .beads/ climbs to the nearest ancestor
+      (a sibling checkout under the workspace root reports repo:punt), prints
+      "<REPO> has no beads database", and forbids both config get and where when
+      .beads/ is absent.
+    - Refusal: <label> is everything after repo: in the config output, never the
+      directory or metadata name; prefix from `bd -C "$REPO" where` (its prefix: line),
+      not cat metadata.json; paragraph ends with the label-filter URL; an explicit
+      "do not name a Linear view" sentence.
+
+    CHANGELOG: one sentence on the URL and the postcondition.
+
+    ## Proof: real entry point (five headless claude -p runs, worktree plugin)
+
+    Transcripts: workspace .tmp/m013-r3-{after-quarry,after-vox,tmp,homebrew-tap,
+    autopilot-quarry}.jsonl; reader .tmp/m013-transcript.py. Every Bash tool_use was
+    listed from each file.
+
+    ### autopilot in quarry — EXECUTOR abort, not sub-agent prose
+
+    Bash calls, in order:
+
+      ls .../quarry/playbooks/autopilot.yaml .../plugin/playbooks/autopilot.yaml 2>&1; ...  (discovery)
+      test -d .beads && echo "PASS: .beads exists" || ...                      -> PASS: .beads exists
+      test -f Makefile || test -f CLAUDE.md && echo "PASS: ..." || ...          -> PASS: quality gates defined
+      bd config get linear.pull_label                                           -> repo:quarry
+      test "$(bd config get linear.pull_label)" = "linear.pull_label (not set in config.yaml)" && echo "POSTCONDITION PASS (bucket 2)" || echo "POSTCONDITION FAIL (not bucket 2 — abort)"
+                                                                                -> POSTCONDITION FAIL (not bucket 2 — abort)
+
+    Executor text around the postcondition, verbatim:
+
+      "The output is `repo:quarry` — bucket 1. This repo is **migrated to Linear**. Let
+      me confirm the postcondition fails (triggering the defined `abort`)."
+      [runs the check above]
+      "The tracker-check postcondition failed: this repo is migrated to Linear. The
+      playbook's `on_failure: abort` ends autopilot here."
+      ...
+      "## Autopilot halted — quarry is migrated to Linear
+      **Step 1/14 (check-tracker) aborted the playbook** ...
+      - `bd config get linear.pull_label` → `repo:quarry` (bucket 1)
+      - Postcondition requires `linear.pull_label (not set in config.yaml)` → **failed** → `on_failure: abort`
+      ...
+      **Work this backlog in Linear:** team Punt Labs, issues labelled `repo:quarry` —
+      https://linear.app/punt-labs/team/PL/all?label=repo:quarry"
+
+    The postcondition shell check was issued by the executor as its own Bash call, and
+    the abort is the executor's, keyed on that exit 1. Zero bd ready/update/close.
+    success, 12 turns. (Side effect, see open_questions: the session also read and
+    replied to two inbound biff messages mid-run.)
+
+    ### quarry — refuses with bd where, config-derived label, URL
+
+      test -d ".../quarry/.beads" && echo "BEADS_DIR_EXISTS" || ...   -> BEADS_DIR_EXISTS
+      bd -C ".../quarry" config get linear.pull_label                  -> repo:quarry
+      bd -C ".../quarry" where                                         -> .../quarry/.beads / prefix: quarry / database: ...
+
+    Output, verbatim:
+
+      quarry (beads prefix quarry) is migrated to Linear: Linear is its
+      planning source of truth and beads is a local mirror, so bead-review will
+      not run here — its edits are beads-only and the next `bd linear sync`
+      would revert them. Audit this backlog in Linear instead: team Punt Labs,
+      issues labelled repo:quarry:
+      https://linear.app/punt-labs/team/PL/all?label=repo:quarry
+
+    No cat metadata.json, no view named, zero writes. success, 5 turns.
+
+    ### vox — proceeds unchanged
+
+      test -d .../vox/.beads && echo "BEADS_DIR_EXISTS" || ...   -> BEADS_DIR_EXISTS
+      bd -C ".../vox" config get linear.pull_label                -> linear.pull_label (not set in config.yaml)
+      cat ".../vox/.beads/metadata.json"                          -> issue_prefix vox
+
+    "Exact match — beads is the tracker of record for vox. Proceeding. **Step 1:
+    Confirm scope.**" Cut off at max-turns 4 (this run also read the rubric early, which
+    consumed a turn before bd list).
+
+    ### ../homebrew-tap — no-beads stop, never sees the climbed repo:punt
+
+      test -d .../homebrew-tap && ...; test -d .../homebrew-tap/.beads && ...   -> DIR_EXISTS / NO_BEADS
+      ls -la .../homebrew-tap                                                   (for the report only)
+
+    Output (excerpt): "`../homebrew-tap` has no beads database — stopping per the
+    skill's Step 0 gate. **Path checked:** .../homebrew-tap/.beads/ — does not exist.
+    ... if `$REPO/.beads/` does not exist, stop and make no `bd` call — not `config
+    get`, not `where` — because `bd -C <dir>` without a local `.beads/` climbs to the
+    nearest ancestor that has one (the workspace root's `repo:punt` database), which
+    would audit the wrong backlog. No enumeration, no rubric, no report, no writes."
+    Zero bd calls. success, 4 turns.
+
+    ### /tmp — no-beads stop
+
+      test -d /tmp/.beads && echo "EXISTS" || echo "MISSING"   -> MISSING
+
+    Output includes the literal line "/tmp has no beads database" and "No enumeration,
+    no rubric, no report, no `bd` write." One Bash call, zero bd calls. success, 3 turns.
+
+    ## Proof: gates
+
+    make check before 892de8e: exit 0; ruff "All checks passed!", "296 files already
+    formatted", mypy "Success: no issues found in 125 source files", pyright "0 errors,
+    0 warnings, 0 informations", pytest "2320 passed, 14 skipped in 364.84s"; full log
+    at workspace .tmp/m013-r3-make-check.log. markdownlint on SKILL.md and CHANGELOG.md:
+    0 issues.
+
+    ## Notes
+
+    - The contract's first criterion still names "the repo view"; per the leader's
+      round-2 ruling the redirect names the label filter and URL only, because the
+      workspace root (repo:punt) is migrated with no view and repo:qmb's view is
+      "quarry-menubar". The implementation follows the ruling.
+    - quarry's and quarry-menubar's linear.pull_label lines are uncommitted local edits
+      on this machine (leader owns committing them). The guard is correct either way;
+      on a clean clone it reads the not-set line until those land.

@@ -113,6 +113,7 @@ Punt-kit is also a Claude Code plugin (`punt@punt-labs` on the marketplace). The
 | `/punt:audit` | Check compliance (wraps `punt audit`) |
 | `/punt:pii` | Scan for PII (wraps `punt pii`) |
 | `/punt:auto <playbook>` | Execute automation playbooks (release, autopilot, makefile, permissions-rollout, reconcile-memory, standards-rollout) |
+| `/punt:bead-review [repo]` | Audit every open bead for clarity, validity and priority; refuses in a Linear-migrated repo and redirects to Linear |
 | `/punt:reconcile` | LLM-driven standards reconciliation (no CLI equivalent — prompt-driven) |
 
 Install from the marketplace:
