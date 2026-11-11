@@ -12,15 +12,17 @@ rounds. There is no human
 code-review gate — the operator may read the diff in the IDE, but that
 inspection is non-gating, feeds design discussion only, and nothing in this
 sequence waits on it. Human judgment binds at the workflow standard's gates:
-direction before code (design ratification) and behavior after (the
-repo-specific demo, where a repo defines one) —
-never the diff between (see the Roles section of the
-[Workflow standard](workflow.md)).
+direction before code (design ratification) and behavior before the PR opens —
+a QA agent drives the real product through its real entry point and confirms it
+works (see "The verification gate") — never the diff between (see the Roles
+section of the [Workflow standard](workflow.md)).
 
-Coding is not the whole task. Code that compiles and passes tests has not been
-verified. Verified means: installed, running, exercised manually and
-automatically against the real integration target. A PR opened before this work
-is done is premature.
+Coding is not the whole task, and neither is reviewing it. Code that compiles,
+passes tests, and passes review has not been shown to work. Verification is a
+separate activity from writing code and from reviewing the diff: the artifact
+the user receives is installed, run, and driven against the real integration
+target by a QA agent, with expected-versus-actual output recorded. A PR opened
+before this is done is premature.
 
 This standard governs PR boundaries and review sequencing. Commit discipline
 (micro-commits, 1–5 files per commit, quality gates per commit) is defined
@@ -108,16 +110,19 @@ local review:
    full diff in the IDE. It is optional and non-gating: anything it surfaces
    feeds design discussion (or is fixed like any other local finding), and
    nothing in this sequence waits on it.
-5. Run the complete user-facing workflow from install through terminal output,
-   including at least one path through a dependency (file I/O, network,
-   subprocess). Record the output. Verify that the changed code was actually
-   exercised by checking that expected behavior changed in the expected way.
+5. A QA agent runs the complete user-facing workflow from install through
+   terminal output, including at least one path through a dependency (file I/O,
+   network, subprocess), and certifies the unit works (see "The verification
+   gate"). The agent records the output, verifies the changed code was actually
+   exercised by checking that expected behavior changed in the expected way, and
+   keeps verified, inferred, and unknown apart. This is `verified_ok`: it holds
+   before the PR opens.
 6. Every fix diff goes through `local_review` again before it is pushed,
    including fixes made for PR findings
 
-Only open the PR after step 6 passes. A PR opened before local review is clean
-is a procedural violation. The repo's demo, if its `WORKFLOW.md` defines one
-(see "Repo-specific human gate" below), runs against the PR head; it does not
+Only open the PR after step 6 passes and `verified_ok` holds. A PR opened
+before local review is clean, or before the QA agent has certified the unit, is
+a procedural violation. Verification runs against the PR head; it does not
 change the review sequence.
 
 ### Local review
@@ -450,18 +455,19 @@ function poll_tick(pr):
             that delta review raised is answered(f):
         set reviewed_head to delta_head  # bounded rounds, but no unreviewed
                                          #   merge, bot-authored PRs included
-    if demo_ok(pr) is false and nothing was pushed this tick:
-        if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;
-            once it passes on the head, the leader comments
-            "demo confirmed: <sha>" naming the head exercised, after the
-            operator's confirmation only where the demo requires it
-            (user-facing behavior a human must judge); on a failure
-            it comments "demo failed: <sha>" with what was observed, and the
+    if verified_ok(pr) is false and nothing was pushed this tick:
+        if the repo defines a verification: a QA agent drives it per the repo's
+            WORKFLOW.md or CLAUDE.md through the real entry point; once it passes
+            on the head, the leader comments "verified: <sha>" naming the head
+            exercised. Where the repo's verification names a human-judged
+            exception (behavior machine verification cannot reach), the operator
+            confirms that part before the comment. On a failure the leader
+            comments "verification failed: <sha>" with what was observed, and the
             failure is a finding like any other
-        else: report to the operator and stop  # no demo policy: the gate
-                                               #   is incomplete
-                                               # see "Repo-specific human
-                                               #   gate" below
+        else: report to the operator and stop  # no verification policy: the
+                                               #   gate is incomplete
+                                               # see "The verification gate"
+                                               #   below
     if not pending(pr) and not bugbot_open and no finding is unanswered:
         cadence = 15m
     else: cadence = 3m
@@ -486,9 +492,9 @@ function merge_gate(state) -> bool:
        and zero unresolved review threads
        and round(pr) <= 2
        and no escalation is open
-       and demo_ok(pr)                     # false while the repo has no demo
-                                           #   policy; true for a declared
-                                           #   no-demo repo
+       and verified_ok(pr)                 # false while the repo has no
+                                           #   verification policy; true for a
+                                           #   declared no-verification repo
     # A push restarts CI, not review. When this returns true: merge
     # explicitly. No auto-merge. No admin override. Do not ask, do not wait.
 ```
@@ -498,40 +504,54 @@ A fix push is reviewed locally first (`local_review` on the fix diff) and is
 never followed by a request for another remote review; the only way back into
 remote review is round 2, and only after a High fix.
 
-#### Repo-specific human gate (demo)
+#### The verification gate
 
-Some behavior only a human can judge. Each repo's `docs/WORKFLOW.md` or
-`CLAUDE.md` defines its demo — what is driven, through which entry point, and
-what the operator confirms — or explicitly declares that it has none. A repo
-that does neither has an incomplete gate, not a passing one. A failed demo is
-a finding like any other. The demo is a human check on observed behavior, never a diff review.
-An internal, non-exempt change that passes the real-entry-point check
-therefore does not wait for an operator reply.
+Writing code and reviewing code do not prove it works. Before the PR opens, a
+QA agent drives the real product through its real entry point — install, run,
+exercise the happy path and the failure modes, record expected-versus-actual
+output — and certifies the unit works. This is the default, and it is machine
+work: the QA agent is distinct from the implementer and the reviewer, and its
+certification is a separate activity from both. Each repo's `docs/WORKFLOW.md`
+or `CLAUDE.md` defines its verification — what is driven, through which entry
+point, and which QA agent drives it — or explicitly declares that it has none. A
+repo that does neither has an incomplete gate, not a passing one. A failed
+verification is a finding like any other. An internal, non-exempt change that the
+QA agent certifies does not wait for an operator reply.
 
-The standard fixes the shape of `demo_ok`; each repo fills in its own
-`demo_exempt` set:
+**Human-judged exception.** A narrow class of behavior resists machine
+verification — audio the operator must listen to, rendered output a human must
+read for correctness. For such a case the repo's verification names the specific
+human-judged part, and the operator confirms it. The exception is scoped to what
+machine verification genuinely cannot reach, and each such case is a gap to
+close as verification tooling improves — the operator in the loop is the
+fallback, never the default path. Everything a QA agent can drive, a QA agent
+drives.
+
+The standard fixes the shape of `verified_ok`; each repo fills in its own
+`verify_exempt` set:
 
 ```text
-demo_exempt(f) = f is a file the repo lists as not changing behavior (for
+verify_exempt(f) = f is a file the repo lists as not changing behavior (for
                  example *.md, docs/, tests/, .github/, ratchet files), and
                  is not under plugin/ — commands, skills, agents, and hooks
                  there are behavior even when Markdown, because Claude Code
                  executes them
-demo_ok(pr)    = the repo explicitly declares it has no demo (in its
-                 docs/WORKFLOW.md or CLAUDE.md); or the repo defines a demo
-                 and either every file the PR changes is demo_exempt, or
-                 demoed_head exists, is the head or an ancestor of it, and
-                 every file changed since it is demo_exempt. With no demo
-                 definition and no declaration, demo_ok is false.
-demoed_head    = the commit named in the leader's latest "demo confirmed:"
-                 PR comment, newer than any "demo failed:" comment; the
-                 leader posts the comment once the demo passes on that
-                 commit, with the operator's confirmation only where the
-                 demo requires it (user-facing behavior a human must judge)
+verified_ok(pr) = the repo explicitly declares it has no verification (in its
+                 docs/WORKFLOW.md or CLAUDE.md); or the repo defines a
+                 verification and either every file the PR changes is
+                 verify_exempt, or verified_head exists, is the head or an
+                 ancestor of it, and every file changed since it is
+                 verify_exempt. With no verification definition and no
+                 declaration, verified_ok is false.
+verified_head  = the commit named in the leader's latest "verified:" PR
+                 comment, newer than any "verification failed:" comment; the
+                 leader posts the comment once the QA agent certifies the unit
+                 works on that commit, with the operator's confirmation only for
+                 a human-judged part the repo's verification names
 ```
 
 A plugin-only Markdown PR is therefore not docs-only, and an edit to
-`plugin/*.md` after the demo needs a re-demo.
+`plugin/*.md` after verification needs re-verification.
 
 #### Close-out
 
