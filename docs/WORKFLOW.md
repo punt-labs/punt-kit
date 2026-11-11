@@ -20,7 +20,7 @@ punt-kit ships three artifacts, each with one entry point:
 |---|---|---|
 | The `punt` CLI (`src/punt_kit/`) | The installed wheel: run `punt <subcommand>` from `PATH` | `make build`, then `uv tool install --force dist/*.whl` |
 | The plugin (`plugin/`: commands, skills, agents, hooks, playbooks) | A headless session from the repo root: `claude -p --plugin-dir plugin "<the command as a user would type it>"`, for example `claude -p --plugin-dir plugin "/punt-dev:audit --help"` | None; the session loads `plugin/` directly |
-| The installer (`install.sh`) | `sh install.sh`, as the README's `curl … \| sh` line runs it; it takes no arguments | A clean `uv tool` state: `uv tool uninstall punt-kit` first |
+| The installer (`install.sh`) | `HOME=.tmp/home sh install.sh`, as the README's `curl … \| sh` line runs it; it takes no arguments. It installs the **published** `punt-kit==<pinned version>` from PyPI, registers the marketplace plugin, and edits `git config --global`, all inside that scratch `HOME`, so it certifies the installer's own behavior (the script's steps, exit status, and messages) against the published artifact, never the PR's `src/` or `plugin/` changes; it is run when `install.sh` itself changes, and after a release to confirm the pin | A scratch `HOME` (`mkdir -p .tmp/home`); the operator's global `uv tool`, plugin, and git config are never touched |
 
 The interactive `claude` cannot start inside a session (`CLAUDE.md`,
 "Claude Code CLI Reference"); the headless `-p` form can, and it executes
@@ -75,7 +75,7 @@ description names:
 |---|---|---|
 | `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`, and `push` to `main`) | The job's commands run locally | The run on the PR head |
 | `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | The build job: `uv build`, then `uvx twine check dist/*` | The next tagged release; the leader checks it after merge |
-| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command it runs executed locally with a `QA test of biff-notify` message and `--duration 1m`, never the workflow's own `CI failed` text | Its first `workflow_run` whose upstream failed on a `push` or `workflow_dispatch` event; until one occurs the post-merge run has not happened, and the leader records that |
+| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command line it would run printed with its variables substituted and compared to the expected text — never executed: a wall reaches every teammate's session, whatever its message or duration | Its first `workflow_run` whose upstream failed on a `push` or `workflow_dispatch` event; until one occurs the post-merge run has not happened, and the leader records that |
 
 A failure in a named post-merge run is a finding, fixed in a fix PR on the
 spot.
