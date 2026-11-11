@@ -2,8 +2,10 @@
 
 How an agent tracks work in a Punt Labs repo. punt-kit deposits this file;
 edit the source in punt-kit (`src/punt_kit/templates/punt-guide.md`), never
-this copy. The normative text is `standards/workflow.md` § 4 (the backlog
-loop); this file is the operating rule that section leaves to the tracker.
+this copy. The normative text is the punt-kit repo's `standards/workflow.md`
+§ 4 (the backlog loop) — the org standard, not your repo's own
+`docs/WORKFLOW.md`; this file is the operating rule that section leaves to the
+tracker.
 
 Two trackers exist. **Beads** is the local issue database behind the `bd`
 command; one issue in it is a *bead*. **Linear** is the hosted tracker, used
@@ -30,10 +32,14 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
   because the mirror carries the dependency graph; `bd list` and `bd ready`
   need `--label-any <the repo label>` to stay inside this repo, because the
   shared database holds every repo's beads. Refresh the mirror first:
-  `bd linear sync --pull-if-stale --team c1dfbb2c-985e-40cf-b004-5127646efc9d`
+  `bd linear sync --pull-if-stale --relations --team c1dfbb2c-985e-40cf-b004-5127646efc9d`
   pulls only when `.beads/last_pull` is missing or older than 20 minutes, never
-  twice within 5 minutes (needs `LINEAR_API_KEY`). Auto-pull (`bd prime`
-  pulling on its own at session start) is not on in every repo; never assume it ran.
+  twice within 5 minutes (needs `LINEAR_API_KEY`). `--relations` imports added
+  `blocks` edges; a pull removes none, so a blocker cleared in Linear still
+  blocks locally until you run `bd dep remove <bead> <blocker>`. Until both the
+  add and the removal are reconciled, `bd ready` can disagree with Linear.
+  Auto-pull (`bd prime` pulling on its own at session start) is not on in every
+  repo; never assume it ran.
 - **Write in Linear, not beads.** Create an issue with the mandatory repo
   label (the value `bd config get linear.pull_label` printed) plus a type
   label (`Bug`, `Feature`, `Improvement`, `Epic`); a pull imports only issues
@@ -46,8 +52,12 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
 - **Blocked** means a `blocks` relation in Linear plus `bd dep add <bead>
   <blocker>`: a pull imports relations only with `--relations`, removes none.
 - **Deferred** means state Backlog plus the `deferred` label; pick work with
-  `bd ready --exclude-label deferred`.
-- **Automated loops** write Linear first, then the same status to beads; never beads only.
+  `bd ready --label-any <the repo label> --exclude-label deferred` (the repo
+  filter keeps it inside this repo, as every migrated read does).
+- **Automated loops** write status in Linear, then refresh the bead with a
+  scoped `bd linear sync --pull --issues <PL id> --team <id>` — never a local
+  `bd update`/`bd close`, which is the forbidden local edit below and strands
+  other Linear changes to the same issue.
 - **The one sanctioned beads-first write** is `bd linear sync --push --issues
   <bead ids> --team <id>` (title, description, priority, state only); then add
   labels in Linear, then `bd linear sync --pull --issues <PL ids> --team <id>`.
@@ -68,7 +78,8 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
 
 `bd create`, `bd ready`, `bd show`, `bd update <id> --status in_progress`, `bd close`. Labels and
 dependencies live in beads. To migrate, use the `linear-migrate` skill in the workspace: the
-punt-labs/punt-labs meta-repo one directory above this repo, whose `.claude/skills/` holds it.
+punt-labs/punt-labs meta-repo, whose `.claude/skills/` holds it — one directory above a child repo,
+or this repo itself when the guide is deposited in the workspace.
 
 ## Both
 
