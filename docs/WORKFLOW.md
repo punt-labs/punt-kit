@@ -22,8 +22,7 @@ punt-kit ships two surfaces, and each has one entry point:
 | The plugin (`plugin/`: commands, skills, agents, hooks, playbooks) | A dev session: `claude --plugin-dir plugin` from the repo root, then the command, skill, agent, or hook as a user would invoke it | None; the dev session loads `plugin/` directly |
 
 `gstack-qa` drives both. For each changed surface it writes the expected
-outcome first, installs or launches as the table says, exercises the happy
-path, one invalid input, one missing dependency, and one boundary, records
+outcome first, installs or launches as the table says, records
 expected-versus-actual, and certifies the commit SHA it exercised. The
 certification happens before the PR opens and again after any push that
 changes a non-exempt file.
@@ -53,8 +52,10 @@ A file is `verify_exempt` when it matches one of these and is not under
 - `.github/` other than `.github/workflows/`
 - `.pr_agent.toml` (the next Qodo review on the PR is its check)
 
-A file under `.github/workflows/` is behavior. Each workflow is verified by
-its own run:
+A file under `.github/workflows/` is behavior. For a change there the pre-PR
+certification is `gstack-qa` running the changed job's commands locally (the
+same steps the YAML runs), and the run named below is the post-open
+re-certification the PR description names:
 
 | Workflow | Verifying run |
 |---|---|
@@ -63,8 +64,8 @@ its own run:
 | `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; skips PR-sourced events) | `verify_exempt`: it cannot run before merge. The verifying run is its first `workflow_run` on `main` after the merge, which the leader checks |
 
 A PR that changes a workflow names the run that exercises it, and for the
-two exempt workflows the leader checks the named post-merge run and treats a
-failure there as a finding on the next unit.
+two exempt workflows the leader checks the named post-merge run; a failure
+there is a finding, fixed in a fix PR on the spot.
 
 A docs-only PR (every changed file `verify_exempt`) is verified by
 `npx markdownlint-cli2` on each changed file with zero findings and a
@@ -85,9 +86,8 @@ worker or evaluator.
 
 ## Formal classes
 
-A change in one of these classes is model-checked (`fuzz` type-check, then
-`probcli` model-check) before its implementation mission dispatches, and the
-model is kept beside the standard or code it describes.
+Each class has a model checked by `fuzz` (type-check) and `probcli`
+(model-check) and kept beside the standard or code it describes.
 
 1. **The PR review state machine.** `standards/pr-review.md`'s review
    markers, Qodo sessions and the outage fallback, findings and `answered`,
