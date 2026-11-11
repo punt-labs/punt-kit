@@ -348,7 +348,14 @@ drives `/biff:wall`-on-CI-failure notifications (biff decision B3). This is a
 second file outside the subtree, held to the same discipline as `settings.json`:
 the tool owns the file wholesale (deterministic render, `enable` writes it,
 `disable` removes it), touches nothing else under `.github/`, and never edits a
-workflow it does not own.
+workflow it does not own. Because that workflow runs in the repo's CI with its
+token and secrets, the rendered file must: declare a least-privilege
+`permissions:` block (only the scopes it needs, never the default write-all);
+pin every third-party action to a commit SHA, not a floating tag; and `enable`
+must refuse to overwrite a file already present at that path whose content is
+not the tool's own current rendered output, unless the operator passes an
+explicit override — so a user-authored or tampered workflow is never silently
+replaced.
 
 ## 2.9 `disable` is non-destructive
 
