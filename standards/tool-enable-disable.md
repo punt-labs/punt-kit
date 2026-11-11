@@ -1,6 +1,6 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19 · **Updated:** 2026-10-26
+**Introduced:** 2026-07-19 · **Updated:** 2026-11-11
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
 bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
