@@ -276,6 +276,33 @@ not a license to write credentials
 ([§ 3](#3-repo-versus-home-the-placement-rule)). `punt pii` is the best-effort
 audit tooth ([§ 8](#8-what-punt-audit-checks)).
 
+**Committed content is PII- and profanity-scrubbed before it enters git.** The
+machine-identity redaction above strips paths, usernames, and machine
+identifiers; this is the separate requirement that the committed subtree also
+carries no personal data about identifiable people and no profanity. The
+subtree is where **agent-generated and exported content** lands — the ethos
+registry (identities, roles, teams, and writing-style records),
+`missions-closed/` exports, and vended agent content — content agents write
+about real people, with genuine PII and profanity risk. Before any of it
+enters the tracked tree it is scrubbed of **incidental third-party PII** and of
+profanity. The distinction is deliberate versus incidental: an identity
+record's own declared fields — the name, handle, and email a person's identity
+file exists to carry, or the author attributed on an audit record — are the
+subtree's purpose and are in scope for the tool that owns them, not stripped.
+What is scrubbed is personal data about *other* people that leaks in
+incidentally — a third party named in a writing-style note, a role description,
+a mission export, or audit content — which no record is meant to carry.
+**Scope is the committed `.punt-labs/<tool>/` subtree only** — the content that travels
+in git — not all repo source, and not the uncommitted trees: the gitignored
+local zone `.punt-labs/local/<tool>/`
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and the home
+tree `~/.punt-labs/<tool>/` ([filesystem.md](filesystem.md)) are out of scope
+because they are never committed and so never enter git. Operator requirement
+(Jim, 2026-11-10). The **enforcement mechanism is out of scope for this
+standard** — which hook, tool, or audit check performs the scrub, and when, is
+an implementation detail; this standard states the requirement, not the
+mechanism.
+
 ---
 
 ## 5. Live State is Never a Tracked File
