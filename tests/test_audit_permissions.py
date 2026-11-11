@@ -28,8 +28,84 @@ def _statuses(root: Path) -> list[str]:
     ]
 
 
+def _write_baseline_plus(root: Path, extra: list[str]) -> None:
+    info = detect(root)
+    _write_settings(
+        root,
+        {
+            "permissions": {
+                "allow": [*build_standard_permissions(info), *extra],
+                "deny": build_standard_deny_rules(),
+            }
+        },
+    )
+
+
 def test_missing_settings_json_fails_once(tmp_path: Path) -> None:
     assert _statuses(tmp_path) == [FAIL]
+
+
+def test_the_baseline_alone_passes(tmp_path: Path) -> None:
+    _write_baseline_plus(tmp_path, [])
+
+    assert set(_statuses(tmp_path)) == {PASS}
+
+
+def test_tool_owned_entries_are_allowed_and_never_required(tmp_path: Path) -> None:
+    """vox's enable set may be present; the audit neither requires nor flags it."""
+    _write_baseline_plus(tmp_path, ["mcp__plugin_vox_mic__*", "Skill(vox:recap)"])
+
+    assert set(_statuses(tmp_path)) == {PASS}
+
+
+@pytest.mark.parametrize("value", ["mcp__quarry__*", "mcp__vox__unmute"])
+def test_a_direct_server_form_fails_naming_the_value(
+    tmp_path: Path, value: str
+) -> None:
+    """A value starting mcp__ whose next segment is neither plugin_ nor github
+    is a direct `claude mcp add` registration: a local choice that belongs in
+    settings.local.json, never the checked-in file."""
+    _write_baseline_plus(tmp_path, [value])
+
+    failures = [
+        detail
+        for status, _label, detail in PermissionsAudit(detect(tmp_path)).findings()
+        if status == FAIL
+    ]
+
+    assert len(failures) == 1
+    assert value in failures[0]
+    assert "settings.local.json" in failures[0]
+
+
+def test_the_github_wildcard_is_not_a_direct_server_form(tmp_path: Path) -> None:
+    _write_baseline_plus(tmp_path, ["mcp__github__get_me"])
+
+    assert set(_statuses(tmp_path)) == {PASS}
+
+
+def test_a_missing_github_wildcard_fails(tmp_path: Path) -> None:
+    info = detect(tmp_path)
+    _write_settings(
+        tmp_path,
+        {
+            "permissions": {
+                "allow": [
+                    p for p in build_standard_permissions(info) if p != "mcp__github__*"
+                ],
+                "deny": build_standard_deny_rules(),
+            }
+        },
+    )
+
+    failures = [
+        detail
+        for status, _label, detail in PermissionsAudit(detect(tmp_path)).findings()
+        if status == FAIL
+    ]
+
+    assert len(failures) == 1
+    assert "mcp__github__*" in failures[0]
 
 
 def test_standard_permissions_pass(tmp_path: Path) -> None:

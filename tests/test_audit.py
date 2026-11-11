@@ -621,22 +621,43 @@ def test_audit_fails_missing_help_comment(tmp_path: Path) -> None:
         run_audit(str(tmp_path))
 
 
-# --- Skill() permission audit tests ---
+# --- Tool-owned permission audit tests ---
 
 
-def test_audit_fails_missing_skill_entries(tmp_path: Path) -> None:
-    """Audit fails when settings.json is missing Skill() entries."""
+def test_audit_passes_without_skill_entries(tmp_path: Path) -> None:
+    """Skill() rules are a plugin's enable set; the audit never requires one."""
     _make_compliant_python(tmp_path)
-    # Overwrite settings with allow list that has no Skill() entries at all
     settings_path = tmp_path / ".claude" / "settings.json"
     data = json.loads(settings_path.read_text())
-    data["permissions"]["allow"] = [
-        p for p in data["permissions"]["allow"] if not p.startswith("Skill(")
-    ]
-    settings_path.write_text(json.dumps(data, indent=2) + "\n")
+    assert not any(p.startswith("Skill(") for p in data["permissions"]["allow"])
+
+    # Should not raise SystemExit
+    run_audit(str(tmp_path))
+
+
+def test_audit_passes_with_a_tools_enable_set_present(tmp_path: Path) -> None:
+    """A repo where vox is enabled carries its wildcard and skills; still clean."""
+    _make_compliant_python(tmp_path)
+    _append_rule(tmp_path, "allow", "mcp__plugin_vox_mic__*")
+    _append_rule(tmp_path, "allow", "Skill(vox:recap)")
+
+    # Should not raise SystemExit
+    run_audit(str(tmp_path))
+
+
+def test_audit_fails_on_a_direct_server_wildcard(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """mcp__quarry__* is a local registration choice and never checked in."""
+    _make_compliant_python(tmp_path)
+    _append_rule(tmp_path, "allow", "mcp__quarry__*")
 
     with pytest.raises(SystemExit, match="1"):
         run_audit(str(tmp_path))
+
+    out = capsys.readouterr().out
+    assert "mcp__quarry__*" in out
+    assert "settings.local.json" in out
 
 
 # --- Unmatched path rule tests ---
