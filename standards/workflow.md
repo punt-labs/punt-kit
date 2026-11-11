@@ -162,10 +162,9 @@ function backlog_loop():
                                #   otherwise
 
     # 2. VALIDATE — a bead must be true before it is workable
-    sync mirror from tracker               # migrated repos: bd linear sync
-                                           #   --pull-if-stale; an issue the
-                                           #   mirror has not pulled is never
-                                           #   validated
+    sync mirror from tracker               # migrated repos; mechanics in the
+                                           #   guide. An issue the mirror has
+                                           #   not pulled is never validated
     for bead in candidates(bd_ready):      # the local mirror
         confirm it is still real against current main
         confirm nothing merged or decided has superseded it
@@ -230,20 +229,27 @@ maintained nowhere else — a roster, not a second test.
 
 Beads exists in every repo — as the tracker where nothing else is, and as a
 read-mostly mirror where Linear is; do not use it as the record when Linear
-is available.
+is available. Every repo initializes it (`bd init`) and commits `.beads/`;
+that is the one setup step this standard names, so a repo has a working
+tracker before the deposited guide arrives.
 
 - Create, edit, claim, and close in the tracker of record.
-- Where Linear is the record, status reaches beads only after Linear, except
-  the one sanctioned scoped push (see the guide).
-- A push sends no labels, and every sync moves one shared cursor.
+- Where Linear is the record, status reaches beads only after Linear, and a
+  migrated bead is never edited locally; the mirror is refreshed by a scoped
+  pull. The one exception is a bead created locally only to be sent by the
+  sanctioned scoped push.
 
-Every mechanic — commands, sync, labels, cursors, the migration itself — is
-in the deposited guide `.punt-labs/punt/CLAUDE.md`, not here.
+Every sync mechanic — pull, push, labels, cursors, the migration itself —
+and the full command set are in the deposited guide
+`.punt-labs/punt/CLAUDE.md`, not here; this file names a `bd` command only
+for the tracker test, the one setup step, or where it defines what a step
+means in a beads-only repo.
 
 Issues must have: a clear title in imperative form; a description with
 enough context for another engineer (or agent) to act on; correct type and
-priority; dependencies declared when applicable — a Linear `blocks` relation
-plus `bd dep add`, or `--blocks` and `--blocked-by` in a beads-only repo.
+priority; dependencies declared when applicable — a `blocks` relation in the
+tracker of record, mirrored in beads where Linear is the record (the guide
+gives the commands), or `--blocks` and `--blocked-by` in a beads-only repo.
 
 ### Intake
 
@@ -421,10 +427,12 @@ function pr_loop(unit):
 
     # D. SHIP
     close the unit's issue(s) in the tracker
-                                          # Linear Done first where migrated,
-                                          #   then bd close; close before
-                                          #   push, once the unit is verified
-                                          #   and merge-ready
+                                          # Linear Done where migrated, then
+                                          #   a scoped pull refreshes the
+                                          #   mirror; bd close in a beads-only
+                                          #   repo. Close before push, once
+                                          #   the unit is verified and
+                                          #   merge-ready
     push; create the PR
         # Qodo reviews once, on open (.pr_agent.toml); Bugbot reviews once,
         #   on its own, at open — no "bugbot run" comment for round 1; a
@@ -434,8 +442,8 @@ function pr_loop(unit):
                                           #   never a foreground sleep loop
     # Closing at ship time declares the work complete, not the merge: if the
     # PR is later abandoned or closed unmerged, reopen its issue(s) in the
-    # tracker (Linear first where migrated, then bd update <id>
-    # --status=open) as part of abandoning the PR — the one case where a
+    # tracker (Linear where migrated, then a scoped pull; bd update <id>
+    # --status=open in a beads-only repo) as part of abandoning the PR — the one case where a
     # closed bead returns to the funnel, so "closed" still means merged at
     # every batch exit.
 
@@ -1083,7 +1091,8 @@ state machine and model-check it.
    issue in the repo's tracker of record — Linear where the repo is
    migrated, beads otherwise — before it is anything else; external queues
    (issues, alerts) drain into it at intake. In a migrated repo, beads never
-   records what Linear does not.
+   records what Linear does not, except a bead created locally only to be
+   sent by the one sanctioned scoped push (§4; mechanics in the guide).
 2. **A satisfied merge gate means merge now.** The gate is the only path to
    a merge, and nothing waits once it passes.
 3. **Findings never wait.** Review feedback is handled the moment it
