@@ -1,6 +1,6 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19 · **Updated:** 2026-09-10
+**Introduced:** 2026-07-19 · **Updated:** 2026-11-11
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
 bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
@@ -342,8 +342,23 @@ import-line append.
 - `disable` recomputes the identical set and removes those entries by **exact
   value-match** — the removal pattern permissions.md § 6 actually provides
   (`select(. as $r | $remove | index($r) | not)`). No tag schema is needed or
-  implied; the deterministic entry set *is* the identity.
+  implied; the deterministic entry set *is* the identity. Exact value-match
+  is safe because a permission value lives in exactly one place: either in
+  the [permissions.md § 3](permissions.md#3-required-allow-rules) baseline or
+  in exactly one tool's `enable` set, never both. A baseline value is never in
+  an `enable` set, so `disable` cannot remove one; no author attribution is
+  needed, and a flat string array carries none.
 - Neither touches unrelated entries.
+- For permissions the set is the tool's whole production surface: its CLI
+  (`punt` excepted, 2.10),
+  its plugin-bundled MCP server wildcard (`mcp__plugin_<plugin>_<server>__*`;
+  never the direct-server `mcp__<server>__*` form, which is a local choice
+  and stays in `settings.local.json`), and one `Skill(<plugin>:<cmd>)` rule
+  per shipped command, never a `-dev` rule. The CLI rule is `Bash(<cli>:*)`
+  only when every subcommand meets
+  [permissions.md § 6](permissions.md#6-plugin-distributed-permissions)
+  principle 4 and [plugins.md](plugins.md) principle 4; otherwise the safe
+  subcommands by name (`Bash(<cli> status:*)`), the rest at the prompt tier.
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
 deposit via `enable` is only for genuinely repo-scoped hook behavior.
@@ -402,6 +417,9 @@ of a toggle.
 the `punt` CLI: `init`, `audit`, `reconcile`, and so on) — and adds
 `@.punt-labs/punt/CLAUDE.md` to the repo `CLAUDE.md`. It is the same kind of
 static user-guide doc every tool ships (2.5), not a per-repo rendered file.
+Its permission set is its `Skill(punt:<cmd>)` rules only; `Bash(punt:*)` is
+the permissions.md § 3 baseline, because `punt init` scaffolds that file and
+must run unprompted from the first scaffold.
 
 `punt`'s deposited guide is **not** the new home for the four per-repo sections
 the retired `punt auto claude` target rendered (quality gates, beads, standards
@@ -527,11 +545,8 @@ still holds settings.
 defines `init` as the per-repo verb that writes a tool's repo config file — in
 the **config zone**, `.punt-labs/<tool>/config.*`
 ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
-`.biff` at the repo root is the retired **legacy** shape this table's third
-row exists to migrate away from, not a destination `init` still writes to
-(`.quarry.toml` never shipped as that legacy shape at all —
-[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) has the correction;
-quarry deposits directly at the config zone) — and prompts for
+a repo-root sentinel is never its destination
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) — and prompts for
 project-specific settings (team roster,
 relay URL, database name). `enable` and `init` are **distinct roles**, not
 duplicates:
@@ -540,13 +555,12 @@ duplicates:
 |------|-----|--------|
 | `enable` / `disable` | Turn CLAUDE.md guidance composition and hooks on/off in this repo | `.punt-labs/<tool>/` (guide + `enabled` marker), the import line, additive `.claude/settings.json` entries |
 | `init` | Create and populate the tool's repo config/state | For a Punt Labs tool: the config zone (`.punt-labs/biff/config.yaml`, `.punt-labs/quarry/config.md`). `.beads/` is not this row's business — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the canonical exemption |
-| *(legacy, retired)* | — | `.biff` at the repo root — the shape [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table migrates into the row above. `.quarry.toml` is not listed here — it never shipped |
 
-The repo config file is **no longer the enabled signal** — the `enabled`
-marker (2.7) is. A tool with both verbs runs `init` to configure and `enable` to
-turn on; `enable` may call `init` when enabling requires config, but the two
-concerns stay separate. Tools that used `init` *only* to drop an enabled
-sentinel fold that into `enable` and retire the bare repo-root sentinel.
+The `enabled` marker (2.7) is the enabled signal; the repo config file is
+not, and no tool reads a bare repo-root sentinel (`.biff`, `.quarry.toml`)
+for it. A tool with both verbs runs `init` to configure and `enable` to turn
+on; `enable` may call `init` when enabling requires config, but the two
+concerns stay separate.
 
 ## 2.14 Dual surface, and the separate per-user layer
 
