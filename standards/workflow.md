@@ -28,7 +28,7 @@ rules bind the levels together:
   fixed in that PR — never sent back to the backlog as a "follow-up bead."
 
 This standard is the normative home of the loop structure. Each repo deploys
-a `docs/WORKFLOW.md` that instantiates it — naming that repo's demo (or
+a `docs/WORKFLOW.md` that instantiates it — naming that repo's verification (or
 declaring that it has none; silence leaves the merge gate incomplete), its
 worker/evaluator table, its formal-verification classes, and its
 backlog-ordering specifics — and points here for the frame. This document
@@ -51,7 +51,7 @@ owned by neighboring documents — cross-reference them, do not restate them:
 | Branch protection, CI, review-bot configuration | [GitHub](github.md) |
 | Release phases and cross-repo propagation | [Release Process](release-process.md) |
 | Mission contract schema, archetypes, pipeline templates, mission CLI | ethos documentation (see §6) |
-| Per-repo instantiation: the demo, worker/evaluator table, formal classes | each repo's `docs/WORKFLOW.md` |
+| Per-repo instantiation: the verification, worker/evaluator table, formal classes | each repo's `docs/WORKFLOW.md` |
 
 Terms used throughout:
 
@@ -94,7 +94,7 @@ as named predicates over declared terms, never as bare primed flags.
 The schemas in this standard are the org-wide minimum. A per-repo
 `docs/WORKFLOW.md` **may** extend them — add state components, or strengthen
 a doorway with extra conjuncts (e.g. an OO-improvement obligation on mission
-exit, or a repo-specific demo predicate on PR exit). It **must not** weaken
+exit, or a repo-specific verification predicate on PR exit). It **must not** weaken
 them: every conjunct stated here holds in every repo.
 
 ---
@@ -102,7 +102,8 @@ them: every conjunct stated here holds in every repo.
 ## 3. Roles
 
 The operator owns requirements and design direction, rules on genuine design
-forks, and confirms demos of user-facing behavior. The leader runs
+forks, and confirms the narrow human-judged part of verification that a machine
+cannot attest. The leader runs
 everything else: the backlog, the missions, the review cycles, and the
 merges.
 
@@ -119,14 +120,17 @@ Two human gates do exist, and neither is a diff review:
 - **The design-ratification gate** (§7). When a design mission closes on
   architectural work, implementation waits for the operator's ruling on
   substantive issues. This gates *direction, before code exists*.
-- **The demo** (Level 2, §5). For user-facing behavior the operator confirms
-  the observed outcome — what ran, not what changed. This gates *behavior,
-  after code runs*.
+- **Verification** (Level 2, §5). A QA agent drives the real product through
+  its real entry point and certifies it works before the PR opens — behavior,
+  not the diff ([PR and Review](pr-review.md) owns the gate). Only a narrow
+  human-judged part (behavior machine verification cannot reach) waits on the
+  operator.
 
 "There is no human review gate" and "the operator must ratify designs"
 therefore never conflict: the first is a statement about diffs, the second
-about direction. Human judgment binds before implementation (design) and
-after execution (demo) — never on the diff between.
+about direction. Human judgment binds before implementation (design); behavior
+is verified by a QA agent before the PR opens, with the operator in the loop
+only for the human-judged exception — never on the diff between.
 
 ---
 
@@ -389,10 +393,11 @@ function pr_loop(unit):
     install the built artifact            # pr-review.md "What Installed Means"
     restart any long-running process      # a live daemon serves old code
                                           #   until restarted
-    write down the expected outcome, then exercise the change through its
-        real entry point; compare actual to expected
-    the operator confirms what only a human can judge   # the demo — each
-                                          # repo's WORKFLOW.md defines its own
+    write down the expected outcome, then a QA agent exercises the change
+        through its real entry point; compare actual to expected
+    the operator confirms only the human-judged part a machine cannot attest
+                                          # each repo's WORKFLOW.md names its own
+                                          # verification and its human-judged part
 
     # D. SHIP
     bd close the bead(s)                  # close before push, once the unit
@@ -507,16 +512,16 @@ function poll_tick(pr):
     if delta_head is the PR head, reviewed_head is not, and every finding
             that delta review raised is answered(f):
         set reviewed_head to delta_head   # bounded rounds, no unreviewed merge
-    if demo_ok(pr) is false and nothing was pushed this tick:
-        if the repo defines a demo: run it per its WORKFLOW.md or CLAUDE.md;
-            once it passes on the head, the leader comments
-            "demo confirmed: <sha>" naming the head exercised, after the
-            operator's confirmation only where the demo requires it
-            (user-facing behavior a human must judge); on a failure
-            it comments "demo failed: <sha>" with what was observed, and the
+    if verified_ok(pr) is false and nothing was pushed this tick:
+        if the repo defines a verification: a QA agent drives it per its
+            WORKFLOW.md or CLAUDE.md; once it certifies the head, the leader
+            comments "verified: <sha>" naming the certified commit, after the
+            operator's confirmation only for a human-judged part the
+            verification names; on a failure it comments
+            "verification failed: <sha>" with what was observed, and the
             failure is a finding like any other
-        else: report to the operator and stop   # no demo policy: the gate
-                                          #   is incomplete
+        else: report to the operator and stop   # no verification policy: the
+                                          #   gate is incomplete
     cadence = 15m if not pending(pr) and not bugbot_open and no finding is
               unanswered, else 3m         # reschedule the poll when it changes
     re-read state                         # the gate must see this tick's push
@@ -537,8 +542,8 @@ function merge_gate(state) -> bool:
        and zero unresolved review threads
        and round(pr) <= 2
        and no escalation is open
-       and demo_ok(pr)                    # false while the repo has no demo
-                                          #   policy (pr-review.md)
+       and verified_ok(pr)                # false while the repo has no
+                                          #   verification policy (pr-review.md)
     # A push restarts CI, not review. When this returns true: merge. Do not
     # ask, do not wait.
 
@@ -565,10 +570,10 @@ EnterPR ≙ [ LoopState; unit : ℙ BEAD |
 ExitPR ≙ [ Δ LoopState; pr : PR |
   merged(pr)
   ∧ localFindings(pr) = ∅                 -- held BEFORE the PR opened
-  ∧ verified(pr)                          -- driven through its real entry
-                                          --   point BEFORE the PR opened;
-                                          --   the operator confirmed the demo
-                                          --   where only a human can judge
+  ∧ verified(pr)                          -- a QA agent drove it through its
+                                          --   real entry point BEFORE the PR
+                                          --   opened; the operator confirmed
+                                          --   only the human-judged part
   ∧ ciGreen(head(pr))
   ∧ ¬ pending(pr)                         -- every requested review is in
   ∧ ¬ bugbotOpen(pr)                      -- no Bugbot run on any commit of
@@ -581,9 +586,9 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ round(pr) ≤ 2                         -- round 2 only after a High fix
   ∧ unresolvedThreads(pr) = ∅
   ∧ openEscalations(pr) = ∅               -- each closed by a recorded ruling
-  ∧ demoOk(pr)                            -- the repo's demo confirmed on the
-                                          --   head, or an explicit no-demo
-                                          --   declaration
+  ∧ verifiedOk(pr)                        -- the repo's verification certified
+                                          --   on the head, or an explicit
+                                          --   no-verification declaration
   ∧ beadsOf(pr) ⊆ closed′
   ∧ mergeRecapSent(pr) ]
 ```
@@ -634,12 +639,14 @@ outcome written down first, then compared against actual output
 ([PR and Review](pr-review.md) owns the mechanics and what "installed"
 means per project type).
 
-The human-judged part is the **demo**: the operator confirms what no
-introspection API can attest — audio that sounded right, pixels that
-rendered, a message actually delivered. Each repo's `docs/WORKFLOW.md`
-defines its demo. This is a demo, not a diff: the operator verifies observed
-behavior, never reviews code (§3). Docs-only changes are the one exception —
-a lint pass and a read-through is their verification.
+Verification is machine work by default: a QA agent drives the real product and
+certifies it. The **human-judged exception** is the narrow part no introspection
+API and no QA agent can attest — audio that sounded right, pixels that rendered,
+a message a human must confirm was delivered. For that part the operator
+confirms observed behavior, never reviews code (§3); each repo's
+`docs/WORKFLOW.md` names which part is human-judged. It is a gap to close as
+verification tooling improves, not the default path. Docs-only changes are
+verified by a lint pass and a read-through.
 
 ### Remote review and merge
 
@@ -1036,8 +1043,9 @@ state machine and model-check it.
 
 ### Other operator gates
 
-- **The demo** — the operator confirms observed behavior for user-facing
-  changes before the PR opens (§5). A demo, never a diff review (§3).
+- **Verification** — a QA agent certifies observed behavior before the PR opens
+  (§5); the operator confirms only the narrow human-judged part a machine cannot
+  attest. Behavior, never a diff review (§3).
 - **Destructive operations** (`git reset --hard`, force pushes, deletions,
   migrations) require operator consent before execution.
 - **Release approval** — the PyPI deployment gate; owned by
@@ -1061,8 +1069,8 @@ state machine and model-check it.
 5. **Defects flow inward, scope flows outward.** A defect found while a PR
    is open is fixed in that PR. Only genuinely new lines of work become
    beads.
-6. **The operator gates designs, demos, and direction — never diffs or
-   sequencing.**
+6. **The operator gates designs, the human-judged part of verification, and
+   direction — never diffs or sequencing.**
 7. **Close-out is inside the loop.** The recap email, branch hygiene, and
    starting the next unit are steps of the loop, not afterthoughts.
 
