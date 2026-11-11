@@ -272,26 +272,32 @@ the fleet — one tool, one config, one allowlist convention to learn and
 maintain.
 
 - **Pre-commit hook.** The hook runs `gitleaks` on the staged content only
-  (`gitleaks protect --staged`), so it reads the diff about to be committed, not
+  (`gitleaks git --pre-commit --staged`; the older `gitleaks protect --staged`
+  is deprecated since v8.19.0), so it reads the diff about to be committed, not
   the working tree or history. It is a local Go binary, offline, with no network
   call, so it adds negligible time to a commit. A finding blocks the commit and
   names the rule and location; the commit proceeds only once the secret is
   removed or the finding is allowlisted (below).
-- **Pinned version.** The `gitleaks` version is pinned (a `gitleaks-pins` or
-  equivalent version record committed in the repo), so every machine and CI run
-  the same scanner and the same rules. A floating version silently changes what
-  the gate catches.
-- **Config in the repo.** Scanner config lives in a committed `.gitleaks.toml`
-  (or `gitleaks.toml`): the rule set the repo extends, plus a global allowlist
-  that matches a reviewed value by its whole shape, never by path. A path
-  allowlist exempts a whole file and rots into a hole; a shape/content allowlist
-  stays bound to the specific reviewed value.
+- **Pinned version.** The `gitleaks` version is pinned in a committed record, at
+  v8.19.0 or later (the minimum that supports the `git --pre-commit` form), so
+  every machine and CI run the same scanner and the same rules. A floating
+  version silently changes what the gate catches.
+- **Config in the repo.** Scanner config lives in a committed `.gitleaks.toml`:
+  the rule set the repo extends, plus a global `[[allowlists]]` that matches a
+  reviewed value by its whole shape (anchored regexes), never by path. A path
+  allowlist exempts a whole file and rots into a hole; a shape allowlist stays
+  bound to the specific reviewed value.
 - **Allowlist convention.** A reviewed false positive — an inert test fixture, a
-  documented example credential — is pinned by the content it matched, not by
-  its location: one entry per line as `<rule-id>|<sha256-of-the-matched-bytes>`,
-  grouped under a `## reason` header that says why it is safe. An unpinned
-  finding fails the scan; a pin that no finding uses is removed. This keeps the
-  allowlist auditable and prevents a stale exemption from hiding a new secret.
+  documented example credential — is exempted by its **gitleaks fingerprint**, the
+  native mechanism: add the fingerprint (`commit:path:rule:line`, as gitleaks
+  prints it) to a committed `.gitleaksignore`, one per line, each with a comment
+  saying why it is safe. This is bound to the specific finding, not to a path, so
+  a stale exemption cannot hide a new secret, and it needs no tooling beyond
+  gitleaks itself. A repo that builds its own scan orchestration may use a
+  stricter content-bound pin (agent-image pins each reviewed finding by the
+  `sha256` of the matched bytes via custom tooling in `internal/scan`); that is a
+  repo-level addition on top of the native `.gitleaksignore` floor, not a
+  fleet requirement.
 
 This is the local gate; CI re-runs `gitleaks` as a required check so a commit
 made with `--no-verify` (or on a machine without the hook) is still caught
