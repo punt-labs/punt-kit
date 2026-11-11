@@ -49,7 +49,7 @@ Direct delegation (quarry):              Commands layer (biff):
 
 ### Rules
 
-1. **`__init__.py` is the public API.** Export the library surface — core functions when the engine runs in-process, or the client functions that reach the daemon when it is one — via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
+1. **`__init__.py` is the public API.** The library is a thin client of the engine — the same as the CLI, MCP, and REST surfaces — never the core (see the [Projection Model](architecture.md#the-projection-model-canonical): "The library is a client too; it is not the core."). Export the library surface via an explicit `__all__`. When a daemon exists (biffd, voxd, quarryd, luxd), the daemon is the engine and the library's exported functions are a thin client that reaches it over the daemon's REST or socket API. The in-process form — where the exported functions call the engine directly in the caller's process — is the pre-daemon transitional case, not the model; it holds only while the engine has no daemon, and it carries no logic the other surfaces lack. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
 
 2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward from every client surface: CLI → core, MCP → core, REST → core, never the reverse.
 
