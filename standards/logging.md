@@ -192,6 +192,27 @@ Two windows to close, both handled above: **new files** are created `0600` atomi
 
 ## Log Location
 
+**Durable diagnostic logs are home-tree.** A tool's rotating diagnostic log is
+machine-scoped and repo-independent, so it lives in the home tree,
+`~/.punt-labs/<tool>/logs/` — never in a repo. This is the kind-(c) root of the
+[filesystem.md by-kind rule](filesystem.md#core-principle); it is distinct from
+repo-bound data, which stays in the repo tree:
+
+| Kind of data | Root | Governed by |
+|--------------|------|-------------|
+| Durable diagnostic log (this standard) | `~/.punt-labs/<tool>/logs/` | here + [filesystem.md](filesystem.md) |
+| Repo config and first-class repo-bound data | `<repo>/.punt-labs/<tool>/` (committed) | [punt-labs-dir.md](punt-labs-dir.md) |
+| Repo-bound ephemeral live state — a running tool's pre-seal session/audit stream, locks, live mission logs, trace | `<repo>/.punt-labs/local/<tool>/` (gitignored) | [punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone) |
+
+A **durable** diagnostic log — the rotating `<tool>.log` this standard
+configures — is home-tree because it is the same regardless of which repo the
+tool runs in. A **repo-bound live stream** that must travel with the work it
+documents (an audit trail sealed into a PR) is not a durable diagnostic log:
+it lands in the repo's local zone while live and is sealed into the committed
+subtree per [punt-labs-dir.md § 5](punt-labs-dir.md#5-live-state-is-never-a-tracked-file).
+Do not pull such repo-bound first-class state into the home tree, and do not
+push a durable diagnostic log into a repo.
+
 | Component | Path |
 |-----------|------|
 | Log directory | `~/.punt-labs/<tool>/logs/` |

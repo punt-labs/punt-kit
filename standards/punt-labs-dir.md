@@ -46,11 +46,16 @@ convention** marks — a path segment named exactly `local`, or a basename endin
 `.local` or with a `.local.` interior segment
 ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) —
 which are per-user or per-machine and are never committed. Per-checkout,
-machine-local live state — a running tool's audit and session logs, locks, live
-mission logs — instead goes to the **local zone**
-([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)):
+machine-local **ephemeral** live state — a running tool's locks, live mission
+logs, pre-seal session/audit streams, and trace — instead goes to the **local
+zone** ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)):
 `<repo>/.punt-labs/local/<tool>/`, gitignored by that same `local` convention and
-never committed. Secrets are not kept in either at all.
+never committed. **Durable diagnostic logs are not local-zone state at all** —
+they are machine-scoped and repo-independent, so they live in the home tree
+`~/.punt-labs/<tool>/logs/` ([logging.md](logging.md),
+[filesystem.md § Core Principle](filesystem.md#core-principle)), by the
+by-kind rule in [§ 3](#3-repo-versus-home-the-placement-rule). Secrets are not
+kept in either at all.
 
 **This standard — and every no-repo-root-sentinel rule it and its siblings
 state — governs Punt Labs tools built to the `.punt-labs/<tool>/` convention.
@@ -94,12 +99,18 @@ entirely — [§ 1](#1-core-principle) states the exemption):
   [§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
   Every file a tool commits to a repo lives here.
 - **The local zone — `<repo>/.punt-labs/local/<tool>/`.** Per-checkout,
-  machine-local live state — a running tool's audit and session logs, locks, live
-  mission logs — gitignored and never committed. `local/` is the **one** non-tool
-  entry directly under `.punt-labs/`: the name `local` is reserved org-wide for
-  this zone and is never a tool name. Beneath it the zone is tool-namespaced
-  (`local/<tool>/`) exactly as the tool root is, so two tools' live state never
-  collide.
+  machine-local **ephemeral** live state — a running tool's locks, live mission
+  logs, pre-seal session/audit streams, trace, and scratch — gitignored and
+  never committed. **A durable diagnostic log is not local-zone state:** it is
+  machine-scoped and repo-independent and lives in the home tree
+  `~/.punt-labs/<tool>/logs/` ([logging.md](logging.md)), never here. `local/`
+  is the **one** non-tool entry directly under `.punt-labs/`: the name `local`
+  is reserved org-wide for this zone and is never a tool name. Beneath it the
+  zone is tool-namespaced (`local/<tool>/`) exactly as the tool root is, so two
+  tools' live state never collide. This is the ethos v4.21 deployed layout:
+  `.punt-labs/local/ethos/` holds `locks/`, `trace/{missions,sessions}/`,
+  `missions/` live logs, `artifacts/`, and `tmp/`, while the durable
+  `repair.log` and `hook-errors.log` sit in the home tree `~/.punt-labs/ethos/`.
 
 The local zone is **not** a second ignore mechanism. `.punt-labs/local/` is a
 local-convention path — a `local` path segment directly under `.punt-labs/`
@@ -187,8 +198,8 @@ file?**
 |---------------|---------|-----------|----------|
 | Team-shareable — same for everyone working the repo | `<repo>/.punt-labs/<tool>/` | Yes | Vendored user guide, `enabled` marker, repo config (roster, db name) |
 | Person- or machine-scoped static config, but repo-bound | `<repo>/.punt-labs/<tool>/` local-convention path (`local/`, `*.local`, `*.local.*`) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Per-user UI prefs, a contributor's local overrides |
-| Person- or machine-scoped live state, but repo-bound | `<repo>/.punt-labs/local/<tool>/` — the local zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Running-tool audit/session logs, locks, live mission logs |
-| Person- or machine-scoped and repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) | Daemon runtime, caches, indexes, cross-repo preferences |
+| Person- or machine-scoped **ephemeral** live state, but repo-bound | `<repo>/.punt-labs/local/<tool>/` — the local zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Locks, live mission logs, pre-seal session/audit streams, trace, scratch |
+| Person- or machine-scoped and repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) | Daemon runtime, caches, indexes, cross-repo preferences, **durable diagnostic logs** ([logging.md](logging.md)) |
 | Secret — credential, token, key | Platform secret store, or `~/.punt-labs/<tool>/` at mode `0600` | Never in any repo | API keys, signing keys |
 
 **Secrets never live under a repo `.punt-labs/` at all** — not even as a
