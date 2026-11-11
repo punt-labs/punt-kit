@@ -1,0 +1,95 @@
+mission: m-2026-11-11-015
+round: 3
+created_at: "2026-11-11T07:24:50Z"
+author: adt
+verdict: pass
+confidence: 0.95
+files_changed:
+    - path: .claude/worktrees/tracker-funnel/standards/workflow.md
+      added: 75
+      removed: 49
+    - path: .claude/worktrees/tracker-funnel/CHANGELOG.md
+      added: 13
+      removed: 0
+evidence:
+    - name: 'make check before 43d6920: exit 0, 2320 passed, 14 skipped in 404.07s (.tmp/make-check-commit5.txt)'
+      status: pass
+    - name: 'npx markdownlint-cli2 standards/workflow.md after 43d6920: Summary: 0 issues in 0 files'
+      status: pass
+    - name: 'grep -c ''ℙ BEAD'' standards/workflow.md: 5 (unchanged from af11a57)'
+      status: pass
+    - name: 'grep -n ''single funnel'': lines 145, 220, 1082 only, each The tracker is the single funnel'
+      status: pass
+    - name: 'grep -n ''bd sync'': no output'
+      status: pass
+    - name: 'CRITICAL Invariant 1 qualified: In a migrated repo, beads never records what Linear does not'
+      status: pass
+    - name: 'HIGH one tracker test: standard now states the guide''s bd config get linear.pull_label prints repo: test; push_prefix described as the live roster, not a second criterion (read from punt-guide.md lines 16-20 in the w1c worktree)'
+      status: pass
+    - name: 'MEDIUM x3: sanctioned scoped push exception added; SHIP comment reads Linear Done first where migrated, then bd close; LoopState mirror clause moved inside the migrated parenthesis'
+      status: pass
+prose: |
+    Round 3 answers the invariant reviewer's five findings in one commit;
+    the branch is five commits ahead of origin/main af11a57, tree clean, not
+    pushed, no PR touched:
+
+      742b544 docs(standards): the tracker is the single funnel — Linear where migrated, beads otherwise
+      fc39e63 docs(changelog): record the tracker-funnel change to workflow.md
+      aa58904 docs(standards): remove the last beads-is-the-funnel residue from workflow.md
+      6b45e79 docs(standards): pull the mirror before validating; say where push_prefix lives; define bead as the tracker item
+      43d6920 docs(standards): one tracker test, shared with the guide; qualify every beads sentence for beads-only repos
+
+    43d6920 (16+/13-):
+
+    CRITICAL, Invariant 1. "Beads never records what Linear does not." was
+    unqualified and false in every beads-only repo. Now: "In a migrated repo,
+    beads never records what Linear does not."
+
+    HIGH, the tracker test. The standard had two criteria (pull_label set OR
+    prefix in push_prefix); the guide has one. The paragraph now reads:
+      It is Linear where `bd config get linear.pull_label` prints a value
+      starting with `repo:` — set in that repo's `.beads/config.yaml`, flat
+      (`linear.pull_label:`) or nested (`linear:` / `pull_label:`); it is beads
+      (`bd`) otherwise. The migrated set is `bd config get linear.push_prefix`,
+      a key of the shared beads database config, read live from any repo and
+      maintained nowhere else — a roster, not a second test.
+    This is the guide's test (punt-guide.md lines 16-20 in the w1c worktree:
+    "Output starting with `repo:` means this repo is migrated ... The migrated
+    set is `bd config get linear.push_prefix`, read live; it is maintained
+    nowhere else"), so the two documents now state one rule. Round-2 MEDIUM 3
+    (where push_prefix lives, both pull_label spellings) is folded into this
+    sentence rather than kept as a parallel clause.
+
+    MEDIUM, sanctioned push. "Where Linear is the record, status reaches beads
+    only after Linear" now ends ", except the one sanctioned scoped push (see
+    the guide)."
+
+    MEDIUM, SHIP comment. "Linear Done, then bd close" is now "Linear Done
+    first where migrated, then bd close", matching the abandon-PR comment
+    below it.
+
+    MEDIUM, LoopState. "(Linear where migrated), observed through the beads
+    mirror" is now "(Linear where migrated, observed through the beads
+    mirror)" so the mirror clause binds only to migrated repos.
+
+    CHANGELOG.md is unchanged in round 3; its entry states the rule, not the
+    line-level wording. Cumulative numstat origin/main..HEAD:
+    standards/workflow.md 75+/49-, CHANGELOG.md 13+/0-.
+
+    Proof, pasted:
+
+      $ make check   (before 43d6920)
+      ================= 2320 passed, 14 skipped in 404.07s (0:06:44) =================
+      exit=0
+
+      $ npx markdownlint-cli2 standards/workflow.md
+      Summary: 0 issues in 0 files
+
+      $ grep -c "ℙ BEAD" standards/workflow.md
+      5
+      $ grep -n "single funnel" standards/workflow.md
+      145:The tracker is the single funnel: every piece of work above the trivial tier
+      220:### The tracker: the single funnel
+      1082:1. **The tracker is the single funnel.** Every piece of work above T4 is an
+      $ grep -n "bd sync" standards/workflow.md
+      (no output)
