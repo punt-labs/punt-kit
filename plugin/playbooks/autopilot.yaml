@@ -13,25 +13,38 @@ steps:
     description: Confirm beads is this repo's tracker of record
     type: llm
     context: |
-      Run `bd config get linear.pull_label` and read its output text. Do
-      not test the exit code (it is 0 either way) and do not pipe the
-      output through a shell filter.
+      The working directory must contain `.beads/` (the precondition
+      above checked this). Run `bd config get linear.pull_label` here,
+      with no `-C`: `bd -C ""` silently reads the working directory, so
+      an empty or wrong `-C` value reports on the wrong repo. Read the
+      output text and sort it into exactly one of three buckets. Do not
+      pipe the output through a shell filter.
 
-      If the output starts with `repo:` (for example `repo:quarry`), this
-      repo is migrated to Linear: Linear is its planning source of truth
-      and beads is a local mirror kept in step by `bd linear sync`.
-      Autopilot's claim (`bd update --status=in_progress`) and close
-      (`bd close`) write beads only, a push sends no labels, and a pull
-      re-opens any bead closed locally while its Linear issue is still
-      open — so both writes would be reverted and nothing would reach
-      Linear. Report exactly that: this repo is migrated to Linear, the
-      claim and close in this playbook write beads only and would be
-      reverted, and autopilot halts here. Then stop the playbook; run no
-      further step and no `bd` write.
+      1. The output starts with `repo:` (for example `repo:quarry`): this
+         repo is migrated to Linear. Linear is its planning source of
+         truth and beads is a local mirror kept in step by
+         `bd linear sync`. Autopilot's claim
+         (`bd update --status=in_progress`) and close (`bd close`) write
+         beads only, a push sends no labels, and a pull re-opens any bead
+         closed locally while its Linear issue is still open — so both
+         writes would be reverted and nothing would reach Linear. Report
+         exactly that: this repo is migrated to Linear, the claim and
+         close in this playbook write beads only and would be reverted,
+         and autopilot halts here. Then stop the playbook; run no further
+         step and no `bd` write.
 
-      Any other output (on a beads-tracked repo it is
-      `linear.pull_label (not set in config.yaml)`) means beads is the
-      tracker of record: continue to the next step.
+      2. The output is exactly `linear.pull_label (not set in config.yaml)`:
+         beads is the tracker of record. Continue to the next step.
+
+      3. Anything else — empty output, a line starting with `Error:`
+         (a `bd` error; it exits 1), or a value that does not start with
+         `repo:` — means the tracker cannot be determined. Print the
+         output you got, verbatim, report that the tracker could not be
+         determined, and stop the playbook; run no further step and no
+         `bd` write. Never treat an unrecognised output as "not migrated".
+
+      Bucket 2 is an exact match. Exit 0 alone does not mean beads: `bd
+      config get` also exits 0 on a migrated repo.
     on_failure: abort
 
   - id: check-sessions

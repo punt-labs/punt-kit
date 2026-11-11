@@ -44,25 +44,44 @@ planning source of truth and beads is a local mirror kept in step by
 `bd linear sync`. This skill writes beads only — it rewrites titles,
 bodies, and priorities, closes beads, and adds `theme:*` labels, all via
 `bd` — so in a migrated repo it must not run at all. Check before
-anything else:
+anything else.
+
+First confirm `REPO` itself: it must be a non-empty path to an existing
+directory that contains `.beads/`. `bd -C ""` does not fail — it silently
+reads the current working directory and reports on that repo instead of
+the one named — so an empty or wrong `REPO` passes every check below for
+the wrong repo. If `REPO` is empty, or `$REPO/.beads/` does not exist,
+stop here: say which path was checked and make no `bd` call at all.
+
+Then run:
 
 ```bash
 bd -C "$REPO" config get linear.pull_label
 ```
 
-Read the output text and decide on that alone:
+Read the output text and sort it into exactly one of three buckets:
 
 - Output **starts with `repo:`** (for example `repo:quarry`) — the repo is
   migrated. Go to the refusal below.
-- Any other output (on a beads-tracked repo it is
-  `linear.pull_label (not set in config.yaml)`) — beads is the tracker of
-  record. Continue to Step 1.
+- Output is **exactly** `linear.pull_label (not set in config.yaml)` —
+  beads is the tracker of record. Continue to Step 1.
+- **Anything else** — empty output, a line starting with `Error:` (for
+  example `Error: cannot use -C directory "/tmp": no beads project found`,
+  which `bd` prints on stderr with exit 1), or a value that does not start
+  with `repo:` — means the tracker cannot be determined. Print the output
+  you got, verbatim, say that the tracker could not be determined for
+  `$REPO`, and stop: no enumeration, no rubric, no report, no `bd` write.
+  Never treat an unrecognised output as "not migrated".
 
-Do not test the exit code: `bd config get` exits 0 whether or not the key
-is set. Do not use `issue-prefix` as the signal: `bd config get
-issue-prefix` prints `issue-prefix (not set)` on migrated repos even
-though the key is in their `config.yaml`. And no shell pipe — read the
-output directly, as everywhere else in this skill.
+The second bucket is an exact match, not "anything that is not `repo:`":
+the set of outputs that mean "beads is the tracker" has one member, and
+every other string is either migrated or unknown. Exit code is a
+secondary signal only: exit 1 is a `bd` error and belongs in the third
+bucket; exit 0 does not by itself mean beads, because `bd config get`
+also exits 0 on a migrated repo. Do not use `issue-prefix` as the signal:
+`bd config get issue-prefix` prints `issue-prefix (not set)` on migrated
+repos even though the key is in their `config.yaml`. And no shell pipe —
+read the output directly, as everywhere else in this skill.
 
 Why refuse rather than proceed: `bd linear sync --push` sends no labels,
 and a pull replaces each bead's label set with Linear's and re-opens any

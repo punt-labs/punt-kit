@@ -23,6 +23,10 @@ All notable changes to this project will be documented in this file.
   migrated repo a push sends no labels and a pull replaces each bead's
   label set and re-opens locally closed beads, so every edit they made
   was reverted by the next `bd linear sync` and none of it reached Linear.
+  They proceed only on the exact not-set output; any other output (a `bd`
+  error, an empty result, an unrecognised label) stops them with the
+  output printed, and `bead-review` also stops before calling `bd` when
+  its repo argument is empty or has no `.beads/`.
 
 ### Fixed
 
