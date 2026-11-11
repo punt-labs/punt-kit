@@ -80,6 +80,7 @@ upper limit about 10" [4] independently agree.
 | Installed-artifact | Build the wheel/binary, install it, drive it as a subprocess — entry points, packaging, data files. In-process tests cannot see these faults. |
 | Domain gate | The product's core function exercised for real (z-spec: the spec corpus type-checks and model-checks; lux: rendering; vox: synthesis). |
 | Installer | Per §1–§3, matrixed per OS, including dependency-availability legs where install behavior branches on an optional dependency (z-spec: TeX present/absent). |
+| Secret scan | A `gitleaks` job over the PR content, same pinned scanner and config as the pre-commit hook ([git.md § 10](git.md)); required check, fails on any unpinned finding (see § 9). |
 
 The shape follows the test pyramid [2] and Google's size/scope split
 (roughly 80% unit / 15% integration / 5% system) [6]: many small fast
@@ -133,6 +134,13 @@ each other exactly; this section is verifiable by running Scorecard.
 - `pull_request_target` and secret-bearing `workflow_run` triggers never
   check out or execute untrusted PR code; widening such a filter requires
   an explicit head-repository check.
+- A `gitleaks` secret-scanning job is a required check on every PR. It runs
+  the same pinned `gitleaks` and committed `.gitleaks.toml` the pre-commit
+  hook uses ([git.md § 10](git.md)), over the PR's content, so a commit made
+  with `--no-verify` or on a machine without the hook is still caught. The
+  job fails on any unpinned finding. This is the CI half of the secret-scan
+  gate whose local half is the pre-commit hook; GitHub push protection is the
+  server-side backstop behind both.
 
 ## 10. Release pipelines: staged promotion, gates seen failing
 
