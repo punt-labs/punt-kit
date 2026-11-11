@@ -7,10 +7,14 @@ Standards for command-line interfaces across all Punt Labs projects. Role models
 ## Core Principle
 
 **The CLI is the complete product.** Every capability the engine offers must be
-reachable from the terminal. The CLI is one client surface of the engine (see
-the [Projection Model](architecture.md#the-projection-model-canonical)); MCP
-tools, slash commands, and plugin hooks are peer clients, and they add nothing
-the terminal cannot reach. This is why the CLI must expose every engine
+reachable from the terminal. The CLI is one of four client surfaces of the
+engine — library, CLI, MCP, REST (see the
+[Projection Model](architecture.md#the-projection-model-canonical)); the library
+import, MCP server, and REST API are peer clients, and they add nothing the
+terminal cannot reach. Slash commands and plugin hooks are distribution
+channels, not surfaces of their own: a slash command ships the MCP surface
+through the plugin channel, and a plugin hook dispatches through the CLI (it
+calls `<tool> hook <event>`). This is why the CLI must expose every engine
 capability as a command.
 
 A user who never opens Claude Code can use every feature. A user inside Claude Code gets the same features surfaced through the plugin layer.
@@ -51,7 +55,7 @@ safe to run from any surface, and named for what they check rather
 than a domain noun. See [Layer 2](#layer-2-admin-commands) for the
 full tier breakdown.
 
-Every MCP tool has a corresponding CLI command. Every slash command has a corresponding CLI command. Every REST route has a corresponding CLI command. Every library method has a corresponding CLI command. All four are thin clients of the same engine code — the CLI holds no logic the others lack.
+Every MCP tool has a corresponding CLI command. Every REST route has a corresponding CLI command. Every library method has a corresponding CLI command. The four surfaces — library, CLI, MCP, REST — are thin clients of the same engine code; the CLI holds no logic the others lack. A slash command, being a distribution channel for the MCP surface, also has a corresponding CLI command because its MCP tool does.
 
 **Assess omissions, not inclusions.** The default is equivalence: an operation on any surface is presumed to exist on every surface. An absence is a *considered exception* with a stated reason recorded in the project's design record, not a default. When reviewing surface coverage, list the omissions and demand justification for each; do not audit the inclusions.
 
@@ -70,8 +74,12 @@ programmatic-only registrations).
 `enable` / `disable` are **not** admin-tier — they are their own
 tier, per-repo tool integration, defined in full in
 [tool-enable-disable.md](tool-enable-disable.md#23-the-enable--disable-convention).
-Every Punt Labs tool implements them across CLI + MCP + slash +
-library.
+Every Punt Labs tool implements them across all four surfaces — library,
+CLI, MCP, and REST — unless an omission is recorded as a considered
+exception in the project's design record (the equivalence default above);
+the slash command rides the
+MCP surface's plugin channel, so it comes with the MCP tool rather than
+counting as a fourth surface.
 
 ### Layer 2: Admin commands
 
@@ -622,17 +630,23 @@ var completionCmd = &cobra.Command{
 
 ## Projection Strategy
 
-Each surface is a thin client of the engine (see the
+Each of the four surfaces is a thin client of the engine (see the
 [Projection Model](architecture.md#the-projection-model-canonical)). The CLI
 covers every engine capability; the other surfaces reach the same engine code:
 
 | Surface | How it reaches the engine |
 |---------|------------------------|
-| **MCP tools** | Each MCP tool calls the same engine functions the CLI calls. |
-| **Slash commands** | Each slash command maps to a CLI command. The command `.md` file instructs Claude to call the **MCP tool** (not Bash → CLI). |
-| **Plugin hooks** | Hooks call `<tool> hook <event>` --- the CLI is the dispatcher. |
+| **Library import** | Code in the same process calls the engine functions directly. |
+| **MCP server** | Each MCP tool calls the same engine functions the CLI calls. |
+| **REST API** | Each route maps to the same engine functions the CLI calls. |
 
-When adding a new capability, implement it in the engine and expose it through the CLI first (the completeness surface). Then wire the MCP server and slash commands to the same engine code. Never add a capability to the plugin that the terminal cannot reach.
+Slash commands and plugin hooks are distribution **channels**, not surfaces. A
+slash command's `.md` file instructs Claude to call the MCP tool (not Bash →
+CLI), so it ships the MCP surface through the plugin channel. A plugin hook
+calls `<tool> hook <event>` — the CLI is the dispatcher — so it rides the CLI
+surface through the hook channel.
+
+When adding a new capability, implement it in the engine and expose it through the CLI first (the completeness surface). Then wire the MCP server, REST API, and library to the same engine code. Never add a capability to any surface or channel that the terminal cannot reach.
 
 ### Call path performance
 
