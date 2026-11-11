@@ -39,9 +39,9 @@ All notable changes to this project will be documented in this file.
   on the step, so the executor aborts rather than relying on the step's
   prose.
 - `standards/workflow.md` — the tracker is the single funnel, not beads.
-  Every repo has one tracker of record: Linear where `.beads/config.yaml`
-  sets `linear.pull_label` or the prefix is in `linear.push_prefix`, beads
-  otherwise. Beads stays in every repo as the tracker where nothing else is
+  Every repo has one tracker of record: Linear where
+  `bd config get linear.pull_label` prints a value starting with `repo:`,
+  beads otherwise. Beads stays in every repo as the tracker where nothing else is
   and as a read-mostly mirror where Linear is; create, edit, claim, and close
   in the tracker of record, and status reaches beads only after Linear. The
   `bd` command tutorial and all sync mechanics move to the deposited guide
