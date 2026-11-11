@@ -13,11 +13,13 @@ team, **Punt Labs**, key `PL`, id `c1dfbb2c-985e-40cf-b004-5127646efc9d`. A
 
 ## Which tracker is the record here
 
-Run `bd config get linear.pull_label`. Output starting with `repo:` means this
-repo is migrated and Linear is the tracker of record. Anything else means beads
-is. `bd config get issue-prefix` cannot tell you: it prints
-`issue-prefix (not set)` on migrated repos whose `.beads/config.yaml` has the key. The migrated set is
-`bd config get linear.push_prefix`, read live; it is maintained nowhere else.
+Run `bd config get linear.pull_label`. Output starting with `repo:` means this repo is migrated and
+Linear is the tracker of record. Anything else means beads is. `bd config get issue-prefix` cannot
+tell you: it prints `issue-prefix (not set)` on migrated repos whose `.beads/config.yaml` has the key.
+Nor can `bd linear status`: it prints `Status: Not configured` on a working setup. The migrated set
+is `bd config get linear.push_prefix`, read live; it is maintained nowhere else. If the output is not
+`repo:` but this repo prefix is in `linear.push_prefix`, this checkout is behind main: pull it and
+re-run; until then do not write to beads.
 
 ## Migrated repos: Linear is the record
 
@@ -38,10 +40,9 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
   carrying that repo label. Edit title, description and priority there. Claim, finish
   and cancel with the states In Progress, Done and Canceled. Labels, `blocks`
   relations and projects are Linear-only.
-- **Three proven facts about sync.** A push sends no labels. A pull replaces
-  a bead's label set with the issue's, so a beads-only label is wiped. A pull
-  resets a bead's status to the issue's state, so a `bd close` made only in
-  beads is reopened by the next pull.
+- **Three proven facts about sync.** A push sends no labels. A pull replaces a bead's label set
+  with the issue's, so a beads-only label is wiped. A pull resets a bead's status to the issue's
+  state, so a `bd close` made only in beads is undone by a later pull (the cursor bullet says when).
 - **Blocked** means a `blocks` relation in Linear plus `bd dep add <bead>
   <blocker>`: a pull imports relations only with `--relations`, removes none.
 - **Deferred** means state Backlog plus the `deferred` label; pick work with
@@ -50,24 +51,24 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
 - **The one sanctioned beads-first write** is `bd linear sync --push --issues
   <bead ids> --team <id>` (title, description, priority, state only); then add
   labels in Linear, then `bd linear sync --pull --issues <PL ids> --team <id>`.
-- **One shared cursor.** The cursor is a saved timestamp; an incremental
-  pull fetches only Linear changes after it, and every non-dry-run sync, a
-  push included, moves it. A push hides Linear edits made since the last pull
-  from the next incremental pull. Do not edit a migrated bead locally: the
-  next pull skips it and advances the cursor past the edit, so the divergence
-  is never reconciled and a later pull overwrites the bead.
+- **One cursor per repo label, shared by push and pull.** It is a saved timestamp; an incremental pull
+  fetches only Linear changes after it, and every non-dry-run sync in this repo, a push included,
+  moves it. A push hides Linear edits since the last pull from this repo's next incremental pull, not
+  another repo's. Never edit a migrated bead locally, `bd close` included: the next pull, scoped or
+  not, skips a bead edited after the cursor and moves the cursor past it; a later pull that fetches
+  the issue (on its next Linear change, or by `--issues`) overwrites the bead, status included.
 - **Never:** a bare `bd linear sync`; an unscoped `--push`;
   `bd config set linear.*` (shared by every repo); removing `issue-prefix` or
   `linear.pull_label` from `.beads/config.yaml` (an unscoped pull imports the
   whole PL team).
-- **ID bridge.** Bead to Linear: `bd show <id>` prints the `external_ref`
-  URL. Linear to bead: `bd list --json` and match on `external_ref`.
+- **ID bridge.** Bead to Linear: `bd show <id>` prints the `external_ref` URL. Linear to bead:
+  `bd list --json --all --limit 0 --label-any <the repo label>` and match on `external_ref`.
 
 ## Beads-only repos: beads is the record
 
-`bd create`, `bd ready`, `bd show`, `bd update <id> --status in_progress`,
-`bd close`. Labels and dependencies live in beads. To migrate, use the
-workspace `linear-migrate` skill.
+`bd create`, `bd ready`, `bd show`, `bd update <id> --status in_progress`, `bd close`. Labels and
+dependencies live in beads. To migrate, use the `linear-migrate` skill in the workspace: the
+punt-labs/punt-labs meta-repo one directory above this repo, whose `.claude/skills/` holds it.
 
 ## Both
 
@@ -75,5 +76,4 @@ workspace `linear-migrate` skill.
   choice) needs no issue; the commit is the record.
 - Work is not complete until `git push` succeeds.
 - Beads mechanics: the workspace `.docs/BEADS-SETUP.md`.
-- Migration and reversal: the workspace `linear-migrate`, `beads-to-linear`
-  and `linear-unmigrate` skills.
+- Migration and reversal: the workspace `linear-migrate`, `beads-to-linear` and `linear-unmigrate` skills.
