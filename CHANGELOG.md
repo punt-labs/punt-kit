@@ -38,6 +38,16 @@ All notable changes to this project will be documented in this file.
   repo's Linear label filter; `autopilot`'s halt is a shell postcondition
   on the step, so the executor aborts rather than relying on the step's
   prose.
+- `standards/workflow.md` — the tracker is the single funnel, not beads.
+  Every repo has one tracker of record: Linear where `.beads/config.yaml`
+  sets `linear.pull_label` or the prefix is in `linear.push_prefix`, beads
+  otherwise. Beads stays in every repo as the tracker where nothing else is
+  and as a read-mostly mirror where Linear is; create, edit, claim, and close
+  in the tracker of record, and status reaches beads only after Linear. The
+  `bd` command tutorial and all sync mechanics move to the deposited guide
+  `.punt-labs/punt/CLAUDE.md`. The Z type `BEAD` and every schema are
+  unchanged; comments are reworded. The session-close block no longer lists
+  `bd sync`, which does not exist in server mode.
 
 ### Fixed
 
