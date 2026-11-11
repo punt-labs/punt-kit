@@ -349,7 +349,8 @@ import-line append.
   an `enable` set, so `disable` cannot remove one; no author attribution is
   needed, and a flat string array carries none.
 - Neither touches unrelated entries.
-- For permissions the set is the tool's whole production surface: its CLI,
+- For permissions the set is the tool's whole production surface: its CLI
+  (`punt` excepted, 2.10),
   its plugin-bundled MCP server wildcard (`mcp__plugin_<plugin>_<server>__*`;
   never the direct-server `mcp__<server>__*` form, which is a local choice
   and stays in `settings.local.json`), and one `Skill(<plugin>:<cmd>)` rule
@@ -544,11 +545,8 @@ still holds settings.
 defines `init` as the per-repo verb that writes a tool's repo config file — in
 the **config zone**, `.punt-labs/<tool>/config.*`
 ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones));
-`.biff` at the repo root is the retired **legacy** shape this table's third
-row exists to migrate away from, not a destination `init` still writes to
-(`.quarry.toml` never shipped as that legacy shape at all —
-[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) has the correction;
-quarry deposits directly at the config zone) — and prompts for
+a repo-root sentinel is never its destination
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) — and prompts for
 project-specific settings (team roster,
 relay URL, database name). `enable` and `init` are **distinct roles**, not
 duplicates:
