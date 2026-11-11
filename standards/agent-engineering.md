@@ -73,7 +73,9 @@ and how to sequence review, see the [PR and Review Standard](pr-review.md).
 - Behind a feature flag when feasible; staged rollout when not. A flag gates one
   path on and off; it is not a second permanent interface kept for old callers.
 - For destructive operations (deletes, migrations, schema changes), confirm
-  before executing and prefer reversible intermediate states.
+  before executing and prefer reversible intermediate states. A migration is the
+  one bounded exception to §17's no-dual-read rule: old and new readers may
+  coexist for the migration's duration, removed in the change that completes it.
 - "Release early and often" does not license shipping broken work. Quality bar
   holds.
 
@@ -171,9 +173,12 @@ change is to undo, the more care it earns before it ships.
   fast, learn from the result.
 - When uncertain, prefer the path that preserves optionality.
 - Preserving optionality is about keeping the *decision* reversible, not about
-  keeping two interfaces alive. A rename is still a two-way door — you can revert
-  it — and it is still atomic across every surface in one release (§5, §17); the
-  optionality you keep is the revert, not a lingering old name.
+  keeping two interfaces alive. A rename of a public surface is a one-way door by
+  coordination cost — slow down and confirm it like any public-contract change —
+  yet it is still reversible: it is atomic across every surface in one release
+  (§5, §17), and the optionality you keep is the revert, not a lingering old
+  name. Reversible does not mean cheap; it means a revert restores the prior
+  state.
 
 ## 14. Surface mistakes early; don't hide them
 
@@ -251,7 +256,9 @@ Banned in a pre-scale product, in every language and on every surface:
 - **Aliases** — `old_name = new_name`, re-exports of a moved symbol, a CLI verb
   kept as a hidden synonym, an MCP tool answering to two names.
 - **Shims and migration shims** — a wrapper that translates the old call shape
-  into the new one, a dual-read path that accepts old-format and new-format data.
+  into the new one, or a dual-read path kept as a *permanent* fallback. (A
+  dual-read path that exists only for the span of a destructive migration and is
+  removed when it completes is the one bounded exception — see §5.)
 - **Tombstones and dead re-exports** — `# removed`/`# deprecated` markers left in
   place of a symbol, an empty module kept so an old import still resolves.
 - **Deprecated-but-still-works paths** — an interface documented as going away
@@ -264,7 +271,18 @@ Banned in a pre-scale product, in every language and on every surface:
 
 This is not a license to break callers carelessly. It is the opposite: because
 there is no compatibility layer to hide behind, every call site is found and
-updated in the same change, and the change ships reversibly (§5) — one revert
-restores the prior state, old name and all. Scale changes the calculus; a
-product with a real installed base to protect is a decision for the operator,
-not a default to assume.
+updated in the same change, and the change ships reversibly (§5). Within one
+repo, that revert restores the prior state, old name and all. Across repos a
+rename train is reversible only in lockstep: the producer's rename and each
+consumer's update are separate commits (integration.md § Cross-repo rename
+trains), so rolling back means reverting the producer *and* every consumer that
+already moved — revert them in the reverse of the order they landed.
+
+The one bounded exception to the no-dual-read rule is a destructive data
+migration (§5): a schema or format change may run old and new readers side by
+side *for the duration of the migration only*, removed in the same change that
+completes it. That transient reader is a migration step with an end, not a
+retained compatibility path. "Pre-scale" is the default state of every Punt Labs
+product until the operator declares otherwise; promoting a product to
+scale — and thereby licensing a retained compatibility layer — is the operator's
+decision, never an agent's assumption.
