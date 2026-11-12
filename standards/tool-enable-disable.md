@@ -497,6 +497,11 @@ the class rule each follows on migration:
 | Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: model, notify, provider, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty root file or directory. Leaving the file in place and merely ceasing to treat it as the presence signal is not an option — that would leave live settings at the repo root permanently, which [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) forbids; the move is mandatory for a config-bearing sentinel. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Never destroys live config. |
 | Root runtime-state directory — holds no settings, only a continuously-appended live log | Migrated into the local zone ([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)), never deleted with unread lines inside |
 
+The dispositions compose per content, not per artifact: in a root directory
+that holds both, the settings inside go to the config zone (the second row's
+rule) and the live log inside goes to the local zone (the third row's rule),
+and the root path is deleted only once both are empty.
+
 This reconciles with § 2.13 and
 [distribution.md § Installation Scope](distribution.md#installation-scope), which
 keep the tool's repo **config** as `init`'s artifact — in the config zone
