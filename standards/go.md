@@ -329,12 +329,12 @@ up to pass them.
 ### Installing golangci-lint
 
 Pin to a release tag in the Makefile and run the same prebuilt release binary
-for that tag locally and in CI. Locally, the `tools` target downloads the
-official release archive for `$(GOLANGCI_LINT_VERSION)` from golangci-lint's
-GitHub releases, verifies it against the published checksums file, and
-installs the binary to `$(GOBIN)`; `lint` refuses to run when that binary is
-absent and names the target that installs it. ethos's Makefile `tools` target
-is the reference implementation. Never
+for that tag locally and in CI. ethos's `tools` target is the reference
+implementation for the local side: it downloads the official release archive
+for `$(GOLANGCI_LINT_VERSION)` from golangci-lint's GitHub releases, verifies
+it against the published checksums file, and installs the binary to
+`$(GOBIN)`; its `lint` target refuses to run when that binary is absent and
+names the target that installs it. Never
 `go install github.com/golangci/golangci-lint/...@<tag>`: that compiles a copy
 from source (see below).
 
