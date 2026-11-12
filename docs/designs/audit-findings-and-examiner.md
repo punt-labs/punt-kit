@@ -677,3 +677,313 @@ code is about the agent's opinions, not the tool's own failures (§ 7,
 item 14).
 
 ---
+
+## 6. Tests
+
+Every test below runs under `make test` with no network, no model, and no
+`claude` binary; the fake-agent harness is a script on `PATH` that the test
+writes.
+
+### 6.1 `tests/test_audit_finding.py` (unit)
+
+| Test | Asserts |
+|------|---------|
+| `test_finding_fields_are_read_only` | Every property returns what `__new__` was given; assigning to any raises `AttributeError` (slots, no setter). |
+| `test_empty_label_is_rejected` | `Finding(Severity.PASS, rule, "")` raises `ValueError`. |
+| `test_judgment_cannot_report_fixed` | `Finding(Severity.FIXED, rule, "x", examiner=Examiner.JUDGMENT)` raises `ValueError`. |
+| `test_equality_and_hash_cover_every_field` | Two findings equal in all fields are equal and hash alike; changing any one field (parametrized over the seven) breaks equality. |
+| `test_severity_constructors_set_severity` | `Finding.failed(...)`, `.passed`, `.info`, `.warned`, `.fixed` each produce the matching `Severity` and `Examiner.DETERMINISTIC`. |
+| `test_schema_parse_round_trip` | `FindingSchema.parse(finding.to_json())` equals `finding` for a finding with and without a location. |
+| `test_schema_parse_rejects_bad_severity` | `"severity": "critical"` raises `ReleaseError` naming `severity`. |
+| `test_schema_parse_rejects_missing_key` | Each required key removed in turn raises `ReleaseError` naming that key. |
+| `test_schema_parse_forces_examiner_and_standard` | Parsing with `standard="readme"` yields `Examiner.JUDGMENT` and `rule.standard == "readme"` whatever the input said. |
+| `test_schema_parse_rejects_path_outside_root` | `"location": {"path": "../x"}` raises `ReleaseError`. |
+
+### 6.2 `tests/test_audit_report.py` (unit and snapshot)
+
+| Test | Asserts |
+|------|---------|
+| `test_exit_code_is_deterministic_fail_only` | Parametrized over the 10 (severity, examiner) pairs: `exit_code == 1` only for (`FAIL`, `DETERMINISTIC`). |
+| `test_counts_by_severity` | `count()` for each severity over a mixed list. |
+| `test_to_json_shape` | The object has every key of § 2.5, `version == 1`, absent location is `null`, and `json.dumps` succeeds. |
+| `test_render_matches_snapshot_without_judgment` | `TerminalRenderer` output for a fixed deterministic report equals the committed snapshot `tests/fixtures/audit/render-deterministic.txt`, byte for byte. |
+| `test_render_matches_snapshot_with_judgment` | Same for a report with judgment rows, the heading, the tag, and the examiner `INFO` row: `render-judgment.txt`. |
+| `test_render_escapes_markup_from_every_producer` | A message `"[abc].md"` prints literally. |
+| `test_summary_omits_zero_warn_and_info` | A report with no `WARN` or `INFO` rows prints `N passed, N failed` and nothing after. |
+
+The snapshot files are regenerated only by hand, by a commit that shows the
+diff; a renderer change that alters existing rows is visible in review.
+
+### 6.3 Existing suites, rewritten with their modules (§ 2.6)
+
+`tests/test_audit_layout.py`, `tests/test_audit_permissions.py`,
+`tests/test_audit_github.py`, `tests/test_audit.py`, and
+`tests/test_audit_unreadable.py` compare `Finding` values where they
+compared tuples and keep every stdout assertion unchanged. The assertion
+count does not fall; `_findings_for` returns `list[Finding]`.
+
+### 6.4 `tests/test_audit_examiner.py` (fake agent, never a model)
+
+The fixture writes an executable `claude` into a temporary directory,
+prepends it to `PATH`, and the script replays a canned result read from
+`tests/fixtures/audit/examiner/<case>.json`, after asserting on its own
+argv. `tests/harness/spawn_scan.py` already proves which modules may start
+a process; `audit_examiner.py` joins that allowlist and nothing else in the
+audit package does.
+
+| Test | Asserts |
+|------|---------|
+| `test_fake_claude_is_invoked_with_read_only_tools` | argv contains `--print`, `--output-format json`, `--json-schema`, `--tools Read,Grep,Glob`, `--no-session-persistence`, and no `Bash`, `Edit`, or `Write` anywhere. |
+| `test_prompt_contains_the_whole_standard_once` | The prompt the fake receives on stdin contains `standards/readme.md`'s text exactly once and the harness template once. |
+| `test_findings_are_merged_and_tagged` | A canned result with two findings yields a report with those two at `Examiner.JUDGMENT`, `rule.standard == "readme"`, after the deterministic rows, plus the `INFO` row. |
+| `test_judgment_fail_does_not_change_exit_code` | A canned `fail` finding on an otherwise compliant project: `run_audit` returns without `SystemExit`. |
+| `test_unknown_standard_is_a_usage_error` | `--standard nope` exits 2 before the fake runs (the fake records invocations; none recorded) and stderr lists the stems. |
+| `test_two_standards_is_a_usage_error` | `--standard a --standard b` exits 2 with the one-per-run message. |
+| `test_missing_corpus_is_a_fail_row` | With no sibling and no env var: one `FAIL` row, exit 1. |
+| `test_missing_claude_is_a_fail_row` | `PATH` without the fake: one `FAIL` row naming `claude`. |
+| `test_timeout_is_a_fail_row` | The fake sleeps past a monkeypatched 1 s limit: one `FAIL` row with elapsed time; no judgment rows. |
+| `test_nonzero_exit_is_a_fail_row` | The fake exits 3 with stderr text: the text appears in the row, cut at 300. |
+| `test_malformed_result_is_a_fail_row_and_is_saved` | The fake prints `not json`: one `FAIL` row, and `.tmp/audit/readme-*.raw.json` holds the bytes. |
+| `test_partial_array_is_rejected_whole` | Two good findings and one bad: zero judgment rows, one `FAIL` row naming the bad key. |
+| `test_empty_findings_is_a_warn_row` | `{"findings": []}`: one `WARN` row, exit code unchanged. |
+| `test_no_claude_dir_still_runs_examiner` | A project without `.claude/`: deterministic rows include the missing-settings `FAIL`; judgment rows present. |
+| `test_handoff_writes_fail_and_warn_only` | `--handoff`: the file holds the `fail` and `warn` judgment rows and no `pass` or `info` row. |
+| `test_json_flag_prints_one_object` | `punt --json audit --standard readme`: stdout parses as one object with the § 2.5 keys and nothing precedes or follows it. |
+
+### 6.5 `tests/test_cli.py` additions
+
+`punt audit --help` names `--standard` and `--handoff`; `--standard`
+without a value exits 2.
+
+---
+
+## 7. Operator decisions
+
+Each item fixes a choice the rulings left open, or departs from a standard
+or the bead text, and is phrased for a one-word ruling.
+
+1. **The class is `Finding` in `src/punt_kit/audit_finding.py`, with
+   `Rule` and `Location` beside it; `Severity` and `Examiner` are
+   `StrEnum`s in `audit_verdict.py`; `Report` and `TerminalRenderer` are
+   in `audit_report.py`.** Three modules, no module over three classes,
+   every class `@final` with tuple slots and `__new__ -> Self`. The
+   alternatives were one `audit_types.py` holding all seven (over the
+   three-class limit) and a frozen dataclass (PY-CC-6 admits it, but the
+   constructor must validate two invariants, which a dataclass cannot
+   without `__post_init__`). Recommend the three modules. Confirm or
+   course-correct.
+2. **The renderer keeps byte-identical output for every existing check.**
+   The 52 stdout tests in `tests/test_audit.py` and the two snapshot
+   files pin it; a judgment row is the only new row shape. The
+   alternative, a reformat that shows the rule tag on every row, would
+   touch every stdout assertion and the slash command's summary habit.
+   Recommend byte-identical. Confirm or course-correct.
+3. **The JSON promise is `version: 1`; keys are never removed or renamed
+   within a version; new keys may be added; the two vocabularies are
+   closed and a new value bumps the version.** The alternative, no
+   promise until the MCP or REST surface exists, leaves pkit-1up8 and
+   pkit-mud6 to define one each, which is the duplication the epic
+   exists to prevent. Recommend the promise as stated. Confirm or
+   course-correct.
+4. **The harness prompt is package data in
+   `src/punt_kit/templates/examiner-prompt.md`, not under `plugin/`.** It
+   must run from an installed `punt` with no plugin, and `CLAUDE.md:65-70`
+   bars the plugin surface from reaching outside `plugin/`. The
+   alternative, a `plugin/agents/auditor.md`, would make the slash command
+   the only door and leave `punt audit --standard` unable to run. Recommend
+   the wheel. Confirm or course-correct.
+5. **`--standard` accepts one name; a second occurrence or a comma list
+   is a usage error.** This is DES-023 rule 4 made a parser rule. The
+   alternative, several names run sequentially in one process, is the
+   corpus fan-out the ruling struck, one standard at a time but with one
+   combined report. Recommend one name. Confirm or course-correct.
+6. **No flag ever lets a judgment finding affect the exit code.**
+   `Report.exit_code` reads severity and examiner and nothing else; there
+   is no `--strict-judgment`. The alternative, a flag for CI gating on
+   judgment, would make a model's opinion a merge blocker, which DES-023
+   rule 3 rejects. Recommend none. Confirm or course-correct.
+7. **The severity vocabulary is the five words `pass`, `info`, `warn`,
+   `fail`, `fixed`, the five markers already in use (§ 1.2), and nothing
+   more.** The alternative, a `critical` or `high/medium/low` scale for
+   judgment rows, would give judgment findings a vocabulary the
+   deterministic rows do not have and the one report would read as two.
+   Recommend the five. Confirm or course-correct.
+8. **The corpus is read from `PUNT_STANDARDS_DIR`, else the
+   `../punt-kit/standards` sibling, else the project's own `standards/`;
+   it does not ship in the wheel.** Shipping it would put a copy of every
+   standard in every install, at a version pinned to the wheel, and the
+   examiner would audit against a corpus the operator cannot edit. The
+   alternative, fetching from GitHub, needs network and a token the audit
+   does not otherwise need. Recommend the three-step lookup. Confirm or
+   course-correct.
+9. **The agent receives the whole standard, never a section.** The
+   largest is 69 KB; slicing would need per-standard section maps, which
+   is the per-standard hand authoring DES-023 struck. Recommend whole.
+   Confirm or course-correct.
+10. **Remediation dispatch is manual in both forms: the tool writes the
+    hand-off file and the leader writes the contract or spawns the
+    sub-agent.** The bead says findings "dispatch to the ethos mission
+    harness"; a tool-generated contract would carry a write-set the tool
+    cannot judge, and `ethos mission create` is the leader's act under
+    `docs/WORKFLOW.md`. The alternative, `punt audit --standard x --dispatch`
+    running `ethos mission create` itself, is listed and not recommended.
+    Recommend the hand-off file and manual dispatch. Confirm or
+    course-correct.
+11. **The feature ships without an experimental marker.** It is additive
+    (no flag, no change), its failures are rows in the report, and its
+    exit code cannot regress a CI job. The alternative, `--experimental`
+    or a `PUNT_EXPERIMENTAL=1` gate, would add a flag that has to be
+    removed later. Recommend no marker. Confirm or course-correct.
+12. **A deterministic check that enforces punt's own scaffolding rather
+    than a published standard carries `Rule("punt")`.** The alternative
+    is to write a standard for each such convention first; three checks
+    (`_check_beads`, `_check_claude_md`, `_check_plugin_version_sync`)
+    would wait on prose that says what `punt init` already does.
+    Recommend `punt`. Confirm or course-correct.
+13. **The session bounds are constants: 40 turns, 600 seconds, read-only
+    tools.** Flags for them would be knobs on the auditor's independence.
+    Recommend constants, changed by a commit. Confirm or course-correct.
+14. **A harness failure (no corpus, no `claude`, timeout, malformed
+    output) is a deterministic `FAIL` that moves the exit code; an empty
+    findings array is a `WARN` that does not.** The ruling keeps the
+    agent's opinions off the exit code; the harness's own failure to run
+    is the tool's fault, and a run that asked for an examiner and got
+    none should not exit 0. The alternative, every harness failure as
+    `INFO` the way the GitHub checks treat an unreachable `gh`
+    (`src/punt_kit/audit_github.py:44-55`), would let a broken examiner
+    pass silently in CI. Recommend `FAIL`. Confirm or course-correct.
+15. **`--handoff` is a flag on `audit`, not a separate verb.** DES-027's
+    one-name-per-operation rule and cli.md's subcommand list both point
+    at a flag; a `punt handoff` verb would be a second entry point to the
+    same report. Recommend the flag. Confirm or course-correct.
+
+---
+
+## 8. `DESIGN.md` ADR draft
+
+The leader lifts this section verbatim on ratification.
+
+```markdown
+## DES-040: `punt audit` Returns Findings, and the Judgment Examiner Is One Consumer
+
+**Date:** 2026-11-12
+**Status:** SETTLED
+**Topic:** The findings representation every audit consumer reads, and how
+the one-standard-per-run judgment examiner of DES-023 is built on it
+
+### Context
+
+Every `punt audit` check returned `(status, label, detail)`, three strings
+assembled for terminal printing, with the status a rich markup glyph. No
+element carried rule identity, location, remedy, or examiner type, so the
+judgment examiner DES-023 rules in had nowhere structured to put a finding,
+and the MCP and REST surfaces would each have invented a serialisation.
+
+### Design
+
+1. `Finding` (`src/punt_kit/audit_finding.py`) carries `severity`, `rule`
+   (standard stem and section), `label`, `message`, `remedy`, `location`
+   (path and line, or none), and `examiner` (`deterministic` or
+   `judgment`). It is `@final`, slotted, immutable, validated in `__new__`.
+   `Severity` and `Examiner` are closed `StrEnum`s in `audit_verdict.py`.
+2. `Report` (`audit_report.py`) holds the findings, counts them, decides
+   the exit code (`1` iff any deterministic finding is `fail`), and
+   serializes to a versioned JSON object. `TerminalRenderer` is one
+   consumer of `Report`; `punt --json audit` is another; the MCP and REST
+   surfaces, if built, serialize `Report.to_json()` and add nothing.
+3. Every existing check is rewritten to return `Finding` values, module
+   by module, with no tuple adapter; rendered output for existing checks
+   is byte-identical and snapshot-tested.
+4. `punt audit --standard <name>` runs one headless read-only session
+   whose prompt is one shared template plus the whole named standard; it
+   returns findings as a JSON schema the parser validates whole and tags
+   `examiner=judgment`; they merge into the same report; the exit code
+   ignores them; a harness failure is a deterministic `fail`.
+5. Remediation is a hand-off file of the `fail` and `warn` judgment rows,
+   dispatched by the leader to an ethos mission where the ethos marker
+   exists and to a typed sub-agent otherwise; sign-off is a fresh
+   re-audit with zero such rows, run by a party that did no fixing.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| A `Finding.from_tuple` adapter so producers keep the tuple | Keeps every producer from naming its rule or remedy; the type would carry nothing; PL-PP-1 forbids the shim. |
+| A frozen dataclass for `Finding` | Two constructor invariants need validation; `__post_init__` is `__init__` by another name under PY-CC-1. |
+| One `audit_types.py` for all seven classes | Over the three-class module limit. |
+| A `high/medium/low` scale for judgment rows | Two vocabularies in one report; the five existing markers already express everything the examiner can say. |
+| A flag that lets judgment findings fail the run | A model's opinion as a merge blocker; DES-023 rule 3. |
+| Several `--standard` names in one run | Corpus fan-out by another route; DES-023 rule 4. |
+| Shipping `standards/` in the wheel | A corpus pinned to the wheel that the operator cannot edit; the sibling checkout is already the convention. |
+| The harness prompt under `plugin/` | Unreachable from an installed `punt` with no plugin; the plugin surface may not reach outside itself. |
+| The tool running `ethos mission create` itself | A generated contract carries a write-set the generator cannot judge; the contract is the leader's record. |
+| Harness failures as `info` | A broken examiner would exit 0 in CI. |
+```
+
+---
+
+## 9. Implementation write-set and wave plan
+
+Paths are relative to the punt-kit root. The findings type is wave 1 and
+gates everything; the epic forces that order. Wave 2 is four parallel
+missions, one per producer module. Wave 3 is the harness and may start as
+soon as wave 1 merges, in parallel with wave 2, since it touches no
+producer module. Wave 4 is the hand-off and the docs.
+
+### Wave 1: the findings type (one mission, T3, `rmh` / `gvr`, gates all)
+
+| File | Purpose |
+|------|---------|
+| `src/punt_kit/audit_verdict.py` | `Severity`, `Examiner`; the four markup strings move out. |
+| `src/punt_kit/audit_finding.py` | `Rule`, `Location`, `Finding`, `FindingSchema`. |
+| `src/punt_kit/audit_report.py` | `Report`, `TerminalRenderer`. |
+| `src/punt_kit/audit.py` | `run_audit` builds a `Report`, renders through `TerminalRenderer`, exits on `report.exit_code`; the 14 `_check_*` functions in this module are rewritten to `Finding` here, since `run_audit` cannot consume both shapes. |
+| `src/punt_kit/__main__.py` | `audit` honours `--json` via `Report.to_json()`. |
+| `tests/test_audit_finding.py`, `tests/test_audit_report.py`, `tests/fixtures/audit/render-*.txt` | § 6.1, § 6.2. |
+| `tests/test_audit.py`, `tests/test_audit_unreadable.py` | Tuple comparisons become `Finding` comparisons; stdout assertions unchanged. |
+
+Exit: `make check` green; `punt audit` on punt-kit prints the same rows as
+`origin/main`'s build, diffed; `punt --json audit` parses.
+
+### Wave 2: the three class-based producers (three missions in parallel, T3, `rmh` / `gvr`)
+
+| Mission | Files |
+|---------|-------|
+| 2a layout | `src/punt_kit/audit_layout.py`, `tests/test_audit_layout.py` |
+| 2b permissions | `src/punt_kit/audit_permissions.py`, `tests/test_audit_permissions.py`, `tests/test_init.py:390-391` |
+| 2c github | `src/punt_kit/audit_github.py`, `tests/test_audit_github.py` |
+
+Each drops its `TYPE_CHECKING` tuple alias, returns `list[Finding]`,
+assigns its `Rule`, and deletes its own `escape` call (2a) or `WARN`
+constant (2a). Each is one commit on its own branch; the three write-sets
+are disjoint.
+
+### Wave 3: the examiner harness (one mission, T2, `rmh` / `gvr`; starts after wave 1)
+
+| File | Purpose |
+|------|---------|
+| `src/punt_kit/audit_examiner.py` | `AuditExaminer`: corpus lookup, prompt assembly, the headless session, timeout, result parsing, the `Examiner: <name>` row, every § 5 row. |
+| `src/punt_kit/templates/examiner-prompt.md` | The shared harness prompt of § 3.2. |
+| `src/punt_kit/audit.py` | `run_audit(path, *, fix, standard)` appends the examiner's findings. |
+| `src/punt_kit/__main__.py` | `--standard`; the usage errors of § 3.1. |
+| `tests/test_audit_examiner.py`, `tests/fixtures/audit/examiner/*.json` | § 6.4; the fake `claude`. |
+| `tests/test_release_spawns.py` or its successor | `audit_examiner.py` joins the process-spawn allowlist. |
+| `tests/test_cli.py` | § 6.5. |
+
+### Wave 4: hand-off and documentation (one mission, T3, `mdm` / `rmh`; after wave 3)
+
+| File | Purpose |
+|------|---------|
+| `src/punt_kit/audit_examiner.py`, `src/punt_kit/__main__.py` | `--handoff` and the `.tmp/audit/` file. |
+| `plugin/commands/audit.md`, `audit-dev.md` | Mention `--standard` and the hand-off path in the summary guidance. |
+| `README.md` | The `punt audit` row and the `--standard` paragraph. |
+| `CHANGELOG.md` | Under Unreleased: Added, the findings type and `--standard`; Changed, `--json` on `audit`. |
+| `DESIGN.md` | DES-040 from § 8, lifted by the leader. |
+| `docs/sprint-plan.md` | Sprint C exit row reflects the shipped surface. |
+
+### Out of this write-set
+
+pkit-mb8k (scoping to the declared kit) changes which checks run and is
+its own bead after wave 2. pkit-1up8 and pkit-mud6 consume
+`Report.to_json()` and are not touched here. pkit-jsxe is one more
+deterministic check and rides on any wave-2 branch.
