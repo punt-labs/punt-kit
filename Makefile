@@ -12,8 +12,8 @@ lint: ## Lint and format check
 	shellcheck install.sh scripts/*.sh
 
 type: ## Type check with mypy and pyright
-	uv run mypy src/ tests/
-	uv run pyright src/ tests/
+	uv run mypy src/ tests/ tools/
+	uv run pyright src/ tests/ tools/
 
 check: lint type test ## Run all quality gates
 
