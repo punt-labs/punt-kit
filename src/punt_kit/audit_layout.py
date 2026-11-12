@@ -180,16 +180,8 @@ class LayoutAudit:
         ).stdout
 
     def _is_git_root(self) -> bool:
-        result = subprocess.run(
-            ["git", "rev-parse", "--show-toplevel"],
-            cwd=str(self._root),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return False
-        return self._root.resolve() == Path(result.stdout.strip()).resolve()
+        top = self._git("rev-parse", "--show-toplevel").decode().strip()
+        return bool(top) and self._root.resolve() == Path(top).resolve()
 
     def _ls_files(self, *args: str) -> list[str]:
         out = self._git("ls-files", "-z", *args, "--", ".punt-labs")
@@ -231,11 +223,15 @@ class LayoutAudit:
         probes.extend((path, True) for path in live)
         verdicts = self._check_ignore([path for path, _ in probes])
         tracked = set(self._ls_files())
-        failures = [
-            self._probe_failure(path, ignored, verdicts[path], tracked=path in tracked)
-            for path, ignored in probes
-            if bool(verdicts[path]) != ignored
-        ]
+        failures: list[str] = []
+        for path, ignored in probes:
+            if bool(verdicts[path]) == ignored:
+                continue
+            if not ignored:
+                failures.append(f"{path} should not be ignored ({verdicts[path]})")
+            else:
+                why = " (git-tracked)" if path in tracked else ""
+                failures.append(f"{path} should be ignored{why}")
         if not failures:
             summary = f"{len(tools)} tool(s), {len(live)} interim path(s)"
             return (PASS, label, f"{len(probes)} probes: {summary}")
@@ -243,14 +239,6 @@ class LayoutAudit:
         if diagnostic := self._gitignore().diagnostic():
             detail += f" — {diagnostic}"
         return (FAIL, label, detail)
-
-    @staticmethod
-    def _probe_failure(path: str, ignored: bool, why: str, *, tracked: bool) -> str:
-        if not ignored:
-            return f"{path} should not be ignored ({why})"
-        if tracked:
-            return f"{path} should be ignored (git-tracked)"
-        return f"{path} should be ignored"
 
     def _gitignore(self) -> GitignoreText:
         path = self._root / ".gitignore"
@@ -317,17 +305,10 @@ class LayoutAudit:
                 count = len(self._git("ls-files", "-z", "--", path).split(b"\0")) - 1
                 if count:
                     files = "1 file" if count == 1 else f"{count} files"
-                    findings.append(
-                        (
-                            WARN,
-                            label,
-                            f"{path} is git-tracked ({files}) — migration"
-                            f" pending (§ {row.section} → {row.destination})",
-                        )
-                    )
-        if findings:
-            return findings
-        return [(PASS, label, "no § 9.4 live path is git-tracked")]
+                    pending = f"migration pending (§ {row.section} → {row.destination})"
+                    detail = f"{path} is git-tracked ({files}) — {pending}"
+                    findings.append((WARN, label, detail))
+        return findings or [(PASS, label, "no § 9.4 live path is git-tracked")]
 
     def _interim_exclude_finding(self) -> Finding:
         label = "No interim exclude survives a completed migration"
@@ -354,12 +335,9 @@ class LayoutAudit:
                 stale.append(f"{pattern} (.gitignore:{number})")
         if stale:
             noun = "this path" if len(stale) == 1 else "these paths"
-            return (
-                FAIL,
-                label,
-                "Stale: " + ", ".join(stale) + f" — no § 9.4 row names {noun};"
-                " the migration is finished yet its old location is still ignored",
-            )
+            why = f"no § 9.4 row names {noun}; the migration is finished yet its"
+            detail = f"Stale: {', '.join(stale)} — {why} old location is still ignored"
+            return (FAIL, label, detail)
         return (
             PASS,
             label,
@@ -373,13 +351,8 @@ class LayoutAudit:
             rel = f".punt-labs/{entry.name}"
             if entry.name == LOCAL_ZONE:
                 if not entry.is_dir():
-                    findings.append(
-                        (
-                            FAIL,
-                            label,
-                            f"{rel} is not a directory — it blocks the local zone",
-                        )
-                    )
+                    detail = f"{rel} is not a directory — it blocks the local zone"
+                    findings.append((FAIL, label, detail))
                 continue
             if entry.is_dir() or entry.name == NAMED_EXCEPTION:
                 continue
