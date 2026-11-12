@@ -369,20 +369,20 @@ user's session by naming its `session_id`.
 
 ethos resolves the caller's `session_id` and `agent_id` to the exact
 participant in the session roster: the persona a call acts as, the mission a
-delegation belongs to, and the gate on each tool. ethos is daemonless
-(§ 4.2): the engine is the `ethos serve` MCP process over stdio, which
-resolves each call from the facts on that call, and the handle is the caller
-facts themselves (§ 4.4). The roster at
+delegation belongs to, and the gate on each tool. The engine is the
+`ethos serve` MCP process over stdio. ethos holds a per-session roster, so it
+is a layer-2 engine (§ 4.1); it is daemonless, so it is exempt from the § 4.2
+lifecycle until it grows a daemon, and it resolves each call from the facts
+on that call. The handle is the caller facts themselves (§ 4.4): the roster at
 `~/.punt-labs/ethos/sessions/<session_id>.yaml` is keyed by `session_id`,
 with participants keyed by `agent_id`; no handle file (§ 4.2.4) exists
 because there is no engine-issued handle to store. ethos is written in Go and
-declares `_caller` on each tool rather than stripping it (§ 3.2.1). Caller
-identity arrives on a per-client declared channel, never by detecting the
-harness:
+declares `_caller` on each tool rather than stripping it (§ 3.2.1). ethos
+identifies a caller only by one of these channels:
 
 - **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
-  under the matcher `mcp__plugin_ethos(-dev)?_self__.*`. The hook matches every
-  tool because it also gates them, and stamps only its own (§ 3.1).
+  under the matcher `mcp__(plugin_ethos(-dev)?_)?self__.*`. The hook matches
+  every tool because it also gates them, and stamps only its own (§ 3.1).
 - **OpenCode** — MCP `params._meta["ai.opencode/sessionID"]`; session and
   agent are the same id.
 - **CLI** — `ETHOS_SESSION` and `ETHOS_AGENT_ID` in the process environment,
@@ -398,8 +398,8 @@ subscriptions, and menu entries. The Hub (luxd) is the engine and a layer-2
 engine (§ 4.1): it holds per-session UI state, so it owns engine sessions and
 issues an opaque handle; the Display only renders and plays no part in
 identity. The handle keys the Hub's `Scope`, and an agent sub-scope keyed by
-`agent_id` gives each subagent its own scenes (§ 4.3). Caller identity
-arrives on a declared channel, never from the transport session key:
+`agent_id` gives each subagent its own scenes (§ 4.3). lux identifies a
+caller only by one of these channels, never by the transport session key:
 
 - **Claude Code** — the PreToolUse hook stamps `_caller` (the facts, the
   handle, and `main_agent_id`) via `updatedInput` under the matcher
@@ -420,7 +420,7 @@ vox resolves the caller to the session whose voice, vibe, and conversation it
 serves. voxd is the engine and a layer-2 engine (§ 4.1): it owns session
 state (vibe, voice override) keyed by the handle, scoped per agent so each
 subagent's voice resolves from its ethos persona (§ 4.3); repo defaults stay
-in `vox.md`. Caller identity arrives on a declared channel:
+in `vox.md`. vox identifies a caller only by one of these channels:
 
 - **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
   under the matcher `mcp__(plugin_vox(-dev)?_)?mic__.*`; the server strips it
@@ -439,8 +439,8 @@ what is per session or per agent.
 
 quarry resolves the caller to route each call. The quarry daemon is the
 engine; it holds no per-caller state, so quarry is a layer-1 engine (§ 3):
-each call carries its facts and the daemon keeps nothing per session. Caller
-identity arrives on a declared channel:
+each call carries its facts and the daemon keeps nothing per session. quarry
+identifies a caller only by this channel:
 
 - **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
   under the matcher `mcp__(plugin_quarry(-dev)?_)?quarry(-proxy|-dev)?__.*`;
@@ -454,11 +454,18 @@ quarry's own decision.
 ### 8.5 biff — one engine path, four harnesses
 
 biff resolves the caller's `session_id` and `agent_id` to route messages, track
-presence, and gate the plan. Caller identity arrives on a per-harness declared
-channel, never inferred from the process tree and never read from another
-engine's CLI; biff's engine side runs one channel-agnostic path — strip the
-identity argument before schema validation, validate its shape, refuse an
-unidentified call, resolve:
+presence, and gate the plan. The engine is the `biff mcp` process over stdio,
+the server the plugin's `tty` registration starts. biff holds per-session
+state — presence, the plan, the unread count, and talk state — so it is a
+layer-2 engine (§ 4.1). The handle is the session key, `<user>:<routing id>`,
+where the routing id is derived from `session_id`; it keys the presence row on
+the relay, the active-session marker, and the unread file. The SessionStart
+hook opens the session and stores the handle at
+`~/.punt-labs/biff/sessions/<session_id>/handle` (§ 4.2.3–4). biff identifies
+a caller only by one of these channels, never by the process tree and never
+by another engine's CLI; its engine side runs one channel-agnostic path —
+strip the identity argument before schema validation, validate its shape,
+refuse an unidentified call, resolve:
 
 - **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
   under the matcher `mcp__(plugin_biff(-dev)?_)?tty__.*`.
