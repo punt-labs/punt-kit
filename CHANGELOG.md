@@ -23,6 +23,12 @@ All notable changes to this project will be documented in this file.
   tracker of record and beads a read-mostly mirror, and how to plan, write,
   block, defer, and sync without tripping the `bd linear sync` label and
   cursor hazards. Harness-neutral; ships in the wheel, not under `plugin/`.
+  The "Plan from Linear" bullet names the installed `bd` build as a
+  precondition of the first pull: a punt-labs fork build at or after
+  punt-labs/beads#8 (commit `769f8a1`), checked with `bd version` and
+  `git merge-base --is-ancestor` in the fork clone, because earlier builds
+  write other repos' Linear issues into the shared database as this repo's
+  beads.
 - `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which
   Claude Code session and agent is calling: each plugin's PreToolUse hook
   stamps `_caller {session_id, agent_id}` on its own tools, the server strips
