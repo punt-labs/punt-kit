@@ -27,7 +27,8 @@ from punt_kit.phases.shared.text_file import TextFile
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-console = Console()
+# No emoji codes: a finding that cites ``.gitignore:100:`` must print as written.
+console = Console(emoji=False)
 
 # One audit finding: (status, label, detail).
 type _Findings = list[tuple[str, str, str]]

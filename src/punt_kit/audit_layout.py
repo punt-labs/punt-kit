@@ -16,6 +16,8 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
+from rich.markup import escape
+
 from punt_kit.adoption_table import MIGRATION_TABLE, RowKind
 from punt_kit.audit_verdict import FAIL, PASS
 
@@ -135,16 +137,19 @@ class LayoutAudit:
     def findings(self) -> list[Finding]:
         """Every layout finding; the root-sentinel check runs even outside git."""
         if not self._is_git_root() or not (self._root / ".punt-labs").is_dir():
-            return [self._root_sentinel_finding()]
-        return [
-            self._gitignore_finding(),
-            self._tracked_local_finding(),
-            self._ignored_shared_finding(),
-            self._root_sentinel_finding(),
-            *self._live_state_findings(),
-            self._interim_exclude_finding(),
-            *self._bare_file_findings(),
-        ]
+            raw = [self._root_sentinel_finding()]
+        else:
+            raw = [
+                self._gitignore_finding(),
+                self._tracked_local_finding(),
+                self._ignored_shared_finding(),
+                self._root_sentinel_finding(),
+                *self._live_state_findings(),
+                self._interim_exclude_finding(),
+                *self._bare_file_findings(),
+            ]
+        # A gitignore glob such as [abc] is a character class, not rich markup.
+        return [(status, label, escape(detail)) for status, label, detail in raw]
 
     # --- git ---------------------------------------------------------------
 

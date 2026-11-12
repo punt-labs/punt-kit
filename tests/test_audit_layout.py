@@ -465,6 +465,23 @@ def test_run_audit_prints_layout_findings(
     assert ".vox — migration pending" in out
 
 
+def test_run_audit_prints_gitignore_lines_and_globs_verbatim(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``:100:`` is not an emoji code and ``[abc]`` is a glob, not markup."""
+    from punt_kit.audit import run_audit
+
+    root = _repo(tmp_path, "normal.gitignore")
+    lines = (root / ".gitignore").read_text().splitlines()
+    lines += [""] * (99 - len(lines))
+    lines.append(".punt-labs/vox/[abc].md")
+    (root / ".gitignore").write_text("\n".join(lines) + "\n")
+    with pytest.raises(SystemExit):
+        run_audit(str(root))
+    out = capsys.readouterr().out
+    assert ".punt-labs/vox/[abc].md (.gitignore:100)" in out
+
+
 def test_findings_run_from_any_cwd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
