@@ -40,7 +40,7 @@ STANDARD_DISPLAY_NAMES: dict[str, str] = {
 SUPPORTED_LANGUAGES = ("python", "node", "go", "swift")
 
 # The per-language build tools standards/permissions.md §3 adds to the baseline.
-_LANGUAGE_TOOLS: dict[str, tuple[str, ...]] = {
+LANGUAGE_TOOLS: dict[str, tuple[str, ...]] = {
     "python": ("Bash(uv:*)", "Bash(uvx:*)", "Bash(python3:*)"),
     "node": ("Bash(npx:*)", "Bash(npm:*)"),
     "go": ("Bash(go:*)", "Bash(staticcheck:*)", "Bash(gofmt:*)", "Bash(gofumpt:*)"),
@@ -429,7 +429,8 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
 
     The baseline is what standards/permissions.md §3 says no tool's ``enable``
     owns: the github MCP wildcard, the generic Bash commands, the language
-    tools, and for a CLI project its ``<cli>-server`` rule. A permission value
+    tools, and ``Bash(<name>-server:*)`` for each declared entry point whose
+    name ends in ``-server`` (nothing for a CLI without one). A permission value
     lives in exactly one place, so every plugin MCP wildcard
     (``mcp__plugin_<plugin>_<server>__*``), every ``Skill(<plugin>:<cmd>)``
     rule, and a tool's own ``Bash(<cli>:*)`` are granted by that tool's
@@ -479,16 +480,19 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
         ]
     )
 
-    # Language-specific tools (§3); a project with no language gets none.
-    perms.extend(_LANGUAGE_TOOLS.get(info.language or "", ()))
+    # Language-specific tools (§3); a project with no language gets none. A
+    # language outside the table is a bug in this module, so it raises rather
+    # than silently seeding a project with no tools.
+    perms.extend(() if info.language is None else LANGUAGE_TOOLS[info.language])
 
     # A CLI project's own `Bash(<cli>:*)` reaches its repo the way it reaches
-    # every repo, through `<tool> enable`; only the server binary, which no
-    # enable grants, is baseline. An entry point already named `<cli>-server`
-    # is that rule itself, not a CLI needing a second `-server` suffix.
+    # every repo, through `<tool> enable`; only a server binary, which no
+    # enable grants, is baseline. The rule names a declared `<name>-server`
+    # entry point as-is; nothing is synthesized for a CLI that ships none.
     for cmd in info.cli_commands:
-        server = cmd if cmd.endswith("-server") else f"{cmd}-server"
-        perm = f"Bash({server}:*)"
+        if not cmd.endswith("-server"):
+            continue
+        perm = f"Bash({cmd}:*)"
         if perm not in perms:
             perms.append(perm)
 

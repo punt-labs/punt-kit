@@ -13,7 +13,7 @@ import pytest
 
 from punt_kit import init as init_mod
 from punt_kit.detect import detect
-from punt_kit.init import run_init
+from punt_kit.init import SUPPORTED_LANGUAGES, run_init
 from tests.helpers import (
     flat,
 )
@@ -327,7 +327,9 @@ def test_init_permissions_exclude_plugin_mcp_servers(tmp_path: Path) -> None:
 
 
 def test_init_permissions_grant_the_server_not_the_cli(tmp_path: Path) -> None:
-    """A CLI project gets Bash(<cli>-server:*); Bash(<cli>:*) is the tool's enable."""
+    """A CLI project with no declared server gets neither a `-server` rule nor
+    Bash(<cli>:*); the CLI rule is the tool's enable, and a server rule names
+    only an entry point the project actually ships."""
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "punt-quarry"\n\n'
         '[project.scripts]\nquarry = "quarry.cli:app"\n'
@@ -339,8 +341,9 @@ def test_init_permissions_grant_the_server_not_the_cli(tmp_path: Path) -> None:
     data = json.loads(settings.read_text())
     allow = data["permissions"]["allow"]
 
-    assert "Bash(quarry-server:*)" in allow
+    assert "Bash(quarry-server:*)" not in allow
     assert "Bash(quarry:*)" not in allow
+    assert not any(p.endswith("-server:*)") for p in allow)
 
 
 def test_init_permissions_name_a_server_entry_point_once(tmp_path: Path) -> None:
@@ -375,6 +378,7 @@ def test_init_permissions_keep_punt_cli_as_baseline(tmp_path: Path) -> None:
     allow = data["permissions"]["allow"]
 
     assert allow.count("Bash(punt:*)") == 1
+    assert "Bash(punt-server:*)" not in allow
 
 
 def test_init_then_tool_enable_then_disable_round_trips(tmp_path: Path) -> None:
@@ -386,10 +390,16 @@ def test_init_then_tool_enable_then_disable_round_trips(tmp_path: Path) -> None:
     from punt_kit.audit_permissions import PermissionsAudit
     from punt_kit.audit_verdict import PASS
 
-    (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "test-pkg"\n\n'
+        "[project.scripts]\n"
+        'demo = "demo:main"\n'
+        'demo-server = "demo.server:main"\n'
+    )
     run_init(str(tmp_path))
     settings = tmp_path / ".claude" / "settings.json"
     scaffolded = settings.read_text()
+    assert "Bash(demo-server:*)" in json.loads(scaffolded)["permissions"]["allow"]
     vox_enable_set = ["mcp__plugin_vox_mic__*", "Skill(vox:recap)"]
 
     # vox enable: the order-preserving merge, adding only what is absent.
@@ -1096,7 +1106,7 @@ def test_seeder_keeps_the_development_tools() -> None:
     assert "Bash(gh:*)" in perms
 
 
-@pytest.mark.parametrize("language", [None, "python", "node", "go", "swift"])
+@pytest.mark.parametrize("language", [None, *SUPPORTED_LANGUAGES])
 def test_the_only_mcp_wildcard_is_github(language: str | None) -> None:
     """github ships with Claude Code and no enable owns it; every plugin
     wildcard is granted by that plugin's enable and never seeded here."""
@@ -1109,6 +1119,25 @@ def test_the_only_mcp_wildcard_is_github(language: str | None) -> None:
 
     assert [p for p in perms if p.startswith("mcp__")] == ["mcp__github__*"]
     assert not any(p.startswith("mcp__plugin_") for p in perms)
+
+
+def test_every_supported_language_has_a_tool_set() -> None:
+    """The language table and the supported set are one closed set, so a
+    language added to one without the other fails here, not at a user's init."""
+    from punt_kit.init import LANGUAGE_TOOLS
+
+    assert set(LANGUAGE_TOOLS) == set(SUPPORTED_LANGUAGES)
+
+
+def test_build_standard_permissions_raises_on_an_unknown_language() -> None:
+    """A language outside the table is a bug, not a project with no tools."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
+
+    with pytest.raises(KeyError):
+        build_standard_permissions(
+            ProjectInfo(root=Path("/nonexistent"), language="rust")
+        )
 
 
 def test_baseline_bash_rules_are_present_for_every_project() -> None:
@@ -1186,7 +1215,9 @@ def test_init_refuses_to_replace_a_settings_json_it_cannot_read(
 
 
 def test_init_fails_on_an_unparseable_plugin_manifest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / ".claude-plugin").mkdir()
@@ -1197,6 +1228,7 @@ def test_init_fails_on_an_unparseable_plugin_manifest(
 
     assert raised.value.code == 1
     assert not (tmp_path / ".claude" / "settings.json").exists()
+    assert "plugin.json" in capsys.readouterr().out
 
 
 def test_init_says_when_it_leaves_an_unreadable_settings_local_alone(
