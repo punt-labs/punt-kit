@@ -1,0 +1,67 @@
+mission: m-2026-11-12-011
+round: 1
+created_at: "2026-11-12T10:13:26Z"
+author: adb
+verdict: pass
+confidence: 0.95
+files_changed:
+    - path: biff/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: claude-agent-sdk-smalltalk/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: koch-trainer-swift/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: lux/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: mcp-proxy/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: points/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: prfaq/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: public-website/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: quarry-menubar/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: vox/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+    - path: z-spec/.punt-labs/punt/CLAUDE.md
+      added: 13
+      removed: 2
+evidence:
+    - name: origin/main of all 11 repos has .punt-labs/punt/CLAUDE.md and .punt-labs/punt/enabled (git cat-file -e); none skipped
+      status: pass
+    - name: 'cmp worktree guide vs punt-kit origin/main template: exit 1 before the write, exit 0 after, in all 11 worktrees'
+      status: pass
+    - name: 'npx markdownlint-cli2 _lint_guide.md: Summary: 0 issues in 0 files, in all 11 worktrees; copies deleted'
+      status: pass
+    - name: 'one commit per worktree, docs(punt): refresh the deposited tracker guide, 1 file changed 13 insertions 2 deletions; not pushed'
+      status: pass
+    - name: git status --short of every main checkout captured before and after; cmp identical in all 11; --force never used
+      status: pass
+open_questions:
+    - Nine repos (biff, koch-trainer-swift, lux, points, prfaq, public-website, quarry-menubar, vox, z-spec) already had a local unmerged branch chore/tracker-guide (the earlier first-deposit commit, behind origin/main; also on origin for lux, quarry-menubar, vox). Those branches were left untouched; the refresh in those nine is on branch chore/tracker-guide-refresh at the contract worktree path. claude-agent-sdk-smalltalk and mcp-proxy use chore/tracker-guide as contracted. The leader was messaged and no ruling arrived within the two-minute window, so the recommendation was taken.
+    - 'vox worktree shows unstaged modifications to .punt-labs/ethos/missions.jsonl and seven mission yaml files, written by the ethos storage upgrade that ran at pre-commit (ethos: upgraded storage (8 items)). They are not in the commit.'
+prose: |
+    Per repo: worktree <repo>/.claude/worktrees/guide, commit, cmp before/after, lint.
+    biff 335cadf (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    claude-agent-sdk-smalltalk 658837a (chore/tracker-guide) cmp 1/0 lint 0 issues
+    koch-trainer-swift 7eab3e4 (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    lux 6507fb26 (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    mcp-proxy c4dd064 (chore/tracker-guide) cmp 1/0 lint 0 issues
+    points bc51c8a (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    prfaq e297c60 (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    public-website 845edda (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    quarry-menubar 1e4166e (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    vox d84e24b3 (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues
+    z-spec 8852d61 (chore/tracker-guide-refresh) cmp 1/0 lint 0 issues

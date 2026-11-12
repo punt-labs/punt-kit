@@ -1,0 +1,46 @@
+mission_id: m-2026-11-12-011
+status: closed
+type: implement
+created_at: "2026-11-12T10:04:12Z"
+updated_at: "2026-11-12T10:19:44Z"
+closed_at: "2026-11-12T10:19:44Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: djb
+    pinned_at: "2026-11-12T10:04:12Z"
+    hash: 6cfc8cfc7080e6ccc3a553795d7162414d8c3fb0158768897fbf84a3be517f96
+inputs:
+    files:
+        - punt-kit/src/punt_kit/templates/punt-guide.md
+        - .bin/tracker-guide-rollout.sh
+write_set:
+    - biff/.punt-labs/punt/CLAUDE.md
+    - claude-agent-sdk-smalltalk/.punt-labs/punt/CLAUDE.md
+    - koch-trainer-swift/.punt-labs/punt/CLAUDE.md
+    - lux/.punt-labs/punt/CLAUDE.md
+    - mcp-proxy/.punt-labs/punt/CLAUDE.md
+    - points/.punt-labs/punt/CLAUDE.md
+    - prfaq/.punt-labs/punt/CLAUDE.md
+    - public-website/.punt-labs/punt/CLAUDE.md
+    - quarry-menubar/.punt-labs/punt/CLAUDE.md
+    - vox/.punt-labs/punt/CLAUDE.md
+    - z-spec/.punt-labs/punt/CLAUDE.md
+success_criteria:
+    - Each of the eleven repos has worktree <repo>/.claude/worktrees/guide on branch chore/tracker-guide with one commit changing only .punt-labs/punt/CLAUDE.md, not pushed; `cmp <worktree>/.punt-labs/punt/CLAUDE.md <(git -C punt-kit show origin/main:src/punt_kit/templates/punt-guide.md)` exits 0 in every worktree, and the result records the non-zero exit before the write.
+    - markdownlint reports zero findings on every copy; copies deleted.
+    - 'No main checkout changed: `git -C <repo> status --short` identical before and after in all eleven repos; --force never used.'
+    - Any repo skipped is named with the reason (file or marker absent on origin/main).
+budget:
+    rounds: 1
+    reflection_after_each: false
+current_round: 1
+round_decisions:
+    version: 1
+    entries:
+        - id: 893ca2ad212bb07fa2203ebe29279924
+          round: 1
+          created_at: "2026-11-12T10:16:56Z"
+          author: djb
+          recommendation: continue
+context: 'Docs-only, mechanical, cross-repo. punt-kit #461 merged a new tracker guide template (src/punt_kit/templates/punt-guide.md on punt-kit origin/main, commit 4c6df7b). The workspace rollout `.bin/tracker-guide-rollout.sh --apply` refreshed the deposited copy `.punt-labs/punt/CLAUDE.md` in six repos by PR, but refused eleven repos as DIRTY because their MAIN checkouts carry the operator''s uncommitted work: biff, claude-agent-sdk-smalltalk, koch-trainer-swift, lux, mcp-proxy, points, prfaq, public-website, quarry-menubar, vox, z-spec. Do NOT use --force and do NOT touch any main checkout. For each of the eleven: `git -C <repo> fetch origin`; `git -C <repo> worktree add <repo>/.claude/worktrees/guide -b chore/tracker-guide origin/main`; write the template into the worktree with `git -C punt-kit show origin/main:src/punt_kit/templates/punt-guide.md > <worktree>/.punt-labs/punt/CLAUDE.md`; prove drift first with `cmp` (non-zero before, zero after against the same `git show`); lint on a `_lint_guide.md` copy from the worktree with `npx markdownlint-cli2`, delete the copy, zero findings; commit only that file as `docs(punt): refresh the deposited tracker guide`; do not push; leave the worktree. If a repo''s origin/main lacks `.punt-labs/punt/CLAUDE.md` or the `enabled` marker, say so and skip it (the rollout script, not this mission, does first deposits). Rollout precedent and the §2.4 rules are in .bin/tracker-guide-rollout.sh; this mission changes only the guide file, nothing else (no CLAUDE.md import edits, no AGENTS.md, no beads config). The write-set paths are relative to the workspace root <repo>. Each Bash call is one command. Time box 45 minutes; first commit within 15. The result lists per repo: worktree path, commit SHA, the before/after cmp exit codes, and the lint line.'
