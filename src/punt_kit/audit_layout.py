@@ -273,9 +273,18 @@ class LayoutAudit:
             "Ignored: " + ", ".join(f"{p} ({why[p]})" for p in offenders),
         )
 
+    def _occupied(self, rel: str) -> bool:
+        """True when anything sits at ``rel`` — a dangling symlink included.
+
+        ``Path.exists`` follows the link and reports its missing target, which
+        would grade a stale sentinel symlink as absent.
+        """
+        path = self._root / rel
+        return path.is_symlink() or path.exists()
+
     def _root_sentinel_finding(self) -> Finding:
         label = "No legacy root sentinel"
-        present = [name for name in ROOT_SENTINELS if (self._root / name).exists()]
+        present = [name for name in ROOT_SENTINELS if self._occupied(name)]
         if not present:
             return (PASS, label, "")
         graded = [self._sentinel_grade(name) for name in present]
@@ -286,7 +295,7 @@ class LayoutAudit:
         rows = MIGRATION_TABLE.rows_naming_sentinel(name)
         if not rows:
             return (FAIL, f"{name} — no § 9 row names it")
-        existing = [r for r in rows if (self._root / r.path_naming(name)).exists()]
+        existing = [r for r in rows if self._occupied(r.path_naming(name))]
         row = existing[0] if existing else rows[0]
         if not row.migrates:
             return (FAIL, f"{name} — a stray, not a sentinel (§ 9.1: no migration)")

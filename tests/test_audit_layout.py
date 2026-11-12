@@ -327,6 +327,19 @@ def test_sentinel_named_by_a_row_warns(
     ]
 
 
+def test_dangling_symlink_sentinel_is_present(tmp_path: Path) -> None:
+    """A sentinel occupies its path even when it is a symlink to nothing."""
+    root = _repo(tmp_path, "normal.gitignore")
+    (root / ".vox").symlink_to(root / "nowhere")
+    assert _findings_for(root, "No legacy root sentinel") == [
+        (
+            WARN,
+            "No legacy root sentinel",
+            ".vox — migration pending (§ 9.1 .vox → delete)",
+        )
+    ]
+
+
 def test_sentinel_with_no_migration_fails(tmp_path: Path) -> None:
     root = _repo(tmp_path, "normal.gitignore")
     (root / ".quarry.toml").write_text("")
