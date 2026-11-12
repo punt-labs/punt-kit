@@ -1065,24 +1065,84 @@ def test_template_pin_unrelated_package_untouched(tmp_path: Path) -> None:
     assert "uvx --from punt-other==9.9.9" in content
 
 
-def test_template_pin_deployed_github_workflow_rewritten(tmp_path: Path) -> None:
-    """A deployed .github/workflows/*.yml own-pkg pin is bumped; foreign stays."""
+_DEPLOYED_WORKFLOW_BODY = (
+    f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n"
+    "  - run: uvx --from punt-other==9.9.9 other --do-thing\n"
+)
+
+
+def test_template_pin_phase2_leaves_deployed_github_workflow_alone(
+    tmp_path: Path,
+) -> None:
+    """Phase 2 runs pre-publish: it must not bump a deployed workflow pin.
+
+    A release that fails between the phase 2 merge and the PyPI publish would
+    otherwise leave main's deployed failure notifier pinned to a version PyPI
+    does not have.
+    """
     root = _make_release_project(tmp_path)
     _use_punt_prefixed_name(root)
-    body = (
-        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n"
-        "  - run: uvx --from punt-other==9.9.9 other --do-thing\n"
+    yml = _write_template_pin(
+        root, ".github/workflows/notify.yml", _DEPLOYED_WORKFLOW_BODY
     )
-    yml = _write_template_pin(root, ".github/workflows/notify.yml", body)
-    yaml_ = _write_template_pin(root, ".github/workflows/deploy.yaml", body)
+    yaml_ = _write_template_pin(
+        root, ".github/workflows/deploy.yaml", _DEPLOYED_WORKFLOW_BODY
+    )
 
     info = detect(root)
     _phase2_version_bump(info, "0.2.0", dry_run=False)
 
     for path in (yml, yaml_):
+        assert path.read_text() == _DEPLOYED_WORKFLOW_BODY
+
+
+def test_phase9_bumps_deployed_github_workflow_pin_post_publish(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Phase 9 (after PyPI publish) bumps the own-pkg pin in .yml and .yaml.
+
+    A foreign punt-* pin in the same file is left untouched, and the bump
+    lands as a commit on the post-release branch.
+    """
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    d = str(root)
+    plugin_json = root / ".claude-plugin" / "plugin.json"
+    plugin_json.write_text(
+        json.dumps({"name": "test-dev", "version": "0.2.0"}, indent=2) + "\n"
+    )
+    _git(["add", "."], cwd=d)
+    _git(["commit", "-m", "dev/released HEAD"], cwd=d)
+    yml = _write_template_pin(
+        root, ".github/workflows/notify.yml", _DEPLOYED_WORKFLOW_BODY
+    )
+    yaml_ = _write_template_pin(
+        root, ".github/workflows/deploy.yaml", _DEPLOYED_WORKFLOW_BODY
+    )
+    base_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=d, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+    def fake_pr_merge(**_kwargs: object) -> str:
+        return "abc1234"
+
+    monkeypatch.setattr(release, "_pr_merge", fake_pr_merge)
+
+    info = detect(root)
+    _phase9_post_release(info, "0.2.0", dry_run=False)
+
+    for path in (yml, yaml_):
         content = path.read_text()
         assert f"uvx --from {_OWN_PKG}==0.2.0" in content
         assert "uvx --from punt-other==9.9.9" in content
+    log = subprocess.run(
+        ["git", "log", "--format=%s", f"{base_head}..HEAD"],
+        cwd=d,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.splitlines()
+    assert log == [f"chore: pin deployed workflows to {_OWN_PKG} v0.2.0"], log
 
 
 def test_template_pin_multiple_files_rewritten(tmp_path: Path) -> None:

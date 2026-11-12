@@ -28,16 +28,20 @@ if TYPE_CHECKING:
 # plugin.json, so without this scan a fix landing in a template after a
 # version already tagged stays stale in every future deployment of that
 # template until the NEXT release re-pins it.
-#
-# The project's own DEPLOYED CI workflows under `.github/workflows/` are
-# rendered copies of those templates and carry the same self-referential pin;
-# they are scanned too, or every release strands the deployed copy one
-# version behind the bumped template.
 _TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
     "src/**/data/*.yml",
     "src/**/data/*.yaml",
     "plugin/**/*.yml",
     "plugin/**/*.yaml",
+)
+
+# The project's own DEPLOYED CI workflows are rendered copies of those
+# templates and carry the same self-referential pin. They are bumped only in
+# phase 9, after phase 8 confirms the version is on PyPI: a failure notifier
+# that runs `uvx --from <pkg>==<main pin>` must never name an unpublished
+# version, and phase 2 (pre-publish) would leave it so if the release failed
+# between the merge and the publish.
+_DEPLOYED_WORKFLOW_GLOBS: tuple[str, ...] = (
     ".github/workflows/*.yml",
     ".github/workflows/*.yaml",
 )
@@ -196,12 +200,30 @@ class ReleaseProject:
         return sha
 
     def rewrite_template_pins(self, version: str, *, dry_run: bool) -> list[Path]:
-        """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins.
+        """Rewrite self-referential own-package pins in bundled templates (phase 2)."""
+        return self._rewrite_own_pins(_TEMPLATE_PIN_GLOBS, version, dry_run=dry_run)
 
-        Scans ``_TEMPLATE_PIN_GLOBS`` under the project root. Only pins
-        matching the project's own package name are rewritten — pins for
-        other ``punt-*`` packages are a deliberate supply-chain guarantee,
-        not a stylistic preference, and are left untouched.
+    def rewrite_deployed_workflow_pins(
+        self, version: str, *, dry_run: bool
+    ) -> list[Path]:
+        """Rewrite own-package pins in deployed ``.github/workflows`` (phase 9).
+
+        Call only once ``version`` is published to PyPI.
+        """
+        return self._rewrite_own_pins(
+            _DEPLOYED_WORKFLOW_GLOBS, version, dry_run=dry_run
+        )
+
+    def _rewrite_own_pins(
+        self, globs: tuple[str, ...], version: str, *, dry_run: bool
+    ) -> list[Path]:
+        """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` pins.
+
+        Scans ``globs`` under the project root. Only pins matching the
+        project's own package name are rewritten — pins for other ``punt-*``
+        packages are a deliberate supply-chain guarantee, not a stylistic
+        preference, and are left untouched. This is the single definition of
+        that guard for every caller.
         """
         info = self._info
         own_pkg = self.self_package_name()
@@ -220,7 +242,7 @@ class ReleaseProject:
 
         changed: list[Path] = []
         seen: set[Path] = set()
-        for pattern in _TEMPLATE_PIN_GLOBS:
+        for pattern in globs:
             for path in sorted(info.root.glob(pattern)):
                 if path in seen or not path.is_file():
                     continue

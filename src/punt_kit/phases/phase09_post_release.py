@@ -10,6 +10,7 @@ from rich.console import Console
 from punt_kit.phases.shared.git import GitWorkspace
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.plugin_swap import PluginSwap
+from punt_kit.phases.shared.project_info import ReleaseProject
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
@@ -62,6 +63,9 @@ class Phase9PostRelease:
             if info.is_hybrid or info.is_plugin:
                 ops.dry("bash scripts/restore-dev-plugin.sh")
             ops.dry('git commit -m "chore: restore dev plugin state"')
+            ReleaseProject(info, ops=ops).rewrite_deployed_workflow_pins(
+                version, dry_run=True
+            )
             ops.dry(f'merge(branch={branch}, title="chore: post-release v{version}")')
             return
 
@@ -163,6 +167,22 @@ class Phase9PostRelease:
                 has_changes = True
             else:
                 ops.ok("Dev restore already at HEAD (resume)")
+
+        # Deployed workflow pin: phase 8 has confirmed ``version`` is on PyPI,
+        # so the project's own .github/workflows may now name it. Doing this
+        # in phase 2 would let a release that fails before publish leave the
+        # deployed failure notifier pinned to a version PyPI does not have.
+        # Idempotent: on resume the pins already match, nothing is staged,
+        # and the ahead-of-main check below sees the earlier commit.
+        project = ReleaseProject(info, ops=ops)
+        pinned = project.rewrite_deployed_workflow_pins(version, dry_run=False)
+        if pinned:
+            own_pkg = project.self_package_name()
+            rels = [p.relative_to(root).as_posix() for p in pinned]
+            if workspace.commit_if_staged(
+                rels, f"chore: pin deployed workflows to {own_pkg} v{version}"
+            ):
+                has_changes = True
 
         if not has_changes:
             # Check if branch has commits ahead of main (resume case)
