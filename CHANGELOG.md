@@ -77,6 +77,12 @@ All notable changes to this project will be documented in this file.
   database in its daemon; the selection lives in quarry's MCP client. The
   example is now the lux Hub.
 
+### Removed
+
+- `make skills-check` and `make skills-check-fix`, with `tools/skills_check.py`.
+  They reconciled the `Skill()` table `punt init` used to seed; that table is
+  gone, each plugin's `enable` owns its own `Skill()` rules.
+
 ## [0.18.0] - 2026-11-04
 
 ### Added
