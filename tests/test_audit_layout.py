@@ -14,7 +14,7 @@ import pytest
 from punt_kit.audit_layout import WARN, LayoutAudit
 from punt_kit.audit_verdict import FAIL, PASS
 from punt_kit.detect import detect
-from tests.helpers import git, init_git_repo
+from tests.helpers import git, git_out, init_git_repo
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "punt_labs_dir"
 
@@ -572,6 +572,34 @@ def test_block_missing_means_no_interim_excludes(tmp_path: Path) -> None:
         PASS,
         "No interim exclude survives a completed migration",
         "no canonical block, so no interim excludes",
+    )
+
+
+# --- Unvendored gitlink is audit-unverifiable --------------------------------
+
+
+def test_vendored_subtrees_pass(tmp_path: Path) -> None:
+    root = _repo(tmp_path, "normal.gitignore")
+    assert _finding(root, "Unvendored gitlink is audit-unverifiable") == (
+        PASS,
+        "Unvendored gitlink is audit-unverifiable",
+        "no .punt-labs/<tool> entry is a gitlink",
+    )
+
+
+def test_gitlink_entry_warns(tmp_path: Path) -> None:
+    root = _repo(tmp_path, "normal.gitignore")
+    sha = git_out(["rev-parse", "HEAD"], cwd=str(root))
+    git(
+        ["update-index", "--add", "--cacheinfo", f"160000,{sha},.punt-labs/ethos"],
+        cwd=str(root),
+    )
+    git(["commit", "-m", "gitlink"], cwd=str(root))
+    assert _finding(root, "Unvendored gitlink is audit-unverifiable") == (
+        WARN,
+        "Unvendored gitlink is audit-unverifiable",
+        ".punt-labs/ethos is a gitlink (mode 160000) — audit trail unverifiable"
+        " until vendored (§ 9.3 → .punt-labs/ethos/)",
     )
 
 

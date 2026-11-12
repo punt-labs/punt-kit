@@ -165,6 +165,7 @@ class LayoutAudit:
                 self._root_sentinel_finding(),
                 *self._live_state_findings(),
                 self._interim_exclude_finding(),
+                self._gitlink_finding(),
                 *self._bare_file_findings(),
             ]
         # A gitignore glob such as [abc] is a character class, not rich markup.
@@ -198,6 +199,18 @@ class LayoutAudit:
     def _ls_files(self, *args: str) -> list[str]:
         out = self._git("ls-files", "-z", *args, "--", ".punt-labs")
         return [entry.decode() for entry in out.split(b"\0") if entry]
+
+    def _gitlinks(self) -> list[str]:
+        """The ``.punt-labs/<tool>`` index entries recorded at gitlink mode 160000."""
+        out = self._git("ls-files", "-s", "-z", "--", ".punt-labs")
+        gitlinks: list[str] = []
+        for entry in out.split(b"\0"):
+            if not entry:
+                continue
+            meta, path = entry.decode().split("\t", 1)
+            if meta.startswith("160000 ") and path.count("/") == 1:
+                gitlinks.append(path)
+        return gitlinks
 
     def _check_ignore(self, paths: list[str]) -> dict[str, str]:
         """Each path to the ``source:line:pattern`` that ignores it, or ``""``.
@@ -410,6 +423,21 @@ class LayoutAudit:
             label,
             f"{len(backed)} interim exclude(s), each named by a § 9.4 row",
         )
+
+    def _gitlink_finding(self) -> Finding:
+        """§ 8: a submodule at ``.punt-labs/<tool>`` hides everything audit probes."""
+        label = "Unvendored gitlink is audit-unverifiable"
+        details: list[str] = []
+        for path in self._gitlinks():
+            detail = f"{path} is a gitlink (mode 160000) — audit trail unverifiable"
+            detail += " until vendored"
+            row = MIGRATION_TABLE.row_naming_path(RowKind.REGISTRY, path)
+            if row is not None:
+                detail += f" (§ {row.section} → {row.destination})"
+            details.append(detail)
+        if not details:
+            return (PASS, label, "no .punt-labs/<tool> entry is a gitlink")
+        return (WARN, label, "; ".join(details))
 
     def _bare_file_findings(self) -> list[Finding]:
         label = "No bare file under .punt-labs/"
