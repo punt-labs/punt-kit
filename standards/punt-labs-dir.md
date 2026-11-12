@@ -760,20 +760,14 @@ These extend the audit list in
   exclude ignores nothing, so a finished migration whose exclude was left
   behind would otherwise trip no grade at all. The check keys on the table and
   the § 6 block together, never on tree state.
-- **No de-gitlink strands the migration it unblocks** *(table-driven)*. The
-  ethos registry de-gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
-  is a prerequisite for what needs the
-  `.punt-labs/ethos/` subtree present: the `.punt-labs/ethos.yaml` → config-zone
-  move ([§ 9.2](#92-bare-file-to-subtree)) and in-repo sealing of the deferred
-  chunks ([§ 5](#5-live-state-is-never-a-tracked-file)). The identity-pointer
-  move is carried in the **same change** as the de-gitlink. Audit **fails** a
-  repo whose `.punt-labs/ethos` is an inline vendored subtree (no gitlink)
-  while `.punt-labs/ethos.yaml` is still present: the prerequisite is resolved
-  but the dependent migration was left stranded. The ethos live logs are
-  **not** a dependent here — they are gitlink-immune in the local
+- **A vendored subtree delivers its audit trail** *(graded)*. The ethos
+  registry de-gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
+  is the prerequisite for in-repo sealing of the deferred chunks
+  ([§ 5](#5-live-state-is-never-a-tracked-file)). The ethos live logs do
+  **not** depend on it — they are gitlink-immune in the local
   zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
   blocked; only the tracked landings in the subtree depend on the de-gitlink.
-  Symmetrically, once the subtree is vendored it must
+  Once the subtree is vendored it must
   actually deliver the audit trail it now can — **when the repo tracks any of
   the trace tier** (`git ls-files .punt-labs/ethos/sessions` is non-empty;
   tracked-ness decides, not ignore status, because a gitignore line does not
@@ -812,14 +806,16 @@ These extend the audit list in
   ([§ 1](#1-core-principle)). The stray scan reads the **worktree**, not just
   `git ls-files` — a stray can be untracked or gitignored and still occupy a path.
   A bare file named in the [§ 9.2](#92-bare-file-to-subtree)
-  bare-file table (e.g. `.punt-labs/lux.md`, `.punt-labs/ethos.yaml`) grades by
+  bare-file table (e.g. `.punt-labs/lux.md`) grades by
   **the § 9 row that names that specific artifact** — the
-  join is by row, not by tool ([§ 9.5](#95-grading-keys-on-the-observed-artifact);
-  ethos has several § 9 rows, so a tool-level aggregate would mis-grade
-  `.punt-labs/ethos.yaml`): a **warning**
+  join is by row, not by tool ([§ 9.5](#95-grading-keys-on-the-observed-artifact)):
+  a **warning**
   ("migration pending") while the artifact is present. A bare
   file with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail** outright.
-  The § 9 table names the exempt paths, so the grade is deterministic. The reserved
+  The § 9 table names the exempt paths, so the grade is deterministic.
+  `.punt-labs/ethos.yaml` is neither: it is ethos's configuration file, a
+  documented exception to clause 1 under the ethos storage contract
+  ([§ 9.2](#92-bare-file-to-subtree)), and audit does not flag it. The reserved
   `local/` zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
   is a directory, not a bare file, and is the **one sanctioned non-tool entry**
   directly under `.punt-labs/` — it is expected (gitignored) and never flagged as
@@ -911,22 +907,19 @@ was, one level too high.
 A tool that keeps state as a single file directly under
 `.punt-labs/` — not inside its `<tool>/` subtree — breaks clause 1
 ([§ 1](#1-core-principle), [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)); the
-single-file form is **not** sanctioned. Two bare files are named — `lux`'s
-`.punt-labs/lux.md` and `ethos`'s git-tracked `.punt-labs/ethos.yaml` identity
-pointer. Both move into a subtree, staying git-tracked:
+single-file form is **not** sanctioned. One bare file is named — `lux`'s
+`.punt-labs/lux.md`. It moves into a subtree, staying git-tracked:
 
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.punt-labs/lux.md` (bare file) | `.punt-labs/lux/` (subtree) | Move the file under the tool subtree; subtree-only |
-| `.punt-labs/ethos.yaml` (git-tracked identity pointer) | `.punt-labs/ethos/config.yaml` (config zone, [§ 7](#7-the-punt-labstool-subtree-has-zones)) | Stays tracked; moves from bare root into the config zone. **Sequenced after** the registry gitlink → vendored `ethos/` migration ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) and carried through in the **same change** that completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)) — the config file needs the `ethos/` subtree to exist first |
 
-The `.punt-labs/ethos.yaml` move is deliberately ordered behind the
-`.punt-labs/ethos` gitlink → inline-vendored-subtree migration
-([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) and carried through in the
-**same change** that
-completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)): the pointer lands in
-the config zone of a subtree that must already be present to receive it, and the
-same-change rule keeps the move from stranding as a separate later change.
+`.punt-labs/ethos.yaml` is **not** a bare-file migration. It is ethos's
+configuration file — the one every ethos binary reads — and a documented
+exception to clause 1 under the ethos storage contract (`punt-labs/ethos`,
+`docs/storage-layout.md`, which classes it as Configuration and lists
+`.punt-labs/ethos/config.yaml` among the older layouts the storage upgrade
+converts). It stays where it is, git-tracked, and no § 9 row names it.
 
 ### 9.3 Registry gitlink to vendored subtree
 
@@ -937,7 +930,7 @@ chunks, config — is reachable. The registry is vendored inline:
 
 | Legacy | Destination | Rule |
 |--------|-------------|------|
-| `.punt-labs/ethos` gitlink (submodule) | `.punt-labs/ethos/` inline vendored subtree | De-gitlink, vendoring the registry content as ordinary tracked files; the `.punt-labs/ethos.yaml` → config-zone move ([§ 9.2](#92-bare-file-to-subtree)) rides in the **same change** |
+| `.punt-labs/ethos` gitlink (submodule) | `.punt-labs/ethos/` inline vendored subtree | De-gitlink, vendoring the registry content as ordinary tracked files |
 
 **The de-gitlink unblocks tracked landings, not live paths.** ethos's live logs
 are gitlink-immune — they sit in the local zone
@@ -946,12 +939,9 @@ sibling of the gitlink — so the de-gitlink restores no live path, and the
 ethos live-log row in [§ 9.4](#94-live-state-to-the-local-zone) carries no live
 path. What it **does** unblock is tracked content landing in the
 `.punt-labs/ethos/` subtree: the deferred sealed chunks
-([§ 5](#5-live-state-is-never-a-tracked-file)) begin sealing in-repo, and the
-`.punt-labs/ethos.yaml` → config-zone move becomes possible — both need the
-subtree inline-vendored first. Audit enforces the sequencing
-([§ 8](#8-what-punt-audit-checks)): a repo whose `.punt-labs/ethos` is vendored
-while `.punt-labs/ethos.yaml` is still present is a **fail**, because the
-identity-pointer move was not carried through in the same change.
+([§ 5](#5-live-state-is-never-a-tracked-file)) begin sealing in-repo, which
+needs the subtree inline-vendored first. Audit checks the vendored subtree
+delivers that trail ([§ 8](#8-what-punt-audit-checks)).
 
 **Vendor first, then rely on the trail.** While the gitlink stands, the
 **sealed chunks** (tracked, [§ 5](#5-live-state-is-never-a-tracked-file))
@@ -1020,7 +1010,7 @@ about how far the fleet has migrated:
 § 9 row that names it, and every grade — bare-file, root-sentinel, live-state,
 and interim-exclude — keys on **that row's** artifact, never a tool-level
 aggregate. ethos alone spans several rows (live logs, registry gitlink,
-identity pointer, root runtime directory, trace tier), each with its own
+root runtime directory, trace tier), each with its own
 artifact, so a tool-level join would mis-grade them; the row that names the
 specific artifact is always the authority.
 
@@ -1042,8 +1032,8 @@ by-row join unambiguous by construction.
 ([§ 9.4](#94-live-state-to-the-local-zone)) — gitlink-immune live state in the
 local zone, owning no interim-exclude path — is **audit-silent**: nothing
 probes it, so it draws neither warning nor fail, and its sequencing is held by
-the dependent-migration fail ([§ 8](#8-what-punt-audit-checks)) and design
-review. The registry gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
+the vendored-subtree audit-trail check ([§ 8](#8-what-punt-audit-checks)) and
+design review. The registry gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
 is **not** silent — a `.punt-labs/ethos` gitlink draws the mandatory
 **gitlink-unverifiable warning** ([§ 8](#8-what-punt-audit-checks)) for as long
 as it stands.
