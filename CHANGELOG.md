@@ -6,6 +6,19 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `punt audit` checks the `.punt-labs/` layout against
+  `standards/punt-labs-dir.md` § 8 (`src/punt_kit/audit_layout.py`). Gitignore
+  verdicts come from `git check-ignore` probes against the real index, one set
+  per tool directory present plus one per § 9.4 live path, never from a text
+  match; the canonical block's text only explains a failed probe. The other
+  checks: no tracked local-convention path (boundary-aware, so
+  `config.locales.yaml` is never flagged), no gitignored shared path under
+  `.punt-labs/<tool>/`, no legacy root sentinel, no tracked § 9.4 live path, no
+  stale interim exclude inside the canonical block, and no bare file under
+  `.punt-labs/`; sentinels and bare files grade by the § 9 row that names them.
+  `src/punt_kit/adoption_table.py` holds the § 9.1–9.4 tables as data, and a
+  test parses the standard's Markdown at test time and asserts row-for-row
+  equality. The seal-manifest check is not implemented yet.
 - `docs/WORKFLOW.md` — punt-kit's instantiation of `standards/workflow.md`:
   the verification (`punt` from the installed wheel; `plugin/` through a
   headless `claude -p --plugin-dir plugin` session; `sh install.sh`;
@@ -101,6 +114,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt audit` printed a finding citing `.gitignore:100:` with an emoji in
+  place of `:100:`; the console now disables emoji codes and layout details are
+  markup-escaped.
 - `install.sh` ends by running `punt doctor`, as `standards/distribution.md`
   requires of an installer and `punt audit` checks; the audit no longer fails
   punt-kit's own installer. A failing doctor is reported with the command to

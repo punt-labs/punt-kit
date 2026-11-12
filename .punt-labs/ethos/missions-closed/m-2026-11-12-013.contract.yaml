@@ -1,0 +1,53 @@
+mission_id: m-2026-11-12-013
+status: closed
+type: implement
+created_at: "2026-11-12T11:31:28Z"
+updated_at: "2026-11-12T13:43:53Z"
+closed_at: "2026-11-12T13:43:53Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-11-12T11:31:28Z"
+    hash: 484686a91dca1727f80404fe4fc8f873e0996955d47f5003e3ce767020c64a45
+inputs:
+    files:
+        - standards/punt-labs-dir.md
+        - standards/tool-enable-disable.md
+        - src/punt_kit/audit.py
+        - src/punt_kit/audit_permissions.py
+        - src/punt_kit/detect.py
+        - tests/test_audit.py
+        - docs/WORKFLOW.md
+write_set:
+    - src/punt_kit/audit_layout.py
+    - src/punt_kit/audit.py
+    - src/punt_kit/adoption_table.py
+    - tests/test_audit_layout.py
+    - tests/test_adoption_table.py
+    - tests/fixtures/punt_labs_dir/**
+success_criteria:
+    - '`src/punt_kit/adoption_table.py` holds §10''s rows as frozen data; `tests/test_adoption_table.py` parses the Markdown table from `standards/punt-labs-dir.md` at test time and asserts row-for-row equality, so a table edit without a data edit fails the suite.'
+    - '`LayoutAudit` in `src/punt_kit/audit_layout.py` implements checks 1-7 as specified, each finding carrying the standard''s wording and, for a failed probe, the diagnostic naming what the canonical block lacks; the seal-manifest check is named as unimplemented in the module docstring and the result.'
+    - Probes are behavioral (`git check-ignore` via subprocess, cwd at the repo root, no shell); the verbatim block text never decides a verdict; the local-convention scan is boundary-aware and `config.locales.yaml` and `locales/en.yaml` are never flagged.
+    - '`tests/test_audit_layout.py` covers every check''s PASS, WARN, and FAIL outcome with real git repos under tmp_path and exact detail strings, including the deny-all block with and without the bare-directory line, a `*.local*` over-match, a force-added local-convention file, each legacy sentinel grade, a tracked interim live path, and the registry/identity-pointer sequencing; the result records the suite failing on the unfixed code and passing after.'
+    - '`punt audit` from the installed wheel runs on punt-kit, ../vox, and ../biff and the result pastes each repo''s layout findings verbatim; no sibling repo is modified; punt-kit''s own .gitignore is not modified.'
+    - Every commit passes `make check` with no suppressions; the test count goes up; registered in `run_audit`'s checks tuple through `_guarded`.
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: ea2eb60b7b7de26d217041937d86986f
+          round: 1
+          created_at: "2026-11-12T12:58:54Z"
+          author: gvr
+          recommendation: continue
+        - id: 13b8140a22329d8374f781aa04988a7b
+          round: 2
+          created_at: "2026-11-12T13:43:38Z"
+          author: gvr
+          recommendation: stop
+context: 'T2 implementation, Python, TDD. Bead pkit-6h9l (`bd show pkit-6h9l`): implement the `.punt-labs/` layout checker that standards/punt-labs-dir.md §8 specifies for `punt audit`. The spec is settled (merged standard); this mission builds it. Read §8 ''What punt audit Checks'' in full, plus §4 (local convention), §6 (canonical gitignore block and interim excludes), §9 (root-sentinel table), and §10 (adoption-status table and legend). THE CHECKS, each a separate finding with the standard''s wording: (1) Gitignore behaves correctly: behavioral `git check-ignore` probes, never a text match; set (a) for every `<tool>` directory present under .punt-labs/ except `local/` (shared content must NOT be ignored: `<tool>/CLAUDE.md`, `<tool>/config.yaml`; local-convention forms MUST be ignored: `<tool>/local/x`, `<tool>/foo.local`, `<tool>/config.local.yaml`; counterexamples must NOT be ignored: `<tool>/locales/en.yaml`, `<tool>/config.locales.yaml`; the local zone `.punt-labs/local/<tool>/x` MUST be ignored); set (b) one probe per §6 interim-exclude path derived from §10''s open live-state rows, regardless of whether the tool subtree is present, MUST be ignored. The verbatim-block text check is a diagnostic appended to a failing probe''s detail, never the verdict. (2) No tracked local-convention path: boundary-aware (segment exactly `local`, basename ending `.local`, interior `.local.` segment), never a substring scan, over `git ls-files`. (3) No gitignored non-local-convention path under `.punt-labs/<tool>/`, with exactly one exemption: a path matching an interim exclude whose §10 row is open. (4) No legacy root sentinel: `.biff`, `.vox`, `.lux`, `.ethos`, `.quarry.toml` at the repo root, graded by the §10 row that names the sentinel (warning while open, fail when complete or when no row names it). (5) Live-state migration pending: for each open §10 live-state row, if its live path is git-tracked, warning; fail once the row is complete. (6) No interim exclude survives a completed migration: an interim line present in the block while its §10 row is complete is a fail. (7) No completed row strands the migration it unblocks: a complete ethos(registry) row while the identity-pointer move is incomplete is a fail. The seal-manifest check (''No unsanctioned live state'') is OUT of this mission: it depends on an ethos seal-manifest format this repo does not read; leave a one-line note in the module docstring naming it as unimplemented and say so in the result. THE TABLE. §10 is the sole data source for rows, live paths, sentinels, and statuses; the legend says a row is complete only when its status is exactly `Done` or `Complete`, every other value is open (fail-closed). Encode the table as data in `src/punt_kit/adoption_table.py` (a frozen dataclass per row: tool, artifact, live paths tuple, root sentinel or None, status, and the row kind: live-state / root-sentinel / bare-file / registry / identity-pointer / config), transcribed from §10 as it stands on origin/main today, with a test that parses §10''s Markdown table from `standards/punt-labs-dir.md` at test time and asserts the data module matches it row for row, so the two cannot drift silently. DESIGN RULES. Python standards: `.claude/rules/python-*.md` load when you touch .py; `@final` classes with `__new__`, no public attributes, `from __future__ import annotations`, full annotations, no `Any`, no `hasattr`, no defensive try/except; one `LayoutAudit` class in `audit_layout.py` whose `findings` property returns the `(status, check, detail)` tuples `run_audit` consumes, registered in `audit.py`''s checks tuple with `partial(...)` like the others and wrapped by `_guarded`. Probes run `git check-ignore -q --no-index`? No: use `git check-ignore -q` against the real index so a force-added tracked file is reported as the standard intends; run git via subprocess with `cwd=info.root`, never shell. A repo that is not a git repository, or whose `.punt-labs/` is absent, produces no findings from checks 1-3 and 5-7 and still runs check 4. TESTS FIRST. tests/test_audit_layout.py builds real git repos under tmp_path (git init, write files, `git add`, commit) and asserts each check''s PASS, WARN, and FAIL outcomes by exact detail string: the normal-gitignore canonical block, the deny-all block, a block missing the bare-directory line under deny-all (probe fails, diagnostic names the missing line), a `*.local*` glob that wrongly ignores `config.locales.yaml`, a force-added `foo.local`, a stray tool-specific ignore line, each legacy sentinel at each grade, a tracked interim live path, and the ethos(registry)/identity-pointer sequencing fail. Every test must FAIL on the unfixed code (no `LayoutAudit` exists) and PASS after; record both outputs in the result. Then run the real entry point: `punt audit` from the installed wheel (`make build`, `uv tool install --force dist/*.whl`) on punt-kit itself and on ../vox and ../biff (read-only; do not modify sibling repos), and paste each repo''s layout findings in the result; the leader ran the set-(a) probes against punt-kit''s own `.gitignore` on 2026-11-12 and every probe had the right outcome (`config.locales.yaml` and `locales/en.yaml` not ignored; the local-convention forms and the three interim paths ignored), while punt-kit ignores `.punt-labs/lux.md` (line 30) and carries `.lux` and `.vox` root directories and a bare `.punt-labs/ethos.yaml`, vox carries `.ethos` and a bare `lux.md`, biff carries `.vox` and a bare `lux.md`; so expect real sentinel and bare-file findings and report them as they are; do not change punt-kit''s `.gitignore` in this mission (that is a separate fix). Commit discipline: one commit per logical step (table module + its drift test; probe check + tests; the remaining checks + tests; registration + entry-point run), each passing `make check` (ruff, mypy --strict, pyright, pytest) with no suppressions; time box 180 minutes (T2); first commit within 30 minutes; never more than 30 minutes uncommitted. Worktree: <repo>/.claude/worktrees/6h9l, branch feat/audit-layout, already on origin/main. Do not push; do not touch PRs; do not edit CHANGELOG.md, README.md, or the standard (leader''s commits). Language: Python.'
