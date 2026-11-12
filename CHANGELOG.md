@@ -125,6 +125,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- The root `.gitignore` no longer ignores ethos lock files, live logs,
+  temporaries, or `.punt-labs/ethos/.biff` from its repo-specific section;
+  `standards/punt-labs-dir.md` § 4 and § 6 allow only the canonical block and
+  the § 9.4 interim excludes under `.punt-labs/`, and ethos writes its locks
+  and live logs to the local zone the block already covers. A test asserts
+  the repo-specific section carries no `.punt-labs/` pattern in any spelling
+  (bare, negated, root-anchored, or `**/`-prefixed). The managed section above
+  the marker is the workspace template's and is unchanged.
 - `punt audit` printed a finding citing `.gitignore:100:` with an emoji in
   place of `:100:`; the console now disables emoji codes and layout details are
   markup-escaped.
