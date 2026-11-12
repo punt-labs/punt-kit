@@ -210,9 +210,6 @@ uv.toml
 # Editor project config (JetBrains)
 .idea/
 
-# Local agent state — ethos session audit logs and mission lockfiles.
-# Never publishable: these carry tool inputs including message bodies.
-
 # Per-repo CLAUDE.md lockfile
 .CLAUDE.md.lock
 
@@ -221,26 +218,3 @@ uv.toml
 
 # Working notes, not part of the package
 resume.md
-
-# Ethos: the vendored gstack team (identities, roles, teams, attributes) is
-# tracked under .punt-labs/ethos/ and resolves repo-only. Live and sealed
-# audit state is under .punt-labs/local/ethos/ (ignored above); the only
-# thing ethos puts under .punt-labs/ethos/sessions/ is a record: full
-# publication copy, which is tracked by design. Only mission lock files are
-# ignored here.
-**/.create.lock
-
-# ethos mission records (contract/results/reflections/delegations and the
-# missions.jsonl ledger) are the blame tier and are tracked, per
-# standards/punt-labs-dir.md (ethos DES-079). Only the session-trace tier and
-# locks are machine-local; ignore those so the `punt release` clean-tree
-# preflight passes.
-.punt-labs/ethos/missions/**/*.lock
-.punt-labs/ethos/missions/*/.lock
-.punt-labs/ethos/missions/.create.lock
-.punt-labs/ethos/missions/**/log-*.jsonl
-.punt-labs/ethos/missions.jsonl.lock
-.punt-labs/ethos/.biff
-
-# ethos runtime (never track) — DES-058 live zone
-.punt-labs/**/*.ethos-tmp*

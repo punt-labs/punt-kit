@@ -1,0 +1,46 @@
+mission_id: m-2026-11-12-014
+status: closed
+type: implement
+created_at: "2026-11-12T14:38:58Z"
+updated_at: "2026-11-12T15:18:47Z"
+closed_at: "2026-11-12T15:18:47Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: djb
+    pinned_at: "2026-11-12T14:38:58Z"
+    hash: 6ac1c148642ec86cdc7a5efd1fff8bb15814016a4376611bebc0accebef0928e
+inputs:
+    files:
+        - standards/punt-labs-dir.md
+        - src/punt_kit/audit_layout.py
+        - src/punt_kit/adoption_table.py
+        - tests/test_audit_layout.py
+write_set:
+    - .gitignore
+    - tests/test_repo_gitignore.py
+success_criteria:
+    - The repo-specific section of .gitignore contains no `.punt-labs/` pattern; the managed section above the marker is byte-identical to origin/main.
+    - tests/test_repo_gitignore.py fails on origin/main's .gitignore (naming the offending lines) and passes after the edit; both outputs are in the result and the commit message.
+    - '`git check-ignore -v -n` before/after for the six sample paths is pasted; local-zone paths stay ignored and .punt-labs/ethos/CLAUDE.md stays tracked.'
+    - Read-only ethos commands run in the worktree leave no new untracked path under .punt-labs/ethos/ (git status --porcelain pasted).
+    - Installed `punt audit` layout rows on the worktree before and after are pasted; no new failure.
+    - '`make check` green on the commit; no suppressions; test count goes up.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: 812c31fe40b37e9a6587a13c97bd0775
+          round: 1
+          created_at: "2026-11-12T14:59:01Z"
+          author: djb
+          recommendation: continue
+        - id: 2a82201274e72618bcd971fdc8de8644
+          round: 2
+          created_at: "2026-11-12T15:18:29Z"
+          author: djb
+          recommendation: stop
+context: 'T3 bug fix, TDD, time box 60 minutes, first commit within 30 minutes. Bead pkit-zxz2 (`bd show pkit-zxz2`). Worktree: <repo>/.claude/worktrees/zxz2, branch fix/punt-labs-gitignore, on origin/main (5c1a75f, which includes the punt-labs-dir §8 layout checker). Do not push; do not touch PRs; do not edit CHANGELOG.md or the standard. Language: Python for the test; the .gitignore edit is the fix. THE PROBLEM. standards/punt-labs-dir.md §4 says the local convention is the only ignore convention under .punt-labs/ (''not a manifest, not a per-file exception, not a directory glob''); §6 says the only sanctioned .punt-labs/ ignore lines in a root .gitignore are the canonical block (four boundary lines, or the deny-all form) plus one interim exclude per §9.4 live-state row (today: .punt-labs/quarry/captures/ and .punt-labs/vox/ephemeral/), and says explicitly ''No ethos path is in the list: ethos writes every live stream and every sealed chunk to the local zone''. punt-kit''s root .gitignore violates this in its repo-specific section (below the ''# === Repo-specific ==='' marker): the lines `.punt-labs/ethos/missions/**/*.lock`, `.punt-labs/ethos/missions/*/.lock`, `.punt-labs/ethos/missions/.create.lock`, `.punt-labs/ethos/missions/**/log-*.jsonl`, `.punt-labs/ethos/missions.jsonl.lock`, `.punt-labs/ethos/.biff`, `.punt-labs/**/*.ethos-tmp*`, plus the redundant repo-specific `**/.create.lock` (already in the managed section) and the two comment blocks that justify them. The installed `punt audit` on the live checkout reports check 3 ''Ignored: .punt-labs/ethos/.biff (.gitignore:241:...)''. OUT OF SCOPE, DO NOT TOUCH: everything above the ''# === Repo-specific ==='' marker. That section is written by the workspace rollout from .bin/gitignore-canonical.template in the punt-labs/punt-labs workspace repo; its own violations (`.punt-labs/lux.md`, and `*/**/.claude/` which ignores .punt-labs/ethos/.claude/settings.json) are fixed in the template and rolled out under a separate workspace bead, so a punt-kit-only edit there would be overwritten. THE FIX. Remove the listed repo-specific lines and their comments. Keep everything else in the repo-specific section. THE TEST (first; must fail on the unfixed file). tests/test_repo_gitignore.py: read the repository''s own root .gitignore (locate it from the test file''s path, repo root = parents[1]), split at the ''# === Repo-specific ==='' marker line, and assert the repo-specific section contains zero patterns that start with `.punt-labs/` (after stripping whitespace, ignoring blank lines and comments). Docstring cites punt-labs-dir §4/§6 and names the workspace template as the owner of the managed section. Follow .claude/rules/python-*.md (from __future__ import annotations, full annotations, pathlib, no Any). Record the failing output (which lines) and the passing output in the result. PROOF OF NO REGRESSION. The removed lines claimed to keep `punt release`''s clean-tree preflight green by hiding ethos lock and log files. Per the ethos storage contract (.punt-labs/ethos/CLAUDE.md in this repo, DES-079) locks, live logs and temporaries now live under .punt-labs/local/ethos/, which the canonical block''s `.punt-labs/**/local/**` line already ignores. Verify by execution in the worktree: run `ethos session` and `ethos mission show m-2026-11-12-013` (read-only ethos commands) and then `git status --porcelain` in the worktree; paste the output and confirm no new untracked path appears under .punt-labs/ethos/. Also run `git check-ignore -v -n` on these sample paths before and after the edit and paste both: .punt-labs/ethos/.biff, .punt-labs/ethos/missions/x/.lock, .punt-labs/ethos/missions/x/log-1.jsonl, .punt-labs/ethos/foo.ethos-tmp, .punt-labs/local/ethos/sessions/x.lock (must stay ignored after), .punt-labs/ethos/CLAUDE.md (must stay not ignored). ENTRY POINT. Run the installed `punt audit` (the wheel installed from 5c1a75f already has the layout checker; if `punt --version` is not 0.18.0 with the layout rows, `make build` and `uv tool install --force dist/*.whl` from the worktree first) on the worktree before and after and paste the eight layout rows each time; expected after: check 3 unchanged or improved, no new failure, ''Gitignore behaves correctly'' still 42 probes PASS, interim excludes still 2. Commit discipline: test commit first (failing test alone is not a passing `make check`, so land test + fix in ONE commit with the failing run recorded in the commit message body), `make check` green, no suppressions. The leader runs local review and pushes.'
