@@ -911,7 +911,7 @@ performs the move on its first run in a repo that carries the sentinel
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.biff` (settings) | `.punt-labs/biff/config.yaml` (config zone) | Move settings, then delete the empty root file; never delete with settings inside |
-| `.quarry.toml` (settings) | `.punt-labs/quarry/config.md` (config zone, YAML frontmatter) | Move settings, then delete the empty root file; never delete with settings inside. quarry's `init` deposits directly at the config-zone path and never writes the root form |
+| `.quarry.toml` | `.punt-labs/quarry/config.md` (config zone, YAML frontmatter) | No migration: quarry has never written a repo-root `.quarry.toml` (its only `quarry.toml` is the home-tree `~/.punt-labs/mcp-proxy/quarry.toml` remote profile), and `init` deposits directly at the config-zone path. The row records the destination; a `.quarry.toml` found at a repo root is a stray, not a sentinel |
 | `.vox/config.md` (daemon-mutable settings: model/notify/provider/speak/voice) | `.punt-labs/vox/vox.md` | Move the file, then delete the empty root directory; the destination stays **tracked**, exactly like any other Config-zone file ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — being daemon-rewritten does not exempt it from git status; never deleted with settings inside |
 | `.lux/config.md` (enable/disable-managed setting: `display`, not daemon-rewritten) | `.punt-labs/lux/config.md` | Same |
 | `.biff` / `.vox` / `.lux` (pure presence — no settings inside) | — | Deleted once `.punt-labs/<tool>/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
@@ -964,8 +964,11 @@ vendored subtree delivers that trail ([§ 8](#8-what-punt-audit-checks)).
 
 **Vendor first so published copies can land.** A gitlink never defers the
 seal: the chunk is sealed into the local zone on every pre-commit, in every
-record mode ([§ 5](#5-live-state-is-never-a-tracked-file)), and deleting a
-gitlinked checkout loses nothing sealed. What a gitlink defers is
+record mode ([§ 5](#5-live-state-is-never-a-tracked-file); ethos
+`internal/hook/audit_seal.go` states that local archival is never deferred
+because a record tree is gitlink-mounted, and `audit_repository.go` that
+local completion survives publication failure), and deleting a gitlinked
+checkout loses nothing sealed. What a gitlink defers is
 **publication** — while it stands, the `record: full` copy cannot land in the
 `.punt-labs/ethos/` subtree, so each publication defers until the subtree is
 vendored. The ethos audit-seal design accepts this as a
@@ -1010,11 +1013,14 @@ verifies it, the rollout propagates it — is [§ 6](#6-the-canonical-gitignore-
 § 9 row by what it finds in the repo it is auditing, not by any statement
 about how far the fleet has migrated:
 
-- While the legacy artifact a row names — a root sentinel, a bare file, a
-  gitlink, a tracked live path — is **present** in the repo, the finding grades
-  a **warning** ("migration pending"), and any
-  [§ 6](#6-the-canonical-gitignore-block) interim exclude the row owns stays in
-  the canonical block.
+- While the legacy artifact a row names is **observed** in the repo — a root
+  sentinel, a bare file, or a gitlink present in the worktree, or a live path
+  **git-tracked** — the finding grades a **warning** ("migration pending"),
+  and any [§ 6](#6-the-canonical-gitignore-block) interim exclude the row owns
+  stays in the canonical block. A live path that is on disk but ignored is
+  exactly what the interim exclude sanctions, so it is not observed and grades
+  nothing; the [§ 8](#8-what-punt-audit-checks) live-state grade keys on
+  tracked-ness for the same reason.
 - A repo where the artifact is **gone** grades **nothing** for that row.
 - The interim exclude for a live path is dropped by the rollout in the **same
   change** that relocates the path — the tool release that migrates it. An

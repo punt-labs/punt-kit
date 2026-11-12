@@ -223,9 +223,11 @@ uv.toml
 resume.md
 
 # Ethos: the vendored gstack team (identities, roles, teams, attributes) is
-# tracked under .punt-labs/ethos/ and resolves repo-only. Only runtime state
-# is ignored: per-run sessions and mission lock files.
-.punt-labs/ethos/sessions/
+# tracked under .punt-labs/ethos/ and resolves repo-only. Live and sealed
+# audit state is under .punt-labs/local/ethos/ (ignored above); the only
+# thing ethos puts under .punt-labs/ethos/sessions/ is a record: full
+# publication copy, which is tracked by design. Only mission lock files are
+# ignored here.
 **/.create.lock
 
 # ethos mission records (contract/results/reflections/delegations and the
