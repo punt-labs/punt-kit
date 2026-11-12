@@ -38,7 +38,7 @@ declaration gets no section, whatever the repo's language. `punt audit`
 re-renders the section and fails on any difference, on a `TEX_FILES`
 declaration with no section, and on a `prfaq` target outside the markers.
 Three fixture documents pin the failure contract with stubbed tools in every
-environment and with real TeX where it is installed, which CI will be.
+environment and with real TeX, which CI installs (§ 3.5).
 
 The prfaq plugin's own compile script has the same defect under its own
 issue; it adopts this document's failure contract and fixtures, and neither
@@ -100,7 +100,7 @@ but no `prfaq` target. quarry's `docs` target (lines 189–200) runs
 `pdflatex -halt-on-error` three times under `set -e` with `biber … || exit
 1`, so it catches a failed pass and a biber crash but reads no log: an
 undefined `\ref` and a missing database entry pass. ethos's `docs-pdf`
-target (lines 85–97) runs `latexmk -halt-on-error`, which reruns to
+target (lines 85–98) runs `latexmk -halt-on-error`, which reruns to
 convergence but also exits 0 on unresolved references. Both are opt-in
 targets outside `make check` by each repo's stated decision. They are not in
 this unit's rollout; § 5.4 says how they join.
@@ -161,7 +161,7 @@ repo carries the reason for each line.
 **Supersedes** variants A and B, the template in `standards/makefile.md`
 lines 141–172, and cryptd's hand-rolled block, which the managed section
 replaces (§ 5.4). The plugin script is superseded in contract, not in code:
-PL-715 adopts § 3.4 and the fixtures.
+the prfaq repo's own issue adopts § 3.4 and the fixtures.
 
 ---
 
@@ -181,12 +181,38 @@ make clean-tex               # removes intermediates for TEX_FILES by name; neve
 output in two ways. It renders a third section, `prfaq`, when the Makefile
 declares `TEX_FILES`, and it renders that section for a repo of any language.
 Today `_seed_file` returns with "Makefile templates only support Python —
-skipping" for every non-Python repo. After this design that message is
-printed only when no section applies: a non-Python repo without `TEX_FILES`
-is skipped as before; a non-Python repo with `TEX_FILES` gets the `prfaq`
-section and nothing else; a Python repo gets `standard-targets`, `help`, and
-`prfaq` when declared. These are the output changes `docs/WORKFLOW.md`
-§ "Architectural units" names, and they are why this is a design mission.
+skipping" for every non-Python repo. That sentence becomes false under this
+design and is replaced: the skip line is printed only when no section
+applies, and reads `No Makefile section applies: standard-targets and help
+need a Python project; prfaq needs a TEX_FILES declaration — skipping`.
+These are the output changes `docs/WORKFLOW.md` § "Architectural units"
+names, and they are why this is a design mission.
+
+**Output and exit status.** `seed` honors the global `--json` and `--quiet`
+flags every `punt` command carries (`main_callback` in `__main__.py`), and
+today prints its result through the `rich` console on stdout. The rows
+below are the contract for every path this design touches; the
+`--json` object is one value on stdout with the keys shown, and the exit
+status is 0 on every row because a repo with nothing to render is not an
+error.
+
+| Repo | `TEX_FILES` declared | Sections rendered | Text (stdout) | `--json` | Exit |
+|------|----------------------|-------------------|---------------|----------|------|
+| Python | yes | `standard-targets`, `help`, `prfaq` | `Updated:` then `✓ Makefile` indented two spaces; or `No changes needed.` when the file already matches | `{"target": "makefile", "sections": ["standard-targets", "help", "prfaq"], "changed": ["Makefile"]}` (`changed` is `[]` when nothing changed) | 0 |
+| Python | no | `standard-targets`, `help` | as above | `{"target": "makefile", "sections": ["standard-targets", "help"], "changed": [...]}` | 0 |
+| non-Python | yes | `prfaq` | as above | `{"target": "makefile", "sections": ["prfaq"], "changed": [...]}` | 0 |
+| non-Python | no | none | the skip line above, then `No changes needed.` | `{"target": "makefile", "sections": [], "changed": [], "skipped": "no section applies"}` | 0 |
+| any, `--dry-run` | either | as the matching row | `~ Makefile (+N lines)` indented two spaces (or `+ Would create Makefile`), then `Dry run — no files modified.`; the skip line instead when no section applies | the matching object with `"dry_run": true` and `changed` holding what would change | 0 |
+
+`--quiet` suppresses the text lines; the `--json` object is unaffected by
+`--quiet`. The existing failure paths (`run_seed` on a non-directory, an
+unknown target, an unclosed marker, an unreadable project file) keep their
+`Error:` line and exit 1, and under `--json` print `{"error": "..."}` as
+`_die` does. The skip line goes to stdout, as the current message does,
+because it is a result, not an error. `tests/test_cli.py` pins each row:
+the sections list, the text lines, the `--json` keys, and exit 0; and pins
+that the retired "only support Python" sentence no longer appears for any
+input.
 
 ### 3.2 The opt-in
 
@@ -320,10 +346,12 @@ its directory, its basename without `.tex`, and `<base>.build`.
 | 7 | pass 2 (post-biber) exits nonzero | `grep -A3 '^!'` | `Error: <f> failed to compile (pdflatex pass 2, post-biber); see <dir>/<job>.log` | 2 |
 | 8 | final pass exits nonzero | `grep -A3 '^!'` | `Error: <f> failed to compile (pdflatex final pass); see <dir>/<job>.log` | 2 |
 | 9 | final `.log` matches `TEX_UNRESOLVED` | the matching `.log` lines | `Error: <f> has unresolved references; see <dir>/<job>.log` | 2 |
-| 10 | `mv <dir>/<job>.pdf <dir>/<base>.pdf` fails | `mv`'s own message | `Error: could not replace <dir>/<base>.pdf; built PDF left at <dir>/<job>.pdf` | 2 |
+| 10 | every pass exits 0 and no `<dir>/<job>.pdf` exists (`pdflatex` wrote "No pages of output"), or `mv` cannot write `<dir>/<base>.pdf` | `mv`'s own message (`mv: <dir>/<job>.pdf: No such file or directory` in the first case) | `Error: could not replace <dir>/<base>.pdf; built PDF left at <dir>/<job>.pdf` | 2 |
 | 11 | every check passes | `Warning: N overfull hbox warning(s) in <f>; …` and the lines, when N > 0 | none; stdout `<dir>/<base>.pdf` indented two spaces | 0 |
 
-Rows 2, 6, 9, and 11 were observed on this host (§ 2.4). The others follow
+Rows 2, 6, 9, 10, and 11 were observed on this host (§ 2.4; row 10 with a
+document whose body is empty, so every pass exits 0 and no PDF is written).
+The others follow
 the same `|| { …; exit 1; }` shape and are pinned by the stub tests of
 § 3.5. A document that cites nothing never writes a `.bcf`, so rows 4–7 do
 not apply to it and `TEX_FILES` with several documents stops at the first
@@ -334,9 +362,11 @@ failing one.
 Two layers, both in `tests/`, both run by `make test`.
 
 **Fixtures.** `tests/fixtures/prfaq/` holds `clean.tex`, `clean.bib`,
-`badcite.tex` (cites `missing99`), `badref.tex` (references `sec:zz`), and
-`pass1-error.tex` (an undefined control sequence). `badcite.tex` and
-`badref.tex` share `clean.bib`. Each is the one-section `article` of § 2.4.
+`badcite.tex` (cites `missing99`), `badref.tex` (references `sec:zz`),
+`pass1-error.tex` (an undefined control sequence), and `nopages.tex` (an
+empty body, so every pass exits 0 and no PDF is written). `badcite.tex` and
+`badref.tex` share `clean.bib`. The first three are the one-section
+`article` of § 2.4.
 Beside them, `tests/fixtures/prfaq/logs/` holds the `.log` and `.blg` each
 document produced under real TeX on this host on 2026-11-12, the captures
 the stub tools replay.
@@ -356,10 +386,13 @@ environment variable the test sets per case. One parametrized test per row
 of § 3.4 asserts the `make` exit status, the exact last stderr line, the
 diagnostic lines where the row names them, that the tracked PDF's bytes are
 unchanged on every failing row, and that `<job>.log` survives. Row 2 clears
-`pdflatex` from the stub directory; row 4 clears `biber`; row 10 makes the
-document's directory read-only before the run (the test asserts it is not
-running as root, since root ignores the mode). Row 11 asserts the PDF now
-holds the stub's bytes and that no `<job>.*` file remains.
+`pdflatex` from the stub directory; row 4 clears `biber`; row 10 is the
+`nopages` scenario, in which the stub `pdflatex` exits 0 and writes
+`<job>.log` but no `<job>.pdf`, so the `mv` is the step that fails, with its
+own `No such file or directory` line before the row-10 `Error:` line (real
+`pdflatex` does the same for a document with no pages, § 2.4). Row 11
+asserts the PDF now holds the stub's bytes and that no `<job>.*` file
+remains.
 
 This is the failing-then-passing test. On the unfixed code the `prfaq`
 section does not exist, so `run_seed` renders no target and every case
@@ -417,9 +450,9 @@ a Claude Code session on whatever path the skill names, from
 can call the other: the Makefile cannot resolve a plugin cache path, and the
 plugin cannot assume a seeded Makefile.
 
-What they share is the contract. PL-715 adopts § 3.4 verbatim (same job
+What they share is the contract. The prfaq repo's own issue adopts § 3.4 verbatim (same job
 name, same two patterns, same `Error:` lines with the script's own exit 1,
-same guarded replace) and copies the three fixture documents into prfaq's
+same guarded replace) and copies the four fixture documents into prfaq's
 own `tests/`. Divergence after that is a drift between a standard's template
 and a tool's copy, and the prfaq repo's review catches it the same way any
 standards drift is caught. No code moves between the repos, and no release
@@ -515,7 +548,7 @@ documents through the real entry point and does not re-test the recipe.
 | Alternative | Why rejected |
 |-------------|--------------|
 | Real-TeX tests only, `@pytest.mark.skipif(shutil.which("pdflatex") is None)` | Skips in today's CI and on any host without TeX, so the gate passes for the wrong reason; the Python testing rule forbids a skip without a tracked fix. |
-| Real-TeX tests behind a `tex` marker excluded from `make test`, run only in CI | Local `make check` green stops meaning CI green on the operator's hosts, and the pattern-drift check never runs where the recipe is edited. |
+| Real-TeX tests behind a `tex` marker excluded from `make test`, run only in CI | This is the Python testing rule's default (PL-TT-1: external-tool subprocess tests are tier 3, optional in CI, behind a marker), and the design departs from it; see decision 5. Local `make check` green would stop meaning CI green on the operator's hosts, and the pattern-drift check would never run where the recipe is edited. |
 | Stub-tool tests only | Captured logs go stale silently when TeX changes its warning text; the real tier is what notices. |
 | Assert on `tests/test_seed.py` rendering alone (the section contains the grep patterns) | Proves the template renders, not that the recipe fails on a bad document; the bead's defect is behavioral. |
 | Keep variant A in the tree as a fixture so the suite shows it passing a bad document | Encodes the bug as expected behavior; the failing run is recorded in the mission result instead. |
@@ -542,7 +575,7 @@ documents through the real entry point and does not re-test the recipe.
    |------|--------|--------------------------|--------------|
    | vox | 103–128 | `TEX_FILES = prfaq.tex` | add `*.build.pdf` |
    | biff | 80–108 | `TEX_FILES = prfaq.tex`; the `docs/*` sweep of `clean-tex` 107–108 moves to a `clean-docs` target | add `*.build.pdf` |
-   | lux | 171–200, 205–206 | `TEX_FILES = prfaq.tex docs/architecture/system.tex`; the `docs/` sweeps of 172–180 move to `clean-docs` | add `*.build.pdf`; lines 80–85 ignore `/prfaq.aux` etc. by exact name, so add the `/prfaq.build.*` forms or widen to `/prfaq*.aux` |
+   | lux | 171–200, 205–206 | `TEX_FILES = prfaq.tex docs/architecture/system.tex`; the `docs/` sweeps of 172–180 move to `clean-docs` | add `*.build.pdf`; lines 81–87 ignore `/prfaq.aux` etc. by exact name, so add the `/prfaq.build.*` forms or widen to `/prfaq*.aux` |
    | beadle | 96–129 | `TEX_FILES` line 105 | line 170 `*.pdf` already covers `*.build.pdf`; add the explicit line anyway so the audit row reads the same everywhere |
    | prfaq | 8–12, 26–55, 77–78 | `TEX_DIRS` 6 and `TEX_FILES` 21; `test: prfaq` 57 | add `*.build.pdf` |
    | cryptd | 179–246 except `TEX_FILES` 179 | `TEX_FILES = prfaq.tex` and the comment at 177–178 | line 203 `prfaq.build.pdf` becomes `*.build.pdf` |
@@ -673,13 +706,26 @@ fixes a choice the bead left open, and is phrased for a one-word ruling.
 4. **cryptd's hand-rolled block is replaced by the managed section.** The
    bead treats cryptd as done ("formerly cryptd"); the design brings it
    under the audit (§ 5.4). Recommend replace. Confirm or course-correct.
-5. **The real-TeX tests fail, not skip, without TeX, and CI installs TeX
-   Live and biber.** `test.yml` gains one `apt-get install` step
-   (`texlive-latex-base`, `texlive-latex-recommended`,
-   `texlive-bibtex-extra`, `biber`), and `make test` on a punt-kit dev host
-   needs `pdflatex` and `biber`. The bead does not say where the test runs;
-   the contract asks. Recommend hard failure plus the CI step, on ethos's
-   precedent for `fuzz`. Confirm or course-correct.
+5. **The real-TeX tests fail, not skip, without TeX; CI installs TeX Live
+   and biber; and this departs from the Python testing rule.** Two costs,
+   stated outright: every punt-kit dev host needs `pdflatex` and `biber`
+   installed or `make test` fails (MacTeX or a TeX Live install, several
+   hundred megabytes), and every CI run pays an `apt-get install` of
+   `texlive-latex-base`, `texlive-latex-recommended`,
+   `texlive-bibtex-extra`, and `biber` before pytest. The standard it
+   departs from: `python-testing.md` PL-TT-1 places subprocess tests that
+   need an external tool at tier 3, optional in CI, behind a pytest marker,
+   so the rule's own default is the rejected alternative in § 5.3 (a `tex`
+   marker outside `make test`, run in CI only). The two options:
+   (a) hard-fail plus the CI step, on ethos's `fuzz` precedent, so local
+   `make check` green means CI green and the pattern-drift check runs
+   wherever the recipe is edited, at the cost of TeX on every dev host;
+   (b) a tier-3 `tex` marker per PL-TT-1, run by CI and by `make test-tex`
+   on demand, so dev hosts need no TeX and local `make check` does not
+   prove the real-TeX rows. Recommend (a): the recipe's whole defect is a
+   tool whose output is read instead of its exit code, and the one test
+   that detects a TeX release changing that output must run where the
+   recipe is edited, not only after push. Confirm or course-correct.
 6. **quarry and ethos are not in this rollout.** The bead lists them among
    the eight repos sharing the recipe; neither has a `prfaq` target, and
    each has its own compile loop with its own documented reason for staying
@@ -696,11 +742,11 @@ fixes a choice the bead left open, and is phrased for a one-word ruling.
    user-owned Makefile and `punt seed makefile` is its one writer, so the
    audit row names that verb instead. Recommend no `--fix` path. Confirm or
    course-correct.
-9. **The plugin script is fixed under prfaq's own issue by adopting this
-   contract, with no code shared between the repos.** The bead offers the
-   script as a candidate home for the canonical recipe. Recommend the
-   two-implementations-one-contract relationship of § 3.7. Confirm or
-   course-correct.
+9. **The plugin script is fixed under prfaq's own issue (Linear PL-715) by
+   adopting this contract, with no code shared between the repos.** The
+   bead offers the script as a candidate home for the canonical recipe.
+   Recommend the two-implementations-one-contract relationship of § 3.7.
+   Confirm or course-correct.
 
 ---
 
@@ -715,7 +761,8 @@ workspace or child.
 |------|---------|
 | `src/punt_kit/templates/seed/makefile/prfaq.mk.j2` | The § 3.3 recipe body between the markers; no Jinja variables. |
 | `src/punt_kit/makefile_sections.py` | `MakefileSectionPlan`: given `ProjectInfo` and the Makefile's unmanaged text, decides which of `standard-targets`, `help`, and `prfaq` apply (`TEX_FILES` detection per § 3.2). |
-| `src/punt_kit/seed.py` | `MAKEFILE_SECTIONS` gains `("prfaq", "makefile/prfaq.mk.j2")`; `_seed_file` uses `MakefileSectionPlan` instead of the Python-only return, and prints the skip message only when no section applies. |
+| `src/punt_kit/seed.py` | `MAKEFILE_SECTIONS` gains `("prfaq", "makefile/prfaq.mk.j2")`; `_seed_file` uses `MakefileSectionPlan` instead of the Python-only return; the "only support Python" sentence is replaced by the § 3.1 skip line, printed only when no section applies; `run_seed` returns the sections rendered as well as the files changed so the § 3.1 `--json` object can be built. |
+| `src/punt_kit/__main__.py` | `seed` emits the § 3.1 `--json` object through `_emit` and honors `--quiet`; no new flag. |
 | `src/punt_kit/audit_prfaq.py` | `PrfaqRecipeAudit(info).findings`: the § 3.6 rows; re-renders through `render_section` and reads the Makefile through `parse_segments`. |
 | `src/punt_kit/audit.py` | Registers `PrfaqRecipeAudit` in the checks tuple; `_check_makefile`'s Python-only return no longer gates it. |
 | `.github/workflows/test.yml` | One `apt-get install` step for TeX Live and biber before `uv run pytest`. |
@@ -730,12 +777,13 @@ workspace or child.
 | `tests/fixtures/prfaq/badcite.tex` | Cites `missing99`; shares `clean.bib`. |
 | `tests/fixtures/prfaq/badref.tex` | References `sec:zz`; shares `clean.bib`. |
 | `tests/fixtures/prfaq/pass1-error.tex` | An undefined control sequence, for rows 3, 7, and 8. |
-| `tests/fixtures/prfaq/logs/*.log`, `*.blg` | The real `.log` and `.blg` each document produced on 2026-11-12, replayed by the stubs: `clean`, `badcite`, `badref`, `pass1-error`, and a `biber-crash.blg` with an `ERROR -` line for row 5. |
-| `tests/test_prfaq_recipe.py` | Layer 1: one parametrized case per § 3.4 row with stub `pdflatex` and `biber`; asserts exit status, last stderr line, diagnostic lines, untouched tracked PDF, surviving `<job>.log`. |
+| `tests/fixtures/prfaq/nopages.tex` | An empty document body: every pass exits 0 and no PDF is written, for row 10. |
+| `tests/fixtures/prfaq/logs/*.log`, `*.blg` | The real `.log` and `.blg` each document produced on 2026-11-12, replayed by the stubs: `clean`, `badcite`, `badref`, `pass1-error`, `nopages`, and a `biber-crash.blg` with an `ERROR -` line for row 5. |
+| `tests/test_prfaq_recipe.py` | Layer 1: one parametrized case per § 3.4 row with stub `pdflatex` and `biber`; row 10 via the `nopages` scenario (stub exits 0, writes the `.log`, no `.pdf`); asserts exit status, last stderr line, diagnostic lines, untouched tracked PDF, surviving `<job>.log`. |
 | `tests/test_prfaq_recipe_tex.py` | Layer 2: `clean`, `badcite`, `badref` under real TeX; fails with the install message when `pdflatex` or `biber` is absent. |
 | `tests/test_seed.py` | Section rendered iff `TEX_FILES` declared; non-Python repo with `TEX_FILES` gets `prfaq` only; Python repo without it gets the two existing sections only; idempotent; the prfaq repo's `foreach`/`wildcard` form is detected. |
 | `tests/test_audit.py` | Each § 3.6 row, including the hand-rolled-target row against a copy of vox's lines 103–128. |
-| `tests/test_cli.py` | `punt seed makefile --dry-run` output for a `TEX_FILES` repo. |
+| `tests/test_cli.py` | Every row of the § 3.1 output table: the four repo-by-declaration cases and `--dry-run`, each for text and `--json`, exit 0; the retired "only support Python" sentence appears for no input; `--quiet` suppresses the text lines. |
 
 ### Docs and standards
 
@@ -765,4 +813,4 @@ workspace or child.
 
 | File | Purpose |
 |------|---------|
-| `prfaq/plugin/scripts/compile_prfaq.sh` | PL-715 in the prfaq repo adopts § 3.4 and copies the three fixture documents. |
+| `prfaq/plugin/scripts/compile_prfaq.sh` | The prfaq repo's own issue adopts § 3.4 and copies the four fixture documents. |
