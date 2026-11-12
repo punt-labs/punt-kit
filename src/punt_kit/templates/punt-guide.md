@@ -36,10 +36,11 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
   punt-labs/beads#8 (commit `769f8a1`). Take the commit `bd version` prints
   and confirm `git merge-base --is-ancestor 769f8a1 <that commit>` in the
   fork clone (`.bin/install-bd.sh install` in the punt-labs/punt-labs
-  meta-repo builds it into `.tmp/beads-fork/`); if it is not, rebuild before
-  pulling. Earlier builds ignore or only partly honour `linear.pull_label`
-  and write other repos' Linear issues into the shared database as this
-  repo's beads. Then refresh the mirror:
+  meta-repo clones the fork into `.tmp/beads-fork/` and installs
+  `~/.local/bin/bd`); if it is not, rebuild before pulling. Earlier builds
+  ignore or only partly honour `linear.pull_label` and write other repos'
+  Linear issues into the shared database as this repo's beads. Then refresh
+  the mirror:
   `bd linear sync --pull-if-stale --relations --team c1dfbb2c-985e-40cf-b004-5127646efc9d`
   pulls only when `.beads/last_pull` is missing or older than 20 minutes, never
   twice within 5 minutes (needs `LINEAR_API_KEY`). `--relations` imports added
