@@ -199,7 +199,7 @@ See DES-006 in DESIGN.md for the full root cause analysis.
 
 ### Fallback
 
-A project without `install.ps1` documents the manual Windows installation path (e.g., `pip install`, `npm install`) in its README.
+A project without `install.ps1` documents the manual Windows installation path (e.g., `pip install`, `npm install`) in its README; that documentation does not satisfy the `install.ps1` requirement above.
 
 ### Developer-facing scripts
 
