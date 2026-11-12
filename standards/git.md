@@ -204,12 +204,9 @@ Mission: m-2026-07-27-020
 Delegation: claude → mdm (eval rop)
 ```
 
-The intended mechanism is a commit-msg hook that stamps the trailers from the
-active mission, so an agent never types them by hand. That hook is future work
-on the ethos side; until it ships, the convention is specified but not
-enforced by tooling — do not require a stamp that does not exist yet. A code
-commit missing the trailers is not yet a defect; once the hook lands, an
-un-stamped code commit means the work skipped the mission process.
+The commit-msg hook that `ethos enable` installs stamps the trailers from the
+active mission, so an agent never types them by hand. An un-stamped code
+commit in an ethos-enabled repo means the work skipped the mission process.
 
 ---
 
