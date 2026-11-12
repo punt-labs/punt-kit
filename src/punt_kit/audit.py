@@ -14,6 +14,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.audit_github import GithubSettingsAudit
+from punt_kit.audit_layout import LayoutAudit
 from punt_kit.audit_permissions import PermissionsAudit
 from punt_kit.audit_verdict import FAIL, FIXED, INFO, PASS
 from punt_kit.detect import ProjectInfo, detect
@@ -85,6 +86,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
         partial(_check_beads, info),
         partial(_check_claude_md, info),
         PermissionsAudit(info).findings,
+        LayoutAudit(info).findings,
         partial(_check_makefile, info),
         partial(_check_plugin_dev_isolation, info),
         partial(_check_install_sh, info),

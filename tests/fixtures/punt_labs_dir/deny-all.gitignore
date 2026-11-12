@@ -1,0 +1,10 @@
+*
+!.gitignore
+!.punt-labs/
+!.punt-labs/**
+.punt-labs/**/local
+.punt-labs/**/local/**
+.punt-labs/**/*.local
+.punt-labs/**/*.local.*
+.punt-labs/quarry/captures/
+.punt-labs/vox/ephemeral/

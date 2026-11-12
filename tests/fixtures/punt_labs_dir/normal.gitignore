@@ -1,0 +1,6 @@
+.punt-labs/**/local
+.punt-labs/**/local/**
+.punt-labs/**/*.local
+.punt-labs/**/*.local.*
+.punt-labs/quarry/captures/
+.punt-labs/vox/ephemeral/
