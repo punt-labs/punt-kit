@@ -1,0 +1,69 @@
+mission_id: m-2026-11-12-008
+status: closed
+type: implement
+created_at: "2026-11-12T06:55:41Z"
+updated_at: "2026-11-12T07:19:36Z"
+closed_at: "2026-11-12T07:19:36Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-11-12T06:55:41Z"
+    hash: 4de1845341318fcf65faaf4ff89816d3b5525e79ce866610d656db6cc36913cf
+inputs:
+    files:
+        - cryptd/.beads/README.md
+        - cryptd/.beads/config.yaml
+        - koch-trainer-swift/.beads/README.md
+        - use-cases/.beads/config.yaml
+        - punt-kit/docs/WORKFLOW.md
+write_set:
+    - mcp-proxy/.beads/README.md
+    - mcp-proxy/.beads/.gitignore
+    - mcp-proxy/CLAUDE.md
+    - mcp-proxy/CHANGELOG.md
+    - public-website/.beads/README.md
+    - public-website/CLAUDE.md
+    - public-website/CHANGELOG.md
+    - anthropic-sdk-pharo/.beads/README.md
+    - anthropic-sdk-pharo/CLAUDE.md
+    - anthropic-sdk-pharo/src/**/*.st
+    - prfaq/.beads/README.md
+    - cryptd/.beads/README.md
+    - cryptd/CLAUDE.md
+    - cryptd/CHANGELOG.md
+    - cryptd/.github/copilot-instructions.md
+    - points/.beads/README.md
+    - points/docs/WORKFLOW.md
+    - points/AGENTS.md
+    - points/MODULE.bazel
+    - points/docs/adr/0005-go-single-binary.md
+    - claude-agent-sdk-smalltalk/.beads/README.md
+    - claude-agent-sdk-smalltalk/src/Claude-Workbench-Tests/ClaudeWorkbenchTest.class.st
+    - claude-agent-sdk-smalltalk/src/Claude-Agent-Dashboard-Tests/AgentConversationDetailTest.class.st
+    - circuit/.beads/README.md
+    - circuit/.beads/config.yaml
+    - use-cases/.beads/README.md
+    - use-cases/.beads/config.yaml
+    - koch-trainer-swift/.beads/README.md
+    - koch-trainer-swift/.beads/config.yaml
+success_criteria:
+    - Every finding in pkit-5nt5 and pkit-8pxp is fixed in a per-repo worktree at <repo>/.claude/worktrees/5nt5 on branch docs/beads-doc-fixes, committed, not pushed; no child repo's main checkout is modified (the result shows `git -C <repo> status --short` on the main checkout unchanged from before, per repo).
+    - 'The systematic README fix lands in every migrated repo that carries the stale sentence (mcp-proxy, public-website, anthropic-sdk-pharo, prfaq, cryptd, points, claude-agent-sdk-smalltalk, use-cases, koch-trainer-swift; the result states that circuit and pi-tools do not carry it, with the grep): the source-of-truth line names config.yaml first, metadata.json as fallback, and BD_ISSUE_PREFIX; the prefix bullet names all three tiers.'
+    - The Never list in circuit, use-cases, and koch-trainer-swift includes 'no unscoped --push'; the config.yaml comment in use-cases and koch-trainer-swift no longer says the key 'wins for every reader'; koch's README says the pull_label check runs in the checkout bd runs in.
+    - Each repo-specific item (aspharo orphan-bead wording and eight stasdk ids; points read-mostly, by-id refresh, PL-490; mcp-proxy, public-website, cryptd dep remove and exemption note; mcp-proxy .gitignore header; cryptd copilot-instructions epic wording; public-website worktree config wording; stasdk two tests) is fixed and listed with its line.
+    - markdownlint zero findings on every changed .md (copies under the worktree, deleted after); make check green in every worktree that has it; the result pastes each command and its tail.
+    - 'No wording claims a tool does something it does not: every sentence about bd behavior matches cryptd''s corrected README or the bead text; no bead IDs are added except PL-490 / points-gve where the bead asks for it.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+round_decisions:
+    version: 1
+    entries:
+        - id: 592f630485b72803e4902b99902319e0
+          round: 1
+          created_at: "2026-11-12T07:19:14Z"
+          author: rop
+          recommendation: stop
+context: 'Beads pkit-5nt5 and pkit-8pxp (both operator-filed, 2026-11-12): docs-accuracy defects on main across eleven child repos, left by the Linear migration wave. Read both beads with `bd show pkit-5nt5` and `bd show pkit-8pxp`; they list every finding by repo and line. The leader validated every item against the files on 2026-11-12 (all present). CRITICAL WORKING RULE: several child repos have dirty main checkouts from the operator''s other sessions (points, koch-trainer-swift, prfaq, mcp-proxy, public-website, cryptd) and claude-agent-sdk-smalltalk''s checkout sits on a feature branch. Never edit a child repo''s main checkout. For each repo: `git -C <repo> fetch origin`, then `git -C <repo> worktree add <repo>/.claude/worktrees/5nt5 -b docs/beads-doc-fixes origin/main`, edit only inside that worktree, commit there, and leave the worktree in place for the leader. If a repo''s origin/main lacks a file the bead names, say so in the result and skip that item. Do not push; do not open PRs; the leader does that. The corrected wording to converge on, taken from cryptd''s README (the most recently corrected) and the beads: (1) source-of-truth: beads are distinguished by the `issue-prefix` key in `.beads/config.yaml`, with `.beads/metadata.json` `issue_prefix` as the fallback; the BD_ISSUE_PREFIX environment variable overrides both; the README prefix bullet names all three tiers. (2) The Never list in full: no bare `bd linear sync`, no unscoped `--push`, no `bd config set linear.*`, never remove `issue-prefix` or `linear.pull_label` from `config.yaml`. (3) The pull-scope sentence: `bd` reads the `config.yaml` of the checkout it runs in, so before a pull, `bd config get linear.pull_label` there (not ''on the main checkout'') must print the repo label. (4) The config.yaml comment: the `issue-prefix` key names the beads `bd create` and a label-scoped `bd linear sync --pull` create; it does NOT win for every reader (a by-id pull `--issues <PL id>` reads the shared DB `issue_prefix` row). (5) The orphan-bead sentence: a local `bd update` or `bd close` is undone by the next pull of that issue; a local `bd create` leaves an orphan bead with no `external_ref` that no pull removes (never ''is undone by the next pull'' for create). (6) Blockers: a blocker added in Linear needs `bd dep add`, a blocker cleared in Linear needs `bd dep remove`; where a CLAUDE.md or CHANGELOG says ''no longer edit beads locally'', add the exemption for `bd dep add/remove`. (7) The mirror is ''read-mostly'', never ''read-only projection''. (8) Status is written in Linear and the bead refreshed with the by-id pull `bd linear sync --pull --issues <PL id> --team c1dfbb2c-985e-40cf-b004-5127646efc9d`; add that refresh wherever a doc writes status without it. (9) Epics are Linear projects: ''mark the milestone epic Done'' becomes ''set the epic issue Done and the project Completed''. (10) points: the ''bazel-verify bead'' is PL-490 (bead points-gve); cite it by content with the id in parentheses. (11) public-website CLAUDE.md:160 ''reads the main checkout''s config'' is wrong in a worktree: bd reads the config of the checkout it runs in (same fix as points). (12) mcp-proxy .beads/.gitignore header says ''meta-repo .envrc''; the README says this repo''s; make them agree with what is true (check mcp-proxy/.envrc). (13) stasdk: ClaudeWorkbenchTest.class.st:464-466 asserts the prompt contains bd create/sync/close; the comment says it asserts absence; make the assertions match the comment (absence of bd create, bd update, bd dep add, bd sync, bd close) and confirm against the current workbench prompt text; AgentConversationDetailTest.class.st:237 sample string ''claude-agent-sdk-smalltalk-9rhz'' becomes ''stasdk-9rhz''. (14) aspharo: eight bare stasdk-* ids in Smalltalk comments (8x5, i7uc, qn4, kqf, okv, 1xgi, zty, 9kz): qualify each as `stasdk-<id>` (grep the src tree; if an id is absent, say so). Every Markdown change: lint the file by copying it to <repo-worktree>/_lint_<name>.md and running `npx markdownlint-cli2` on the copy from that worktree, then delete the copy; zero findings. Every repo that has a `make check`: run it in the worktree after the edits and record the result (Smalltalk repos: run the test class if a runner exists, else say so). One commit per repo. Language: Markdown, plus two Smalltalk test edits. Time box 120 minutes; first commit within 30; never more than 30 minutes uncommitted. The result lists, per repo: the worktree path, the commit SHA, each finding and the line changed, and the check command and output.'
