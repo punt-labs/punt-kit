@@ -111,7 +111,7 @@ Portable permissions that apply to all collaborators on the project.
 Contains:
 
 - MCP wildcards: the baseline `mcp__github__*`, plus each enabled tool's
-  plugin wildcard (section 3)
+  MCP wildcard, plugin-bundled or native (section 3)
 - Build tool Bash commands
 - `Skill()` rules, each owned by its plugin's `enable` (section 3)
 - WebFetch domain allowlist
@@ -166,11 +166,16 @@ from the manifest rather than guessing it — `prfaq` and `punt` ship no MCP
 server, and a wildcard naming a plugin that has none matches nothing while
 looking like a working grant.
 
-A server registered directly with `claude mcp add` rather than through its
-plugin has a different prefix (`mcp__quarry__*` instead of
-`mcp__plugin_quarry_quarry__*`). Which one a machine uses is a local choice, so
-the direct-server form belongs in `settings.local.json`, never in the
-checked-in file, and no `enable` grants it.
+The wildcard a tool's `enable` grants is the one its own installer registers
+the server under: `mcp__plugin_<plugin>_<server>__*` when the plugin manifest
+is the registration, `mcp__<name>__*` when the tool registers the server
+natively through `claude mcp add` (`mcp__quarry__*`, `mcp__beadle-email__*`).
+A plugin manifest may declare the server as well, but once a native server
+exists the plugin proxy namespace grants no real permission, so the native
+prefix is the grant. One value per tool, and the tool decides which; `disable`
+removes the same value, under the same partition as every other `enable`
+entry. A server registered by hand that no tool owns stays in
+`settings.local.json`.
 
 ### Build tools
 
@@ -216,7 +221,7 @@ Projects add their own build tools as needed:
 | Python | `Bash(uv:*)`, `Bash(uvx:*)`, `Bash(python3:*)` |
 | Node.js | `Bash(npx:*)`, `Bash(npm:*)` |
 | Swift | `Bash(xcodebuild:*)`, `Bash(xcodegen:*)`, `Bash(swiftformat:*)`, `Bash(swiftlint:*)` |
-| CLI project | `Bash(<cli-name>-server:*)` only. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
+| CLI project | `Bash(<cli-name>-server:*)` when the project declares a `<cli-name>-server` entry point; nothing otherwise. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
 
 `Bash(bd:*)` is baseline because `bd` is an external tool with no `enable`.
 `Bash(punt:*)` is baseline because `punt init` scaffolds this file and the
@@ -458,11 +463,11 @@ whole of this section.
    baseline or in exactly one tool's `enable` set, never both. That partition
    is what makes exact value-match safe: a value in section 3 is never in an
    `enable` set, so `disable` cannot remove a baseline rule, and a flat string
-   array needs no author attribution. The set: the CLI, the plugin-bundled MCP
-   server's tool wildcard as Claude Code names it
-   (`mcp__plugin_<plugin>_<server>__*`; see [MCP wildcards](#mcp-wildcards),
-   which also rules the direct-server form out of the checked-in file), and
-   one `Skill(<plugin>:<cmd>)` rule per shipped command. The CLI grant is
+   array needs no author attribution. The set: the CLI, the MCP server's tool
+   wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a
+   plugin-bundled server, `mcp__<name>__*` for one the tool registers
+   natively; see [MCP wildcards](#mcp-wildcards)), and one
+   `Skill(<plugin>:<cmd>)` rule per shipped command. The CLI grant is
    `Bash(<cli>:*)` only when every subcommand meets principle 4 and
    [plugins.md](plugins.md) principle 4; otherwise the safe subcommands by
    name (`Bash(<cli> status:*)`), with the rest at the prompt tier. A tool
@@ -651,8 +656,7 @@ takes an exclusive lock. See
 Run `punt audit` to check compliance. The audit checks:
 
 - All required deny rules are present
-- `mcp__github__*` is present, and no direct-server `mcp__<server>__*` form
-  appears in the checked-in file (section 3)
+- `mcp__github__*` is present (section 3)
 - No unmatched path rules (`Write(path)`, `MultiEdit(path)`,
   `NotebookEdit(path)`, `Glob(path)`) in any tier of either settings file
 - `settings.local.json` is gitignored

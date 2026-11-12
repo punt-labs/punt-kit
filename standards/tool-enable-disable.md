@@ -351,10 +351,10 @@ import-line append.
 - Neither touches unrelated entries.
 - For permissions the set is the tool's whole production surface: its CLI
   (`punt` excepted, 2.10),
-  its plugin-bundled MCP server wildcard (`mcp__plugin_<plugin>_<server>__*`;
-  never the direct-server `mcp__<server>__*` form, which is a local choice
-  and stays in `settings.local.json`), and one `Skill(<plugin>:<cmd>)` rule
-  per shipped command, never a `-dev` rule. The CLI rule is `Bash(<cli>:*)`
+  its MCP server wildcard as Claude Code names it
+  (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server,
+  `mcp__<name>__*` for one the tool registers natively), and one
+  `Skill(<plugin>:<cmd>)` rule per shipped command, never a `-dev` rule. The CLI rule is `Bash(<cli>:*)`
   only when every subcommand meets
   [permissions.md § 6](permissions.md#6-plugin-distributed-permissions)
   principle 4 and [plugins.md](plugins.md) principle 4; otherwise the safe

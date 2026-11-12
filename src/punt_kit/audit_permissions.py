@@ -69,27 +69,7 @@ class PermissionsAudit:
             return results
 
         allow_strs = [str(x) for x in cast("list[object]", allow_raw)]
-
-        standard = build_standard_permissions(info)
-        missing = [p for p in standard if p not in allow_strs]
-
-        if missing:
-            results.append(
-                (
-                    FAIL,
-                    "Standard allow rules present",
-                    f"Missing {len(missing)}: {', '.join(missing[:5])}"
-                    + ("..." if len(missing) > 5 else ""),
-                )
-            )
-        else:
-            results.append(
-                (
-                    PASS,
-                    "Standard allow rules present",
-                    f"{len(standard)} standard entries",
-                )
-            )
+        results.extend(self._allow_findings(allow_strs))
 
         # Check deny rules
         deny_raw = perms.get("deny")
@@ -126,6 +106,33 @@ class PermissionsAudit:
             )
 
         return results
+
+    def _allow_findings(self, allow: list[str]) -> list[Finding]:
+        """The baseline is required; tool-owned entries are allowed, never required.
+
+        An MCP wildcard (``mcp__plugin_<plugin>_<server>__*`` for a plugin-bundled
+        server, ``mcp__<name>__*`` for one the tool registers natively) or a
+        ``Skill(<plugin>:<cmd>)`` rule is present only because that tool is
+        enabled here, so its absence is not a finding and its form is not policed.
+        """
+        standard = build_standard_permissions(self._info)
+        missing = [p for p in standard if p not in allow]
+        if missing:
+            return [
+                (
+                    FAIL,
+                    "Standard allow rules present",
+                    f"Missing {len(missing)}: {', '.join(missing[:5])}"
+                    + ("..." if len(missing) > 5 else ""),
+                )
+            ]
+        return [
+            (
+                PASS,
+                "Standard allow rules present",
+                f"{len(standard)} standard entries",
+            )
+        ]
 
     @staticmethod
     def _dead_rules_in(perms: dict[str, object]) -> tuple[list[str], list[str]]:

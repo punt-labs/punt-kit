@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import shutil
 import tomllib
@@ -12,7 +13,7 @@ import pytest
 
 from punt_kit import init as init_mod
 from punt_kit.detect import detect
-from punt_kit.init import STANDARD_SKILL_PERMISSIONS, run_init
+from punt_kit.init import SUPPORTED_LANGUAGES, run_init
 from tests.helpers import (
     flat,
 )
@@ -22,9 +23,6 @@ from tests.helpers import (
 from tests.helpers import (
     python_project as _python_project,
 )
-
-_EXPECTED_SKILLS: list[str] = sorted(STANDARD_SKILL_PERMISSIONS)
-
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -303,8 +301,8 @@ def test_init_creates_permissions_node(tmp_path: Path) -> None:
     assert "Bash(npm:*)" in allow
 
 
-def test_init_permissions_include_plugin_mcp_servers(tmp_path: Path) -> None:
-    """Init adds MCP permission patterns for plugin servers."""
+def test_init_permissions_exclude_plugin_mcp_servers(tmp_path: Path) -> None:
+    """A plugin repo's own MCP wildcard is its enable's to grant, not init's."""
     (tmp_path / "README.md").write_text("# Test")
     plugin_dir = tmp_path / ".claude-plugin"
     plugin_dir.mkdir()
@@ -324,11 +322,14 @@ def test_init_permissions_include_plugin_mcp_servers(tmp_path: Path) -> None:
     data = json.loads(settings.read_text())
     allow = data["permissions"]["allow"]
 
-    assert "mcp__plugin_myplug_grimoire__*" in allow
+    assert "mcp__plugin_myplug_grimoire__*" not in allow
+    assert "mcp__github__*" in allow
 
 
-def test_init_permissions_include_cli_commands(tmp_path: Path) -> None:
-    """Init adds Bash permissions for CLI entry points from pyproject scripts."""
+def test_init_permissions_grant_the_server_not_the_cli(tmp_path: Path) -> None:
+    """A CLI project with no declared server gets neither a `-server` rule nor
+    Bash(<cli>:*); the CLI rule is the tool's enable, and a server rule names
+    only an entry point the project actually ships."""
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "punt-quarry"\n\n'
         '[project.scripts]\nquarry = "quarry.cli:app"\n'
@@ -340,7 +341,85 @@ def test_init_permissions_include_cli_commands(tmp_path: Path) -> None:
     data = json.loads(settings.read_text())
     allow = data["permissions"]["allow"]
 
-    assert "Bash(quarry:*)" in allow
+    assert "Bash(quarry-server:*)" not in allow
+    assert "Bash(quarry:*)" not in allow
+    assert not any(p.endswith("-server:*)") for p in allow)
+
+
+def test_init_permissions_name_a_server_entry_point_once(tmp_path: Path) -> None:
+    """A project that already ships `<cli>-server` gets that rule exactly once."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "punt-quarry"\n\n'
+        "[project.scripts]\n"
+        'quarry = "quarry.cli:app"\n'
+        'quarry-server = "quarry.server:main"\n'
+    )
+
+    run_init(str(tmp_path))
+
+    settings = tmp_path / ".claude" / "settings.json"
+    data = json.loads(settings.read_text())
+    allow = data["permissions"]["allow"]
+
+    assert allow.count("Bash(quarry-server:*)") == 1
+    assert "Bash(quarry-server-server:*)" not in allow
+    assert "Bash(quarry:*)" not in allow
+
+
+def test_init_permissions_keep_punt_cli_as_baseline(tmp_path: Path) -> None:
+    """punt's own CLI rule is baseline, so punt-kit itself still gets it."""
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "punt-kit"\n\n[project.scripts]\npunt = "punt_kit:main"\n'
+    )
+
+    run_init(str(tmp_path))
+
+    data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    allow = data["permissions"]["allow"]
+
+    assert allow.count("Bash(punt:*)") == 1
+    assert "Bash(punt-server:*)" not in allow
+
+
+def test_init_then_tool_enable_then_disable_round_trips(tmp_path: Path) -> None:
+    """A tool's enable adds its exact set; its disable removes exactly that set.
+
+    Exact value-match is the whole contract: it only works because init never
+    seeds a value an enable owns, so disable can never strip a baseline entry.
+    """
+    from punt_kit.audit_permissions import PermissionsAudit
+    from punt_kit.audit_verdict import PASS
+
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "test-pkg"\n\n'
+        "[project.scripts]\n"
+        'demo = "demo:main"\n'
+        'demo-server = "demo.server:main"\n'
+    )
+    run_init(str(tmp_path))
+    settings = tmp_path / ".claude" / "settings.json"
+    scaffolded = settings.read_text()
+    assert "Bash(demo-server:*)" in json.loads(scaffolded)["permissions"]["allow"]
+    vox_enable_set = ["mcp__plugin_vox_mic__*", "Skill(vox:recap)"]
+
+    # vox enable: the order-preserving merge, adding only what is absent.
+    data = json.loads(scaffolded)
+    allow: list[str] = data["permissions"]["allow"]
+    allow.extend(v for v in vox_enable_set if v not in allow)
+    settings.write_text(json.dumps(data, indent=2) + "\n")
+    statuses = {s for s, _l, _d in PermissionsAudit(detect(tmp_path)).findings()}
+    assert statuses == {PASS}, "the enabled tool's entries are allowed"
+
+    # vox disable: remove exactly that set by value.
+    data = json.loads(settings.read_text())
+    data["permissions"]["allow"] = [
+        v for v in data["permissions"]["allow"] if v not in vox_enable_set
+    ]
+    settings.write_text(json.dumps(data, indent=2) + "\n")
+
+    statuses = {s for s, _l, _d in PermissionsAudit(detect(tmp_path)).findings()}
+    assert statuses == {PASS}
+    assert settings.read_text() == scaffolded
 
 
 def test_init_permissions_merge_existing(tmp_path: Path) -> None:
@@ -486,8 +565,8 @@ def test_init_language_override_invalid(tmp_path: Path) -> None:
 # --- Skill() permission tests ---
 
 
-def test_build_standard_permissions_includes_skill_entries(tmp_path: Path) -> None:
-    """build_standard_permissions returns Skill() entries for all plugins."""
+def test_build_standard_permissions_excludes_skill_entries(tmp_path: Path) -> None:
+    """Every Skill(<plugin>:<cmd>) rule is that plugin's enable set, never baseline."""
     from punt_kit.detect import detect
     from punt_kit.init import build_standard_permissions
 
@@ -495,50 +574,33 @@ def test_build_standard_permissions_includes_skill_entries(tmp_path: Path) -> No
     info = detect(tmp_path)
     perms = build_standard_permissions(info)
 
-    skill_perms = [p for p in perms if p.startswith("Skill(")]
-    expected_skills = _EXPECTED_SKILLS
-    assert sorted(skill_perms) == expected_skills, (
-        f"Skill perm mismatch:\n"
-        f"  missing={sorted(set(expected_skills) - set(skill_perms))}\n"
-        f"  extra={sorted(set(skill_perms) - set(expected_skills))}"
-    )
-
-    # Every Punt Labs plugin that ships skills is represented. Naming
-    # individual skills here is what let the list drift: the old assertion
-    # required Skill(commit-commands:commit), which is not a Punt Labs plugin
-    # and was never installed, so the test passed while the list was wrong.
-    plugins = {p.split("(")[1].split(":")[0] for p in skill_perms}
-    assert plugins >= {
-        "beadle",
-        "biff",
-        "dungeon",
-        "ethos",
-        "lux",
-        "prfaq",
-        "punt",
-        "quarry",
-        "vox",
-        "z-spec",
-    }
+    assert [p for p in perms if p.startswith("Skill(")] == []
+    assert "Skill(punt:init)" not in perms
 
 
-def test_init_settings_json_includes_skill_entries(tmp_path: Path) -> None:
-    """Init writes Skill() entries into .claude/settings.json."""
-    import json
+def test_init_module_has_no_skill_table() -> None:
+    """The hand-maintained skill list is gone outright, not aliased or tombstoned."""
+    assert "STANDARD_SKILL_PERMISSIONS" not in vars(init_mod)
+    tree = ast.parse(Path(init_mod.__file__).read_text(encoding="utf-8"))
+    literals = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+    assert [s for s in literals if s.startswith("Skill(")] == []
 
+
+def test_init_settings_json_excludes_skill_entries(tmp_path: Path) -> None:
+    """Init writes no Skill() entry into .claude/settings.json."""
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "test-pkg"\n')
 
     run_init(str(tmp_path))
 
     data = json.loads((tmp_path / ".claude" / "settings.json").read_text())
     allow = data["permissions"]["allow"]
-    skill_entries = [p for p in allow if p.startswith("Skill(")]
-    expected_skills = _EXPECTED_SKILLS
-    assert sorted(skill_entries) == expected_skills, (
-        f"Skill perm mismatch:\n"
-        f"  missing={sorted(set(expected_skills) - set(skill_entries))}\n"
-        f"  extra={sorted(set(skill_entries) - set(expected_skills))}"
-    )
+
+    assert [p for p in allow if p.startswith("Skill(")] == []
+    assert "Bash(punt:*)" in allow
 
 
 # --- Unmatched path rule tests ---
@@ -1044,43 +1106,50 @@ def test_seeder_keeps_the_development_tools() -> None:
     assert "Bash(gh:*)" in perms
 
 
-def test_mcp_wildcards_name_real_plugin_servers() -> None:
-    """Each wildcard must be derivable from a plugin manifest.
+@pytest.mark.parametrize("language", [None, *SUPPORTED_LANGUAGES])
+def test_the_only_mcp_wildcard_is_github(language: str | None) -> None:
+    """github ships with Claude Code and no enable owns it; every plugin
+    wildcard is granted by that plugin's enable and never seeded here."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
 
-    A wildcard naming a plugin that ships no MCP server matches nothing while
-    looking like a working grant — that is how `mcp__plugin_github_github__*`
-    survived in this list despite there being no github plugin.
-    """
+    perms = build_standard_permissions(
+        ProjectInfo(root=Path("/nonexistent"), language=language)
+    )
+
+    assert [p for p in perms if p.startswith("mcp__")] == ["mcp__github__*"]
+    assert not any(p.startswith("mcp__plugin_") for p in perms)
+
+
+def test_every_supported_language_has_a_tool_set() -> None:
+    """The language table and the supported set are one closed set, so a
+    language added to one without the other fails here, not at a user's init."""
+    from punt_kit.init import LANGUAGE_TOOLS
+
+    assert set(LANGUAGE_TOOLS) == set(SUPPORTED_LANGUAGES)
+
+
+def test_build_standard_permissions_raises_on_an_unknown_language() -> None:
+    """A language outside the table is a bug, not a project with no tools."""
+    from punt_kit.detect import ProjectInfo
+    from punt_kit.init import build_standard_permissions
+
+    with pytest.raises(KeyError):
+        build_standard_permissions(
+            ProjectInfo(root=Path("/nonexistent"), language="rust")
+        )
+
+
+def test_baseline_bash_rules_are_present_for_every_project() -> None:
+    """bd and punt are external tools with no enable, so they stay baseline."""
     from punt_kit.detect import ProjectInfo
     from punt_kit.init import build_standard_permissions
 
     perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
-    plugin_wildcards = {p for p in perms if p.startswith("mcp__plugin_")}
 
-    # plugin -> server key, from each plugin's .claude-plugin/plugin.json
-    known = {
-        "beadle": "email",
-        "biff": "tty",
-        "dungeon": "grimoire",
-        "ethos": "self",
-        "lux": "lux",
-        "quarry": "quarry",
-        "vox": "mic",
-        "z-spec": "zspec",
-    }
-    expected = {f"mcp__plugin_{p}_{s}__*" for p, s in known.items()}
-    assert plugin_wildcards == expected
-
-
-def test_mcp_wildcards_are_all_or_nothing() -> None:
-    """A subset is not a policy — it is whoever edited the list last."""
-    from punt_kit.detect import ProjectInfo
-    from punt_kit.init import build_standard_permissions
-
-    perms = build_standard_permissions(ProjectInfo(root=Path("/nonexistent")))
-    # prfaq and punt ship no MCP server, so they must not appear.
-    assert not any("prfaq" in p for p in perms if p.startswith("mcp__"))
-    assert not any(p.startswith("mcp__plugin_punt_") for p in perms)
+    assert "Bash(bd:*)" in perms
+    assert "Bash(punt:*)" in perms
+    assert len(perms) == len(set(perms))
 
 
 def test_init_python_config_reads_a_pyproject_that_starts_with_a_bom(
@@ -1146,7 +1215,9 @@ def test_init_refuses_to_replace_a_settings_json_it_cannot_read(
 
 
 def test_init_fails_on_an_unparseable_plugin_manifest(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.setattr(shutil, "which", _no_bd)
     (tmp_path / ".claude-plugin").mkdir()
@@ -1157,6 +1228,7 @@ def test_init_fails_on_an_unparseable_plugin_manifest(
 
     assert raised.value.code == 1
     assert not (tmp_path / ".claude" / "settings.json").exists()
+    assert "plugin.json" in capsys.readouterr().out
 
 
 def test_init_says_when_it_leaves_an_unreadable_settings_local_alone(

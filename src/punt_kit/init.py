@@ -39,108 +39,18 @@ STANDARD_DISPLAY_NAMES: dict[str, str] = {
 
 SUPPORTED_LANGUAGES = ("python", "node", "go", "swift")
 
-
-STANDARD_SKILL_PERMISSIONS: tuple[str, ...] = (
-    # Derived from the installed Punt Labs plugin set. Skill() rules ARE
-    # enforced — SkillTool honors explicit allow rules — so a missing entry
-    # means that skill prompts on every use. Regenerate with:
-    #   make skills-check
-    # beadle
-    "Skill(beadle:beadle)",
-    "Skill(beadle:contacts)",
-    "Skill(beadle:inbox)",
-    "Skill(beadle:mail)",
-    "Skill(beadle:send)",
-    # biff
-    "Skill(biff:biff)",
-    "Skill(biff:finger)",
-    "Skill(biff:last)",
-    "Skill(biff:mesg)",
-    "Skill(biff:plan)",
-    "Skill(biff:read)",
-    "Skill(biff:talk)",
-    "Skill(biff:tty)",
-    "Skill(biff:wall)",
-    "Skill(biff:who)",
-    "Skill(biff:write)",
-    # dungeon
-    "Skill(dungeon:d)",
-    "Skill(dungeon:dungeon)",
-    # ethos
-    "Skill(ethos:ext)",
-    "Skill(ethos:identity)",
-    "Skill(ethos:personality)",
-    "Skill(ethos:role)",
-    "Skill(ethos:session)",
-    "Skill(ethos:talent)",
-    "Skill(ethos:team)",
-    "Skill(ethos:writing-style)",
-    # lux
-    "Skill(lux:beads)",
-    "Skill(lux:dashboard)",
-    "Skill(lux:data-explorer)",
-    "Skill(lux:lux)",
-    # prfaq
-    "Skill(prfaq:badge)",
-    "Skill(prfaq:export)",
-    "Skill(prfaq:externalize)",
-    "Skill(prfaq:feedback)",
-    "Skill(prfaq:feedback-to-us)",
-    "Skill(prfaq:import)",
-    "Skill(prfaq:meeting)",
-    "Skill(prfaq:meeting-hive)",
-    "Skill(prfaq:meeting-listen)",
-    "Skill(prfaq:permissions)",
-    "Skill(prfaq:prfaq)",
-    "Skill(prfaq:research)",
-    "Skill(prfaq:review)",
-    "Skill(prfaq:streamline)",
-    "Skill(prfaq:vote)",
-    # punt
-    "Skill(punt:audit)",
-    "Skill(punt:auto)",
-    "Skill(punt:bead-review)",
-    "Skill(punt:init)",
-    "Skill(punt:pii)",
-    "Skill(punt:reconcile)",
-    # quarry
-    "Skill(quarry:explain)",
-    "Skill(quarry:find)",
-    "Skill(quarry:ingest)",
-    "Skill(quarry:quarry)",
-    "Skill(quarry:remember)",
-    "Skill(quarry:source)",
-    "Skill(quarry:use)",
-    # vox
-    "Skill(vox:music)",
-    "Skill(vox:mute)",
-    "Skill(vox:recap)",
-    "Skill(vox:unmute)",
-    "Skill(vox:vibe)",
-    "Skill(vox:vox)",
-    # z-spec
-    "Skill(z-spec:audit)",
-    "Skill(z-spec:b-animate)",
-    "Skill(z-spec:b-check)",
-    "Skill(z-spec:b-create)",
-    "Skill(z-spec:b-refine)",
-    "Skill(z-spec:check)",
-    "Skill(z-spec:cleanup)",
-    "Skill(z-spec:code2model)",
-    "Skill(z-spec:contracts)",
-    "Skill(z-spec:disable)",
-    "Skill(z-spec:doctor)",
-    "Skill(z-spec:elaborate)",
-    "Skill(z-spec:enable)",
-    "Skill(z-spec:help)",
-    "Skill(z-spec:model2code)",
-    "Skill(z-spec:oracle)",
-    "Skill(z-spec:partition)",
-    "Skill(z-spec:prove)",
-    "Skill(z-spec:refine)",
-    "Skill(z-spec:setup)",
-    "Skill(z-spec:test)",
-)
+# The per-language build tools standards/permissions.md §3 adds to the baseline.
+LANGUAGE_TOOLS: dict[str, tuple[str, ...]] = {
+    "python": ("Bash(uv:*)", "Bash(uvx:*)", "Bash(python3:*)"),
+    "node": ("Bash(npx:*)", "Bash(npm:*)"),
+    "go": ("Bash(go:*)", "Bash(staticcheck:*)", "Bash(gofmt:*)", "Bash(gofumpt:*)"),
+    "swift": (
+        "Bash(swiftformat:*)",
+        "Bash(swiftlint:*)",
+        "Bash(xcodebuild:*)",
+        "Bash(xcodegen:*)",
+    ),
+}
 
 
 def run_init(path: str, *, language: str | None = None) -> None:
@@ -239,9 +149,11 @@ def _validate_inputs(info: ProjectInfo) -> None:
     settings = root / ".claude" / "settings.json"
     if settings.exists():
         JsonFile(settings).load_object()
-    # Every plugin manifest permissions will read, so a later malformed one
-    # cannot fail the run after the earlier steps have written.
-    _get_plugin_name(info)
+    # A plugin manifest init cannot parse is a repo it must not scaffold: the
+    # release and the audit read that file, and a half-initialised repo around
+    # a broken manifest is worse than no files at all.
+    for manifest in info.plugin_manifests:
+        JsonFile(manifest).load_object()
     workflows_dir = root / ".github" / "workflows"
     merged = (
         workflows_dir / target
@@ -513,30 +425,22 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
 
 
 def build_standard_permissions(info: ProjectInfo) -> list[str]:
-    """Build the standard permission list for a detected project type.
+    """Build the baseline permission list for a detected project type.
 
-    Includes all required rules from standards/permissions.md §3:
-    MCP wildcards, generic Bash commands, and language-specific tools.
+    The baseline is what standards/permissions.md §3 says no tool's ``enable``
+    owns: the github MCP wildcard, the generic Bash commands, the language
+    tools, and ``Bash(<name>-server:*)`` for each declared entry point whose
+    name ends in ``-server`` (nothing for a CLI without one). A permission value
+    lives in exactly one place, so every plugin MCP wildcard
+    (``mcp__plugin_<plugin>_<server>__*``), every ``Skill(<plugin>:<cmd>)``
+    rule, and a tool's own ``Bash(<cli>:*)`` are granted by that tool's
+    ``enable`` and removed by its ``disable``; seeding them here would make
+    ``disable`` strip a baseline value, or leave the seeded copy behind.
     Public so that both init and audit can share the same logic.
     """
-    # MCP wildcards (§3). Every Punt Labs plugin that ships an MCP server, and
-    # nothing else — the set is all-or-nothing rather than a subset someone
-    # picked. Each entry is the tool prefix Claude Code derives from the
-    # plugin's manifest: mcp__plugin_<plugin>_<server>__*. Verify against a
-    # plugin's .claude-plugin/plugin.json "mcpServers" key before editing.
-    # github is not a Punt Labs plugin; it ships with Claude Code and is
-    # included because this file scaffolds a development environment.
-    perms: list[str] = [
-        "mcp__github__*",
-        "mcp__plugin_beadle_email__*",
-        "mcp__plugin_biff_tty__*",
-        "mcp__plugin_dungeon_grimoire__*",
-        "mcp__plugin_ethos_self__*",
-        "mcp__plugin_lux_lux__*",
-        "mcp__plugin_quarry_quarry__*",
-        "mcp__plugin_vox_mic__*",
-        "mcp__plugin_z-spec_zspec__*",
-    ]
+    # github is not a Punt Labs plugin: it ships with Claude Code, no enable
+    # owns it, and these settings scaffold a development environment.
+    perms: list[str] = ["mcp__github__*"]
 
     # Cross-project file access belongs in settings.local.json with absolute
     # paths per DES-004 rule 3 — not in the portable settings.json.
@@ -576,37 +480,21 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
         ]
     )
 
-    # Language-specific tools (§3)
-    if info.language == "python":
-        perms.extend(["Bash(uv:*)", "Bash(uvx:*)", "Bash(python3:*)"])
-    elif info.language == "node":
-        perms.extend(["Bash(npx:*)", "Bash(npm:*)"])
-    elif info.language == "go":
-        perms.extend(
-            ["Bash(go:*)", "Bash(staticcheck:*)", "Bash(gofmt:*)", "Bash(gofumpt:*)"]
-        )
-    elif info.language == "swift":
-        perms.extend(
-            [
-                "Bash(swiftformat:*)",
-                "Bash(swiftlint:*)",
-                "Bash(xcodebuild:*)",
-                "Bash(xcodegen:*)",
-            ]
-        )
+    # Language-specific tools (§3); a project with no language gets none. A
+    # language outside the table is a bug in this module, so it raises rather
+    # than silently seeding a project with no tools.
+    perms.extend(() if info.language is None else LANGUAGE_TOOLS[info.language])
 
+    # A CLI project's own `Bash(<cli>:*)` reaches its repo the way it reaches
+    # every repo, through `<tool> enable`; only a server binary, which no
+    # enable grants, is baseline. The rule names a declared `<name>-server`
+    # entry point as-is; nothing is synthesized for a CLI that ships none.
     for cmd in info.cli_commands:
+        if not cmd.endswith("-server"):
+            continue
         perm = f"Bash({cmd}:*)"
         if perm not in perms:
             perms.append(perm)
-
-    # Plugin MCP server permissions
-    plugin_name = _get_plugin_name(info)
-    for server in info.plugin_mcp_servers:
-        perms.append(f"mcp__plugin_{plugin_name}_{server}__*")
-
-    # Plugin skills
-    perms.extend(STANDARD_SKILL_PERMISSIONS)
 
     return perms
 
@@ -666,21 +554,6 @@ def build_standard_deny_rules() -> list[str]:
         "Edit(.envrc)",
         "Bash(direnv allow:*)",
     ]
-
-
-def _get_plugin_name(info: ProjectInfo) -> str:
-    """Extract plugin name from plugin.json for MCP permission patterns.
-
-    A manifest that cannot be read raises :class:`ReleaseError`: falling back
-    to the directory name would seed permissions for a plugin that does not
-    exist. A manifest with no string ``name`` is a different case — absence is
-    what the directory-name fallback is for.
-    """
-    for pj_path in info.plugin_manifests:
-        name = JsonFile(pj_path).load_object().get("name")
-        if isinstance(name, str):
-            return name
-    return info.root.name
 
 
 def _init_permissions(info: ProjectInfo) -> list[str]:

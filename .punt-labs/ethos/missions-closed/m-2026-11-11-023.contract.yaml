@@ -1,0 +1,50 @@
+mission_id: m-2026-11-11-023
+status: closed
+type: implement
+created_at: "2026-11-11T23:32:46Z"
+updated_at: "2026-11-12T00:01:22Z"
+closed_at: "2026-11-12T00:01:22Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: gvr
+    pinned_at: "2026-11-11T23:32:46Z"
+    hash: 484686a91dca1727f80404fe4fc8f873e0996955d47f5003e3ce767020c64a45
+inputs:
+    files:
+        - standards/permissions.md
+        - standards/tool-enable-disable.md
+        - src/punt_kit/init.py
+        - src/punt_kit/audit_permissions.py
+write_set:
+    - src/punt_kit/init.py
+    - src/punt_kit/audit_permissions.py
+    - src/punt_kit/seed.py
+    - tests/test_init.py
+    - tests/test_audit.py
+    - tests/test_audit_permissions.py
+    - tests/helpers.py
+    - CHANGELOG.md
+    - README.md
+success_criteria:
+    - 'TDD: each change is preceded by a test that fails on the unfixed code; the result records, per change, the failing test name, its failure output, and the passing output after the fix.'
+    - build_standard_permissions returns no value starting mcp__plugin_ and no value starting Skill( for any ProjectInfo; mcp__github__*, Bash(bd:*), Bash(punt:*) are present; a CLI project gets Bash(<cli>-server:*) and not Bash(<cli>:*). STANDARD_SKILL_PERMISSIONS and the plugin wildcard list are deleted outright, no alias, no tombstone (PL-PP-1).
+    - 'PermissionsAudit: a checked-in settings.json carrying a direct-server form such as mcp__quarry__* FAILs, naming the value and pointing at settings.local.json; a file with only the baseline passes; a file that also carries mcp__plugin_vox_mic__* and Skill(vox:recap) passes (tool-owned entries are allowed, never required).'
+    - 'End-to-end test: scaffold with init in tmp_path, append the vox enable set (mcp__plugin_vox_mic__* and Skill(vox:recap)) to the allow list, remove exactly that set, run the audit: it passes and the file equals the scaffolded file.'
+    - 'Tests encoding the old contract are inverted or replaced, never merely deleted: test_init_permissions_include_plugin_mcp_servers, test_build_standard_permissions_includes_skill_entries, test_init_settings_json_includes_skill_entries, test_mcp_wildcards_name_real_plugin_servers, test_mcp_wildcards_are_all_or_nothing, and the Skill() permission audit block at tests/test_audit.py line 624 onward. The suite''s assertion count does not go down.'
+    - seed.py output and its tests still hold. README.md no longer says init seeds plugin wildcards or skill rules. CHANGELOG.md gets one entry under Unreleased / Fixed in user-facing words with no bead ID.
+    - 'make check green on every commit; mypy --strict and ruff clean; python tools/oo_score.py on each touched module does not regress; no noqa, type: ignore, xfail, or skip; PY-DOC-2: no bead IDs or PR numbers in code or docstrings. Commits: one logical step each, 1-5 files, type(scope): description.'
+    - 'Real entry point run and pasted in the result: uv run punt init in a scratch Python project under .tmp/, then uv run punt audit there; the settings.json allow list and the audit output are in the result.'
+budget:
+    rounds: 3
+    reflection_after_each: false
+current_round: 1
+round_decisions:
+    version: 1
+    entries:
+        - id: c0d915002d25547780d907266ae72f16
+          round: 1
+          created_at: "2026-11-12T00:00:48Z"
+          author: gvr
+          recommendation: continue
+context: 'Bead pkit-vwfe. Worktree <repo>/.claude/worktrees/vwfe, branch fix/init-audit-permission-partition (from main 189c3c6). standards/permissions.md section 3 partitions permission values: the baseline punt init seeds is only mcp__github__*, the generic build tools, the language tools, Bash(bd:*), Bash(punt:*), and for a CLI project Bash(<cli>-server:*). Every mcp__plugin_<plugin>_<server>__* wildcard and every Skill(<plugin>:<cmd>) rule belongs to the owning tool''s enable set and is never seeded; Bash(<cli>:*) is granted by the tool''s own enable, except punt whose CLI rule is baseline. punt audit checks that mcp__github__* is present and that no direct-server mcp__<server>__* form (a value starting mcp__ whose next segment is neither plugin_ nor github) appears in the checked-in settings.json. Code violating this: src/punt_kit/init.py build_standard_permissions seeds nine plugin wildcards (~522-538), the repo''s own plugin wildcard (~606), Bash(<cli>:*) for the repo''s CLI (~598-601), and STANDARD_SKILL_PERMISSIONS (43-143, extended at ~609). src/punt_kit/audit_permissions.py:73 compares against that same function, so the audit inherits the fix; the direct-server-form check is new there. seed.py:254 and tests/helpers.py use the same function. Time box 120 minutes; first commit within 30 minutes; never more than 30 minutes uncommitted. Commit on the branch only; do not push, do not touch PRs or merge; git add <file> only, never -A or -a.'

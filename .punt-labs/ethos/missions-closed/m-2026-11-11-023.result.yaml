@@ -1,0 +1,108 @@
+mission: m-2026-11-11-023
+round: 1
+created_at: "2026-11-11T23:52:54Z"
+author: rmh
+verdict: pass
+confidence: 0.95
+files_changed:
+    - path: src/punt_kit/init.py
+      added: 38
+      removed: 169
+    - path: src/punt_kit/audit_permissions.py
+      added: 60
+      removed: 21
+    - path: tests/test_init.py
+      added: 114
+      removed: 74
+    - path: tests/test_audit.py
+      added: 29
+      removed: 8
+    - path: tests/test_audit_permissions.py
+      added: 76
+      removed: 0
+    - path: README.md
+      added: 2
+      removed: 2
+    - path: CHANGELOG.md
+      added: 8
+      removed: 0
+evidence:
+    - name: 'commit c36635a fix(init): seed only the permissions baseline; audit flags direct-server forms'
+      status: pass
+    - name: 'commit 39ada11 docs(init): describe the permissions baseline init seeds and what audit checks'
+      status: pass
+    - name: 'make check on commit 1: 2336 passed, 14 skipped; lint and type clean (exit 0)'
+      status: pass
+    - name: 'make lint on commit 2 (docs only): exit 0; npx markdownlint-cli2 README.md CHANGELOG.md: 0 issues'
+      status: pass
+    - name: 'change 1 init tests: 12 failed, 1 passed on unfixed code; 13 passed after fix'
+      status: pass
+    - name: 'change 2 audit tests: 3 failed, 8 passed on unfixed code; 11 passed after fix'
+      status: pass
+    - name: 'change 3 end-to-end round trip: 1 failed on unfixed source (git stash); 1 passed after fix'
+      status: pass
+    - name: test count 2334 -> 2341 collected; assertions in test_init.py 188 -> 199, test_audit.py 43 -> 48, test_audit_permissions.py 5 -> 16
+      status: pass
+    - name: 'oo_score init.py: module_size 815 -> 685, avg_complexity 6.00 -> 5.95, no metric regressed'
+      status: pass
+    - name: 'oo_score audit_permissions.py: max_complexity 14 -> 11, avg_complexity 5.33 -> 4.88, module_size 186 -> 223 (within 300), no metric regressed'
+      status: pass
+    - name: 'oo_score seed.py: unchanged (file not edited; seed tests 31 passed)'
+      status: pass
+    - name: 'demo: uv run --directory <worktree> punt init on .tmp/vwfe-demo (CLI project): 21 allow, 30 deny; allow list has mcp__github__* as the only mcp__ entry, no Skill( entry, Bash(demo-server:*) and no Bash(demo:*)'
+      status: pass
+    - name: 'demo: punt audit on the scaffolded file: Standard allow rules present (21), No direct-server MCP forms PASS; then with mcp__plugin_vox_mic__*, Skill(vox:recap), mcp__quarry__* appended: allow rules still PASS, direct-server FAIL naming mcp__quarry__* and settings.local.json'
+      status: pass
+open_questions:
+    - tools/skills_check.py and the Makefile targets skills-check / skills-check-fix exist only to maintain STANDARD_SKILL_PERMISSIONS, which is now deleted; both are outside the write-set and outside make check, so they are left dead. Leader was messaged; a follow-up should delete them.
+    - tests/test_init_validation.py::test_init_reads_every_plugin_manifest_before_writing (outside the write-set) pins that init parses every plugin manifest before writing. The old _get_plugin_name was the only reader; it is deleted and _validate_inputs now loads each manifest directly so that test still passes and a broken manifest still stops init before any write.
+prose: |
+    Per-change TDD record (proof files under <worktree>/.tmp/vwfe-proof/):
+
+    Change 1, src/punt_kit/init.py (build_standard_permissions; STANDARD_SKILL_PERMISSIONS and the
+    plugin wildcard list deleted outright; _get_plugin_name deleted; language tools moved to a
+    _LANGUAGE_TOOLS table). Tests (tests/test_init.py): test_init_permissions_exclude_plugin_mcp_servers,
+    test_init_permissions_grant_the_server_not_the_cli, test_init_permissions_name_a_server_entry_point_once,
+    test_init_permissions_keep_punt_cli_as_baseline, test_build_standard_permissions_excludes_skill_entries,
+    test_init_module_has_no_skill_table, test_init_settings_json_excludes_skill_entries,
+    test_the_only_mcp_wildcard_is_github[None|python|node|go|swift], test_baseline_bash_rules_are_present_for_every_project.
+    Failing (01-init-failing.txt): "12 failed, 1 passed, 93 deselected", e.g.
+    "AssertionError: assert ['mcp__github..._lux__*', ...] == ['mcp__github__*']  Left contains 8 more items,
+    first extra item: 'mcp__plugin_beadle_email__*'". Passing (01-init-passing.txt): "13 passed, 94 deselected".
+    Inverted old tests: test_init_permissions_include_plugin_mcp_servers -> _exclude_plugin_mcp_servers;
+    test_init_permissions_include_cli_commands -> _grant_the_server_not_the_cli;
+    test_build_standard_permissions_includes_skill_entries -> _excludes_skill_entries (+ test_init_module_has_no_skill_table);
+    test_init_settings_json_includes_skill_entries -> _excludes_skill_entries;
+    test_mcp_wildcards_name_real_plugin_servers -> test_the_only_mcp_wildcard_is_github (parametrized over 5 languages);
+    test_mcp_wildcards_are_all_or_nothing -> test_baseline_bash_rules_are_present_for_every_project.
+
+    Change 2, src/punt_kit/audit_permissions.py (PermissionsAudit._allow_findings extracted from findings;
+    new _is_direct_server_form; new finding "No direct-server MCP forms"). Tests:
+    tests/test_audit_permissions.py::test_a_direct_server_form_fails_naming_the_value[mcp__quarry__*|mcp__vox__unmute],
+    test_tool_owned_entries_are_allowed_and_never_required, test_the_baseline_alone_passes,
+    test_the_github_wildcard_is_not_a_direct_server_form, test_a_missing_github_wildcard_fails;
+    tests/test_audit.py::test_audit_fails_on_a_direct_server_wildcard, test_audit_passes_with_a_tools_enable_set_present,
+    test_audit_passes_without_skill_entries (inverted from test_audit_fails_missing_skill_entries at line 624).
+    Failing (02-audit-failing.txt): "3 failed, 8 passed" — the two direct-server parametrizations and
+    tests/test_audit.py:655 "Failed: DID NOT RAISE SystemExit". Passing (02-audit-passing.txt): "11 passed".
+
+    Change 3, end-to-end: tests/test_init.py::test_init_then_tool_enable_then_disable_round_trips
+    (init in tmp_path, append the vox enable set, remove exactly that set, audit passes, file equals the
+    scaffolded file). Failing on unfixed source via git stash of both src files (03-e2e-failing.txt):
+    "tests/test_init.py:411: AssertionError: assert {'[green]✓[/g...[red]✗[/red]'} == {'[green]✓[/green]'}"
+    (disable stripped the seeded vox wildcard, so the audit reported a missing standard entry).
+    Passing (03-e2e-passing.txt): "1 passed".
+
+    Demo allow list (.tmp/vwfe-demo/.claude/settings.json):
+    ["mcp__github__*","Bash(bd:*)","Bash(cat:*)","Bash(chmod +x:*)","Bash(claude mcp:*)","Bash(claude plugin:*)",
+     "Bash(export:*)","Bash(find:*)","Bash(gh:*)","Bash(git:*)","Bash(ls:*)","Bash(make:*)","Bash(pip index:*)",
+     "Bash(punt:*)","Bash(shellcheck:*)","Bash(tail:*)","Bash(test:*)","Bash(uv:*)","Bash(uvx:*)","Bash(python3:*)",
+     "Bash(demo-server:*)"]
+    Demo audit permission lines: "✓ .claude/settings.json exists", "✓ No unmatched path rules",
+    "✓ Standard allow rules present  21 standard entries", "✓ No direct-server MCP forms  mcp__github__* and plugin
+    wildcards only", "✓ Standard deny rules present  30 standard entries". Overall "13 passed, 6 failed, exit=1":
+    the six are the scratch project's missing markdownlint configs, py.typed, CHANGELOG.md, .beads/, and Makefile.
+    bd init failed during the demo's punt init ("This workspace is already initialized", the shared Dolt workspace
+    refusing a new prefix) — unrelated to this change. With mcp__plugin_vox_mic__*, Skill(vox:recap) and
+    mcp__quarry__* appended: "✓ Standard allow rules present 21 standard entries" and
+    "✗ No direct-server MCP forms  1 belong in settings.local.json: mcp__quarry__*".
