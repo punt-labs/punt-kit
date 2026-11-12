@@ -233,11 +233,19 @@ class LayoutAudit:
     # --- the checks ----------------------------------------------------------
 
     def _tools(self) -> list[str]:
-        """The present ``.punt-labs/<tool>/`` subtrees, sorted; never the local zone."""
+        """The present ``.punt-labs/<tool>/`` subtrees audit can probe, sorted.
+
+        Never the local zone, and never a gitlinked tool: the superproject's
+        git lists no file inside a submodule and answers no probe for one, so
+        the gitlink warning is that tool's whole verdict.
+        """
+        gitlinked = {path.split("/", 1)[1] for path in self._gitlinks()}
         return sorted(
             entry.name
             for entry in (self._root / ".punt-labs").iterdir()
-            if entry.is_dir() and entry.name != LOCAL_ZONE
+            if entry.is_dir()
+            and entry.name != LOCAL_ZONE
+            and entry.name not in gitlinked
         )
 
     def _gitignore_finding(self) -> Finding:

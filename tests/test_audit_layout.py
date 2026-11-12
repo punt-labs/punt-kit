@@ -603,6 +603,51 @@ def test_gitlink_entry_warns(tmp_path: Path) -> None:
     )
 
 
+def test_checked_out_submodule_gets_the_warning_and_nothing_else(
+    tmp_path: Path,
+) -> None:
+    """A submodule's worktree is opaque to the superproject's git.
+
+    ``ls-files`` never lists files inside it and ``check-ignore`` emits no
+    record for them, so walking it would report its own .gitignore as
+    untracked and raise on an empty directory. The gitlink WARN is the whole
+    verdict for that tool.
+    """
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    init_git_repo(upstream)
+    (upstream / ".gitignore").write_text("*.log\n")
+    (upstream / "CLAUDE.md").write_text("# ethos\n")
+    git(["add", "."], cwd=str(upstream))
+    git(["commit", "-m", "ethos"], cwd=str(upstream))
+    root = _repo(tmp_path, "normal.gitignore")
+    git(
+        [
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            str(upstream),
+            ".punt-labs/ethos",
+        ],
+        cwd=str(root),
+    )
+    git(["commit", "-m", "submodule"], cwd=str(root))
+    (root / ".punt-labs" / "ethos" / "empty").mkdir()
+    findings = _findings(root)
+    assert (
+        WARN,
+        "Unvendored gitlink is audit-unverifiable",
+        ".punt-labs/ethos is a gitlink (mode 160000) — audit trail unverifiable"
+        " until vendored (§ 9.3 → .punt-labs/ethos/)",
+    ) in findings
+    assert (PASS, "Gitignore behaves correctly", CANONICAL_PASS) in findings
+    assert (PASS, "Tool ignore files are committed", "no tool ships a .gitignore") in (
+        findings
+    )
+    assert (PASS, "No gitignored non-local-convention path", "") in findings
+
+
 # --- No bare file under .punt-labs/ ------------------------------------------
 
 
