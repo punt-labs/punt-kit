@@ -1,6 +1,6 @@
 # Repo-Local State Directory Standard
 
-**Introduced:** 2026-07-20 · **Updated:** 2026-11-03
+**Introduced:** 2026-07-20 · **Updated:** 2026-11-11
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
 the two are told apart. A tool's committed repo state lives under one directory —
@@ -12,20 +12,19 @@ naming-determined, and naming alone** — the boundary-aware **local convention*
 ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention))
 is the *only* signal that a path does not travel with the repo, and the local
 zone is that same convention (a `local` path segment) reserved at the top of
-`.punt-labs/`. Operator ruling, 2026-09-10: "*local* is the flag that something
-should not be in git. If it is not in *local*, that means I designed it to be
-in git." A file a daemon rewrites is not exempt from that rule merely because
-it is daemon-rewritten — see [§ 7](#7-the-punt-labstool-subtree-has-zones) for
-what that means for a file like `vox.md`. This
+`.punt-labs/`. *Local* is the one flag that a path is not in git; a path not
+under that flag is in git by design. A file a daemon rewrites is not exempt
+from that rule merely because it is daemon-rewritten — see
+[§ 7](#7-the-punt-labstool-subtree-has-zones) for what that means for a file
+like `vox.md`. This
 standard builds on [tool-enable-disable.md](tool-enable-disable.md), which governs
 how a tool's CLAUDE.md guidance is turned on and off, and on
 [filesystem.md](filesystem.md), which governs the global `~/.punt-labs/<tool>/`
 tree. It settles the committed-vs-ignored and repo-vs-global questions those two
-leave open, and — per the operator's 2026-09-10 root-sentinel ruling
-([§ 1](#1-core-principle), which also states the `.beads/` exception) — that a
-Punt Labs tool built to this convention keeps no per-repo state outside
-`.punt-labs/` at all, in any shape: committed tool-root content in
-`.punt-labs/<tool>/`, machine-local live state in the local zone
+leave open, and states ([§ 1](#1-core-principle), which also states the
+`.beads/` exception) that a Punt Labs tool built to this convention keeps no
+per-repo state outside `.punt-labs/` at all, in any shape: committed tool-root
+content in `.punt-labs/<tool>/`, machine-local live state in the local zone
 `.punt-labs/local/<tool>/` ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)),
 and nothing outside `.punt-labs/` whatsoever.
 
@@ -107,7 +106,7 @@ entirely — [§ 1](#1-core-principle) states the exemption):
   is the **one** non-tool entry directly under `.punt-labs/`: the name `local`
   is reserved org-wide for this zone and is never a tool name. Beneath it the
   zone is tool-namespaced (`local/<tool>/`) exactly as the tool root is, so two
-  tools' live state never collide. This is the ethos v4.21 deployed layout:
+  tools' live state never collide. ethos is the reference layout:
   `.punt-labs/local/ethos/` holds `locks/`, `trace/{missions,sessions}/`,
   `missions/` live logs, `artifacts/`, and `tmp/`, while the durable
   `repair.log` and `hook-errors.log` sit in the home-tree log directory
@@ -129,59 +128,53 @@ machine-local **live state**. Both are ignored by the same local convention; the
 differ in location and in what they hold.
 
 **Outside these two, a tool creates no top-level dotfile or dot-directory of its
-own — in any form.** Operator ruling, 2026-09-10: every per-repo path a
+own — in any form.** Every per-repo path a
 **Punt Labs tool built to this convention** owns lives under `.punt-labs/` —
 committed tool-root content in `.punt-labs/<tool>/` ([§ 1 above](#1-core-principle)),
 machine-local live state in the local zone `.punt-labs/local/<tool>/`
 ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — and there
 is no repo-root sentinel outside `.punt-labs/` altogether, whatever shape it
-takes (`.beads/` is out of scope for this ruling entirely, not a violation of
-it — [§ 1](#1-core-principle) states the exemption canonically). Three shapes
-of the in-scope legacy — a Punt Labs tool's own root sentinel — are attested
-in the fleet and all three are **deprecated legacy**, retired on the tool's
-next release ([§ 9](#9-migration)):
+takes (`.beads/` is out of scope for this rule entirely, not a violation of
+it — [§ 1](#1-core-principle) states the exemption canonically). A root
+sentinel is not a presence marker: the `enabled` marker is
+([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)),
+and `enable` moves a root sentinel into the subtree
+([§ 9](#9-migration)). A root sentinel takes one of three shapes, and the
+migration rule for each is keyed on what it holds:
 
 - a **settings-bearing dotfile** — `.biff` (real TOML: `[team]`, `[relay]`,
-  `[peers]`). `.quarry.toml` was this standard's earlier, proposed shape for
-  quarry — verified against quarry's own source (`_stdlib.py`) and the fleet
-  (zero repos surveyed carry it): quarry never shipped it, going straight to
-  `.punt-labs/quarry/config.md` (YAML frontmatter, not TOML). Kept here as a
-  corrected historical note, not a live migration target — see the quarry
-  (config) row in [§ 10](#10-adoption-status);
-- a **config-bearing directory** — `.vox/config.md`, `.lux/config.md`. Earlier
-  drafts of this standard called these "pure presence" markers; the fleet
-  survey ([§ 10](#10-adoption-status)) found otherwise — both carry live
-  settings — daemon-mutable for vox (`model`/`notify`/`provider`/`speak`/`voice`,
-  vox's own durable-field set — `vibe` and its cluster are session-local and
+  `[peers]`);
+- a **config-bearing directory** — `.vox/config.md`, `.lux/config.md`. Both
+  carry live settings — daemon-mutable for vox (`model`/`notify`/`provider`/`speak`/`voice`,
+  vox's durable-field set — `vibe` and its cluster are session-local and
   live in `vox.local.md`, not this file — rewritten at runtime by the MCP
   switch tools) and enable/disable-managed for lux (the
   `display` toggle, written only by the install/enablement flow, per lux's own
   `operations/config.py` docstring — not a daemon, not a runtime client
-  setter) — the exact root-level predecessor of `.punt-labs/vox/vox.md` and
-  `.punt-labs/lux/config.md` below. Both writer patterns land the same way:
+  setter) — the root-level predecessor of `.punt-labs/vox/vox.md` and
+  `.punt-labs/lux/config.md`. Both writer patterns land the same way:
   ordinary tracked content at the new location, same as at the old one
   ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — git status does not
   distinguish who writes the file.
-  The "pure presence" case (no settings, e.g. a bare `.vox` with nothing
-  inside) is retired the same way, just with nothing to move first;
+  The **pure presence** case (no settings, e.g. a bare `.vox` with nothing
+  inside) is handled the same way, with nothing to move first;
 - a **root-level runtime-state directory** — the bare `.ethos/` directory (note
   the missing `.punt-labs/` prefix — this is a different path from the
   `.punt-labs/ethos/` subtree discussed everywhere else in this document),
   holding `.ethos/missions.jsonl`, a continuously-appended mission audit log
-  with no settings at all, tracked at repo root in every ethos-adopting repo
-  surveyed. This is the root-level predecessor of the local zone
+  with no settings at all. This is the root-level predecessor of the local zone
   ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)): the state
-  was always machine/checkout-scoped live state, it just had nowhere
-  sanctioned to go before this standard. It does **not** touch the separate,
-  pre-existing question of `.punt-labs/ethos/missions.jsonl` (inside the
-  vendored subtree) — that file's own live/sealed split is ethos(logs)'s
-  DES-058 seal pattern ([§ 10](#10-adoption-status)), unchanged by this row.
+  is machine/checkout-scoped live state, and the local zone is its sanctioned
+  home. It does **not** touch the separate question of
+  `.punt-labs/ethos/missions.jsonl` (inside the vendored subtree) — that
+  file's own live/sealed split is the seal pattern
+  ([§ 5](#5-live-state-is-never-a-tracked-file)), unchanged by this row.
 
 This mirrors the global rule in
 [filesystem.md § Core Principle](filesystem.md#core-principle) ("no tool creates
 its own top-level dot-directory") and extends it to the repo, closing it over
-every shape a root sentinel has taken in practice, not just the dotfile case
-the name "sentinel dotfile" suggested.
+every shape a root sentinel takes, not just the dotfile case
+the name "sentinel dotfile" suggests.
 
 The subtree name `<tool>` is the CLI binary name, identical to the global tree
 ([filesystem.md § Directory Root](filesystem.md#directory-root)); the local zone
@@ -245,10 +238,10 @@ running daemon rewrites ([§ 7](#7-the-punt-labstool-subtree-has-zones)). The
 [§ 6](#6-the-canonical-gitignore-block) **interim excludes** are not a
 second permanent convention and do not weaken this rule: they are a
 single, canonical, table-driven exception the tooling maintains — never a
-tool's own invention — scoped to the two directories below while their
-[§ 10](#10-adoption-status) migration stays open, and they disappear the
-moment that migration completes. Two existing directories are the reason
-that exception exists, and must eventually change so it can retire:
+tool's own invention — scoped to exactly the live paths the
+[§ 9 live-state table](#94-live-state-to-the-local-zone) names, and each
+one is dropped in the same change that relocates its path. Two directories
+in that table are the reason the exception exists:
 
 - `quarry`'s `captures/` — relocate to the global tree
   (`~/.punt-labs/quarry/captures/`) if machine-scoped, or rename to a
@@ -267,8 +260,8 @@ artifacts, delegation prompts, sealed audit chunks — carries **no absolute
 paths, no usernames, and no machine identifiers**. Redaction happens at write
 time, not in review: the writer substitutes `~` for the user's home directory
 and `<repo>` for the repo root before the bytes land in the tracked tree. This
-is the DES-058 path-redaction invariant (`punt-labs/ethos`,
-`docs/audit-seal.md`, merged at `85489ba0ecba1911ed21d7a15e160f7bdd8f2432`),
+is the path-redaction invariant of the ethos audit-seal design
+(`punt-labs/ethos`, `docs/audit-seal.md`),
 extended from audit lines to **all** tool state that lands in tracked history.
 Local-convention and local-zone paths are exempt — they never travel. A secret
 is exempt from nothing: redaction is about machine identity in shared history,
@@ -297,8 +290,8 @@ in git — not all repo source, and not the uncommitted trees: the gitignored
 local zone `.punt-labs/local/<tool>/`
 ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and the home
 tree `~/.punt-labs/<tool>/` ([filesystem.md](filesystem.md)) are out of scope
-because they are never committed and so never enter git. Operator requirement
-(Jim, 2026-11-10). The **enforcement mechanism is out of scope for this
+because they are never committed and so never enter git. The **enforcement
+mechanism is out of scope for this
 standard** — which hook, tool, or audit check performs the scrub, and when, is
 an implementation detail; this standard states the requirement, not the
 mechanism.
@@ -357,9 +350,9 @@ Live state has two correct homes:
   at read time, not by merge. Between seals the tracked set does not move, so the
   tree stays clean.
 
-  The mechanism rests on DES-058's invariant block (`punt-labs/ethos`,
-  `docs/audit-seal.md`) — cite it, but do not pin section numbers, which may move
-  before the design lands:
+  The mechanism rests on the invariant block of the ethos audit-seal design
+  (`punt-labs/ethos`, `docs/audit-seal.md`) — cite it, but do not pin section
+  numbers:
   - **I10-audit-atomic** (amended): appends target the live session log under the
     session flock, which allocates a strictly-monotonic per-session timestamp
     `ts = max(now, last_ts + 1ns)`. The per-session floor is seeded from the seal
@@ -384,25 +377,26 @@ Live state has two correct homes:
 
   Line identity is `(session, ts)`; there is no `seq` field. A corrupt chunk — one
   that does not parse whole, or whose last `ts` disagrees with its filename — is
-  surfaced as an error naming the chunk, never a silent drop; the specified
-  recovery is `ethos audit quarantine` (DES-058), not `--no-verify`. A seal-managed
+  surfaced as an error naming the chunk, never a silent drop; the tool salvages
+  the chunk itself on its next run, and `--no-verify` is never the recovery. A
+  seal-managed
   stream is **declared per file** in the tool's **seal manifest** (distinct from
   the **vendored-zone manifest** of [§ 7](#7-the-punt-labstool-subtree-has-zones),
   which lists deposited files) — seal management is a property of the named file,
   never inferred from its directory. (A directory glob over-matches: a
   non-seal-managed index file sitting beside sealed chunks must not inherit the
   exemption.) The seal pattern's design home is the ethos audit-seal design
-  (DES-058, draft in `punt-labs/ethos` at `docs/audit-seal.md`).
+  (`punt-labs/ethos`, `docs/audit-seal.md`).
 
-**The seal exemption is gated on DES-058.** Until then no tool may claim it and
-no seal-manifest entry grants it: every git-tracked, continuously-appended file under
-`.punt-labs/` is a violation ([§ 8](#8-what-punt-audit-checks)). The gate is a
-version check, not a design lookup — it flips when the `punt` release that ships
-the seal-audit machinery is installed; audit reads the local tool version and
-never inspects a cross-repo design's merge state. Because installing that
-release is what opens the gate, the release that ships the seal-audit machinery
-must not be cut before DES-058 merges, or the gate opens early. The exemption
-opens only once the seal mechanism it depends on exists.
+**The seal exemption is gated on the seal mechanism.** A tool claims it, and a
+seal-manifest entry grants it, only on a host whose installed `punt` carries
+the seal-audit machinery; absent that, every git-tracked, continuously-appended
+file under `.punt-labs/` is a violation ([§ 8](#8-what-punt-audit-checks)). The
+gate is a version check, not a design lookup — audit reads the local tool
+version and never inspects a cross-repo design's merge state. The `punt`
+release that ships the seal-audit machinery is cut only after the seal
+mechanism it depends on has shipped, so the gate never opens before the
+mechanism exists.
 
 The distinction is not "important file vs. throwaway file." It is **write
 cadence**: operator- and lifecycle-driven writes may be tracked; process-driven
@@ -480,14 +474,15 @@ subtree ignored (empirically confirmed). The workspace's own tracked `.beads/` �
 `!.beads/` then `!.beads/**` — is the precedent. A block without the
 bare-directory line is non-functional under deny-all.
 
-**Interim excludes for not-yet-migrated live paths.** A live directory that is
-not yet local-convention-named — because its owning tool has not migrated — is
+**Interim excludes for live paths in the tool subtree.** A live directory that
+sits in the tool subtree under a name the local convention does not mark is
 committed-by-default in **both** repo types, so the exposure is not deny-all-only:
 a normal-gitignore repo ignores nothing under `.punt-labs/`, and the deny-all
 form's `!.punt-labs/**` re-includes everything. Either way `git add -A` would
-stage a live transcript or ephemeral stream. So the block carries one temporary
-exclude for **every** live path an open [§ 10](#10-adoption-status) live-state
-row names — **file or directory**, not directories only — today:
+stage a live transcript or ephemeral stream. So the block carries one interim
+exclude for **every** live path the
+[§ 9 live-state table](#94-live-state-to-the-local-zone) names — **file or
+directory**, not directories only:
 
 ```gitignore
 .punt-labs/quarry/captures/
@@ -495,19 +490,17 @@ row names — **file or directory**, not directories only — today:
 .punt-labs/ethos/sessions/
 ```
 
-The `.punt-labs/ethos/sessions/` line is the ethos DES-079 interim: the session
-trace tier is local by default, and until ethos writes it to the local zone
-(`.punt-labs/local/ethos/trace/`) its in-tree location must stay ignored. It
-retires with its [§ 10](#10-adoption-status) row, when ethos writes the trace
-tier to the local zone.
+The `.punt-labs/ethos/sessions/` line covers the session trace tier, which is
+local by default under the ethos storage contract: while its in-tree location
+exists, that location stays ignored. The line is dropped in the change that
+writes the trace tier to the local zone (`.punt-labs/local/ethos/trace/`).
 
-Each interim line is **tied to a [§ 10](#10-adoption-status) row, not to prose**:
-the rollout generates this list from the § 10 table's open live-state rows and
-**removes** a line when its row reads complete — i.e. once that path has relocated
-to the global tree or adopted local-convention naming ([§ 9](#9-migration)) and
-therefore no longer needs a special-case exclude. The list is never
-hand-maintained; when § 10 has no open live rows the block carries no interim
-excludes.
+Each interim line is **tied to a [§ 9 live-state row](#94-live-state-to-the-local-zone),
+not to prose**: the rollout generates this list from that table's Live path
+column and **removes** a line in the same change that relocates its path — to
+the global tree or to local-convention naming — and therefore no longer needs a
+special-case exclude. The list is never hand-maintained; when the table names
+no live path the block carries no interim excludes.
 
 Lifecycle:
 
@@ -560,16 +553,15 @@ not a fifth zone — whichever actor that is.** `vox.md`
 `.punt-labs/lux/config.md` holds `display`, written differently — not by a
 daemon or a runtime client setter, but by the install/enablement flow itself
 (`enable` writes it, matching lux's own `operations/config.py` docstring: "not
-a client setter routed through the Hub"). Operator ruling, 2026-09-10: git
-status is decided by **naming alone** ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention))
-— "*local* is the flag that something should not be in git. If it is not in
-*local*, that means I designed it to be in git." Neither `vox.md` nor
+a client setter routed through the Hub"). Git
+status is decided by **naming alone** ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)):
+*local* is the one flag that a path is not in git, and a path not under that
+flag is in git by design. Neither `vox.md` nor
 `config.md` carries a local-convention name, so both are **tracked**, exactly
 like every other Config-zone file, regardless of which actor —
 `init`, a human, `enable`/`disable`, or a daemon — rewrites them after
-deposit. An earlier draft of this standard, and punt-kit#350 following it,
-gitignored `vox.md`; both were wrong, and #350's untrack is being reverted
-separately (not by this document).
+deposit. A gitignore rule for `vox.md` is a violation of this standard, not an
+accommodation.
 
 **A tracked file a running daemon rewrites continuously — `vox.md`'s case, not
 `lux`'s — legitimately shows `modified` in an active checkout.** That is
@@ -583,8 +575,8 @@ one place this needs an explicit accommodation: the `punt release` preflight's
 clean-tree gate. The release engine stashes a continuously-rewritten file's
 local modifications before its clean-tree check and restores them after,
 rather than treating the daemon's ordinary write as an uncommitted change
-blocking a release. That accommodation is tracked separately as bead
-`pkit-f85t.9`, not specified here.
+blocking a release. The stash-and-restore mechanism is the release engine's
+own, not specified here.
 
 The determinism guarantee of
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership) — "writes the
@@ -648,14 +640,9 @@ or not — the grandfather covers only the tool's own prior vendored deposit, ne
 
 ## 8. What `punt audit` Checks
 
-**This section specifies the contract; implementation is tracked separately.**
-As with every other bullet already in this section before this PR, a check
-appearing here is the normative spec `punt audit` must eventually meet, not a
-claim that `src/punt_kit/audit.py` implements it today. The two bullets this
-PR adds or amends — "No gitignored non-local-convention path" and the
-legacy-root-sentinel `.ethos` addition — are tracked for implementation as
-bead `pkit-6h9l`; do not read either bullet's presence here as a promise the
-current binary enforces it yet.
+**This section specifies the contract.** Each check is the normative spec
+`punt audit` meets; which release of the binary enforces which check is the
+tracker's business, not this document's.
 
 These extend the audit list in
 [tool-enable-disable.md § 2.11](tool-enable-disable.md#211-what-punt-audit-checks):
@@ -673,8 +660,9 @@ These extend the audit list in
     another (a tool-specific exclude shadowing the canonical rules) is caught only
     by probing each.
   - **(b) Per interim-exclude path.** For **every** [§ 6](#6-the-canonical-gitignore-block)
-    interim-exclude path (derived from the [§ 10](#10-adoption-status) Live path(s)
-    column), one probe that MUST be ignored — run **regardless of whether that
+    interim-exclude path (derived from the Live path column of the
+    [§ 9 live-state table](#94-live-state-to-the-local-zone)), one probe that
+    MUST be ignored — run **regardless of whether that
     path's `<tool>` subtree is present**. A stale interim exclude for an absent or
     removed tool is never reached by set (a), so it is probed explicitly here; an
     interim line that ignores nothing is itself a **fail**.
@@ -712,19 +700,21 @@ These extend the audit list in
   (`git check-ignore` says yes) unless the local convention marks it
   ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)),
   **with exactly one exemption, not zero**: a path matching a
-  [§ 6](#6-the-canonical-gitignore-block) interim exclude while its owning
-  [§ 10](#10-adoption-status) row is still open (`.punt-labs/quarry/captures/`,
-  `.punt-labs/vox/ephemeral/`, `.punt-labs/ethos/sessions/` today) is sanctioned, table-driven, and expected
+  [§ 6](#6-the-canonical-gitignore-block) interim exclude whose
+  [§ 9 live-state row](#94-live-state-to-the-local-zone) names a live path
+  still present in the repo (`.punt-labs/quarry/captures/`,
+  `.punt-labs/vox/ephemeral/`, `.punt-labs/ethos/sessions/`) is sanctioned,
+  table-driven, and expected
   to be ignored — it is not this check's business, and this check must not
-  re-fail what § 8's own live-state-migration grade already governs on its own
-  expiring schedule. Every other gitignored, non-local-convention path is a
+  re-fail what § 8's own live-state-migration grade already governs. Every
+  other gitignored, non-local-convention path is a
   **fail**, whatever wrote the rule that caught it: a stray tool-specific
-  ignore line, a stale interim exclude for a row that has since completed
+  ignore line, a stale interim exclude for a path that is gone
   (which is a *different*, already-covered fail —
   ["No interim exclude survives a completed migration"](#8-what-punt-audit-checks) —
   not this bullet's job either), or a hand-edited `.gitignore`. This is the
-  check that would have caught `.punt-labs/vox/vox.md` untracked in punt-kit
-  pre-#350-revert — a file rewritten after deposit is ordinary Config-zone
+  check that catches an untracked `.punt-labs/vox/vox.md` — a file rewritten
+  after deposit is ordinary Config-zone
   content ([§ 7](#7-the-punt-labstool-subtree-has-zones)) and gets no naming
   exemption for that.
 - **No unsanctioned live state.** This check ranges over
@@ -744,62 +734,62 @@ These extend the audit list in
   Membership is per-file and explicit, never inferred from a
   directory.
 - **Live-state migration pending** *(graded, table-driven)*. The seal-manifest
-  check above is silent for a tool that ships **no seal manifest** — so the
-  motivating case, ethos's in-repo audit and mission logs, passes it unflagged
-  today. This check closes that gap **without** reintroducing a dirty-tree fail
-  (the seal manifest stays the post-DES-058 mechanism,
+  check above is silent for a tool that ships **no seal manifest** — so a
+  tool's in-repo audit and mission logs pass it unflagged. This check closes
+  that gap **without** reintroducing a dirty-tree fail
+  (the seal manifest stays the mechanism of
   [§ 5](#5-live-state-is-never-a-tracked-file)):
-  for each [§ 10](#10-adoption-status) row whose target is a live-state migration
-  and whose status is still pending, if the live path that row names is
-  git-tracked, grade a **warning** — "live-state migration pending." The § 10
-  table is the sole source, exactly as the § 9 bare-file table drives the
-  bare-file grade below. Like that grade, this one is **expiring**: a named,
-  still-tracked live path is a **warning** while its § 10 row is open and
-  **escalates to fail** once the row reads complete — a live-state migration the
-  table calls finished must not leave the live path tracked. This is never the
-  seal-manifest bullet's unconditional fail; the grade is bounded by the § 10
-  status ([§ 10](#10-adoption-status) defines which statuses count as open).
-- **No interim exclude survives a completed migration** *(table-driven)*. When a
-  [§ 10](#10-adoption-status) row becomes **complete per the § 10 legend**
-  (`Done` or `Complete`), the rollout drops the
-  [§ 6](#6-the-canonical-gitignore-block) interim exclude that row owned. If that
-  exclude is **still in the canonical block** while the row is complete — the
-  migration is finished on paper yet its Live path is still ignored — audit
-  **fails**. Keying on the legend's completed-set, not a literal `Done`, is
-  deliberate: a `Complete` row lapses every other exemption, so it must trip this
-  check too. This closes a gap the escalation rules leave open: the bare-file and
-  live-state grades escalate to fail only on a *tracked* path, but a still-excluded
-  path is not tracked, so a prematurely-completed migration whose path is still
-  excluded would otherwise trip no grade at all. The check keys on the § 10 status
-  and the § 6 block together, never on tree state.
-- **No completed row strands a migration it unblocks** *(table-driven)*. The
-  ethos(registry) de-gitlink is a prerequisite for what needs the
+  for each [§ 9 live-state row](#94-live-state-to-the-local-zone), if the live
+  path that row names is git-tracked, grade a **warning** — "live-state
+  migration pending." That table is the sole source, exactly as the § 9
+  bare-file table drives the bare-file grade below. The grade is keyed on
+  observation ([§ 9.5](#95-grading-keys-on-the-observed-artifact)): a repo
+  where the live path is absent grades nothing, and the warning never
+  escalates on its own — a path the table no longer names is the
+  seal-manifest bullet's and the gitignored-path bullet's business, not this
+  one's.
+- **No interim exclude survives a completed migration** *(table-driven)*. The
+  rollout drops a [§ 6](#6-the-canonical-gitignore-block) interim exclude in
+  the same change that relocates its live path
+  ([§ 9.5](#95-grading-keys-on-the-observed-artifact)). An interim exclude
+  **still in the canonical block** for a path the
+  [§ 9 live-state table](#94-live-state-to-the-local-zone) no longer names —
+  the migration is finished yet its old location is still ignored — is a
+  **fail**. This closes a gap the tracked-path grades leave open: the
+  bare-file and live-state grades fire only on a *present* path, but a stale
+  exclude ignores nothing, so a finished migration whose exclude was left
+  behind would otherwise trip no grade at all. The check keys on the table and
+  the § 6 block together, never on tree state.
+- **No de-gitlink strands the migration it unblocks** *(table-driven)*. The
+  ethos registry de-gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
+  is a prerequisite for what needs the
   `.punt-labs/ethos/` subtree present: the `.punt-labs/ethos.yaml` → config-zone
-  move ([§ 9](#9-migration)) and in-repo sealing of the deferred chunks
-  ([§ 5](#5-live-state-is-never-a-tracked-file)). When the registry row becomes
-  **complete per the § 10 legend**, that move becomes possible and MUST be carried
-  through in the **same change**. Audit **fails** a complete ethos(registry) row
-  while the identity-pointer move it unblocks is not yet complete: the prerequisite
-  resolved on paper but the dependent migration was left stranded. The ethos(logs)
-  live paths are **not** a dependent here — they are gitlink-immune in the local
+  move ([§ 9.2](#92-bare-file-to-subtree)) and in-repo sealing of the deferred
+  chunks ([§ 5](#5-live-state-is-never-a-tracked-file)). The identity-pointer
+  move is carried in the **same change** as the de-gitlink. Audit **fails** a
+  repo whose `.punt-labs/ethos` is an inline vendored subtree (no gitlink)
+  while `.punt-labs/ethos.yaml` is still present: the prerequisite is resolved
+  but the dependent migration was left stranded. The ethos live logs are
+  **not** a dependent here — they are gitlink-immune in the local
   zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) and never
   blocked; only the tracked landings in the subtree depend on the de-gitlink.
-  Symmetrically, once that de-gitlink **completes**, the vendored subtree must
+  Symmetrically, once the subtree is vendored it must
   actually deliver the audit trail it now can — **when the repo tracks any of
   the trace tier** (`git ls-files .punt-labs/ethos/sessions` is non-empty;
   tracked-ness decides, not ignore status, because a gitignore line does not
-  untrack chunks already committed): a tool with a **seal-pattern § 10 row** (ethos(logs)) whose
-  vendored subtree carries **no readable seal manifest**
+  untrack chunks already committed): a vendored subtree that carries **no
+  readable seal manifest**
   ([§ 5](#5-live-state-is-never-a-tracked-file)) is then a **fail**. Vendoring
   exists to make the trail verifiable, so a vendored-but-manifest-less subtree
   leaves the unsealed tail invisible forever — the same vacuous pass the gitlink
-  warning flags, now un-exempted because the gitlink is gone. Under ethos
-  DES-079 only the blame tier (mission records, `missions-closed/` exports) is
+  warning flags, now un-exempted because the gitlink is gone. Under the ethos
+  storage contract (`punt-labs/ethos`, `docs/storage-layout.md`) only the
+  blame tier (mission records, `missions-closed/` exports) is
   committed by default; the session trace tier (`.punt-labs/ethos/sessions/`
   audit chunks) is local by default and committing it is opt-in. A repo with
-  nothing tracked under `.punt-labs/ethos/sessions/` (the DES-079 default, with
+  nothing tracked under `.punt-labs/ethos/sessions/` (the default, with
   the directory ignored as the § 6 interim exclude) has no tracked trail to
-  verify: audit grades it **pass with a note** ("trace tier local per DES-079;
+  verify: audit grades it **pass with a note** ("trace tier local;
   no seal manifest required"), never fail.
 - **Unvendored gitlink is audit-unverifiable** *(graded)*. A `.punt-labs/<tool>`
   entry recorded at **gitlink mode `160000`** (a submodule, not an inline subtree)
@@ -808,30 +798,28 @@ These extend the audit list in
   cannot read through it: the tool's seal manifest, its sealed chunks, and any
   state inside the subtree are all unreachable, so every probe that would range
   over them **passes vacuously**. The warning is the audit-side tooth for the
-  vendor-first rule ([§ 10](#10-adoption-status), DES-058) — vendor the subtree
-  (`ethos-e29s`) before relying on its audit trail — and it names the specific
-  hole: a green result on a gitlinked tool proves nothing was checked, not that
-  nothing is wrong.
+  vendor-first rule ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) —
+  vendor the subtree before relying on its audit trail — and it names the
+  specific hole: a green result on a gitlinked tool proves nothing was
+  checked, not that nothing is wrong. The warning is never suppressed on the
+  theory that a submodule is unprobed.
 - **Tool ignore files are committed.** Any `.gitignore` a tool ships inside its
   own `.punt-labs/<tool>/` subtree (the [§ 6](#6-the-canonical-gitignore-block)
   defense-in-depth rules) must itself be git-tracked; an untracked one is live
   drift, not defense.
-- **No bare file under `.punt-labs/`** *(graded, expiring)*. Repo-local state
+- **No bare file under `.punt-labs/`** *(graded, table-driven)*. Repo-local state
   lives in `.punt-labs/<tool>/`, never as `.punt-labs/<file>` directly
   ([§ 1](#1-core-principle)). The stray scan reads the **worktree**, not just
   `git ls-files` — a stray can be untracked or gitignored and still occupy a path.
-  A bare file named in the [§ 9](#9-migration)
+  A bare file named in the [§ 9.2](#92-bare-file-to-subtree)
   bare-file table (e.g. `.punt-labs/lux.md`, `.punt-labs/ethos.yaml`) grades by
-  **the [§ 10](#10-adoption-status) row that names that specific artifact** — the
-  join is by row, not by tool (ethos has three § 10 rows at different statuses, so
-  a tool-level aggregate would mis-grade `.punt-labs/ethos.yaml`): a **warning**
-  ("migration pending") while that row is still open, but a **fail** once the row
-  reads complete — a migration the table calls finished must not leave the bare
-  file behind, so the exemption **lapses** instead of exempting forever. A bare
+  **the § 9 row that names that specific artifact** — the
+  join is by row, not by tool ([§ 9.5](#95-grading-keys-on-the-observed-artifact);
+  ethos has several § 9 rows, so a tool-level aggregate would mis-grade
+  `.punt-labs/ethos.yaml`): a **warning**
+  ("migration pending") while the artifact is present. A bare
   file with **no** § 9 row (e.g. a stray `.punt-labs/foo`) is a **fail** outright.
-  The § 9 table names the exempt paths; the matching § 10 row's status bounds how
-  long the exemption lasts ([§ 10](#10-adoption-status) defines which statuses
-  count as open), so the grade is deterministic and time-bounded. The reserved
+  The § 9 table names the exempt paths, so the grade is deterministic. The reserved
   `local/` zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
   is a directory, not a bare file, and is the **one sanctioned non-tool entry**
   directly under `.punt-labs/` — it is expected (gitignored) and never flagged as
@@ -851,19 +839,19 @@ These extend the audit list in
   ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)).
   Best-effort exactly like the secret scan above: writer-side redaction is the
   primary control, the scan is the tripwire.
-- **No legacy root sentinel** *(graded, expiring)*. No `.biff`, `.vox`, `.lux`,
+- **No legacy root sentinel** *(graded, table-driven)*. No `.biff`, `.vox`, `.lux`,
   `.ethos`, or `.quarry.toml` at the repo root
   ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — dotfile or
   directory, config-bearing or not; the check is on the path's presence, not its
-  shape or contents ([§ 1](#1-core-principle)). Graded exactly like the bare-file check, not an unconditional fail: a sentinel
-  named in the [§ 9](#9-migration) root-sentinel table grades by **the
-  [§ 10](#10-adoption-status) row that names that sentinel** (by row, not by tool)
-  — a **warning** ("migration pending") while that row is open, a **fail** once the
-  row is complete per the § 10 legend, or if the sentinel appears with **no** § 9 /
-  § 10 row at all. An unconditional fail
-  would fail every repo in the fleet today, since every listed sentinel's migration
-  is still open ([§ 10](#10-adoption-status)) — the same day-one-fleet-fail the
-  bare-file and `.punt-labs/ethos.yaml` grades avoid.
+  shape or contents ([§ 1](#1-core-principle)). Graded exactly like the
+  bare-file check, not an unconditional fail: a sentinel
+  named in the [§ 9.1](#91-root-sentinel-to-subtree) root-sentinel table grades
+  by **the § 9 row that names that sentinel** (by row, not by tool,
+  [§ 9.5](#95-grading-keys-on-the-observed-artifact)) — a **warning**
+  ("migration pending") while the sentinel is present; a root sentinel with
+  **no** § 9 row at all is a **fail**. The warning, not a fail, is what lets a
+  fleet adopt the convention one tool release at a time without every repo
+  failing audit until the last tool migrates.
 
 ---
 
@@ -873,11 +861,14 @@ No existing rule is removed; the one amendment this standard makes — scoping
 [tool-enable-disable.md § 2.2](tool-enable-disable.md#22-ownership)'s
 wholesale-overwrite contract to the vendored zone
 ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — is explicit and reciprocal, as
-that section's own § 2.2 cross-reference records. Three migrations bring existing
-tools into line, all **forward-integration, no compat shim**
+that section's own § 2.2 cross-reference records. Four migrations bring a
+tool into line, all **forward-integration, no compat shim**
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md#pl-pp-1-no-backwards-compatibility-shims))
 and all bound by the rule that **live config is never deleted with content
 inside** ([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)).
+Each is a table of **one row per artifact**, and
+[§ 9.5](#95-grading-keys-on-the-observed-artifact) states how `punt audit`
+grades a row: on what it observes in the repo, never on a status column.
 
 **Destination-collision is an error, never an overwrite.** Every migration below
 is a *move*, and a move must not clobber what is already there. If the
@@ -888,21 +879,25 @@ destroy live config or a hand-placed file, violating the never-delete-live-confi
 rule; surfacing the collision is the safe default. This applies to every move in
 the tables that follow.
 
-**Root sentinel → subtree** extends the
-[§ 2.12 sentinel table](tool-enable-disable.md#212-migration). That table already
+### 9.1 Root sentinel to subtree
+
+Extends the
+[§ 2.12 sentinel table](tool-enable-disable.md#212-migration). That table
 moves a config-bearing sentinel's settings into the tool's owned location; this
 standard names the destination (the config zone,
 [§ 7](#7-the-punt-labstool-subtree-has-zones)) and the shape — for all three
-attested legacy forms ([§ 1](#1-core-principle)), not the dotfile case alone:
+legacy forms ([§ 1](#1-core-principle)), not the dotfile case alone. `enable`
+performs the move on its first run in a repo that carries the sentinel
+([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration)):
 
 | Legacy | Destination | Rule |
 |--------|-------------|------|
 | `.biff` (settings) | `.punt-labs/biff/config.yaml` (config zone) | Move settings, then delete the empty root file; never delete with settings inside |
-| `.quarry.toml` (proposed, never shipped) | `.punt-labs/quarry/config.md` (config zone, YAML frontmatter) | Not a live migration — quarry deposits directly at the config-zone path; row kept for historical accuracy only |
+| `.quarry.toml` (settings) | `.punt-labs/quarry/config.md` (config zone, YAML frontmatter) | Move settings, then delete the empty root file; never delete with settings inside. quarry's `init` deposits directly at the config-zone path and never writes the root form |
 | `.vox/config.md` (daemon-mutable settings: model/notify/provider/speak/voice) | `.punt-labs/vox/vox.md` | Move the file, then delete the empty root directory; the destination stays **tracked**, exactly like any other Config-zone file ([§ 7](#7-the-punt-labstool-subtree-has-zones)) — being daemon-rewritten does not exempt it from git status; never deleted with settings inside |
 | `.lux/config.md` (enable/disable-managed setting: `display`, not daemon-rewritten) | `.punt-labs/lux/config.md` | Same |
 | `.biff` / `.vox` / `.lux` (pure presence — no settings inside) | — | Deleted once `.punt-labs/<tool>/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) |
-| `.ethos/missions.jsonl` — the file, inside the bare root **directory** `.ethos/` (**not** `.punt-labs/ethos/missions.jsonl` — no settings, no relation to the sealed-chunk subtree file) | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | Move the **file**, then delete the now-empty **directory** `.ethos/`; never delete with unread lines inside |
+| `.ethos/missions.jsonl` — the file, inside the bare root **directory** `.ethos/` (**not** `.punt-labs/ethos/missions.jsonl` — no settings, no relation to the sealed-chunk subtree file) | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | Move the **file**, then delete the now-empty **directory** `.ethos/`; never delete with unread lines inside. Graded by the [§ 8](#8-what-punt-audit-checks) legacy-root-sentinel check, not the live-state check: the artifact this row removes is the root directory itself, not a path under `.punt-labs/`, so this row carries no interim-exclude live path |
 
 The moved config file lands in the **config zone** (`init`-owned or
 daemon-rewritten, committed, never overwritten by `enable`) — daemon-mutable is
@@ -911,124 +906,144 @@ not a separate zone with its own gitignore rule
 directory lands in the **local zone**, which is what that directory always
 was, one level too high.
 
-**Bare file → subtree.** A tool that keeps state as a single file directly under
+### 9.2 Bare file to subtree
+
+A tool that keeps state as a single file directly under
 `.punt-labs/` — not inside its `<tool>/` subtree — breaks clause 1
 ([§ 1](#1-core-principle), [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)); the
-single-file form is **not** sanctioned. `lux` ships `.punt-labs/lux.md` across
-the biff, vox, ethos, and quarry siblings; `ethos` ships a git-tracked
-`.punt-labs/ethos.yaml` identity pointer in ~33 repos. Both move into a subtree,
-staying git-tracked:
+single-file form is **not** sanctioned. Two bare files are named — `lux`'s
+`.punt-labs/lux.md` and `ethos`'s git-tracked `.punt-labs/ethos.yaml` identity
+pointer. Both move into a subtree, staying git-tracked:
 
 | Legacy | Destination | Rule |
 |--------|-------------|------|
-| `.punt-labs/lux.md` (bare file) | `.punt-labs/lux/` (subtree) | Move the file under the tool subtree; the bare form is retired — subtree-only stands |
-| `.punt-labs/ethos.yaml` (git-tracked identity pointer) | `.punt-labs/ethos/config.yaml` (config zone, [§ 7](#7-the-punt-labstool-subtree-has-zones)) | Stays tracked; moves from bare root into the config zone. **Sequenced after** the registry gitlink → vendored `ethos/` migration ([§ 10](#10-adoption-status)) and carried through in the **same change** that completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)) — the config file needs the `ethos/` subtree to exist first |
+| `.punt-labs/lux.md` (bare file) | `.punt-labs/lux/` (subtree) | Move the file under the tool subtree; subtree-only |
+| `.punt-labs/ethos.yaml` (git-tracked identity pointer) | `.punt-labs/ethos/config.yaml` (config zone, [§ 7](#7-the-punt-labstool-subtree-has-zones)) | Stays tracked; moves from bare root into the config zone. **Sequenced after** the registry gitlink → vendored `ethos/` migration ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) and carried through in the **same change** that completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)) — the config file needs the `ethos/` subtree to exist first |
 
 The `.punt-labs/ethos.yaml` move is deliberately ordered behind the
 `.punt-labs/ethos` gitlink → inline-vendored-subtree migration
-([§ 10](#10-adoption-status)) and carried through in the **same change** that
+([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) and carried through in the
+**same change** that
 completes the de-gitlink ([§ 8](#8-what-punt-audit-checks)): the pointer lands in
 the config zone of a subtree that must already be present to receive it, and the
 same-change rule keeps the move from stranding as a separate later change.
 
-**Ignore-convention → local convention** relocates the two non-conforming
-directories named in
-[§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention):
-`quarry`'s `captures/` and `vox`'s `ephemeral/` move to the global tree or adopt
-local-convention naming on their next release.
+### 9.3 Registry gitlink to vendored subtree
 
----
+A `.punt-labs/<tool>` entry recorded as a **gitlink** (mode `160000`, a
+submodule) is not tracked shared history ([§ 1](#1-core-principle)): audit
+cannot read through it, and nothing inside it — a seal manifest, sealed
+chunks, config — is reachable. The registry is vendored inline:
 
-## 10. Adoption Status
+| Legacy | Destination | Rule |
+|--------|-------------|------|
+| `.punt-labs/ethos` gitlink (submodule) | `.punt-labs/ethos/` inline vendored subtree | De-gitlink, vendoring the registry content as ordinary tracked files; the `.punt-labs/ethos.yaml` → config-zone move ([§ 9.2](#92-bare-file-to-subtree)) rides in the **same change** |
 
-| Tool | State today | Live path(s) | Target | Status |
-|------|-------------|--------------|--------|--------|
-| ethos (logs) | audit / mission live logs written under the `.punt-labs/ethos` gitlink today | — | seal pattern (DES-058): **live** writes go to the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs) — gitlink-immune (a `local/` sibling of the gitlink), auto-ignored; **sealed** chunks land in the tracked `.punt-labs/ethos/` subtree, but a gitlink-mounted repo defers each seal with a signaled notice until vendored (bead `ethos-e29s`) — a bounded limitation (below) | Design |
-| ethos (registry) | `.punt-labs/ethos` gitlink (submodule) | — | inline vendored registry — a gitlink is not tracked shared history ([§ 1](#1-core-principle)) | Deprecating |
-| ethos (identity pointer) | `.punt-labs/ethos.yaml` bare file (git-tracked, ~33 repos) | — | `.punt-labs/ethos/config.yaml` config zone, after the registry migration | Planned |
-| biff | `.biff` root sentinel | — | `.punt-labs/biff/config.yaml` config zone | Planned |
-| quarry (config) | `.quarry.toml` (proposed, never shipped — verified against quarry's own source and a zero-repo fleet survey) | — | `.punt-labs/quarry/config.md` config zone, YAML frontmatter — already the deployed state everywhere, nothing to migrate | Done |
-| quarry (captures) | `captures/` live capture dir in-repo | `.punt-labs/quarry/captures/` | global tree or local-convention | Planned |
-| vox (ephemeral) | `ephemeral/` live stream dir in-repo | `.punt-labs/vox/ephemeral/` | relocated → global or local-convention | Planned |
-| vox (root config dir) | `.vox/config.md` root directory, git-tracked in some repos (e.g. punt-kit): carries live daemon-mutable settings (`model`, `notify`, `provider`, `speak`, `voice`), not pure presence — an earlier draft of this row described it as a pure-presence sentinel; the fleet survey found otherwise | — | move the file to `.punt-labs/vox/vox.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.vox/` directory; a genuinely empty `.vox/` (no `config.md`) is deleted outright once `.punt-labs/vox/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
-| lux (bare file) | `.punt-labs/lux.md` bare file (biff, vox, ethos, quarry) | — | `.punt-labs/lux/` subtree | Planned |
-| lux (root config dir) | `.lux/config.md` root directory, git-tracked in some repos: carries a live setting (`display`) written by `enable`/`disable` themselves (lux's `operations/config.py`: "not a client setter routed through the Hub"), not pure presence and not daemon-rewritten — same not-pure-presence correction as vox (root config dir) above, different writer | — | move the file to `.punt-labs/lux/config.md`, staying **tracked** (ordinary Config-zone content, [§ 7](#7-the-punt-labstool-subtree-has-zones)) — then delete the empty `.lux/` directory; a genuinely empty `.lux/` is deleted outright once `.punt-labs/lux/` + `enabled` exist ([§ 2.7](tool-enable-disable.md#27-the-enabled-marker)) | Planned |
-| ethos (root runtime dir) | the bare `.ethos/` root directory (no `.punt-labs/` prefix), holding `.ethos/missions.jsonl`, git-tracked in every surveyed ethos-adopting repo: a continuously-appended mission audit log with no settings, the root-level predecessor of the local zone. **Distinct from** `.punt-labs/ethos/missions.jsonl` inside the vendored subtree, which this row does not touch — that file's disposition is the pre-existing ethos(logs) row below | — | `.punt-labs/local/ethos/missions.jsonl` (local zone, [§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), then delete the empty `.ethos/` directory. Graded by [§ 8](#8-what-punt-audit-checks)'s legacy-root-sentinel check, not the live-state check — the row carries no interim-exclude live path because the artifact being removed is the root directory itself, not a path under `.punt-labs/` | Planned |
-| ethos (trace tier) | session trace tier (`.punt-labs/ethos/sessions/` audit chunks) is local by default, committing it is opt-in (ethos DES-079); written in-tree today | `.punt-labs/ethos/sessions/` | trace tier written to the local zone `.punt-labs/local/ethos/trace/` (DES-079), after which the interim exclude retires | Planned |
-| punt | writes the canonical gitignore block | — | `init` writes, `audit` verifies, rollout propagates | Building |
-
-The **Live path(s)** column is machine-resolvable: it lists the concrete paths
-(files and directories, glob-expanded) each **live-state** row names, and is the
-sole source the [§ 6](#6-the-canonical-gitignore-block) interim excludes and the
-[§ 8](#8-what-punt-audit-checks) live-state grade derive from. A `—` marks a row
-carrying no interim-exclude live path — either it is not a live-state migration
-(registry, bare-file, or config-zone moves carry no live path), **or its live
-state lands in the local zone**, which the canonical block already ignores
-([§ 6](#6-the-canonical-gitignore-block)), so no interim exclude is derived and the
-live-state grade has nothing to catch. ethos(logs) is the second kind: its live
-writes go to `.punt-labs/local/ethos/`
-([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) — a `local/`
-sibling of the `.punt-labs/ethos` gitlink (mode `160000`), so **gitlink-immune**
-and auto-ignored — and its Live path(s) stay `—` permanently. The gitlink bounds
-one thing: the **sealed chunks** (tracked, [§ 5](#5-live-state-is-never-a-tracked-file))
-land in the `.punt-labs/ethos/` subtree, but a gitlink-mounted repo (a consuming
-repo before bead `ethos-e29s`) cannot reach it, so each seal **defers with a signaled
-notice** and `ethos audit show` flags the unsealed tail
-(`N unsealed lines, sealing deferred until vendored`); deleting such a checkout
-destroys those unsealed lines. DES-058 accepts this as a **bounded pre-`ethos-e29s`
-limitation** — no spool — and the org rule is to vendor a repo (`ethos-e29s`) before
-relying on its audit trail. No live path is ever inferred from prose.
-
-**The registry de-gitlink unblocks tracked landings, not live paths.** ethos's
-live logs are gitlink-immune — they sit in the local zone
-([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), a sibling of the
-`.punt-labs/ethos` gitlink — so the de-gitlink restores no live path, and
-ethos(logs) Live path(s) stay `—` throughout. What it **does** unblock is tracked
-content landing in the `.punt-labs/ethos/` subtree: the deferred sealed chunks
+**The de-gitlink unblocks tracked landings, not live paths.** ethos's live logs
+are gitlink-immune — they sit in the local zone
+([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)), a `local/`
+sibling of the gitlink — so the de-gitlink restores no live path, and the
+ethos live-log row in [§ 9.4](#94-live-state-to-the-local-zone) carries no live
+path. What it **does** unblock is tracked content landing in the
+`.punt-labs/ethos/` subtree: the deferred sealed chunks
 ([§ 5](#5-live-state-is-never-a-tracked-file)) begin sealing in-repo, and the
-`.punt-labs/ethos.yaml` → config-zone move ([§ 9](#9-migration)) becomes possible —
-both need the subtree inline-vendored first. Audit enforces the sequencing
-([§ 8](#8-what-punt-audit-checks)): a **complete** ethos(registry) row while the
-identity-pointer move it unblocks has not been carried through in the **same
-change** is a **fail**.
+`.punt-labs/ethos.yaml` → config-zone move becomes possible — both need the
+subtree inline-vendored first. Audit enforces the sequencing
+([§ 8](#8-what-punt-audit-checks)): a repo whose `.punt-labs/ethos` is vendored
+while `.punt-labs/ethos.yaml` is still present is a **fail**, because the
+identity-pointer move was not carried through in the same change.
 
-**Grades join by row, not by tool.** Each § 9 migration artifact maps to the
-single § 10 row that names it, and every grade — bare-file, root-sentinel,
-live-state, and interim-exclude-lapse — keys on **that row's** status, never a
-tool-level aggregate. ethos alone spans three rows (logs, registry, identity
-pointer) at three different statuses, so a tool-level join would mis-grade its
-artifacts; the row that names the specific artifact is always the authority.
+**Vendor first, then rely on the trail.** While the gitlink stands, the
+**sealed chunks** (tracked, [§ 5](#5-live-state-is-never-a-tracked-file))
+cannot land in the `.punt-labs/ethos/` subtree, so each seal **defers with a
+signaled notice** and `ethos audit show` flags the unsealed tail
+(`N unsealed lines, sealing deferred until vendored`); deleting such a checkout
+destroys those unsealed lines. The ethos audit-seal design accepts this as a
+**bounded limitation** of a gitlinked repo — no spool — and the org rule is to
+vendor a repo before relying on its audit trail. The
+[§ 8](#8-what-punt-audit-checks) gitlink-unverifiable warning is the audit-side
+tooth for that rule.
+
+### 9.4 Live state to the local zone
+
+**Ignore-convention → local convention** relocates each live path a tool
+writes inside its subtree under a name the local convention does not mark.
+Such a path moves to the global tree or adopts local-convention naming — the
+local zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone))
+for repo-bound live state. The **Live path** column is machine-resolvable: it
+lists the concrete path (file or directory, glob-expanded) each row names, and
+is the sole source the [§ 6](#6-the-canonical-gitignore-block) interim excludes
+and the [§ 8](#8-what-punt-audit-checks) live-state grade derive from. No live
+path is ever inferred from prose.
+
+| Artifact | Live path | Destination | Rule |
+|----------|-----------|-------------|------|
+| quarry `captures/` (live capture dir in-repo) | `.punt-labs/quarry/captures/` | global tree (`~/.punt-labs/quarry/captures/`) if machine-scoped, else a local-convention path | Relocate; the [§ 6](#6-the-canonical-gitignore-block) interim exclude for the live path is dropped in the same change |
+| vox `ephemeral/` (live stream dir in-repo) | `.punt-labs/vox/ephemeral/` | `~/.punt-labs/vox/` or a local-convention path | Same |
+| ethos session trace tier (audit chunks; local by default under the ethos storage contract, committing them is opt-in) | `.punt-labs/ethos/sessions/` | `.punt-labs/local/ethos/trace/` (local zone) | Write the trace tier to the local zone; the interim exclude for the in-tree location is dropped in the same change |
+| ethos live logs (audit and mission live writes) | — | the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs); sealed chunks land in the tracked `.punt-labs/ethos/` subtree under the seal pattern ([§ 5](#5-live-state-is-never-a-tracked-file)) | Live writes go to the local zone, which the canonical block already ignores, so no interim exclude is derived and the live-state grade has nothing to catch; a gitlinked repo defers each seal ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) |
+
+A `—` in the Live path column marks a row whose live state lands in the local
+zone, which the canonical block already ignores
+([§ 6](#6-the-canonical-gitignore-block)), so no interim exclude is derived.
+The ethos live-log row is that kind: its live writes go to
+`.punt-labs/local/ethos/`, a `local/` sibling of the `.punt-labs/ethos` entry
+whatever mode that entry has — gitlink-immune and auto-ignored — so its Live
+path stays `—` permanently. The rows that carry a config-zone, bare-file, or
+registry move live in [§ 9.1](#91-root-sentinel-to-subtree) through
+[§ 9.3](#93-registry-gitlink-to-vendored-subtree) and carry no live path at
+all. The `punt` side of every row — `init` writes the canonical block, `audit`
+verifies it, the rollout propagates it — is [§ 6](#6-the-canonical-gitignore-block).
+
+### 9.5 Grading keys on the observed artifact
+
+**Grading is observation-keyed, never status-keyed.** `punt audit` grades a
+§ 9 row by what it finds in the repo it is auditing, not by any statement
+about how far the fleet has migrated:
+
+- While the legacy artifact a row names — a root sentinel, a bare file, a
+  gitlink, a tracked live path — is **present** in the repo, the finding grades
+  a **warning** ("migration pending"), and any
+  [§ 6](#6-the-canonical-gitignore-block) interim exclude the row owns stays in
+  the canonical block.
+- A repo where the artifact is **gone** grades **nothing** for that row.
+- The interim exclude for a live path is dropped by the rollout in the **same
+  change** that relocates the path — the tool release that migrates it. An
+  interim exclude left behind for a path no § 9 row names is the
+  [§ 8](#8-what-punt-audit-checks) "no interim exclude survives a completed
+  migration" fail.
+- A path that matches **no** § 9 row — a stray bare file, an unlisted root
+  sentinel — is a **fail**, not a warning: the tables enumerate the exemptions,
+  and an artifact outside them has no migration to be pending on.
+
+**Grades join by row, not by tool.** Each migrating artifact maps to the single
+§ 9 row that names it, and every grade — bare-file, root-sentinel, live-state,
+and interim-exclude — keys on **that row's** artifact, never a tool-level
+aggregate. ethos alone spans several rows (live logs, registry gitlink,
+identity pointer, root runtime directory, trace tier), each with its own
+artifact, so a tool-level join would mis-grade them; the row that names the
+specific artifact is always the authority.
 
 **One row per artifact — no multi-target rows.** A tool with more than one
-migrating artifact takes **one row each**, so no artifact shares a status with
-another. quarry splits into quarry(config) (`.quarry.toml` → config zone) and
-quarry(captures) (the live `captures/` dir); vox into vox(ephemeral) (still
-genuinely live state, needing relocation) and vox(root config dir) (`.vox/`,
-moving location but not gitignore status — see [§ 7](#7-the-punt-labstool-subtree-has-zones)
-on why a daemon-rewritten file is not a live-state row). If the two shared a
-row, completing one half would flip the whole row to complete and drop
-`ephemeral/`'s interim exclude ([§ 6](#6-the-canonical-gitignore-block)) while
-it is still live — re-opening `git add -A` staging of live state. Per-row
-artifacts bind each interim exclude's lifecycle to exactly the row that names it,
-which is what makes the by-row join unambiguous by construction.
+migrating artifact takes **one row each**, so no artifact's grade depends on
+another's. quarry splits into its config move
+([§ 9.1](#91-root-sentinel-to-subtree)) and its live `captures/` dir
+([§ 9.4](#94-live-state-to-the-local-zone)); vox into `ephemeral/` (genuinely
+live state, needing relocation) and `.vox/` (moving location but not gitignore
+status — see [§ 7](#7-the-punt-labstool-subtree-has-zones) on why a
+daemon-rewritten file is not a live-state row). If the two shared a row,
+finishing one half would drop `ephemeral/`'s interim exclude
+([§ 6](#6-the-canonical-gitignore-block)) while it is still live — re-opening
+`git add -A` staging of live state. Per-row artifacts bind each interim
+exclude's lifecycle to exactly the path that needs it, which is what makes the
+by-row join unambiguous by construction.
 
-**Status controls audit grading.** This table is the authority for how long an
-audit exemption lasts ([§ 8](#8-what-punt-audit-checks) bare-file and live-state
-grades, [§ 6](#6-the-canonical-gitignore-block) interim excludes). A row is
-**complete** only when its status is exactly `Done` or `Complete`; **every other
-value — `Design`, `Deprecating`, `Planned`, `Building`, or any status not in that
-two-word complete enumeration — is treated as open** (fail-closed: an unrecognized
-status never silently lifts an exemption). While a row is open, an audit finding
-it produces grades a **warning** and any interim exclude it owns stays in the
-canonical block. Not every open row grades the same, though. ethos(logs) —
-gitlink-immune live state in the local zone, owning no interim-exclude path — is
-genuinely **audit-silent** while open: nothing probes it, so it draws neither
-warning nor fail, and its sequencing is held instead by the dependent-migration
-fail ([§ 8](#8-what-punt-audit-checks)) and design review. ethos(registry) is
-**not** silent — its `.punt-labs/ethos` gitlink draws the mandatory
-**gitlink-unverifiable warning** ([§ 8](#8-what-punt-audit-checks)) for as long as
-the row is open, and that warning must **not** be suppressed on the theory that a
-submodule is unprobed. When a row becomes **complete** (`Done` or `Complete`), the
-exemption **lapses** — the bare-file, root-sentinel, and live-state grades
-escalate to **fail** and the rollout drops the row's interim exclude. No row is
-complete yet; the escalation is the forward contract for when one is.
+**Not every present artifact grades the same.** The ethos live-log row
+([§ 9.4](#94-live-state-to-the-local-zone)) — gitlink-immune live state in the
+local zone, owning no interim-exclude path — is **audit-silent**: nothing
+probes it, so it draws neither warning nor fail, and its sequencing is held by
+the dependent-migration fail ([§ 8](#8-what-punt-audit-checks)) and design
+review. The registry gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
+is **not** silent — a `.punt-labs/ethos` gitlink draws the mandatory
+**gitlink-unverifiable warning** ([§ 8](#8-what-punt-audit-checks)) for as long
+as it stands.
