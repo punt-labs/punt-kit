@@ -46,7 +46,7 @@ preserving the caller's working directory and relative target paths. Use
 The `/..`
 is required, not incidental: `${CLAUDE_PLUGIN_ROOT}` is the `plugin/`
 subdirectory, which carries no `pyproject.toml`. For editable-install projects
-(tts, biff), the installed binary already points to the working tree, so dev
+(vox, biff), the installed binary already points to the working tree, so dev
 commands can use the binary name directly. The key invariant is that dev
 commands always execute the working tree.
 
@@ -332,7 +332,7 @@ Plugins that expose MCP tools must declare them in `plugin.json` using the
 ```
 
 The `"command"` field must reference the installed CLI binary name (e.g.
-`"biff"`, `"tts"`), not `uv run`. Plugin consumers install via the marketplace
+`"biff"`, `"vox"`), not `uv run`. Plugin consumers install via the marketplace
 and do not have a uv project directory — `uv run` would fail.
 
 **Do not use `.mcp.json` for plugin MCP servers.** The marketplace cache is a
