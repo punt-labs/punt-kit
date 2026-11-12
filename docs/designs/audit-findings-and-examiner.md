@@ -350,7 +350,7 @@ deleted; the renderer escapes every label, message, and remedy once, so a
 strings with pre-escaped brackets (`audit.py:214-251`) lose their
 backslashes, since the renderer now escapes them.
 
-The rendered rows for every existing check are byte-identical to today's
+The rendered rows for every existing check are byte-identical to `origin/main`'s
 output: the glyph, the label, the dim detail, and the summary line do not
 change for a report with no `WARN`, `INFO`, or judgment row, and a `WARN`
 or `INFO` row prints exactly as it prints today. The snapshot tests of
