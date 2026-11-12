@@ -3,15 +3,14 @@
 **Introduced:** 2026-08-30
 
 What continuous integration must prove before a merge, for every Punt Labs
-repository. The floor is set by operator ruling (2026-08-30); the rest is
-grounded in the published CI literature, cited inline. Where common practice
+repository. The floor is every supported OS; the rest is grounded in the published CI literature, cited inline. Where common practice
 and the evidence disagree, section 11 says so explicitly.
 
 Reference implementation: z-spec's `.github/workflows/test.yml` + `lint.yml`.
 
 ---
 
-## 1. The floor: every supported OS (operator ruling)
+## 1. The floor: every supported OS
 
 Two absolute rules. They are Punt Labs policy, not literature-derived — the
 canonical CI sources are silent on platform matrices (see §11), so these are
@@ -113,9 +112,8 @@ ruleset. An advisory leg is a leg that can silently fail forever.
 - Pass: the ruleset's `required_status_checks` lists every job and matrix
   leg by exact name; adding a leg to the workflow and to the ruleset is
   one change.
-- Fail: any test leg that can be red while the PR merges. (Found in the
-  wild: z-spec's ruleset required only `docs` — every real gate was
-  advisory — until 2026-08-30.)
+- Fail: any test leg that can be red while the PR merges. A ruleset that
+  requires only `docs` leaves every real gate advisory.
 
 External advisory reviewers (Bugbot) may stay unrequired with a bounded
 grace policy, per the org workflow's merge gate.

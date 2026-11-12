@@ -270,11 +270,9 @@ removes it.
 Every project must allow file operations across the monorepo workspace.
 Sub-agents do not honor path-scoped `Read(path)`/`Edit(path)` rules from
 `settings.json` or `settings.local.json` — only the bare tool-name form
-unblocks sub-agent file operations. The team hit this three times
-(2026-04-05, 2026-04-06, 2026-04-08) and routed around it each time before
-root-causing: sub-agents silently failed every file operation, including
-reads inside the current repo, because the allow list only contained
-path-scoped entries like `Read(../**)`.
+unblocks sub-agent file operations. Sub-agents silently fail every file
+operation, including reads inside the current repo, when the allow list
+contains only path-scoped entries like `Read(../**)`.
 
 ```json
 "Read",
