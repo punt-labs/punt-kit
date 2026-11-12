@@ -468,9 +468,9 @@ Forward integration, no compatibility shim
   punt's user guide (2.10), not a home for that content. Makefile marker
   sections (`punt seed makefile`) are a separate mechanism and **out of
   scope** here — this rule is CLAUDE.md-only.
-- `/punt:init` strips any `punt:begin` / `punt:end` CLAUDE.md marker section
-  it finds in a repo `CLAUDE.md`, leaving the user's prose plus bare import
-  lines. It does not touch Makefile marker sections.
+- A `punt:begin` / `punt:end` marker section found in a repo `CLAUDE.md` is
+  content to delete, leaving the user's prose plus bare import lines.
+  Makefile marker sections are untouched.
 
 ### Sentinel migration (legacy root sentinel → `enabled` marker)
 
