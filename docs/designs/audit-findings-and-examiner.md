@@ -252,8 +252,13 @@ class Finding:
     """One audit finding: what was examined, by whom, and what was found."""
 
     __slots__ = (
-        "_examiner", "_label", "_location", "_message",
-        "_remedy", "_rule", "_severity",
+        "_examiner",
+        "_label",
+        "_location",
+        "_message",
+        "_remedy",
+        "_rule",
+        "_severity",
     )
 
     _severity: Severity
@@ -329,6 +334,7 @@ class Report:
     @property
     def exit_code(self) -> int:
         """1 when any deterministic finding is FAIL; else 0. Judgment never counts."""
+
     def to_json(self) -> dict[str, object]: ...  # wire boundary; see § 2.5
 ```
 
