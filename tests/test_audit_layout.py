@@ -272,6 +272,65 @@ def test_ignored_bare_file_is_the_bare_file_checks_business(tmp_path: Path) -> N
     ]
 
 
+# --- Tool ignore files are committed -----------------------------------------
+
+
+def test_no_tool_ignore_file_passes(tmp_path: Path) -> None:
+    root = _repo(tmp_path, "normal.gitignore")
+    assert _finding(root, "Tool ignore files are committed") == (
+        PASS,
+        "Tool ignore files are committed",
+        "no tool ships a .gitignore",
+    )
+
+
+def test_tracked_tool_ignore_files_pass(tmp_path: Path) -> None:
+    root = _repo(
+        tmp_path,
+        "normal.gitignore",
+        {
+            ".punt-labs/vox/.gitignore": "ephemeral/\n",
+            ".punt-labs/biff/local/.gitignore": "*\n",
+        },
+        tracked=(".punt-labs/vox/.gitignore",),
+        forced=(".punt-labs/biff/local/.gitignore",),
+    )
+    assert _finding(root, "Tool ignore files are committed") == (
+        PASS,
+        "Tool ignore files are committed",
+        "2 tracked",
+    )
+
+
+def test_untracked_tool_ignore_file_fails(tmp_path: Path) -> None:
+    root = _repo(
+        tmp_path, "normal.gitignore", {".punt-labs/vox/.gitignore": "ephemeral/\n"}
+    )
+    assert _finding(root, "Tool ignore files are committed") == (
+        FAIL,
+        "Tool ignore files are committed",
+        "Untracked: .punt-labs/vox/.gitignore",
+    )
+
+
+def test_untracked_and_ignored_tool_ignore_file_fails(tmp_path: Path) -> None:
+    """An ignored .gitignore is still live drift: ignore status is no excuse."""
+    root = _repo(
+        tmp_path,
+        "normal.gitignore",
+        {
+            ".punt-labs/vox/local/.gitignore": "*\n",
+            ".punt-labs/biff/.gitignore": "x\n",
+        },
+        tracked=(".punt-labs/biff/.gitignore",),
+    )
+    assert _finding(root, "Tool ignore files are committed") == (
+        FAIL,
+        "Tool ignore files are committed",
+        "Untracked: .punt-labs/vox/local/.gitignore",
+    )
+
+
 # --- No legacy root sentinel -------------------------------------------------
 
 

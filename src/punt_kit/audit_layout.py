@@ -160,6 +160,7 @@ class LayoutAudit:
                 self._gitignore_finding(),
                 self._tracked_local_finding(),
                 self._ignored_shared_finding(),
+                self._tool_ignore_finding(),
                 self._root_sentinel_finding(),
                 *self._live_state_findings(),
                 self._interim_exclude_finding(),
@@ -207,13 +208,17 @@ class LayoutAudit:
 
     # --- the checks ----------------------------------------------------------
 
-    def _gitignore_finding(self) -> Finding:
-        label = "Gitignore behaves correctly"
-        tools = sorted(
+    def _tools(self) -> list[str]:
+        """The present ``.punt-labs/<tool>/`` subtrees, sorted; never the local zone."""
+        return sorted(
             entry.name
             for entry in (self._root / ".punt-labs").iterdir()
             if entry.is_dir() and entry.name != LOCAL_ZONE
         )
+
+    def _gitignore_finding(self) -> Finding:
+        label = "Gitignore behaves correctly"
+        tools = self._tools()
         probes = [
             (f".punt-labs/{template.format(tool=tool)}", ignored)
             for tool in tools
@@ -281,6 +286,27 @@ class LayoutAudit:
         """
         path = self._root / rel
         return path.is_symlink() or path.exists()
+
+    def _tool_ignore_finding(self) -> Finding:
+        """§ 8: a tool's own ``.gitignore`` is defense only when it is tracked.
+
+        The worktree is walked, not the index, so an untracked ignore file
+        that the canonical block also ignores is still found and still fails.
+        """
+        label = "Tool ignore files are committed"
+        shipped = sorted(
+            path.relative_to(self._root).as_posix()
+            for tool in self._tools()
+            for path in (self._root / ".punt-labs" / tool).rglob(".gitignore")
+            if path.is_file()
+        )
+        if not shipped:
+            return (PASS, label, "no tool ships a .gitignore")
+        tracked = set(self._ls_files())
+        untracked = [path for path in shipped if path not in tracked]
+        if untracked:
+            return (FAIL, label, "Untracked: " + ", ".join(untracked))
+        return (PASS, label, f"{len(shipped)} tracked")
 
     def _root_sentinel_finding(self) -> Finding:
         label = "No legacy root sentinel"
