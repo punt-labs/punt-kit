@@ -34,7 +34,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
-- **Standards: baseline permissions and `<tool> enable` sets partition; no shared values.** A permission value lives in exactly one place: the `permissions.md` §3 baseline keeps only rules no `enable` owns (`mcp__github__*`, the generic build tools, `Bash(bd:*)`, `Bash(punt:*)`); every Punt Labs plugin MCP wildcard and every `Skill(<plugin>:<cmd>)` rule moves to the owning tool's `enable` set, and `punt init` never seeds them. §6 principle 3 and `tool-enable-disable.md` §2.8 name that set: the CLI (`Bash(<cli>:*)` when every subcommand is safe unprompted, else the safe subcommands by name; `punt` excepted, whose CLI rule is baseline because `punt init` scaffolds the file), the plugin-bundled wildcard only (`mcp__plugin_<plugin>_<server>__*`; the direct-server `mcp__<server>__*` form stays in `settings.local.json`), one `Skill()` per shipped command, and never a `-dev` rule. `disable` removes exactly that set by value-match, which the partition makes safe. The CLI-project table row drops `Bash(<cli-name>:*)` (a tool's own repo gets it through `enable`) and keeps `Bash(<cli-name>-server:*)`.
+- **Standards: baseline permissions and `<tool> enable` sets partition; no shared values.** A permission value lives in exactly one place: the `permissions.md` §3 baseline keeps only rules no `enable` owns (`mcp__github__*`, the generic build tools, `Bash(bd:*)`, `Bash(punt:*)`); every Punt Labs plugin MCP wildcard and every `Skill(<plugin>:<cmd>)` rule moves to the owning tool's `enable` set, and `punt init` never seeds them. §6 principle 3 and `tool-enable-disable.md` §2.8 name that set: the CLI (`Bash(<cli>:*)` when every subcommand is safe unprompted, else the safe subcommands by name; `punt` excepted, whose CLI rule is baseline because `punt init` scaffolds the file), the MCP wildcard (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server, or `mcp__<name>__*` for a server the tool registers natively), one `Skill()` per shipped command, and never a `-dev` rule. `disable` removes exactly that set by value-match, which the partition makes safe. The CLI-project table row drops `Bash(<cli-name>:*)` (a tool's own repo gets it through `enable`) and keeps `Bash(<cli-name>-server:*)`.
 
 - `/punt:bead-review` and the `autopilot` playbook refuse to run in a
   Linear-migrated repo (one where `bd config get linear.pull_label` prints
@@ -70,9 +70,7 @@ All notable changes to this project will be documented in this file.
   project declares a `<cli>-server` entry point; init never synthesizes the
   suffix, so a CLI without a server gets no rule for a binary that does not
   exist, and audit no longer fails such a repo for lacking one.
-  `punt audit` no longer requires those tool-owned entries, and fails a
-  checked-in `settings.json` carrying a direct-server `mcp__<server>__*`
-  form, naming the value and pointing at `settings.local.json`.
+  `punt audit` no longer requires those tool-owned entries.
 - `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
   Claude Code keeps the hyphen (`mcp__plugin_biff-dev_tty__…`), as every
   plugin's matcher already does.

@@ -90,7 +90,7 @@ After scaffolding, it lists the manual steps that need GitHub or dashboard acces
 
 Init is idempotent — re-running it updates existing files without overwriting customizations.
 
-`punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated. The permissions check requires the baseline, allows any tool-owned entries, and fails a checked-in `settings.json` that carries a direct-server `mcp__<server>__*` form, which belongs in `settings.local.json`.
+`punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated. The permissions check requires the baseline and allows any tool-owned entries.
 
 `punt release` verifies the published package the way users install it, and keeps the Homebrew tap current. A project opts in to each part:
 

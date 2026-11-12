@@ -166,11 +166,12 @@ from the manifest rather than guessing it — `prfaq` and `punt` ship no MCP
 server, and a wildcard naming a plugin that has none matches nothing while
 looking like a working grant.
 
-A server registered directly with `claude mcp add` rather than through its
-plugin has a different prefix (`mcp__quarry__*` instead of
-`mcp__plugin_quarry_quarry__*`). Which one a machine uses is a local choice, so
-the direct-server form belongs in `settings.local.json`, never in the
-checked-in file, and no `enable` grants it.
+A tool whose installer registers its MCP server natively, through
+`claude mcp add` rather than a plugin manifest, has the prefix `mcp__<name>__*`
+(`mcp__quarry__*`, `mcp__beadle-email__*`). That is the wildcard its `enable`
+grants and its `disable` removes: one value per tool, under the same partition
+as a plugin wildcard. A server registered by hand that no tool owns stays in
+`settings.local.json`.
 
 ### Build tools
 
@@ -458,11 +459,11 @@ whole of this section.
    baseline or in exactly one tool's `enable` set, never both. That partition
    is what makes exact value-match safe: a value in section 3 is never in an
    `enable` set, so `disable` cannot remove a baseline rule, and a flat string
-   array needs no author attribution. The set: the CLI, the plugin-bundled MCP
-   server's tool wildcard as Claude Code names it
-   (`mcp__plugin_<plugin>_<server>__*`; see [MCP wildcards](#mcp-wildcards),
-   which also rules the direct-server form out of the checked-in file), and
-   one `Skill(<plugin>:<cmd>)` rule per shipped command. The CLI grant is
+   array needs no author attribution. The set: the CLI, the MCP server's tool
+   wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a
+   plugin-bundled server, `mcp__<name>__*` for one the tool registers
+   natively; see [MCP wildcards](#mcp-wildcards)), and one
+   `Skill(<plugin>:<cmd>)` rule per shipped command. The CLI grant is
    `Bash(<cli>:*)` only when every subcommand meets principle 4 and
    [plugins.md](plugins.md) principle 4; otherwise the safe subcommands by
    name (`Bash(<cli> status:*)`), with the rest at the prompt tier. A tool
@@ -651,8 +652,7 @@ takes an exclusive lock. See
 Run `punt audit` to check compliance. The audit checks:
 
 - All required deny rules are present
-- `mcp__github__*` is present, and no direct-server `mcp__<server>__*` form
-  appears in the checked-in file (section 3)
+- `mcp__github__*` is present (section 3)
 - No unmatched path rules (`Write(path)`, `MultiEdit(path)`,
   `NotebookEdit(path)`, `Glob(path)`) in any tier of either settings file
 - `settings.local.json` is gitignored
