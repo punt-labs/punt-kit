@@ -116,7 +116,7 @@ nothing, so the repo is either fully updated or untouched.
 
 | Outcome | Text line (one per path) | `--json` | Exit |
 |---------|--------------------------|----------|------|
-| nothing to do | `punt enable: up to date` | `{"changed": [], "removed": [], "replaced": []}` | 0 |
+| nothing to do | `punt enable: up to date` | `{"languages": ["python"], "manifest": ".punt-labs/punt/rules-manifest.toml", "changed": [], "removed": [], "replaced": []}` | 0 |
 | file deposited or updated | `+ .claude/rules/python-testing.md` | listed in `changed` | 0 |
 | path removed (old manifest minus new) | `- .claude/rules/go-tests.md` | listed in `removed` | 0 |
 | local edit replaced | `! .claude/rules/python-testing.md: local edit replaced` | listed in `replaced` and in `changed` | 0 |
@@ -269,10 +269,10 @@ assertion that a built wheel contains `lang_rules/python/`.
 3. Only after every Python child has merged: in the workspace repo, one PR
    that removes `.claude/rules/` entirely and adds
    `.punt-labs/punt/config.toml` with `[rules] languages = []`. The
-   workspace then runs `punt enable` like any repo: the guide, the marker,
-   and the import line that `tracker-guide-rollout.sh --root` already
-   deposited there are kept current, and the empty declaration deposits no
-   rule set and writes a manifest with no entries. The workspace deploys no
+   workspace then runs `punt enable` like any repo: the first run deposits
+   the guide, the marker, and the import line (the workspace carries none
+   of them today), and the empty declaration deposits no rule set and
+   writes a manifest with no entries. The workspace deploys no
    rule set of its own while anthropics/claude-code#16299 is open; when the
    upstream fix ships, changing the declaration to `["python"]` and
    re-running `enable` is the whole change.

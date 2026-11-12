@@ -1,0 +1,50 @@
+mission_id: m-2026-11-12-010
+status: closed
+type: implement
+created_at: "2026-11-12T09:38:12Z"
+updated_at: "2026-11-12T10:17:04Z"
+closed_at: "2026-11-12T10:17:04Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-12T09:38:12Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs:
+    files:
+        - lang-rules/README.md
+        - DESIGN.md
+        - standards/tool-enable-disable.md
+        - standards/punt-labs-dir.md
+        - docs/WORKFLOW.md
+        - src/punt_kit/__main__.py
+        - src/punt_kit/detect.py
+        - src/punt_kit/audit.py
+write_set:
+    - docs/designs/lang-rules-deploy.md
+success_criteria:
+    - docs/designs/lang-rules-deploy.md exists on branch design/lang-rules-deploy in the z711 worktree, committed, not pushed, and is the only file changed.
+    - The doc settles the CLI-placement fork with one recommendation that cites DES-024, DES-027 and tool-enable-disable.md §2.10 by section, names the exact command line(s), and states the relationship to pkit-pjwn (what this unit ships, what it leaves).
+    - Each of the six numbered questions (language selection, ownership/idempotency with a concrete provenance marker, audit drift check, wheel packaging of lang-rules, workspace-delete sequence and ordering, paths verbatim or rewritten) has a recommendation and at least one rejected alternative with the reason.
+    - A fleet reality check section lists what beadle's and z-spec's .claude/rules hold, confirms no deploy tooling exists in any sibling, and states what the design generalizes or supersedes.
+    - An implementation write-set names every file the implementation mission will create or change, each with a one-line purpose; a DES-038 ADR draft section is present in DESIGN.md's Design / Why / Rejected Alternatives shape.
+    - An operator-decisions list contains every deviation from a settled ADR or the operator's bead text, each phrased '(N) X — recommend A. Confirm or course-correct'; if there are none, the list says so and why.
+    - markdownlint reports zero findings on the doc (copy under the worktree, deleted after); the result pastes the run. No status language and no bead IDs in the normative sections.
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: 2ed72e1b0edc488445be218143d71091
+          round: 1
+          created_at: "2026-11-12T10:06:01Z"
+          author: mdm
+          recommendation: continue
+        - id: ed374075dd88cff143319205c5dfd963
+          round: 2
+          created_at: "2026-11-12T10:16:36Z"
+          author: mdm
+          recommendation: continue
+context: 'DESIGN MISSION, docs only: produce docs/designs/lang-rules-deploy.md in the worktree <repo>/.claude/worktrees/z711 (branch design/lang-rules-deploy). No code. Bead pkit-z711 (`bd show pkit-z711`, and `bd show pkit-6u5p` for the bug it fixes, `bd show pkit-pjwn` for the overlapping kit-manager bead). THE PROBLEM. punt-kit/lang-rules/<lang>/*.md is the canonical per-language set of Claude Code path-scoped rules (frontmatter `paths:`), but nothing deploys them: the workspace repo punt-labs/punt-labs/.claude/rules/ holds a hand copy from May 2026 that the leader measured on 2026-11-12 as drifted in 22 of 23 Python files (`cmp` against lang-rules/python), and because Claude Code loads an ancestor directory''s rules unconditionally (upstream bug anthropics/claude-code#16299, still open), every child-repo session nested under the workspace inherits that stale Python set at startup. The operator decided (bead text, 2026-11-10): punt-kit installs AND updates lang-rules into each repo''s OWN .claude/rules/, idempotently, with drift detected by `punt audit`; then the workspace deletes its .claude/rules/ and installs its own set for its .bin/ Python the same way. THE FORK YOU MUST SETTLE WITH A RECOMMENDATION. The bead names a ''repo-install / repo-update'' verb; DES-024 (DESIGN.md) and bead pkit-pjwn say lang-rules activation ''rides the bare punt enable'' (punt self-enabling in a repo per standards/tool-enable-disable.md §2.10), and DES-027 fixes the CLI vocabulary rules (noun-first grouping, one name across surfaces, no aliases). Decide where this operation lives on the CLI and why, consistent with DES-024, DES-027 and §2.10; the bare `punt enable` does not exist in the CLI today (`src/punt_kit/__main__.py` has init, audit, pii, release, seed, version, doctor, status), and pkit-pjwn is unstarted, so say whether this unit ships the verb alone, ships bare `punt enable` with rules as its first deposit, or something else; name the exact command line(s). ALSO SETTLE, each with a recommendation: (1) language selection: how the deployer decides which lang-rules sets a repo gets (detect.py''s ProjectInfo, a declaration in .punt-labs/punt/, both; what about a repo with two languages, and the workspace repo whose Python lives only under .bin/); (2) ownership and idempotency: what the deployer writes into <repo>/.claude/rules/, how it tells its own files from a repo''s hand-written rules (beadle has 4 of its own, z-spec 3; survey them: ~/Coding/punt-labs/beadle/.claude/rules and ~/Coding/punt-labs/z-spec/.claude/rules), whether a deployed file carries a provenance marker and what it is, how update replaces a drifted copy without touching foreign files, and what happens to a deployed file the repo has locally edited; (3) the `punt audit` drift check: what it compares (deployed copy vs the installed punt-kit''s lang-rules, byte-equal or hash), what it reports, and whether `--fix` refreshes; (4) the source of truth at run time: the installed wheel must ship lang-rules (today pyproject ships src/ only; check `[tool.uv.build-backend]` / package data and say what changes) so a consumer repo without a punt-kit checkout can deploy; (5) the workspace-delete step: the exact sequence by which punt-labs/punt-labs removes its .claude/rules/ and installs its own, and the ordering constraint against child repos (children first); (6) the paths: frontmatter in lang-rules already narrows some files (python-distribution.md to pyproject.toml, Makefile, .github/**); state whether deployment rewrites paths per repo or ships them verbatim. FLEET REALITY CHECK (required, CLAUDE.md): before writing, grep the sibling repos for .claude/rules content and any existing deploy tooling (`ls ../*/.claude/rules`, `grep -rl ''lang-rules'' ../*/Makefile ../*/.bin ../*/scripts 2>/dev/null`), and state in the doc what you found and what the design generalizes or supersedes. DOC SHAPE: follow docs/claude-md-include-standard-design.md: Summary; the proposed mechanism (command lines, file layout, marker format, audit check, wheel packaging); the fork and each settled question with the recommendation and the rejected alternatives; a DESIGN.md ADR draft (DES-038) as a section the leader will lift verbatim; the implementation write-set (every file the implementation mission will create or change, with one line each); and an operator-decisions list: every question that deviates from a settled ADR or the operator''s stated structure, phrased ''(N) X — recommend A. Confirm or course-correct''. No status language, no bead IDs in the normative text (bead IDs are fine in the operator-decisions list and the fleet survey). Lint: copy the doc to <worktree>/_lint_design.md, run `npx markdownlint-cli2 _lint_design.md` from the worktree, delete the copy; zero findings. Commit `docs(design): lang-rules deployment into per-repo .claude/rules` on the branch; do not push. Time box 90 minutes; first commit within 30; never more than 30 minutes uncommitted. Language: Markdown.'
