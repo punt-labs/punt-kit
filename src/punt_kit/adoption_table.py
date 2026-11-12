@@ -92,6 +92,7 @@ class MigrationTable:
             if sentinel in row.root_sentinels
         )
 
+    # None is the contract: a path no row names is the caller's FAIL, not an error.
     def row_naming_path(self, kind: RowKind, path: str) -> MigrationRow | None:
         """The row of ``kind`` naming ``path`` exactly; None means no row does."""
         for row in self.rows_of(kind):
