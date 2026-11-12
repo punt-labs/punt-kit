@@ -253,6 +253,25 @@ def test_stray_tool_specific_ignore_line_fails(tmp_path: Path) -> None:
     )
 
 
+def test_ignored_bare_file_is_the_bare_file_checks_business(tmp_path: Path) -> None:
+    """§ 8 scopes check 3 to ``.punt-labs/<tool>/``; a bare file is graded once."""
+    root = _repo(tmp_path, "normal.gitignore", {".punt-labs/lux.md": "x\n"})
+    with (root / ".gitignore").open("a") as f:
+        f.write("*.pyc\n.punt-labs/lux.md\n")
+    assert _finding(root, "No gitignored non-local-convention path") == (
+        PASS,
+        "No gitignored non-local-convention path",
+        "",
+    )
+    assert _findings_for(root, "No bare file under .punt-labs/") == [
+        (
+            WARN,
+            "No bare file under .punt-labs/",
+            ".punt-labs/lux.md — migration pending (§ 9.2 → .punt-labs/lux/)",
+        )
+    ]
+
+
 # --- No legacy root sentinel -------------------------------------------------
 
 
@@ -354,14 +373,22 @@ def test_tracked_live_path_warns(tmp_path: Path) -> None:
     root = _repo(
         tmp_path,
         "normal.gitignore",
-        {".punt-labs/vox/ephemeral/s": "", ".punt-labs/quarry/captures/c": ""},
-        forced=(".punt-labs/vox/ephemeral/s", ".punt-labs/quarry/captures/c"),
+        {
+            ".punt-labs/vox/ephemeral/s": "",
+            ".punt-labs/quarry/captures/c": "",
+            ".punt-labs/quarry/captures/d": "",
+        },
+        forced=(
+            ".punt-labs/vox/ephemeral/s",
+            ".punt-labs/quarry/captures/c",
+            ".punt-labs/quarry/captures/d",
+        ),
     )
     assert _findings_for(root, "Live-state migration pending") == [
         (
             WARN,
             "Live-state migration pending",
-            ".punt-labs/quarry/captures/ is git-tracked (1 file) — migration"
+            ".punt-labs/quarry/captures/ is git-tracked (2 files) — migration"
             " pending (§ 9.4 → ~/.punt-labs/quarry/captures/)",
         ),
         (
@@ -436,9 +463,9 @@ def test_block_line_for_a_bare_file_row_is_that_rows_business(
         ".punt-labs/lux.md — migration pending (§ 9.2 → .punt-labs/lux/)",
     ) in findings
     assert (
-        FAIL,
+        PASS,
         "No gitignored non-local-convention path",
-        "Ignored: .punt-labs/lux.md (.gitignore:7:.punt-labs/lux.md)",
+        "",
     ) in findings
 
 
@@ -531,6 +558,23 @@ def test_run_audit_prints_gitignore_lines_and_globs_verbatim(
         run_audit(str(root))
     out = capsys.readouterr().out
     assert ".punt-labs/vox/[abc].md (.gitignore:100)" in out
+
+
+def test_run_audit_prints_a_check3_line_100_citation_verbatim(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Check 3 cites ``source:line:pattern``, so ``:100:`` must not become an emoji."""
+    from punt_kit.audit import run_audit
+
+    root = _repo(tmp_path, "normal.gitignore", {".punt-labs/vox/vox.md": "x\n"})
+    lines = (root / ".gitignore").read_text().splitlines()
+    lines += [""] * (99 - len(lines))
+    lines.append(".punt-labs/vox/vox.md")
+    (root / ".gitignore").write_text("\n".join(lines) + "\n")
+    with pytest.raises(SystemExit):
+        run_audit(str(root))
+    out = capsys.readouterr().out
+    assert ".punt-labs/vox/vox.md (.gitignore:100:.punt-labs/vox/vox.md)" in out
 
 
 def test_findings_run_from_any_cwd(

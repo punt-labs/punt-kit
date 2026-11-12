@@ -268,10 +268,13 @@ class LayoutAudit:
         label = "No gitignored non-local-convention path"
         live = MIGRATION_TABLE.live_paths()
         ignored = self._ls_files("--others", "--ignored", "--exclude-standard")
+        # Scoped to .punt-labs/<tool>/: a bare file is the bare-file check's.
         offenders = sorted(
             path
             for path in ignored
-            if not _is_local_convention(path) and not path.startswith(live)
+            if path.count("/") > 1
+            and not _is_local_convention(path)
+            and not path.startswith(live)
         )
         if not offenders:
             return (PASS, label, "")
@@ -313,11 +316,12 @@ class LayoutAudit:
             for path in row.paths:
                 count = len(self._git("ls-files", "-z", "--", path).split(b"\0")) - 1
                 if count:
+                    files = "1 file" if count == 1 else f"{count} files"
                     findings.append(
                         (
                             WARN,
                             label,
-                            f"{path} is git-tracked ({count} file) — migration"
+                            f"{path} is git-tracked ({files}) — migration"
                             f" pending (§ {row.section} → {row.destination})",
                         )
                     )
