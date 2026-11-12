@@ -179,3 +179,282 @@ with its `isinstance(..., tuple)` discrimination, which the class makes
 unambiguous.
 
 ---
+
+## 2. The findings type
+
+### 2.1 Modules and classes
+
+Three modules, each under the three-class limit, all in `src/punt_kit/`:
+
+| Module | Classes | Role |
+|--------|---------|------|
+| `audit_verdict.py` | `Severity`, `Examiner` | The two closed vocabularies. The four markup strings it holds today move to the renderer. |
+| `audit_finding.py` | `Rule`, `Location`, `Finding` | The value objects every producer returns. |
+| `audit_report.py` | `Report`, `TerminalRenderer` | The collection with its counts, exit code, and JSON form; the one terminal consumer. |
+
+`Severity` and `Examiner` are `StrEnum` classes, the form `Tier` already
+takes (`src/punt_kit/permission_rules.py:24,43`), so each value is its own
+JSON string with no translation:
+
+```python
+class Severity(StrEnum):
+    PASS = "pass"
+    INFO = "info"
+    WARN = "warn"
+    FAIL = "fail"
+    FIXED = "fixed"
+
+
+class Examiner(StrEnum):
+    DETERMINISTIC = "deterministic"
+    JUDGMENT = "judgment"
+```
+
+`Rule`, `Location`, and `Finding` are `@final` classes with a tuple
+`__slots__`, a `__new__` returning `Self`, underscore-prefixed attributes,
+read-only properties, and `from __future__ import annotations` at the top
+of the module, the shape `LayoutAudit` already has
+(`src/punt_kit/audit_layout.py:142-153`). `Finding` has no setter and no
+mutating method; two findings are equal when every field is equal, and
+`__hash__` pairs `__eq__` so a set of findings deduplicates.
+
+```python
+@final
+class Rule:
+    """Which standard, and which section of it, a finding enforces."""
+
+    __slots__ = ("_section", "_standard")
+
+    _standard: str  # the stem of standards/<stem>.md
+    _section: str  # "8", "9.4", "2.11"; "" when the standard numbers no section
+
+    def __new__(cls, standard: str, section: str = "") -> Self: ...
+
+
+@final
+class Location:
+    """A path relative to the project root, and a 1-based line when known."""
+
+    __slots__ = ("_line", "_path")
+
+    _path: str
+    _line: int  # 0 when the finding names a whole file
+
+    def __new__(cls, path: str, line: int = 0) -> Self: ...
+
+
+@final
+class Finding:
+    """One audit finding: what was examined, by whom, and what was found."""
+
+    __slots__ = (
+        "_examiner", "_label", "_location", "_message",
+        "_remedy", "_rule", "_severity",
+    )
+
+    _severity: Severity
+    _rule: Rule
+    _label: str  # the check's name, the row header the terminal prints today
+    _message: str  # what was found; "" when the label says it all
+    _remedy: str  # what to run or edit; "" when there is nothing to do
+    # Absence is the contract: a finding about the repository as a whole
+    # (a ruleset, a missing tool) names no file.
+    _location: Location | None
+    _examiner: Examiner
+
+    def __new__(
+        cls,
+        severity: Severity,
+        rule: Rule,
+        label: str,
+        *,
+        message: str = "",
+        remedy: str = "",
+        location: Location | None = None,
+        examiner: Examiner = Examiner.DETERMINISTIC,
+    ) -> Self: ...
+```
+
+Three positional parameters and four keyword-only ones keep the
+constructor inside the four-positional limit. `__new__` validates at the
+boundary: a `label` that is empty raises `ValueError`; a `FIXED` severity
+with `Examiner.JUDGMENT` raises `ValueError`, because the judgment examiner
+never edits (DES-023 rule 1) and so can never report a fix. The one
+`| None` in the type carries its justification comment as PY-TS-14
+requires; the alternative, a `Location` null object, is recorded in § 7.
+
+Five class-method constructors are the migration vocabulary, one per
+severity, each taking `(rule, label, message="", remedy="",
+location=None)`: `Finding.passed`, `Finding.info`, `Finding.warned`,
+`Finding.failed`, `Finding.fixed`. A producer line today reads
+`(FAIL, "CHANGELOG.md exists", "Missing — run punt audit --fix")`
+(`src/punt_kit/audit.py:386`); after migration it reads
+`Finding.failed(_RULE, "CHANGELOG.md exists", "Missing", remedy="run punt audit --fix")`.
+
+### 2.2 How the five markers map
+
+| Today | `Severity` | Counted in the summary | Affects exit code |
+|-------|-----------|------------------------|-------------------|
+| `PASS` (`audit_verdict.py:4`) | `PASS` | yes, as `passed` | no |
+| `FAIL` (`audit_verdict.py:5`) | `FAIL` | yes, as `failed` | yes, when `examiner` is `DETERMINISTIC` |
+| `FIXED` (`audit_verdict.py:6`) | `FIXED` | yes, as `fixed` | no |
+| `INFO` (`audit_verdict.py:7`) | `INFO` | yes, as `info` (new) | no |
+| `WARN` (`audit_layout.py:30`) | `WARN` | yes, as `warned` (new) | no |
+
+`WARN` joins the shared vocabulary; `audit_layout.py` stops declaring its
+own marker. The summary line keeps its first three counts in the same order
+and words (`N passed, N failed[, N fixed]`) and appends `, N warned` and
+`, N info` only when those counts are non-zero, so a project with no
+warnings or info rows prints the line it prints today.
+
+### 2.3 The report and its exit code
+
+`Report` is built once from the producers' lists and is the only object
+`run_audit` reasons about:
+
+```python
+@final
+class Report:
+    __slots__ = ("_findings", "_language", "_project", "_project_type")
+
+    def __new__(cls, project: ProjectInfo, findings: Sequence[Finding]) -> Self: ...
+
+    @property
+    def findings(self) -> tuple[Finding, ...]: ...
+    def count(self, severity: Severity) -> int: ...
+    @property
+    def exit_code(self) -> int:
+        """1 when any deterministic finding is FAIL; else 0. Judgment never counts."""
+    def to_json(self) -> dict[str, object]: ...  # wire boundary; see § 2.5
+```
+
+The exit rule is the operator's ruling made executable: `exit_code` reads
+`severity is FAIL and examiner is DETERMINISTIC`, and no flag, option, or
+environment variable reaches it. `run_audit` ends with
+`raise SystemExit(report.exit_code)` when the code is non-zero, replacing
+the `failures > 0` test at `src/punt_kit/audit.py:120-121`. The two early
+exits for a bad path and a failed `detect` (`audit.py:64,72`) stay as they
+are; they happen before any finding exists.
+
+### 2.4 The terminal renderer, one consumer among several
+
+`TerminalRenderer` owns the five glyphs (the four strings now at
+`audit_verdict.py:4-7` plus `WARN`'s), the `Console(emoji=False)` at
+`audit.py:31`, and the single `rich.markup.escape` call. It prints, for
+each finding, the glyph and the label on one line and the detail on a dim
+second line when the detail is non-empty, where the detail is `message`,
+then an em dash and `remedy` when `remedy` is non-empty. The five producer-side
+`escape` calls (`audit.py:71,133,587,690`, `audit_layout.py:172`) are
+deleted; the renderer escapes every label, message, and remedy once, so a
+`[abc]` glob from any producer survives. The four labels written as raw
+strings with pre-escaped brackets (`audit.py:214-251`) lose their
+backslashes, since the renderer now escapes them.
+
+The rendered rows for every existing check are byte-identical to today's
+output: the glyph, the label, the dim detail, and the summary line do not
+change for a report with no `WARN`, `INFO`, or judgment row, and a `WARN`
+or `INFO` row prints exactly as it prints today. The snapshot tests of
+§ 6 pin this. A judgment row is new output and renders with its rule after
+the label: `✗ README names a feature that errors on use  [readme § Audience · judgment]`.
+
+The other consumers the epic names each read `Report`, never the terminal:
+`Report.to_json()` for `punt --json audit` and the REST surface (pkit-mud6),
+`Report.findings` for the MCP server (pkit-1up8), and `Report.findings`
+filtered by `examiner` for the remediation hand-off of § 4.
+
+### 2.5 The JSON shape and its stability
+
+`punt --json audit [--standard <name>]` prints one object on stdout and
+nothing else, honouring the global flag the CLI standard requires
+(`standards/cli.md:379-383`) and that `audit` ignores today
+(`src/punt_kit/__main__.py:82-89`):
+
+```json
+{
+  "version": 1,
+  "project": "punt-kit",
+  "language": "python",
+  "project_type": "package",
+  "standard": "readme",
+  "summary": {"passed": 41, "failed": 2, "fixed": 0, "warned": 1, "info": 3},
+  "exit_code": 1,
+  "findings": [
+    {
+      "severity": "fail",
+      "examiner": "deterministic",
+      "standard": "github",
+      "section": "",
+      "label": "CI docs workflow exists",
+      "message": "Missing docs.yml",
+      "remedy": "",
+      "location": {"path": ".github/workflows/docs.yml", "line": 0}
+    },
+    {
+      "severity": "warn",
+      "examiner": "judgment",
+      "standard": "readme",
+      "section": "Audience",
+      "label": "README lists a Development section",
+      "message": "Lines 88-104 give lint and test commands; the standard sends those to CONTRIBUTING.md.",
+      "remedy": "Move the section to CONTRIBUTING.md and link it from Documentation.",
+      "location": {"path": "README.md", "line": 88}
+    }
+  ]
+}
+```
+
+`standard` at the top level is the `--standard` argument, or `null` when
+the run had no judgment examiner. `location` is `null` when the finding
+names no file. Every key is present on every finding; absence is `""`,
+`0`, or `null`, never a missing key.
+
+The stability promise: `version` is `1`; within version 1 a key is never
+removed or renamed and a value's type never changes; new keys may be added
+to any object; the `severity` and `examiner` vocabularies are the closed
+sets of § 2.1 and a new value is a version bump. A consumer pins on
+`version` and ignores keys it does not know. The REST and MCP surfaces, if
+built, serialize `Report.to_json()` and add nothing of their own; that is
+the whole point of the epic's ordering.
+
+### 2.6 Migration of the existing checks
+
+Direct rewrite, module by module, no adapter. The reasons:
+
+1. **An adapter keeps the tuple alive.** A `Finding.from_tuple` shim would
+   let every producer keep returning `(status, label, detail)`, so no
+   producer would ever name its rule, split its remedy, or give a
+   location; the type would exist and carry nothing. PL-PP-1 forbids the
+   shim outright.
+2. **The rewrite is mechanical and bounded.** 69 tuple literals across four
+   modules, each becoming one class-method call with the same label and the
+   same message, plus a `Rule` constant per module or per check. The three
+   class-based modules change their return annotation from
+   `list[Finding]` (the tuple alias) to `list[Finding]` (the class) and
+   drop the `TYPE_CHECKING` alias at `audit_layout.py:28`,
+   `audit_permissions.py:16`, and `audit_github.py:17`.
+3. **The tests already pin the rows.** The 52 `run_audit` tests in
+   `tests/test_audit.py` and the rendering tests in
+   `tests/test_audit_layout.py:716-777` read stdout, so a rewrite that
+   changes a row fails before it merges. The tests that compare tuples
+   directly (`tests/test_audit_layout.py:290,363` through the
+   `_findings_for` helper at line 70, `tests/test_audit_permissions.py`,
+   `tests/test_audit_github.py`) are rewritten in the same commit as their
+   module to compare `Finding` values, and `_findings_for` returns
+   `list[Finding]`.
+
+Each module's rewrite is one commit and one mission, and the four run in
+parallel once `audit_finding.py`, `audit_verdict.py`, and
+`audit_report.py` exist (§ 9, wave 2). Rule assignment follows the module
+docstrings that already name a standard: `audit_layout.py:1` names
+`punt-labs-dir.md § 8`; `audit_permissions.py:1` and the `permissions.md`
+§ 1 reference at `audit_permissions.py:196`; `_check_makefile` names
+`makefile.md` (`audit.py:415`); `_check_plugin_dev_isolation` names
+`plugins.md` (`audit.py:507-508`). A check whose docstring names no
+standard is assigned one by the implementing mission from the standard
+that states the rule (`github.md` for the CI and ruleset checks,
+`python.md` for the tool-config checks), and a check that enforces punt's
+own scaffolding convention rather than a published standard
+(`_check_beads`, `_check_claude_md`, `_check_plugin_version_sync`) carries
+the stem `punt`, meaning "what `punt init` writes" (§ 7, item 12).
+
+---
