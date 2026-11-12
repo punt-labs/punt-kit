@@ -111,7 +111,7 @@ Portable permissions that apply to all collaborators on the project.
 Contains:
 
 - MCP wildcards: the baseline `mcp__github__*`, plus each enabled tool's
-  plugin wildcard (section 3)
+  MCP wildcard, plugin-bundled or native (section 3)
 - Build tool Bash commands
 - `Skill()` rules, each owned by its plugin's `enable` (section 3)
 - WebFetch domain allowlist
