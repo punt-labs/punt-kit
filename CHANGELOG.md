@@ -62,6 +62,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `install.sh` ends by running `punt doctor`, as `standards/distribution.md`
+  requires of an installer and `punt audit` checks; the audit no longer fails
+  punt-kit's own installer. A failing doctor is reported with the command to
+  rerun instead of being painted over with "is ready!". The binary it verifies
+  and runs is the one it just installed: uv's tool bin directory, read from
+  `uv tool dir --bin`, goes first on `PATH` before the lookup, so an older
+  `punt` earlier on `PATH` is not the one reported or checked.
+- `punt audit`'s "install.sh runs doctor" check passes only when the installer
+  runs doctor on a command line of its own; a comment or a printf that mentions
+  doctor no longer satisfies it.
 - `punt init` seeds only the permissions baseline. It no longer writes every
   Punt Labs plugin's MCP wildcard, the `Skill()` rules, or a CLI project's
   own `Bash(<cli>:*)` into `.claude/settings.json`; those belong to each

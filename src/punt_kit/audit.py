@@ -34,6 +34,23 @@ type _Findings = list[tuple[str, str, str]]
 TEMPLATES = importlib.resources.files("punt_kit") / "templates"
 
 
+def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
+    """Match a line that runs the binary's doctor: ``<binary> doctor``.
+
+    The first token (quoted or not, optionally after ``if``) must contain a
+    ``$`` (``"$BINARY"``, ``"$INSTALL_DIR/$BINARY"``) or end with one of
+    ``binaries``; ``echo doctor``, ``# run doctor``, and a printf do not match.
+    ``doctor`` must be the whole argument: followed by whitespace, a shell
+    operator, or the end of the line, so ``doctor-check`` is a different
+    subcommand, not a run of doctor.
+    """
+    names = "|".join(map(re.escape, binaries)) or "(?!)"
+    binary = rf'"?(?:[\w./{{}}-]*\$[\w$./{{}}-]*|(?:[\w./-]*/)?(?:{names}))"?'
+    return re.compile(
+        rf"^[ \t]*(?:if[ \t]+)?{binary}[ \t]+doctor(?=[ \t;|&)]|$)", re.MULTILINE
+    )
+
+
 def run_audit(path: str, *, fix: bool = False) -> None:
     """Check compliance against Punt Labs standards.
 
@@ -583,50 +600,33 @@ def _check_install_sh(info: ProjectInfo) -> list[tuple[str, str, str]]:
     if not info.is_hybrid:
         return []
 
-    results: list[tuple[str, str, str]] = []
-    install_sh = info.root / "install.sh"
-
-    if not install_sh.exists():
-        results.append(
-            (FAIL, "install.sh exists", "Hybrid project requires install.sh")
-        )
-        return results
-
-    results.append((PASS, "install.sh exists", ""))
+    if not (install_sh := info.root / "install.sh").exists():
+        return [(FAIL, "install.sh exists", "Hybrid project requires install.sh")]
 
     content = TextFile(install_sh).read()
-
-    if "set -eu" in content:
-        results.append((PASS, "install.sh has strict mode", "set -eu"))
-    else:
-        results.append((FAIL, "install.sh has strict mode", "Missing set -eu"))
-
-    if "marketplace update" in content or "marketplace_update" in content:
-        results.append((PASS, "install.sh refreshes marketplace", ""))
-    else:
-        results.append(
-            (
-                FAIL,
-                "install.sh refreshes marketplace",
-                "Missing marketplace update step (DES-003)",
-            )
-        )
-
-    if "insteadOf" in content:
-        results.append((PASS, "install.sh has SSH fallback", ""))
-    else:
-        results.append(
-            (FAIL, "install.sh has SSH fallback", "Missing HTTPS fallback for SSH")
-        )
-
-    if "doctor" in content:
-        results.append((PASS, "install.sh runs doctor", ""))
-    else:
-        results.append(
-            (FAIL, "install.sh runs doctor", "Missing doctor verification step")
-        )
-
-    return results
+    strict = "set -eu" in content
+    refreshes = "marketplace update" in content or "marketplace_update" in content
+    fallback = "insteadOf" in content
+    doctor = _doctor_invocation(info.cli_commands).search(content) is not None
+    doctor_missing = (
+        'Missing doctor verification step: expected a line running "$BINARY" doctor'
+        f" or one of: {', '.join(info.cli_commands)}"
+    )
+    # label -> (satisfied, detail when satisfied, detail when not)
+    rules: dict[str, tuple[bool, str, str]] = {
+        "install.sh has strict mode": (strict, "set -eu", "Missing set -eu"),
+        "install.sh refreshes marketplace": (
+            refreshes,
+            "",
+            "Missing marketplace update step (DES-003)",
+        ),
+        "install.sh has SSH fallback": (fallback, "", "Missing HTTPS fallback for SSH"),
+        "install.sh runs doctor": (doctor, "", doctor_missing),
+    }
+    return [(PASS, "install.sh exists", "")] + [
+        (PASS, label, ok_detail) if satisfied else (FAIL, label, missing)
+        for label, (satisfied, ok_detail, missing) in rules.items()
+    ]
 
 
 def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
