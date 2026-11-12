@@ -34,6 +34,16 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Standards: `punt-labs-dir.md` and `tool-enable-disable.md` state
+  migration rules keyed on what `punt audit` observes in a repo.** Section 9
+  of `punt-labs-dir.md` carries each live-state path and the grading rule (a
+  legacy artifact present grades a warning and keeps its interim exclude;
+  gone, nothing); the adoption-status table, dated rulings, and retirement
+  history move to the tracker. `.punt-labs/ethos.yaml` is ethos's
+  configuration file and a documented exception to the one-subtree rule, not
+  a bare-file migration into the `ethos/` subtree. A `punt:begin` /
+  `punt:end` marker section in a repo `CLAUDE.md` is content to delete; no
+  entry point is named for the strip.
 - `make type` (and so `make check`) type-checks `tools/` with mypy and
   pyright alongside `src/` and `tests/`; a script under `tools/` that fails
   either checker now fails the gate.
