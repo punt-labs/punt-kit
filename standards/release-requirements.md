@@ -20,10 +20,10 @@ All three locations must agree on the same version string. A package's
 installed metadata, never a hand-written literal (see
 [python.md Version Reporting](python.md#version-reporting)).
 
-The manifest row is deliberately relative to the plugin root rather than the
-repo root: in a DES-025 repo it is `plugin/.claude-plugin/plugin.json`, and in
-one that has not migrated yet it is `.claude-plugin/plugin.json`. `punt release`
-resolves both, so a not-yet-migrated repo still satisfies this requirement.
+The manifest row is relative to the plugin root rather than the repo root:
+`plugin/.claude-plugin/plugin.json` under the DES-025 layout, and
+`.claude-plugin/plugin.json` when the plugin root is the repo root.
+`punt release` resolves both.
 
 ### Changelog
 

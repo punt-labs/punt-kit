@@ -37,16 +37,33 @@ All notable changes to this project will be documented in this file.
 - **Standards: `punt-labs-dir.md` and `tool-enable-disable.md` state
   migration rules keyed on what `punt audit` observes in a repo.** Section 9
   of `punt-labs-dir.md` carries each live-state path and the grading rule (a
-  legacy artifact present grades a warning and keeps its interim exclude;
-  gone, nothing); the adoption-status table, dated rulings, and retirement
+  legacy root sentinel, bare file, or gitlink present, or a live path
+  git-tracked, grades a warning and keeps its interim exclude; gone,
+  nothing); the adoption-status table, dated rulings, and retirement
   history move to the tracker. `.punt-labs/ethos.yaml` is ethos's
   configuration file and a documented exception to the one-subtree rule, not
   a bare-file migration into the `ethos/` subtree. Sealed audit chunks are
   local in every ethos record mode; only a `record: full` publication copy
   lands in the tracked subtree, so a gitlink defers publication, never the
   seal, and the trace-tier migration row and its interim gitignore exclude
-  are gone. A `punt:begin` / `punt:end` marker section in a repo `CLAUDE.md`
-  is content to delete; no entry point is named for the strip.
+  are gone (this repo's `.gitignore` drops the matching line). A
+  `punt:begin` / `punt:end` marker section in a repo `CLAUDE.md` is content
+  to delete; no entry point is named for the strip.
+- **Standards state rules, not conformance status.** A standard says what
+  the rule or contract is; which tool conforms, what is planned, what is
+  retired, and dated rulings belong to the tracker. `mcp-caller-identity.md`
+  § 8 now states each engine's channel contract (the engine process, its
+  layer, what carries `_caller`, what the handle keys) in one shape per
+  engine, and § 9 keeps only scoping rules. `permissions.md`, `go.md`,
+  `architecture.md`, `integration.md`, `git.md`, `distribution.md`,
+  `release-requirements.md`, `shell.md`, `plugins.md`, `ci.md`, and
+  `filesystem.md` state their rules in the present tense: a `Skill()` value
+  is always plugin-scoped; golangci-lint runs the same prebuilt release
+  artifact locally and in CI; the ethos commit-msg hook stamps mission
+  trailers; a project without `install.ps1` documents the manual Windows
+  path in its README; a legacy home dot-directory maps to its
+  `~/.punt-labs/<tool>/` target with no status column. `integration.md`
+  drops its DRAFT banner.
 - `make type` (and so `make check`) type-checks `tools/` with mypy and
   pyright alongside `src/` and `tests/`; a script under `tools/` that fails
   either checker now fails the gate.
