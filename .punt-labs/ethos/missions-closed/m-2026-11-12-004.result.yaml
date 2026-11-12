@@ -1,0 +1,71 @@
+mission: m-2026-11-12-004
+round: 2
+created_at: "2026-11-12T05:45:43Z"
+author: adt
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: standards/punt-labs-dir.md
+      added: 303
+      removed: 298
+    - path: standards/tool-enable-disable.md
+      added: 60
+      removed: 60
+evidence:
+    - name: 'F1: marker-section rule restated without an entry point (f5ba195); init.py and seed.py confirm no strip exists; bead row added'
+      status: pass
+    - name: 'F2: .punt-labs/ethos.yaml treated as ethos configuration per step_config_file.go, layout.go:175, storage-layout.md:56/86; 9.2 row, 9.3 same-change clauses, section 8 dependent-migration bullet, and 9.5 identity-pointer mention removed (33b1583)'
+      status: pass
+    - name: every internal anchor resolves; grep -c 10-adoption-status = 0; contract sweep grep returns zero hits on both files
+      status: pass
+    - name: 'make check on 33b1583: 2359 passed, 14 skipped; markdownlint 0 issues on both _lint_ copies, moved to .tmp/; diff touches only the two write-set files'
+      status: pass
+prose: |
+    # Result: m-2026-11-12-004 (pkit-0l4j), round 2
+
+    Round 1 result (`.tmp/missions/results/pkit-0l4j.md`) stands for every criterion the evaluator accepted. This round fixes the two findings in `pkit-0l4j-eval-r1.md` plus the leader's ruling on F2.
+
+    Commits (on top of 89b9569, 5269805):
+
+    | SHA | Scope |
+    |-----|-------|
+    | `f5ba195` | `standards/tool-enable-disable.md` — F1 |
+    | `33b1583` | `standards/punt-labs-dir.md` — F2 (leader ruling) |
+
+    `make check` green on HEAD 33b1583 (`2359 passed, 14 skipped`). markdownlint on `standards/_lint_punt-labs-dir.md` and `standards/_lint_tool-enable-disable.md`: `0 issues` each; copies moved to `.tmp/`. `git status --short` empty. `git diff --numstat 8aa271a..HEAD`: punt-labs-dir.md 303/298, tool-enable-disable.md 60/60 — only the two write-set files.
+
+    ## F1 — tool-enable-disable.md § 2.12
+
+    Before: "`/punt:init` strips any `punt:begin` / `punt:end` CLAUDE.md marker section it finds in a repo `CLAUDE.md`, leaving the user's prose plus bare import lines. It does not touch Makefile marker sections."
+
+    After: "A `punt:begin` / `punt:end` marker section found in a repo `CLAUDE.md` is content to delete, leaving the user's prose plus bare import lines. Makefile marker sections are untouched."
+
+    Confirming files: `src/punt_kit/init.py` `_init_claude_md` (appends a Standards References block only); `src/punt_kit/seed.py:236` `TARGETS` holds only `makefile`.
+
+    Added bead row (punt-kit funnel): **punt init strips residual punt:begin/punt:end CLAUDE.md marker sections.**
+
+    ## F2 — punt-labs-dir.md, `.punt-labs/ethos.yaml` is ethos configuration
+
+    Leader ruling after checking ethos source; fleet files cited:
+
+    - `ethos/internal/autorepair/step_config_file.go:23-25` — renames `.punt-labs/ethos/config.yaml` to `.punt-labs/ethos.yaml`; "the new file is the one every current binary reads"
+    - `ethos/internal/layout/layout.go:175` — `.punt-labs/ethos/config.yaml` classed "legacy; read, never written"
+    - `ethos/docs/storage-layout.md:56` — `.punt-labs/ethos.yaml` is Configuration, "documented exception to the record-tree location"; `:86` lists `ethos/config.yaml` under Older layouts the upgrade converts or deletes
+
+    Changes:
+
+    - **(a) § 9.2.** The `.punt-labs/ethos.yaml` row and the ordering paragraph are deleted. The intro names only `lux.md` as the bare file. New paragraph: "`.punt-labs/ethos.yaml` is **not** a bare-file migration. It is ethos's configuration file — the one every ethos binary reads — and a documented exception to clause 1 under the ethos storage contract (`punt-labs/ethos`, `docs/storage-layout.md`, which classes it as Configuration and lists `.punt-labs/ethos/config.yaml` among the older layouts the storage upgrade converts). It stays where it is, git-tracked, and no § 9 row names it."
+    - **(b) § 9.3.** Row rule is now "De-gitlink, vendoring the registry content as ordinary tracked files." Prose: the de-gitlink unblocks in-repo sealing of the deferred chunks only; the "fail because the identity-pointer move was not carried through" sentence is gone; it now ends "Audit checks the vendored subtree delivers that trail (§ 8)."
+    - **(c) § 8.** The "No de-gitlink strands the migration it unblocks" bullet is deleted. Its second half (a vendored subtree that tracks any of the trace tier must carry a readable seal manifest; trace tier local by default grades pass with a note) is an independent rule and stays as the bullet "**A vendored subtree delivers its audit trail** *(graded)*". The bare-file grade examples now cite `.punt-labs/lux.md` only, and the bullet adds: "`.punt-labs/ethos.yaml` is neither: it is ethos's configuration file, a documented exception to clause 1 under the ethos storage contract (§ 9.2), and audit does not flag it."
+    - **(d) § 9.5.** "identity pointer" removed from the ethos row list; the "Not every present artifact grades the same" paragraph's pointer to the deleted bullet now reads "the vendored-subtree audit-trail check (§ 8)".
+
+    Anchors re-checked after the edits: every `](#...)` target in punt-labs-dir.md resolves to a heading; `grep -c 10-adoption-status` still 0; the contract sweep grep over both files returns zero hits. Remaining `ethos.yaml` mentions are the two configuration-file sentences above (lines 816 and 917); no "identity pointer" or "dependent-migration" text remains.
+
+    **Superseded criterion.** The contract's criterion 2 names "the dependent-migration fail" among the four rules that must survive. The leader's F2 ruling removes that rule because the migration it sequenced does not exist in the deployed tool; the other three (gitlink-unverifiable warning, grades-join-by-row, one-row-per-artifact) are unchanged from round 1.
+
+    **Bead rows added this round** (in addition to round 1's list):
+
+    - punt-kit: punt init strips residual punt:begin/punt:end CLAUDE.md marker sections.
+    - Round 1's proposed ethos bead text about carrying the `.punt-labs/ethos.yaml` → `config.yaml` move with the de-gitlink is withdrawn; the de-gitlink bead (vendor the gitlink in quarry-menubar) stands on its own.
+
+    CHANGELOG line unchanged from round 1.
