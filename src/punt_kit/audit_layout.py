@@ -331,10 +331,18 @@ class LayoutAudit:
         if not gitignore.has_canonical_block():
             return (PASS, label, "no canonical block, so no interim excludes")
         live = {path.rstrip("/") for path in MIGRATION_TABLE.live_paths()}
+        # A line for a path another § 9 row names (.punt-labs/lux.md) is that
+        # row's check's business, never reported twice.
+        other_rows = {
+            path.rstrip("/")
+            for row in MIGRATION_TABLE.rows
+            if row.kind is not RowKind.LIVE_STATE
+            for path in row.paths
+        }
         backed: list[str] = []
         stale: list[str] = []
         for number, pattern in gitignore.interim_excludes():
-            if _is_local_convention(pattern):
+            if _is_local_convention(pattern) or pattern.rstrip("/") in other_rows:
                 continue
             if pattern.rstrip("/") in live:
                 backed.append(pattern)

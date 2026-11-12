@@ -417,6 +417,31 @@ def test_ignore_line_outside_the_block_is_not_an_interim_exclude(
     )
 
 
+def test_block_line_for_a_bare_file_row_is_that_rows_business(
+    tmp_path: Path,
+) -> None:
+    """``.punt-labs/lux.md`` in the block is graded by the bare-file row, not here."""
+    root = _repo(tmp_path, "normal.gitignore", {".punt-labs/lux.md": "x\n"})
+    text = (root / ".gitignore").read_text()
+    (root / ".gitignore").write_text(text + ".punt-labs/lux.md\n")
+    findings = _findings(root)
+    assert (
+        PASS,
+        "No interim exclude survives a completed migration",
+        "2 interim exclude(s), each named by a § 9.4 row",
+    ) in findings
+    assert (
+        WARN,
+        "No bare file under .punt-labs/",
+        ".punt-labs/lux.md — migration pending (§ 9.2 → .punt-labs/lux/)",
+    ) in findings
+    assert (
+        FAIL,
+        "No gitignored non-local-convention path",
+        "Ignored: .punt-labs/lux.md (.gitignore:7:.punt-labs/lux.md)",
+    ) in findings
+
+
 def test_block_missing_means_no_interim_excludes(tmp_path: Path) -> None:
     root = _repo(tmp_path, "normal.gitignore")
     (root / ".gitignore").write_text(".punt-labs/ethos/sessions/\n")
