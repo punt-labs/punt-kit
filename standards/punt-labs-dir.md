@@ -1031,9 +1031,8 @@ by-row join unambiguous by construction.
 **Not every present artifact grades the same.** The ethos live-log row
 ([§ 9.4](#94-live-state-to-the-local-zone)) — gitlink-immune live state in the
 local zone, owning no interim-exclude path — is **audit-silent**: nothing
-probes it, so it draws neither warning nor fail, and its sequencing is held by
-the vendored-subtree audit-trail check ([§ 8](#8-what-punt-audit-checks)) and
-design review. The registry gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
+probes it, so it draws neither warning nor fail; design review, not an audit
+grade, holds it to the local zone. The registry gitlink ([§ 9.3](#93-registry-gitlink-to-vendored-subtree))
 is **not** silent — a `.punt-labs/ethos` gitlink draws the mandatory
 **gitlink-unverifiable warning** ([§ 8](#8-what-punt-audit-checks)) for as long
 as it stands.
