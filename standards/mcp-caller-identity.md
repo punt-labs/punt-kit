@@ -459,7 +459,9 @@ the server the plugin's `tty` registration starts. biff holds per-session
 state — presence, the plan, the unread count, and talk state — so it is a
 layer-2 engine (§ 4.1). The handle is the session key, `<user>:<routing id>`,
 where the routing id is derived from `session_id`; it keys the presence row on
-the relay, the active-session marker, and the unread file. The SessionStart
+the relay and the active-session marker, while the per-session unread file is
+named by `session_id` itself so a shell hook can find it without computing
+the digest. The SessionStart
 hook opens the session and stores the handle at
 `~/.punt-labs/biff/sessions/<session_id>/handle` (§ 4.2.3–4). biff identifies
 a caller only by one of these channels, never by the process tree and never
