@@ -1,0 +1,53 @@
+mission_id: m-2026-11-12-015
+status: closed
+type: implement
+created_at: "2026-11-12T15:28:04Z"
+updated_at: "2026-11-12T16:20:01Z"
+closed_at: "2026-11-12T16:20:01Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-12T15:28:04Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs:
+    files:
+        - src/punt_kit/audit.py
+        - src/punt_kit/audit_verdict.py
+        - src/punt_kit/audit_layout.py
+        - src/punt_kit/audit_permissions.py
+        - src/punt_kit/audit_github.py
+        - standards/agent-engineering.md
+        - standards/workflow.md
+        - standards/pr-review.md
+        - DESIGN.md
+        - docs/WORKFLOW.md
+        - docs/designs/lang-rules-deploy.md
+        - plugin/skills/auto/SKILL.md
+write_set:
+    - docs/designs/audit-findings-and-examiner.md
+success_criteria:
+    - docs/designs/audit-findings-and-examiner.md exists with §1-§9 as specified; every claim about current code cites a file:line that exists on origin/main (the evaluator spot-checks five).
+    - The fleet reality check names the five audit modules, the check-function count, every status marker in use, and every consumer that parses rendered audit output today.
+    - The findings type in §2 satisfies .claude/rules/python-*.md (@final, __slots__, __new__ -> Self, no public attributes, no Any, no Optional without a PY-TS-14 justification) and carries severity, rule identity, location, message, remedy and examiner; the glyph renderer is specified as one consumer.
+    - '§3 and §4 implement every operator ruling on the bead without weakening it: one standard per run, audit-only, different hands, one report, deterministic-only exit code, one shared prompt; the agent''s return is a parsed schema, never free prose.'
+    - §5 is a complete failure table; §6 names tests including a fake-agent harness test; §7 is a numbered decision list with a recommendation per item; §8 drafts DES-040; §9 gives a parallel wave plan with the findings type first.
+    - markdownlint zero findings; no status-report language; every commit lint-clean; nothing but the one design file in the diff.
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: e4744cf69fef4821b17f9d9a5c09eb75
+          round: 1
+          created_at: "2026-11-12T16:15:21Z"
+          author: mdm
+          recommendation: continue
+        - id: f52595692102920c7679043c095dbbad
+          round: 2
+          created_at: "2026-11-12T16:19:38Z"
+          author: mdm
+          recommendation: stop
+context: 'T2 design mission, docs only, time box 180 minutes, first commit within 30 minutes. Beads pkit-zmca (`bd show pkit-zmca`) and its epic pkit-fp5x (`bd show pkit-fp5x`); read both in full first. Worktree: <repo>/.claude/worktrees/zmca, branch design/audit-findings-and-examiner, on origin/main. Write exactly one file: docs/designs/audit-findings-and-examiner.md. Do not write code, do not edit DESIGN.md (the ADR is drafted inside the design doc and lifted on ratification), do not push, do not touch PRs. WHAT THIS DESIGN SETTLES. Two things the epic orders as one unit: (A) a findings type for `punt audit`, replacing today''s list[tuple[str, str, str]] (status glyph, label, message) assembled for terminal printing, and (B) the standards auditor harness: `punt audit --standard <name>` runs one agent whose reference is that one named standard, producing judgment findings merged into the same report. THE OPERATOR''S RULINGS ARE SETTLED AND NOT UP FOR REDESIGN (bead text, 2026-08-02): one standard per run, never the corpus; audit-only both ends (the agent never edits; sign-off is a re-audit with zero findings by a party that did no fixing); remediation is different hands (ethos mission harness where ethos is enabled, a distinct sub-agent where not); one engagement, one report (deterministic and judgment findings in a single report, each tagged with examiner type and standard section); exit code stays deterministic-only; one shared harness prompt plus the standard as reference, no per-standard agents. Design within those; where a ruling leaves a choice, make it and record the alternatives. FLEET REALITY CHECK (required, cite what you read): read the five audit modules on origin/main (`git show origin/main:<path>`) and describe the current findings flow end to end: how run_audit collects, how _guarded wraps, how audit_verdict renders, how audit_layout/audit_permissions/audit_github produce tuples, where exit code is decided; count the check functions and name every distinct status marker in use. Survey consumers that would parse rendered output today (grep src/, plugin/, .github/workflows/ for `punt audit`). Read docs/designs/lang-rules-deploy.md §7 and docs/designs/prfaq-make-recipe.md §7 for the decision-list shape the operator ratifies. SECTIONS. §1 Problem (why the tuple blocks every consumer the epic names; concrete lines from audit.py). §2 Findings type: a frozen Python class (per .claude/rules/python-*.md: @final, __slots__, __new__ -> Self, no public attributes, from __future__ import annotations) carrying severity, rule identity (standard + section), location (path:line or none), message, remedy, and examiner (deterministic | judgment); how PASS/WARN/FAIL/INFO/FIXED map; how the glyph renderer becomes one consumer among several; JSON shape for the MCP/REST members with a stability statement; migration path for the ~50 existing checks (adapter first or rewrite, with the reason). §3 Harness: the `--standard <name>` surface (name resolution against standards/*.md, unknown name is a usage error with the list), the one shared prompt''s contents and where it lives (plugin/ vs wheel, cite CLAUDE.md''s plugin-root rule), how the standard is handed to the agent (full text vs sections), how the agent returns findings (a schema the findings type parses, never free prose), how judgment findings are tagged and merged, how the report shows them, and the hard constraint that exit code ignores them. §4 Independence: the remediation hand-off (ethos mission create from findings where .punt-labs/ethos/enabled exists; typed sub-agent otherwise), and the re-audit sign-off; name who may not do what. §5 Failure contract: a table of what happens when the standard is missing, the agent times out, returns malformed output, returns zero findings, or the harness is invoked in a repo with no .claude/ (the audit still runs its deterministic checks). §6 Tests (names and what each asserts; the findings type gets unit tests, the renderer gets snapshot tests, the harness gets a fake-agent test that never calls a model). §7 Decisions for the operator: a numbered list, each with a recommendation, covering at least: findings class name and module; whether the glyph renderer keeps byte-identical output for existing checks; JSON stability promise; where the harness prompt lives; whether `--standard` accepts several names in one run (recommend no, per the ruling); whether judgment findings can ever affect exit code behind a flag (recommend no); severity vocabulary; whether the agent gets the whole standard or a section; the remediation dispatch mechanism; and whether this ships behind an experimental marker. §8 DES-040 draft (DES-038 and DES-039 are drafted in the two open design docs). §9 Implementation write-set and wave plan: the files each implementation mission touches, in waves that can run in parallel, with the findings type first and the harness second per the epic''s forced ordering. Quality bar: every claim about current code cites file:line on origin/main; no status reporting language (''not yet'', ''currently broken''); plain nouns for every concept (a class name, a file, a flag); `npx markdownlint-cli2` zero findings on a copy outside .claude/ (the config ignores that prefix, so lint a copy at the repo root and move it to .tmp/ after). Commit discipline: one commit per section group (problem + fleet check; findings type; harness + independence + failures; tests + decisions + ADR + waves), each lint-clean. Submit the result with `ethos mission result` to .tmp/missions/results/pkit-zmca-design.yaml and message the leader with the commit SHAs and the §7 decision list verbatim.'
