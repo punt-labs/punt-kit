@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **Linear is the tracker of record for punt-kit; beads is a scoped local
+  mirror.** The 145 active beads are in Linear (team Punt Labs), each
+  carrying the `repo:pkit` label and a type label; four open epics are
+  Linear projects. `.beads/config.yaml` sets `issue-prefix: pkit` and
+  `linear.pull_label: repo:pkit` with the prefix-precedence and by-id-pull
+  notes, and `.beads/.gitignore` ignores the Linear sync lock and the pull
+  clock. The deposited tracker guide (`.punt-labs/punt/CLAUDE.md`) already
+  points at Linear.
+
 ### Added
 
 - `docs/designs/audit-findings-and-examiner.md` — the design for a `Finding`
