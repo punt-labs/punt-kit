@@ -35,6 +35,26 @@ _TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
     "plugin/**/*.yaml",
 )
 
+# The project's own DEPLOYED CI workflows are rendered copies of those
+# templates and carry the same self-referential pin. They are bumped only in
+# phase 9, after phase 8 confirms the version is on PyPI: a failure notifier
+# that runs `uvx --from <pkg>==<main pin>` must never name an unpublished
+# version, and phase 2 (pre-publish) would leave it so if the release failed
+# between the merge and the publish.
+_DEPLOYED_WORKFLOW_GLOBS: tuple[str, ...] = (
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml",
+)
+
+# A self-referential ``uvx --from <punt-pkg>==X.Y.Z`` pin. The own-package
+# guard (``normalize_package_name(pkg) == own_key``) is applied by each caller,
+# so a foreign ``punt-*`` pin matches here but is never rewritten or verified
+# as this project's own.
+_OWN_PIN_RE = re.compile(
+    r"uvx --from (?P<pkg>[Pp]unt[-_.][A-Za-z0-9._-]+)"
+    r"==(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"
+)
+
 
 def normalize_package_name(name: str) -> str:
     """PEP 503 normalization key: case- and separator-insensitive.
@@ -189,22 +209,64 @@ class ReleaseProject:
         return sha
 
     def rewrite_template_pins(self, version: str, *, dry_run: bool) -> list[Path]:
-        """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` template pins.
+        """Rewrite self-referential own-package pins in bundled templates (phase 2)."""
+        return self._rewrite_own_pins(_TEMPLATE_PIN_GLOBS, version, dry_run=dry_run)
 
-        Scans ``_TEMPLATE_PIN_GLOBS`` under the project root. Only pins
-        matching the project's own package name are rewritten — pins for
-        other ``punt-*`` packages are a deliberate supply-chain guarantee,
-        not a stylistic preference, and are left untouched.
+    def rewrite_deployed_workflow_pins(
+        self, version: str, *, dry_run: bool
+    ) -> list[Path]:
+        """Rewrite own-package pins in deployed ``.github/workflows`` (phase 9).
+
+        Call only once ``version`` is published to PyPI.
+        """
+        return self._rewrite_own_pins(
+            _DEPLOYED_WORKFLOW_GLOBS, version, dry_run=dry_run
+        )
+
+    def deployed_workflow_own_pins(self) -> dict[Path, list[str]]:
+        """Own-package ``uvx --from <own-pkg>==X.Y.Z`` versions per deployed workflow.
+
+        Read-only counterpart to :meth:`rewrite_deployed_workflow_pins`, for
+        Phase 11 to verify the post-publish bump actually landed. Keyed by the
+        repo-relative path; files with no own-package pin are omitted. Foreign
+        ``punt-*`` pins are excluded, matching the rewrite's own-package guard.
+        """
+        own_pkg = self.self_package_name()
+        if own_pkg is None:
+            return {}
+        own_key = normalize_package_name(own_pkg)
+        found: dict[Path, list[str]] = {}
+        seen: set[Path] = set()
+        for pattern in _DEPLOYED_WORKFLOW_GLOBS:
+            for path in sorted(self._info.root.glob(pattern)):
+                if path in seen or not path.is_file():
+                    continue
+                seen.add(path)
+                versions = [
+                    m.group("ver")
+                    for m in _OWN_PIN_RE.finditer(TextFile(path).read())
+                    if normalize_package_name(m.group("pkg")) == own_key
+                ]
+                if versions:
+                    found[path.relative_to(self._info.root)] = versions
+        return found
+
+    def _rewrite_own_pins(
+        self, globs: tuple[str, ...], version: str, *, dry_run: bool
+    ) -> list[Path]:
+        """Rewrite self-referential ``uvx --from <own-pkg>==X.Y.Z`` pins.
+
+        Scans ``globs`` under the project root. Only pins matching the
+        project's own package name are rewritten — pins for other ``punt-*``
+        packages are a deliberate supply-chain guarantee, not a stylistic
+        preference, and are left untouched. This is the single definition of
+        that guard for every caller.
         """
         info = self._info
         own_pkg = self.self_package_name()
         if own_pkg is None:
             return []
         own_key = normalize_package_name(own_pkg)
-        pin_re = re.compile(
-            r"uvx --from (?P<pkg>[Pp]unt[-_.][A-Za-z0-9._-]+)"
-            r"==(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"
-        )
 
         def _replace(match: re.Match[str]) -> str:
             if normalize_package_name(match.group("pkg")) != own_key:
@@ -213,13 +275,13 @@ class ReleaseProject:
 
         changed: list[Path] = []
         seen: set[Path] = set()
-        for pattern in _TEMPLATE_PIN_GLOBS:
+        for pattern in globs:
             for path in sorted(info.root.glob(pattern)):
                 if path in seen or not path.is_file():
                     continue
                 seen.add(path)
                 content = TextFile(path).read()
-                new_content = pin_re.sub(_replace, content)
+                new_content = _OWN_PIN_RE.sub(_replace, content)
                 if new_content == content:
                     continue
                 rel = path.relative_to(info.root)

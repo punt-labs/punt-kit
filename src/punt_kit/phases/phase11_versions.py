@@ -43,13 +43,34 @@ class VersionPinChecks:
         return self
 
     def checks(self) -> list[VerificationCheck]:
-        """The verdicts for pyproject.toml, __init__.py, plugin.json and install.sh."""
+        """Verdicts for pyproject, __init__, plugin.json, install.sh, deployed CI."""
         return [
             *self._pyproject(),
             *self._init_py(),
             *self._plugin_json(),
             *self._install_sh(),
+            *self._deployed_workflows(),
         ]
+
+    def _deployed_workflows(self) -> list[VerificationCheck]:
+        """Own-package pins in deployed ``.github/workflows`` must name this release.
+
+        Phase 9 advances these post-publish; this check runs in Phase 11, so a
+        deployed notifier still pinned to the previous release — a phase-9 bump
+        that silently did not happen — fails here, at release time, rather than
+        passing unnoticed until the next release cuts. A project whose deployed
+        workflows carry no own-package pin yields no check.
+        """
+        project = ReleaseProject(self._info, ops=self._ops)
+        own_pkg = project.self_package_name()
+        if own_pkg is None:
+            return []
+        checks: list[VerificationCheck] = []
+        for rel, versions in project.deployed_workflow_own_pins().items():
+            ok = all(v == self._version for v in versions)
+            shown = ",".join(dict.fromkeys(versions))
+            checks.append(VerificationCheck(rel.as_posix(), ok, f"{own_pkg}=={shown}"))
+        return checks
 
     def _pyproject(self) -> list[VerificationCheck]:
         path = self._info.root / "pyproject.toml"
