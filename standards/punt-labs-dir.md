@@ -967,8 +967,8 @@ seal: the chunk is sealed into the local zone on every pre-commit, in every
 record mode ([§ 5](#5-live-state-is-never-a-tracked-file)), and deleting a
 gitlinked checkout loses nothing sealed. What a gitlink defers is
 **publication** — while it stands, the `record: full` copy cannot land in the
-`.punt-labs/ethos/` subtree, so each publication defers and `ethos audit show`
-reports the unpublished range. The ethos audit-seal design accepts this as a
+`.punt-labs/ethos/` subtree, so each publication defers until the subtree is
+vendored. The ethos audit-seal design accepts this as a
 **bounded limitation** of a gitlinked repo — no spool — and the org rule is to
 vendor a repo before relying on its **tracked** trail. The
 [§ 8](#8-what-punt-audit-checks) gitlink-unverifiable warning is the audit-side
