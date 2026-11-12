@@ -603,6 +603,21 @@ def test_gitlink_entry_warns(tmp_path: Path) -> None:
     )
 
 
+def test_tracked_regular_file_is_not_a_gitlink(tmp_path: Path) -> None:
+    """Only mode 160000 is a gitlink; a tracked bare file is not one."""
+    root = _repo(
+        tmp_path,
+        "normal.gitignore",
+        {".punt-labs/foo.md": "x\n"},
+        tracked=(".punt-labs/foo.md",),
+    )
+    assert _finding(root, "Unvendored gitlink is audit-unverifiable") == (
+        PASS,
+        "Unvendored gitlink is audit-unverifiable",
+        "no .punt-labs/<tool> entry is a gitlink",
+    )
+
+
 def test_checked_out_submodule_gets_the_warning_and_nothing_else(
     tmp_path: Path,
 ) -> None:
