@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `punt release` now bumps a project's own deployed CI-workflow pins
+  (`.github/workflows/*.yml|yaml`, e.g. biff's `biff-notify.yml`) in phase 9
+  (post-release), after phase 8 confirms the version is on PyPI — not in phase
+  2 alongside the bundled-template pins (`src/**/data`, `plugin/**`). A
+  deployed failure notifier runs `uvx --from <pkg>==<pin>`, so a pre-publish
+  bump would leave it naming an unpublished version if a release failed between
+  the version-bump merge and the publish. Phase 11 verification now asserts
+  every own-package pin in the deployed workflows equals the released version,
+  so a missed post-publish bump fails at release time rather than going
+  unnoticed until the next release. The own-package-only guard (foreign
+  `punt-*` pins are never rewritten) is unchanged and now defined once.
+
 ### Added
 
 - `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which
