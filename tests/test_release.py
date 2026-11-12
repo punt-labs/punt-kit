@@ -1065,6 +1065,26 @@ def test_template_pin_unrelated_package_untouched(tmp_path: Path) -> None:
     assert "uvx --from punt-other==9.9.9" in content
 
 
+def test_template_pin_deployed_github_workflow_rewritten(tmp_path: Path) -> None:
+    """A deployed .github/workflows/*.yml own-pkg pin is bumped; foreign stays."""
+    root = _make_release_project(tmp_path)
+    _use_punt_prefixed_name(root)
+    body = (
+        f"steps:\n  - run: uvx --from {_OWN_PKG}==0.1.0 test-cli --user wall\n"
+        "  - run: uvx --from punt-other==9.9.9 other --do-thing\n"
+    )
+    yml = _write_template_pin(root, ".github/workflows/notify.yml", body)
+    yaml_ = _write_template_pin(root, ".github/workflows/deploy.yaml", body)
+
+    info = detect(root)
+    _phase2_version_bump(info, "0.2.0", dry_run=False)
+
+    for path in (yml, yaml_):
+        content = path.read_text()
+        assert f"uvx --from {_OWN_PKG}==0.2.0" in content
+        assert "uvx --from punt-other==9.9.9" in content
+
+
 def test_template_pin_multiple_files_rewritten(tmp_path: Path) -> None:
     """Every matching template file is rewritten in one pass."""
     root = _make_release_project(tmp_path)
