@@ -66,7 +66,10 @@ All notable changes to this project will be documented in this file.
   Punt Labs plugin's MCP wildcard, the `Skill()` rules, or a CLI project's
   own `Bash(<cli>:*)` into `.claude/settings.json`; those belong to each
   tool's `enable` and are removed by its `disable`, which only works when
-  init never seeds them. A CLI project still gets `Bash(<cli>-server:*)`.
+  init never seeds them. `Bash(<cli>-server:*)` is seeded only when the
+  project declares a `<cli>-server` entry point; init never synthesizes the
+  suffix, so a CLI without a server gets no rule for a binary that does not
+  exist, and audit no longer fails such a repo for lacking one.
   `punt audit` no longer requires those tool-owned entries, and fails a
   checked-in `settings.json` carrying a direct-server `mcp__<server>__*`
   form, naming the value and pointing at `settings.local.json`.

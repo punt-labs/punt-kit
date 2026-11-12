@@ -216,7 +216,7 @@ Projects add their own build tools as needed:
 | Python | `Bash(uv:*)`, `Bash(uvx:*)`, `Bash(python3:*)` |
 | Node.js | `Bash(npx:*)`, `Bash(npm:*)` |
 | Swift | `Bash(xcodebuild:*)`, `Bash(xcodegen:*)`, `Bash(swiftformat:*)`, `Bash(swiftlint:*)` |
-| CLI project | `Bash(<cli-name>-server:*)` only. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
+| CLI project | `Bash(<cli-name>-server:*)` when the project declares a `<cli-name>-server` entry point; nothing otherwise. The CLI rule itself is in `<tool> enable`'s set and reaches the tool's own repo the way it reaches every repo: by running `<tool> enable` there. `enable` grants the CLI, not the server binary, so the server rule stays here. |
 
 `Bash(bd:*)` is baseline because `bd` is an external tool with no `enable`.
 `Bash(punt:*)` is baseline because `punt init` scaffolds this file and the

@@ -73,7 +73,7 @@ punt init /path    # Target a specific directory
 - **CI workflows** — lint, test, docs, and release workflows from Jinja2 templates
 - **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]` sections merged into `pyproject.toml`
 - **CLAUDE.md** — standards references and quality gates tailored to the detected language
-- **Claude Code permissions** — `.claude/settings.json` with the baseline allowlist (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and a CLI project's `Bash(<cli>-server:*)`) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` are not seeded; each tool's `enable` adds them and its `disable` removes them.
+- **Claude Code permissions** — `.claude/settings.json` with the baseline allowlist (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` are not seeded; each tool's `enable` adds them and its `disable` removes them.
 - **Gitignore** — `.claude/` exceptions appended to `.gitignore`
 - **Beads** — issue tracking initialized via `bd init`
 

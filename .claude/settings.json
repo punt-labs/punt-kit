@@ -12,6 +12,7 @@
       "Bash(gh:*)",
       "Bash(git:*)",
       "Bash(ls:*)",
+      "Bash(make:*)",
       "Bash(pip index:*)",
       "Bash(punt:*)",
       "Bash(python3:*)",
@@ -20,6 +21,7 @@
       "Bash(tail:*)",
       "Bash(test:*)",
       "Bash(uv:*)",
+      "Bash(uvx:*)",
       "WebFetch(domain:claude.com)",
       "WebFetch(domain:docs.anthropic.com)",
       "WebFetch(domain:elevenlabs.io)",
@@ -32,7 +34,6 @@
       "mcp__plugin_biff_tty__*",
       "mcp__plugin_github_github__*",
       "mcp__plugin_quarry_quarry__*",
-      "mcp__quarry__*",
       "Bash(uvx twine:*)",
       "Read",
       "Edit",
@@ -43,8 +44,7 @@
       "mcp__plugin_biff-dev_tty__*",
       "mcp__plugin_ethos-dev_self__*",
       "mcp__plugin_quarry-dev_quarry__*",
-      "mcp__plugin_z-spec-dev_zspec__*",
-      "mcp__quarry-dev__*"
+      "mcp__plugin_z-spec-dev_zspec__*"
     ],
     "deny": [
       "Bash(curl:*)",
