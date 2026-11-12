@@ -1,0 +1,118 @@
+mission: m-2026-11-12-008
+round: 1
+created_at: "2026-11-12T07:12:46Z"
+author: mdm
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: claude-agent-sdk-smalltalk/.beads/README.md
+      added: 11
+      removed: 8
+    - path: koch-trainer-swift/.beads/README.md
+      added: 14
+      removed: 10
+    - path: koch-trainer-swift/.beads/config.yaml
+      added: 6
+      removed: 5
+    - path: use-cases/.beads/README.md
+      added: 14
+      removed: 4
+    - path: use-cases/.beads/config.yaml
+      added: 9
+      removed: 5
+    - path: circuit/.beads/README.md
+      added: 20
+      removed: 6
+    - path: circuit/.beads/config.yaml
+      added: 9
+      removed: 3
+    - path: mcp-proxy/.beads/README.md
+      added: 3
+      removed: 3
+    - path: public-website/.beads/README.md
+      added: 3
+      removed: 3
+    - path: public-website/CHANGELOG.md
+      added: 3
+      removed: 1
+    - path: anthropic-sdk-pharo/.beads/README.md
+      added: 3
+      removed: 3
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Client-Tests/ClaudeClientLifecycleTest.class.st
+      added: 1
+      removed: 1
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Client-Tests/ClaudeClientRealTimeStreamingTest.class.st
+      added: 1
+      removed: 1
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Client-Tests/ClaudeClientRetryTest.class.st
+      added: 2
+      removed: 2
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Client-Tests/ClaudeClientStreamingTest.class.st
+      added: 3
+      removed: 3
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Client-Tests/ClaudeThinkingIntegrationTest.class.st
+      added: 2
+      removed: 2
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Client/ClaudeClient.class.st
+      added: 5
+      removed: 5
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Errors-Tests/ClaudeApiErrorTest.class.st
+      added: 2
+      removed: 2
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Errors-Tests/ClaudeNetworkErrorTest.class.st
+      added: 1
+      removed: 1
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Errors/ClaudeApiError.class.st
+      added: 3
+      removed: 3
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Types-Tests/ClaudeMessageAccumulatorTest.class.st
+      added: 3
+      removed: 3
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Types-Tests/ClaudeMessageStonTest.class.st
+      added: 1
+      removed: 1
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Types-Tests/ClaudeMessageTest.class.st
+      added: 2
+      removed: 2
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Types-Tests/ClaudeThinkingBlockTest.class.st
+      added: 1
+      removed: 1
+    - path: anthropic-sdk-pharo/src/Claude-Messaging-Types/ClaudeMessage.class.st
+      added: 2
+      removed: 2
+    - path: prfaq/.beads/README.md
+      added: 3
+      removed: 3
+    - path: cryptd/CHANGELOG.md
+      added: 1
+      removed: 1
+evidence:
+    - name: 'markdownlint-cli2 on lint copies of all 10 changed .md files, from each worktree: Summary: 0 issues in 0 files, every run'
+      status: pass
+    - name: 'koch-trainer-swift worktree make check: Executed 980 tests, with 0 failures; TEST SUCCEEDED'
+      status: pass
+    - name: 'public-website worktree make check: Checked 8485 internal links across 255 pages, no broken links'
+      status: pass
+    - name: 'cryptd worktree make check: go test ok, staticcheck clean, markdownlint 105 files 0 issues'
+      status: pass
+    - name: 'prfaq worktree make check: Ran 132 tests OK'
+      status: pass
+    - name: 'circuit worktree: make check fails in lint-engine (golangci-lint cannot read Go 1.27.3 export data), identical on untouched main; go vet clean, make test-engine 3 packages ok, markdownlint 17 files 0 issues'
+      status: fail
+    - name: 'mcp-proxy worktree: make check fails in lint (staticcheck v0.7.0 export data version 5 > 2), identical on untouched main; go vet clean, go test 7 packages ok, markdownlint 10 files 0 issues'
+      status: fail
+    - name: 'anthropic-sdk-pharo and claude-agent-sdk-smalltalk make check: check-packages needs a running Pharo eval server; none on this host; diffs are comments and .beads/README.md only'
+      status: fail
+    - name: 'bd show stasdk-8x5 and bd show of the other seven ids: all eight resolve'
+      status: pass
+    - name: git status --short on every main checkout identical before and after; all edits in <repo>/.claude/worktrees/5nt5 on docs/beads-doc-fixes, not pushed
+      status: pass
+    - name: 'Nine commits: e1b28ef stasdk, c761a10 koch, f55b62c use-cases, 996d767 circuit (base gitlab/main), f99e04a mcp-proxy, 3793a14 public-website, 5d27404 aspharo, 3ffe782 prfaq, 7fc1db0 cryptd; points needed no change'
+      status: pass
+open_questions:
+    - Seven repos had a docs follow-up PR already merged after the beads were filed; every pkit-5nt5 item on points, the aspharo CLAUDE.md wording, both stasdk tests, the mcp-proxy .gitignore header and dep-remove items, the cryptd copilot-instructions wording and the public-website CLAUDE.md worktree wording were already correct on origin/main and were skipped. Full item-by-item status in .tmp/missions/results/pkit-5nt5.md
+    - The 'on the main checkout' pull_label claim was also on origin/main in mcp-proxy, public-website, anthropic-sdk-pharo, prfaq and claude-agent-sdk-smalltalk READMEs (not only koch); fixed in all of them to cryptd's wording
+    - points/.claude/worktrees/5nt5 exists with no commit; the leader may remove it
+prose: |
+    Detailed per-repo findings, lines changed, and check tails are in
+    punt-kit/.tmp/missions/results/pkit-5nt5.md.
