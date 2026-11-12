@@ -56,6 +56,11 @@ python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+# tools/ has no __init__.py; tests import it as tools.record_gh_fixtures, so
+# the file must map to that one module name when checked directly too. With
+# explicit bases, src/ must be a base or punt_kit resolves as src.punt_kit.
+explicit_package_bases = true
+mypy_path = "src"
 
 [tool.pyright]
 pythonVersion = "3.13"
