@@ -10,10 +10,9 @@ calls, hooks, and applets. [architecture.md](architecture.md) invariant 4
 requires client state to live in the engine, keyed by client; this document
 says where the key comes from when the client is a Claude Code session.
 
-ethos (DES-074, amendments of 2026-11-03) is the closest existing
-implementation and the source of the hook rules in § 3.1; § 8.1 lists where
-it does not yet conform. lux and vox (§ 8.2–8.3) test the standard's
-boundaries.
+ethos (DES-074) is the source of the hook rules in § 3.1. § 8 states each
+engine's channel contract under this standard: which process is the engine,
+which layer it implements, what carries `_caller`, and what the handle keys.
 
 ---
 
@@ -368,81 +367,89 @@ user's session by naming its `session_id`.
 
 ### 8.1 ethos — the source of the hook rules
 
-**Conforms:** the PreToolUse hook (`_caller {session_id, agent_id}`, overwrite,
-strip when facts are missing, no `allow`, fail closed); exact-participant
-resolution of `_caller` against the roster; refusal of a Claude Code call
-without `_caller`; the handle is the caller facts (§ 4.4). ethos is written in
-Go and declares `_caller` on its tools rather than stripping it.
+ethos resolves the caller's `session_id` and `agent_id` to the exact
+participant in the session roster: the persona a call acts as, the mission a
+delegation belongs to, and the gate on each tool. ethos is daemonless
+(§ 4.2): the engine is the `ethos serve` MCP process over stdio, which
+resolves each call from the facts on that call, and the handle is the caller
+facts themselves (§ 4.4). The roster at
+`~/.punt-labs/ethos/sessions/<session_id>.yaml` is keyed by `session_id`,
+with participants keyed by `agent_id`; no handle file (§ 4.2.4) exists
+because there is no engine-issued handle to store. ethos is written in Go and
+declares `_caller` on each tool rather than stripping it (§ 3.2.1). Caller
+identity arrives on a per-client declared channel, never by detecting the
+harness:
 
-**Does not yet conform:**
+- **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
+  under the matcher `mcp__plugin_ethos(-dev)?_self__.*`. The hook matches every
+  tool because it also gates them, and stamps only its own (§ 3.1).
+- **OpenCode** — MCP `params._meta["ai.opencode/sessionID"]`; session and
+  agent are the same id.
+- **CLI** — `ETHOS_SESSION` and `ETHOS_AGENT_ID` in the process environment,
+  the declared credential for the non-MCP surface (§ 3.2.3).
 
-- It decides whether a call came from Claude Code by `process.UnderClaudeCode()`
-  (the `CLAUDE_PID` and `CLAUDECODE` environment variables, then a process-tree
-  walk), and resolves non-Claude callers from `ETHOS_SESSION`,
-  `ETHOS_AGENT_ID`, and the process tree. § 3.2.3 replaces detection with
-  declared channels per client type; ethos's DES-074 records the
-  misdetection risk (a non-Claude client inheriting `CLAUDECODE=1`).
-- Its roster is reaped by primary-pid liveness or a 24-hour TTL from roster
-  start, not by a lease renewed on each call (§ 4.2.6), and it has no
-  unknown-handle resolution (§ 4.2.10).
-- Its roster lives at `~/.punt-labs/ethos/sessions/<session_id>.yaml`; the
-  handle file of § 4.2.4 is not used, because its handle is the caller facts.
-- Its stamping matcher (`^mcp__plugin_ethos(-dev)?_self__`) covers the plugin
-  registrations only; a direct registration of the ethos server goes
-  unstamped and is refused (§ 3.1).
+An MCP call carrying none of these is refused with the named error; `doctor`
+is the caller-free diagnostic (§ 3.2.3).
 
 ### 8.2 lux — an engine whose sessions own UI
 
-The lux Hub (luxd) is the engine; the Display only renders and plays no part
-in identity. The Hub already models callers (`Scope`, `connection_id`,
-`ClientLifecycle`, leases; lux DES-057), but its MCP leg derived the scope
-from the transport session key, which breaks for subagents, reconnects, and
-the stateless protocol. Under this standard:
+lux resolves the caller to the Hub session that owns its scenes,
+subscriptions, and menu entries. The Hub (luxd) is the engine and a layer-2
+engine (§ 4.1): it holds per-session UI state, so it owns engine sessions and
+issues an opaque handle; the Display only renders and plays no part in
+identity. The handle keys the Hub's `Scope`, and an agent sub-scope keyed by
+`agent_id` gives each subagent its own scenes (§ 4.3). Caller identity
+arrives on a declared channel, never from the transport session key:
 
-- A session client opens a Hub session over REST and receives an opaque
-  handle. The applets the SessionStart hook spawns receive the same handle, so
-  a session's scenes, subscriptions, and menu entries belong to one Hub
-  session.
-- `_caller` carries the facts and the handle; Hub middleware resolves the
-  `Scope` and an agent sub-scope, so a subagent owns its own scenes.
-- The Hub accepts the stateless protocol; lease renewal on each call and
-  SessionEnd replace connection-scoped cleanup.
-- lux DES-057 rejected Hub-assigned identity and connection-id keying. This is
-  compatible — identity stays declared, and the handle is keyed by
-  `session_id`, not a connection — but it is a change of mechanism that lux
-  records as a DES-057 amendment.
+- **Claude Code** — the PreToolUse hook stamps `_caller` (the facts, the
+  handle, and `main_agent_id`) via `updatedInput` under the matcher
+  `mcp__(plugin_lux(-dev)?_)?lux__.*`; Hub middleware strips it and resolves
+  the `Scope`.
+- **Hooks and applets** — the SessionStart hook opens the Hub session over
+  REST, stores the handle (§ 4.2.4), and passes it to the applets it spawns;
+  every hook and applet presents the same handle (§ 3.3).
 
-### 8.3 vox — an engine whose state is spread today
+The Hub accepts the stateless protocol; lease renewal on each call and
+SessionEnd, not connection close, bound a session's resources (§ 4.2.6–7).
+Identity stays declared and the handle is keyed by `session_id`, never by a
+connection (lux DES-057).
 
-voxd is the engine. It holds no per-caller TTS state today: voice, provider,
-and model are resolved client-side and sent with each `synthesize`, from the
-per-repo `vox.md`, the per-repo `vox.local.md` (which holds vibe, so two
-sessions in one repo overwrite each other's), and in-memory overrides inside
-each `vox mcp` stdio process that hooks cannot see. Half of vox's speech is
-driven from hooks (Stop, Subagent, notify), so an MCP-only answer would not
-reach it. voxd's conversation mode already targets a specific Claude
-`session_id`, found today by `claude agents --json` and disambiguated by the
-user. Under this standard:
+### 8.3 vox — an engine whose sessions own a voice
 
-- voxd owns session state (vibe, voice override) keyed by the handle; repo
-  defaults stay in `vox.md`; each subagent's voice resolves from its ethos
-  persona.
-- The MCP leg, the hooks, and the vox-panel applet present the same handle,
-  so a voice chosen through a tool is the voice the Stop hook uses, and
-  conversation mode knows the session it serves.
-- Music stays machine-global and ownership-free (vox DES-041); layer 2 scopes
-  only what is genuinely per session or per agent.
-- vox's server moves from the SDK-bundled `mcp.server.fastmcp` to standalone
-  fastmcp ([python.md](python.md)) to gain the stripping middleware.
+vox resolves the caller to the session whose voice, vibe, and conversation it
+serves. voxd is the engine and a layer-2 engine (§ 4.1): it owns session
+state (vibe, voice override) keyed by the handle, scoped per agent so each
+subagent's voice resolves from its ethos persona (§ 4.3); repo defaults stay
+in `vox.md`. Caller identity arrives on a declared channel:
 
-### 8.4 quarry
+- **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
+  under the matcher `mcp__(plugin_vox(-dev)?_)?mic__.*`; the server strips it
+  with standalone fastmcp middleware ([python.md](python.md), § 3.2.1).
+- **Hooks** — the Stop, SubagentStop, and Notification hooks that drive
+  speech present the handle and facts directly (§ 3.3), so a voice chosen
+  through a tool is the voice the Stop hook uses.
+- **Applets and conversation mode** — the vox-panel applet receives the
+  handle at spawn; conversation mode addresses the session it serves by its
+  `session_id`.
 
-quarry's database selection (`use`) lives in the MCP client process today
-(`SELECTION` in `mcp_server.py`), routing each call to a daemon fixed to one
-database; the daemon holds no per-caller state, so quarry is a layer-1 engine
-as built. If quarry moves the selection into its
-engine, as invariant 4 asks, it becomes a layer-2 engine; that is quarry's
-own decision and unit.
+Music is machine-global and ownership-free (vox DES-041); layer 2 scopes only
+what is per session or per agent.
+
+### 8.4 quarry — a layer-1 engine
+
+quarry resolves the caller to route each call. The quarry daemon is the
+engine; it holds no per-caller state, so quarry is a layer-1 engine (§ 3):
+each call carries its facts and the daemon keeps nothing per session. Caller
+identity arrives on a declared channel:
+
+- **Claude Code** — the PreToolUse hook stamps `_caller` via `updatedInput`
+  under the matcher `mcp__(plugin_quarry(-dev)?_)?quarry(-proxy|-dev)?__.*`;
+  the server strips it before validation (§ 3.2.1).
+
+quarry becomes a layer-2 engine the moment its daemon holds state per session
+— database selection (`use`) held per caller, as architecture.md invariant 4
+asks — and then owns its sessions under § 4. Which state the daemon holds is
+quarry's own decision.
 
 ### 8.5 biff — one engine path, four harnesses
 
@@ -468,15 +475,12 @@ in-process.
 
 ---
 
-## 9. Open Items
+## 9. Scope
 
-- Whether `/clear` and compaction change `session_id` has not been measured
-  interactively. `/clear` starting a new session is the expected behavior;
-  § 4.2 then opens a new engine session.
-- stdio transports were not measured; § 1's connection facts are for
-  streamable HTTP.
-- Reading `clientInfo` per call from fastmcp 4 middleware was not shown to
-  work; § 3.2.3 deliberately does not depend on it.
-- These measurements are against Claude Code 2.1.309. A release that sends
-  caller identity to MCP servers natively supersedes the hook transport in
-  § 3.1, not the rest of this standard.
+- § 1's connection facts are for streamable HTTP; the hook facts and the
+  rules in § 3 and § 4 apply to every transport.
+- `/clear` starts a new session; § 4.2 then opens a new engine session.
+- § 3.2.3 does not depend on `clientInfo`: a declared channel per client
+  type is the only identity source.
+- A Claude Code release that sends caller identity to MCP servers natively
+  supersedes the hook transport in § 3.1, not the rest of this standard.
