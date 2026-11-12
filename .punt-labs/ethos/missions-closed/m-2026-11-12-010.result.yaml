@@ -1,0 +1,47 @@
+mission: m-2026-11-12-010
+round: 2
+created_at: "2026-11-12T10:11:41Z"
+author: adt
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/designs/lang-rules-deploy.md
+      added: 630
+      removed: 0
+evidence:
+    - name: commit c2468fe on design/lang-rules-deploy (on top of d161eba), one file, +119/-28, not pushed
+      status: pass
+    - name: 'npx markdownlint-cli2 _lint_design.md from the worktree: Summary: 0 issues in 0 files; copy deleted'
+      status: pass
+    - name: 'F5 corrected from git log -- .claude/rules in the workspace: last touch 2026-10-28 python-prohibited-patterns.md, before that 2026-07-11 python-oo-adoption.md and python-tooling-enforcement.md; diff -rq shows 22 of 23 differ, python-comments.md identical'
+      status: pass
+    - name: 'F7 corrected from wc -l: go-standards.md is 17 lines, 12 after frontmatter'
+      status: pass
+    - name: 'F6 located: .pr_agent.toml line 30 names lang-rules/; added to the docs write-set, rebased'
+      status: pass
+    - name: 'F4: lang-rules/c/tests.md opening paragraph read; it states its own scope (xboing-c fixtures as the worked example, adopters substitute their module API); design deploys verbatim and rejects a deployer-side exclusion'
+      status: pass
+open_questions:
+    - 'Operator decision 9 (new, from F1): punt disable removes the manifest-listed rules and the manifest, a deviation from tool-enable-disable.md 2.9, because .claude/rules/ loads with no import-line gate.'
+    - 'Operator decision 10 (new, from F2): the first punt enable overwrites a canonical-name file punt never deposited, a deviation from punt-labs-dir 7''s bootstrap, reported one line per file whose bytes differed.'
+prose: |
+    Lint run, pasted:
+
+        markdownlint-cli2 v0.24.1 (markdownlint v0.42.1)
+        Finding: _lint_design.md !.beads/ !.claude/ !.punt-labs/ !.venv/ !.tmp/ !research/ !session.md !standards/makefile.md
+        Linting: 1 file
+        Summary: 0 issues in 0 files
+
+    Findings closed: F1 (disable removes rules and manifest; section 3.2,
+    5.2 rejected row, ADR draft, decision 9). F2 (first-run overwrite stated
+    as a deviation with the reporting rule; section 3.5, 5.2 rejected row,
+    ADR draft, decision 10). F3 (output, --json, exit-status table and the
+    all-or-nothing refusal in section 3.1; test_cli.py row pins each row).
+    F4 (section 5.6 states verbatim deployment of c-tests.md and rejects
+    exclusion). F5 and F7 (fleet table corrected from git log and wc -l).
+    F6 (.pr_agent.toml added to the write-set). F8 (summary, section 3.8,
+    decision 1, and the workspace write-set state the workspace runs punt
+    enable with [rules] languages = [] for guide, marker, and import line).
+
+    files_changed counts are cumulative against origin/main, the branch base;
+    local main is behind origin and is not the right base for --verify.
