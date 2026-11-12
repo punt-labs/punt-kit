@@ -41,9 +41,12 @@ All notable changes to this project will be documented in this file.
   gone, nothing); the adoption-status table, dated rulings, and retirement
   history move to the tracker. `.punt-labs/ethos.yaml` is ethos's
   configuration file and a documented exception to the one-subtree rule, not
-  a bare-file migration into the `ethos/` subtree. A `punt:begin` /
-  `punt:end` marker section in a repo `CLAUDE.md` is content to delete; no
-  entry point is named for the strip.
+  a bare-file migration into the `ethos/` subtree. Sealed audit chunks are
+  local in every ethos record mode; only a `record: full` publication copy
+  lands in the tracked subtree, so a gitlink defers publication, never the
+  seal, and the trace-tier migration row and its interim gitignore exclude
+  are gone. A `punt:begin` / `punt:end` marker section in a repo `CLAUDE.md`
+  is content to delete; no entry point is named for the strip.
 - `make type` (and so `make check`) type-checks `tools/` with mypy and
   pyright alongside `src/` and `tests/`; a script under `tools/` that fails
   either checker now fails the gate.
