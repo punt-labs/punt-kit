@@ -4,9 +4,8 @@
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
 bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
-`.punt-labs/<tool>/` directory, and the `enable` / `disable` verbs. Section numbering follows the design this standard was
-extracted from (`docs/claude-md-include-standard-design.md` § 2); external
-cross-references cite these section numbers.
+`.punt-labs/<tool>/` directory, and the `enable` / `disable` verbs. Section
+numbering starts at 2.1; external cross-references cite these section numbers.
 
 ---
 
@@ -77,13 +76,13 @@ repo. This extends the `enable` / `disable` entry in
 integration.** They are neither admin-tier (cli.md § Layer 2) nor
 client-vocabulary (the noun-first product surface) — enablement is a
 distinct concern, orthogonal to that split, and every Punt Labs tool
-implements it across the surfaces this standard defines. Today that
-means CLI + MCP + slash + library, per vox's shipped pattern
+implements it across the surfaces this standard defines: CLI + MCP +
+slash + library, per vox's pattern
 (`vox enable`/`vox disable` on the CLI, `mic:enablement
 action="enable"` on MCP, `/vox enable` as a slash command) — see
 §2.14 for the full surface mapping.
 
-**Vocabulary is `enable` / `disable` — `y` / `n` is retired.** The two verbs are
+**Vocabulary is `enable` / `disable`.** The two verbs are
 the fleet-wide vocabulary for turning a tool on and off, at both surfaces (§2.14).
 A boolean `y|n` / `true|false` toggle is **not** permitted for enablement: it
 reads as a per-user preference, it splits into two vocabularies (one in the
@@ -136,7 +135,7 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
   the top level, never inside a code block. Both the presence scan (`enable`) and
   the removal (`disable`) must ignore any matching line that is inside a fenced
   code block or an indented code block. Precise definition, so 15 implementations
-  agree (reference: `ClaudeMdImport` in `punt-labs/biff` #312):
+  agree (reference: `ClaudeMdImport` in `punt-labs/biff`):
   - A **fence delimiter** is a **non-indented** line — at most three leading
     spaces, no leading tab (CommonMark) — whose first non-blank characters are a
     run of three or more of a single marker character (backticks or tildes),
@@ -190,9 +189,9 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
     Atomic rename prevents a torn file; it does **not** prevent a lost update —
     two parallel `enable` runs each read the old bytes, write their change, and
     rename, and the second silently clobbers the first. The lock serializes them.
-    (The old model relied on a stated single-writer assumption; the per-tool
-    model drops it exactly where independent invocations become more likely, so
-    the lock is mandatory, not optional.)
+    (There is no single-writer assumption: each tool is an independent
+    invocation against the same host file, so the lock is mandatory, not
+    optional.)
   - **Atomic.** Write a temp file in the target's own directory, then rename it
     over the target (atomic on POSIX; use the platform atomic-replace primitive).
     Never truncate-in-place.
@@ -207,13 +206,12 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
     write the real target and preserve the link.
   - **Mode-preserving.** Keep an existing file's mode; a new file gets `0644`.
 - **Canonical reference implementation.** `ClaudeMdImport` in the **biff repo**
-  (`punt-labs/biff`, `src/biff/claude_md.py`, PR #312) implements this full
+  (`punt-labs/biff`, `src/biff/claude_md.py`) implements this full
   contract for the bare-line model — balanced-pair fence semantics, the shared
   sibling lock, and the atomic / symlink-resolving / byte-preserving /
-  mode-preserving write. It ports the write correctness of vox's earlier
-  `GlobalClaudeImports` (`punt-labs/vox`, `src/punt_vox/claude_md.py`), which
-  originated the atomic/symlink/byte-preserving machinery but predates the lock
-  and still carries the retired managed-section markers (§ 2.1). Port the
+  mode-preserving write; vox's `ClaudeMdImport` (`punt-labs/vox`,
+  `src/punt_vox/claude_md.py`) is the same contract in a second tool. An
+  implementation carries no managed-section markers (§ 2.1). Port the
   correctness per tool (copy-not-symlink of the logic, each CLI in its own
   language) — this is distinct from a rejected shared-runtime writer: shared
   *correctness*, not a shared *process*.
@@ -265,14 +263,14 @@ global import.
 **No user-scope import to tear down.** Forward integration, no compatibility shim
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)): because
 `install` never writes `~/.claude/CLAUDE.md`, there is nothing for `uninstall` to
-remove there. A tool that in a previous release wrote a legacy
-`@~/.punt-labs/<tool>/CLAUDE.md` line strips that line **opportunistically** — on
+remove there. A `@~/.punt-labs/<tool>/CLAUDE.md` line found in that file is
+stripped **opportunistically** — on
 the next `enable` or `uninstall` run for that tool — under the **same write
 contract as § 2.4** (exclusive lock, exact-match, atomic, byte-preserving). The
 strip is a migration convenience, not an enforced invariant: the repo-scoped
 audit (§ 2.11) does not scan `~/.claude/CLAUDE.md`, so a user who never re-runs
-either verb keeps the stale line until they do. No tool writes that file under
-the current model, so no *new* user-scope import is ever created.
+either verb keeps the stale line until they do. No tool writes that file, so no
+*new* user-scope import is ever created.
 
 ## 2.7 The enabled marker
 
@@ -307,7 +305,7 @@ tools" invariant, at gate time):
 command -v <tool> >/dev/null 2>&1 || exit 0
 ```
 
-Three states are now distinguishable, and the invariants in 2.9 and 2.11 depend
+Three states are distinguishable, and the invariants in 2.9 and 2.11 depend
 on the distinction:
 
 | State | Directory | `enabled` marker | Import line |
@@ -316,10 +314,11 @@ on the distinction:
 | Dormant (disabled) | present | absent | absent |
 | Absent | absent | absent | absent |
 
-This marker replaces every legacy repo-root sentinel, whatever shape it took —
+This marker is the one presence signal; no repo-root sentinel is, whatever
+shape it takes —
 a settings dotfile, a config-bearing root directory, or a bare presence marker
 ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) enumerates the three
-attested shapes; § 9 there is the migration table): one file, inside the
+shapes; § 9 there is the migration table): one file, inside the
 tool's directory, that both hook gates and `punt audit` read.
 
 ## 2.8 Hooks and config
@@ -421,10 +420,10 @@ Its permission set is its `Skill(punt:<cmd>)` rules only; `Bash(punt:*)` is
 the permissions.md § 3 baseline, because `punt init` scaffolds that file and
 must run unprompted from the first scaffold.
 
-`punt`'s deposited guide is **not** the new home for the four per-repo sections
-the retired `punt auto claude` target rendered (quality gates, beads, standards
-references, available tooling). Those were repo-specific dev-process content, not
-a tool user guide; their disposition is out of scope for this standard.
+`punt`'s deposited guide is **not** a home for repo-specific dev-process
+content — quality gates, beads, standards references, available tooling. That
+is not a tool user guide; where such content lives is out of scope for this
+standard.
 
 ## 2.11 What `punt audit` checks
 
@@ -457,50 +456,51 @@ dormant tool is not flagged.
 Forward integration, no compatibility shim
 ([PL-PP-1](../lang-rules/python/python-prohibited-patterns.md)):
 
-- A tool currently injecting a marker block into a `CLAUDE.md` moves that
-  content to `<repo>/.punt-labs/<tool>/CLAUDE.md`, registers the bare repo import
-  line via `enable`, and deletes its legacy block in the same release. A tool
-  that in a previous release wrote a user-scope `@~/.punt-labs/<tool>/CLAUDE.md`
-  line strips it on next `enable` or `uninstall` (§2.6) — no guide and no import
-  survive at user scope.
-- The `punt auto claude` target and the `CLAUDE_SECTIONS` registry are
-  **removed, not deprecated**. The four managed sections stop being rendered into
-  any user-owned `CLAUDE.md`. `punt`'s deposited file is punt's user guide (2.10),
-  not a replacement home for that content. The `punt seed makefile` target is
-  **out of scope** and stays as-is — this removal is CLAUDE.md-only.
-- `/punt:init` (or a one-time migration) strips any residual `punt:begin` /
-  `punt:end` CLAUDE.md marker sections from a repo `CLAUDE.md`, leaving the user's
-  prose plus bare import lines. It does not touch Makefile marker sections.
+- A tool's guidance lives in `<repo>/.punt-labs/<tool>/CLAUDE.md` and reaches
+  the host file only through the bare repo import line `enable` writes. A
+  marker block a tool once injected into a `CLAUDE.md` is content to move
+  there and a block to delete, in one release — never a block to keep
+  rendering. A user-scope `@~/.punt-labs/<tool>/CLAUDE.md` line is stripped on
+  the next `enable` or `uninstall` (§2.6) — no guide and no import survive at
+  user scope.
+- No tool renders managed sections into a user-owned `CLAUDE.md`, and `punt`
+  has no target or section registry that does. `punt`'s deposited file is
+  punt's user guide (2.10), not a home for that content. Makefile marker
+  sections (`punt seed makefile`) are a separate mechanism and **out of
+  scope** here — this rule is CLAUDE.md-only.
+- `/punt:init` strips any `punt:begin` / `punt:end` CLAUDE.md marker section
+  it finds in a repo `CLAUDE.md`, leaving the user's prose plus bare import
+  lines. It does not touch Makefile marker sections.
 
 ### Sentinel migration (legacy root sentinel → `enabled` marker)
 
-The legacy repo-root sentinel is retired **as a presence marker** in favor of
-the in-directory `enabled` marker (2.7), which changes the L0 presence contract
-in [integration.md](integration.md). A repo that still carries a legacy
-sentinel — dotfile or directory; the operator's 2026-09-10 ruling covers every
-shape ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) — must not
-silently fail every peer presence check in the window between the
-integration.md rewrite and each tool's re-enable. Forward-integration closes
+The in-directory `enabled` marker (2.7) is the presence marker; a repo-root
+sentinel is not, and the L0 presence contract in
+[integration.md](integration.md) reads the marker. A repo that carries a
+legacy sentinel — dotfile or directory; every shape is in scope
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) — must not
+silently fail every peer presence check between the peer's switch to the
+marker and the tool's `enable` in that repo. Forward-integration closes
 the gap without a compat shim — but the migration must **never delete live
 config or live settings**.
 
 **Legacy sentinels fall into classes by what they hold, not by their shape.**
 [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) and
 [§ 9](punt-labs-dir.md#9-migration) are the authority on which concrete paths
-are attested (`.biff`, `.quarry.toml`, `.vox/config.md`, `.lux/config.md`,
+are named (`.biff`, `.quarry.toml`, `.vox/config.md`, `.lux/config.md`,
 `.ethos/missions.jsonl`) and where each one lands; this standard states only
 the class rule each follows on migration:
 
 | Class | On migration |
 |-------|---------------|
-| Pure presence sentinel — an empty or content-free marker whose only job was "this tool is here" | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
-| Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: model, notify, provider, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty root file or directory. Ruling 1 ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)) forecloses the alternative an earlier draft of this row offered — leaving the file in place and merely stopping treatment of it as the presence signal — because that would leave live settings at the repo root permanently, which is exactly what ruling 1 retires; the move is mandatory, not optional, for a config-bearing sentinel. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Never destroys live config. |
+| Pure presence sentinel — an empty or content-free marker whose only job is "this tool is here" | Deleted, once `.punt-labs/<tool>/` + `enabled` are deposited |
+| Sentinel-cum-config — also holds live settings, whether a human/`init` sets them (roster, credentials, db name), a running daemon rewrites them (vox: model, notify, provider, speak, voice), or the tool's own `enable`/`disable` writes them (lux: `display`) | **Migrated, never deleted with content inside**: the tool moves the settings into the config zone ([punt-labs-dir.md § 7](punt-labs-dir.md#7-the-punt-labstool-subtree-has-zones)) and then removes the now-empty root file or directory. Leaving the file in place and merely ceasing to treat it as the presence signal is not an option — that would leave live settings at the repo root permanently, which [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) forbids; the move is mandatory for a config-bearing sentinel. Stays **tracked** at the new location regardless of writer — git status is naming-determined only ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)), so being rewritten after deposit, by any actor, is not grounds for a different destination or a gitignore rule. Never destroys live config. |
 | Root runtime-state directory — holds no settings, only a continuously-appended live log | Migrated into the local zone ([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)), never deleted with unread lines inside |
 
 This reconciles with § 2.13 and
 [distribution.md § Installation Scope](distribution.md#installation-scope), which
-keep the tool's repo **config** as `init`'s artifact — now in the config zone
-(`.punt-labs/<tool>/config.*`), not at the legacy root path — `.beads/` is out
+keep the tool's repo **config** as `init`'s artifact — in the config zone
+(`.punt-labs/<tool>/config.*`), never at a root path — `.beads/` is out
 of scope for this whole migration entirely
 ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the
 canonical exemption), so there is nothing for it to migrate. Sentinel
@@ -517,8 +517,8 @@ still holds settings.
   applies the matching class rule above (delete a pure sentinel; migrate-then-clear
   a config-bearing one, human-set or daemon-rewritten, into the config zone;
   move a runtime-state directory into the local zone). No separate migration
-  command; the legacy sentinel stops being a *presence marker* on the tool's
-  first post-adoption run.
+  command; the legacy sentinel ceases to be a *presence marker* on the tool's
+  first run in the repo.
 - **Ordering within that one operation: detect-and-move the legacy source
   before any enable-time write to its destination, never after.** A tool
   whose own `enable` writes a Config-zone field it owns (lux's `display`,
@@ -531,10 +531,10 @@ still holds settings.
   on every subsequent run. There is no case where writing the destination
   first is correct: detect, move, delete the empty legacy source, *then* let
   the tool's own logic read or write the now-migrated file.
-- **Ordering dependency.** The integration.md L0 rewrite (peers now check the
-  `enabled` marker) must land in the **same release train** as the tool releases
-  that perform the migration, so no peer starts checking the new marker before
-  the tools that write it have shipped.
+- **Ordering dependency.** A peer's switch to checking the `enabled` marker
+  (integration.md L0) lands in the **same release train** as the tool release
+  that performs the migration, so no peer checks the marker before the tool
+  that writes it has shipped.
 - **`.beads/` needs no migration because it is out of scope for this section
   entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
   states the canonical exemption.
@@ -583,7 +583,7 @@ other, so enablement lands through review, not through a tool's side effect.
 
 An MCP enable/disable tool takes an `action` argument constrained to
 `"enable" | "disable"` — **not** an `enabled: bool`. The boolean shape is the
-retired `y|n` vocabulary (§2.3) wearing a type; the verb shape keeps the one
+forbidden `y|n` vocabulary (§2.3) wearing a type; the verb shape keeps the one
 vocabulary across both surfaces.
 
 ### The per-user layer is separate
@@ -602,5 +602,5 @@ enablement switch). The two never conflate:
   `.punt-labs/<tool>/local/`, §2.9) and never travels in a PR.
 
 A per-user preference verb may keep a `y|n` form (it is a genuine two-state
-preference, not enablement); the `y|n` retirement in §2.3 applies to
+preference, not enablement); the `y|n` prohibition in §2.3 applies to
 *enablement* only.
