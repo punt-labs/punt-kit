@@ -110,61 +110,29 @@ class PermissionsAudit:
     def _allow_findings(self, allow: list[str]) -> list[Finding]:
         """The baseline is required; tool-owned entries are allowed, never required.
 
-        A plugin wildcard (``mcp__plugin_<plugin>_<server>__*``) or a
+        An MCP wildcard (``mcp__plugin_<plugin>_<server>__*`` for a plugin-bundled
+        server, ``mcp__<name>__*`` for one the tool registers natively) or a
         ``Skill(<plugin>:<cmd>)`` rule is present only because that tool is
-        enabled here, so its absence is not a finding. A direct-server form is
-        one: ``claude mcp add`` registers a server under ``mcp__<server>__*``,
-        which is a local choice and belongs in ``settings.local.json``.
+        enabled here, so its absence is not a finding and its form is not policed.
         """
         standard = build_standard_permissions(self._info)
         missing = [p for p in standard if p not in allow]
-        results: list[Finding] = []
         if missing:
-            results.append(
+            return [
                 (
                     FAIL,
                     "Standard allow rules present",
                     f"Missing {len(missing)}: {', '.join(missing[:5])}"
                     + ("..." if len(missing) > 5 else ""),
                 )
+            ]
+        return [
+            (
+                PASS,
+                "Standard allow rules present",
+                f"{len(standard)} standard entries",
             )
-        else:
-            results.append(
-                (
-                    PASS,
-                    "Standard allow rules present",
-                    f"{len(standard)} standard entries",
-                )
-            )
-
-        direct = [p for p in allow if self._is_direct_server_form(p)]
-        if direct:
-            results.append(
-                (
-                    FAIL,
-                    "No direct-server MCP forms",
-                    f"{len(direct)} belong in settings.local.json:"
-                    f" {', '.join(direct[:5])}" + ("..." if len(direct) > 5 else ""),
-                )
-            )
-        else:
-            results.append(
-                (
-                    PASS,
-                    "No direct-server MCP forms",
-                    "mcp__github__* and plugin wildcards only",
-                )
-            )
-        return results
-
-    @staticmethod
-    def _is_direct_server_form(value: str) -> bool:
-        """True for ``mcp__<server>__…`` where the server is neither a plugin
-        (``plugin_`` prefix) nor github, the one server Claude Code ships."""
-        if not value.startswith("mcp__"):
-            return False
-        server = value.removeprefix("mcp__").split("__", 1)[0]
-        return not server.startswith("plugin_") and server != "github"
+        ]
 
     @staticmethod
     def _dead_rules_in(perms: dict[str, object]) -> tuple[list[str], list[str]]:

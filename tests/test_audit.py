@@ -645,19 +645,20 @@ def test_audit_passes_with_a_tools_enable_set_present(tmp_path: Path) -> None:
     run_audit(str(tmp_path))
 
 
-def test_audit_fails_on_a_direct_server_wildcard(
+def test_audit_passes_with_a_native_tool_wildcard(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """mcp__quarry__* is a local registration choice and never checked in."""
+    """quarry's enable writes mcp__quarry__*, the prefix its native server
+    registers under; the audit accepts it like any tool-owned entry."""
     _make_compliant_python(tmp_path)
     _append_rule(tmp_path, "allow", "mcp__quarry__*")
 
-    with pytest.raises(SystemExit, match="1"):
-        run_audit(str(tmp_path))
+    # Should not raise SystemExit
+    run_audit(str(tmp_path))
 
     out = capsys.readouterr().out
-    assert "mcp__quarry__*" in out
-    assert "settings.local.json" in out
+    assert "direct-server" not in out
+    assert "settings.local.json" not in out
 
 
 # --- Unmatched path rule tests ---

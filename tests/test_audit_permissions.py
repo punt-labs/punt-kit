@@ -58,30 +58,18 @@ def test_tool_owned_entries_are_allowed_and_never_required(tmp_path: Path) -> No
     assert set(_statuses(tmp_path)) == {PASS}
 
 
-@pytest.mark.parametrize("value", ["mcp__quarry__*", "mcp__vox__unmute"])
-def test_a_direct_server_form_fails_naming_the_value(
-    tmp_path: Path, value: str
-) -> None:
-    """A value starting mcp__ whose next segment is neither plugin_ nor github
-    is a direct `claude mcp add` registration: a local choice that belongs in
-    settings.local.json, never the checked-in file."""
+@pytest.mark.parametrize(
+    "value", ["mcp__quarry__*", "mcp__beadle-email__*", "mcp__github__get_me"]
+)
+def test_a_native_tool_wildcard_is_allowed(tmp_path: Path, value: str) -> None:
+    """A tool whose installer registers its server natively grants
+    ``mcp__<name>__*`` through its enable; the audit does not police the form."""
     _write_baseline_plus(tmp_path, [value])
 
-    failures = [
-        detail
-        for status, _label, detail in PermissionsAudit(detect(tmp_path)).findings()
-        if status == FAIL
-    ]
+    findings = PermissionsAudit(detect(tmp_path)).findings()
 
-    assert len(failures) == 1
-    assert value in failures[0]
-    assert "settings.local.json" in failures[0]
-
-
-def test_the_github_wildcard_is_not_a_direct_server_form(tmp_path: Path) -> None:
-    _write_baseline_plus(tmp_path, ["mcp__github__get_me"])
-
-    assert set(_statuses(tmp_path)) == {PASS}
+    assert [status for status, _label, _detail in findings] == [PASS] * len(findings)
+    assert not any("direct-server" in label for _status, label, _detail in findings)
 
 
 def test_a_missing_github_wildcard_fails(tmp_path: Path) -> None:

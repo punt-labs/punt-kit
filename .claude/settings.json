@@ -34,6 +34,7 @@
       "mcp__plugin_biff_tty__*",
       "mcp__plugin_github_github__*",
       "mcp__plugin_quarry_quarry__*",
+      "mcp__quarry__*",
       "Bash(uvx twine:*)",
       "Read",
       "Edit",
@@ -44,7 +45,8 @@
       "mcp__plugin_biff-dev_tty__*",
       "mcp__plugin_ethos-dev_self__*",
       "mcp__plugin_quarry-dev_quarry__*",
-      "mcp__plugin_z-spec-dev_zspec__*"
+      "mcp__plugin_z-spec-dev_zspec__*",
+      "mcp__quarry-dev__*"
     ],
     "deny": [
       "Bash(curl:*)",
