@@ -4,8 +4,6 @@ Standards for all Punt Labs Go projects. This document is the canonical
 reference --- individual project CLAUDE.md files should reference it, not
 duplicate it.
 
-Current Go projects: cryptd, ethos, beadle-email.
-
 Go is idiomatic in its own paradigm. It is a language of composition, of small
 interfaces satisfied structurally, and of explicit error handling, and we write
 it that way. It is not object-oriented, so it does not answer to [oo.md](oo.md);
@@ -289,9 +287,7 @@ Makefile is the source of truth for the pinned version; see
 
 ethos is the reference implementation: its `lint` target runs
 `golangci-lint run ./...` plus `shellcheck`, and its `.github/workflows/test.yml`
-runs the pinned `golangci-lint-action`. Migration of the other Go projects
-(cryptd, beadle-email) off standalone `go vet` / `staticcheck` is tracked
-separately.
+runs the pinned `golangci-lint-action`.
 
 ### Configuration
 
@@ -357,7 +353,7 @@ The Makefile pins the version in a `GOLANGCI_LINT_VERSION` variable so the
 Keep the CI `version:` in sync with that pin. golangci-lint ships its analyzers
 compiled into one binary, so --- unlike a standalone `staticcheck` install --- it
 needs no `GOTOOLCHAIN` pin to avoid an auto-switch against the consumer module's
-toolchain directive (the failure mode recorded in bead `punt-t0j`).
+toolchain directive.
 
 That version pin covers the analyzers; it does not cover the formatters.
 golangci-lint's `gofmt` and `gofumpt` formatters do not carry their own
