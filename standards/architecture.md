@@ -147,6 +147,5 @@ are notified in advance (per
 and update in lockstep with the merge.
 
 These rules extend the projection model's four invariants; they do
-not replace them. The reference implementation is the lux
-`lux-0shg` epic (DES-087 — client surface parity across CLI, MCP,
-REST, and library).
+not replace them. The reference implementation is lux (DES-087 — client
+surface parity across CLI, MCP, REST, and library).

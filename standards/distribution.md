@@ -138,7 +138,7 @@ scripts:
 - **Uninstall before install** — call
   `claude plugin uninstall <name>@<marketplace> < /dev/null 2>/dev/null || true`
   immediately before `claude plugin install`. The observed behavior on a
-  stuck dev machine (beadle-4qk, 2026-04-07) is that re-running `install.sh`
+  stuck dev machine is that re-running `install.sh`
   does **not** upgrade an existing installation: the cache stayed pinned to
   the originally-installed version even though the marketplace clone had
   been refreshed to a newer ref. The simplest explanation is that
@@ -150,8 +150,8 @@ scripts:
   Code keeps a versioned cache directory per installed version
   (`~/.claude/plugins/cache/<org>/<name>/<version>/`) — multiple versions
   cohabit by design, and `installed_plugins.json` records which one is
-  active per scope. Pattern: `biff/install.sh:138`, `quarry/install.sh:175`,
-  `vox/install.sh:169`, `beadle/install.sh:149`. The full ordering is
+  active per scope. Pattern: the uninstall-before-install block in every
+  fleet `install.sh`. The full ordering is
   **marketplace refresh → uninstall → install**. Use `claude plugin uninstall +
   install`, **not** `claude plugin update` — Punt Labs learned `update` has
   issues this pattern avoids (institutional knowledge from another project,
@@ -359,7 +359,7 @@ Reference implementation:
 
 ### CLI + plugin hybrids
 
-Examples: biff, quarry, tts, punt-kit.
+Examples: biff, quarry, vox, punt-kit.
 
 Two artifacts: a CLI tool (PyPI) and a plugin shell (marketplace). The plugin's
 MCP server declaration references the CLI binary, so the CLI must be installed

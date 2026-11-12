@@ -249,10 +249,7 @@ examples worth calling out because they are easy to miss:
   every other `.claude-plugin` reference) in the same commit that moves
   the files.
 
-Scope was measured 2026-08-14 across the nine plugin repos: three files in
-vox, one in lux, and — for punt-kit specifically — 12+ hits across `src/`
-and `pyproject.toml`. Zero hits in the other six. Do the grep per repo
-before the move; scope varies dramatically by whether the repo is a
+Do the grep per repo before the move; scope varies by whether the repo is a
 plain plugin, a hybrid plugin+CLI, or a plugin-tooling repo.
 
 ### Version field precedence
