@@ -166,11 +166,15 @@ from the manifest rather than guessing it — `prfaq` and `punt` ship no MCP
 server, and a wildcard naming a plugin that has none matches nothing while
 looking like a working grant.
 
-A tool whose installer registers its MCP server natively, through
-`claude mcp add` rather than a plugin manifest, has the prefix `mcp__<name>__*`
-(`mcp__quarry__*`, `mcp__beadle-email__*`). That is the wildcard its `enable`
-grants and its `disable` removes: one value per tool, under the same partition
-as a plugin wildcard. A server registered by hand that no tool owns stays in
+The wildcard a tool's `enable` grants is the one its own installer registers
+the server under: `mcp__plugin_<plugin>_<server>__*` when the plugin manifest
+is the registration, `mcp__<name>__*` when the tool registers the server
+natively through `claude mcp add` (`mcp__quarry__*`, `mcp__beadle-email__*`).
+A plugin manifest may declare the server as well, but once a native server
+exists the plugin proxy namespace grants no real permission, so the native
+prefix is the grant. One value per tool, and the tool decides which; `disable`
+removes the same value, under the same partition as every other `enable`
+entry. A server registered by hand that no tool owns stays in
 `settings.local.json`.
 
 ### Build tools
