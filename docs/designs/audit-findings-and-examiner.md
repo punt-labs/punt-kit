@@ -458,3 +458,222 @@ own scaffolding convention rather than a published standard
 the stem `punt`, meaning "what `punt init` writes" (§ 7, item 12).
 
 ---
+
+## 3. The harness: `punt audit --standard <name>`
+
+### 3.1 The command line
+
+```text
+punt audit [PATH] [--fix] [--standard NAME]
+punt --json audit [PATH] [--standard NAME]
+```
+
+`--standard` takes exactly one name and may be given once. `NAME` is the
+stem of a file under the corpus directory: `readme` for
+`standards/readme.md`, `punt-labs-dir` for `standards/punt-labs-dir.md`.
+The name is matched exactly after lowercasing; `readme.md` and
+`standards/readme.md` are accepted and reduced to the stem, so a shell
+completion of the path works. An unknown name is a usage error: exit 2,
+one line on stderr naming the given value, then the sorted list of valid
+stems, one per line, and no audit runs. `--standard` given twice, or with a
+comma-joined value, is the same usage error with the one-standard-per-run
+rule stated in the message. `--standard` with `--fix` is accepted: `--fix`
+acts on the deterministic checks as today, and the examiner runs after
+`--fix` has written its files, so the judgment reads the fixed tree.
+
+The corpus directory is resolved in this order and the first hit wins:
+`PUNT_STANDARDS_DIR` when set and a directory; `<project>/../punt-kit/standards`
+when the project's parent holds a punt-kit checkout, the sibling convention
+`SiblingRepo.resolve` already uses for the release
+(`src/punt_kit/phases/shared/siblings.py:62-70`) and `reconcile.md:28-30`
+documents; and `<project>/standards` when the project is punt-kit itself.
+No hit is the "standard missing" row of § 5. The corpus does not ship in
+the wheel (§ 7, item 8): `src/punt_kit` is the whole package
+(`tests/test_packaging.py:57-65`), and a copy inside it would be a second
+source for the thing it audits against.
+
+### 3.2 What the agent is given
+
+One prompt, the same for every standard, assembled by `AuditExaminer` in
+`src/punt_kit/audit_examiner.py` from three parts:
+
+1. **The harness prompt.** The package data file
+   `src/punt_kit/templates/examiner-prompt.md`, beside the other templates
+   (`src/punt_kit/audit.py:36`). It states the role (an auditor reading one
+   standard against one repository), the two prohibitions (write nothing;
+   run nothing that writes), the reading procedure (read the standard
+   first, then the files it governs, then compare), the findings
+   discipline (each finding cites a section of the standard and a file
+   and line; a conforming area is reported as a `pass` row naming the
+   section, so silence never reads as compliance), the severity rules of
+   § 3.4, and the output contract: a JSON object matching the schema, and
+   nothing else. It lives in the wheel, not under `plugin/`, because the
+   wheel is what runs on an installed `punt` with no plugin, and
+   `CLAUDE.md:65-70` forbids the plugin surface from reaching outside
+   `plugin/` at runtime; the slash command stays the thin wrapper it is
+   today (`plugin/commands/audit.md:17-24`) and passes `--standard`
+   through in `$ARGUMENTS`.
+2. **The standard, whole.** The full text of `standards/<name>.md`,
+   fenced, with its path and its `git log -1 --format=%H` when the corpus
+   is a checkout, so the report can say which revision was audited. The
+   largest standard is 69 KB (§ 1.2), under a fifth of the context the
+   headless session has; one standard per run is the ruling, and sections
+   are not sliced (§ 7, item 9).
+3. **The project brief.** The `ProjectInfo` fields the deterministic
+   audit already prints (`language`, `project_type`), the project root
+   as the working directory, and the deterministic findings of this same
+   run as JSON, so the examiner does not re-report what a deterministic
+   check already failed.
+
+### 3.3 How the agent runs and what it returns
+
+`AuditExaminer` runs one headless session:
+
+```text
+claude --print --output-format json --json-schema <schema>
+       --tools "Read,Grep,Glob" --max-turns 40 --no-session-persistence
+       --permission-prompts none --add-dir <project>
+```
+
+The tool list is the read-only three; `Bash`, `Edit`, and `Write` are not
+in it, so the auditor cannot edit by construction and not only by
+instruction. `--json-schema` is the findings schema of § 2.5's `findings`
+array wrapped in an object with a `findings` key; the result's
+`structured_output` is the only part of the session's JSON that is read.
+The session's `is_error`, `num_turns`, and `total_cost_usd` go into the
+`INFO` row of § 3.5. `--max-turns` and a wall-clock timeout of 600 seconds
+bound the run; both are constants in `audit_examiner.py`, not flags
+(§ 7, item 13).
+
+The returned object is parsed by `FindingSchema.parse` in
+`src/punt_kit/audit_finding.py`, the wire-boundary method that takes
+`dict[str, object]` and returns a `Finding` or raises `ReleaseError` naming
+the offending key, the same discipline `JsonFile.parse_object` uses
+(`src/punt_kit/phases/shared/json_file.py:46-53`). Parsing is total:
+every finding in the array is parsed or the whole array is rejected, so a
+report never carries half of an examiner's output. Free prose from the
+agent is unreachable: a session that returns text instead of the schema
+fails `--json-schema` validation on the harness side and reaches
+`AuditExaminer` as a malformed result (§ 5).
+
+Every finding the parser builds is forced to `examiner=Examiner.JUDGMENT`
+and `rule.standard=<name>`, whatever the agent wrote in those fields; the
+agent chooses `section`, `severity` (from `pass`, `info`, `warn`, `fail`;
+`fixed` is rejected), `label`, `message`, `remedy`, and `location`. A
+`location.path` outside the project root is rejected.
+
+### 3.4 Severity rules for judgment findings
+
+The harness prompt states them, and `FindingSchema.parse` cannot check
+them, so the evaluator of each implementation mission reads a sample:
+
+| The agent found | Severity |
+|-----------------|----------|
+| A rule the standard states with "must", "never", "required", or an imperative, and the repository breaks it at a cited line | `fail` |
+| A rule the standard states with "should" or "prefer", broken at a cited line | `warn` |
+| An area the standard governs and the repository conforms to, named by section | `pass` |
+| Something the standard does not cover, or a question the auditor could not settle from the files | `info` |
+
+### 3.5 Merging and the report
+
+`run_audit` appends the judgment findings to the deterministic ones in
+one `Report`; the renderer prints them after the last deterministic row
+under a one-line heading naming the standard and the corpus revision, each
+row carrying its `[<standard> § <section> · judgment]` tag (§ 2.4). The
+run ends with one `INFO` row from the harness itself, labelled
+`Examiner: <name>`, whose message gives the turn count, the cost, and the
+elapsed seconds, so a run with zero judgment findings still shows that the
+examiner ran and what it cost. The summary line counts judgment rows in
+`passed`, `failed`, `warned`, and `info` like any other.
+
+`Report.exit_code` ignores every judgment finding (§ 2.3). A run whose only
+`fail` rows are judgment rows exits 0, prints them in red, and says so in
+the summary: `exit 0 — judgment findings do not affect the exit code`.
+
+---
+
+## 4. Independence
+
+### 4.1 Who may not do what
+
+| Party | May | May not |
+|-------|-----|---------|
+| The examiner (the headless session of § 3.3) | Read the standard, read the repository, return findings | Edit, write, run a command, be given `Bash`, be re-run by the fixer, certify its own second opinion as the fixer's |
+| The fixer (§ 4.2) | Edit the repository to resolve findings, commit on its branch | Run `punt audit --standard` to sign off, mark a finding resolved, edit the standard |
+| The leader (the human or the COO session driving the loop) | Run the audit, dispatch the fixer, run the re-audit, read both reports | Fix anything itself and then sign off on that fix |
+
+### 4.2 The remediation hand-off
+
+`punt audit --standard <name> --handoff` writes the judgment findings with
+`severity` in `{fail, warn}` to one file, `.tmp/audit/<name>-<utc-stamp>.json`
+in the project, and prints its path; it is the § 2.5 object filtered to
+those rows. Nothing else is automatic. The hand-off itself is one of two
+mechanisms, chosen by the presence of `.punt-labs/ethos/enabled` in the
+project, the marker tool-enable-disable.md § 2.7 defines
+(`standards/tool-enable-disable.md:275-291`):
+
+- **Ethos enabled.** The leader writes a mission contract whose
+  `inputs.files` names the hand-off file, whose write-set is the files the
+  findings locate, and whose success criterion is "every finding in the
+  hand-off resolved; the worker runs no audit". `ethos mission create` is
+  the dispatch, exactly as `docs/WORKFLOW.md` prescribes for any delegated
+  change; the mission's own evaluator reviews the fix. The design generates
+  nothing: a contract is an audit record the leader authors
+  (`ethos mission create --help`), and a generated contract would carry a
+  write-set the generator cannot judge.
+- **Ethos absent.** The leader spawns one typed sub-agent
+  (`Agent(subagent_type=<specialist for the repo's language>,
+  run_in_background=true)`), the delegation form `standards/workflow.md:838`
+  reserves for a bare spawn, with the hand-off file as its brief and the
+  same two sentences: resolve every finding; run no audit.
+
+In both forms the fixer never sees the harness prompt and never invokes
+`punt audit --standard`; its brief is the findings file.
+
+### 4.3 The sign-off
+
+The sign-off is a second `punt audit --standard <name>` run by the leader
+after the fixer's commit lands on the branch, with the project tree at that
+commit. The re-audit is a fresh session; nothing from the first run is
+passed in but the same three parts of § 3.2, so the examiner cannot be
+told what was "fixed". Sign-off is the re-audit's report having zero
+judgment rows at `fail` and zero at `warn`; the `pass` rows it prints are
+the attestation, section by section. A re-audit that fails again produces
+a new hand-off and a new mission; the same fixer may be dispatched again,
+and still never runs the audit.
+
+The leader's independence from the fix is the one condition the tool
+cannot check, so the harness records who ran each audit: the `INFO` row of
+§ 3.5 includes the `ethos whoami` handle when `ethos` is on `PATH` and the
+OS user otherwise, and the hand-off file carries the same. A PR that
+cites a sign-off cites that row.
+
+---
+
+## 5. The failure contract
+
+Every row below is for `punt audit --standard <name>`; the deterministic
+checks run to completion in every case and their exit code stands.
+
+| Condition | What the user sees | Judgment rows | Exit code |
+|-----------|--------------------|---------------|-----------|
+| `NAME` is not a stem in the corpus | One `Error:` line on stderr with the given name and the sorted list of stems; nothing else runs | none; the audit does not start | 2 |
+| No corpus directory resolves (§ 3.1) | The deterministic report, then one `FAIL` row `Examiner: <name>` with message "standards directory not found" and a remedy naming `PUNT_STANDARDS_DIR` and the sibling path | none | deterministic result, plus 1 for this `FAIL`: the harness row is deterministic, so a run that asked for an examiner and got none fails |
+| `claude` is not on `PATH` | The deterministic report, then one `FAIL` row `Examiner: <name>` with message "claude not found on PATH" | none | deterministic result plus this `FAIL`, as above |
+| The session exceeds 600 s or `--max-turns` | One `FAIL` row `Examiner: <name>` with the elapsed time and the turn count; partial output is discarded | none | deterministic result plus this `FAIL` |
+| The session exits non-zero or `is_error` is true | One `FAIL` row with the session's error text, cut to 300 characters as `OperationalFailure.detail` does (`src/punt_kit/phases/shared/errors.py:55-69`) | none | deterministic result plus this `FAIL` |
+| The result is not JSON, has no `structured_output`, or a finding fails `FindingSchema.parse` | One `FAIL` row naming the first offending key or the parse error; the raw result is written to `.tmp/audit/<name>-<stamp>.raw.json` and the row names it | none; a partial array is never merged | deterministic result plus this `FAIL` |
+| The agent returns an empty `findings` array | One `WARN` row `Examiner: <name>` with message "returned no findings and no pass rows"; the prompt requires a `pass` row per governed section, so an empty array means the examiner did not audit | none | deterministic result; a `WARN` does not change it |
+| The agent returns only `pass` rows | The rows print; the `INFO` row says so | the `pass` rows | deterministic result |
+| The project has no `.claude/` directory | The deterministic checks run as today (the permissions check reports its missing `settings.json`, `audit_permissions.py:38-45`); the examiner runs, because it reads the standard and the tree and needs no `.claude/` | as returned | deterministic result |
+| The project is not a git repository | As today for the layout and GitHub checks; the examiner runs without a corpus revision and the heading says `revision unknown` | as returned | deterministic result |
+| `--fix` and `--standard` together | `--fix` writes first; the examiner reads the fixed tree | as returned | deterministic result |
+
+The `FAIL` rows the harness itself emits carry `examiner=DETERMINISTIC`
+and `rule=Rule("punt")`: they report that the tool could not do what it
+was asked, which is a property of the run and not an opinion about the
+repository, and the operator's ruling that judgment never moves the exit
+code is about the agent's opinions, not the tool's own failures (§ 7,
+item 14).
+
+---
