@@ -6,6 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `docs/designs/audit-findings-and-examiner.md` — the design for a `Finding`
+  type that replaces `punt audit`'s status/label/message tuples (severity,
+  rule identity, location, message, remedy, examiner; a versioned JSON form;
+  the terminal renderer as one consumer with byte-identical output for
+  existing checks) and for `punt audit --standard <name>`, which runs one
+  read-only examiner session against one named standard and merges its
+  judgment findings into the same report without touching the exit code.
+  Covers the hand-off to a non-fixing remediator, the re-audit sign-off, an
+  eleven-row failure contract, the test list, fifteen operator decisions
+  with recommendations, the DES-040 draft, and a four-wave implementation
+  plan with the findings type first.
 - `punt audit` checks the `.punt-labs/` layout against
   `standards/punt-labs-dir.md` § 8 (`src/punt_kit/audit_layout.py`). Gitignore
   verdicts come from `git check-ignore` probes against the real index, one set

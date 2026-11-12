@@ -1,0 +1,29 @@
+mission: m-2026-11-12-015
+round: 2
+created_at: "2026-11-12T16:18:23Z"
+author: adt
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/designs/audit-findings-and-examiner.md
+      added: 1006
+      removed: 0
+evidence:
+    - name: 'Round-2 commit c106cd7 on design/audit-findings-and-examiner; markdownlint on a root copy: 0 issues; diff against origin/main is the one design file; git status clean'
+      status: pass
+    - name: 'HIGH 1: audit_verdict.py markers verified at lines 5-8 via git show origin/main (line 4 blank); all six citations corrected: §1.1 (5-8), §1.2 module table (lines 5-8), §1.2 markers paragraph (5-8), §2.2 table rows (5, 6, 7, 8), §2.4 (5-8)'
+      status: pass
+    - name: 'HIGH 2: audit_layout.py lines 378-400 read via git show origin/main; §1.1 now quotes `(§ 9.1: no migration)` at 380, `(§ {row.section} {row.path_naming(name)} → {destination})` at 385, `(§ {row.section} → {row.destination})` at 396, `no § 9.4 live path is git-tracked` at 399, and notes § 8 appears only in the line-1 docstring'
+      status: pass
+    - name: 'MEDIUM: --handoff without --standard is a usage error, exit 2, one stderr line, no audit runs: rule added in §4.2, row added to the §5 table, test_handoff_without_standard_is_a_usage_error added to §6.4, §3.1 command line shows --handoff nested under --standard'
+      status: pass
+    - name: 'LOW: §1.2 cites the headless flags by invocation on this host rather than `claude --help`; §4.3 states the sign-off re-audit runs without --fix with the reason; §4.2 and §2.5 give the hand-off path as the `handoff` key of the one JSON object (null when absent), never a second stdout line, with test_json_handoff_path_is_a_key in §6.4; test_packaging claim re-cited to test_module_is_declared at 63-67 (verified) in both places; every ''today'' that read as status replaced with ''on origin/main'' (17 sites), grep -i today now returns nothing'
+      status: pass
+prose: |
+    Round 2 applies every finding in the evaluator trail in one commit,
+    c106cd7. Each corrected citation was read back with
+    `git show origin/main:<path>` before the edit: audit_verdict.py 5-8,
+    audit_layout.py 380/385/396/399 and the line-1 docstring,
+    tests/test_packaging.py 63-67. The --handoff rule is specified in three
+    places (§3.1 command line, §4.2 rule, §5 row) and pinned by two new
+    tests in §6.4. Nothing pushed; no PR; only the design file in the diff.
