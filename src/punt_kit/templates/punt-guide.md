@@ -48,7 +48,9 @@ is available. Every migrated bead stores its Linear URL in `external_ref`.
   blocks locally until you run `bd dep remove <bead> <blocker>`. Until both the
   add and the removal are reconciled, `bd ready` can disagree with Linear.
   Auto-pull (`bd prime` pulling on its own at session start) is not on in every
-  repo; never assume it ran.
+  repo; never assume it ran. Do not turn it on in a repo until the installed
+  `bd` has passed the build check above: an auto-pull runs before any agent
+  can check, so an older build contaminates the shared database unattended.
 - **Write in Linear, not beads.** Create an issue with the mandatory repo
   label (the value `bd config get linear.pull_label` printed) plus a type
   label (`Bug`, `Feature`, `Improvement`, `Epic`); a pull imports only issues
