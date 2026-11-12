@@ -40,10 +40,15 @@ def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
     The first token (quoted or not, optionally after ``if``) must contain a
     ``$`` (``"$BINARY"``, ``"$INSTALL_DIR/$BINARY"``) or end with one of
     ``binaries``; ``echo doctor``, ``# run doctor``, and a printf do not match.
+    ``doctor`` must be the whole argument: followed by whitespace, a shell
+    operator, or the end of the line, so ``doctor-check`` is a different
+    subcommand, not a run of doctor.
     """
     names = "|".join(map(re.escape, binaries)) or "(?!)"
     binary = rf'"?(?:[\w./{{}}-]*\$[\w$./{{}}-]*|(?:[\w./-]*/)?(?:{names}))"?'
-    return re.compile(rf"^[ \t]*(?:if[ \t]+)?{binary}[ \t]+doctor\b", re.MULTILINE)
+    return re.compile(
+        rf"^[ \t]*(?:if[ \t]+)?{binary}[ \t]+doctor(?=[ \t;|&)]|$)", re.MULTILINE
+    )
 
 
 def run_audit(path: str, *, fix: bool = False) -> None:

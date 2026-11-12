@@ -532,6 +532,8 @@ def test_audit_accepts_a_doctor_run_on_the_binary(tmp_path: Path, line: str) -> 
         "printf 'run test-cli doctor\\n'",
         "  doctor_rc=0",
         '"$BINARY" doctors',
+        '"$BINARY" doctor-check',
+        "  test-cli doctor-check || true",
     ],
 )
 def test_audit_rejects_a_line_that_is_not_the_binarys_doctor(
