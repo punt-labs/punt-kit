@@ -20,7 +20,10 @@ punt-kit's per-language rule sets (`python/`, `go/`, `c/`, `swift/`) are
 deposited into a repo's own `.claude/rules/` by the bare `punt enable`, the
 same verb that deposits punt's user guide, the `enabled` marker, and the
 `@.punt-labs/punt/CLAUDE.md` import line. Re-running `punt enable` is the
-update path. Which sets a repo gets is decided by a declaration in punt's
+update path; `punt disable` removes the deployed rules along with the
+marker and the import line, because Claude Code loads `.claude/rules/`
+with no import-line gate and a rule left behind would keep composing. Which
+sets a repo gets is decided by a declaration in punt's
 config zone when one exists, else by detection from the repo's root marker
 files. Every deployed file is byte-identical to its canonical source, and the
 set is governed by a manifest persisted in punt's vendored zone
@@ -36,7 +39,9 @@ repo has merged its own deployed set, and hosts no rule set of its own while
 the upstream ancestor-traversal defect is open: any `.claude/rules/` in the
 workspace, current or stale, loads unconditionally into every nested child
 session. Deleting the directory is what ends the flood; redeploying a current
-copy there would reproduce it.
+copy there would reproduce it. The workspace still runs `punt enable` for the
+guide, the marker, and the import line, with `[rules] languages = []`
+declared so no rule set is deposited.
 
 ---
 
@@ -48,8 +53,8 @@ Surveyed on 2026-11-12 across every sibling under the workspace root.
 
 | Repo | Files | Content |
 |------|-------|---------|
-| workspace (`punt-labs/punt-labs`) | 23 `python-*.md` | A hand copy of the Python set from May 2026; all 22 files that have a canonical counterpart differ from `lang-rules/python/` (`diff -rq`), and `python-tooling-enforcement.md` is the only file touched since July. |
-| beadle | `beads.md`, `delegation.md`, `go-standards.md`, `mock-before-code.md` | Four hand-written repo rules. `go-standards.md` is a 12-line Go checklist scoped `**/*.go`; it is not a copy of `lang-rules/go/` and overlaps it in subject. The other three have no `paths:` frontmatter. |
+| workspace (`punt-labs/punt-labs`) | 23 `python-*.md` | A hand copy of the Python set from May 2026. Every file has a canonical counterpart; 22 of 23 differ from `lang-rules/python/` (`diff -rq`) and `python-comments.md` is byte-identical. The workspace copy was last touched on 2026-10-28 (`python-prohibited-patterns.md`), before that on 2026-07-11 (`python-oo-adoption.md`, `python-tooling-enforcement.md`), per `git log`. |
+| beadle | `beads.md`, `delegation.md`, `go-standards.md`, `mock-before-code.md` | Four hand-written repo rules. `go-standards.md` is 17 lines, a 12-line Go checklist after its `**/*.go` frontmatter; it is not a copy of `lang-rules/go/` and overlaps it in subject. The other three have no `paths:` frontmatter. |
 | z-spec | `claude-tools.md`, `python-standards-pointer.md`, `z-conventions.md` | Three hand-written repo rules. `python-standards-pointer.md` is scoped `**/*.py` and points at `../.claude/rules/python-*.md`, the workspace hand copy, by the ancestor walk; it describes the exact mechanism this design retires. |
 
 No other sibling has a `.claude/rules/` directory. The Python siblings
@@ -93,7 +98,7 @@ the deployed `go-*.md` set sits beside it.
 
 ```text
 punt enable            # deposit guide + marker + import line + language rules; idempotent; re-run to update
-punt disable           # remove the import line and the marker; leave the guide and the rules in place
+punt disable           # remove the import line, the marker, the deployed rules, and the manifest; leave the guide
 punt audit             # includes the "language rules current" check
 punt audit --fix       # refreshes a drifted set through the same deployer enable uses
 ```
@@ -102,6 +107,26 @@ punt audit --fix       # refreshes a drifted set through the same deployer enabl
 CLI exactly as `/punt audit` wraps `punt audit`. There is no `rules` noun and
 no `repo-install` or `repo-update` verb; install and update are one idempotent
 operation, which is what `enable` already means.
+
+**Output and exit status.** Both verbs honor the global `--json` and
+`--quiet` flags every `punt` command carries. Text output is one line per
+path acted on; `--json` output is one object. A refusal is all-or-nothing:
+`enable` computes the whole plan before it writes, and a refusal writes
+nothing, so the repo is either fully updated or untouched.
+
+| Outcome | Text line (one per path) | `--json` | Exit |
+|---------|--------------------------|----------|------|
+| nothing to do | `punt enable: up to date` | `{"changed": [], "removed": [], "replaced": []}` | 0 |
+| file deposited or updated | `+ .claude/rules/python-testing.md` | listed in `changed` | 0 |
+| path removed (old manifest minus new) | `- .claude/rules/go-tests.md` | listed in `removed` | 0 |
+| local edit replaced | `! .claude/rules/python-testing.md: local edit replaced` | listed in `replaced` and in `changed` | 0 |
+| collision with a foreign file | `Error: .claude/rules/python-testing.md exists and is not punt-deployed (canonical: lang_rules/python/python-testing.md)`, on stderr | `{"error": "..."}` | 1, nothing written |
+| unknown language name in `config.toml` | `Error: unknown language "rust" in [rules] languages; known: c, go, python, swift`, on stderr | `{"error": "..."}` | 1, nothing written |
+| `disable` | one `-` line per removed rule path, plus the manifest, the marker, and the import line | `{"removed": [...]}` | 0 |
+
+The `--json` object for `enable` also carries `languages` (the selection)
+and `manifest` (the manifest path). `tests/test_cli.py` pins each row:
+the exit code, the stderr line for the two refusals, and the `--json` shape.
 
 ### 3.2 What `punt enable` writes
 
@@ -114,10 +139,18 @@ operation, which is what `enable` already means.
 | `.claude/rules/<lang>-<name>.md` | Claude-Code-dictated | each file of each selected set, byte-identical to its canonical source |
 | `.punt-labs/punt/config.toml` | config | never written by `enable`; read if present |
 
-`punt disable` removes the import line and the marker and nothing else, per
-§2.9: the guide, the manifest, and the deployed rules stay in place, dormant.
-A repo that wants the rules gone deletes the manifest-listed paths by hand;
-the standard offers no `--purge` and this design adds none.
+`punt disable` removes the import line and the marker per §2.9, and in
+addition removes every manifest-listed rule path and the manifest itself.
+The guide stays in place, dormant, exactly as §2.9 describes. The rules
+cannot be dormant: §2.9's rationale is that `disable` "stops composition",
+and for the guide removing the import line does that, but Claude Code loads
+every file in `.claude/rules/` with no import-line gate, so a rule left on
+disk keeps composing while the marker-keyed audit (§ 3.6) has stopped
+checking it. The removed files are tool-deposited, manifest-bounded,
+git-recoverable, and re-created byte-identical by the next `enable`, so the
+loss §2.9 guards against does not arise. Foreign files under
+`.claude/rules/` are untouched by `disable` as by `enable`. This is a
+deviation from §2.9 and is listed in § 7.
 
 ### 3.3 Language selection
 
@@ -176,11 +209,20 @@ reads the previous manifest from disk if one exists, then:
   retired).
 - **Refuses** when a new-manifest path exists on disk and is not in the
   previous manifest: that file is foreign, so `enable` errors naming the
-  path and the canonical source, and deposits nothing. The one exception is
-  bootstrap: with no previous manifest on disk, the new manifest's own paths
-  are treated as the previous manifest, so a repo carrying an old hand copy
-  under the canonical names is overwritten on first run. This is the
-  punt-labs-dir § 7 bootstrap rule applied unchanged.
+  path and the canonical source, and deposits nothing.
+- **First run, no previous manifest on disk.** The new manifest's own paths
+  are treated as the previous manifest, so a file already at a canonical
+  name is overwritten rather than refused. This goes beyond punt-labs-dir
+  § 7, whose bootstrap grandfathers only the tool's own prior deposit: punt
+  never deposited rules, so under § 7 read literally every such file is a
+  collision. The design overwrites because the only files at those names in
+  the fleet are hand copies of the canonical set (the workspace's 23, and
+  any child that copied them), and because a refusal would make the first
+  `enable` fail in exactly the repos the design exists to fix. There is no
+  prior hash to compare, so the first run reports every overwritten file
+  that differed from its canonical bytes as a replaced local edit (the `!`
+  line of § 3.1), which is the operator's cue to recover anything wanted
+  from git. This is a deviation and is listed in § 7.
 - **Never touches** any other path under `.claude/rules/`.
 
 Every deployed file carries the language prefix in its name (`python-`,
@@ -225,8 +267,15 @@ assertion that a built wheel contains `lang_rules/python/`.
    `.claude/rules/python-standards-pointer.md`. Go and Swift children are
    enabled the same way, in any order, and nothing gates on them.
 3. Only after every Python child has merged: in the workspace repo, one PR
-   that removes `.claude/rules/` entirely. The workspace deploys no rule set
-   of its own while anthropics/claude-code#16299 is open.
+   that removes `.claude/rules/` entirely and adds
+   `.punt-labs/punt/config.toml` with `[rules] languages = []`. The
+   workspace then runs `punt enable` like any repo: the guide, the marker,
+   and the import line that `tracker-guide-rollout.sh --root` already
+   deposited there are kept current, and the empty declaration deposits no
+   rule set and writes a manifest with no entries. The workspace deploys no
+   rule set of its own while anthropics/claude-code#16299 is open; when the
+   upstream fix ships, changing the declaration to `["python"]` and
+   re-running `enable` is the whole change.
 4. Verify by starting a nested child session and confirming its loaded memory
    lists no `python-*.md` from the ancestor; and `punt audit` in each enabled
    child reports its set current.
@@ -313,6 +362,8 @@ and are untouched by `enable`.
 | Infer ownership from the `<lang>-` filename prefix | Write provenance cannot be inferred after the fact (punt-labs-dir § 7); a hand-written `python-local.md` would be overwritten. |
 | Refuse to overwrite a locally edited deployed file | The vendored-zone contract is wholesale overwrite; a refusal makes `enable` non-idempotent and leaves the repo on a private fork of a canonical rule with no upgrade path. |
 | Per-repo `exclude` list to drop individual canonical rules | Not in this unit: a uniform set is the point. A repo that disagrees with a rule changes the rule in punt-kit. |
+| `disable` leaves the deployed rules in place, dormant (§ 2.9 read literally) | Not dormant: Claude Code loads `.claude/rules/` with no import-line gate, so the rules keep composing after `disable` while the marker-keyed audit stops checking them. The guide is dormant because its import line is gone; the rules have no such gate (§ 3.2). |
+| First-run collision refusal on every canonical-name file (§ 7 of punt-labs-dir read literally) | The first `enable` would fail in every repo carrying a hand copy, which is the set of repos the design exists to fix; the files are known copies of the canonical set (§ 3.5). |
 
 ### 5.3 The audit drift check
 
@@ -359,10 +410,21 @@ means the same thing in every repo. `python-distribution.md`'s narrowing to
 `pyproject.toml`, `Makefile`, and `.github/**` is right everywhere it lands.
 Verbatim deployment is also what makes byte-equality the drift test.
 
+The C set has one file that verbatim deployment lands as-is: `c-tests.md`
+(today `c/tests.md`) states the xboing-c integration-test conventions and
+names xboing-c's own fixtures and helpers as the reference set, and says in
+its opening paragraph that an adopting project keeps the pattern and
+substitutes its own module API. That is the content `standards/c.md`
+chose, so a C repo receives it verbatim and the fixture names read as the
+worked example the file says they are. Generalizing the file is a change to
+the canonical rule in punt-kit, not to the deployer. No sibling under the
+workspace is a C repo today, so no deployment exercises this path.
+
 | Alternative | Why rejected |
 |-------------|--------------|
 | Rewrite globs per repo from a config key | Per-repo variants of a canonical file; drift detection needs a renderer; the place for repo-specific scoping is a hand-written rule. |
 | Narrow `**/*.py` to `src/**` and `tests/**` at deploy time | Misses `.bin/`, `scripts/`, and tools directories, and encodes a layout the canonical set does not assume. |
+| Exclude `c-tests.md` from the C set until it is generalized | A deployer-side exclusion is a second place that decides what the canonical set contains; the file already states its own scope, and the fix belongs in the file. |
 
 ---
 
@@ -393,7 +455,10 @@ included.
 1. The bare `punt enable` deposits the selected language sets into the
    repo's own `.claude/rules/`, beside the guide, the `enabled` marker, and
    the import line it already owns. Re-running it is the update. `punt
-   disable` leaves the rules in place.
+   disable` removes the manifest-listed rule paths and the manifest along
+   with the marker and the import line, and leaves the guide: Claude Code
+   loads `.claude/rules/` with no import-line gate, so a rule left behind
+   is not dormant.
 2. Selection is a `[rules] languages` list in `.punt-labs/punt/config.toml`
    when present, else every language whose root marker is present.
 3. Each deployed file is byte-identical to its canonical source and carries
@@ -401,21 +466,26 @@ included.
    `.punt-labs/punt/rules-manifest.toml`, persisted in punt's vendored zone,
    is the only record of which paths punt owns. `enable` overwrites
    manifest-listed paths, removes old-manifest-minus-new, refuses a
-   collision with a foreign file, and never touches any other path.
+   collision with a foreign file, and never touches any other path. On a
+   first run with no manifest, a file already at a canonical name is
+   overwritten and reported, not refused.
 4. `punt audit` fails on any deployed file that differs from the installed
    punt-kit's canonical file, any missing file, and any canonical file the
    manifest omits; `--fix` refreshes through the same deployer.
 5. The canonical sets live in `src/punt_kit/lang_rules/` so the wheel ships
    them.
 6. The workspace meta-repo deletes its `.claude/rules/` after every Python
-   child has its own set, and hosts no set while the upstream defect is
-   open.
+   child has its own set, declares `[rules] languages = []`, and hosts no
+   set while the upstream defect is open; it keeps punt's guide, marker, and
+   import line through the same `enable`.
 
 ### Rejected Alternatives
 
 | Alternative | Why Rejected |
 |-------------|-------------|
 | A `punt rules install` / `update` noun group beside `enable` | Two names for one idempotent deposit (DES-027); § 2.3 already assigns shipped files to `enable`. |
+| `disable` leaves the deployed rules in place as dormant content | Rules in `.claude/rules/` load with no import-line gate, so they keep composing after `disable` while the marker-keyed audit stops checking them. |
+| Refuse every canonical-name file on the first run | Fails the first `enable` in exactly the repos carrying the hand copy the design replaces. |
 | Deploy from `punt init` | § 2.13 keeps `init` to one-time scaffolding; rules are maintained guidance. |
 | Provenance comment inside each deployed file | Breaks byte-equality; the manifest is the provenance the punt-labs-dir standard already requires. |
 | Rewrite `paths:` per repo | Per-repo variants of a canonical file; globs are root-relative and already portable. |
@@ -435,10 +505,12 @@ text, and is phrased for a one-word ruling.
    `.bin/` Python) via the same mechanism" and that the fix holds "by
    construction". It does not: the ancestor path loads any `.claude/rules/`
    in the workspace, current or stale, into every nested session. Deleting the
-   directory is what ends the flood. Recommend: the workspace deletes
-   `.claude/rules/` and runs no `punt enable` for rules until the upstream fix
-   ships; `.bin/` Python stays under its own three-requirement exception.
-   Confirm or course-correct.
+   directory is what ends the flood. This decision is about rules only: the
+   workspace still runs `punt enable` for the guide, the marker, and the
+   import line, with `[rules] languages = []` declared. Recommend: the
+   workspace deletes `.claude/rules/`, declares the empty list, and deposits
+   no rules until the upstream fix ships; `.bin/` Python stays under its own
+   three-requirement exception. Confirm or course-correct.
 2. **`punt enable` writes outside `.punt-labs/`.** tool-enable-disable.md
    § 2.8 lets `enable` touch exactly one file outside its subtree
    (`.claude/settings.json`), and punt-labs-dir.md § 1 and § 2 say a tool
@@ -471,6 +543,22 @@ text, and is phrased for a one-word ruling.
    for the vendored zone; it is listed because the bead does not say what
    happens to such a file. Recommend overwrite with a printed line per file.
    Confirm or course-correct.
+9. **`punt disable` removes the deployed rules and the manifest.**
+   tool-enable-disable.md § 2.9 says `disable` leaves vendored content in
+   place, dormant. A rule in `.claude/rules/` cannot be dormant: Claude Code
+   loads it with no import-line gate, so it keeps composing after `disable`
+   while the marker-keyed audit stops checking it. The guide stays, per
+   § 2.9; the rules go, and the next `enable` re-creates them byte-identical.
+   Recommend removal. Confirm or course-correct.
+10. **The first `punt enable` overwrites a canonical-name file punt never
+    deposited.** punt-labs-dir § 7's bootstrap grandfathers only the tool's
+    own prior deposit, and punt never deposited rules, so under § 7 every
+    file already at a canonical name is a collision on the first run. The
+    fleet's files at those names are hand copies of the canonical set, and
+    a refusal would fail the first `enable` in exactly the repos the design
+    fixes. Recommend overwrite, with one printed line per file whose bytes
+    differed from canonical, so anything wanted is recovered from git.
+    Confirm or course-correct.
 
 ---
 
@@ -490,7 +578,7 @@ workspace or child.
 | `src/punt_kit/rules_manifest.py` | `RuleManifest`: load, compute from a selection and the shipped set, diff previous against new, write. |
 | `src/punt_kit/rules_deployer.py` | `RuleDeployer`: the write, remove, refuse, and bootstrap algorithm of § 3.5; reports replaced local edits. |
 | `src/punt_kit/claude_md_import.py` | `ClaudeMdImport`: the § 2.4 import-line writer (lock, atomic replace, byte-preserving, host EOL, code-block skip), ported from vox's `claude_md.py`. |
-| `src/punt_kit/enable.py` | `run_enable` / `run_disable`: guide deposit from `templates/punt-guide.md`, marker, import line, rules. |
+| `src/punt_kit/enable.py` | `run_enable` / `run_disable`: guide deposit from `templates/punt-guide.md`, marker, import line, rules; `disable` removes the manifest-listed rules and the manifest; the § 3.1 text and `--json` output and exit codes. |
 | `src/punt_kit/audit_rules.py` | `RulesAudit(info).findings`: the § 3.6 check; `--fix` path calls `RuleDeployer`. |
 | `src/punt_kit/audit.py` | Registers `RulesAudit` in the checks tuple. |
 | `src/punt_kit/__main__.py` | `enable` and `disable` commands. |
@@ -505,10 +593,10 @@ workspace or child.
 | `tests/test_rules_manifest.py` | Round trip, diff, sorted paths. |
 | `tests/test_rules_deployer.py` | Fresh deploy, idempotent re-run, upgrade overwrites, old-minus-new removal, collision refusal, bootstrap grandfather, foreign files untouched, local-edit report. |
 | `tests/test_claude_md_import.py` | Append once, CRLF host, fenced-block skip, byte preservation, symlink target. |
-| `tests/test_enable.py` | Full deposit set; `disable` leaves guide and rules. |
+| `tests/test_enable.py` | Full deposit set; `disable` removes the rules, the manifest, the marker, and the import line and leaves the guide and every foreign file; empty `languages` list deposits no rules. |
 | `tests/test_audit_rules.py` | Each verdict row of § 3.6; `--fix` with and without the marker. |
 | `tests/test_packaging.py` | The built wheel contains `lang_rules/python/`. |
-| `tests/test_cli.py` | `punt enable --help`, `punt disable --help`. |
+| `tests/test_cli.py` | `punt enable --help`, `punt disable --help`; every row of the § 3.1 output table: exit 0 on no-op and on a deposit, exit 1 with the stderr line on a collision and on an unknown language name, the `--json` object shape for `enable` and `disable`, nothing written after a refusal. |
 
 ### Docs and standards
 
@@ -521,14 +609,17 @@ workspace or child.
 | `CLAUDE.md` | The repository-layout list and the `demo_exempt` list name `src/punt_kit/lang_rules/` instead of `lang-rules/`. |
 | `README.md` | The `lang-rules/` pointer and the install-excludes sentence updated; `punt enable` and `punt disable` documented. |
 | `CHANGELOG.md` | Added: `punt enable`, `punt disable`, the rules audit check; Changed: canonical sets move into the package; Removed: `lang-rules/` at the root. |
+| `.pr_agent.toml` | Line 30's low-risk path list names `lang-rules/`; rebased to `src/punt_kit/lang_rules/` so a rules-only diff keeps its docs-only review class after the move. |
 
 ### Workspace repo (separate PR, after every Python child has merged)
 
 | File | Purpose |
 |------|---------|
 | `.claude/rules/` | Deleted. |
+| `.punt-labs/punt/config.toml` | `[rules] languages = []`, so `punt enable` deposits the guide, marker, and import line and no rules. |
+| `.punt-labs/punt/rules-manifest.toml` | The empty manifest `punt enable` writes for the empty selection. |
 | `.bin/rules-rollout.sh` | Runs `punt enable` in each child in a worktree and opens the PR, on the `tracker-guide-rollout.sh` pattern; the rollout vehicle for step 2 of § 3.8. |
-| `.gitignore` | No change while the workspace deploys nothing; when it later does, `!.punt-labs/punt/config.toml` and `!.punt-labs/punt/rules-manifest.toml` join the per-file allowlist. |
+| `.gitignore` | `!.punt-labs/punt/config.toml` and `!.punt-labs/punt/rules-manifest.toml` join the per-file allowlist, since the workspace file is deny-all plus allowlist. |
 
 ### Child repos (one PR each)
 
