@@ -46,7 +46,7 @@ preserving the caller's working directory and relative target paths. Use
 The `/..`
 is required, not incidental: `${CLAUDE_PLUGIN_ROOT}` is the `plugin/`
 subdirectory, which carries no `pyproject.toml`. For editable-install projects
-(tts, biff), the installed binary already points to the working tree, so dev
+(vox, biff), the installed binary already points to the working tree, so dev
 commands can use the binary name directly. The key invariant is that dev
 commands always execute the working tree.
 
@@ -163,8 +163,8 @@ checkout of `plugin` produced `plugin/` plus `AGENTS.md`, `CHANGELOG.md`,
 `uv.lock`. Every directory was absent.
 
 So the "Stays in repo" column below is accurate for directories and **not** for
-root files. `.envrc`, `prfaq.pdf`, and `prfaq.tex` ship with an install today
-and continue to under `git-subdir`; `.envrc` in particular carries
+root files. Root files such as `.envrc`, `prfaq.pdf`, and `prfaq.tex` ship
+with every `git-subdir` install; `.envrc` in particular carries
 infrastructure hostnames and database usernames. The win is real — it is a
 directory-shaped win — but do not describe a root file as excluded. Excluding
 those means moving them into a subdirectory or untracking them, which is a
@@ -217,7 +217,7 @@ following prefixes:
 The prefix list above is not the surface definition — it is a starting point.
 **The surface is whatever `${CLAUDE_PLUGIN_ROOT}` reaches**, so grep for that
 variable across the whole repo and move everything it names. A directory not on
-the list above still ships if a command or skill resolves it through the plugin
+the list above ships if a command or skill resolves it through the plugin
 root. punt-kit is the recorded case: its `auto` skill loads
 `${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml`, no code path reads playbooks at
 all, and a `playbooks/` left at the repo root would have been neither inside
@@ -249,10 +249,7 @@ examples worth calling out because they are easy to miss:
   every other `.claude-plugin` reference) in the same commit that moves
   the files.
 
-Scope was measured 2026-08-14 across the nine plugin repos: three files in
-vox, one in lux, and — for punt-kit specifically — 12+ hits across `src/`
-and `pyproject.toml`. Zero hits in the other six. Do the grep per repo
-before the move; scope varies dramatically by whether the repo is a
+Do the grep per repo before the move; scope varies by whether the repo is a
 plain plugin, a hybrid plugin+CLI, or a plugin-tooling repo.
 
 ### Version field precedence
@@ -335,7 +332,7 @@ Plugins that expose MCP tools must declare them in `plugin.json` using the
 ```
 
 The `"command"` field must reference the installed CLI binary name (e.g.
-`"biff"`, `"tts"`), not `uv run`. Plugin consumers install via the marketplace
+`"biff"`, `"vox"`), not `uv run`. Plugin consumers install via the marketplace
 and do not have a uv project directory — `uv run` would fail.
 
 **Do not use `.mcp.json` for plugin MCP servers.** The marketplace cache is a
@@ -572,7 +569,20 @@ to the repo's `.claude/settings.json` by `<tool> enable` and removed by
 
 ### Requirements
 
-1. **Repo scope only.** Never write `~/.claude/settings.json`.
+1. **Repo scope only — for permission rules.** Never write **permission
+   rules** to `~/.claude/settings.json`; permission rules are repo-scoped
+   (`<repo>/.claude/settings.json`) so a plugin never grants itself tools
+   user-wide. This bounds permission rules, not the whole file: a tool may
+   write a **non-permission** key to `~/.claude/settings.json` when that key
+   is inherently user-global — e.g. biff's `install-statusline` writes the
+   `statusLine` key (the status line is a per-user display setting, not a
+   permission), stashing and restoring the prior value. The carve-out is a
+   closed allow-list, not an open category: the only permitted user-global key
+   is `statusLine`, written solely by the explicit `install-statusline`
+   command, which must stash and restore the prior value. Any other
+   user-global key is prohibited until this list adds it; a tool does not get
+   to declare a new key "inherently user-global" on its own. Permission rules
+   stay repo-scoped without exception.
 
 2. **`disable` removes exactly what `enable` added.** Recompute the same rule
    set and remove those exact values.

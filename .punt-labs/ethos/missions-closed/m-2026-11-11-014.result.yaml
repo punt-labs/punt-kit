@@ -1,0 +1,35 @@
+mission: m-2026-11-11-014
+round: 3
+created_at: "2026-11-11T07:32:17Z"
+author: mdm
+verdict: pass
+confidence: 0.92
+files_changed:
+    - path: .claude/worktrees/punt-guide/src/punt_kit/templates/punt-guide.md
+      added: 79
+      removed: 0
+    - path: .claude/worktrees/punt-guide/CHANGELOG.md
+      added: 8
+      removed: 0
+evidence:
+    - name: 'branch feat/punt-guide over origin/main af11a57: 9173daf (guide), 19a6266 (CHANGELOG), 228df7a (round-2 fixes), 4cea16a (round-3 fixes); guide 79 lines throughout rounds 2 and 3'
+      status: pass
+    - name: 'commit 4 4cea16a: make check on that exact tree -> All checks passed! / 2320 passed, 14 skipped in 375.08s, exit 0'
+      status: pass
+    - name: 'wc -l src/punt_kit/templates/punt-guide.md -> 79 (under 80); npx markdownlint-cli2 on it -> Linting: 1 file, Summary: 0 issues in 0 files'
+      status: pass
+    - name: 'round-3 finding 1 applied: bullet retitled ''Three proven facts about sync'' and gains ''A pull resets a bead''s status to the issue''s state, so a bd close made only in beads is reopened by the next pull''. Proof at factory-fixes 769f8a1fce0a: internal/tracker/engine.go:568-576 buildPullIssueUpdates writes status (with title, description, priority, issue_type, assignee) on every pull update of an existing bead; internal/linear/mapping.go:163-167 maps Linear state types backlog and unstarted to open, started to in_progress, completed and canceled to closed; mapping.go:296-305 StateToBeadsStatus applies that map by state type first'
+      status: pass
+    - name: 'round-3 finding 2 applied: the shared-cursor bullet now ends ''Do not edit a migrated bead locally: the next pull skips it and advances the cursor past the edit, so the divergence is never reconciled and a later pull overwrites the bead.'' Proof unchanged from round 1: engine.go:456-466 (skip of a bead with UpdatedAt after the cursor), engine.go:215-223 (cursor advanced after every non-dry-run sync)'
+      status: pass
+    - name: 'line budget: the two additions cost 3 lines (82); recovered by whole-line trims that drop no fact: ''Blocked'' 3 lines to 2, ''Automated loops'' 2 to 1, ''The one sanctioned beads-first write'' 4 to 3, and ''as new beads'' cut from the Never bullet''s parenthetical (the whole-team import is the fact; ''as new beads'' restated it)'
+      status: pass
+    - name: 'the which-tracker test (bd config get linear.pull_label printing repo: is the only decider) is unchanged since 9173daf'
+      status: pass
+prose: |
+    Round 3 carries the leader's two findings in one commit, 4cea16a,
+    on top of 9173daf, 19a6266 and 228df7a; no squash. Finding 1 (pull resets
+    state) was verified against the fork source before it was written, same
+    as every other mechanical claim in the guide. The guide stays at 79 lines
+    by trimming wording, not facts. Not pushed; no PR touched; nothing under
+    plugin/ or standards/.

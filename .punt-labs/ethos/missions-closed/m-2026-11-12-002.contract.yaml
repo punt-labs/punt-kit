@@ -1,0 +1,60 @@
+mission_id: m-2026-11-12-002
+status: closed
+type: implement
+created_at: "2026-11-12T04:28:56Z"
+updated_at: "2026-11-12T05:54:42Z"
+closed_at: "2026-11-12T05:54:42Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-11-12T04:28:56Z"
+    hash: 6e1a3cdfadb9e663c7a9ff6b37cad82ad05a05e94bb6f458ca592d20d1e5839b
+inputs:
+    files:
+        - standards/mcp-caller-identity.md
+        - standards/permissions.md
+        - standards/go.md
+        - standards/integration.md
+        - standards/filesystem.md
+        - standards/distribution.md
+        - docs/WORKFLOW.md
+write_set:
+    - standards/mcp-caller-identity.md
+    - standards/permissions.md
+    - standards/go.md
+    - standards/architecture.md
+    - standards/integration.md
+    - standards/git.md
+    - standards/distribution.md
+    - standards/release-requirements.md
+    - standards/shell.md
+    - standards/plugins.md
+    - standards/ci.md
+    - standards/filesystem.md
+    - CHANGELOG.md
+success_criteria:
+    - standards/mcp-caller-identity.md section 8 has no 'Conforms' or 'Does not yet conform' text; each of 8.1-8.4 states the engine's channel contract in the same shape as 8.5 biff; intro line 15 and section 9 carry no conformance or measurement status; every deleted item is listed in the result with file, line, and proposed bead text.
+    - Every SECONDARY hit listed in the context is either rewritten as a present-tense rule (quoted in the result, with the fleet file that confirms it) or deleted and listed for a bead; the re-run sweep grep output is pasted in the result with each remaining hit classified.
+    - punt-labs-dir.md and tool-enable-disable.md are untouched (git diff --stat shows neither).
+    - 'Every cross-link in the changed files resolves: for each [text](file.md#anchor) link touched or adjacent, the result lists the anchor and the heading it resolves to.'
+    - npx markdownlint-cli2 reports zero findings on a copy of each changed .md placed under standards/_lint_<name>.md (copies moved to .tmp/ afterward, not committed); make check green on every commit.
+    - 'CHANGELOG.md has one Changed entry under Unreleased describing the rule: standards state rules, not conformance status; no bead IDs or PR numbers.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: e076d539a66e354b690b8d89c8c35659
+          round: 1
+          created_at: "2026-11-12T05:33:05Z"
+          author: rop
+          recommendation: continue
+        - id: 8c208ffcb94e210bc7a62686908e513c
+          round: 2
+          created_at: "2026-11-12T05:46:23Z"
+          author: rop
+          recommendation: continue
+context: 'Bead pkit-5ptz. Worktree <repo>/.claude/worktrees/5ptz, branch docs/standards-no-status, HEAD 8aa271a. Operator rule (2026-11-11, verbatim): standards are about the standards, not a status report; there is no standards status information in the standards; that is for beads. A standard states the rule or contract. Who conforms today, ''Conforms:'' / ''Does not yet conform:'' catalogs, ''still uses X'', ''not yet'', ''has not migrated'', ''once Y lands'', ''is retired'' as a history note, ''Planned'' status columns, dated operator rulings, bead IDs, and tool-current-state prose are status: they rot the day the work lands. Each such sentence is either a rule (keep, rewritten in the present tense as the rule it encodes, with the history dropped) or status (deleted from the standard; the leader files its content as a bead in the owning tool''s funnel, so the result must list every deleted status item with the file, line, and the one-line bead text the leader should file). PRIMARY: standards/mcp-caller-identity.md section 8 ''Applications'' (8.1 ethos, 8.2 lux, 8.3 vox, 8.4 quarry) is built as a per-engine Conforms / Does-not-yet-conform catalog. Decision (leader, already made; do not reopen): convert each entry to a pure channel-contract statement of what that engine''s declared channel and layer IS under this standard (the facts section 3.2.3 and section 4 need per engine: which process is the engine, which layer it is, what carries _caller, what the handle keys), and delete every conformance bullet. Section 8.5 biff (PR 434) is the model shape: read it first and match it. Also line 15 in the intro (''it does not yet conform'') and section 9 ''Open Items'' (measurement gaps are status too: keep an item only if it is a scoping rule of the standard, e.g. ''section 1 connection facts are for streamable HTTP'', and drop the rest to beads). SECONDARY sweep hits, each to be judged rule-or-status and handled as above: permissions.md:235 (''auto-allowed today'') and :243 (''Short-form aliases are retired'' -> state the rule: a Skill value is always plugin-scoped); go.md:44, :381-393 (''today''s mechanism'', ''have not yet made the same change'', ''once that review lands''); architecture.md:102 (''today''); integration.md:6 (the ''directional but not yet enforced'' banner is status), :85-100 (legacy sentinel migration prose: keep the migration RULE, drop which tools have or have not done it); git.md:211 (''not yet a defect; once the hook lands''); distribution.md:174 (''not yet characterised; this bullet should be updated''), :363 (''lux (planned)''), :453-470 and :586-662 (keep the legacy->destination mapping as the migration rule; drop status wording); release-requirements.md:23 (''one that has not migrated yet''); shell.md:192 (''not yet implemented ... temporary state ... tracked as a bead'' -> the rule is: a project without install.ps1 documents the manual Windows path in its README); plugins.md:166, :220 (''today'', ''still ships'' -> state what ships, as the rule); ci.md:150 (''ceiling for this org today''); filesystem.md:121-125 (the Tool / Legacy path / Target path / Status table: keep the legacy->target mapping as the migration rule, delete the Status column; the ''Planned'' rows become beads). Re-run the sweep yourself before finishing: grep -rniE ''does not yet conform|conforms:|not yet|has not migrated|being removed|once .* lands|is retired|are retired|the retired|tracked for implementation|still (uses|carries|has|runs|ships|writes|reads)|planned|today'' standards/ and account for every remaining hit in the result as a rule (quote it) or as a false positive (e.g. workflow.md:75 ''not yet triaged'' is a state-machine term, pr-review-model.tex hits are model prose, readme.md:35 ''what a user can do today'' is the README rule). OUT OF SCOPE (a parallel mission owns them; do not edit): standards/punt-labs-dir.md and standards/tool-enable-disable.md. Cross-links from your files into those two (punt-labs-dir.md#9-migration, #10-adoption-status) must keep resolving after that mission renames section 10; link to #9-migration where you can. Fleet reality check (punt-kit CLAUDE.md): before rewriting a sentence as a rule, confirm the rule against the deployed tool (../ethos, ../lux, ../vox, ../quarry, ../biff) so the present-tense rule is true, and say in the result which files you checked. Language: Markdown. Time box 90 minutes; first commit within 30; never more than 30 minutes uncommitted; one commit per file group. Commit on the branch only; do not push, do not touch PRs or merge; git add <file> only. markdownlint: .markdownlint-cli2.jsonc ignores .claude/, so lint each changed file by copying it to standards/_lint_<name>.md in the worktree, running npx markdownlint-cli2 on that copy, and moving the copy to .tmp/ afterward; zero findings. CHANGELOG.md: one Changed entry under Unreleased, Keep a Changelog style, no bead IDs.'

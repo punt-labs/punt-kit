@@ -1,5 +1,5 @@
 name: autopilot
-description: Autonomous bead-driven development loop
+description: Autonomous issue-driven development loop (beads-tracked repos)
 mode: loop
 
 preconditions:
@@ -9,6 +9,55 @@ preconditions:
     check: test -f Makefile || test -f CLAUDE.md
 
 steps:
+  - id: check-tracker
+    description: Confirm beads is this repo's tracker of record
+    type: llm
+    context: |
+      The working directory must contain `.beads/` (the precondition
+      above checked this). Run `bd config get linear.pull_label` here,
+      with no `-C`: `bd -C ""` silently reads the working directory, so
+      an empty or wrong `-C` value reports on the wrong repo. Read the
+      output text and sort it into exactly one of three buckets. Do not
+      pipe the output through a shell filter.
+
+      1. The output starts with `repo:` (for example `repo:quarry`): this
+         repo is migrated to Linear. Linear is its planning source of
+         truth and beads is a local mirror kept in step by
+         `bd linear sync`. Autopilot's claim
+         (`bd update --status=in_progress`) and close (`bd close`) write
+         beads only, a push sends no labels, and a pull re-opens any bead
+         closed locally while its Linear issue is still open — so both
+         writes would be reverted and nothing would reach Linear. Report
+         exactly that: this repo is migrated to Linear, the claim and
+         close in this playbook write beads only and would be reverted,
+         and autopilot halts here. Then give the one-line redirect, with
+         `<label>` taken from the output after `repo:` (never from the
+         directory name): "Work this backlog in Linear: team Punt Labs,
+         issues labelled repo:<label>,
+         https://linear.app/punt-labs/team/PL/all?label=repo:<label>".
+         Then stop; run no further step and no `bd` write.
+
+      2. The output is exactly `linear.pull_label (not set in config.yaml)`:
+         beads is the tracker of record. Continue to the next step.
+
+      3. Anything else — empty output, a line starting with `Error:`
+         (a `bd` error; it exits 1), or a value that does not start with
+         `repo:` — means the tracker cannot be determined. Print the
+         output you got, verbatim, report that the tracker could not be
+         determined, and stop; run no further step and no `bd` write.
+         Never treat an unrecognised output as "not migrated".
+
+      Bucket 2 is an exact match. Exit 0 alone does not mean beads: `bd
+      config get` also exits 0 on a migrated repo.
+
+      The postcondition below is what actually stops the runner: it
+      re-runs the same command and passes only on the exact bucket-2
+      string, so buckets 1 and 3 both fail it and `on_failure: abort`
+      ends the playbook whatever this step's prose says.
+    postcondition:
+      check: 'test "$(bd config get linear.pull_label)" = "linear.pull_label (not set in config.yaml)"'
+    on_failure: abort
+
   - id: check-sessions
     description: Check for other active sessions and use worktree if needed
     type: llm

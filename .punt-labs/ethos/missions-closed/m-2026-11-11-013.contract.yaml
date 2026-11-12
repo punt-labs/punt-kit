@@ -1,0 +1,64 @@
+mission_id: m-2026-11-11-013
+status: closed
+type: implement
+created_at: "2026-11-11T05:44:03Z"
+updated_at: "2026-11-11T08:15:20Z"
+closed_at: "2026-11-11T08:15:20Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-11T05:44:03Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs: {}
+write_set:
+    - .claude/worktrees/tracker-guard/plugin/skills/bead-review/SKILL.md
+    - .claude/worktrees/tracker-guard/plugin/skills/bead-review/references/per-bead-rubric.md
+    - .claude/worktrees/tracker-guard/plugin/playbooks/autopilot.yaml
+    - .claude/worktrees/tracker-guard/CHANGELOG.md
+success_criteria:
+    - 'SKILL.md has a new Step 0 before Step 1 that runs bd -C "$REPO" config get linear.pull_label and tests whether the OUTPUT STARTS WITH repo: (never issue-prefix, which prints "(not set)" on migrated repos; never the exit code, which is always 0). If migrated it prints exactly one redirect paragraph naming the repo, prefix, Linear team Punt Labs and the repo view, and stops with no enumeration, no rubric, no report. Otherwise it continues to Step 1 byte-for-byte unchanged.'
+    - 'Step 0 states the why in two sentences: a push sends no labels, and a pull replaces a bead''s label set and re-opens beads closed locally, so beads-only writes in a migrated repo are reverted. The frontmatter description says the skill refuses in a Linear-migrated repo.'
+    - 'per-bead-rubric.md opens with one sentence: the outer skill has confirmed in Step 0 that beads is this repo''s tracker of record, so every write below is a tracker write.'
+    - 'autopilot.yaml gains a FIRST step id check-tracker of type llm (not a preconditions.check: a bare auto-approved Bash precondition cannot express not-migrated without a pipe and prints no redirect on failure). It runs bd config get linear.pull_label; if the output starts with repo: it reports the repo is migrated to Linear, that autopilot''s claim and close write beads only and would be reverted, and halts. The playbook description becomes "Autonomous issue-driven development loop (beads-tracked repos)".'
+    - Nothing under plugin/ references a path outside CLAUDE_PLUGIN_ROOT or the consumer repo. plugin/commands/bead-review.md and bead-review-dev.md are untouched (Bash(bd:*) already covers the check). standards/ is untouched.
+    - 'CHANGELOG.md gains an Unreleased Changed entry: bead-review and autopilot refuse to run in a Linear-migrated repo and redirect to Linear.'
+    - 'Proof in the result, real entry point: from the worktree, claude --plugin-dir plugin, then /punt-dev:bead-review against the migrated sibling quarry. BEFORE the change the skill enumerates with bd list and never names Linear; AFTER, the first and only output is the redirect paragraph and the transcript shows zero bd update, bd close, or bd label calls. Then the same against the non-migrated sibling vox proceeds to Step 1 as before. /punt-dev:auto autopilot in quarry halts at check-tracker. Paste the actual outputs. If a dev session cannot be launched from inside your session, say so plainly and the leader runs the demo; never claim it ran.'
+    - make check in the worktree exits 0 before every commit; npx markdownlint-cli2 on every changed .md returns zero findings; outputs read in full, never piped through head or tail or grep.
+    - 'Commit on branch fix/tracker-guard in the worktree only. One commit per logical step: SKILL.md plus rubric, then autopilot, then CHANGELOG. git add each file by name, never -A. Do not push, do not create or touch PRs, do not merge; the leader does that. First commit within 30 minutes; never more than 30 minutes of uncommitted change. A design question is surfaced to the leader, not decided.'
+budget:
+    rounds: 3
+    reflection_after_each: true
+current_round: 3
+round_decisions:
+    version: 1
+    entries:
+        - id: c69cf586829ad3a5132b9bf17cc69d42
+          round: 1
+          created_at: "2026-11-11T07:09:18Z"
+          author: claude
+          recommendation: continue
+        - id: 4f556c8eb18b597da27ad4090d4cc153
+          round: 2
+          created_at: "2026-11-11T07:25:28Z"
+          author: claude
+          recommendation: continue
+        - id: 3eee982f507ec9a53e493e883ffda40c
+          round: 3
+          created_at: "2026-11-11T08:13:30Z"
+          author: mdm
+          recommendation: stop
+context: |
+    Worktree <repo>/.claude/worktrees/tracker-guard, branch fix/tracker-guard from origin/main af11a57. Write-set paths above are relative to the main checkout; inside the worktree they are plugin/skills/bead-review/SKILL.md etc.
+
+    Six punt-labs repos are migrated to Linear; the set is bd config get linear.push_prefix (today ethos,quarry,qmb,beadle,biff,punt; one team Punt Labs, key PL). In a migrated repo Linear is the planning source of truth and beads is a local mirror. Proven today by a live round-trip (bead quarry-dic3 to Linear PL-307, both cleaned up): bd linear sync --push sends NO labels (var labelIDs []string is hardcoded empty in the fork's internal/linear/tracker.go), and a pull REPLACES a bead's label set with Linear's — a local-only label was wiped. A bd close in a migrated repo leaves the Linear issue open and the next pull re-opens the bead.
+
+    /punt:bead-review is exactly a beads-only writer: it rewrites titles, bodies and priorities, closes beads, and adds theme labels, all via bd. autopilot.yaml claims and closes via bd update and bd close only. Neither mentions Linear. An agent (claude:biff) ran bead-review on biff today and none of it reached Linear.
+
+    This unit stops the damage with the smallest user-visible fix. The full Linear backend for bead-review (audit via the Linear MCP) is a later unit; do NOT build it here.
+
+    Detection rule, verified on this machine: bd -C quarry config get linear.pull_label prints repo:quarry; bd -C vox config get linear.pull_label prints "linear.pull_label (not set in config.yaml)"; both exit 0. bd -C quarry config get issue-prefix prints "issue-prefix (not set)" even though the YAML has the key, so issue-prefix is unusable for this test.
+
+    The migrated siblings for the demo are at ~/Coding/punt-labs/quarry (migrated) and ~/Coding/punt-labs/vox (not migrated). Read SKILL.md, the rubric, and autopilot.yaml in full before editing; match their voice and the existing never-cd, -C "$REPO" convention.
+
+    Language: Markdown and YAML plugin content. One shell command per Bash call; no chains.

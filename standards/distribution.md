@@ -138,7 +138,7 @@ scripts:
 - **Uninstall before install** — call
   `claude plugin uninstall <name>@<marketplace> < /dev/null 2>/dev/null || true`
   immediately before `claude plugin install`. The observed behavior on a
-  stuck dev machine (beadle-4qk, 2026-04-07) is that re-running `install.sh`
+  stuck dev machine is that re-running `install.sh`
   does **not** upgrade an existing installation: the cache stayed pinned to
   the originally-installed version even though the marketplace clone had
   been refreshed to a newer ref. The simplest explanation is that
@@ -150,8 +150,8 @@ scripts:
   Code keeps a versioned cache directory per installed version
   (`~/.claude/plugins/cache/<org>/<name>/<version>/`) — multiple versions
   cohabit by design, and `installed_plugins.json` records which one is
-  active per scope. Pattern: `biff/install.sh:138`, `quarry/install.sh:175`,
-  `vox/install.sh:169`, `beadle/install.sh:149`. The full ordering is
+  active per scope. Pattern: the uninstall-before-install block in every
+  fleet `install.sh`. The full ordering is
   **marketplace refresh → uninstall → install**. Use `claude plugin uninstall +
   install`, **not** `claude plugin update` — Punt Labs learned `update` has
   issues this pattern avoids (institutional knowledge from another project,
@@ -168,16 +168,9 @@ scripts:
   `~/.claude/plugins/installed_plugins.json`), skip uninstall on a fresh
   machine, and propagate real uninstall failures with an actionable error
   message instead of swallowing them. If the install itself fails after a
-  successful uninstall, surface a clear error — the exact recovery story
-  (whether the previous cache directory persists and can be reactivated, or
-  whether `claude plugin uninstall` deletes the cache directory entirely) is
-  not yet characterised; this bullet should be updated when the first
-  implementation lands and the behavior is empirically verified. Cross-
-  cutting work tracked in: `biff-8hg1`, `quarry-9ipx`, `vox-2fj`,
-  `beadle-2nk`. The first repo to land the hardened implementation becomes
-  the canonical reference; the others backport to keep the four scripts in
-  lockstep, and this bullet is updated with the concrete shell snippet once
-  one is validated.
+  successful uninstall, surface a clear error. Every `install.sh` in the
+  fleet carries the same uninstall-and-install block; a change to it lands
+  in all of them.
 - **Stdin protection** — every `claude` command must have `< /dev/null` and
   every `ssh` command must use `-n`. Without this, `curl | sh` execution
   silently stops when a child process consumes pipe bytes (DES-006).
@@ -360,13 +353,13 @@ is running the new code. Use `sudo env "PATH=$PATH" <tool> daemon install`
 to preserve the user's PATH through sudo (required because `~/.local/bin/`
 is not in root's secure_path and some sudoers configs restrict env vars).
 
-**Daemon-based tools:** vox (`voxd`), quarry, cryptd, lux (planned).
+**Daemon-based tools:** vox (`voxd`), quarry, cryptd, lux (`luxd`).
 Reference implementation:
 [vox DESIGN.md DES-028](https://github.com/punt-labs/vox/blob/main/DESIGN.md#des-028-vox-v3--audio-server-architecture).
 
 ### CLI + plugin hybrids
 
-Examples: biff, quarry, tts, punt-kit.
+Examples: biff, quarry, vox, punt-kit.
 
 Two artifacts: a CLI tool (PyPI) and a plugin shell (marketplace). The plugin's
 MCP server declaration references the CLI binary, so the CLI must be installed
@@ -447,11 +440,9 @@ scope leaks credentials, creates confusion, or fails silently.
 ### Per-repo config files
 
 **Projects with per-repo state use the config zone, `.punt-labs/<tool>/config.*`
-— never a dotfile at the git root.** Operator ruling, 2026-09-10
-([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)): no per-repo tool
-artifact lives at the repo root, in any form. `.biff` and `.quarry.toml` at
-the repo root are the **legacy** shape this rule retires — table below is
-historical, not a live prescription:
+— never a dotfile at the git root.** No per-repo tool artifact lives at the
+repo root, in any form ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
+A legacy root dotfile is migrated to the tool's config-zone destination:
 
 | Project | Legacy config file | Config-zone destination | Contents |
 |---------|--------------------|--------------------------|----------|
@@ -459,11 +450,10 @@ historical, not a live prescription:
 
 The migration from legacy dotfile to config zone is
 [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table; it
-never deletes a file that still holds settings. Quarry has no row here:
-`.quarry.toml` was this table's earlier, proposed shape, but quarry never
-shipped it — it deposits directly at `.punt-labs/quarry/config.md` (YAML
-frontmatter, not TOML), verified against quarry's own source and a zero-repo
-fleet survey ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
+never deletes a file that still holds settings. Quarry has no legacy shape:
+its config is `.punt-labs/quarry/config.md` (YAML frontmatter), deposited
+directly at the config-zone destination
+([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
 
 **`.beads/` is not a row in this table because it is out of scope for the
 migration entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
@@ -659,7 +649,7 @@ handles all cleanup:
 | Plugin registration | `claude plugin install` | `claude plugin uninstall` |
 | Deployed commands in `~/.claude/commands/` | SessionStart hook | Project `uninstall` |
 | Permission rules in `<repo>/.claude/settings.json` | `<tool> enable` | `<tool> disable`, per repo |
-| Legacy user-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` (written by a pre-enable-only release only) | A retired release's `install` | Stripped on next `<tool> enable` or `uninstall` under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract. `install` no longer writes it ([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-one-layer-repo-only)) |
+| Legacy user-scope `@~/.punt-labs/<tool>/CLAUDE.md` import line in `~/.claude/CLAUDE.md` | An earlier `install`; `install` never writes it ([tool-enable-disable.md § 2.6](tool-enable-disable.md#26-scope-one-layer-repo-only)) | Stripped on next `<tool> enable` or `uninstall` under the [tool-enable-disable.md § 2.4](tool-enable-disable.md#24-import-line-rules) write contract |
 | Status line wrapping | `install-statusline` | Project `uninstall` |
 | Marketplace registration | `install` | `uninstall` (keep if other punt-labs plugins installed) |
 | Orphaned local plugin dirs | Previous install method | `uninstall` (migration cleanup) |

@@ -48,7 +48,9 @@ info "Checking Python..."
 
 PYTHON_FLAG=""
 HAVE_PYTHON=0
-if command -v python3 >/dev/null 2>&1; then
+# macOS ships a python3 stub that exits non-zero until the Command Line Tools
+# are installed; under set -e a bare substitution would kill the run silently.
+if command -v python3 >/dev/null 2>&1 && python3 -c 'import sys' 2>/dev/null; then
   PY_MAJOR=$(python3 -c 'import sys; print(sys.version_info.major)')
   PY_MINOR=$(python3 -c 'import sys; print(sys.version_info.minor)')
   if [ "$PY_MAJOR" -gt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 13 ]; }; then
@@ -72,11 +74,15 @@ info "Installing $PACKAGE..."
 uv tool install --force $PYTHON_FLAG "$PACKAGE==$VERSION" || fail "Failed to install $PACKAGE==$VERSION"
 ok "$PACKAGE==$VERSION installed"
 
+# The binary this run installed must be the one verified and run, not an
+# older copy earlier on PATH. uv alone knows where it put it (UV_TOOL_BIN_DIR,
+# XDG_BIN_HOME, and XDG_DATA_HOME all move it), so ask uv rather than assume.
+UV_BIN_DIR=$(uv tool dir --bin) || fail "'uv tool dir --bin' failed; cannot locate the installed '$BINARY'; upgrade uv (uv self update)"
+# An empty answer would put the current directory first on PATH.
+[ -n "$UV_BIN_DIR" ] || fail "'uv tool dir --bin' printed nothing; cannot locate the installed '$BINARY'"
+export PATH="$UV_BIN_DIR:$PATH"
 if ! command -v "$BINARY" >/dev/null 2>&1; then
-  export PATH="$HOME/.local/bin:$PATH"
-  if ! command -v "$BINARY" >/dev/null 2>&1; then
-    fail "$PACKAGE installed but '$BINARY' not found on PATH"
-  fi
+  fail "$PACKAGE installed but '$BINARY' not found on PATH"
 fi
 
 ok "$BINARY $(command -v "$BINARY")"
@@ -135,6 +141,19 @@ else
   printf '  Install Claude Code, then run: claude plugin install punt@punt-labs\n'
 fi
 
+# --- Step 5: Verify ---
+
+info "Verifying installation..."
+printf '\n'
+doctor_rc=0
+"$BINARY" doctor || doctor_rc=$?
+printf '\n'
+
 # --- Done ---
 
-printf '\n%b%b%s is ready!%b\n\n' "$GREEN" "$BOLD" "$PACKAGE" "$NC"
+if [ "$doctor_rc" -eq 0 ]; then
+  printf '%b%b%s is ready!%b\n\n' "$GREEN" "$BOLD" "$PACKAGE" "$NC"
+else
+  warn "$BINARY installed but doctor reported issues (see above)"
+  printf '  Fix the issues above, then run: %s doctor\n\n' "$BINARY"
+fi

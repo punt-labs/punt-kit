@@ -1,6 +1,6 @@
 ---
 name: bead-review
-description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work
+description: Audit every open bead in a repo — clarity, validity, priority — closing invalid ones and rewriting the rest, grouped by theme for batch work. Refuses in a Linear-migrated repo and redirects to Linear.
 disable-model-invocation: true
 user-invocable: false
 ---
@@ -36,6 +36,83 @@ Set `REPO` once at the start of the run: `args` if given, otherwise the
 current directory. **Never `cd`** — every `bd` command below takes `-C
 "$REPO"` instead, so the skill works regardless of what tools are
 allow-listed for the invoking command.
+
+## Step 0: Confirm beads is the tracker of record
+
+Some repos have migrated their backlog to Linear. There, Linear is the
+planning source of truth and beads is a local mirror kept in step by
+`bd linear sync`. This skill writes beads only — it rewrites titles,
+bodies, and priorities, closes beads, and adds `theme:*` labels, all via
+`bd` — so in a migrated repo it must not run at all. Check before
+anything else.
+
+First confirm `REPO` itself: it must be a non-empty path to an existing
+directory that contains `.beads/`. `bd -C ""` does not fail — it silently
+reads the current working directory — and `bd -C <dir>` where `<dir>` has
+no `.beads/` climbs to the nearest ancestor that does (a sibling checkout
+with no beads database under the workspace root reports the workspace's
+own `repo:punt`), so an empty or wrong `REPO` passes every check below
+for the wrong repo. If `REPO` is empty, or `$REPO/.beads/` does not
+exist, stop here: print `<REPO> has no beads database`, name the path you
+checked, and make no `bd` call at all — not `config get`, not `where`.
+
+Then run:
+
+```bash
+bd -C "$REPO" config get linear.pull_label
+```
+
+Read the output text and sort it into exactly one of three buckets:
+
+- Output **starts with `repo:`** (for example `repo:quarry`) — the repo is
+  migrated. Go to the refusal below.
+- Output is **exactly** `linear.pull_label (not set in config.yaml)` —
+  beads is the tracker of record. Continue to Step 1.
+- **Anything else** — empty output, a line starting with `Error:` (for
+  example `Error: cannot use -C directory "/tmp": no beads project found`,
+  which `bd` prints on stderr with exit 1), or a value that does not start
+  with `repo:` — means the tracker cannot be determined. Print the output
+  you got, verbatim, say that the tracker could not be determined for
+  `$REPO`, and stop: no enumeration, no rubric, no report, no `bd` write.
+  Never treat an unrecognised output as "not migrated".
+
+The second bucket is an exact match, not "anything that is not `repo:`":
+the set of outputs that mean "beads is the tracker" has one member, and
+every other string is either migrated or unknown. Exit code is a
+secondary signal only: exit 1 is a `bd` error and belongs in the third
+bucket; exit 0 does not by itself mean beads, because `bd config get`
+also exits 0 on a migrated repo. Do not use `issue-prefix` as the signal:
+`bd config get issue-prefix` prints `issue-prefix (not set)` on migrated
+repos even though the key is in their `config.yaml`. And no shell pipe —
+read the output directly, as everywhere else in this skill.
+
+Why refuse rather than proceed: `bd linear sync --push` sends no labels,
+and a pull replaces each bead's label set with Linear's and re-opens any
+bead closed locally while its Linear issue is still open. So every write
+this skill makes in a migrated repo — the rewrites, the closes, the
+`theme:*` labels — is reverted by the next sync and none of it reaches
+Linear, which is where that backlog is actually planned.
+
+**Refusal.** Take `<label>` from the `config get` output: everything
+after `repo:` (`quarry` from `repo:quarry`). Never derive it from the
+directory name or from `metadata.json` — for some repos the Linear label
+and the checkout name differ, and the Linear side is keyed on the label.
+For the prefix, run `bd -C "$REPO" where` and read its `prefix:` line (it
+resolves the same database Step 1 would use; do not `cat metadata.json`
+here). Then print exactly this one paragraph, then stop — no enumeration,
+no rubric, no report, no `bd` write of any kind:
+
+```text
+<label> (beads prefix <prefix>) is migrated to Linear: Linear is its
+planning source of truth and beads is a local mirror, so bead-review will
+not run here — its edits are beads-only and the next `bd linear sync`
+would revert them. Audit this backlog in Linear instead: team Punt Labs,
+issues labelled repo:<label>:
+https://linear.app/punt-labs/team/PL/all?label=repo:<label>
+```
+
+Do not name a Linear view: not every migrated repo has one, and where one
+exists its name is not always the label.
 
 ## Step 1: Confirm scope
 

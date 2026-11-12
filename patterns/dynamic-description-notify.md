@@ -35,7 +35,7 @@ The notification must be sent through two code paths because MCP tool handlers a
 
 ### 3. Status line file
 
-A background poller writes state to a JSON file (e.g., `~/.biff/unread/{key}.json`, where `key` is the topmost `claude` ancestor PID — see [Sibling PPID](sibling-ppid.md)). The status line script reads and displays it. This is the **human-visible** channel — the model cannot read the status line, and the human cannot easily read tool descriptions.
+A background poller writes state to a JSON file keyed on the harness-declared `session_id` (e.g., `~/.punt-labs/<tool>/sessions/<session_id>/unread.json`). The MCP server writes the file under the `session_id` its callers supply via `_caller` on each tool call ([MCP Caller Identity standard](../standards/mcp-caller-identity.md) §3.2); the status line command, an applet spawned by the SessionStart hook, receives the same `session_id` directly (§3.3), so the two agree on the key without inferring it from the process tree. The status line script reads and displays it. This is the **human-visible** channel — the model cannot read the status line, and the human cannot easily read tool descriptions.
 
 ## Consequences
 
@@ -48,7 +48,7 @@ A background poller writes state to a JSON file (e.g., `~/.biff/unread/{key}.jso
 ## Related Patterns
 
 - [Two-Channel Display](two-channel-display.md) — Handles the pull path (user requests data); Dynamic Description Notify handles the push path (data arrives while idle).
-- [Sibling PPID](sibling-ppid.md) — The status line file (mechanism 3) uses the topmost `claude` ancestor PID as the shared key between the MCP server that writes it and the status line command that reads it.
+- [MCP Caller Identity standard](../standards/mcp-caller-identity.md) §3.2, §3.3 — The status line file (mechanism 3) is keyed on the harness-declared `session_id`: the MCP server writes it under the `session_id` from `_caller` on its tool calls (§3.2), and the status line applet reads it with the `session_id` the SessionStart hook hands it directly (§3.3).
 - [Stash and Wrap](stash-and-wrap.md) — The status line command that reads the unread file is installed via the Stash and Wrap pattern.
 
 ## Known Uses

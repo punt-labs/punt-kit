@@ -1,0 +1,51 @@
+mission_id: m-2026-11-12-001
+status: closed
+type: implement
+created_at: "2026-11-12T01:39:59Z"
+updated_at: "2026-11-12T02:26:12Z"
+closed_at: "2026-11-12T02:26:12Z"
+leader: claude
+worker: rmh
+evaluator:
+    handle: adb
+    pinned_at: "2026-11-12T01:39:59Z"
+    hash: 904b1a7db3be4b73b5844be35a9b31225274bee9ffa633e81f4c4968ea27b4fc
+inputs:
+    files:
+        - standards/distribution.md
+        - standards/shell.md
+        - docs/WORKFLOW.md
+        - install.sh
+        - src/punt_kit/audit.py
+write_set:
+    - install.sh
+    - src/punt_kit/audit.py
+    - tests/test_audit.py
+    - CHANGELOG.md
+success_criteria:
+    - 'TDD: each change is preceded by a test that fails on the current HEAD; the result records, per change, the failing test name, its failure output, and the passing output after the fix.'
+    - install.sh ends with a Verify step that runs the freshly installed binary's doctor, captures its exit code, prints 'is ready!' only on 0, and on non-zero prints a warn naming the binary and the rerun command and exits 0 (matching beadle and ethos); shellcheck --shell=sh clean with no disable directive.
+    - install.sh puts uv's tool bin directory first on PATH before the binary lookup, resolved by `uv tool dir --bin` with a fail on resolution error, never a hard-coded path; the comment states why (the binary this run installed must be the one verified and run).
+    - src/punt_kit/audit.py 'install.sh runs doctor' passes only when install.sh contains an executable doctor invocation on its own command line (a line whose first non-whitespace token sequence is the binary variable or name followed by `doctor`), not when 'doctor' appears only in a comment or a printf; the existing synthetic test tests/test_audit.py:443 still passes and a new test with 'doctor' only inside a comment FAILs the check.
+    - A new test in tests/test_audit.py runs the install.sh audit checks against the repository's own install.sh (the real file, located relative to the test, not a tmp_path synthetic) and asserts 'install.sh runs doctor' is PASS; it fails on the unfixed install.sh and passes after.
+    - 'CHANGELOG.md Unreleased / Fixed entry rewritten to be true: cite standards/distribution.md and punt audit, not ''every Punt Labs installer''; say uv''s tool bin directory goes first on PATH; say a failing doctor is reported instead of ''ready''. markdownlint zero on a copy placed under standards/_lint_CHANGELOG.md and removed after.'
+    - 'make check green on every commit (shellcheck, ruff, mypy --strict, pyright, pytest); no noqa, type: ignore, xfail, skip; PY-DOC-2: no bead IDs or PR numbers in code or docstrings; oo_score on src/punt_kit/audit.py does not regress (python ~/Coding/oop-course-python/tools/oo_score.py).'
+    - 'Real entry point run and pasted in the result: `mkdir -p .tmp/home; HOME=<repo>/.tmp/home sh install.sh` from the worktree, output tail showing the verified binary path under .tmp/home, the doctor lines, and the ready line; then `uv run punt audit` from the worktree showing ''install.sh runs doctor'' PASS and 39 passed, 0 failed. State in the result that the plugin step of that run reinstalls the operator''s real user-scope plugin (bead pkit-uzmx) and run it at most once.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: bc0e6f02e49aa0807ce725f5cae88b5e
+          round: 1
+          created_at: "2026-11-12T02:08:41Z"
+          author: adb
+          recommendation: continue
+        - id: 61f573ca75a95487f2328a98c538d786
+          round: 2
+          created_at: "2026-11-12T02:25:54Z"
+          author: adb
+          recommendation: stop
+context: 'Bead pkit-eqjh. Worktree <repo>/.claude/worktrees/eqjh, branch fix/install-runs-doctor; HEAD is the leader''s WIP commit holding a first draft (install.sh Step 5 running punt doctor || true, and an unconditional PATH prepend of $HOME/.local/bin; a CHANGELOG entry). punt audit on main 3ec0c00 fails punt-kit''s own install.sh with ''install.sh runs doctor: Missing doctor verification step'' because src/punt_kit/audit.py:622 checks the substring ''doctor'' and install.sh never runs it; standards/distribution.md:195 says an installer ends with doctor. Code review of the draft found four defects, all to fix here: (1) `|| true` then an unconditional ''is ready!'' prints success over a failing doctor (punt doctor exits 1 on a required-check failure); (2) the hard-coded $HOME/.local/bin is false when UV_TOOL_BIN_DIR / XDG_BIN_HOME / XDG_DATA_HOME is set and reintroduces the stale-binary shadowing the change was meant to fix; `uv tool dir --bin` prints the real directory (verified: it exists and prints ~/.local/bin; the env-override precedence is uv''s documented behavior, not verified here); (3) the CHANGELOG claim ''as every Punt Labs installer does'' is false (lux and prfaq installers run no doctor); (4) no test pins the repo''s own install.sh passing the doctor check, and audit.py''s substring test passes a comment containing ''doctor''. Sibling installers to read: beadle/install.sh:224-240 and ethos/install.sh:363-405 (capture the doctor exit code; warn instead of ''ready'' on failure) are the pattern; biff/quarry/vox carry the silent-success defect, do not copy them. Time box 60 minutes; first commit within 30; never more than 30 minutes uncommitted. Commit on the branch only; do not push, do not touch PRs or merge; git add <file> only. The leader''s WIP commit may be amended or built on; the final history is the leader''s to squash.'

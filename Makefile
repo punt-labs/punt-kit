@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format build clean depot prfaq clean-tex skills-check skills-check-fix
+.PHONY: help test lint type check format build clean depot prfaq clean-tex
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -12,16 +12,10 @@ lint: ## Lint and format check
 	shellcheck install.sh scripts/*.sh
 
 type: ## Type check with mypy and pyright
-	uv run mypy src/ tests/
-	uv run pyright src/ tests/
+	uv run mypy src/ tests/ tools/
+	uv run pyright src/ tests/ tools/
 
 check: lint type test ## Run all quality gates
-
-skills-check: ## Verify Skill() permissions match installed plugins (local only — CI has none)
-	uv run python tools/skills_check.py
-
-skills-check-fix: ## Regenerate Skill() permissions from installed plugins
-	uv run python tools/skills_check.py --write
 
 format: ## Auto-format code
 	uv run ruff format .

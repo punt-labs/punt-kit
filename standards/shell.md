@@ -14,10 +14,10 @@ Standards for shell scripts across all Punt Labs projects. Shell scripts appear 
 ## Quality Gate
 
 ```bash
-shellcheck scripts/*.sh hooks/*.sh *.sh
+make check
 ```
 
-Adjust the glob to match where `.sh` files live in the project. The gate applies to every project that contains `.sh` files, regardless of project type.
+`make check` is the command the operator and CI run. It invokes **shellcheck** underneath over the project's `.sh` files (adjust the glob in the Makefile to match where they live). Run shellcheck directly only when debugging a single file; the gate is `make check`. The gate applies to every project that contains `.sh` files, regardless of project type.
 
 Zero warnings, zero errors. No `# shellcheck disable` without a comment explaining why.
 
@@ -142,6 +142,16 @@ The rule: an operator or agent reading the last screen of output must be able to
 
 ## Cross-Platform Install Scripts
 
+> **Carve-out from the "shell never ships" language rule.** The org language
+> rule ("shell only for test tooling that never ships") means **no
+> product/implementation logic in shell** — not "never ship any shell." An
+> `install.sh` is the legitimate shipped-shell case: the `curl … | sh`
+> bootstrap *must* be shell, because it runs before the product's own runtime
+> (Python, a binary) is installed. This parallels the workspace `.bin/`
+> carve-out, where the scripts are themselves the shipping artifact. Install
+> scripts carry a bootstrap, never product logic; everything past the
+> bootstrap belongs in the installed tool.
+
 Projects that ship an `install.sh` must also ship an `install.ps1` for Windows (PowerShell). This follows the pattern established by Claude Code, Bun, and Deno.
 
 ### The dual installer pattern
@@ -187,9 +197,9 @@ See DES-006 in DESIGN.md for the full root cause analysis.
 - Download with `Invoke-RestMethod` (aliased as `irm`).
 - Test with PowerShell 5.1 (ships with Windows 10) and PowerShell 7+.
 
-### Fallback (acceptable interim)
+### Fallback
 
-If `install.ps1` is not yet implemented, the project README must document the manual Windows installation path (e.g., `pip install`, `npm install`). This is acceptable as a temporary state — the install.ps1 should be tracked as a bead.
+A project without `install.ps1` documents the manual Windows installation path (e.g., `pip install`, `npm install`) in its README; that documentation does not satisfy the `install.ps1` requirement above.
 
 ### Developer-facing scripts
 
@@ -199,7 +209,7 @@ Build scripts, CI helpers, hooks, and other developer-facing `.sh` files do not 
 
 ## CI Integration
 
-Projects with `.sh` files should include shellcheck in their lint CI workflow. Add as a step in the existing `lint.yml`:
+Projects with `.sh` files should include shellcheck in their lint CI workflow, invoked through `make check` (the local and CI entry point). Where CI calls shellcheck directly, add it as a step in the existing `lint.yml`:
 
 ```yaml
 - name: ShellCheck
@@ -207,7 +217,7 @@ Projects with `.sh` files should include shellcheck in their lint CI workflow. A
     find . -name '*.sh' -not -path './.venv/*' -not -path './DerivedData/*' -exec shellcheck {} +
 ```
 
-For repos that only contain shell scripts (none currently), shellcheck is the primary lint gate.
+For repos that only contain shell scripts (none currently), `make check` running shellcheck is the primary lint gate.
 
 ## Installing shellcheck
 

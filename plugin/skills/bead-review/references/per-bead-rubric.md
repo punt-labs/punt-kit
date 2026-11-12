@@ -1,5 +1,8 @@
 # Per-Bead Rubric
 
+The outer skill has confirmed in Step 0 that beads is this repo's tracker
+of record, so every write below is a tracker write.
+
 The six-step rubric applied to each bead in `bead-review`'s Step 4.
 Referenced once per audit run; apply the whole rubric per bead, in
 order, in the same session running the outer skill.

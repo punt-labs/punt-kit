@@ -1,0 +1,51 @@
+mission_id: m-2026-11-12-004
+status: closed
+type: implement
+created_at: "2026-11-12T04:29:12Z"
+updated_at: "2026-11-12T05:48:05Z"
+closed_at: "2026-11-12T05:48:05Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: rop
+    pinned_at: "2026-11-12T04:29:12Z"
+    hash: 6e1a3cdfadb9e663c7a9ff6b37cad82ad05a05e94bb6f458ca592d20d1e5839b
+inputs:
+    files:
+        - standards/punt-labs-dir.md
+        - standards/tool-enable-disable.md
+        - standards/integration.md
+        - standards/filesystem.md
+        - standards/distribution.md
+        - src/punt_kit/audit.py
+        - docs/WORKFLOW.md
+write_set:
+    - standards/punt-labs-dir.md
+    - standards/tool-enable-disable.md
+success_criteria:
+    - 'punt-labs-dir.md has no section 10 and no Status / State today column anywhere; section 9 carries each live-state artifact''s live path and the observation-keyed grading rule; grep -c ''10-adoption-status'' standards/punt-labs-dir.md prints 0 and every former #10 anchor points at a section 9 heading that exists (the result lists each old anchor, its new target, and the heading text).'
+    - The gitlink-unverifiable warning, dependent-migration fail, grades-join-by-row, and one-row-per-artifact rules are present in section 8 or 9 restated without a status column; the result quotes each.
+    - tool-enable-disable.md carries no 'retired', 'still carries', 'Today', or 'legacy, retired' status prose; every listed line is rewritten as a present rule or deleted, and the result lists each with its disposition and the fleet file that confirms the rule.
+    - The six external links into punt-labs-dir.md#9-migration resolve (section 9 heading text unchanged); git diff --stat shows only punt-labs-dir.md and tool-enable-disable.md.
+    - The result states, with the grep command and output, that no file under src/punt_kit/ reads the section 10 table or its status values.
+    - The re-run sweep grep output is pasted in the result with every remaining hit classified as rule or false positive; every deleted status item is listed with file, line, and proposed bead text.
+    - npx markdownlint-cli2 reports zero findings on a copy of each changed .md placed under standards/_lint_<name>.md (copies moved to .tmp/ afterward, not committed); make check green on every commit.
+    - The result contains the one-sentence CHANGELOG Changed entry for the leader to add (migration rules keyed on observed artifacts, adoption status moved to the tracker); no bead IDs or PR numbers.
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: 9853b9a7c2a21693d8ffdc30829b1446
+          round: 1
+          created_at: "2026-11-12T05:35:06Z"
+          author: rop
+          recommendation: continue
+        - id: 56e22d353804d3d8b6f859ad3dd5e62e
+          round: 2
+          created_at: "2026-11-12T05:47:46Z"
+          author: rop
+          recommendation: continue
+context: 'Bead pkit-0l4j. Worktree <repo>/.claude/worktrees/0l4j, branch docs/punt-labs-dir-no-status, HEAD 8aa271a. Operator rule (2026-11-11, verbatim): standards are about the standards, not a status report; there is no standards status information in the standards; that is for beads. A standard states the rule or contract; who conforms today, ''Planned'' columns, ''State today'' columns, dated operator rulings, bead IDs, DES- numbers, ''retired'' history notes, ''not yet'', ''still carries'', ''tracked for implementation as'', and ''an earlier draft of this row said'' prose are status and rot when the work lands. Each such sentence is either a rule (keep, rewritten in the present tense, history dropped) or status (deleted; the result lists every deleted item with file, line, and a one-line bead text so the leader can file it in the owning tool''s funnel). PRIMARY, punt-labs-dir.md: (a) line 15-25: the dated operator ruling is history; state the rule (local/ is the only not-in-git flag; a tool keeps no per-repo state outside .punt-labs/; .beads/ is the exception) without the date and quotation. (b) Section 9 ''Migration'' tables: keep every Legacy -> Destination -> Rule row (that IS the migration rule); strip status wording inside cells (''the bare form is retired'' -> ''subtree-only''; ''Sequenced after ... [section 10]'' stays only as the ordering rule). (c) Section 10 ''Adoption Status'' is the hard case. DECISION (leader, already made; do not reopen): the table goes. Its two rule-bearing ideas survive in section 9 as rules without a status column: (1) ''Live path(s)'' per migrating artifact, because section 6 interim excludes and section 8 live-state grades derive from them; make section 9''s row for each live-state artifact carry the live path, so section 6 and section 8 reference section 9 rows. (2) The grading rule. Today it reads ''Status controls audit grading: a row is complete only when its status is Done or Complete; while open, a finding grades a warning and the interim exclude stays''. Rewrite it so grading keys on what audit OBSERVES in the repo, not on a table status: while the legacy artifact a section 9 row names is still present in a repo, its finding grades a warning and the row''s interim exclude stays in the canonical block; a repo where the artifact is gone grades nothing; the interim exclude for a live path is dropped by the rollout in the same change that relocates the path (the tool release that migrates it). The gitlink-unverifiable warning rule, the dependent-migration fail rule (identity-pointer move carried in the same change as the de-gitlink), the grades-join-by-row rule, and the one-row-per-artifact rule all stay, restated without reference to a Status column or to ''no row is complete yet''. Verify against src/punt_kit/audit.py that no code reads section 10 (the leader''s grep found only section 7 references; confirm and say so in the result). (d) Other hits to classify rule-or-status: lines 127-128 (''deprecated legacy, retired on the tool''s next release'' -> the rule: the root sentinel is not a presence marker; enable moves it), 153, 444 (''not yet local-convention-named because its owning tool has not migrated''), 450 (''today''), 614-616 (''claim that audit.py implements it today ... tracked for implementation as''), 677, 709, 742 (''not yet complete: the prerequisite''), 814-824 (the ''graded, expiring'' check and ''would fail every repo in the fleet today''), 856-884. Every anchor into #10-adoption-status (lines 150, 153, 178, 249, 489, 501, 504, 676, 716, 752, 761, 763, 811, 825, 833, 860, 865, 925, 929) must be re-pointed to the section 9 row or rule that now carries the fact, and no dangling anchor may remain; external links into punt-labs-dir.md#9-migration from integration.md:89, distribution.md:461, tool-enable-disable.md:489 and :529, filesystem.md:97 and :107 must still resolve (do not edit those files; keep the section 9 heading ''Migration''). SECONDARY, tool-enable-disable.md: line 71 (''Today that ...''), 77 (''y / n is retired'' -> the rule: the vocabulary is enable / disable), 207 (''still carries the retired managed-section markers'' -> the rule: no managed-section markers; a block in that form is removed by enable), 259, 310, 379 (''the retired punt auto claude target'' -> name what the content IS), 403-416, 429-441 (sentinel migration mechanics are a rule and stay; drop ''retired'' history and ''a repo that still carries''), 502-515 (''(legacy, retired)'' row -> keep the mapping as the migration rule, drop the history wording and ''never shipped'' commentary). Re-run the sweep before finishing: grep -niE ''does not yet conform|conforms:|not yet|has not migrated|being removed|once .* lands|is retired|are retired|the retired|tracked for implementation|still (uses|carries|has|runs|ships|writes|reads)|planned|today|earlier draft|DES-|ethos-e29s'' standards/punt-labs-dir.md standards/tool-enable-disable.md and classify every remaining hit in the result as a rule (quote it) or a false positive. Fleet reality check (punt-kit CLAUDE.md): before writing a present-tense rule about a tool''s sentinel or config path, confirm it against the deployed tool (../ethos, ../lux, ../vox, ../quarry, ../biff source and their .punt-labs/ trees) and list the files you checked. OUT OF SCOPE (a parallel mission owns them; do not edit): every other standards/*.md. Language: Markdown. Time box 120 minutes; first commit within 30; never more than 30 minutes uncommitted; one commit per logical step (section 10 removal and section 9 rewrite may be one commit; tool-enable-disable.md its own). Commit on the branch only; do not push, do not touch PRs or merge; git add <file> only. markdownlint: .markdownlint-cli2.jsonc ignores .claude/, so lint each changed file by copying it to standards/_lint_<name>.md in the worktree, running npx markdownlint-cli2 on that copy, and moving the copy to .tmp/ afterward; zero findings. CHANGELOG.md is NOT in your write-set; the leader adds the entry after the mission. Put the one-sentence Changed entry you would have written in the result.'

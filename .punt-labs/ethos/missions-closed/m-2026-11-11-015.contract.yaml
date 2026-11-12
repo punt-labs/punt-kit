@@ -1,0 +1,62 @@
+mission_id: m-2026-11-11-015
+status: closed
+type: implement
+created_at: "2026-11-11T05:44:03Z"
+updated_at: "2026-11-11T08:21:05Z"
+closed_at: "2026-11-11T08:21:05Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-11T05:44:03Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs: {}
+write_set:
+    - .claude/worktrees/tracker-funnel/standards/workflow.md
+    - .claude/worktrees/tracker-funnel/CHANGELOG.md
+success_criteria:
+    - 'Line 15 reads (the tracker) in place of (beads). The Loop State schema comment at line 76 reads -- open items in the tracker (Linear where migrated), observed through the beads mirror; the line 79 comment reads -- closed in the tracker at ship time, mirrored to beads. The Z type name BEAD and every schema structure are unchanged: grep -c "ℙ BEAD" standards/workflow.md is equal before and after, pasted in the result.'
+    - 'Lines 135 to 137 read: The backlog loop keeps the tracker true and decides what to work on next. The tracker is the single funnel: every piece of work above the trivial tier (T4, below), whatever its origin, is an issue in the tracker before it is anything else. Pseudocode line 151 bd_create becomes tracker_create with the trailing comment Linear save_issue where migrated; bd create otherwise. Line 154 for bead in candidates(bd_ready) gains the trailing comment the local mirror; pull first if stale.'
+    - 'The section at lines 205 to 222 is retitled The tracker: the single funnel. Its body is: one paragraph defining tracker-of-record (Linear for a repo whose .beads/config.yaml sets linear.pull_label or whose prefix is in linear.push_prefix; beads otherwise); the sentence Beads exists in every repo — as the tracker where nothing else is, and as a read-mostly mirror where Linear is; do not use it as the record when Linear is available; three compressed bullets (create, edit, claim and close in the tracker of record; status to beads only after Linear; a push sends no labels and every sync moves one shared cursor); one line deferring all mechanics to the deposited guide .punt-labs/punt/CLAUDE.md; the existing Issues must have paragraph with dependencies reworded to a Linear blocks relation plus bd dep add, or --blocks and --blocked-by in a beads-only repo. No bd command tutorial remains in the standard; it moved to the guide.'
+    - The tier table Tracking column at lines 281 to 284 reads Issues with dependencies, Issues + missions, Issues + one mission, No issue. The heading at line 302 reads Issues vs session task lists and its body says The tracker is the record.
+    - 'Line 320, bd sync, is deleted. It is false in server mode: the workspace .docs/WORKFLOW.md line 144 states there is no bead-sync step. The commit message names this as a found-while-here fix. grep -n "bd sync" standards/workflow.md returns nothing afterward, pasted.'
+    - 'Line 398 reads close the unit''s issue(s) in the tracker with the trailing comment Linear Done, then bd close. Invariant 1 at lines 1050 to 1052 reads: The tracker is the single funnel. Every piece of work above T4 is an issue in the repo''s tracker of record — Linear where the repo is migrated, beads otherwise — before it is anything else; external queues (issues, alerts) drain into it at intake. Beads never records what Linear does not. No new Related Standards entry is added.'
+    - After the edit grep -n "single funnel" standards/workflow.md matches only lines reading The tracker is the single funnel; no Beads are the single funnel survives. Output pasted.
+    - 'Every child docs/WORKFLOW.md remains a valid instantiation: nothing a child currently asserts is weakened (section 2 lines 94 to 98 let children strengthen but never weaken the org schema).'
+    - 'Fleet reality check, required by punt-kit/CLAUDE.md before amending a standard, is stated in the result and the commit message: the six migrated repos already run ahead of this text (biff, ethos, quarry, beadle, quarry-menubar carry linear.pull_label and PL- external_refs); this change generalizes deployed reality.'
+    - CHANGELOG.md gains an Unreleased Changed entry. npx markdownlint-cli2 standards/workflow.md returns zero findings, pasted. make check in the worktree exits 0 before every commit, output read in full.
+    - 'Commit on branch docs/tracker-funnel in the worktree only: one commit for the standard, one for CHANGELOG, each passing make check. git add each file by name. Do not push, do not create or touch PRs, do not merge; the leader does that and collects sibling-owner acknowledgments via biff before merge. First commit within 30 minutes. A design question is surfaced to the leader, not decided.'
+budget:
+    rounds: 3
+    reflection_after_each: true
+current_round: 3
+round_decisions:
+    version: 1
+    entries:
+        - id: d7bfc89300c9eeab5320c8f8a3e0edf9
+          round: 1
+          created_at: "2026-11-11T07:09:17Z"
+          author: claude
+          recommendation: continue
+        - id: 7f0f8aa899b164b1774d885de6a15884
+          round: 2
+          created_at: "2026-11-11T07:17:19Z"
+          author: claude
+          recommendation: continue
+        - id: e5f975a49c7257757fcbefb193c4b197
+          round: 3
+          created_at: "2026-11-11T08:19:47Z"
+          author: mdm
+          recommendation: stop
+context: |
+    Worktree <repo>/.claude/worktrees/tracker-funnel, branch docs/tracker-funnel from origin/main af11a57. Write-set paths above are relative to the main checkout; inside the worktree they are standards/workflow.md and CHANGELOG.md. All line numbers in the criteria are as of af11a57; re-derive them after the first edit shifts lines.
+
+    standards/workflow.md is the canonical workflow every punt-labs repo's docs/WORKFLOW.md instantiates. It says beads is THE single funnel and never mentions Linear. Six repos are migrated to Linear (the set is bd config get linear.push_prefix; today ethos,quarry,qmb,beadle,biff,punt), where Linear is the planning source of truth and beads a local mirror. Proven today by a live round-trip (bead quarry-dic3 to Linear PL-307, both cleaned up): a push sends no labels; a pull replaces a bead's labels. The standard's wording is why every downstream doc, and every agent, treats Linear as secondary. This unit fixes the source.
+
+    The rule: the tracker is the funnel; Linear in a migrated repo, beads otherwise. Mechanics belong in the deposited guide .punt-labs/punt/CLAUDE.md, written in a parallel unit — NOT in the standard. The standard states the rule and defers the how. That is the DRY boundary; do not pull mechanics back in.
+
+    Keep the Z type name BEAD. The loop state is literally observed via bd ready in both repo kinds, the type is replicated verbatim in EnterPR (unit : ℙ BEAD) and beadsOf(pr), and in five child WORKFLOW.md schemas that may strengthen but not weaken the org schema; a rename here forces six re-alignments. Reword comments only.
+
+    Read standards/workflow.md in full before editing, sections 2, 4 and 8 especially. Match the voice of the surrounding sections.
+
+    Language: Markdown. One shell command per Bash call; no chains.

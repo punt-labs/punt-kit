@@ -49,7 +49,7 @@ Direct delegation (quarry):              Commands layer (biff):
 
 ### Rules
 
-1. **`__init__.py` is the public API.** Export the library surface — core functions when the engine runs in-process, or the client functions that reach the daemon when it is one — via an explicit `__all__`. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
+1. **`__init__.py` is the public API.** The library is a thin client of the engine — the same as the CLI, MCP, and REST surfaces — never the core (see the [Projection Model](architecture.md#the-projection-model-canonical): "The library is a client too; it is not the core."). Export the library surface via an explicit `__all__`. When a daemon exists (biffd, voxd, quarryd, luxd), the daemon is the engine and the library's exported functions are a thin client that reaches it over the daemon's REST or socket API. The in-process form — where the exported functions call the engine directly in the caller's process — is the pre-daemon transitional case, not the model; it holds only while the engine has no daemon, and it carries no logic the other surfaces lack. Consumers should be able to `from <package> import ...` and get useful work done without touching CLI or MCP.
 
 2. **Core logic lives in dedicated modules** (`core.py`, `database.py`, `pipeline.py`, etc.) that never import from `cli.py` or `server.py`. The dependency arrow always points inward from every client surface: CLI → core, MCP → core, REST → core, never the reverse.
 
@@ -266,9 +266,11 @@ Target **3.13+**. Use modern PEP conventions:
 
 ## Version Reporting
 
-The version lives in `pyproject.toml` and nowhere else. Code that reports it —
-`--version` output, a `doctor` line, a User-Agent string — reads the installed
-package metadata:
+`pyproject.toml` is the single source of truth for the version: `version`
+under `[project]` is the only place a version string is written by hand.
+Everything else — `--version` output, a `doctor` line, a User-Agent string,
+and a package's own `__version__` — reads it back from the installed package
+metadata (PEP 566) at runtime:
 
 ```python
 from importlib.metadata import version
@@ -278,14 +280,30 @@ def cli_version() -> str:
     return version("punt-<name>")
 ```
 
-- **No literal `__version__ = "X.Y.Z"` anywhere.** A duplicated string needs a
-  release-time bump-and-verify of its own; three fallback patterns and their
-  regex workarounds grew in the release tool before this rule.
+When a package exposes `__version__`, compute it the same way — never assign a
+literal:
+
+```python
+# src/<package>/__init__.py
+from importlib.metadata import version
+
+__version__ = version("punt-<name>")  # dynamic — reads pyproject's version
+```
+
+- **No literal `__version__ = "X.Y.Z"` anywhere.** One version authority
+  eliminates the drift between `pyproject.toml` and `__init__.py` that two
+  hand-maintained strings invite; a duplicated string also needs a
+  release-time bump-and-verify of its own, and three fallback patterns with
+  regex workarounds grew in the release tool before this rule. A dynamic
+  `__version__ = version("punt-<name>")` is not a literal and is fine —
+  `__init__.py` simply carries no hardcoded version string (see Project
+  Layout).
 - The argument to `version()` is the **distribution name** (`punt-<name>`, the
   PyPI name — see Naming below), not the import package name.
 - **No `"0.0.0"` fallback.** An uninstalled package raising
   `PackageNotFoundError` is a broken environment; fail fast (see Error
-  Handling), do not report a version that does not exist.
+  Handling), do not report a version that does not exist. The fallback is
+  unnecessary, not required.
 
 ## Quality Gates
 
@@ -356,7 +374,7 @@ uvx twine check dist/*
   pyproject.toml            # Package metadata, dependencies, tool config
   uv.lock                   # Locked dependencies
   src/<package>/
-    __init__.py             # Public API (__all__, re-exports from core modules)
+    __init__.py             # Public API (__all__, re-exports; __version__ is dynamic — see Version Reporting)
     __main__.py             # CLI entry point
     py.typed                # PEP 561 marker
     cli.py                  # Typer app (thin — delegates to core)

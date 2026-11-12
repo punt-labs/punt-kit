@@ -37,7 +37,7 @@ Use a stash-and-wrap pattern:
 
 ## Related Patterns
 
-- [Sibling PPID](sibling-ppid.md) — The wrapped status line command uses PPID to find the correct state file written by its sibling MCP server process.
+- [MCP Caller Identity standard](../standards/mcp-caller-identity.md) §3.3, §3.2 — The wrapped status line command is an applet that receives the harness-declared `session_id` from the SessionStart hook (§3.3), keying it to the state file its sibling MCP server process writes under the same `session_id` (supplied via `_caller` on tool calls, §3.2).
 - [Two-Phase Install](two-phase-install.md) — Status line installation is a separate optional phase beyond the main Two-Phase Install, because it modifies global UI.
 - [Dynamic Description Notify](dynamic-description-notify.md) — The status line is the human-visible channel of the push notification system. Stash and Wrap is how that channel gets installed.
 

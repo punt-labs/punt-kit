@@ -20,6 +20,23 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `docs/WORKFLOW.md` — punt-kit's instantiation of `standards/workflow.md`:
+  the verification (`punt` from the installed wheel; `plugin/` through a
+  headless `claude -p --plugin-dir plugin` session; `sh install.sh`;
+  `gstack-qa` certifies the commit SHA before the PR opens; human-judged
+  exception: none), `verify_exempt`, the
+  worker/evaluator table's home, the standing worker contract, the
+  architectural units, the two formal classes (the PR review state machine
+  and the `punt release` phase sequence), and what each backlog rank means
+  here. `CLAUDE.md` now points at it instead of describing the gate itself.
+- `src/punt_kit/templates/punt-guide.md` — the tracker doctrine that
+  `punt enable` will deposit into every repo as `.punt-labs/punt/CLAUDE.md`
+  (the path `standards/tool-enable-disable.md` § 2.10 reserves). It tells an
+  agent how to find out whether a repo is migrated to Linear
+  (`bd config get linear.pull_label`), that in a migrated repo Linear is the
+  tracker of record and beads a read-mostly mirror, and how to plan, write,
+  block, defer, and sync without tripping the `bd linear sync` label and
+  cursor hazards. Harness-neutral; ships in the wheel, not under `plugin/`.
 - `standards/mcp-caller-identity.md` and DES-037 — how an engine learns which
   Claude Code session and agent is calling: each plugin's PreToolUse hook
   stamps `_caller {session_id, agent_id}` on its own tools, the server strips
@@ -29,14 +46,100 @@ All notable changes to this project will be documented in this file.
   and `filesystem.md` cross-reference it; `filesystem.md` reserves
   `sessions/`.
 
+### Changed
+
+- **Standards: `punt-labs-dir.md` and `tool-enable-disable.md` state
+  migration rules keyed on what `punt audit` observes in a repo.** Section 9
+  of `punt-labs-dir.md` carries each live-state path and the grading rule (a
+  legacy root sentinel, bare file, or gitlink present, or a live path
+  git-tracked, grades a warning and keeps its interim exclude; gone,
+  nothing); the adoption-status table, dated rulings, and retirement
+  history move to the tracker. `.punt-labs/ethos.yaml` is ethos's
+  configuration file and a documented exception to the one-subtree rule, not
+  a bare-file migration into the `ethos/` subtree. Sealed audit chunks are
+  local in every ethos record mode; only a `record: full` publication copy
+  lands in the tracked subtree, so a gitlink defers publication, never the
+  seal, and the trace-tier migration row and its interim gitignore exclude
+  are gone (this repo's `.gitignore` drops the matching line). A
+  `punt:begin` / `punt:end` marker section in a repo `CLAUDE.md` is content
+  to delete; no entry point is named for the strip.
+- **Standards state rules, not conformance status.** A standard says what
+  the rule or contract is; which tool conforms, what is planned, what is
+  retired, and dated rulings belong to the tracker. `mcp-caller-identity.md`
+  § 8 now states each engine's channel contract (the engine process, its
+  layer, what carries `_caller`, what the handle keys) in one shape per
+  engine, and § 9 keeps only scoping rules. `permissions.md`, `go.md`,
+  `architecture.md`, `integration.md`, `git.md`, `distribution.md`,
+  `release-requirements.md`, `shell.md`, `plugins.md`, `ci.md`, and
+  `filesystem.md` state their rules in the present tense: a `Skill()` value
+  is always plugin-scoped; golangci-lint runs the same prebuilt release
+  artifact locally and in CI; the ethos commit-msg hook stamps mission
+  trailers; a project without `install.ps1` documents the manual Windows
+  path in its README; a legacy home dot-directory maps to its
+  `~/.punt-labs/<tool>/` target with no status column. `integration.md`
+  drops its DRAFT banner.
+- `make type` (and so `make check`) type-checks `tools/` with mypy and
+  pyright alongside `src/` and `tests/`; a script under `tools/` that fails
+  either checker now fails the gate.
+- **Standards: baseline permissions and `<tool> enable` sets partition; no shared values.** A permission value lives in exactly one place: the `permissions.md` §3 baseline keeps only rules no `enable` owns (`mcp__github__*`, the generic build tools, `Bash(bd:*)`, `Bash(punt:*)`); every Punt Labs plugin MCP wildcard and every `Skill(<plugin>:<cmd>)` rule moves to the owning tool's `enable` set, and `punt init` never seeds them. §6 principle 3 and `tool-enable-disable.md` §2.8 name that set: the CLI (`Bash(<cli>:*)` when every subcommand is safe unprompted, else the safe subcommands by name; `punt` excepted, whose CLI rule is baseline because `punt init` scaffolds the file), the MCP wildcard (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server, or `mcp__<name>__*` for a server the tool registers natively), one `Skill()` per shipped command, and never a `-dev` rule. `disable` removes exactly that set by value-match, which the partition makes safe. The CLI-project table row drops `Bash(<cli-name>:*)` (a tool's own repo gets it through `enable`) and keeps `Bash(<cli-name>-server:*)`.
+
+- `/punt:bead-review` and the `autopilot` playbook refuse to run in a
+  Linear-migrated repo (one where `bd config get linear.pull_label` prints
+  `repo:<repo>`) and redirect to Linear. Both write beads only; in a
+  migrated repo a push sends no labels and a pull replaces each bead's
+  label set and re-opens locally closed beads, so every edit they made
+  was reverted by the next `bd linear sync` and none of it reached Linear.
+  They proceed only on the exact not-set output; any other output (a `bd`
+  error, an empty result, an unrecognised label) stops them with the
+  output printed, and `bead-review` also stops before calling `bd` when
+  its repo argument is empty or has no `.beads/`. The redirect links the
+  repo's Linear label filter; `autopilot`'s halt is a shell postcondition
+  on the step, so the executor aborts rather than relying on the step's
+  prose.
+- `standards/workflow.md` — the tracker is the single funnel, not beads.
+  Every repo has one tracker of record: Linear where
+  `bd config get linear.pull_label` prints a value starting with `repo:`,
+  beads otherwise. Beads stays in every repo as the tracker where nothing else is
+  and as a read-mostly mirror where Linear is; create, edit, claim, and close
+  in the tracker of record, and status reaches beads only after Linear. The
+  `bd` command tutorial and all sync mechanics move to the deposited guide
+  `.punt-labs/punt/CLAUDE.md`. The Z type `BEAD` and every schema are
+  unchanged; comments are reworded. The session-close block no longer lists
+  `bd sync`, which does not exist in server mode.
+
 ### Fixed
 
+- `install.sh` ends by running `punt doctor`, as `standards/distribution.md`
+  requires of an installer and `punt audit` checks; the audit no longer fails
+  punt-kit's own installer. A failing doctor is reported with the command to
+  rerun instead of being painted over with "is ready!". The binary it verifies
+  and runs is the one it just installed: uv's tool bin directory, read from
+  `uv tool dir --bin`, goes first on `PATH` before the lookup, so an older
+  `punt` earlier on `PATH` is not the one reported or checked.
+- `punt audit`'s "install.sh runs doctor" check passes only when the installer
+  runs doctor on a command line of its own; a comment or a printf that mentions
+  doctor no longer satisfies it.
+- `punt init` seeds only the permissions baseline. It no longer writes every
+  Punt Labs plugin's MCP wildcard, the `Skill()` rules, or a CLI project's
+  own `Bash(<cli>:*)` into `.claude/settings.json`; those belong to each
+  tool's `enable` and are removed by its `disable`, which only works when
+  init never seeds them. `Bash(<cli>-server:*)` is seeded only when the
+  project declares a `<cli>-server` entry point; init never synthesizes the
+  suffix, so a CLI without a server gets no rule for a binary that does not
+  exist, and audit no longer fails such a repo for lacking one.
+  `punt audit` no longer requires those tool-owned entries.
 - `standards/plugins.md` gave the dev-plugin MCP tool prefix as `_dev`;
   Claude Code keeps the hyphen (`mcp__plugin_biff-dev_tty__…`), as every
   plugin's matcher already does.
 - `standards/architecture.md` cited quarry as keeping each client's selected
   database in its daemon; the selection lives in quarry's MCP client. The
   example is now the lux Hub.
+
+### Removed
+
+- `make skills-check` and `make skills-check-fix`, with `tools/skills_check.py`.
+  They reconciled the `Skill()` table `punt init` used to seed; that table is
+  gone, each plugin's `enable` owns its own `Skill()` rules.
 
 ## [0.18.0] - 2026-11-04
 

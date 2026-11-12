@@ -42,6 +42,18 @@ def init_git_repo(path: Path) -> None:
     git(["init", "-b", "main"], cwd=d)
     git(["config", "user.email", "test@test.com"], cwd=d)
     git(["config", "user.name", "Test"], cwd=d)
+    # Pin line-ending handling so fixtures round-trip byte-for-byte. A host
+    # with core.autocrlf=input (git's suggested macOS/Linux default) converts
+    # CRLF to LF on `git add` but does not convert back on checkout, so the
+    # restored bytes lose their CRLF and the dev-restore CRLF/BOM round-trip
+    # tests fail on that host while passing in CI, where autocrlf is unset.
+    # (autocrlf=true also converts on add but restores CRLF on checkout, so it
+    # round-trips; pinning false removes git's line-ending machinery entirely.)
+    git(["config", "core.autocrlf", "false"], cwd=d)
+    # A dev host with a global commit.gpgsign=true would make these temp-repo
+    # commits attempt signing, which can prompt, stall, or fail. Pin it off so
+    # the fixtures commit deterministically regardless of host git config.
+    git(["config", "commit.gpgsign", "false"], cwd=d)
     # Create initial commit so HEAD exists
     (path / ".gitkeep").write_text("")
     git(["add", "."], cwd=d)

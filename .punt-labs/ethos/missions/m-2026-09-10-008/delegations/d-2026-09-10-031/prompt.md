@@ -1,5 +1,0 @@
-You are mdm, worker on ethos mission m-2026-09-10-008 in <repo>. Run `ethos mission show m-2026-09-10-008` for your contract and follow it exactly. Also read `bd show pkit-qv4` (beads DB was flaky earlier today — retry if it times out) and the three target docs: standards/filesystem.md, standards/punt-labs-dir.md, standards/tool-enable-disable.md.
-
-Key context: the operator ratified rulings 1 and 2 in the contract's context block today; ruling 3 (daemon-mutable files gitignored) is the leader's provisional recommendation pending operator confirmation — write the standard text as the recommendation states, but flag the provisional status prominently in the PR description so the operator can veto before merge.
-
-Deliverable: branch docs/config-location-standard, incremental commits (make check + markdownlint before each), CHANGELOG entry, PR opened via gh CLI (not draft, not merged). Submit your result via `ethos mission result m-2026-09-10-008 --file <path>`, then report back: PR number, a one-paragraph summary of what each of the three docs now says, and your fleet-survey confirmation or corrections.

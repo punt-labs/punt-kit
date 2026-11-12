@@ -1,9 +1,6 @@
-# Integration Standards (DRAFT)
+# Integration Standards
 
 **Updated:** 2026-09-10
-
-> **Status: DRAFT** — This standard is under development. Conventions described
-> here are directional but not yet enforced by quality gates or audits.
 
 How Punt Labs tools discover, communicate with, and coordinate each other
 inside a Claude Code session — without hard dependencies.
@@ -82,24 +79,16 @@ def has_biff() -> bool:
     return Path(".punt-labs/biff/enabled").exists()
 ```
 
-Several legacy sentinels (`.vox/config.md`, `.lux/config.md`) also carry live
-config. This contract changes what peers *read for presence* **and** where
-that config ends up: the sentinel migration
+A legacy sentinel that carries live config (`.vox/config.md`,
+`.lux/config.md`) is **moved**, never deleted: the sentinel migration
 ([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration),
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)) is a mandatory *move* —
-the settings are preserved by relocating into each tool's own Config-zone
-destination (not a uniform `config.*` shape: vox's is `.punt-labs/vox/vox.md`,
-lux's is `.punt-labs/lux/config.md`, biff's is `.punt-labs/biff/config.yaml`),
-the empty legacy root path is deleted, and the config is readable as L3 state
-**at the new path**, never at the old one. `.quarry.toml` never shipped as a
-legacy sentinel at all — quarry deposits directly at its Config-zone
-destination ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) has the
-verification).
-
-**Ordering dependency**: this L0 contract must ship in the same release train
-as the tool releases that migrate legacy sentinels on first run. A peer that
-checks the `enabled` marker before the tools that write it have shipped will
-silently fail every presence check.
+[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)) relocates the settings
+into the tool's own Config-zone destination (not a uniform `config.*` shape:
+vox's is `.punt-labs/vox/vox.md`, lux's is `.punt-labs/lux/config.md`, biff's
+is `.punt-labs/biff/config.yaml`), deletes the empty legacy root path, and
+leaves the config readable as L3 state **at the new path**, never at the old
+one. quarry has no legacy sentinel; its config lives at its Config-zone
+destination ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
 
 #### L1: Discovery
 
@@ -125,9 +114,19 @@ Examples:
 - Biff suggests `/wall` on PR creation (biff's own messaging reaction).
 - Quarry ingests URLs on WebFetch completion (quarry's own capture behavior).
 
-**Rule 1: Additive only.** A hook may enrich output or trigger a side
-effect, but must never block or modify the primary tool's operation. If
-the peer is absent, the hook is a no-op.
+**Rule 1: Additive only — for peer / cross-tool reactions.** When a hook
+reacts to *another* tool's operation (the L2 case here: vox reacting to a
+PR creation, quarry reacting to a WebFetch), it may enrich output or trigger
+a side effect, but must never block or modify that primary operation. If the
+peer is absent, the hook is a no-op.
+
+This scopes to peer reactions only. A hook acting on **its own tool's**
+operation legitimately blocks or mutates it — a mutation/stamping `PreToolUse`
+hook (e.g. the caller-identity stamper that rewrites its own server's
+arguments via `updatedInput`, [mcp-caller-identity.md § 3.1](mcp-caller-identity.md#31-the-hook),
+or a workflow gate that denies an edit, [hooks.md](hooks.md#mutation-hooks-blocking))
+is doing exactly that by design. The "additive only" rule does not reach a
+tool governing its own calls.
 
 **Rule 2: Each building block owns its reaction to shared events.**
 When multiple plugins hook the same Claude Code event (e.g., PostToolUse

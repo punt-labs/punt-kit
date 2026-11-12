@@ -192,6 +192,35 @@ Two windows to close, both handled above: **new files** are created `0600` atomi
 
 ## Log Location
 
+**Durable diagnostic logs are home-tree.** A tool's rotating diagnostic log is
+machine-scoped and repo-independent, so it lives in the home tree,
+`~/.punt-labs/<tool>/logs/` — never in a repo. This is the kind-(c) root of the
+[filesystem.md by-kind rule](filesystem.md#core-principle); it is distinct from
+repo-bound data, which stays in the repo tree:
+
+| Kind of data | Root | Governed by |
+|--------------|------|-------------|
+| Durable diagnostic log (this standard) | `~/.punt-labs/<tool>/logs/` | here + [filesystem.md](filesystem.md) |
+| Repo config and first-class repo-bound data | `<repo>/.punt-labs/<tool>/` (committed) | [punt-labs-dir.md](punt-labs-dir.md) |
+| Repo-bound ephemeral live state — a running tool's pre-seal session/audit stream, locks, live mission logs, trace | `<repo>/.punt-labs/local/<tool>/` (gitignored) | [punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone) |
+
+The test for which root a given log belongs in is a single question: **does
+this log belong to the tool, or to the work in one repo?** A **durable
+diagnostic log** — the rotating `<tool>.log` this standard configures,
+`repair.log`, crash/hook-error logs — records the tool's own operation, is the
+same regardless of which repo the tool runs in, and outlives any one repo's
+work; it is home-tree (`~/.punt-labs/<tool>/logs/`). A **repo-bound live
+stream** is scoped to the work in one checkout — an audit/session trail that
+must travel with the PR it documents, sealed into that repo's history; it lands
+in that repo's local zone while live (`<repo>/.punt-labs/local/<tool>/`) and is
+sealed into the committed subtree per
+[punt-labs-dir.md § 5](punt-labs-dir.md#5-live-state-is-never-a-tracked-file).
+If a log would read identically no matter which repo triggered it, it is
+durable (home); if it only makes sense alongside one repo's commits, it is
+repo-bound (local zone).
+Do not pull such repo-bound first-class state into the home tree, and do not
+push a durable diagnostic log into a repo.
+
 | Component | Path |
 |-----------|------|
 | Log directory | `~/.punt-labs/<tool>/logs/` |

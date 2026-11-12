@@ -3,15 +3,14 @@
 **Introduced:** 2026-08-30
 
 What continuous integration must prove before a merge, for every Punt Labs
-repository. The floor is set by operator ruling (2026-08-30); the rest is
-grounded in the published CI literature, cited inline. Where common practice
+repository. The floor is every supported OS; the rest is grounded in the published CI literature, cited inline. Where common practice
 and the evidence disagree, section 11 says so explicitly.
 
 Reference implementation: z-spec's `.github/workflows/test.yml` + `lint.yml`.
 
 ---
 
-## 1. The floor: every supported OS (operator ruling)
+## 1. The floor: every supported OS
 
 Two absolute rules. They are Punt Labs policy, not literature-derived — the
 canonical CI sources are silent on platform matrices (see §11), so these are
@@ -80,6 +79,7 @@ upper limit about 10" [4] independently agree.
 | Installed-artifact | Build the wheel/binary, install it, drive it as a subprocess — entry points, packaging, data files. In-process tests cannot see these faults. |
 | Domain gate | The product's core function exercised for real (z-spec: the spec corpus type-checks and model-checks; lux: rendering; vox: synthesis). |
 | Installer | Per §1–§3, matrixed per OS, including dependency-availability legs where install behavior branches on an optional dependency (z-spec: TeX present/absent). |
+| Secret scan | A `gitleaks` job over the PR content, same pinned scanner and config as the pre-commit hook ([git.md § 10](git.md)); required check, fails on any unpinned finding (see § 9). |
 
 The shape follows the test pyramid [2] and Google's size/scope split
 (roughly 80% unit / 15% integration / 5% system) [6]: many small fast
@@ -112,9 +112,8 @@ ruleset. An advisory leg is a leg that can silently fail forever.
 - Pass: the ruleset's `required_status_checks` lists every job and matrix
   leg by exact name; adding a leg to the workflow and to the ruleset is
   one change.
-- Fail: any test leg that can be red while the PR merges. (Found in the
-  wild: z-spec's ruleset required only `docs` — every real gate was
-  advisory — until 2026-08-30.)
+- Fail: any test leg that can be red while the PR merges. A ruleset that
+  requires only `docs` leaves every real gate advisory.
 
 External advisory reviewers (Bugbot) may stay unrequired with a bounded
 grace policy, per the org workflow's merge gate.
@@ -133,6 +132,13 @@ each other exactly; this section is verifiable by running Scorecard.
 - `pull_request_target` and secret-bearing `workflow_run` triggers never
   check out or execute untrusted PR code; widening such a filter requires
   an explicit head-repository check.
+- A `gitleaks` secret-scanning job is a required check on every PR. It runs
+  the same pinned `gitleaks` and committed `.gitleaks.toml` the pre-commit
+  hook uses ([git.md § 10](git.md)), over the PR's content, so a commit made
+  with `--no-verify` or on a machine without the hook is still caught. The
+  job fails on any unpinned finding. This is the CI half of the secret-scan
+  gate whose local half is the pre-commit hook; GitHub push protection is the
+  server-side backstop behind both.
 
 ## 10. Release pipelines: staged promotion, gates seen failing
 
@@ -146,8 +152,8 @@ each other exactly; this section is verifiable by running Scorecard.
   this rule surfaced a model-check gate that could not fail.)
 - Repos that ship installers or binaries should state a SLSA level target
   for their release pipeline [9]; SLSA is a single-framework ladder, cited
-  as such, and L1–L2 (hosted build, signed provenance) is the sensible
-  ceiling for this org today.
+  as such, and L1–L2 (hosted build, signed provenance) is the ceiling for
+  this org.
 
 ## 11. What this standard deliberately does NOT require
 
