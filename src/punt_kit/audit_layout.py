@@ -20,6 +20,7 @@ from rich.markup import escape
 
 from punt_kit.adoption_table import MIGRATION_TABLE, RowKind
 from punt_kit.audit_verdict import FAIL, PASS
+from punt_kit.phases.shared.errors import ReleaseError
 
 if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
@@ -172,13 +173,23 @@ class LayoutAudit:
     # --- git ---------------------------------------------------------------
 
     def _git(self, *args: str, stdin: bytes = b"") -> bytes:
-        return subprocess.run(
-            ["git", *args],
-            cwd=str(self._root),
-            input=stdin,
-            capture_output=True,
-            check=False,
-        ).stdout
+        """Run git; a git that cannot start is reported, not a traceback.
+
+        A missing or unrunnable binary is a property of the machine, so it
+        becomes the one error type the audit's guard turns into a failed
+        line, and the other checks still run.
+        """
+        try:
+            return subprocess.run(
+                ["git", *args],
+                cwd=str(self._root),
+                input=stdin,
+                capture_output=True,
+                check=False,
+            ).stdout
+        except OSError as exc:
+            msg = f"could not run git {' '.join(args)}: {exc}"
+            raise ReleaseError(msg) from exc
 
     def _is_git_root(self) -> bool:
         top = self._git("rev-parse", "--show-toplevel").decode().strip()

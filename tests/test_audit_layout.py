@@ -649,6 +649,29 @@ def test_run_audit_prints_a_check3_line_100_citation_verbatim(
     assert ".punt-labs/vox/vox.md (.gitignore:100:.punt-labs/vox/vox.md)" in out
 
 
+def test_run_audit_reports_a_git_that_cannot_start(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A missing git binary is one failed line, not an aborted audit."""
+    from punt_kit.audit import run_audit
+
+    root = _repo(tmp_path, "normal.gitignore")
+    empty = tmp_path / "empty-path"
+    empty.mkdir()
+    monkeypatch.setenv("PATH", str(empty))
+    with pytest.raises(SystemExit) as excinfo:
+        run_audit(str(root))
+    assert excinfo.value.code == 1
+    out = capsys.readouterr().out
+    assert "Project files are readable" in out
+    assert "could not run git rev-parse --show-toplevel" in out
+    assert "No such file or directory" in out
+    # The last check still ran: the layout failure did not abort the audit.
+    assert "GitHub settings" in out
+
+
 def test_findings_run_from_any_cwd(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
