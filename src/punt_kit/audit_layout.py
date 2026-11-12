@@ -82,13 +82,30 @@ class GitignoreText:
     def deny_all(self) -> bool:
         return bool(self._patterns) and self._patterns[0][1] in {"*", "/*"}
 
-    def punt_labs_excludes(self) -> tuple[tuple[int, str], ...]:
-        """Every non-negated pattern under ``.punt-labs/``, with its line number."""
-        return tuple(
-            (number, pattern)
-            for number, pattern in self._patterns
-            if pattern.startswith(".punt-labs/")
-        )
+    def has_canonical_block(self) -> bool:
+        return any(pattern in CANONICAL_BLOCK for _, pattern in self._patterns)
+
+    def interim_excludes(self) -> tuple[tuple[int, str], ...]:
+        """The block's interim excludes: its non-canonical ``.punt-labs/`` lines.
+
+        The block is the run of ``.punt-labs/`` patterns that starts at the
+        first canonical line and ends at the first pattern outside
+        ``.punt-labs/``. A ``.punt-labs/`` line elsewhere in the file is a
+        tool-specific ignore, not an interim exclude, and is another check's
+        business.
+        """
+        excludes: list[tuple[int, str]] = []
+        in_block = False
+        for number, pattern in self._patterns:
+            if pattern in CANONICAL_BLOCK:
+                in_block = True
+                continue
+            if not in_block:
+                continue
+            if not pattern.startswith(".punt-labs/"):
+                break
+            excludes.append((number, pattern))
+        return tuple(excludes)
 
     def diagnostic(self) -> str:
         """Why a probe may have failed, from the block's text; ``""`` if no clue."""
@@ -310,19 +327,27 @@ class LayoutAudit:
 
     def _interim_exclude_finding(self) -> Finding:
         label = "No interim exclude survives a completed migration"
+        gitignore = self._gitignore()
+        if not gitignore.has_canonical_block():
+            return (PASS, label, "no canonical block, so no interim excludes")
         live = {path.rstrip("/") for path in MIGRATION_TABLE.live_paths()}
         backed: list[str] = []
         stale: list[str] = []
-        for number, pattern in self._gitignore().punt_labs_excludes():
-            if pattern in CANONICAL_BLOCK or _is_local_convention(pattern):
+        for number, pattern in gitignore.interim_excludes():
+            if _is_local_convention(pattern):
                 continue
             if pattern.rstrip("/") in live:
                 backed.append(pattern)
             else:
                 stale.append(f"{pattern} (.gitignore:{number})")
         if stale:
-            detail = "Stale: " + ", ".join(stale) + " — no § 9.4 row names these paths"
-            return (FAIL, label, detail)
+            noun = "this path" if len(stale) == 1 else "these paths"
+            return (
+                FAIL,
+                label,
+                "Stale: " + ", ".join(stale) + f" — no § 9.4 row names {noun};"
+                " the migration is finished yet its old location is still ignored",
+            )
         return (
             PASS,
             label,

@@ -389,15 +389,41 @@ def test_only_table_backed_excludes_pass(tmp_path: Path) -> None:
     )
 
 
-def test_exclude_for_a_path_no_row_names_fails(tmp_path: Path) -> None:
+def test_interim_exclude_no_row_names_fails(tmp_path: Path) -> None:
+    """A line inside the canonical block for a path § 9.4 no longer names."""
     root = _repo(tmp_path, "normal.gitignore")
-    with (root / ".gitignore").open("a") as f:
-        f.write(".punt-labs/lux.md\n.punt-labs/ethos/.biff\n")
+    text = (root / ".gitignore").read_text()
+    (root / ".gitignore").write_text(text + ".punt-labs/ethos/sessions/\n")
     assert _finding(root, "No interim exclude survives a completed migration") == (
         FAIL,
         "No interim exclude survives a completed migration",
-        "Stale: .punt-labs/lux.md (.gitignore:7), .punt-labs/ethos/.biff"
-        " (.gitignore:8) — no § 9.4 row names these paths",
+        "Stale: .punt-labs/ethos/sessions/ (.gitignore:7) — no § 9.4 row names"
+        " this path; the migration is finished yet its old location is still"
+        " ignored",
+    )
+
+
+def test_ignore_line_outside_the_block_is_not_an_interim_exclude(
+    tmp_path: Path,
+) -> None:
+    """A stray .punt-labs/ line elsewhere is check 3's or the bare-file check's."""
+    root = _repo(tmp_path, "normal.gitignore")
+    with (root / ".gitignore").open("a") as f:
+        f.write("*.pyc\n.punt-labs/lux.md\n.punt-labs/ethos/.biff\n")
+    assert _finding(root, "No interim exclude survives a completed migration") == (
+        PASS,
+        "No interim exclude survives a completed migration",
+        "2 interim exclude(s), each named by a § 9.4 row",
+    )
+
+
+def test_block_missing_means_no_interim_excludes(tmp_path: Path) -> None:
+    root = _repo(tmp_path, "normal.gitignore")
+    (root / ".gitignore").write_text(".punt-labs/ethos/sessions/\n")
+    assert _finding(root, "No interim exclude survives a completed migration") == (
+        PASS,
+        "No interim exclude survives a completed migration",
+        "no canonical block, so no interim excludes",
     )
 
 
