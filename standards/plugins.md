@@ -163,8 +163,8 @@ checkout of `plugin` produced `plugin/` plus `AGENTS.md`, `CHANGELOG.md`,
 `uv.lock`. Every directory was absent.
 
 So the "Stays in repo" column below is accurate for directories and **not** for
-root files. `.envrc`, `prfaq.pdf`, and `prfaq.tex` ship with an install today
-and continue to under `git-subdir`; `.envrc` in particular carries
+root files. Root files such as `.envrc`, `prfaq.pdf`, and `prfaq.tex` ship
+with every `git-subdir` install; `.envrc` in particular carries
 infrastructure hostnames and database usernames. The win is real — it is a
 directory-shaped win — but do not describe a root file as excluded. Excluding
 those means moving them into a subdirectory or untracking them, which is a
@@ -217,7 +217,7 @@ following prefixes:
 The prefix list above is not the surface definition — it is a starting point.
 **The surface is whatever `${CLAUDE_PLUGIN_ROOT}` reaches**, so grep for that
 variable across the whole repo and move everything it names. A directory not on
-the list above still ships if a command or skill resolves it through the plugin
+the list above ships if a command or skill resolves it through the plugin
 root. punt-kit is the recorded case: its `auto` skill loads
 `${CLAUDE_PLUGIN_ROOT}/playbooks/<name>.yaml`, no code path reads playbooks at
 all, and a `playbooks/` left at the repo root would have been neither inside
@@ -581,7 +581,7 @@ to the repo's `.claude/settings.json` by `<tool> enable` and removed by
    `statusLine` key (the status line is a per-user display setting, not a
    permission), stashing and restoring the prior value. The carve-out is a
    closed allow-list, not an open category: the only permitted user-global key
-   today is `statusLine`, written solely by the explicit `install-statusline`
+   is `statusLine`, written solely by the explicit `install-statusline`
    command, which must stash and restore the prior value. Any other
    user-global key is prohibited until this list adds it; a tool does not get
    to declare a new key "inherently user-global" on its own. Permission rules

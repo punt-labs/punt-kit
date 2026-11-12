@@ -154,8 +154,8 @@ each other exactly; this section is verifiable by running Scorecard.
   this rule surfaced a model-check gate that could not fail.)
 - Repos that ship installers or binaries should state a SLSA level target
   for their release pipeline [9]; SLSA is a single-framework ladder, cited
-  as such, and L1–L2 (hosted build, signed provenance) is the sensible
-  ceiling for this org today.
+  as such, and L1–L2 (hosted build, signed provenance) is the ceiling for
+  this org.
 
 ## 11. What this standard deliberately does NOT require
 

@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-04
 
-Standards for home directory layout across all Punt Labs projects. Role models: **biff** (reference implementation) and **vox** (early adopter of namespaced paths).
+Standards for home directory layout across all Punt Labs projects. Reference implementations: **biff** and **vox**.
 
 ---
 
@@ -129,6 +129,14 @@ When adopting this standard from a legacy dot-directory (e.g., `~/.biff/` → `~
 - **Clean break.** Document the change in CHANGELOG as a breaking change. Users who need old data can move it manually.
 - **Installer handles creation.** `<tool> install` creates `~/.punt-labs/<tool>/` and required subdirectories via `mkdir -p`.
 
+The legacy dot-directory each tool breaks from, and its target:
+
+| Tool | Legacy path | Target path |
+|------|------------|-------------|
+| biff | `~/.biff/` | `~/.punt-labs/biff/` |
+| quarry | `~/.quarry/` | `~/.punt-labs/quarry/` |
+| vox | `~/.punt-vox/` | `~/.punt-labs/vox/` |
+
 ---
 
 ## What Does NOT Live Here
@@ -141,14 +149,3 @@ When adopting this standard from a legacy dot-directory (e.g., `~/.biff/` → `~
 | Status line config | `~/.claude/settings.json` | Owned by Claude Code |
 | Shell completions | `~/.zfunc/`, `~/.bash_completion.d/` | Shell convention |
 | Binaries | `~/.local/bin/` | XDG/FHS convention |
-
----
-
-## Adoption Status
-
-| Tool | Legacy path | Target path | Status |
-|------|------------|-------------|--------|
-| biff | `~/.biff/` | `~/.punt-labs/biff/` | Migrating |
-| quarry | `~/.quarry/` | `~/.punt-labs/quarry/` | Planned |
-| vox | `~/.punt-vox/` | `~/.punt-labs/vox/` | Planned |
-| punt | — | `~/.punt-labs/punt/` | N/A |

@@ -244,17 +244,17 @@ documented in Claude Code's skills architecture:
 A `Skill()` allow entry is required: without it, a skill whose
 prompt-command properties fall outside the safe-property allowlist prompts the
 user on every invocation. New properties default to requiring permission until
-reviewed, so a skill that is auto-allowed today can start prompting after an
-upstream change.
+reviewed, so an auto-allowed skill can start prompting after an upstream
+change.
 
 **Scoped names only — short forms are banned.** Every skill is named, invoked,
 and granted only by its plugin-scoped name: `biff:who`, `quarry:find`,
 `vox:recap` — never the bare alias `who`, `find`, `recap`. This matches the plugin
 namespace invariant ([plugins.md](plugins.md#namespace-scope): "the plugin name
 prefixes **everything** — commands, MCP server tools, skills, agents, hooks").
-Short-form aliases are retired: the skill namespace is noisy — bare names like
-`mail`, `send`, `inbox`, `find` collide across plugins, so an unqualified
-`Skill(mail)` grant is ambiguous and over-broad. A tool must not expose a
+A `Skill()` value is always plugin-scoped: the skill namespace is noisy — bare
+names like `mail`, `send`, `inbox`, `find` collide across plugins, so an
+unqualified `Skill(mail)` grant is ambiguous and over-broad. A tool must not expose a
 short-form skill name, and no repo grants one. A short-form `Skill()` entry —
 any skill name with no `plugin:` prefix — is non-conformant.
 

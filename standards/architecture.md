@@ -98,9 +98,9 @@ a local socket because display I/O is at millisecond scale.
 **When the engine must become a daemon.** Required once clients share mutable
 state, contend for a device, or run concurrently. Deferrable before that, but
 only if the surfaces are already thin clients over a clean engine boundary, so
-adding the daemon later is a deployment change, not a rewrite. ethos has no
-daemon today — repo state on disk, no concurrency pressure — and defers it until
-scale demands it. vox's `voxd` daemon owns the audio device, so it exists now.
+adding the daemon later is a deployment change, not a rewrite. ethos — repo
+state on disk, no concurrency pressure — defers its daemon until scale demands
+it. vox's `voxd` owns the audio device, so it is a daemon.
 
 **Which surfaces to build.** Only those with callers — though the CLI
 effectively always has one.

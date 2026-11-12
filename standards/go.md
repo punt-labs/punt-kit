@@ -41,8 +41,8 @@ ethos is the same model with the daemon deferred. It is a Go tool whose engine
 lives under `internal/` --- `internal/identity`, `internal/attribute`,
 `internal/mission` --- and whose surfaces are the `ethos` CLI in `cmd/ethos` and
 an MCP server that `ethos serve` starts over stdio. ethos keeps its state as YAML
-on disk with no concurrent writers, so it has no daemon today; architecture.md
-names it as the example of a tool that defers its daemon until scale demands one.
+on disk with no concurrent writers, so it has no daemon; architecture.md names
+it as the example of a tool that defers its daemon until scale demands one.
 Because its CLI and its MCP surface already sit as thin clients over a clean
 `internal/` engine boundary, adding that daemon later is a deployment change, not
 a rewrite.
@@ -332,14 +332,18 @@ up to pass them.
 
 ### Installing golangci-lint
 
-Pin to a release tag in the Makefile and install the same version locally and in
-CI. Locally:
+Pin to a release tag in the Makefile and run the same prebuilt release binary
+for that tag locally and in CI. Locally, the `tools` target downloads the
+official release archive for `$(GOLANGCI_LINT_VERSION)` from golangci-lint's
+GitHub releases, verifies it against the published checksums file, and
+installs the binary to `$(GOBIN)`; `lint` refuses to run when that binary is
+absent and names the target that installs it. ethos's Makefile `tools` target
+is the reference implementation. Never
+`go install github.com/golangci/golangci-lint/...@<tag>`: that compiles a copy
+from source (see below).
 
-```bash
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-```
-
-In CI, use the official action pinned by commit SHA to the matching version:
+In CI, use the official action pinned by commit SHA to the matching version;
+its default `install-mode: binary` downloads the same release artifact:
 
 ```yaml
 - name: golangci-lint
@@ -373,24 +377,14 @@ fails the identical commit with `File is not properly formatted (gofmt)`,
 because the two sides ran two different binaries under one shared version
 label.
 
-The fix is to stop pinning the version alone and start pinning the artifact:
-local and CI must run the same prebuilt release binary for a given tag, never
-one side compiling its own copy from source while the other downloads the
-release. The `go install ...@v2.12.2` snippet shown above is exactly the
-compile-from-source pattern this principle warns against --- it is documented
-above as today's mechanism, not endorsed as the fix, and stays in place only
-until the installer security review below lands its replacement. ethos has
-already adopted the fix at the tooling level --- its `tools` target now
-fetches the official prebuilt release binary for the pinned tag instead of
-compiling one with `go install`, matching what its CI already ran by default.
-The other Go projects in the fleet have not yet made the same change and
-remain exposed to this drift. This document does not prescribe the fetch
-mechanism itself --- install script, CI action mode, or a vendored
-checksum-verified download are all candidates, and a security review of the
-installer path is pending as of this writing. Adopt "same prebuilt artifact,
-not just same version number" as the binding rule now; the concrete install
-form --- including whether the snippet above should change --- will follow
-once that review lands.
+The rule is therefore to pin the artifact, not the version alone: local and
+CI run the same prebuilt release binary for a given tag, never one side
+compiling its own copy from source while the other downloads the release.
+`go install ...@<tag>` and `go run ...@<tag>` are the compile-from-source
+pattern this rule forbids. The fetch mechanism is not prescribed beyond that:
+a Makefile download verified against the release checksums (the ethos
+`tools` target), the CI action's binary mode, or a vendored checksum-verified
+download all satisfy it, as long as every side runs the same artifact.
 
 ## 8. Concurrency
 

@@ -197,9 +197,9 @@ See DES-006 in DESIGN.md for the full root cause analysis.
 - Download with `Invoke-RestMethod` (aliased as `irm`).
 - Test with PowerShell 5.1 (ships with Windows 10) and PowerShell 7+.
 
-### Fallback (acceptable interim)
+### Fallback
 
-If `install.ps1` is not yet implemented, the project README must document the manual Windows installation path (e.g., `pip install`, `npm install`). This is acceptable as a temporary state — the install.ps1 should be tracked as a bead.
+A project without `install.ps1` documents the manual Windows installation path (e.g., `pip install`, `npm install`) in its README.
 
 ### Developer-facing scripts
 
