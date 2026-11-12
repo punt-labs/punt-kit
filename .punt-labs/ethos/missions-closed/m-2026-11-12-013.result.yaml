@@ -1,0 +1,143 @@
+mission: m-2026-11-12-013
+round: 2
+created_at: "2026-11-12T13:16:24Z"
+author: rmh
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: src/punt_kit/adoption_table.py
+      added: 185
+      removed: 0
+    - path: src/punt_kit/audit_layout.py
+      added: 365
+      removed: 0
+    - path: src/punt_kit/audit.py
+      added: 4
+      removed: 1
+    - path: tests/test_adoption_table.py
+      added: 133
+      removed: 0
+    - path: tests/test_audit_layout.py
+      added: 588
+      removed: 0
+    - path: tests/fixtures/punt_labs_dir/normal.gitignore
+      added: 6
+      removed: 0
+    - path: tests/fixtures/punt_labs_dir/deny-all.gitignore
+      added: 10
+      removed: 0
+    - path: tests/fixtures/punt_labs_dir/deny-all-no-bare-dir.gitignore
+      added: 9
+      removed: 0
+    - path: tests/fixtures/punt_labs_dir/overmatching-glob.gitignore
+      added: 5
+      removed: 0
+evidence:
+    - name: 'F1 (2eecbb5, dda1a4c): with 9a5f8f1''s audit_layout.py swapped in, test_interim_exclude_no_row_names_fails, test_ignore_line_outside_the_block_is_not_an_interim_exclude, test_block_line_for_a_bare_file_row_is_that_rows_business, test_block_missing_means_no_interim_excludes: 4 failed; on HEAD: 4 passed'
+      status: pass
+    - name: 'F2 (b42de8a): test_run_audit_prints_a_check3_line_100_citation_verbatim with Console() restored (emoji on): 1 failed, assertion ''.punt-labs/vox/vox.md (.gitignore:100:.punt-labs/vox/vox.md)'' not in out; with Console(emoji=False): passed'
+      status: pass
+    - name: 'F3 (b42de8a): test_ignored_bare_file_is_the_bare_file_checks_business on dda1a4c: failed (check 3 reported .punt-labs/lux.md); after: passed'
+      status: pass
+    - name: 'F4 (b42de8a): test_tracked_live_path_warns with two captures files on dda1a4c: failed (''2 file''); after: passed (''2 files'')'
+      status: pass
+    - name: 'F7 (4d98fc8): PY-TS-14 justification comment on row_naming_path; ruff, mypy --strict, pyright clean'
+      status: pass
+    - name: 'F6 (611fe2b): audit_layout.py 388 -> 365 lines; no new file'
+      status: pass
+    - name: 'make check on 611fe2b: 2407 passed, 14 skipped'
+      status: pass
+    - name: make build; uv tool install --force dist/*.whl; punt audit on punt-kit, ../vox, ../biff (read-only) — layout rows pasted in prose; ethos lines 228-244 false FAIL gone
+      status: pass
+open_questions:
+    - 'F5 ruling applied: WARN stays in audit_layout.py because audit_verdict.py is outside the write-set.'
+    - 'F6 ruling applied: no new module; audit_layout.py is 365 lines after tightening, still over the 300-line guide, because the seven checks and the gitignore-text diagnostic share one class and the write-set admits no split.'
+    - 'Round-1 fork and ruling, carried forward: the contract keyed the table and checks 5-7 on a § 10 table PR #454 removed; the leader ruled to rule by the § 9 tables on origin/main with observation-keyed grading, the bare-file check in place of the § 10 sequencing check, and check 6 scoped to interim excludes inside the canonical block.'
+prose: |
+    Round-2 commits on feat/audit-layout, on top of 9a5f8f1 (the commit gvr
+    evaluated), each passing make check with no suppressions:
+
+    2eecbb5 fix(audit): an interim exclude is a line inside the canonical block  (F1)
+    dda1a4c fix(audit): a block line for a bare-file row is that row's check's business  (F1)
+    b42de8a fix(audit): scope check 3 to the tool subtrees; pin the emoji fix; pluralize files  (F2, F3, F4)
+    4d98fc8 style(audit): justify the Optional return of row_naming_path  (F7)
+    611fe2b refactor(audit): tighten audit_layout.py to 365 lines  (F6)
+
+    F1. GitignoreText.interim_excludes() returns the non-canonical .punt-labs/
+    lines of the run that starts at the first canonical-block line and ends at
+    the first pattern outside .punt-labs/. Check 6 fails one when no § 9.4 row
+    names it and skips one naming a path another § 9 row owns. A .punt-labs/
+    line outside the block is check 3's or the bare-file check's business. The
+    four tests fail on 9a5f8f1 and pass on HEAD (evidence above).
+
+    F2. A second rendering test drives run_audit with .punt-labs/vox/vox.md
+    ignored at .gitignore line 100 and asserts the literal check-3 citation
+    ".punt-labs/vox/vox.md (.gitignore:100:.punt-labs/vox/vox.md)". With
+    Console() restored it fails; with Console(emoji=False) it passes.
+
+    F3. Check 3 now ranges over paths with a second slash, i.e. .punt-labs/<tool>/
+    only. biff's .punt-labs/lux.md is graded once, by the bare-file row.
+
+    F4. "1 file" / "N files".
+
+    Entry point from the rebuilt wheel, layout rows only:
+
+    punt-kit:
+      ✓ Gitignore behaves correctly — 42 probes: 5 tool(s), 2 interim path(s)
+      ✓ No tracked local-convention path — 237 tracked path(s) under .punt-labs/
+      ✗ No gitignored non-local-convention path — Ignored: .punt-labs/ethos/.biff
+        (.gitignore:241:.punt-labs/ethos/.biff), .punt-labs/ethos/.claude/settings.json
+        (.gitignore:44:*/**/.claude/)
+      ! No legacy root sentinel — .vox — migration pending (§ 9.1 .vox/config.md →
+        .punt-labs/vox/vox.md); .lux — migration pending (§ 9.1 .lux/config.md →
+        .punt-labs/lux/config.md)
+      ✓ Live-state migration pending — no § 9.4 live path is git-tracked
+      ✓ No interim exclude survives a completed migration — 2 interim exclude(s),
+        each named by a § 9.4 row
+      ✓ No bare file under .punt-labs/
+
+    vox:
+      ✗ Gitignore behaves correctly — .punt-labs/beadle/foo.local should be ignored;
+        .punt-labs/biff/foo.local should be ignored; .punt-labs/ethos/foo.local
+        should be ignored; .punt-labs/quarry/CLAUDE.md should not be ignored
+        (.gitignore:90:.punt-labs/quarry/); .punt-labs/quarry/config.yaml should not
+        be ignored (.gitignore:90:.punt-labs/quarry/); .punt-labs/quarry/locales/en.yaml
+        should not be ignored (.gitignore:90:.punt-labs/quarry/);
+        .punt-labs/quarry/config.locales.yaml should not be ignored
+        (.gitignore:90:.punt-labs/quarry/); .punt-labs/vox/foo.local should be
+        ignored; .punt-labs/z-spec/foo.local should be ignored — canonical block
+        lacks .punt-labs/**/local, .punt-labs/**/*.local
+      ✓ No tracked local-convention path — 416 tracked path(s) under .punt-labs/
+      ✗ No gitignored non-local-convention path — Ignored: .punt-labs/ethos/.biff
+        (.gitignore:101:.punt-labs/ethos/.biff), .punt-labs/ethos/.claude/settings.json
+        (.gitignore:105:.punt-labs/ethos/.claude/), .punt-labs/ethos/.envrc
+        (.gitignore:100:.punt-labs/ethos/.envrc), .punt-labs/ethos/.github/workflows/lint.yml
+        (.gitignore:99:.punt-labs/ethos/.github/), .punt-labs/ethos/.gitignore
+        (.gitignore:102:.punt-labs/ethos/.gitignore), .punt-labs/ethos/.markdownlint-cli2.jsonc
+        (.gitignore:103:...), .punt-labs/ethos/.markdownlint.jsonc (.gitignore:104:...),
+        .punt-labs/ethos/CHANGELOG.md (.gitignore:106:...), .punt-labs/ethos/README.md
+        (.gitignore:107:...), .punt-labs/ethos/ethos.yaml (.gitignore:108:...)
+      ! No legacy root sentinel — .ethos — migration pending (§ 9.1
+        .ethos/missions.jsonl → .punt-labs/local/ethos/missions.jsonl)
+      ✓ Live-state migration pending — no § 9.4 live path is git-tracked
+      ✗ No interim exclude survives a completed migration — Stale:
+        .punt-labs/ethos/missions/**/*.lock (.gitignore:166) — no § 9.4 row names
+        this path; the migration is finished yet its old location is still ignored
+      ! No bare file under .punt-labs/ — .punt-labs/lux.md — migration pending
+        (§ 9.2 → .punt-labs/lux/)
+
+    biff:
+      ✓ Gitignore behaves correctly — 42 probes: 5 tool(s), 2 interim path(s)
+      ✓ No tracked local-convention path — 245 tracked path(s) under .punt-labs/
+      ✗ No gitignored non-local-convention path — Ignored:
+        .punt-labs/ethos/missions/m-2026-11-11-020/contract.yaml, .../corrections.yaml,
+        .../delegations/d-2026-11-11-050/record.yaml (.gitignore:271:.punt-labs/ethos/missions/)
+      ! No legacy root sentinel — .vox — migration pending (§ 9.1 .vox/config.md →
+        .punt-labs/vox/vox.md)
+      ✓ Live-state migration pending — no § 9.4 live path is git-tracked
+      ✓ No interim exclude survives a completed migration — 2 interim exclude(s),
+        each named by a § 9.4 row
+      ! No bare file under .punt-labs/ — .punt-labs/lux.md — migration pending
+        (§ 9.2 → .punt-labs/lux/)
+
+    No sibling repo and no punt-kit .gitignore was modified; nothing pushed.
