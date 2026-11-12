@@ -1,0 +1,33 @@
+mission: m-2026-11-12-012
+round: 2
+created_at: "2026-11-12T11:21:52Z"
+author: adt
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/designs/prfaq-make-recipe.md
+      added: 816
+      removed: 0
+evidence:
+    - name: 'round-2 commit 8064168 on design/prfaq-recipe (new commit on top of 3de2560, no amend or rebase); git status --short clean; git diff --numstat origin/main..HEAD: 816 0 docs/designs/prfaq-make-recipe.md, the only file'
+      status: pass
+    - name: 'npx --yes markdownlint-cli2@0.23.2 _lint_design.md (copy, moved to .tmp/prfaq-probe/_lint_design_r2.md afterwards): ''Summary: 0 issues in 0 files'', rc=0. First run had 2 MD038 findings from the new seed-output table, fixed and re-linted.'
+      status: pass
+    - name: 'F1 verified by execution before rewriting: nopages.tex (empty body) under the hardened recipe on this host gives pdflatex exit 0, no <job>.pdf, ''mv: ./nopages.build.pdf: No such file or directory'', then ''Error: could not replace ./nopages.pdf; built PDF left at ./nopages.build.pdf'', make rc=2, sentinel PDF untouched, nopages.build.log present with ''No pages of output''. Section 3.4 row 10, 3.5 layer 1, the fixtures table, and the test write-set row now use this scenario; the read-only-directory mechanism and the not-root assertion are gone.'
+      status: pass
+    - name: 'F2: section 3.1 gains an ''Output and exit status'' table for the five changed punt seed makefile paths (Python with/without TEX_FILES, non-Python with/without, --dry-run) with text, --json object, and exit 0; the retired ''only support Python'' sentence is replaced by a named skip line; seed.py, __main__.py, and test_cli.py write-set rows updated'
+      status: pass
+    - name: 'F3: decision 5 states both costs (TeX on every dev host for make test; apt-get of four packages per CI run), names the PL-TT-1 tier-3 default it departs from, gives options (a) and (b), and recommends (a) with the reason; the section 5.3 rejected-alternative row cross-references it'
+      status: pass
+    - name: 'F4: PL-715 now appears only in section 2.3 (survey) and decision 9; sections 2.5, 3.7, and 8 say ''the prfaq repo''s own issue''; line 41 reads ''which CI installs (§ 3.5)'''
+      status: pass
+    - name: 'F5: ethos docs-pdf cited as lines 85-98; lux .gitignore cited as lines 81-87'
+      status: pass
+open_questions:
+    - Operator decision 5 now presents two options; the recommendation is (a) hard-fail plus CI TeX install, departing from PL-TT-1.
+prose: |
+    All five round-1 findings fixed in one new commit (8064168). The row-10
+    fix was executed, not inferred: a no-pages document reaches the guarded mv
+    with every pass exiting 0. The seed output contract follows the shape of
+    lang-rules-deploy.md section 3.1 and reuses punt's existing global --json
+    and --quiet flags with no new flag. Not pushed; no PR touched.

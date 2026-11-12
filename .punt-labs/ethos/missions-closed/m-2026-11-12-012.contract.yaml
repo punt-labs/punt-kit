@@ -1,0 +1,49 @@
+mission_id: m-2026-11-12-012
+status: closed
+type: implement
+created_at: "2026-11-12T10:54:03Z"
+updated_at: "2026-11-12T11:25:31Z"
+closed_at: "2026-11-12T11:25:31Z"
+leader: claude
+worker: adt
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-12T10:54:03Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs:
+    files:
+        - src/punt_kit/seed.py
+        - src/punt_kit/templates/seed/makefile/python.mk.j2
+        - src/punt_kit/templates/seed/makefile/help.mk.j2
+        - tests/test_seed.py
+        - DESIGN.md
+        - docs/WORKFLOW.md
+        - Makefile
+write_set:
+    - docs/designs/prfaq-make-recipe.md
+success_criteria:
+    - docs/designs/prfaq-make-recipe.md exists on branch design/prfaq-recipe in the kfql worktree, committed, not pushed, the only file changed.
+    - 'The fork (where the canonical recipe lives: seed section, shipped include, or plugin script) is settled with one recommendation that cites DES-024, DES-027, tool-enable-disable.md §2.3 and §2.10, and WORKFLOW.md''s architectural-unit rule by section, with the rejected alternatives and why.'
+    - Each of the five numbered questions (opt-in, failure contract with exit codes and stderr lines, the failing-then-passing test and where it runs, rollout order and cryptd's disposition, the audit check) has a recommendation and at least one rejected alternative.
+    - The fleet reality check cites, with line numbers, the current recipe in each of the seven Makefiles, cryptd's hardened one, and the plugin script's defect, and states what the design generalizes or supersedes.
+    - The implementation write-set names every file the implementation mission will create or change with a one-line purpose, including the test fixtures; a DES-039 ADR draft is present.
+    - An operator-decisions list contains every deviation from a settled ADR, a standard, or the bead text, phrased '(N) X — recommend A. Confirm or course-correct', or says there are none and why.
+    - markdownlint reports zero findings on the doc (copy, deleted after); the result pastes the run.
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: a134f708aa1bf330b45c5caed331527b
+          round: 1
+          created_at: "2026-11-12T11:17:11Z"
+          author: mdm
+          recommendation: continue
+        - id: 86b9c4789637b783fbac752d9f538fca
+          round: 2
+          created_at: "2026-11-12T11:25:11Z"
+          author: mdm
+          recommendation: advance
+context: 'DESIGN MISSION, docs only: produce docs/designs/prfaq-make-recipe.md in the worktree <repo>/.claude/worktrees/kfql (branch design/prfaq-recipe). No code. Bead pkit-kfql (`bd show pkit-kfql`). THE DEFECT. Seven sibling repos (vox, biff, lux, beadle, prfaq, punt-kit, and formerly cryptd) carry a hand-copied `make prfaq` recipe that exits 0 when biber reports an unresolved citation or pdflatex writes ''Citation ... undefined'' / ''There were undefined references.'' / ''Rerun to get cross-references right'', because both tools treat those as warnings; the PDF ships with bold cite keys and ?? refs under a success line. The recipe also deletes the tracked PDF before pass 1 and sweeps intermediates with root globs. cryptd PR #114 (origin/main Makefile lines 179-245, read it with `git -C ~/Coding/punt-labs/cryptd show origin/main:Makefile`) holds the hardened recipe: build under -jobname <base>.build, grep the .blg for ''(WARN|ERROR) - '', grep the final log for the anchored unresolved pattern, guard the final mv, sweep by explicit job name, gitignore the .build.pdf. The leader verified on 2026-11-12 that no sibling Makefile carries any `punt seed` managed-section marker and none but cryptd carries the hardened markers, and that cryptd''s PR carried no test. THE PLUGIN''S OWN SCRIPT, ~/Coding/punt-labs/prfaq/plugin/scripts/compile_prfaq.sh, has the same defect (biber failure is `|| echo Warning`; no log grep); that is prfaq''s bead, not this unit''s, but the design must say how the two relate. THE FORK YOU MUST SETTLE WITH A RECOMMENDATION. Where does the canonical recipe live and how does it reach seven Makefiles? Candidates: (a) a new managed section `prfaq` in `punt seed makefile` (src/punt_kit/seed.py MAKEFILE_SECTIONS, a Jinja template under templates/seed/makefile/), which today renders the same two sections into every Python repo with no opt-in; (b) a shared make include punt-kit ships (`-include .punt-labs/punt/prfaq.mk` deposited by punt the way the tracker guide is); (c) the prfaq plugin''s compile script becomes the one implementation and every Makefile''s target shells out to it. Settle it against DES-024 (punt never writes another tool''s zone; prfaq is another tool), tool-enable-disable.md §2.3/§2.10, the four-surface rule in DES-027, and the fact that `punt seed makefile` is an existing subcommand whose output this would change (docs/WORKFLOW.md names that an architectural unit). ALSO SETTLE, each with a recommendation and rejected alternatives: (1) opt-in: how a repo says it has a prfaq to compile (TEX_FILES in its Makefile? a prfaq.tex at the root? a declaration?) so Python repos without one do not get the section; (2) the failure contract: exact exit codes and stderr lines for missing pdflatex, missing biber when .bcf exists, pass-1 failure, biber failure, unresolved citation, unresolved reference, and the guarded mv, so a test can pin each; (3) the test: a fixture .tex plus .bib that compiles clean, one with an undefined \cite, one with an undefined \ref; each must FAIL on the current recipe and PASS on the hardened one; say where the test lives (tests/test_seed.py renders the section; a make-level test needs pdflatex, so say whether CI has it, read .github/workflows/test.yml, and how the test skips or installs it); (4) rollout: how the seven siblings get the recipe and in what order, whether cryptd''s hand-rolled block is replaced by the managed section or left, and what the .gitignore change is; (5) what `punt audit` checks afterwards (a stale or hand-edited prfaq block). DOC SHAPE: as docs/designs/lang-rules-deploy.md (merged 2026-11-12): Summary; fleet reality check (grep the seven Makefiles and the plugin script yourself, cite line numbers); the mechanism; the fork and each settled question with rejected alternatives; a DESIGN.md ADR draft (DES-039) in the Design / Why / Rejected Alternatives shape; the implementation write-set with one line per file; an operator-decisions list of every deviation from a settled ADR, a standard, or the bead text, each ''(N) X — recommend A. Confirm or course-correct''. No status language, no bead IDs in normative text. Lint on a _lint_design.md copy from the worktree with npx markdownlint-cli2, delete the copy, zero findings. Commit `docs(design): one hardened prfaq make recipe for the fleet` on the branch; do not push. Time box 75 minutes; first commit within 30. Language: Markdown.'

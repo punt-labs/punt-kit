@@ -140,8 +140,11 @@ references its own label; `badcite` cites `missing99`; `badref` references
 | clean | 0 | 0 | 0 | yes | none | none |
 | badcite | 0 | 0 | 0 | yes | `WARN - I didn't find a database entry for 'missing99'` | `Citation 'missing99' … undefined`, `There were undefined references.`, `Please (re)run Biber` |
 | badref | 0 | 0 | 0 | yes | none | `` Reference `sec:zz' … undefined ``, `There were undefined references.` |
+| nopages (empty body) | 0 | n/a | 0 | no | n/a | `No pages of output.` |
 
-Variant A prints its success line for all three. Variant C, run from a copy
+Variant A prints its success line for the first three and, for `nopages`,
+reports a compile failure only because no PDF exists at the end, with no
+line saying why. Variant C, run from a copy
 of cryptd's lines 179–239 on the same files, prints `./clean.pdf` and exits
 0 for `clean`, and for the other two prints the matched lines followed by
 `Error: badcite.tex has unresolved citations (biber); see
@@ -202,7 +205,7 @@ error.
 | Python | no | `standard-targets`, `help` | as above | `{"target": "makefile", "sections": ["standard-targets", "help"], "changed": [...]}` | 0 |
 | non-Python | yes | `prfaq` | as above | `{"target": "makefile", "sections": ["prfaq"], "changed": [...]}` | 0 |
 | non-Python | no | none | the skip line above, then `No changes needed.` | `{"target": "makefile", "sections": [], "changed": [], "skipped": "no section applies"}` | 0 |
-| any, `--dry-run` | either | as the matching row | `~ Makefile (+N lines)` indented two spaces (or `+ Would create Makefile`), then `Dry run — no files modified.`; the skip line instead when no section applies | the matching object with `"dry_run": true` and `changed` holding what would change | 0 |
+| any, `--dry-run` | either | as the matching row | `~ Makefile (+N lines)` indented two spaces (or `+ Would create Makefile`), or the skip line when no section applies; then `Dry run — no files modified.` on every dry run | the matching object with `"dry_run": true` and `changed` holding what would change | 0 |
 
 `--quiet` suppresses the text lines; the `--json` object is unaffected by
 `--quiet`. The existing failure paths (`run_seed` on a non-directory, an
