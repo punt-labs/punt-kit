@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -22,9 +23,10 @@ from tests.helpers import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from punt_kit.detect import ProjectInfo
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_audit_docs_project(tmp_path: Path) -> None:
@@ -451,6 +453,268 @@ def test_audit_hybrid_install_sh_fails_no_doctor(tmp_path: Path) -> None:
 
     with pytest.raises(SystemExit, match="1"):
         run_audit(str(tmp_path))
+
+
+def _install_sh_findings(root: Path) -> list[tuple[str, str, str]]:
+    """What the install.sh check reports for the project at ``root``."""
+    check = cast(
+        "Callable[[ProjectInfo], list[tuple[str, str, str]]]",
+        vars(audit)["_check_install_sh"],
+    )
+    return check(detect(root))
+
+
+def test_audit_install_sh_fails_when_doctor_is_only_mentioned(tmp_path: Path) -> None:
+    """A comment or a printf naming doctor is not a doctor run.
+
+    The check must find doctor on a command line of its own, invoked on the
+    binary, or an installer that merely talks about doctor passes.
+    """
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\nset -eu\n"
+        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
+        "# verify the install with doctor\n"
+        "printf '  test-cli doctor   # re-check installation health\\n'\n"
+    )
+
+    findings = _install_sh_findings(tmp_path)
+
+    assert (
+        FAIL,
+        "install.sh runs doctor",
+        'Missing doctor verification step: expected a line running "$BINARY" doctor'
+        " or one of: test-cli",
+    ) in findings
+
+
+def _doctor_check_status(tmp_path: Path, line: str) -> str:
+    """The doctor finding's status for an installer whose only doctor line is ``line``.
+
+    The fixture project's CLI entry point is ``test-cli``, so that is the bare
+    binary name the check may accept.
+    """
+    _make_compliant_hybrid(tmp_path)
+    (tmp_path / "install.sh").write_text(
+        "#!/bin/sh\nset -eu\n"
+        'claude plugin marketplace update "$MARKETPLACE_NAME" 2>/dev/null || true\n'
+        'git config --global url."https://github.com/".insteadOf "git@github.com:"\n'
+        f"{line}\n"
+    )
+    findings = _install_sh_findings(tmp_path)
+    return next(
+        status for status, label, _ in findings if label == "install.sh runs doctor"
+    )
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        '"$BINARY" doctor || true',
+        "  test-cli doctor",
+        '"$INSTALL_DIR/$BINARY" doctor',
+        'if "$BINARY" doctor; then',
+    ],
+)
+def test_audit_accepts_a_doctor_run_on_the_binary(tmp_path: Path, line: str) -> None:
+    """A line that invokes the binary's doctor satisfies the check."""
+    assert _doctor_check_status(tmp_path, line) == PASS
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "  echo doctor",
+        "  printf doctor",
+        "  run doctor",
+        "# run doctor",
+        "printf 'run test-cli doctor\\n'",
+        "  doctor_rc=0",
+        '"$BINARY" doctors',
+    ],
+)
+def test_audit_rejects_a_line_that_is_not_the_binarys_doctor(
+    tmp_path: Path, line: str
+) -> None:
+    """Only the binary, named or held in a variable, may be the command.
+
+    Any other first word followed by ``doctor`` is a mention, not a run.
+    """
+    assert _doctor_check_status(tmp_path, line) == FAIL
+
+
+def test_audit_passes_the_repositorys_own_install_sh_doctor_check() -> None:
+    """punt-kit's real install.sh satisfies the doctor check it imposes."""
+    findings = _install_sh_findings(_REPO_ROOT)
+
+    assert (PASS, "install.sh runs doctor", "") in findings
+
+
+# --- install.sh behavior ---
+
+_FAKE_UV = """#!/bin/sh
+case "$1 $2" in
+  "tool install") exit 0 ;;
+  "python install") exit 0 ;;
+  "tool dir")
+    if [ "$FAKE_UV_DIR_FAILS" = "1" ]; then
+      echo "error: cannot resolve the tool bin directory" >&2
+      exit 2
+    fi
+    if [ "$FAKE_UV_DIR_EMPTY" = "1" ]; then
+      printf '\\n'
+      exit 0
+    fi
+    printf '%s\\n' "$FAKE_UV_TOOL_BIN" ;;
+  *) echo "fake uv: unexpected $*" >&2; exit 3 ;;
+esac
+"""
+
+_FAKE_PUNT = """#!/bin/sh
+[ "$1" = "doctor" ] || exit 3
+echo "doctor from $0"
+exit "$FAKE_DOCTOR_RC"
+"""
+
+# macOS ships a python3 stub that exits non-zero until the Command Line
+# Tools are installed; the installer must treat it as "no Python".
+_BROKEN_PYTHON3 = """#!/bin/sh
+echo "xcode-select: note: No developer tools were found" >&2
+exit 1
+"""
+
+
+def _write_executable(path: Path, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    path.chmod(0o755)
+
+
+def _run_install_sh(
+    tmp_path: Path,
+    *,
+    tool_bin: Path,
+    doctor_rc: int = 0,
+    uv_dir_fails: bool = False,
+    uv_dir_empty: bool = False,
+    python3_broken: bool = False,
+) -> subprocess.CompletedProcess[str]:
+    """Run the real install.sh against a fake uv and a fake punt.
+
+    ``tool_bin`` is where the fake uv claims to install tools and where the
+    fake punt lives; it is on PATH only if install.sh puts it there. PATH is
+    the fake bin directory alone: the installer needs only shell builtins and
+    the fakes, and a host ``claude`` or ``python3`` must not leak into the run
+    (a real ``claude`` would install the operator's plugin). The scratch HOME
+    keeps the operator's real tools out as well.
+    """
+    fake_bin = tmp_path / "fake-bin"
+    _write_executable(fake_bin / "uv", _FAKE_UV)
+    _write_executable(tool_bin / "punt", _FAKE_PUNT)
+    if python3_broken:
+        _write_executable(fake_bin / "python3", _BROKEN_PYTHON3)
+    home = tmp_path / "home"
+    home.mkdir(exist_ok=True)
+    env = {
+        "PATH": str(fake_bin),
+        "HOME": str(home),
+        "FAKE_UV_TOOL_BIN": str(tool_bin),
+        "FAKE_UV_DIR_FAILS": "1" if uv_dir_fails else "0",
+        "FAKE_UV_DIR_EMPTY": "1" if uv_dir_empty else "0",
+        "FAKE_DOCTOR_RC": str(doctor_rc),
+    }
+    return subprocess.run(
+        ["/bin/sh", str(_REPO_ROOT / "install.sh")],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_install_sh_reports_ready_when_doctor_passes(tmp_path: Path) -> None:
+    """A passing doctor ends the install with the ready line."""
+    tool_bin = tmp_path / "home" / ".local" / "bin"
+
+    result = _run_install_sh(tmp_path, tool_bin=tool_bin)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"doctor from {tool_bin / 'punt'}" in result.stdout
+    assert "Claude Code not found" in result.stdout, "plugin step must be skipped"
+    assert "punt-kit is ready!" in result.stdout
+    assert "\n\n\n" not in result.stdout, "one blank line between doctor and ready"
+
+
+def test_install_sh_installs_python_when_python3_is_a_broken_stub(
+    tmp_path: Path,
+) -> None:
+    """A python3 that exits non-zero means no Python, not a dead installer."""
+    tool_bin = tmp_path / "home" / ".local" / "bin"
+
+    result = _run_install_sh(tmp_path, tool_bin=tool_bin, python3_broken=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Installing Python 3.13 via uv" in result.stdout
+    assert "punt-kit is ready!" in result.stdout
+
+
+def test_install_sh_warns_instead_of_ready_when_doctor_fails(tmp_path: Path) -> None:
+    """A failing doctor is reported, not painted over with the ready line."""
+    tool_bin = tmp_path / "home" / ".local" / "bin"
+
+    result = _run_install_sh(tmp_path, tool_bin=tool_bin, doctor_rc=1)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "is ready!" not in result.stdout
+    assert "punt installed but doctor" in result.stdout
+    assert "punt doctor" in result.stdout, "the rerun command must be named"
+
+
+def test_install_sh_fails_when_uv_tool_dir_cannot_be_resolved(tmp_path: Path) -> None:
+    """The bin directory comes from uv; when uv cannot say, the install fails."""
+    tool_bin = tmp_path / "home" / ".local" / "bin"
+
+    result = _run_install_sh(tmp_path, tool_bin=tool_bin, uv_dir_fails=True)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "is ready!" not in result.stdout
+    assert "uv tool dir --bin" in result.stdout
+    assert "uv self update" in result.stdout, "an old uv lacks --bin; say so"
+
+
+def test_install_sh_fails_when_uv_tool_dir_prints_nothing(tmp_path: Path) -> None:
+    """An empty bin directory would put the current directory first on PATH.
+
+    ``PATH=":$PATH"`` resolves ``punt`` from the cwd, so an empty answer from
+    uv is a failure, not a directory.
+    """
+    tool_bin = tmp_path / "home" / ".local" / "bin"
+
+    result = _run_install_sh(tmp_path, tool_bin=tool_bin, uv_dir_empty=True)
+
+    assert result.returncode == 1, result.stdout + result.stderr
+    assert "is ready!" not in result.stdout
+    assert "printed nothing" in result.stdout
+
+
+def test_install_sh_verifies_the_binary_uv_installed_not_a_stale_one(
+    tmp_path: Path,
+) -> None:
+    """uv's tool bin directory goes first on PATH before the binary lookup.
+
+    A stale punt earlier on PATH must not be the one reported or checked, and
+    uv's directory is whatever uv reports, not a hard-coded $HOME/.local/bin.
+    """
+    tool_bin = tmp_path / "uv-tools"
+    _write_executable(tmp_path / "fake-bin" / "punt", _FAKE_PUNT)
+
+    result = _run_install_sh(tmp_path, tool_bin=tool_bin)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"punt {tool_bin / 'punt'}" in result.stdout
+    assert f"doctor from {tool_bin / 'punt'}" in result.stdout
+    assert str(tmp_path / "fake-bin" / "punt") not in result.stdout
 
 
 # --- README SHA pin tests ---

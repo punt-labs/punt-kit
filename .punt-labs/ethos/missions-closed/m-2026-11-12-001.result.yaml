@@ -1,0 +1,69 @@
+mission: m-2026-11-12-001
+round: 2
+created_at: "2026-11-12T02:17:51Z"
+author: rmh
+verdict: pass
+confidence: 0.95
+files_changed:
+    - path: install.sh
+      added: 20
+      removed: 5
+    - path: src/punt_kit/audit.py
+      added: 33
+      removed: 42
+    - path: tests/test_audit.py
+      added: 213
+      removed: 1
+    - path: CHANGELOG.md
+      added: 10
+      removed: 0
+evidence:
+    - name: 'make check on e5a959a: ruff, ruff format, shellcheck, mypy, pyright clean; 2355 passed, 14 skipped'
+      status: pass
+    - name: 'tests/test_audit.py: 81 passed, including 4 accept and 7 reject parametrized doctor-line cases'
+      status: pass
+    - name: 'oo_score src/punt_kit/audit.py 68b1992 -> e5a959a: module_size 640 -> 635, avg_complexity 5.50 -> 5.35, avg_params 1.32 -> 1.30, max_complexity 17 -> 17, rest unchanged'
+      status: pass
+prose: |
+    Round 2 finding: the doctor pattern accepted any bare first word before
+    `doctor`. Fixed in one commit, e5a959a, on top of 68b1992 (round 1).
+    Files: src/punt_kit/audit.py, tests/test_audit.py.
+
+    TDD record.
+    Tests written first: test_audit_accepts_a_doctor_run_on_the_binary
+    (parametrized over `"$BINARY" doctor || true`, `  test-cli doctor`,
+    `"$INSTALL_DIR/$BINARY" doctor`, `if "$BINARY" doctor; then`) and
+    test_audit_rejects_a_line_that_is_not_the_binarys_doctor (parametrized
+    over `  echo doctor`, `  printf doctor`, `  run doctor`, `# run doctor`,
+    `printf 'run test-cli doctor\n'`, `  doctor_rc=0`, `"$BINARY" doctors`).
+    The fixture project's cli_commands is ["test-cli"].
+
+    Run on 68b1992: 3 failed, 8 passed. The three failures were the reject
+    cases `  echo doctor`, `  printf doctor`, `  run doctor`, each with
+      AssertionError: assert '[green]✓[/green]' == '[red]✗[/red]'
+    i.e. the check returned PASS. The other four rejects and all four accepts
+    already passed.
+
+    Run on e5a959a: 11 passed; the full file 81 passed.
+
+    The fix: `_DOCTOR_INVOCATION` (a module constant) became
+    `_doctor_invocation(binaries: list[str]) -> re.Pattern[str]`, built from
+    `info.cli_commands` at check time. The first token (optionally quoted,
+    optionally after `if`) must contain a `$` or end with one of the escaped
+    cli_commands names, bare or preceded by a path; then whitespace and
+    `doctor\b`. With an empty cli_commands the name alternation is `(?!)`,
+    so only a `$` token can match; the check is unreachable in that case
+    anyway, since is_hybrid requires cli_commands to be non-empty. The
+    docstring states exactly this.
+
+    oo_score: adding the function raised module_size to 642; hoisting the four
+    rule predicates into named locals let three rule tuples fit on one line,
+    ending at 635 (below the 640 baseline), with avg_complexity and
+    avg_params also improved. No other metric moved.
+
+    The installer demo was not re-run (the contract allows one run and
+    install.sh is unchanged this round). `uv run punt audit` from the
+    worktree on e5a959a:
+      ✓ install.sh runs doctor
+      39 passed, 0 failed
+    No push, no PR; `git add <file>` only.
