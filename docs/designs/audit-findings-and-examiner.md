@@ -34,7 +34,7 @@ class-based modules each re-declare the same shape under `TYPE_CHECKING` as
 `Finding = tuple[str, str, str]` (`src/punt_kit/audit_layout.py:28`,
 `src/punt_kit/audit_permissions.py:16`, `src/punt_kit/audit_github.py:17`).
 The first element is not a status: it is a rich markup string,
-`"[green]✓[/green]"` (`src/punt_kit/audit_verdict.py:4-7`), chosen so that
+`"[green]✓[/green]"` (`src/punt_kit/audit_verdict.py:5-8`), chosen so that
 `run_audit` can print it without translation
 (`src/punt_kit/audit.py:105`). The tuple is assembled for one consumer, the
 terminal, and that consumer's needs leaked into the data:
@@ -44,8 +44,12 @@ terminal, and that consumer's needs leaked into the data:
   know whether a finding failed has to know the markup.
 - **Rule identity is absent.** No element says which standard or which
   section a finding enforces. `audit_layout.py` smuggles the section into the
-  detail text (`"§ 8"`, `"§ 9.4"` at `src/punt_kit/audit_layout.py:379-384`,
-  `394-397`); every other module names nothing. The epic's judgment examiner
+  detail text: `(§ 9.1: no migration)` at `src/punt_kit/audit_layout.py:380`,
+  `(§ {row.section} {row.path_naming(name)} → {destination})` at line 385,
+  `(§ {row.section} → {row.destination})` at line 396, and
+  `no § 9.4 live path is git-tracked` at line 399; the `§ 8` the module
+  enforces appears only in its docstring at line 1. Every other module
+  names nothing. The epic's judgment examiner
   must tag each finding with its standard section (DES-023 rule 3), and the
   tuple has nowhere to put it.
 - **Location is prose.** A finding that names a file does so inside the
@@ -59,7 +63,7 @@ terminal, and that consumer's needs leaked into the data:
   (`src/punt_kit/audit_permissions.py:185`): the remedy is appended to the
   detail with an em dash, and a consumer that wants to offer the fix has to
   split on punctuation.
-- **Examiner type does not exist.** Every finding is deterministic today;
+- **Examiner type does not exist.** Every finding on origin/main is deterministic;
   the examiner the epic adds produces findings that are not pass/fail per
   rule, and the tuple cannot say which examiner produced a row.
 - **Markup escaping is a producer duty.** Because the detail is printed as
@@ -88,7 +92,7 @@ root.
 | Module | Role | Producers |
 |--------|------|-----------|
 | `src/punt_kit/audit.py` | Entry point `run_audit` (line 56); registers every check in one tuple (lines 80-97); collects (line 98); renders and counts (lines 101-118); decides the exit code (lines 120-121). | 14 `_check_*` functions (lines 136, 193, 258, 285, 344, 370, 389, 400, 414, 470, 582, 601, 635, 682); 13 are registered directly, and `_check_plugin_dev_suffix` (line 582) is called from `_check_plugin_dev_isolation` (line 504). |
-| `src/punt_kit/audit_verdict.py` | The four markers `PASS`, `FAIL`, `FIXED`, `INFO` (lines 4-7), each a rich markup string. | none |
+| `src/punt_kit/audit_verdict.py` | The four markers `PASS`, `FAIL`, `FIXED`, `INFO` (lines 5-8), each a rich markup string. | none |
 | `src/punt_kit/audit_layout.py` | `LayoutAudit(info).findings` (line 155); declares a fifth marker `WARN` (line 30). | 9 finding methods (lines 251, 284, 292, 343, 364, 388, 401, 435, 450). |
 | `src/punt_kit/audit_permissions.py` | `PermissionsAudit(info).findings` (line 32). | 3 producers (lines 32, 110, 195). |
 | `src/punt_kit/audit_github.py` | `GithubSettingsAudit(info.root).findings` (line 41); `_gh_json` returns a union of `object` and `Finding` (line 129) and callers test `isinstance(listing, tuple)` to tell a finding from a response (line 100). | 4 producers (lines 41, 60, 92, 167). |
@@ -108,7 +112,7 @@ is not imported into `audit.py` at all. The summary prints the three counts
 and a `detect` that raises (line 72).
 
 **Status markers in use: five.** `PASS`, `FAIL`, `FIXED`, `INFO`
-(`audit_verdict.py:4-7`) and `WARN` (`audit_layout.py:30`). `WARN` is used
+(`audit_verdict.py:5-8`) and `WARN` (`audit_layout.py:30`). `WARN` is used
 at `audit_layout.py:370, 383, 398, 448, 467`. `FIXED` is produced by three
 checks under `--fix` (`audit.py:276, 359, 384`).
 
@@ -118,7 +122,7 @@ f-string labels (`f"{filename} exists"` at `audit.py:271`,
 `f"GitHub settings ({exc})"` at `audit_github.py:55`). The epic's "~50
 existing checks" is this population.
 
-**Consumers that read rendered audit output today.** No Makefile, CI
+**Consumers that read rendered audit output on origin/main.** No Makefile, CI
 workflow, or shell script in any sibling repo invokes `punt audit`; a grep
 over the workspace for the string in `Makefile`, `*.yml`, `*.yaml`, `*.sh`,
 `*.py`, and `*.go` outside punt-kit returns nothing, and no sibling's
@@ -148,8 +152,8 @@ off.
 1.5 KB (`naming.md`) to 69 KB (`punt-labs-dir.md`); 17 are under 15 KB and
 the five largest (`punt-labs-dir.md`, `workflow.md`, `tool-enable-disable.md`,
 `pr-review.md`, `hooks.md`) are 32 KB to 69 KB. The wheel ships
-`src/punt_kit` and nothing else (`tests/test_packaging.py:57-65`), so no
-installed `punt` carries the corpus; every reader of a standard today reaches
+`src/punt_kit` and nothing else (`test_module_is_declared`, `tests/test_packaging.py:63-67`), so no
+installed `punt` carries the corpus; every reader of a standard on origin/main reaches
 it through the sibling checkout (`plugin/commands/reconcile.md:28-30`, the
 `SiblingRepo` resolution the release uses at
 `src/punt_kit/phases/phase01_preflight.py:161`) or GitHub.
@@ -159,7 +163,7 @@ plugin through `claude -p --plugin-dir plugin "<command>"` for the demo gate;
 the installed `claude` on this host accepts `--print` with
 `--output-format json`, `--json-schema <schema>` for structured output,
 `--tools <names>` to restrict the built-in tool set, `--max-turns`, and
-`--no-session-persistence` (`claude --help`, 2026-11-12). ethos's end-to-end
+`--no-session-persistence` (each confirmed by invoking `claude --print` with that flag on this host, 2026-11-12). ethos's end-to-end
 suite drives `claude --print ... --output-format json` against a mock
 upstream (`../ethos/docs/testing-strategy.tex:696-803`).
 
@@ -188,7 +192,7 @@ Three modules, each under the three-class limit, all in `src/punt_kit/`:
 
 | Module | Classes | Role |
 |--------|---------|------|
-| `audit_verdict.py` | `Severity`, `Examiner` | The two closed vocabularies. The four markup strings it holds today move to the renderer. |
+| `audit_verdict.py` | `Severity`, `Examiner` | The two closed vocabularies. The four markup strings it holds on origin/main move to the renderer. |
 | `audit_finding.py` | `Rule`, `Location`, `Finding` | The value objects every producer returns. |
 | `audit_report.py` | `Report`, `TerminalRenderer` | The collection with its counts, exit code, and JSON form; the one terminal consumer. |
 
@@ -254,7 +258,7 @@ class Finding:
 
     _severity: Severity
     _rule: Rule
-    _label: str  # the check's name, the row header the terminal prints today
+    _label: str  # the check's name, the row header the terminal prints on origin/main
     _message: str  # what was found; "" when the label says it all
     _remedy: str  # what to run or edit; "" when there is nothing to do
     # Absence is the contract: a finding about the repository as a whole
@@ -286,26 +290,26 @@ requires; the alternative, a `Location` null object, is recorded in § 7.
 Five class-method constructors are the migration vocabulary, one per
 severity, each taking `(rule, label, message="", remedy="",
 location=None)`: `Finding.passed`, `Finding.info`, `Finding.warned`,
-`Finding.failed`, `Finding.fixed`. A producer line today reads
+`Finding.failed`, `Finding.fixed`. A producer line on origin/main reads
 `(FAIL, "CHANGELOG.md exists", "Missing — run punt audit --fix")`
 (`src/punt_kit/audit.py:386`); after migration it reads
 `Finding.failed(_RULE, "CHANGELOG.md exists", "Missing", remedy="run punt audit --fix")`.
 
 ### 2.2 How the five markers map
 
-| Today | `Severity` | Counted in the summary | Affects exit code |
+| On origin/main | `Severity` | Counted in the summary | Affects exit code |
 |-------|-----------|------------------------|-------------------|
-| `PASS` (`audit_verdict.py:4`) | `PASS` | yes, as `passed` | no |
-| `FAIL` (`audit_verdict.py:5`) | `FAIL` | yes, as `failed` | yes, when `examiner` is `DETERMINISTIC` |
-| `FIXED` (`audit_verdict.py:6`) | `FIXED` | yes, as `fixed` | no |
-| `INFO` (`audit_verdict.py:7`) | `INFO` | yes, as `info` (new) | no |
+| `PASS` (`audit_verdict.py:5`) | `PASS` | yes, as `passed` | no |
+| `FAIL` (`audit_verdict.py:6`) | `FAIL` | yes, as `failed` | yes, when `examiner` is `DETERMINISTIC` |
+| `FIXED` (`audit_verdict.py:7`) | `FIXED` | yes, as `fixed` | no |
+| `INFO` (`audit_verdict.py:8`) | `INFO` | yes, as `info` (new) | no |
 | `WARN` (`audit_layout.py:30`) | `WARN` | yes, as `warned` (new) | no |
 
 `WARN` joins the shared vocabulary; `audit_layout.py` stops declaring its
 own marker. The summary line keeps its first three counts in the same order
 and words (`N passed, N failed[, N fixed]`) and appends `, N warned` and
 `, N info` only when those counts are non-zero, so a project with no
-warnings or info rows prints the line it prints today.
+warnings or info rows prints the line it prints on origin/main.
 
 ### 2.3 The report and its exit code
 
@@ -339,7 +343,7 @@ are; they happen before any finding exists.
 ### 2.4 The terminal renderer, one consumer among several
 
 `TerminalRenderer` owns the five glyphs (the four strings now at
-`audit_verdict.py:4-7` plus `WARN`'s), the `Console(emoji=False)` at
+`audit_verdict.py:5-8` plus `WARN`'s), the `Console(emoji=False)` at
 `audit.py:31`, and the single `rich.markup.escape` call. It prints, for
 each finding, the glyph and the label on one line and the detail on a dim
 second line when the detail is non-empty, where the detail is `message`,
@@ -353,7 +357,7 @@ backslashes, since the renderer now escapes them.
 The rendered rows for every existing check are byte-identical to `origin/main`'s
 output: the glyph, the label, the dim detail, and the summary line do not
 change for a report with no `WARN`, `INFO`, or judgment row, and a `WARN`
-or `INFO` row prints exactly as it prints today. The snapshot tests of
+or `INFO` row prints exactly as it prints on origin/main. The snapshot tests of
 § 6 pin this. A judgment row is new output and renders with its rule after
 the label: `✗ README names a feature that errors on use  [readme § Audience · judgment]`.
 
@@ -366,7 +370,7 @@ filtered by `examiner` for the remediation hand-off of § 4.
 
 `punt --json audit [--standard <name>]` prints one object on stdout and
 nothing else, honouring the global flag the CLI standard requires
-(`standards/cli.md:379-383`) and that `audit` ignores today
+(`standards/cli.md:379-383`) and that `audit` ignores on origin/main
 (`src/punt_kit/__main__.py:82-89`):
 
 ```json
@@ -376,6 +380,7 @@ nothing else, honouring the global flag the CLI standard requires
   "language": "python",
   "project_type": "package",
   "standard": "readme",
+  "handoff": null,
   "summary": {"passed": 41, "failed": 2, "fixed": 0, "warned": 1, "info": 3},
   "exit_code": 1,
   "findings": [
@@ -404,7 +409,8 @@ nothing else, honouring the global flag the CLI standard requires
 ```
 
 `standard` at the top level is the `--standard` argument, or `null` when
-the run had no judgment examiner. `location` is `null` when the finding
+the run had no judgment examiner; `handoff` is the path `--handoff` wrote,
+or `null`. `location` is `null` when the finding
 names no file. Every key is present on every finding; absence is `""`,
 `0`, or `null`, never a missing key.
 
@@ -464,8 +470,8 @@ the stem `punt`, meaning "what `punt init` writes" (§ 7, item 12).
 ### 3.1 The command line
 
 ```text
-punt audit [PATH] [--fix] [--standard NAME]
-punt --json audit [PATH] [--standard NAME]
+punt audit [PATH] [--fix] [--standard NAME [--handoff]]
+punt --json audit [PATH] [--standard NAME [--handoff]]
 ```
 
 `--standard` takes exactly one name and may be given once. `NAME` is the
@@ -478,7 +484,7 @@ one line on stderr naming the given value, then the sorted list of valid
 stems, one per line, and no audit runs. `--standard` given twice, or with a
 comma-joined value, is the same usage error with the one-standard-per-run
 rule stated in the message. `--standard` with `--fix` is accepted: `--fix`
-acts on the deterministic checks as today, and the examiner runs after
+acts on the deterministic checks as on origin/main, and the examiner runs after
 `--fix` has written its files, so the judgment reads the fixed tree.
 
 The corpus directory is resolved in this order and the first hit wins:
@@ -489,7 +495,7 @@ when the project's parent holds a punt-kit checkout, the sibling convention
 documents; and `<project>/standards` when the project is punt-kit itself.
 No hit is the "standard missing" row of § 5. The corpus does not ship in
 the wheel (§ 7, item 8): `src/punt_kit` is the whole package
-(`tests/test_packaging.py:57-65`), and a copy inside it would be a second
+(`test_module_is_declared`, `tests/test_packaging.py:63-67`), and a copy inside it would be a second
 source for the thing it audits against.
 
 ### 3.2 What the agent is given
@@ -511,7 +517,7 @@ One prompt, the same for every standard, assembled by `AuditExaminer` in
    wheel is what runs on an installed `punt` with no plugin, and
    `CLAUDE.md:65-70` forbids the plugin surface from reaching outside
    `plugin/` at runtime; the slash command stays the thin wrapper it is
-   today (`plugin/commands/audit.md:17-24`) and passes `--standard`
+   on origin/main (`plugin/commands/audit.md:17-24`) and passes `--standard`
    through in `$ARGUMENTS`.
 2. **The standard, whole.** The full text of `standards/<name>.md`,
    fenced, with its path and its `git log -1 --format=%H` when the corpus
@@ -627,14 +633,22 @@ project, the marker tool-enable-disable.md § 2.7 defines
   reserves for a bare spawn, with the hand-off file as its brief and the
   same two sentences: resolve every finding; run no audit.
 
+`--handoff` requires `--standard`: given without it there are no judgment
+findings to hand off, so it is a usage error, exit 2, one line on stderr
+saying so, and no audit runs. Under `punt --json audit --standard <name>
+--handoff` the file is still written and its path is the `handoff` key of
+the one JSON object of § 2.5 (`null` when `--handoff` was not given);
+stdout never carries a second line.
+
 In both forms the fixer never sees the harness prompt and never invokes
 `punt audit --standard`; its brief is the findings file.
 
 ### 4.3 The sign-off
 
-The sign-off is a second `punt audit --standard <name>` run by the leader
-after the fixer's commit lands on the branch, with the project tree at that
-commit. The re-audit is a fresh session; nothing from the first run is
+The sign-off is a second `punt audit --standard <name>` run by the leader,
+without `--fix`, after the fixer's commit lands on the branch, with the
+project tree at that commit; a sign-off run that wrote files would be
+auditing a tree nobody committed. The re-audit is a fresh session; nothing from the first run is
 passed in but the same three parts of § 3.2, so the examiner cannot be
 told what was "fixed". Sign-off is the re-audit's report having zero
 judgment rows at `fail` and zero at `warn`; the `pass` rows it prints are
@@ -665,9 +679,10 @@ checks run to completion in every case and their exit code stands.
 | The result is not JSON, has no `structured_output`, or a finding fails `FindingSchema.parse` | One `FAIL` row naming the first offending key or the parse error; the raw result is written to `.tmp/audit/<name>-<stamp>.raw.json` and the row names it | none; a partial array is never merged | deterministic result plus this `FAIL` |
 | The agent returns an empty `findings` array | One `WARN` row `Examiner: <name>` with message "returned no findings and no pass rows"; the prompt requires a `pass` row per governed section, so an empty array means the examiner did not audit | none | deterministic result; a `WARN` does not change it |
 | The agent returns only `pass` rows | The rows print; the `INFO` row says so | the `pass` rows | deterministic result |
-| The project has no `.claude/` directory | The deterministic checks run as today (the permissions check reports its missing `settings.json`, `audit_permissions.py:38-45`); the examiner runs, because it reads the standard and the tree and needs no `.claude/` | as returned | deterministic result |
-| The project is not a git repository | As today for the layout and GitHub checks; the examiner runs without a corpus revision and the heading says `revision unknown` | as returned | deterministic result |
+| The project has no `.claude/` directory | The deterministic checks run as on origin/main (the permissions check reports its missing `settings.json`, `audit_permissions.py:38-45`); the examiner runs, because it reads the standard and the tree and needs no `.claude/` | as returned | deterministic result |
+| The project is not a git repository | As on origin/main for the layout and GitHub checks; the examiner runs without a corpus revision and the heading says `revision unknown` | as returned | deterministic result |
 | `--fix` and `--standard` together | `--fix` writes first; the examiner reads the fixed tree | as returned | deterministic result |
+| `--handoff` without `--standard` | One `Error:` line on stderr saying `--handoff` needs `--standard`; nothing else runs | none; the audit does not start | 2 |
 
 The `FAIL` rows the harness itself emits carry `examiner=DETERMINISTIC`
 and `rule=Rule("punt")`: they report that the tool could not do what it
@@ -747,6 +762,8 @@ audit package does.
 | `test_partial_array_is_rejected_whole` | Two good findings and one bad: zero judgment rows, one `FAIL` row naming the bad key. |
 | `test_empty_findings_is_a_warn_row` | `{"findings": []}`: one `WARN` row, exit code unchanged. |
 | `test_no_claude_dir_still_runs_examiner` | A project without `.claude/`: deterministic rows include the missing-settings `FAIL`; judgment rows present. |
+| `test_handoff_without_standard_is_a_usage_error` | `--handoff` alone exits 2 before the fake runs, with the one stderr line, and writes no file under `.tmp/audit/`. |
+| `test_json_handoff_path_is_a_key` | `punt --json audit --standard readme --handoff`: stdout is one object whose `handoff` key is the written path; without `--handoff` the key is `null`. |
 | `test_handoff_writes_fail_and_warn_only` | `--handoff`: the file holds the `fail` and `warn` judgment rows and no `pass` or `info` row. |
 | `test_json_flag_prints_one_object` | `punt --json audit --standard readme`: stdout parses as one object with the § 2.5 keys and nothing precedes or follows it. |
 
