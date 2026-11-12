@@ -1,0 +1,148 @@
+mission: m-2026-11-12-009
+round: 1
+created_at: "2026-11-12T09:19:50Z"
+author: mdm
+verdict: pass
+confidence: 0.95
+files_changed:
+    - path: punt-kit/src/punt_kit/templates/punt-guide.md
+      added: 9
+      removed: 1
+    - path: use-cases/.beads/README.md
+      added: 4
+      removed: 3
+    - path: use-cases/.beads/config.yaml
+      added: 6
+      removed: 5
+    - path: circuit/.beads/README.md
+      added: 4
+      removed: 3
+    - path: circuit/.beads/config.yaml
+      added: 4
+      removed: 3
+    - path: claude-agent-sdk-smalltalk/.beads/README.md
+      added: 4
+      removed: 3
+    - path: claude-agent-sdk-smalltalk/.beads/config.yaml
+      added: 5
+      removed: 4
+    - path: anthropic-sdk-pharo/.beads/README.md
+      added: 4
+      removed: 3
+    - path: anthropic-sdk-pharo/.beads/config.yaml
+      added: 5
+      removed: 4
+    - path: cryptd/.beads/README.md
+      added: 4
+      removed: 3
+    - path: cryptd/.beads/config.yaml
+      added: 4
+      removed: 3
+    - path: mcp-proxy/.beads/README.md
+      added: 4
+      removed: 3
+    - path: mcp-proxy/.beads/config.yaml
+      added: 6
+      removed: 5
+    - path: public-website/.beads/README.md
+      added: 4
+      removed: 3
+    - path: public-website/.beads/config.yaml
+      added: 6
+      removed: 5
+    - path: prfaq/.beads/README.md
+      added: 4
+      removed: 3
+    - path: prfaq/.beads/config.yaml
+      added: 6
+      removed: 5
+evidence:
+    - name: 'before: grep -n ''reads the shared DB'' .beads/README.md .beads/config.yaml non-empty (one hit per file) in all eight sdhd worktrees'
+      status: pass
+    - name: 'after: grep -n ''reads the shared DB'' .beads/README.md .beads/config.yaml empty in all eight sdhd worktrees'
+      status: pass
+    - name: 'before: grep -n 769f8a1 punt-guide.md empty; after: lines 36 and 37 match'
+      status: pass
+    - name: grep -n 'reads the shared DB' punt-guide.md empty before and after (the guide never carried the false sentence)
+      status: pass
+    - name: 'npx markdownlint-cli2 on _lint_README.md copies in eight worktrees and _lint_punt-guide.md in gwf4: Summary: 0 issues in 0 files, nine runs; copies deleted'
+      status: pass
+    - name: 'bd -C <worktree> config get linear.pull_label: usecase repo:usecase, circ repo:circ, aspharo repo:aspharo, cryptd repo:cryptd, mcp repo:mcp, web repo:web, prfaq repo:prfaq, identical to each main checkout'
+      status: pass
+    - name: bd -C <worktree> config get issue-prefix prints 'issue-prefix (not set)' in every worktree and in every main checkout (the guide documents this bd behaviour on migrated repos)
+      status: pass
+    - name: 'yaml.safe_load on all eight edited config.yaml: issue-prefix and linear.pull_label intact (usecase, circ, stasdk, aspharo, cryptd, mcp, web, prfaq)'
+      status: pass
+    - name: 'make -C punt-kit/.claude/worktrees/gwf4 check: ruff, ruff format, shellcheck, mypy (126 files), pyright (0 errors), pytest 2359 passed 14 skipped'
+      status: pass
+    - name: 'git status --short on each main checkout before and after: identical for use-cases, circuit, claude-agent-sdk-smalltalk, cryptd, mcp-proxy, public-website, prfaq, punt-kit; anthropic-sdk-pharo gains only ''?? .claude/worktrees/'' (the contract''s worktree path, not gitignored there)'
+      status: pass
+    - name: git status --short in all nine worktrees empty after commit
+      status: pass
+open_questions:
+    - 'bd -C claude-agent-sdk-smalltalk/.claude/worktrees/sdhd config get resolves to the main checkout''s .beads (its warning names that path): that checkout sits on branch chore/ethos-inline-drop-team-submodule with an old .beads/beads.db, and bd''s auto-discovery walks up past the worktree. It prints ''linear.pull_label (not set in config.yaml)'' for both worktree and main checkout, so the two agree, but the read is of main''s stale config.yaml, not the worktree''s. The worktree config.yaml parses to issue-prefix stasdk / linear.pull_label repo:stasdk (yaml.safe_load evidence above). Not a defect of this change; noted so the leader does not treat the bd read-back as proof for that repo.'
+    - anthropic-sdk-pharo's .gitignore does not cover .claude/worktrees/, so the main checkout's git status shows the worktree directory as untracked. The leader's close-out (worktree remove) clears it; no tracked file changed.
+prose: |
+    pkit-sdhd. In eight repos the false by-id sentence in .beads/README.md
+    and the matching .beads/config.yaml comment is replaced with the
+    koch-trainer-swift origin/main wording, adapted only to each file's
+    comment wrap width: "Every pull resolves the prefix the same way, a
+    by-id pull included; `bd linear sync --pull --issues` takes Linear
+    identifiers (`PL-123`) because that is what it asks Linear for, and
+    the beads it creates still carry this prefix." No wording claims a
+    by-id branch; prefix resolution text elsewhere in the files
+    (BD_ISSUE_PREFIX, else YAML, else metadata.json) is unchanged.
+
+    Worktrees and commits, branch docs/by-id-pull-prefix, based on
+    <remote>/main, not pushed:
+      use-cases/.claude/worktrees/sdhd                  32e2af2
+      circuit/.claude/worktrees/sdhd (gitlab/main)      7906290
+      claude-agent-sdk-smalltalk/.claude/worktrees/sdhd 649d440
+      anthropic-sdk-pharo/.claude/worktrees/sdhd        362c186
+      cryptd/.claude/worktrees/sdhd                     23acd18
+      mcp-proxy/.claude/worktrees/sdhd                  6328069
+      public-website/.claude/worktrees/sdhd             b0d6d55
+      prfaq/.claude/worktrees/sdhd                      d2ac1be
+
+    Before grep (one representative; every repo had exactly one hit per file):
+      use-cases .beads/config.yaml:15:# --pull --issues` reads the shared DB `issue_prefix` row (which is
+      use-cases .beads/README.md:23:  exception: `bd linear sync --pull --issues` reads the shared DB
+    After grep: empty in all sixteen files.
+
+    Lint: nine runs of npx markdownlint-cli2 on the _lint_ copies, each
+    "Linting: 1 file / Summary: 0 issues in 0 files"; copies removed.
+
+    bd read-backs (worktree, identical to main checkout):
+      use-cases: issue-prefix (not set) / repo:usecase
+      circuit: issue-prefix (not set) / repo:circ
+      claude-agent-sdk-smalltalk: issue-prefix (not set) / linear.pull_label (not set in config.yaml)  [see open question: bd resolved main's .beads]
+      anthropic-sdk-pharo: issue-prefix (not set) / repo:aspharo
+      cryptd: issue-prefix (not set) / repo:cryptd
+      mcp-proxy: issue-prefix (not set) / repo:mcp
+      public-website: issue-prefix (not set) / repo:web
+      prfaq: issue-prefix (not set) / repo:prfaq
+    Direct YAML parse of each edited config.yaml confirms both keys:
+      usecase/repo:usecase, circ/repo:circ, stasdk/repo:stasdk,
+      aspharo/repo:aspharo, cryptd/repo:cryptd, mcp/repo:mcp,
+      web/repo:web, prfaq/repo:prfaq.
+
+    pkit-gwf4. punt-kit/.claude/worktrees/gwf4, branch
+    docs/guide-bd-build-check from origin/main, commit 3acc636
+    "docs(templates): require the bd build check before the first pull".
+    The "Plan from Linear" bullet now reads, before the refresh command:
+    check the installed bd is built from the punt-labs fork at or after
+    punt-labs/beads#8 (commit 769f8a1); take the commit `bd version`
+    prints and confirm `git merge-base --is-ancestor 769f8a1 <that
+    commit>` in the fork clone (`.bin/install-bd.sh install` in the
+    punt-labs/punt-labs meta-repo builds it into .tmp/beads-fork/); if
+    not, rebuild before pulling; earlier builds ignore or only partly
+    honour linear.pull_label and write other repos' Linear issues into
+    the shared database as this repo's beads. Then the existing refresh
+    command follows unchanged. grep 769f8a1 before: empty; after: lines
+    36-37. grep 'reads the shared DB' on the guide: empty before and
+    after. CHANGELOG.md untouched. make check green: 2359 passed, 14
+    skipped.
+
+    Main checkouts: git status --short before and after identical in
+    eight of nine repos; anthropic-sdk-pharo shows only the new
+    untracked .claude/worktrees/ directory.

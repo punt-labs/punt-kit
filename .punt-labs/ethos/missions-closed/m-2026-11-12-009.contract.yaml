@@ -1,0 +1,56 @@
+mission_id: m-2026-11-12-009
+status: closed
+type: implement
+created_at: "2026-11-12T09:02:37Z"
+updated_at: "2026-11-12T09:25:17Z"
+closed_at: "2026-11-12T09:25:17Z"
+leader: claude
+worker: mdm
+evaluator:
+    handle: rop
+    pinned_at: "2026-11-12T09:02:37Z"
+    hash: 4de1845341318fcf65faaf4ff89816d3b5525e79ce866610d656db6cc36913cf
+inputs:
+    files:
+        - koch-trainer-swift/.beads/README.md
+        - koch-trainer-swift/.beads/config.yaml
+        - cryptd/.beads/README.md
+        - punt-kit/src/punt_kit/templates/punt-guide.md
+write_set:
+    - punt-kit/src/punt_kit/templates/punt-guide.md
+    - use-cases/.beads/README.md
+    - use-cases/.beads/config.yaml
+    - circuit/.beads/README.md
+    - circuit/.beads/config.yaml
+    - claude-agent-sdk-smalltalk/.beads/README.md
+    - claude-agent-sdk-smalltalk/.beads/config.yaml
+    - anthropic-sdk-pharo/.beads/README.md
+    - anthropic-sdk-pharo/.beads/config.yaml
+    - cryptd/.beads/README.md
+    - cryptd/.beads/config.yaml
+    - mcp-proxy/.beads/README.md
+    - mcp-proxy/.beads/config.yaml
+    - public-website/.beads/README.md
+    - public-website/.beads/config.yaml
+    - prfaq/.beads/README.md
+    - prfaq/.beads/config.yaml
+success_criteria:
+    - 'In each of the eight repos (use-cases, circuit, claude-agent-sdk-smalltalk, anthropic-sdk-pharo, cryptd, mcp-proxy, public-website, prfaq) the worktree <repo>/.claude/worktrees/sdhd on branch docs/by-id-pull-prefix holds one commit, not pushed, in which `grep -n ''reads the shared DB'' .beads/README.md .beads/config.yaml` is empty and both files carry the koch wording: every pull resolves the prefix the same way, a by-id pull included; --issues takes Linear identifiers because that is what it asks Linear for; the beads it creates still carry this prefix.'
+    - '`bd -C <worktree> config get issue-prefix` and `bd -C <worktree> config get linear.pull_label` print the same values as on main in every one of the eight worktrees; the result pastes them.'
+    - punt-kit worktree punt-kit/.claude/worktrees/gwf4 on branch docs/guide-bd-build-check holds one commit in which the 'Plan from Linear' bullet of src/punt_kit/templates/punt-guide.md names the bd build precondition (fork at or after 769f8a1, `bd version` commit checked with `git merge-base --is-ancestor 769f8a1 <commit>` in the fork clone, rebuild with .bin/install-bd.sh install if not) before the refresh command, and states why (earlier builds write other repos' issues into the shared DB as this repo's beads); `make check` is green in that worktree.
+    - markdownlint reports zero findings on every changed Markdown file (copies under the worktree, deleted after); the result pastes each run.
+    - 'No child repo''s main checkout is modified: the result shows `git -C <repo> status --short` on each main checkout identical before and after.'
+    - 'No wording claims bd does something it does not: every sentence about prefix resolution matches linearIssuePrefix at 769f8a1 (YAML first, DB row only when YAML is empty, no by-id branch); no bead IDs, no status language, no ''pre-existing''.'
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 1
+round_decisions:
+    version: 1
+    entries:
+        - id: dcf7ef6a2fcd1fec5863a4632dd7602c
+          round: 1
+          created_at: "2026-11-12T09:23:42Z"
+          author: rop
+          recommendation: continue
+context: 'Two beads, one mission, docs only. Read both with `bd show pkit-sdhd` and `bd show pkit-gwf4`. (A) pkit-sdhd, a bug: the sentence ''A by-id pull is the exception: bd linear sync --pull --issues reads the shared DB issue_prefix row (which is punt-labs), so pass it PL ids, not bead ids'' (and any paraphrase containing ''reads the shared DB'') is false against the pinned bd fork main@769f8a1, cmd/bd/linear.go linearIssuePrefix: one function resolves the prefix for every pull, YAML issue-prefix first, the DB row only when YAML is empty; --issues has no separate branch. The leader confirmed on 2026-11-12 that the sentence is on origin/main (circuit: gitlab/main) in BOTH .beads/README.md and .beads/config.yaml of the eight repos in the write-set: use-cases, circuit, claude-agent-sdk-smalltalk, anthropic-sdk-pharo, cryptd, mcp-proxy, public-website, prfaq. koch-trainer-swift already carries the corrected wording on origin/main; use it verbatim, adapted only for the repo prefix: ''Every pull resolves the prefix the same way, a by-id pull included; `bd linear sync --pull --issues` takes Linear identifiers (`PL-123`) because that is what it asks Linear for, and the beads it creates still carry this prefix.'' In config.yaml the same sentence goes in the YAML comment, wrapped to the comment width already used there. (B) pkit-gwf4, a task in punt-kit: the deposited tracker guide template src/punt_kit/templates/punt-guide.md (''Plan from Linear'' bullet) tells an agent to refresh the mirror but never to check the installed bd build. Add, in that bullet, before the refresh command, the precondition the fleet READMEs already carry (read koch-trainer-swift/.beads/README.md § ''bd version'' for the exact facts): bd must be built from the punt-labs fork at or after punt-labs/beads#8 (commit 769f8a1); take the commit `bd version` prints and confirm `git merge-base --is-ancestor 769f8a1 <that commit>` in the fork clone (`.bin/install-bd.sh install` in the meta-repo builds it into .tmp/beads-fork/); if it is not, rebuild before pulling, because earlier builds ignore or only partly honour linear.pull_label and write other repos'' issues into the shared DB as this repo''s beads. Keep the guide''s existing sentence style: short, imperative, no status language, no bead IDs. Also check the guide for the false by-id sentence (the leader found none; say so in the result with the grep). WORKING RULES. Never edit a child repo''s main checkout; several are dirty from the operator''s sessions. For each repo: `git -C <repo> fetch <remote>` (circuit''s only remote is `gitlab`, every other repo''s is `origin`), then `git -C <repo> worktree add <repo>/.claude/worktrees/sdhd -b docs/by-id-pull-prefix <remote>/main`, edit only inside that worktree, one commit per repo, do not push, do not open PRs, leave the worktree for the leader. punt-kit: `git -C punt-kit worktree add punt-kit/.claude/worktrees/gwf4 -b docs/guide-bd-build-check origin/main`; the CHANGELOG entry is the leader''s commit, do not add one. The write-set is enforced at runtime: every path above is relative to the workspace root <repo> and is edited through its worktree. Lint every changed Markdown by copying it to <worktree>/_lint_<name>.md, running `npx markdownlint-cli2 _lint_<name>.md` from that worktree, then deleting the copy; zero findings. For config.yaml run `bd -C <worktree> config get issue-prefix` and `bd -C <worktree> config get linear.pull_label` after the edit and paste the output, proving the YAML still parses and the two keys are intact. punt-kit: run `make -C punt-kit/.claude/worktrees/gwf4 check` and paste the tail. Proof criterion: before editing, `grep -n ''reads the shared DB'' <worktree>/.beads/README.md <worktree>/.beads/config.yaml` per repo (the failing state, non-empty); after, the same grep is empty; paste both. For the guide, `grep -n 769f8a1` on the template before (empty) and after (non-empty). Commit messages: `docs(beads): every pull resolves the prefix the same way` in the eight repos, `docs(templates): require the bd build check before the first pull` in punt-kit. Language: Markdown and YAML comments only. Time box 60 minutes; first commit within 30; never more than 30 minutes uncommitted. The result lists per repo: worktree path, commit SHA, the before/after grep, the lint output, and the config.yaml read-back.'
