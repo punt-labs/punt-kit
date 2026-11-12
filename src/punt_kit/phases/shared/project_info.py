@@ -28,11 +28,18 @@ if TYPE_CHECKING:
 # plugin.json, so without this scan a fix landing in a template after a
 # version already tagged stays stale in every future deployment of that
 # template until the NEXT release re-pins it.
+#
+# The project's own DEPLOYED CI workflows under `.github/workflows/` are
+# rendered copies of those templates and carry the same self-referential pin;
+# they are scanned too, or every release strands the deployed copy one
+# version behind the bumped template.
 _TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
     "src/**/data/*.yml",
     "src/**/data/*.yaml",
     "plugin/**/*.yml",
     "plugin/**/*.yaml",
+    ".github/workflows/*.yml",
+    ".github/workflows/*.yaml",
 )
 
 
