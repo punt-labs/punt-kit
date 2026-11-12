@@ -253,6 +253,30 @@ def test_stray_tool_specific_ignore_line_fails(tmp_path: Path) -> None:
     )
 
 
+def test_empty_ignored_directory_fails(tmp_path: Path) -> None:
+    """The scan reads the worktree: an empty ignored directory is in no index."""
+    root = _repo(tmp_path, "normal.gitignore")
+    (root / ".punt-labs" / "vox" / "call").mkdir()
+    with (root / ".gitignore").open("a") as f:
+        f.write(".punt-labs/vox/call/\n")
+    assert _finding(root, "No gitignored non-local-convention path") == (
+        FAIL,
+        "No gitignored non-local-convention path",
+        "Ignored: .punt-labs/vox/call/ (.gitignore:7:.punt-labs/vox/call/)",
+    )
+
+
+def test_empty_local_and_interim_directories_pass(tmp_path: Path) -> None:
+    root = _repo(tmp_path, "normal.gitignore")
+    for rel in ("vox/local", "vox/ephemeral", "vox/foo.local", "quarry/captures"):
+        (root / ".punt-labs" / rel).mkdir(parents=True)
+    assert _finding(root, "No gitignored non-local-convention path") == (
+        PASS,
+        "No gitignored non-local-convention path",
+        "",
+    )
+
+
 def test_ignored_bare_file_is_the_bare_file_checks_business(tmp_path: Path) -> None:
     """§ 8 scopes check 3 to ``.punt-labs/<tool>/``; a bare file is graded once."""
     root = _repo(tmp_path, "normal.gitignore", {".punt-labs/lux.md": "x\n"})

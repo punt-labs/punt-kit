@@ -273,12 +273,16 @@ class LayoutAudit:
         live = MIGRATION_TABLE.live_paths()
         ignored = self._ls_files("--others", "--ignored", "--exclude-standard")
         # Scoped to .punt-labs/<tool>/: a bare file is the bare-file check's.
+        candidates = [path for path in ignored if path.count("/") > 1]
+        # The index never lists an empty directory; the standard's scan reads
+        # the worktree, so a fileless directory is probed on its own.
+        empty = self._fileless_directories()
+        verdicts = self._check_ignore(empty) if empty else {}
+        candidates.extend(path for path in empty if verdicts[path])
         offenders = sorted(
             path
-            for path in ignored
-            if path.count("/") > 1
-            and not _is_local_convention(path)
-            and not path.startswith(live)
+            for path in candidates
+            if not _is_local_convention(path) and not path.startswith(live)
         )
         if not offenders:
             return (PASS, label, "")
@@ -288,6 +292,23 @@ class LayoutAudit:
             label,
             "Ignored: " + ", ".join(f"{p} ({why[p]})" for p in offenders),
         )
+
+    def _fileless_directories(self) -> list[str]:
+        """Every directory under a tool subtree with no file beneath it, as ``x/``.
+
+        A directory inside one already listed is left out: the outermost
+        fileless directory is the one the finding names.
+        """
+        found: list[str] = []
+        for tool in self._tools():
+            subtree = self._root / ".punt-labs" / tool
+            for directory in sorted(d for d in subtree.rglob("*") if d.is_dir()):
+                rel = directory.relative_to(self._root).as_posix() + "/"
+                if rel.startswith(tuple(found)):
+                    continue
+                if not any(f.is_file() for f in directory.rglob("*")):
+                    found.append(rel)
+        return found
 
     def _occupied(self, rel: str) -> bool:
         """True when anything sits at ``rel`` — a dangling symlink included.
