@@ -793,8 +793,8 @@ These extend the audit list in
   carries **no readable seal manifest**
   ([§ 5](#5-live-state-is-never-a-tracked-file)) is then a **fail**. Vendoring
   exists to make the trail verifiable, so a vendored-but-manifest-less subtree
-  leaves the unsealed tail invisible forever — the same vacuous pass the gitlink
-  warning flags, now un-exempted because the gitlink is gone. The check keys
+  leaves the unpublished tail invisible forever — the same vacuous pass the
+  gitlink warning flags, now un-exempted because the gitlink is gone. The check keys
   on **published copies**, not on the trace tier: under the ethos storage
   contract (`punt-labs/ethos`, `docs/storage-layout.md`) every sealed chunk
   is local in both record modes (`.punt-labs/local/ethos/trace/sessions/`),
@@ -809,11 +809,14 @@ These extend the audit list in
   entry recorded at **gitlink mode `160000`** (a submodule, not an inline subtree)
   grades a deterministic **warning** — "audit trail unverifiable until vendored."
   A gitlink is not tracked shared history ([§ 1](#1-core-principle)) and audit
-  cannot read through it: the tool's seal manifest, its sealed chunks, and any
-  state inside the subtree are all unreachable, so every probe that would range
-  over them **passes vacuously**. The warning is the audit-side tooth for the
-  vendor-first rule ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) —
-  vendor the subtree before relying on its audit trail — and it names the
+  cannot read through it: the tool's seal manifest, its published chunk
+  copies, and any state inside the subtree are all unreachable, so every probe
+  that would range over them **passes vacuously**; the sealed chunks themselves
+  are in the local zone and unaffected ([§ 5](#5-live-state-is-never-a-tracked-file)),
+  but no published copy can land while the gitlink stands. The warning is the
+  audit-side tooth for the vendor-first rule
+  ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) — vendor the subtree
+  before relying on its tracked trail — and it names the
   specific hole: a green result on a gitlinked tool proves nothing was
   checked, not that nothing is wrong. The warning is never suppressed on the
   theory that a submodule is unprobed.
@@ -959,15 +962,15 @@ path. What it **does** unblock is tracked content landing in the
 in-repo, which needs the subtree inline-vendored first. Audit checks the
 vendored subtree delivers that trail ([§ 8](#8-what-punt-audit-checks)).
 
-**Vendor first, then rely on the trail.** While the gitlink stands, the
-**published chunk copies** (tracked under `record: full`,
-[§ 5](#5-live-state-is-never-a-tracked-file)) cannot land in the
-`.punt-labs/ethos/` subtree, so each seal **defers with a
-signaled notice** and `ethos audit show` flags the unsealed tail
-(`N unsealed lines, sealing deferred until vendored`); deleting such a checkout
-destroys those unsealed lines. The ethos audit-seal design accepts this as a
+**Vendor first so published copies can land.** A gitlink never defers the
+seal: the chunk is sealed into the local zone on every pre-commit, in every
+record mode ([§ 5](#5-live-state-is-never-a-tracked-file)), and deleting a
+gitlinked checkout loses nothing sealed. What a gitlink defers is
+**publication** — while it stands, the `record: full` copy cannot land in the
+`.punt-labs/ethos/` subtree, so each publication defers and `ethos audit show`
+reports the unpublished range. The ethos audit-seal design accepts this as a
 **bounded limitation** of a gitlinked repo — no spool — and the org rule is to
-vendor a repo before relying on its audit trail. The
+vendor a repo before relying on its **tracked** trail. The
 [§ 8](#8-what-punt-audit-checks) gitlink-unverifiable warning is the audit-side
 tooth for that rule.
 
@@ -987,7 +990,7 @@ path is ever inferred from prose.
 |----------|-----------|-------------|------|
 | quarry `captures/` (live capture dir in-repo) | `.punt-labs/quarry/captures/` | global tree (`~/.punt-labs/quarry/captures/`) if machine-scoped, else a local-convention path | Relocate; the [§ 6](#6-the-canonical-gitignore-block) interim exclude for the live path is dropped in the same change |
 | vox `ephemeral/` (live stream dir in-repo) | `.punt-labs/vox/ephemeral/` | `~/.punt-labs/vox/` or a local-convention path | Same |
-| ethos live logs (audit and mission live writes) | — | the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs); sealed chunks land in the local zone's `trace/` in every record mode, and a published copy lands in the tracked `.punt-labs/ethos/` subtree only under `record: full` ([§ 5](#5-live-state-is-never-a-tracked-file)) | Live writes go to the local zone, which the canonical block already ignores, so no interim exclude is derived and the live-state grade has nothing to catch; a gitlinked repo defers each seal ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) |
+| ethos live logs (audit and mission live writes) | — | the local zone `.punt-labs/local/ethos/` (`sessions/<id>.audit.jsonl` + per-session `.lock`, `missions/` live logs); sealed chunks land in the local zone's `trace/` in every record mode, and a published copy lands in the tracked `.punt-labs/ethos/` subtree only under `record: full` ([§ 5](#5-live-state-is-never-a-tracked-file)) | Live writes go to the local zone, which the canonical block already ignores, so no interim exclude is derived and the live-state grade has nothing to catch; a gitlinked repo defers each `record: full` publication, never the seal ([§ 9.3](#93-registry-gitlink-to-vendored-subtree)) |
 
 A `—` in the Live path column marks a row whose live state lands in the local
 zone, which the canonical block already ignores
