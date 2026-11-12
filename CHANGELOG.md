@@ -34,6 +34,21 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- **Standards state rules, not conformance status.** A standard says what
+  the rule or contract is; which tool conforms, what is planned, what is
+  retired, and dated rulings belong to the tracker. `mcp-caller-identity.md`
+  § 8 now states each engine's channel contract (the engine process, its
+  layer, what carries `_caller`, what the handle keys) in one shape per
+  engine, and § 9 keeps only scoping rules. `permissions.md`, `go.md`,
+  `architecture.md`, `integration.md`, `git.md`, `distribution.md`,
+  `release-requirements.md`, `shell.md`, `plugins.md`, `ci.md`, and
+  `filesystem.md` state their rules in the present tense: a `Skill()` value
+  is always plugin-scoped; golangci-lint runs the same prebuilt release
+  artifact locally and in CI; the ethos commit-msg hook stamps mission
+  trailers; a project without `install.ps1` documents the manual Windows
+  path in its README; a legacy home dot-directory maps to its
+  `~/.punt-labs/<tool>/` target with no status column. `integration.md`
+  drops its DRAFT banner.
 - `make type` (and so `make check`) type-checks `tools/` with mypy and
   pyright alongside `src/` and `tests/`; a script under `tools/` that fails
   either checker now fails the gate.
