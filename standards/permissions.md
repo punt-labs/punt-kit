@@ -1,6 +1,6 @@
 # Permissions Standards
 
-**Updated:** 2026-11-07
+**Updated:** 2026-11-14
 
 Rules for Claude Code permission configuration across all Punt Labs projects.
 Defines what agents can do automatically, what requires approval, and what is
@@ -227,7 +227,7 @@ Projects add their own build tools as needed:
 `Bash(punt:*)` is baseline because `punt init` scaffolds this file and the
 standards tool must run unprompted from the first scaffold; `punt enable`'s
 set (tool-enable-disable.md § 2.10) is its guide import and its
-`Skill(punt:<cmd>)` rules, never a CLI rule, so the value is in one place.
+`Skill(punt:*)` rule, never a CLI rule, so the value is in one place.
 
 ### Skills
 
@@ -259,11 +259,11 @@ short-form skill name, and no repo grants one. A short-form `Skill()` entry —
 any skill name with no `plugin:` prefix — is non-conformant.
 
 **`Skill()` rules are owned by the plugin's `enable`, not the baseline.** Each
-plugin's `Skill(<plugin>:<cmd>)` rules are that plugin's `enable` set, one per
-shipped command (`Skill(vox:recap)`, `Skill(quarry:find)`), derived from the
-plugin's `commands/` directory. `punt init` never seeds a `Skill()` rule; a
-repo carries one only because that tool is enabled there, and `<tool> disable`
-removes it.
+plugin's `enable` set allows `Skill(<plugin>:*)` and puts an exact
+`Skill(<plugin>:<cmd>)` in `permissions.ask` for each command whose
+`allowed-tools` would make an unsafe operation run unprompted (section 6,
+principle 3). `punt init` never seeds a `Skill()` rule; a repo carries one
+only because that tool is enabled there, and `<tool> disable` removes it.
 
 ### Cross-project file access
 
@@ -461,14 +461,25 @@ whole of this section.
    baseline or in exactly one tool's `enable` set, never both. That partition
    is what makes exact value-match safe: a value in section 3 is never in an
    `enable` set, so `disable` cannot remove a baseline rule, and a flat string
-   array needs no author attribution. The set: the CLI, the MCP server's tool
-   wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a
-   plugin-bundled server, `mcp__<name>__*` for one the tool registers
-   natively; see [MCP wildcards](#mcp-wildcards)), and one
-   `Skill(<plugin>:<cmd>)` rule per shipped command. The CLI grant is
-   `Bash(<cli>:*)` only when every subcommand meets principle 4 and
-   [plugins.md](plugins.md) principle 4; otherwise the safe subcommands by
-   name (`Bash(<cli> status:*)`), with the rest at the prompt tier. A tool
+   array needs no author attribution. The set is a broad allow per surface plus exact
+   `ask` carve-outs, so a new safe command, MCP tool or skill works the day it
+   ships, with no fleet-wide rule update:
+
+   | Surface | `permissions.allow` | `permissions.ask` |
+   |---------|---------------------|-------------------|
+   | CLI | `Bash(<cli>:*)` | `Bash(<cli> <verb>:*)` for each unsafe verb |
+   | MCP | the server's tool wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server, `mcp__<name>__*` for one the tool registers natively; see [MCP wildcards](#mcp-wildcards)) | `mcp__<prefix>__<tool>` for each unsafe tool |
+   | Skills | `Skill(<plugin>:*)` | `Skill(<plugin>:<cmd>)` for each unsafe command |
+
+   An operation is unsafe, and gets an `ask` rule, when it fails principle 4
+   or [plugins.md](plugins.md) principle 4: it installs or uninstalls
+   software, changes permissions or enablement (`enable`, `disable`, an MCP
+   tool that runs either), manages credentials or services, deletes data the
+   user cannot recover from the repo, or sends something outside the machine
+   that the tool's own checks do not gate. Claude Code evaluates deny, then
+   ask, then allow, so an exact `ask` rule prompts even though the broad
+   allow also matches. Carve-outs use `ask`, never `deny`: a deny cannot be
+   approved, so it would break the command for the user too. A tool
    with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
    ever granted — the dev plugin only exists in a maintainer's checkout.
    `punt` is the one tool whose `enable` set carries no CLI rule:

@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- `standards/permissions.md` § 6 and `standards/tool-enable-disable.md`:
+  `<tool> enable` allows each surface broadly (`Bash(<cli>:*)`, the MCP
+  wildcard, `Skill(<plugin>:*)`) and puts exact `permissions.ask` carve-outs
+  on unsafe operations, instead of listing safe subcommands and skills one by
+  one. New safe functionality works without a fleet-wide rule update; `ask`
+  wins over a broader allow, and carve-outs never use `deny`.
+
 ### Added
 
 - `docs/designs/seed-makefile-go.md` — the design for `punt seed makefile` on
