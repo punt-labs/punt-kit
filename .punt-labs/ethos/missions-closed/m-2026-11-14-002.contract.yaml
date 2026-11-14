@@ -1,0 +1,49 @@
+mission_id: m-2026-11-14-002
+status: closed
+type: implement
+created_at: "2026-11-14T15:51:21Z"
+updated_at: "2026-11-14T16:36:12Z"
+closed_at: "2026-11-14T16:36:12Z"
+leader: claude
+worker: adb
+evaluator:
+    handle: mdm
+    pinned_at: "2026-11-14T15:51:21Z"
+    hash: ef40d0badfbd1d014e269ed88a0bbd9dc7060d8180ed9a681eea8a5b93f1807a
+inputs:
+    files:
+        - src/punt_kit/seed.py
+        - src/punt_kit/detect.py
+        - src/punt_kit/templates/seed/makefile/python.mk.j2
+        - src/punt_kit/templates/seed/makefile/help.mk.j2
+        - standards/makefile.md
+        - standards/go.md
+        - docs/WORKFLOW.md
+        - docs/designs/lang-rules-deploy.md
+write_set:
+    - docs/designs/seed-makefile-go.md
+success_criteria:
+    - docs/designs/seed-makefile-go.md exists with §1-§10; every file:line citation exists on origin/main (evaluator spot-checks five, including seed.py:384-385 and the detect.py language mapping).
+    - §2 tabulates all six Go Makefiles from the sibling checkouts with git dates, names the most advanced practice, and states generalize-or-supersede with rationale; biff's classification is decided and justified.
+    - §3 and §4 give a rendered go.mk.j2 block and a per-language registry; the Python-only skip becomes an explicit error; repo-specific targets are listed as out of the block with the mechanism that keeps them.
+    - The golangci-lint contradiction between standards/makefile.md:73-120 and PL-964 is reconciled with a recommendation and a standard amendment in the write-set.
+    - §6 is a complete failure table; §7 names tests including a marker-merge round trip on a real Makefile copy; §8 is a numbered decision list with recommendations; §9 drafts DES-041; §10 is a parallel wave plan.
+    - markdownlint zero findings; no status language; one file in the diff; every commit lint-clean.
+budget:
+    rounds: 2
+    reflection_after_each: false
+current_round: 2
+round_decisions:
+    version: 1
+    entries:
+        - id: 3315b7862450327e64d9825705e45f98
+          round: 1
+          created_at: "2026-11-14T16:29:58Z"
+          author: mdm
+          recommendation: continue
+        - id: 3ca1a9c6b5b45d19209f7e5903c66d23
+          round: 2
+          created_at: "2026-11-14T16:35:56Z"
+          author: mdm
+          recommendation: stop
+context: 'T2 design mission, docs only, time box 150 minutes, first commit within 30 minutes. Tracker is Linear: issue PL-1043 (''punt seed makefile skips every non-Python repo; the Go repos get no managed Makefile''), repo label repo:pkit. Read it with the Linear MCP tool get_issue, or if unavailable, the issue text is: `punt seed makefile` returns without rendering when the detected language is not Python (`src/punt_kit/seed.py:384-385`), so every Go repo in the fleet has no managed `standard-targets` or `help` block. Operator direction 2026-11-14: this gap outranks how any single section is handled; a prfaq section is NOT part of this design (the recipe is prfaq''s, PL-506 canceled). Worktree: <repo>/.claude/worktrees/go-seed, branch design/seed-makefile-go, on origin/main. Write exactly one file: docs/designs/seed-makefile-go.md. No code, no DESIGN.md edit (draft the ADR inside the doc), no push, no PR. Read inputs via `git show origin/main:<path>` or the worktree. WHAT THIS DESIGN SETTLES: how `punt seed makefile` renders the `standard-targets` and `help` managed sections for a Go repo, so the six Go repos get the same marker-managed blocks Python repos get. FLEET REALITY CHECK (required, cite file:line and git dates): read all six Go Makefiles read-only from the sibling checkouts: ~/Coding/punt-labs/beadle (357 lines, 2026-11-07), cryptd (253, 2026-11-09), circuit (169, 2026-10-15), points (128, 2026-10-11), mcp-proxy (54, 2026-08-29), and biff (108 lines, Python-first with Go parts; decide whether `detect` even classes it as Go and say so). None carries a `# punt:begin` marker today. Tabulate per repo: the `check` prerequisites, the lint tool chain (go vet, staticcheck, golangci-lint, govulncheck, shellcheck, markdownlint), the test flags (-race, -count=1, coverage), format tool, build/dist/install, and every target with no counterpart in the standard. Identify the most advanced deployed practice and generalize it, or supersede it with stated rationale (the fleet-reality rule in CLAUDE.md). Read `standards/makefile.md` lines 73-120 (''Template: Go projects''), which already prescribes a golangci-lint-based template using `go install`, and Linear PL-964 (''Go repos: run golangci-lint as the prebuilt release binary, not go install/go run''), which contradicts that line; the design must reconcile them (recommend the prebuilt binary and amend the standard''s template in the same PR, since the standard must not describe a rejected practice). SECTIONS. §1 Problem (the skip at seed.py:384-385 quoted; what each Go repo lacks; what punt audit cannot check without markers). §2 Fleet reality check (the table above). §3 Mechanism: `detect` language mapping (name the exact `info.language` value for Go and where detect.py sets it), a `go.mk.j2` template under src/punt_kit/templates/seed/makefile/ rendered for that language with `help.mk.j2` shared, the MAKEFILE_SECTIONS registry becoming per-language (show the data structure), how the Python-only guard becomes ''no template for this language'' as an explicit error line rather than a silent skip, and what `--dry-run` prints. §4 The Go standard-targets block, as rendered: targets check, lint, test, format, build, clean, tools (and vet/vulncheck if the fleet check says they belong), with the golangci-lint resolution per PL-964, pinned version variable, -race -count=1 tests; state every repo-specific target the block must NOT absorb (prfaq, play, man, dist, tools-ethos, spec, doctor) and how a repo keeps them (outside the markers, untouched by design of seed.py''s merge). §5 Rollout: per-repo expected dry-run diff size; a repo whose hand-rolled `check` has more prerequisites than the block keeps them how (recommend: the managed block owns the standard targets and the repo''s own `check` becomes `check: check-standard <extras>` or the block''s `check` is extended by a documented variable; pick one and say why); which repos are DIRTY on this host and get worktree PRs. §6 Failure contract table: language undetected, language detected with no template, Makefile absent, Makefile present with no markers, markers present but malformed, dry-run vs write. §7 Tests: template rendering snapshot per language, the explicit-error path, a marker-merge round trip on a copy of mcp-proxy''s real Makefile, and the detect mapping. §8 Operator decisions, numbered, each with a recommendation, covering at least: prebuilt golangci-lint vs go install (and amending the standard), whether staticcheck/vet stay as separate targets or fold into golangci-lint, whether vulncheck is in `check`, whether biff is in scope, how a repo extends `check`, whether the standard''s Go template section is replaced by the rendered block verbatim, and whether this ships before or with the Python-only guard change. §9 DES-041 ADR draft. §10 Implementation write-set and wave plan (template + registry + guard + tests first; the standard amendment second; the six rollout PRs third, parallel). Quality bar: file:line citations verified on origin/main; no status-report language; plain nouns; markdownlint zero findings on a copy at the worktree root (the config ignores .claude/; move the copy to .tmp/ after). Commit per section group, each lint-clean. Submit with `ethos mission result` to .tmp/missions/results/pl-1043-design.yaml and message the leader with commit SHAs and the §8 list verbatim.'
