@@ -339,3 +339,384 @@ possible outputs are:
 
 After the summary, `run_seed` prints `Dry run — no files modified.`
 (`seed.py:355-356`) and exits 0 unless a collision was reported.
+
+---
+
+## 4. The Go `standard-targets` block
+
+### 4.1 As rendered for mcp-proxy
+
+`binaries = ["mcp-proxy"]` from `cmd/mcp-proxy/main.go`. Marker lines
+included, this is 65 lines; `help` adds 7 (`help.mk.j2` is 5 lines plus two
+markers), so a one-binary Go repo gains 72 lines on first seed.
+
+```makefile
+# punt:begin standard-targets
+.PHONY: check lint test vulncheck format build clean tools
+
+# One pin per tool, read by every target below and by CI. Keep the
+# golangci-lint-action `version:` in .github/workflows equal to this value.
+GOLANGCI_LINT_VERSION := v2.13.1
+GOVULNCHECK_VERSION := v1.7.0
+
+# Resolve the install dir the way `go install` does: GOBIN if set, else the
+# first GOPATH entry + /bin, so `tools` and `lint` agree on one path.
+GOBIN := $(shell go env GOBIN)
+ifeq ($(GOBIN),)
+GOBIN := $(shell go env GOPATH | cut -d: -f1)/bin
+endif
+GOLANGCI_LINT := $(GOBIN)/golangci-lint
+
+VERSION := $(or $(shell git describe --tags --always 2>/dev/null | sed 's/^v//'),dev)
+LDFLAGS := -X main.version=$(VERSION) $(LDFLAGS_EXTRA)
+
+check: lint test vulncheck  ## Run all quality gates
+
+lint:  ## Lint and format check (golangci-lint bundles go vet, staticcheck, gofmt)
+	@test -x "$(GOLANGCI_LINT)" || { echo "golangci-lint not found at $(GOLANGCI_LINT) — run 'make tools' to install $(GOLANGCI_LINT_VERSION)" >&2; exit 1; }
+	@actual=$$("$(GOLANGCI_LINT)" version --short); \
+	  test "$$actual" = "$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))" || { echo "golangci-lint at $(GOLANGCI_LINT) is $$actual, not $(GOLANGCI_LINT_VERSION) — run 'make tools'" >&2; exit 1; }
+	"$(GOLANGCI_LINT)" run ./...
+	"$(GOLANGCI_LINT)" fmt --diff
+
+test:  ## Run tests with the race detector, uncached
+	go test -race -count=1 ./...
+
+vulncheck:  ## Scan imports and call graph for known Go vulnerabilities
+	go run golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...
+
+format:  ## Apply the formatters .golangci.yml enables
+	@test -x "$(GOLANGCI_LINT)" || { echo "golangci-lint not found at $(GOLANGCI_LINT) — run 'make tools' to install $(GOLANGCI_LINT_VERSION)" >&2; exit 1; }
+	"$(GOLANGCI_LINT)" fmt
+
+build:  ## Build a static binary per cmd/<name>/main.go into the repo root
+	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o mcp-proxy ./cmd/mcp-proxy/
+
+clean:  ## Remove build artifacts
+	rm -f mcp-proxy coverage.out
+	rm -rf dist/
+
+tools:  ## Install the pinned golangci-lint release binary into $(GOBIN), checksum-verified
+	@test -n "$(GOBIN)" || { echo "tools: GOBIN is empty — is Go on PATH? ('go env GOBIN' and 'go env GOPATH' both returned nothing)" >&2; exit 1; }
+	@set -e; \
+	ver=$(GOLANGCI_LINT_VERSION); num=$${ver#v}; \
+	os=$$(uname -s | tr '[:upper:]' '[:lower:]'); arch=$$(uname -m); \
+	case "$$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac; \
+	name=golangci-lint-$$num-$$os-$$arch; tarball=$$name.tar.gz; sums=golangci-lint-$$num-checksums.txt; \
+	base=https://github.com/golangci/golangci-lint/releases/download/$$ver; \
+	tmp=$$(mktemp -d "$${TMPDIR:-/tmp}/punt-tools.XXXXXXXX"); trap 'rm -rf "$$tmp"' EXIT; \
+	curl -sSfL --retry 5 --retry-delay 5 -o "$$tmp/$$tarball" "$$base/$$tarball"; \
+	curl -sSfL --retry 5 --retry-delay 5 -o "$$tmp/$$sums" "$$base/$$sums"; \
+	line=$$(awk -v n="$$tarball" '$$2 == n' "$$tmp/$$sums"); \
+	test "$$(printf '%s\n' "$$line" | grep -c .)" -eq 1 || { echo "tools: expected one checksum line for $$tarball in $$sums" >&2; exit 1; }; \
+	if command -v sha256sum >/dev/null 2>&1; then (cd "$$tmp" && echo "$$line" | sha256sum -c -); \
+	elif command -v shasum >/dev/null 2>&1; then (cd "$$tmp" && echo "$$line" | shasum -a 256 -c -); \
+	else echo "tools: neither sha256sum nor shasum found; cannot verify $$tarball" >&2; exit 1; fi; \
+	tar -xzf "$$tmp/$$tarball" -C "$$tmp" "$$name/golangci-lint"; \
+	mkdir -p "$(GOBIN)"; install -m 0755 "$$tmp/$$name/golangci-lint" "$(GOBIN)/golangci-lint"; \
+	echo "tools: installed $(GOBIN)/golangci-lint $$ver"
+# punt:end standard-targets
+```
+
+The `version --short` form prints the bare number (`2.13.1` on this host on
+2026-11-14), so the pin is compared with its `v` stripped. The binary on this
+host reports `built with go1.27.3 from (unknown, modified: ?)`, which is the
+`go install` artifact § 4.3 replaces; CI's `golangci-lint-action` binary
+reports the release's own build.
+
+### 4.2 The template, `src/punt_kit/templates/seed/makefile/go.mk.j2`
+
+Identical to § 4.1 except for the two targets that read the context:
+
+```jinja
+build:  ## Build a static binary per cmd/<name>/main.go into the repo root
+{%- if binaries %}
+{%- for b in binaries %}
+	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o {{ b }} ./cmd/{{ b }}/
+{%- endfor %}
+{%- else %}
+	go build ./...
+{%- endif %}
+
+clean:  ## Remove build artifacts
+	rm -f {{ binaries | join(' ') }} coverage.out
+	rm -rf dist/
+```
+
+A module with no `cmd/<name>/main.go` (a library, `detect.py:191-198`
+returns an empty list) gets a `build` that compiles every package and a
+`clean` that removes only `coverage.out` and `dist/`. The markers are added
+by `render_section` (`seed.py:195-224`), not by the template.
+
+### 4.3 golangci-lint: the prebuilt release binary, and the standard amendment
+
+Two documents on `origin/main` disagree. `standards/go.md:329-339` says:
+"Pin to a release tag in the Makefile and run the same prebuilt release
+binary for that tag locally and in CI. [...] Never
+`go install github.com/golangci/golangci-lint/...@<tag>`: that compiles a
+copy from source." `standards/makefile.md:110-111`, the Go template's `tools`
+target, says:
+
+```makefile
+tools: ## Install development tools
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+```
+
+Linear PL-964 ("Go repos: run golangci-lint as the prebuilt release binary,
+not go install/go run") asks for the `go.md` rule to be applied to the
+fleet. `go.md:340-383` records the observed failure the rule exists for: two
+builds of one tag that disagree on `gofmt` because the formatter is the
+builder's `go/printer`, so a file passes locally and fails CI under one
+version label. ethos hit it (`ethos/Makefile:15-30`); the block takes the
+`go.md` side.
+
+**The block's `tools` is ethos's recipe (`ethos/Makefile:426-485`) with
+three things removed**, each a decision the leader can reverse (§ 8,
+decision 8):
+
+1. The GitHub API asset-route fallback (`ethos/Makefile:452-468`), which
+   needs `jq` and an optional `GITHUB_TOKEN`. The block retries the release
+   CDN five times and fails loudly; a repo that needs the second route keeps
+   it in a local `tools` override (§ 4.4) and takes the collision rule with
+   it.
+2. The refusal to install into `/bin`, `/usr/bin`, and the like
+   (`ethos/Makefile:431-435`). `GOBIN` is read from `go env`, which never
+   returns a system directory unless the developer set it to one.
+3. The long explanatory comment. The block carries the two-line reason; the
+   rest is `standards/go.md` § 7.
+
+**The standard amendment, in the same PR as the template** (write-set in
+§ 10): `standards/makefile.md:73-119` ("Template: Go projects") is replaced
+by the § 4.1 block verbatim, with the `binaries` lines shown for one binary
+named `<name>` and the markers kept, and one sentence above it saying the
+block is what `punt seed makefile` renders and that a Go repo's standard
+targets are that block. The "Go example" column of the required-targets
+table (`standards/makefile.md:19-26`) is unchanged: it already names
+`golangci-lint run ./... && golangci-lint fmt --diff` and `golangci-lint fmt`.
+`makefile.md` is on the markdownlint ignore list
+(`.markdownlint-cli2.jsonc`) because its Makefile code blocks carry hard
+tabs; that stays. § 8 decision 6 asks whether the verbatim replacement is
+the ruling.
+
+### 4.4 What the block does not absorb, and how a repo keeps it
+
+`merge_file` replaces the text between a section's markers and leaves every
+other byte of the file in place (`seed.py:118-170`,
+`test_seed_makefile_updates_managed_preserves_local` at
+`tests/test_seed.py:334-351`). Everything in the "no standard counterpart"
+row of § 2.2 stays outside the markers, untouched by every future
+`punt seed makefile` run. By name, from the mission's list and the survey:
+
+| Target or variable | Where it lives | Why the block does not own it |
+|---|---|---|
+| `prfaq`, `clean-tex`, `clean-latex`, `docs-pdf` | outside | the prfaq tool's recipe; PL-506 canceled; operator direction 2026-11-14 |
+| `play`, `play-unix`, `play-mega`, `demo*`, `eval-*`, `ollama-*`, `generate-dungeon`, `validate-dungeon` | outside (cryptd) | product-specific |
+| `man`, `install`, `uninstall` | outside | `install` has three different `PREFIX` conventions in the fleet (§ 2.2) and `standards/go.md:556-564` names it as a convention, not a target the Makefile standard requires |
+| `dist` | outside | three of five define it and two do not; `go.md:530-536` gives the recipe; not in `makefile.md`'s required table |
+| `tools-ethos`, `tools-biff`, `tools-beadle-email`, `TEST_PREREQS`, `TEST_RUN` | outside (beadle) | beadle's test provisioning; `test` in beadle keeps its `PATH` prefix by the § 5.2 collision procedure (beadle is the one repo whose `test` recipe differs from the block's, see § 5.3) |
+| `spec`, `check-specs`, `check-machines`, `fuzz`, `prob` | outside | z-spec gates |
+| `doctor` | outside | per-product |
+| `docs`, `markdownlint`, `check-docs`, `lint-shell`, `workflows`, `evaluator-models`, `check-agent-skills` | outside; wired in by `check: <extras>` (§ 5.2) | not Go gates; `makefile.md` has no markdownlint or shellcheck target in its required table |
+| `lint-strict`, `vet`, `staticcheck` | deleted in the rollout PR | superseded (§ 2.3): the block's `lint` runs the same analyzers from one binary |
+| `vulncheck` | absorbed | beadle's and mcp-proxy's recipes are the block's recipe; the collision rule removes the duplicate |
+| `export GOTOOLCHAIN := go1.26.10` (beadle l. 22) | outside | a repo-level toolchain pin; `go test` and `go build` in the block honor it |
+| `.DEFAULT_GOAL := all` (points l. 20), `all:` first (cryptd l. 18) | outside, overridden | `help.mk.j2` ends with `.DEFAULT_GOAL := help`; the appended block's assignment is the last one `make` reads, so a bare `make` prints help in every seeded repo (§ 8, decision 10) |
+| `LDFLAGS_EXTRA` | outside, optional | the one hook the block offers for a repo that injects more `-X` values |
+
+Make reads variable assignments in file order and the last `:=` wins, so a
+repo that sets `GOLANGCI_LINT_VERSION` above the block is overridden by the
+block's pin; that is the point of the block. A repo that needs a different
+value for a block variable places the assignment after the `# punt:end help`
+marker; `merge_file` preserves segments after the last managed section in
+place. No repo in § 2.2 needs that.
+
+---
+
+## 5. Rollout
+
+### 5.1 Per-repo dry-run expectation
+
+The first `punt seed makefile --dry-run` in each repo prints `~ Makefile
+(+N lines)` with N = 65 + 7 = 72 for one binary, plus one `build` line per
+binary beyond the first, followed by one `Error:` line per collision (§ 3.6)
+and exit 1. A collision is a block-owned target (`check`, `lint`, `test`,
+`vulncheck`, `format`, `build`, `clean`, `tools`, `help`) with a local
+recipe; the superseded targets of § 2.3 (`vet`, `staticcheck`,
+`lint-strict`) are not collisions and are deleted in the same PR because
+the block's `lint` runs their analyzers. The rollout PR for each repo is
+then: delete or rename each colliding recipe, delete the superseded
+targets, add the `check:` extension line, run `punt seed makefile` for
+real, run `make tools`, `make check`, and `make help`, commit.
+
+| Repo | Binaries | First dry-run | Colliding recipes to remove (block-owned) | Superseded targets deleted | Extension line | Net after rollout (approx.) |
+|---|---|---|---|---|---|---|
+| mcp-proxy | 1 | `+72 lines`, 8 collisions | `help`, `lint`, `vulncheck`, `test`, `check`, `format`, `build`, `clean` (l. 7-8, 10-12, 17-18, 23-24, 29-35, 41-43) | `lint-strict` (l. 14-15) | `check: docs` | 54 → about 95 |
+| points | 1 | `+72 lines`, 8 collisions | `check`, `test`, `lint`, `format`, `build`, `clean`, `tools`, `help` (l. 25-26, 32-34, 41-48, 67-70, 72-74, 93-96, 98-102, 125-128); the `actionlint` and `gopls` lines of `tools` move to a local `tools-extra` target | none | `check: markdownlint workflows evaluator-models` | 128 → about 150 |
+| circuit | 2 | `+73 lines`, 8 collisions | `help`, `check`, `lint`, `test`, `build`, `format`, `clean`, `tools` (l. 22-23, 25, 66, 72, 83, 88-90, 152-153, 167-169); `format`'s prettier line moves to `format-pi-extension`; `check-engine` becomes `check-engine: test-engine` since `lint` is the block's | none | `check: check-rpc check-pi-extension check-docs check-agent-skills` | 169 → about 200 |
+| cryptd | 5 | `+76 lines`, 6 collisions | `check`, `test`, `lint`, `build`, `clean`, `help` (l. 21, 28-29, 45-46, 52-53, 63-64, 249-253); `build-server`, `build-client`, `build-admin` stay as aliases of the three binaries `play` and `install` name; `check-full` keeps its own prerequisite list; the `##@` section headers stop rendering in `help` (the block's recipe is the plain grep/awk) | `vet` (l. 25-26) | `check: markdownlint` | 253 → about 300, plus a new `.golangci.yml` (§ 5.3) |
+| beadle | 2 | `+73 lines`, 8 collisions | `help`, `lint`, `vulncheck`, `test`, `check`, `format`, `build`, `clean` (l. 60-64, 75-76, 298-299, 304-307, 309-310, 330-332); `build-daemon` stays as an alias | `vet`, `staticcheck`, `lint-strict` (l. 66-73) and `STATICCHECK_VERSION`, `GOLANGCI_LINT_VERSION` (l. 8-9) | `check: lint-shell docs` | 357 → about 390 |
+
+Line numbers are the sibling Makefiles' on 2026-11-14 (§ 2.2 dates). The
+"net" column is the block plus the file minus the removed recipes, rounded;
+the PR's own diff is the number that matters and the rollout worker records
+it in the PR description.
+
+### 5.2 How a repo extends `check`
+
+**Recommendation: a prerequisite-only rule outside the block.** Make merges
+the prerequisite lists of every rule for one target when at most one of them
+has a recipe, so a local line
+
+```makefile
+check: docs lint-shell
+```
+
+above the block adds `docs` and `lint-shell` to the block's
+`check: lint test vulncheck` without a warning, and `make check` runs the
+local extras first (prerequisites run in file order across rule lines) and
+the block's three after. The line reads as what it is, it needs no new
+target name and no variable, and `make -n check` shows the merged list.
+
+Rejected:
+
+- **`check: check-standard <extras>`**, with the block owning
+  `check-standard`. It renames the one target every CI workflow and every
+  `CLAUDE.md` in the fleet calls, and a repo that forgets the local line has
+  no `check` at all.
+- **A documented variable** (`CHECK_EXTRA := docs`, with the block's
+  `check: lint test vulncheck $(CHECK_EXTRA)`). It hides the prerequisite
+  list behind an indirection and must be set above the block to take
+  effect, which the variable-order rule in § 4.4 makes fragile.
+
+The same rule extends `lint`, `test`, and `format` (circuit's
+`test: test-pi-extension`, `format: format-pi-extension`) without touching
+the block.
+
+### 5.3 Per-repo notes
+
+- **cryptd** has no `.golangci.yml`. The rollout PR adds the
+  `standards/go.md:306-326` baseline (govet, staticcheck, unused, the ST
+  exclusions, gofmt) and fixes whatever `golangci-lint run` reports on the
+  tree before `make check` is green. Its CI `lint.yml:21-24` installs
+  staticcheck with `go install`; the PR replaces that step with
+  `golangci-lint-action` at the block's pin (`go.md:343-349`).
+- **beadle** is the one repo whose `test` recipe is not the block's: it
+  wraps `go test` in `TEST_RUN` to carry three provisioned tools on `PATH`
+  (`Makefile:287-299`). The collision rule refuses the file until that
+  recipe moves; the rollout PR renames it `test-provisioned`, keeps
+  `TEST_PREREQS` and `TEST_RUN` as they are, and adds
+  `check: lint-shell docs test-provisioned`. The block's plain `test` then
+  runs the packages that need no provisioned binary and `test-provisioned`
+  runs them all; CI's `make test` (`test.yml`, `release.yml:27`) becomes
+  `make test-provisioned`. The `GOTOOLCHAIN` export (l. 14-22) stays.
+- **circuit** CI runs `nix develop --command make check` (`check.yml:31`);
+  the nix shell must provide `curl`, `tar`, and `shasum` or `sha256sum` for
+  `make tools`, or the rollout PR adds golangci-lint at the pin to the
+  flake and the block's `lint` finds it at `$(GOBIN)` only if the flake
+  installs it there. The rollout worker reads `flake.nix` and picks; the
+  block does not change for it.
+- **points** CI already runs `golangci-lint-action` at v2.13.1 and
+  `golangci-lint fmt --diff` (`ci.yml:26-32`); the PR is the Makefile and
+  the `tools` split only. Its `security.yml` govulncheck job at v1.1.4
+  moves to the block's pin or is deleted in favor of `make vulncheck`.
+- **mcp-proxy** CI `lint.yml:21-23` runs all three tools with `go run`; the
+  PR replaces the three steps with `golangci-lint-action` plus
+  `make vulncheck`.
+
+### 5.4 Dirty repos on this host, 2026-11-14
+
+Every rollout PR is a worktree PR (`docs/WORKFLOW.md`, one worktree per
+unit). The repos where the main checkout cannot be used as the base without
+first moving work aside:
+
+- **points**: `Makefile` itself is modified and uncommitted (a `doctor`
+  jq-filter change at l. 115-116), with `.bin/check-dev-config.sh`,
+  `.gitignore`, `.punt-labs/ethos/CLAUDE.md`, and `CLAUDE.md` also
+  modified. The leader rules on that diff before the rollout branch is cut.
+- **mcp-proxy**: `.envrc` modified, `resume.md` untracked.
+- **cryptd**: `playbooks/` untracked only; the tracked tree is clean.
+- **beadle**, **circuit**: clean.
+
+---
+
+## 6. Failure contract
+
+Every row prints exactly one line per failure on stderr, prefixed `Error:`,
+and exits 1, matching `seed.py`'s existing refusals (`seed.py:107-111`,
+`212-215`, `345-348`). Nothing is written on any failing row.
+
+| Condition | How it is detected | Line | Exit | `--dry-run` |
+|---|---|---|---|---|
+| Path is not a directory | `seed.py:328-330` | `Error: <path> is not a directory` | 1 | same |
+| Language undetected (`info.language is None`) | § 3.5, first check | `Error: no language detected in <root> (no pyproject.toml [project] table, package.json, go.mod, project.yml, or *.swift) — nothing to render` | 1 | same |
+| Language detected, no template (`node`, `swift`) | § 3.5, second check | `Error: no Makefile template for language 'swift' — templates exist for: go, python` | 1 | same |
+| Template file missing from the install | `seed.py:211-215` | `Error: Template 'makefile/go.mk.j2' not found — punt-kit may need reinstalling` | 1 | same |
+| Template raises (undefined name, syntax) | `seed.py:216-219` | `Error: Template 'makefile/go.mk.j2' failed: <jinja message>` | 1 | same |
+| `Makefile` absent | `seed.py:392-394`, `original = ""` | no error; both blocks are written as the whole file | 0 | `+ Would create Makefile`, nothing written |
+| `Makefile` present, no markers, no collisions | `parse_segments` returns one local segment | no error; blocks appended after the last line | 0 | `~ Makefile (+N lines)` |
+| `Makefile` present, no markers, collisions | § 3.6 | one `Error: Makefile:<line> defines '<target>' with a recipe; the managed block owns it — move the repo's own steps to another target or delete the rule` per collision | 1 | summary line, then the same lines, exit 1 |
+| Markers present, current | `merged == original` (`seed.py:407`) | none | 0 | `Dry run — no files modified.` |
+| Markers present, stale | `merged != original` | none; the section text is replaced | 0 | `~ Makefile (…)` |
+| Begin marker with no end marker | `seed.py:103-111` | `Error: Unclosed marker 'standard-targets' — fix the end marker before running punt seed` | 1 | same |
+| End marker with no begin marker | `parse_segments` treats it as local text | none; the stray line is kept as local content and the blocks are appended | 0 | `~ Makefile (+N lines)` |
+| Begin and end ids differ (`begin standard-targets` … `end help`) | the end marker never matches `current_id` (`seed.py:97-99`), so the block is unclosed | the unclosed-marker error | 1 | same |
+| `Makefile` unreadable (not UTF-8, permission) | `TextFile.read` raises `ReleaseError`, caught at `seed.py:350-353` | `Error: <TextFile's message naming the file>` | 1 | same |
+| Write fails (read-only tree) | `TextFile.write` raises `ReleaseError`, same handler | `Error: <message>` | 1 | not reached |
+
+Two rows are new behavior the implementation must add: the two language
+errors and the collision rows. The others are the existing contract, listed
+so the table is complete.
+
+---
+
+## 7. Tests
+
+All in `tests/test_seed.py` unless named otherwise; each is a plain pytest
+function or method on the existing classes, `tmp_path`-based, no mocking of
+the filesystem. A Go fixture is `go.mod` with `module example.com/x` and
+`go 1.26` plus `cmd/<name>/main.go` files as the case needs.
+
+**Rendering, one snapshot per language.**
+
+- `test_render_go_standard_targets_snapshot`: `render_section("standard-targets", "makefile/go.mk.j2", {"binaries": ["mcp-proxy"]}, "makefile")` equals the § 4.1 text byte for byte, read from `tests/fixtures/seed/go-standard-targets.mk`. The fixture is the § 4.1 block and the standard's template at once; a change to one is a change to both.
+- `test_render_python_standard_targets_unchanged`: rendering `python.mk.j2` with the new context `{"binaries": []}` equals rendering it with `{}`; the Python block is byte-identical before and after the context change.
+- `test_render_go_build_one_line_per_binary`: `binaries=["a", "b"]` renders two `go build` lines in that order and `rm -f a b coverage.out`.
+- `test_render_go_library_module`: `binaries=[]` renders `go build ./...` and `rm -f coverage.out`.
+- `test_standard_targets_template` (existing, l. 220-229) is kept as the Python counterpart.
+
+**The explicit-error path** (replaces `test_seed_makefile_skips_non_python`, l. 360-366).
+
+- `test_seed_makefile_refuses_undetected_language`: a `README.md`-only directory; `run_seed` raises `SystemExit(1)`, no `Makefile` is created, and the captured output contains `no language detected`.
+- `test_seed_makefile_refuses_language_without_template`: a `package.json` directory; `SystemExit(1)`, output contains `no Makefile template for language 'node'` and `templates exist for: go, python`.
+- `test_seed_makefile_dry_run_refuses_the_same_way`: both of the above with `dry_run=True` exit 1 and write nothing.
+
+**The detect mapping** (`tests/test_detect.py`).
+
+- `test_detect_go` (existing, l. 48-55), `test_detect_go_hybrid` (l. 189-204), and `test_detect_go_no_cmd_dir` (l. 207-215) already pin `language == "go"` and `cli_commands`. One addition: `test_detect_go_cli_commands_sorted_and_main_go_only`: `cmd/b/main.go`, `cmd/a/main.go`, and `cmd/c/helper.go` give `["a", "b"]`.
+
+**Seeding a Go repo end to end.**
+
+- `test_seed_makefile_go_creates_both_sections`: a Go fixture with one binary; after `run_seed`, the `Makefile` contains both marker pairs, `go test -race -count=1 ./...`, and `-o x ./cmd/x/`; the returned list is `["Makefile"]`.
+- `test_seed_makefile_go_idempotent`: a second run returns `[]` and the file is byte-identical.
+- `test_seed_makefile_go_dry_run_writes_nothing`: `dry_run=True` on the fixture; no `Makefile`.
+
+**The marker-merge round trip on mcp-proxy's real Makefile.**
+
+- `tests/fixtures/seed/mcp-proxy.Makefile` is a copy of `mcp-proxy/Makefile` at its 2026-08-29 commit (54 lines), checked in with its hard tabs.
+- `test_seed_go_collisions_on_a_real_makefile`: copy the fixture into a Go fixture directory as `Makefile`; `run_seed` exits 1 and the output names each of `help`, `lint`, `vulncheck`, `test`, `check`, `format`, `build`, and `clean` with its line number (`Makefile:7`, `Makefile:10`, …), does not name `lint-strict` (not a block target), and the file is unchanged.
+- `test_seed_go_round_trip_on_a_real_makefile`: the same copy with those recipes removed and `check: docs` added (the § 5.1 rollout shape, checked in as `tests/fixtures/seed/mcp-proxy.trimmed.Makefile`); `run_seed` writes the file; assert the local lines `docs:`, `test-e2e:`, `install:`, `dist:`, `cover:`, `VERSION ?= dev`, and `LDFLAGS_DIST` are all still present verbatim, in their original order, that both blocks follow them, and that a second `run_seed` is a no-op. Then edit the managed block's `GOVULNCHECK_VERSION` line in the file, run again, and assert the block is restored and the local lines are still untouched.
+- `test_merged_check_prerequisites`: run `make -n check` (`subprocess`, skipped when `make` is not on `PATH`) on the round-trip output and assert the dry-run command list contains the `docs` recipe's `markdownlint-cli2` line before the block's `golangci-lint` lines.
+
+**Collision detection, unit level.**
+
+- `test_collision_rule_with_recipe`: `lint:\n\tgo vet ./...\n` is a collision.
+- `test_collision_prerequisite_only_is_not`: `check: docs\n` is not.
+- `test_collision_phony_is_not`: `.PHONY: lint test\n` is not.
+- `test_collision_inside_managed_block_is_not`: a stale managed block that defines `lint` is replaced, not reported.
+
+**Failure table rows not covered above.**
+
+- `test_seed_makefile_end_marker_without_begin_is_local`, `test_seed_makefile_mismatched_marker_ids_is_unclosed`, and the existing `test_unclosed_marker_raises` (l. 83-86) and `test_seed_makefile_updates_managed_preserves_local` (l. 334-351).
+
+The assertion count goes up by the number of tests above; `make check`
+runs them all.
