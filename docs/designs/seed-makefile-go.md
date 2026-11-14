@@ -184,7 +184,7 @@ standard already names and are read here for the block, not for rollout:
   no `.golangci.yml`; its rollout PR adds the `standards/go.md:306-326`
   baseline config (§ 5.3).
 - `format` as a prerequisite of `check` (circuit l. 25) mutates the tree
-  inside the gate, against `standards/makefile.md:191` ("`lint` never
+  inside the gate, against `standards/makefile.md:192` ("`lint` never
   mutates"); the block's `check` is `lint test vulncheck`.
 
 **Kept outside the block, by design of the merge** (§ 4.4): everything in the
@@ -261,7 +261,7 @@ one template file and one registry entry; nothing else in `seed.py` changes.
 
 ### 3.4 The render context
 
-`render_section` is called with an empty context today (`seed.py:398`). It
+`render_section` is called with an empty context on `origin/main` (`seed.py:398`). It
 is called with one context for every language:
 
 ```python
@@ -270,7 +270,7 @@ context = {"binaries": list(info.cli_commands)}
 
 `python.mk.j2` does not reference `binaries`, and Jinja's `StrictUndefined`
 (`seed.py:190`) only raises for a name a template reads, so the Python
-rendering is byte-identical to today's. `go.mk.j2` reads `binaries` for the
+rendering is byte-identical to the `origin/main` rendering. `go.mk.j2` reads `binaries` for the
 `build` and `clean` targets.
 
 ### 3.5 The guard becomes two explicit errors
@@ -512,7 +512,7 @@ row of § 2.2 stays outside the markers, untouched by every future
 | `prfaq`, `clean-tex`, `clean-latex`, `docs-pdf` | outside | the prfaq tool's recipe; PL-506 canceled; operator direction 2026-11-14 |
 | `play`, `play-unix`, `play-mega`, `demo*`, `eval-*`, `ollama-*`, `generate-dungeon`, `validate-dungeon` | outside (cryptd) | product-specific |
 | `man`, `install`, `uninstall` | outside | `install` has three different `PREFIX` conventions in the fleet (§ 2.2) and `standards/go.md:556-564` names it as a convention, not a target the Makefile standard requires |
-| `dist` | outside | three of five define it and two do not; `go.md:530-536` gives the recipe; not in `makefile.md`'s required table |
+| `dist` | outside | three of five define it and two do not; `go.md:533-538` gives the recipe; not in `makefile.md`'s required table |
 | `tools-ethos`, `tools-biff`, `tools-beadle-email`, `TEST_PREREQS`, `TEST_RUN` | outside (beadle) | beadle's test provisioning; `test` in beadle keeps its `PATH` prefix by the § 5.2 collision procedure (beadle is the one repo whose `test` recipe differs from the block's, see § 5.3) |
 | `spec`, `check-specs`, `check-machines`, `fuzz`, `prob` | outside | z-spec gates |
 | `doctor` | outside | per-product |
@@ -720,3 +720,226 @@ the filesystem. A Go fixture is `go.mod` with `module example.com/x` and
 
 The assertion count goes up by the number of tests above; `make check`
 runs them all.
+
+---
+
+## 8. Operator decisions
+
+Each is numbered, carries a recommendation, and is ratified by "proceed as
+designed" or amended before the implementation contract is written.
+
+1. **Prebuilt golangci-lint release binary, not `go install`, and amend
+   `standards/makefile.md:73-119` in the same PR.** Recommend: yes. The
+   `go.md` rule (`standards/go.md:329-383`) is already the standard and
+   records the observed gofmt split; the Makefile template is the one place
+   on `origin/main` that still says `go install`, and a standard must not
+   describe a rejected practice. PL-964 closes when the six rollout PRs
+   merge.
+2. **`vet` and `staticcheck` fold into golangci-lint; no separate
+   targets.** Recommend: fold. Every `.golangci.yml` in the fleet enables
+   `govet` and `staticcheck`; a standalone `go run staticcheck@<tag>`
+   compiles against the host toolchain and is the export-data crash beadle
+   pinned `GOTOOLCHAIN` for. One binary, one pin, one gate.
+3. **`vulncheck` is in `check`.** Recommend: yes, as `go run
+   golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION) ./...`. It is
+   in `check` on the two most recently edited Go Makefiles (beadle,
+   mcp-proxy) and in points's CI; the standard's security ordering puts a
+   known-vulnerable dependency above every other finding. The cost is one
+   module download per run and a network dependency inside `make check`; a
+   repo that must run `check` offline (agent-image's `check-offline`
+   pattern) sets `GOFLAGS=-mod=mod` aside and that is its own override. The
+   alternative, a separate `security` target outside `check`, leaves the
+   scan to CI only, which for cryptd and circuit means no scan at all.
+4. **biff is out of scope.** Recommend: yes. `detect` classes it `python`
+   (`detect.py:115-120` runs before `132-135`); it has no `go.mod`; it
+   already receives `python.mk.j2`. Its one `check` extra (`mdlint`) is the
+   § 5.2 pattern and is a separate T4 in biff's own funnel if the leader
+   wants it.
+5. **A repo extends `check` with a prerequisite-only `check: <extras>`
+   rule outside the block.** Recommend: yes, over `check-standard` and over
+   a `CHECK_EXTRA` variable (§ 5.2 gives both rejections). It is
+   plain Make, needs no new name, and `make -n check` shows the merged list.
+6. **The standard's "Template: Go projects" section is replaced by the
+   rendered block verbatim.** Recommend: yes. One source: the Jinja
+   template renders the block, a snapshot test pins the rendering to the
+   fixture, and the standard shows the fixture. A standard that paraphrases
+   the template drifts from it the next time either changes.
+7. **Ship order: the Python-only guard change ships with the Go template,
+   in one PR.** Recommend: one PR. The guard's replacement (§ 3.5) and the
+   per-language registry (§ 3.3) are the same edit to `_seed_file`; a Go
+   template without the registry has nowhere to register, and a registry
+   without a second language is an untested refactor. The PR is the
+   template, the registry, the two error paths, the collision rule, and the
+   tests; the standard amendment is the second PR (§ 10); the six rollouts
+   are the third wave.
+8. **The block's `tools` drops ethos's GitHub-API fallback route and
+   system-directory refusal.** Recommend: drop both. The fallback needs
+   `jq` and doubles the recipe; the release CDN with five retries is what
+   `golangci-lint-action` itself uses. A repo that has hit the CDN outage
+   keeps the longer recipe as a local `tools` and takes the collision rule
+   (ethos is not in the rollout set). The system-directory case cannot
+   arise from `go env`.
+9. **Collisions refuse the write (exit 1) rather than warn and append.**
+   Recommend: refuse. Appending produces a Makefile that prints
+   `warning: overriding recipe` on every `make` and silently runs the
+   block's recipe instead of the repo's; a refusal that names each line is
+   the rollout checklist. The cost is that first adoption is never a single
+   `punt seed makefile` run on any of the five repos; § 5.1 is that
+   procedure.
+10. **`help.mk.j2`'s `.DEFAULT_GOAL := help` overrides points's and
+    cryptd's `all` default.** Recommend: accept the override. A bare `make`
+    printing the target list is the `makefile.md` discoverability
+    rationale (`standards/makefile.md:9-12`); `make all` still runs
+    `build check` in both repos. If the leader wants `all` kept as the
+    default in those two, the repo places `.DEFAULT_GOAL := all` after the
+    `# punt:end help` marker and the last assignment wins (§ 4.4).
+11. **golangci-lint pin v2.13.1, govulncheck pin v1.7.0, in the template.**
+    Recommend: those values. v2.13.1 is the newest deployed (points, ethos);
+    v1.7.0 is the newest deployed (beadle, mcp-proxy). A bump is one edit to
+    `go.mk.j2` and one `punt seed makefile` per repo, which is the point of
+    a managed block.
+
+---
+
+## 9. `DESIGN.md` ADR draft
+
+To be appended to `DESIGN.md` by the leader when the implementation PR
+opens; numbered after DES-040, which
+[audit-findings-and-examiner.md](audit-findings-and-examiner.md) claims.
+
+## DES-041: `punt seed makefile` Renders a Per-Language Block, and Go Is the Second Language
+
+**Context.** `punt seed makefile` managed two sections, `standard-targets`
+and `help`, for Python repos only. The section registry was one flat list
+bound to `python.mk.j2`, and `_seed_file` returned silently with exit 0 for
+every other language. The six Go repos in the fleet had hand-rolled standard
+targets with four golangci-lint install methods, three lint tool chains, and
+no marker a tool could audit. `standards/makefile.md`'s Go template
+prescribed `go install` for golangci-lint while `standards/go.md` forbade it.
+
+**Decision.** `MAKEFILE_SECTIONS` is a mapping from `info.language` to an
+ordered section list; `go` maps to `makefile/go.mk.j2` plus the shared
+`help.mk.j2`. A language with no entry, or no detected language, is a
+one-line `Error:` and exit 1, never a skip. The Go block owns `check`,
+`lint`, `test`, `vulncheck`, `format`, `build`, `clean`, and `tools`;
+`lint` runs the pinned golangci-lint from `$(GOBIN)` and refuses an absent
+or wrong-version binary; `tools` installs the official release artifact
+after verifying it against the release checksums; `build` renders one line
+per `cmd/<name>/main.go` from `info.cli_commands`. A local recipe for a
+block-owned target is a collision that refuses the write and names the
+line. A repo extends `check` with a prerequisite-only rule outside the
+block. `standards/makefile.md`'s Go template is the rendered block verbatim.
+
+**Rejected.**
+
+- *Keep the silent skip and add Go as a special case.* Leaves `node` and
+  `swift` silent and the registry flat; the next language repeats the bug.
+- *`go install` for golangci-lint, as the old template had it.* The
+  compile-from-source artifact disagrees with CI's release binary on gofmt
+  under one version label; `standards/go.md` § 7 records the observed
+  failure.
+- *Separate `vet` and `staticcheck` targets.* The same analyzers run inside
+  golangci-lint from one pinned binary; the standalone `go run` form is the
+  export-data crash beadle pinned `GOTOOLCHAIN` around.
+- *`check-standard` or a `CHECK_EXTRA` variable for extension.* Renames the
+  target every CI calls, or hides the prerequisite list behind an
+  order-sensitive variable; a second `check:` rule line is plain Make.
+- *Append on collision and let `make` warn.* The warning fires on every
+  invocation and the block's recipe silently replaces the repo's.
+- *A `prfaq` section in the same design.* The recipe is the prfaq tool's;
+  PL-506 canceled; operator direction 2026-11-14.
+
+**Consequences.** Every Go repo gets the same eight standard targets from
+one template, auditable by marker; a golangci-lint bump is one template
+edit and one seed per repo. First adoption on an existing Makefile is a
+procedure, not one command, because the collision rule refuses until the
+hand-rolled recipes move. `make check` in a Go repo needs the network once
+for `make tools` and once per run for govulncheck's module download. The
+`help` recipe is the shared one; cryptd's `##@` section headers stop
+rendering.
+
+---
+
+## 10. Implementation write-set and wave plan
+
+Three waves. The first gates the other two and is one PR in punt-kit; the
+second and third run in parallel once it merges, in their own worktrees.
+
+### Wave 1: the template, the registry, the guard, the collision rule, the tests (punt-kit, one PR)
+
+Worker `rmh`, evaluator `adb` (Python in punt-kit, per the
+`punt-kit/CLAUDE.md` table). T2, `budget.minutes` 180, first commit within
+30 minutes. The first commit is the smallest user-visible change with its
+test: `go.mk.j2`, the registry entry, and
+`test_seed_makefile_go_creates_both_sections`.
+
+| Path | Change |
+|---|---|
+| `src/punt_kit/templates/seed/makefile/go.mk.j2` | new; § 4.2 |
+| `src/punt_kit/seed.py` | `MAKEFILE_SECTIONS` per language (§ 3.3); `_seed_file` reads the language entry, passes `{"binaries": info.cli_commands}` (§ 3.4), the two errors (§ 3.5), the collision scan (§ 3.6); the `TARGETS` type |
+| `src/punt_kit/detect.py` | the `language` comment at l. 47 names `go` |
+| `tests/test_seed.py` | § 7: the snapshot, error-path, end-to-end, round-trip, and collision tests; `test_seed_makefile_skips_non_python` replaced |
+| `tests/test_detect.py` | `test_detect_go_cli_commands_sorted_and_main_go_only` |
+| `tests/fixtures/seed/go-standard-targets.mk` | the § 4.1 block, the snapshot |
+| `tests/fixtures/seed/mcp-proxy.Makefile`, `tests/fixtures/seed/mcp-proxy.trimmed.Makefile` | the round-trip inputs |
+| `CHANGELOG.md` | leader-authored: Added, `punt seed makefile` renders Go; Changed, a non-Python repo without a template is an error |
+| `README.md` | leader-authored, if the seed section lists supported languages |
+| `DESIGN.md` | leader-authored: DES-041 from § 9 |
+
+Demo: `punt seed makefile --dry-run` from the installed wheel against
+`../mcp-proxy` prints the `+72 lines` summary and eight collision lines and
+exits 1; against a `tmp` Go module with one binary it writes the file and
+`make -n check` lists the three gates; against `../koch-trainer-swift` it
+prints the swift error and exits 1.
+
+### Wave 2: the standard amendment (punt-kit, one PR, after wave 1 merges)
+
+Worker `mdm`, evaluator `rop` (standards doc authoring). T3,
+`budget.minutes` 60.
+
+| Path | Change |
+|---|---|
+| `standards/makefile.md` | lines 73-119 replaced by the wave-1 fixture verbatim with `<name>` for the binary, markers kept, one sentence that the block is what `punt seed makefile` renders; the "Go example" column at l. 19-26 unchanged |
+| `standards/go.md` | § 7 "Installing golangci-lint" (l. 329-383) gains one sentence pointing at the Makefile standard's block as the rendered form; nothing removed |
+| `CHANGELOG.md` | leader-authored |
+
+Docs-only; `qodo review` and markdownlint on `go.md` (`makefile.md` is on
+the ignore list); the fleet-reality step is § 2 of this document and the
+evaluator checks it ran.
+
+### Wave 3: the five rollout PRs (parallel, after wave 1 merges; wave 2 need not have merged)
+
+Worker `adb`, evaluator `djb` for each (Makefile and CI workflow changes).
+T3 each, `budget.minutes` 60, one worktree and branch per repo, filed in
+each repo's own funnel with the repo label. Each PR: remove the colliding
+recipes and the superseded targets per § 5.1, add the `check:` extension
+line, `punt seed makefile`, `make tools`, `make check` green, `make help`
+read, CI workflow steps replaced per § 5.3, PR description carries the
+actual `--dry-run` output before and the `No changes needed.` after.
+
+| Repo | Extra scope | Blocked on |
+|---|---|---|
+| mcp-proxy | `lint.yml` three `go run` steps replaced | wave 1; `.envrc` diff moved aside |
+| points | `tools-extra` for actionlint and gopls; `security.yml` govulncheck pin or deletion | wave 1; the leader's ruling on the uncommitted `Makefile` and four other files |
+| circuit | `format-pi-extension`; `check-engine: test-engine`; `flake.nix` provides curl/tar/sha for `make tools` or installs golangci-lint at the pin | wave 1 |
+| cryptd | new `.golangci.yml` from `go.md:306-326`; tree made clean under it; `lint.yml` staticcheck step replaced | wave 1 |
+| beadle | `test` renamed `test-provisioned`; `test.yml` and `release.yml:27` call it; `vet`, `staticcheck`, `lint-strict` and their pins deleted | wave 1 |
+
+PL-964 closes when all five merge. ethos and agent-image already run the
+prebuilt binary and are not in the set; the leader files a follow-up for
+each to adopt the block when its own next Makefile change comes due, since
+both have `tools` recipes that collide and both carry local reasons (the
+API fallback, the per-checkout `GOBIN`) the block does not.
+
+### Follow-ups for the leader to file in Linear
+
+- biff: `check: mdlint` as the § 5.2 extension line once `python.mk.j2` is
+  re-seeded there (T4, repo:biff).
+- ethos and agent-image: adopt the Go block on their next Makefile change
+  (T3 each, repo:ethos and repo:agent-image).
+- `punt audit`: a check that `punt seed makefile --dry-run` reports no
+  change, so a drifted managed block is a finding (repo:pkit; depends on
+  wave 1 and on the audit-findings design, DES-040).
+- koch-trainer-swift and quarry-menubar: a `swift.mk.j2`, or a ruling that
+  Swift repos stay unmanaged and the § 3.5 error is their contract
+  (repo:pkit).
