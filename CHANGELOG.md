@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `docs/designs/seed-makefile-go.md` — the design for `punt seed makefile` on
+  Go repos (PL-1043). Today the subcommand skips every non-Python repo, so
+  the five Go repos carry hand-rolled Makefiles with no managed block. The
+  design makes the section registry per-language, adds a `go.mk.j2` block
+  (pinned golangci-lint from the checksum-verified release binary per
+  `standards/go.md` and PL-964, `go test -race -count=1`, govulncheck in
+  `check`, one `go build` per `cmd/` binary), turns the silent skip into an
+  explicit error, refuses to write over a target the repo already defines
+  with a recipe, and states that a prerequisite-only line such as `check:`
+  merges with the block instead. It surveys all five Go Makefiles plus ethos
+  and agent-image, reconciles the makefile standard's `go install` template
+  with the Go standard's prebuilt-binary rule, gives a per-repo rollout
+  procedure, a failure contract, the test list, twelve operator decisions,
+  the DES-041 draft, and a three-wave plan.
 - `docs/designs/audit-findings-and-examiner.md` — the design for a `Finding`
   type that replaces `punt audit`'s status/label/message tuples (severity,
   rule identity, location, message, remedy, examiner; a versioned JSON form;

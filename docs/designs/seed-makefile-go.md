@@ -725,7 +725,6 @@ the filesystem. A Go fixture is `go.mod` with `module example.com/x` and
 - `test_render_python_standard_targets_snapshot`: rendering `python.mk.j2` with the new context `{"binaries": []}` equals `tests/fixtures/seed/python-standard-targets.mk` byte for byte, a fixture captured from the `origin/main` rendering before the context change; `test_standard_targets_template` (existing, l. 220-229) stays as the content pin.
 - `test_render_go_build_one_line_per_binary`: `binaries=["a", "b"]` renders two `go build` lines in that order and `rm -f a b coverage.out`.
 - `test_render_go_library_module`: `binaries=[]` renders `go build ./...` and `rm -f coverage.out`.
-- `test_standard_targets_template` (existing, l. 220-229) is kept as the Python counterpart.
 
 **The explicit-error path** (replaces `test_seed_makefile_skips_non_python`, l. 360-366).
 

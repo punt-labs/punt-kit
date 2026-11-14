@@ -1,0 +1,37 @@
+mission: m-2026-11-14-002
+round: 2
+created_at: "2026-11-14T16:34:26Z"
+author: adb
+verdict: pass
+confidence: 0.9
+files_changed:
+    - path: docs/designs/seed-makefile-go.md
+      added: 996
+      removed: 0
+evidence:
+    - name: 'Round-2 commit 216be11 on design/seed-makefile-go (87 insertions, 36 deletions over 12c1d61); markdownlint on a root copy: 0 issues, copy moved to .tmp/; diff against origin/main is the one design file; git status clean'
+      status: pass
+    - name: 'HIGH F1: verified `check:` is prerequisite-only at mcp-proxy l.29, beadle l.304, points l.26, cryptd l.21, circuit l.25, and circuit lint l.66 / test l.72 / build l.83 and cryptd build l.52 (sed on the sibling files). §3.6 gains the merge consequence with circuit''s `check: format ...` and `test: test-engine ...` as the two cases and the rule ''edit the prerequisite list, never remove the recipe''; §5.1 lead restated; table gains a ''Prerequisite-only lines to edit'' column; counts corrected to 7/7/4/4/7 (mcp-proxy, points, circuit, cryptd, beadle) with `check` removed from every collision list; §10 demo says seven collision lines; §7 collision test no longer names `check` and asserts it is absent; the prerequisite-only unit test uses mcp-proxy''s real `check:` line with its `##` comment'
+      status: pass
+    - name: 'HIGH F2: seed.py:331-334 read via git show origin/main (`root = Path(path).resolve()` / `if not root.is_dir():` / the Error print / SystemExit); §6 row 1 corrected'
+      status: pass
+    - name: 'MEDIUM F3: seed.py:29 `console = Console()` verified; §3.5 states the origin/main lines go to stdout and names `Console(stderr=True)`; §6 lead restated; decision 12 added to §8 recommending stderr; §10 seed.py row names the l.29 edit as moving every existing Error line'
+      status: pass
+    - name: 'MEDIUM F4: beadle test.yml verified by grep: make vet l.26, make staticcheck l.29, make lint-strict l.32, make vulncheck l.35, make lint-shell l.38, make tools-* l.41, go test -race -count=1 ./... l.52; §5.3 beadle note and the §10 beadle row now replace l.26-32 with golangci-lint-action, fold l.41+l.52 into make test-provisioned, keep l.35 and l.38; release.yml:27 unchanged'
+      status: pass
+    - name: 'MEDIUM F5: seed.py:191 `undefined=jinja2.StrictUndefined` verified; §3.4 corrected'
+      status: pass
+    - name: 'LOW F6: test renamed test_render_python_standard_targets_snapshot against a new fixture tests/fixtures/seed/python-standard-targets.mk captured from the origin/main rendering; test_standard_targets_template named as the content pin; §10 fixture row lists both snapshots'
+      status: pass
+    - name: 'LOW F7: §3.6 states the error line''s path is repo-root relative via _relpath (seed.py:479-484, verified)'
+      status: pass
+prose: |
+    Round 2 applies every finding in the evaluator trail in one commit,
+    216be11. Each corrected citation was read back before the edit:
+    seed.py 29, 191, 331-334, 479-484 via `git show origin/main`; the five
+    `check:` lines and circuit's lint/test/build and cryptd's build via sed
+    on the sibling Makefiles; beadle's test.yml via grep. The premise that
+    every Go Makefile defines every block target with a recipe was wrong
+    and is withdrawn; the collision rule stands with corrected counts and a
+    stated merge consequence for prerequisite-only lines. Nothing pushed;
+    no PR; only the design file in the diff.
