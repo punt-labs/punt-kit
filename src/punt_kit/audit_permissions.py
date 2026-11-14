@@ -112,7 +112,7 @@ class PermissionsAudit:
 
         An MCP wildcard (``mcp__plugin_<plugin>_<server>__*`` for a plugin-bundled
         server, ``mcp__<name>__*`` for one the tool registers natively) or a
-        ``Skill(<plugin>:<cmd>)`` rule is present only because that tool is
+        ``Skill(<plugin>:*)`` rule is present only because that tool is
         enabled here, so its absence is not a finding and its form is not policed.
         """
         standard = build_standard_permissions(self._info)
