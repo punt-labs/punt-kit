@@ -78,6 +78,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/permissions.md` § 6 and `standards/tool-enable-disable.md`:
+  `<tool> enable` allows each surface broadly (`Bash(<cli>:*)`, the MCP
+  wildcard, `Skill(<plugin>:*)`) and puts exact `permissions.ask` carve-outs
+  on unsafe operations, instead of listing safe subcommands and skills one by
+  one. New safe functionality works without a fleet-wide rule update; `ask`
+  wins over a broader allow, and carve-outs never use `deny`.
+
 - **Linear is the tracker of record for punt-kit; beads is a scoped local
   mirror.** The 145 active beads are in Linear (team Punt Labs), each
   carrying the `repo:pkit` label and a type label; four open epics are

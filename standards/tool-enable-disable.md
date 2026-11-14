@@ -1,6 +1,6 @@
 # Tool Enable/Disable Standard
 
-**Introduced:** 2026-07-19 · **Updated:** 2026-11-11
+**Introduced:** 2026-07-19 · **Updated:** 2026-11-14
 
 How a tool turns its CLAUDE.md guidance composition on and off in a repo: one
 bare `@`-import line in the repo's `CLAUDE.md`, one tool-owned
@@ -348,16 +348,15 @@ import-line append.
   an `enable` set, so `disable` cannot remove one; no author attribution is
   needed, and a flat string array carries none.
 - Neither touches unrelated entries.
-- For permissions the set is the tool's whole production surface: its CLI
-  (`punt` excepted, 2.10),
-  its MCP server wildcard as Claude Code names it
+- For permissions the set is the tool's whole production surface, as a broad
+  allow per surface plus exact `ask` carve-outs for unsafe operations: its CLI
+  (`punt` excepted, 2.10), its MCP server wildcard as Claude Code names it
   (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server,
-  `mcp__<name>__*` for one the tool registers natively), and one
-  `Skill(<plugin>:<cmd>)` rule per shipped command, never a `-dev` rule. The CLI rule is `Bash(<cli>:*)`
-  only when every subcommand meets
+  `mcp__<name>__*` for one the tool registers natively), and
+  `Skill(<plugin>:*)`, never a `-dev` rule. The table, and what counts as
+  unsafe, is in
   [permissions.md § 6](permissions.md#6-plugin-distributed-permissions)
-  principle 4 and [plugins.md](plugins.md) principle 4; otherwise the safe
-  subcommands by name (`Bash(<cli> status:*)`), the rest at the prompt tier.
+  principle 3. `disable` removes the same `allow` and `ask` values.
 
 Most tools ship hooks through their marketplace plugin (global). Repo-scoped hook
 deposit via `enable` is only for genuinely repo-scoped hook behavior.
@@ -416,7 +415,7 @@ of a toggle.
 the `punt` CLI: `init`, `audit`, `reconcile`, and so on) — and adds
 `@.punt-labs/punt/CLAUDE.md` to the repo `CLAUDE.md`. It is the same kind of
 static user-guide doc every tool ships (2.5), not a per-repo rendered file.
-Its permission set is its `Skill(punt:<cmd>)` rules only; `Bash(punt:*)` is
+Its permission set is `Skill(punt:*)` plus `ask` carve-outs only; `Bash(punt:*)` is
 the permissions.md § 3 baseline, because `punt init` scaffolds that file and
 must run unprompted from the first scaffold.
 
