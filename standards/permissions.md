@@ -482,6 +482,11 @@ whole of this section.
    approved, so it would break the command for the user too. A tool
    with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
    ever granted — the dev plugin only exists in a maintainer's checkout.
+   Claude Code matches `Skill(<plugin>:*)` as a plain prefix of the skill
+   name, colon excluded (verified in Claude Code 2.1.325), so in a
+   maintainer's checkout it also allows the `<plugin>-dev:` commands, and the
+   exact `ask` rules do not cover their `-dev` twins. That is accepted: a
+   maintainer loading their own dev plugin is not the user this rule protects.
    `punt` is the one tool whose `enable` set carries no CLI rule:
    `Bash(punt:*)` is section 3 baseline (see Build tools).
 
