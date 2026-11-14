@@ -2,6 +2,12 @@
 
 **Introduced:** 2026-11-12
 **Worker:** adt · **Evaluator:** mdm
+**Withdrawn:** 2026-11-14, operator ruling: the `make prfaq` recipe is owned
+by the prfaq tool, not by punt-kit, and `punt seed makefile` grows no `prfaq`
+section. The § 7 decisions are moot. The document stays as the record of the
+measured defect (§ 2.4) and the hardened recipe (§ 3.3, § 3.4), which the prfaq
+repo inherits under Linear PL-715. The one finding that outlives it is that
+`punt seed makefile` skips every non-Python repo (§ 2.2), tracked as PL-1043.
 
 This document settles where the canonical `make prfaq` recipe lives, how it
 reaches every sibling Makefile, how a repo opts in, what the recipe promises
