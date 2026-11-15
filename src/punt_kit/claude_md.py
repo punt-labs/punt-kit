@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 __all__ = ["ClaudeMdImport"]
 
 _NEW_FILE_MODE = 0o644
+_LOCK_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
 @final
@@ -227,7 +228,10 @@ class ClaudeMdImport:
     def _locked(self) -> Generator[None]:
         """Hold an exclusive lock on the sibling lock file for the whole RMW."""
         self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._lock_path.open("w", encoding="utf-8") as lock:
+        # No O_TRUNC and no symlink follow: a planted lock link cannot be used
+        # to truncate a file outside the repo, and another tool's lock is kept.
+        fd = os.open(self._lock_path, _LOCK_FLAGS, _NEW_FILE_MODE)
+        with os.fdopen(fd, "w", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 yield
