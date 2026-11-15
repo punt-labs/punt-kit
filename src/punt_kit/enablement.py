@@ -55,10 +55,9 @@ class PuntEnablement:
     def _import(self) -> ClaudeMdImport:
         return ClaudeMdImport(self._root / "CLAUDE.md", IMPORT_LINE)
 
-    def _refusal(self) -> str:
+    def _refusal(self, *files: Path) -> str:
         """Name a symlinked subtree path, which would redirect writes elsewhere."""
-        punt_labs = self._root / ".punt-labs"
-        for path in (punt_labs, self._subtree, self._guide, self._marker):
+        for path in (self._root / ".punt-labs", self._subtree, *files):
             if path.is_symlink():
                 name = path.relative_to(self._root)
                 return f"{name} is a symlink; refusing to write through it"
@@ -74,20 +73,20 @@ class PuntEnablement:
 
     def enable(self) -> EnablementReport:
         """Grant the rules first, so a refused settings file changes nothing."""
-        if refusal := self._refusal():
+        if refusal := self._refusal(self._guide, self._marker):
             return EnablementReport(error=refusal)
         granted = ProjectPermissions(self._root).grant()
         if granted.error:
             return EnablementReport(error=granted.error)
         changes = granted.lines("added to")
         try:
-            changes.extend(self._deposit())
+            self._deposit(changes)
         except OSError as exc:
             return EnablementReport(changes=tuple(changes), error=str(exc))
         return EnablementReport(changes=tuple(changes))
 
-    def _deposit(self) -> list[str]:
-        changes: list[str] = []
+    def _deposit(self, changes: list[str]) -> None:
+        """Write the guide, marker and import, recording each as it lands."""
         data = _GUIDE.read_bytes()
         if not self._guide.is_file() or self._guide.read_bytes() != data:
             self._subtree.mkdir(parents=True, exist_ok=True)
@@ -98,10 +97,13 @@ class PuntEnablement:
             changes.append(f"Wrote {_SUBTREE}/enabled")
         if self._import.register():
             changes.append(f"Added {IMPORT_LINE} to CLAUDE.md")
-        return changes
 
     def disable(self) -> EnablementReport:
-        """Revoke the rules first, so a refused settings file changes nothing."""
+        """Revoke the rules first, so a refused settings file changes nothing.
+
+        Unlinking a symlinked marker removes only the link, so disable refuses
+        just a symlinked directory, which would redirect the unlink elsewhere.
+        """
         if refusal := self._refusal():
             return EnablementReport(error=refusal)
         revoked = ProjectPermissions(self._root).revoke()

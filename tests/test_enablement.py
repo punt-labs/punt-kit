@@ -151,3 +151,17 @@ class TestHardening:
         result = runner.invoke(app, ["--json", "enable", str(tmp_path)])
         assert result.exit_code == 1
         assert "Skill(punt:*)" in json.loads(result.output)["error"]
+
+    def test_disable_runs_with_a_symlinked_guide(self, tmp_path: Path) -> None:
+        PuntEnablement(tmp_path).enable()
+        guide = tmp_path / ".punt-labs/punt/CLAUDE.md"
+        guide.unlink()
+        guide.symlink_to(tmp_path / "elsewhere.md")
+        assert not PuntEnablement(tmp_path).disable().error
+        assert not (tmp_path / ".punt-labs/punt/enabled").exists()
+
+    def test_partial_enable_reports_files_written(self, tmp_path: Path) -> None:
+        (tmp_path / "CLAUDE.md").mkdir()
+        report = PuntEnablement(tmp_path).enable()
+        assert report.error
+        assert "Wrote .punt-labs/punt/enabled" in report.changes
