@@ -18,6 +18,11 @@ All notable changes to this project will be documented in this file.
   no `punt-dev` rule is granted. The import and settings writers are ported
   from biff's reference implementation.
 
+- `punt init` adds `*.punt-import.lock` to `.gitignore`, so the sibling lock
+  every tool's `enable`/`disable` leaves beside `CLAUDE.md` no longer dirties
+  the tree and blocks `punt release`. Re-running `punt init` adds it to an
+  already-initialized repo.
+
 - `docs/designs/seed-makefile-go.md` — the design for `punt seed makefile` on
   Go repos (PL-1043). Today the subcommand skips every non-Python repo, so
   the five Go repos carry hand-rolled Makefiles with no managed block. The

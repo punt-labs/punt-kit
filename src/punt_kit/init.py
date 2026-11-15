@@ -114,6 +114,7 @@ def _init_project(path: str, *, language: str | None) -> None:
     changed.extend(_init_permissions(info))
     changed.extend(_prune_settings_local(info))
     changed.extend(_init_gitignore_claude(info))
+    changed.extend(rel for rel in _init_gitignore_locks(info) if rel not in changed)
 
     if changed:
         console.print("\n[bold green]Files generated/updated:[/bold green]")
@@ -711,6 +712,10 @@ def _prune_settings_local(info: ProjectInfo) -> list[str]:
     return [rel]
 
 
+# Every punt CLI's enable/disable serializes on a sibling lock such as
+# ``.CLAUDE.md.punt-import.lock``, left in place so all tools share one inode.
+_LOCK_GITIGNORE_LINE = "*.punt-import.lock"
+
 _CLAUDE_GITIGNORE_LINES = [
     ".claude/",
     "!.claude/settings.json",
@@ -791,6 +796,25 @@ def _init_gitignore_claude(info: ProjectInfo) -> list[str]:
 
     TextFile(gitignore_path).write(updated)
     console.print(f"  [yellow]↻[/yellow] Updated {rel} (.claude/ exceptions)")
+    return [rel]
+
+
+def _init_gitignore_locks(info: ProjectInfo) -> list[str]:
+    """Ensure .gitignore ignores the enable/disable sibling lock files.
+
+    Without it the root ``.CLAUDE.md.punt-import.lock`` dirties the tree after
+    any tool's ``enable``, and the release clean-tree check refuses to run.
+    Re-running ``punt init`` adds the line to an already-initialized repo.
+    """
+    gitignore_path = info.root / ".gitignore"
+    existing = TextFile(gitignore_path).read() if gitignore_path.exists() else ""
+    eol = TextFile.line_ending(existing)
+    if _LOCK_GITIGNORE_LINE in (line.strip() for line in existing.split(eol)):
+        return []
+    separator = eol if existing and not existing.endswith("\n") else ""
+    TextFile(gitignore_path).write(existing + separator + _LOCK_GITIGNORE_LINE + eol)
+    rel = _relpath(gitignore_path, info.root)
+    console.print(f"  [yellow]↻[/yellow] Updated {rel} ({_LOCK_GITIGNORE_LINE})")
     return [rel]
 
 

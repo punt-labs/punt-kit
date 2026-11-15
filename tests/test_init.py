@@ -29,6 +29,8 @@ if TYPE_CHECKING:
 
     from punt_kit.detect import ProjectInfo
 
+_LOCK_LINE = "*.punt-import.lock\n"
+
 
 @pytest.fixture(autouse=True)
 def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -495,6 +497,18 @@ def test_init_appends_gitignore_to_existing(tmp_path: Path) -> None:
     assert "!.claude/settings.json" in content
 
 
+def test_init_gitignore_ignores_import_locks(tmp_path: Path) -> None:
+    """Init ignores the enable/disable locks, once, in an initialized repo too."""
+    (tmp_path / ".gitignore").write_text(".claude/\n!.claude/settings.json\n")
+    (tmp_path / "README.md").write_text("# Test")
+
+    run_init(str(tmp_path))
+    run_init(str(tmp_path))
+
+    lines = (tmp_path / ".gitignore").read_text().split("\n")
+    assert lines.count("*.punt-import.lock") == 1
+
+
 def test_init_gitignore_idempotent(tmp_path: Path) -> None:
     """Init does not duplicate .claude/ gitignore pattern."""
     (tmp_path / "README.md").write_text("# Test")
@@ -950,9 +964,9 @@ def test_init_leaves_a_foreign_claude_stanza_alone(
     exception lines become live rules that re-include paths the repo has
     never tracked. Seeding must not change what a repo currently ignores.
 
-    ``bd`` is disabled: this test asserts the ``.gitignore`` is byte-for-byte
-    unchanged, which is a claim about punt's own ``.claude`` stanza handling,
-    not about whatever gitignore patterns the locally installed ``bd``
+    ``bd`` is disabled: this test asserts the ``.gitignore`` gains only the
+    separate lock line, which is a claim about punt's own ``.claude`` stanza
+    handling, not about whatever gitignore patterns the locally installed ``bd``
     binary's own ``init`` happens to append — that behavior is bd's to test,
     and drifts independently of this repo's release.
     """
@@ -964,7 +978,7 @@ def test_init_leaves_a_foreign_claude_stanza_alone(
 
     run_init(str(tmp_path))
 
-    assert gitignore.read_text() == original
+    assert gitignore.read_text() == original + _LOCK_LINE
 
 
 def test_init_seeds_exceptions_under_the_exact_parent(tmp_path: Path) -> None:
@@ -1047,7 +1061,7 @@ def test_init_respects_every_claude_stanza_spelling(
 
     run_init(str(tmp_path))
 
-    assert gitignore.read_text() == original
+    assert gitignore.read_text() == original + _LOCK_LINE
 
 
 def test_foreign_stanza_warning_omits_the_anchor(
