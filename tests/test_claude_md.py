@@ -91,21 +91,29 @@ class TestRegister:
 
 
 class TestOpenFence:
-    """``ends_in_open_fence`` reports a host whose appended import would be inert."""
+    """``append_would_be_fenced`` reports an import that would land inert."""
 
     def test_unclosed_fence_is_reported(self, tmp_path: Path) -> None:
         host = tmp_path / "CLAUDE.md"
         host.write_text("# Repo\n```text\nopen\n")
-        assert ClaudeMdImport(host, _LINE).ends_in_open_fence() is True
+        assert ClaudeMdImport(host, _LINE).append_would_be_fenced() is True
 
     def test_closed_fence_is_not_reported(self, tmp_path: Path) -> None:
         host = tmp_path / "CLAUDE.md"
         host.write_text("```text\nx\n~~~\n```\n")
-        assert ClaudeMdImport(host, _LINE).ends_in_open_fence() is False
+        assert ClaudeMdImport(host, _LINE).append_would_be_fenced() is False
+
+    def test_present_import_before_open_fence_is_not_reported(
+        self, tmp_path: Path
+    ) -> None:
+        host = tmp_path / "CLAUDE.md"
+        host.write_text(f"{_LINE}\n```text\nopen\n")
+        assert ClaudeMdImport(host, _LINE).append_would_be_fenced() is False
 
     def test_missing_host_is_not_reported(self, tmp_path: Path) -> None:
         assert (
-            ClaudeMdImport(tmp_path / "CLAUDE.md", _LINE).ends_in_open_fence() is False
+            ClaudeMdImport(tmp_path / "CLAUDE.md", _LINE).append_would_be_fenced()
+            is False
         )
 
 

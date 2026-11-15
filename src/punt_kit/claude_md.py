@@ -66,16 +66,20 @@ class ClaudeMdImport:
         """
         return self._present(self._read())
 
-    def ends_in_open_fence(self) -> bool:
-        """Return ``True`` when the host's last code fence is never closed.
+    def append_would_be_fenced(self) -> bool:
+        """Return ``True`` when :meth:`register` would append into an open fence.
 
         :meth:`register` appends at the end of the file, so an import added
-        after an open fence would be fenced and inert while ``enable`` reported
-        success. Callers check this before changing anything.
+        after a fence that never closes would be inert while ``enable``
+        reported success. An import already present at top level is left
+        alone, so it never is. Callers check this before changing anything.
         """
         if not self._host.is_file():
             return False
-        return self._scan_fences(self._physical_lines(self._read()))[1]
+        text = self._read()
+        return (
+            not self._present(text) and self._scan_fences(self._physical_lines(text))[1]
+        )
 
     def register(self) -> bool:
         """Append the import line if absent. Return ``True`` if the file changed.

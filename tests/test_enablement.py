@@ -192,3 +192,9 @@ class TestHardening:
         assert host.read_text() == "# Repo\n\n```text\nnever closed\n"
         assert not (tmp_path / ".claude").exists()
         assert not (tmp_path / ".punt-labs").exists()
+
+    def test_upgrades_with_an_import_before_an_open_fence(self, tmp_path: Path) -> None:
+        host = tmp_path / "CLAUDE.md"
+        host.write_text(f"{IMPORT_LINE}\n```text\nnever closed\n")
+        assert not PuntEnablement(tmp_path).enable().error
+        assert host.read_text() == f"{IMPORT_LINE}\n```text\nnever closed\n"

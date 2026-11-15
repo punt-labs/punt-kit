@@ -83,7 +83,7 @@ class PuntEnablement:
         """Grant the rules first, so a refused settings file changes nothing."""
         if refusal := self._refusal(self._guide, self._marker):
             return EnablementReport(error=refusal)
-        if self._import.ends_in_open_fence():
+        if self._import.append_would_be_fenced():
             return EnablementReport(
                 error="CLAUDE.md ends inside an unclosed code fence; close it first"
             )
