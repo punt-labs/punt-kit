@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-__all__ = ["ClaudeMdImport"]
+__all__ = ["ClaudeMdImport", "write_atomically"]
 
 _NEW_FILE_MODE = 0o644
 _LOCK_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
@@ -259,45 +259,12 @@ class ClaudeMdImport:
     def _write(self, text: str) -> None:
         """Replace the host file's contents with *text* atomically.
 
-        Writes a temp file in the target's own directory, ``fsync``s it, then
-        ``os.replace``s it over the target — an interrupted write leaves the
-        original untouched. A symlinked path is resolved so the rename updates
-        the real file and preserves the link; the existing mode is preserved.
+        A symlinked path is resolved so the rename updates the real file and
+        preserves the link.
         """
-        target = self._host.resolve() if self._host.is_symlink() else self._host
-        directory = target.parent
-        directory.mkdir(parents=True, exist_ok=True)
-        mode = (
-            stat.S_IMODE(target.stat().st_mode) if target.is_file() else _NEW_FILE_MODE
+        write_atomically(
+            self._host.resolve() if self._host.is_symlink() else self._host, text
         )
-        fd, tmp_name = tempfile.mkstemp(
-            dir=directory, prefix=f".{target.name}.", suffix=".tmp"
-        )
-        tmp = Path(tmp_name)
-        try:
-            # surrogateescape mirrors _read: a lone surrogate produced by
-            # decoding an invalid host byte is written back as that exact byte.
-            handle = os.fdopen(
-                fd, "w", encoding="utf-8", newline="", errors="surrogateescape"
-            )
-        except BaseException:
-            os.close(fd)
-            with contextlib.suppress(OSError):
-                tmp.unlink(missing_ok=True)
-            raise
-        try:
-            with handle:
-                handle.write(text)
-                handle.flush()
-                os.fsync(handle.fileno())
-            # os.replace preserves the temp's 0600 mkstemp mode, so stamp the
-            # intended mode before the rename or an existing 0644 file drops.
-            tmp.chmod(mode)
-            tmp.replace(target)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                tmp.unlink(missing_ok=True)
-            raise
 
     @staticmethod
     def _validate(import_line: str) -> None:
@@ -317,3 +284,43 @@ class ClaudeMdImport:
             )
         if not import_line.startswith("@"):
             raise ValueError(f"import line must begin with '@': {import_line!r}")
+
+
+def write_atomically(target: Path, text: str) -> None:
+    """Replace ``target``'s contents with ``text``, keeping its mode.
+
+    Writes a temp file in the target's own directory, ``fsync``s it, then
+    ``os.replace``s it over the target, so an interrupted write leaves the
+    original untouched.
+    """
+    directory = target.parent
+    directory.mkdir(parents=True, exist_ok=True)
+    mode = stat.S_IMODE(target.stat().st_mode) if target.is_file() else _NEW_FILE_MODE
+    fd, tmp_name = tempfile.mkstemp(
+        dir=directory, prefix=f".{target.name}.", suffix=".tmp"
+    )
+    tmp = Path(tmp_name)
+    try:
+        # surrogateescape mirrors _read: a lone surrogate produced by
+        # decoding an invalid host byte is written back as that exact byte.
+        handle = os.fdopen(
+            fd, "w", encoding="utf-8", newline="", errors="surrogateescape"
+        )
+    except BaseException:
+        os.close(fd)
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        raise
+    try:
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        # os.replace preserves the temp's 0600 mkstemp mode, so stamp the
+        # intended mode before the rename or an existing 0644 file drops.
+        tmp.chmod(mode)
+        tmp.replace(target)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink(missing_ok=True)
+        raise

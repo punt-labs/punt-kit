@@ -13,7 +13,7 @@ import importlib.resources
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Self, final
 
-from punt_kit.claude_md import ClaudeMdImport
+from punt_kit.claude_md import ClaudeMdImport, write_atomically
 from punt_kit.claude_permissions import ProjectPermissions
 
 if TYPE_CHECKING:
@@ -87,10 +87,9 @@ class PuntEnablement:
 
     def _deposit(self, changes: list[str]) -> None:
         """Write the guide, marker and import, recording each as it lands."""
-        data = _GUIDE.read_bytes()
-        if not self._guide.is_file() or self._guide.read_bytes() != data:
-            self._subtree.mkdir(parents=True, exist_ok=True)
-            self._guide.write_bytes(data)
+        text = _GUIDE.read_text(encoding="utf-8")
+        if not self._guide.is_file() or self._guide.read_bytes() != text.encode():
+            write_atomically(self._guide, text)
             changes.append(f"Deposited {_SUBTREE}/CLAUDE.md")
         if not self._marker.exists():
             self._marker.touch()

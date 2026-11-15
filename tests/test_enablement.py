@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING
 
 from typer.testing import CliRunner
@@ -165,3 +166,14 @@ class TestHardening:
         report = PuntEnablement(tmp_path).enable()
         assert report.error
         assert "Wrote .punt-labs/punt/enabled" in report.changes
+
+    def test_guide_upgrade_replaces_the_file_atomically(self, tmp_path: Path) -> None:
+        guide = tmp_path / ".punt-labs/punt/CLAUDE.md"
+        guide.parent.mkdir(parents=True)
+        guide.write_text("old guide\n")
+        old_inode = tmp_path / "old-inode"
+        os.link(guide, old_inode)
+        assert not PuntEnablement(tmp_path).enable().error
+        assert old_inode.read_text() == "old guide\n"
+        assert guide.read_text() != "old guide\n"
+        assert list(guide.parent.glob("*.tmp")) == []
