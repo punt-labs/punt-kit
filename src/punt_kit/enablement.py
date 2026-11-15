@@ -13,7 +13,7 @@ import importlib.resources
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final, Self, final
 
-from punt_kit.claude_md import ClaudeMdImport, write_atomically
+from punt_kit.claude_md import UNCLOSED_FENCE, ClaudeMdImport, write_atomically
 from punt_kit.claude_permissions import ProjectPermissions
 
 if TYPE_CHECKING:
@@ -84,9 +84,7 @@ class PuntEnablement:
         if refusal := self._refusal(self._guide, self._marker):
             return EnablementReport(error=refusal)
         if self._import.append_would_be_fenced():
-            return EnablementReport(
-                error="CLAUDE.md ends inside an unclosed code fence; close it first"
-            )
+            return EnablementReport(error=UNCLOSED_FENCE)
         granted = ProjectPermissions(self._root).grant()
         if granted.error:
             return EnablementReport(error=granted.error)
