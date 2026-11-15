@@ -90,7 +90,8 @@ def _toggle(path: str, *, on: bool) -> None:
     punt = PuntEnablement(root)
     report = punt.enable() if on else punt.disable()
     if report.error:
-        _die(f"nothing changed: {report.error}")
+        done = "; ".join(report.changes) or "nothing changed"
+        _die(f"{report.error} ({done})")
     verb = "enabled" if on else "disabled"
     text = "\n".join(report.changes) or f"punt already {verb} in {root}"
     _emit({"changes": list(report.changes)}, text)

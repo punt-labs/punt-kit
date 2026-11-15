@@ -55,36 +55,65 @@ class PuntEnablement:
     def _import(self) -> ClaudeMdImport:
         return ClaudeMdImport(self._root / "CLAUDE.md", IMPORT_LINE)
 
+    def _refusal(self) -> str:
+        """Name a symlinked subtree path, which would redirect writes elsewhere."""
+        punt_labs = self._root / ".punt-labs"
+        for path in (punt_labs, self._subtree, self._guide, self._marker):
+            if path.is_symlink():
+                name = path.relative_to(self._root)
+                return f"{name} is a symlink; refusing to write through it"
+        return ""
+
+    @property
+    def _guide(self) -> Path:
+        return self._subtree / "CLAUDE.md"
+
+    @property
+    def _marker(self) -> Path:
+        return self._subtree / "enabled"
+
     def enable(self) -> EnablementReport:
         """Grant the rules first, so a refused settings file changes nothing."""
+        if refusal := self._refusal():
+            return EnablementReport(error=refusal)
         granted = ProjectPermissions(self._root).grant()
         if granted.error:
             return EnablementReport(error=granted.error)
         changes = granted.lines("added to")
-        guide = self._subtree / "CLAUDE.md"
-        text = _GUIDE.read_text(encoding="utf-8")
-        if not guide.is_file() or guide.read_text(encoding="utf-8") != text:
-            guide.parent.mkdir(parents=True, exist_ok=True)
-            guide.write_text(text, encoding="utf-8")
+        try:
+            changes.extend(self._deposit())
+        except OSError as exc:
+            return EnablementReport(changes=tuple(changes), error=str(exc))
+        return EnablementReport(changes=tuple(changes))
+
+    def _deposit(self) -> list[str]:
+        changes: list[str] = []
+        data = _GUIDE.read_bytes()
+        if not self._guide.is_file() or self._guide.read_bytes() != data:
+            self._subtree.mkdir(parents=True, exist_ok=True)
+            self._guide.write_bytes(data)
             changes.append(f"Deposited {_SUBTREE}/CLAUDE.md")
-        marker = self._subtree / "enabled"
-        if not marker.exists():
-            marker.touch()
+        if not self._marker.exists():
+            self._marker.touch()
             changes.append(f"Wrote {_SUBTREE}/enabled")
         if self._import.register():
             changes.append(f"Added {IMPORT_LINE} to CLAUDE.md")
-        return EnablementReport(changes=tuple(changes))
+        return changes
 
     def disable(self) -> EnablementReport:
         """Revoke the rules first, so a refused settings file changes nothing."""
+        if refusal := self._refusal():
+            return EnablementReport(error=refusal)
         revoked = ProjectPermissions(self._root).revoke()
         if revoked.error:
             return EnablementReport(error=revoked.error)
         changes = revoked.lines("removed from")
-        if self._import.prune():
-            changes.append(f"Removed {IMPORT_LINE} from CLAUDE.md")
-        marker = self._subtree / "enabled"
-        if marker.exists():
-            marker.unlink()
-            changes.append(f"Deleted {_SUBTREE}/enabled")
+        try:
+            if self._import.prune():
+                changes.append(f"Removed {IMPORT_LINE} from CLAUDE.md")
+            if self._marker.exists():
+                self._marker.unlink()
+                changes.append(f"Deleted {_SUBTREE}/enabled")
+        except OSError as exc:
+            return EnablementReport(changes=tuple(changes), error=str(exc))
         return EnablementReport(changes=tuple(changes))

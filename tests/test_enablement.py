@@ -104,3 +104,50 @@ class TestCli:
         result = runner.invoke(app, ["disable", str(tmp_path)])
         assert result.exit_code == 1
         assert "not a JSON object" in result.output
+
+
+class TestHardening:
+    def test_refuses_symlinked_guide(self, tmp_path: Path) -> None:
+        victim = tmp_path / "victim.txt"
+        victim.write_text("keep me")
+        (tmp_path / ".punt-labs/punt").mkdir(parents=True)
+        (tmp_path / ".punt-labs/punt/CLAUDE.md").symlink_to(victim)
+        report = PuntEnablement(tmp_path).enable()
+        assert "symlink" in report.error
+        assert victim.read_text() == "keep me"
+        assert not (tmp_path / ".claude").exists()
+
+    def test_refuses_symlinked_subtree(self, tmp_path: Path) -> None:
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".punt-labs").symlink_to(outside, target_is_directory=True)
+        assert "symlink" in PuntEnablement(repo).enable().error
+        assert "symlink" in PuntEnablement(repo).disable().error
+        assert list(outside.iterdir()) == []
+
+    def test_does_not_truncate_through_symlinked_import_lock(
+        self, tmp_path: Path
+    ) -> None:
+        victim = tmp_path / "victim.txt"
+        victim.write_text("keep me")
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        (repo / ".CLAUDE.md.punt-import.lock").symlink_to(victim)
+        report = PuntEnablement(repo).enable()
+        assert report.error
+        assert victim.read_text() == "keep me"
+
+    def test_replaces_a_non_utf8_guide(self, tmp_path: Path) -> None:
+        guide = tmp_path / ".punt-labs/punt/CLAUDE.md"
+        guide.parent.mkdir(parents=True)
+        guide.write_bytes(b"\xff\xfe")
+        assert not PuntEnablement(tmp_path).enable().error
+        assert guide.read_text().startswith("# ")
+
+    def test_filesystem_failure_is_a_json_error(self, tmp_path: Path) -> None:
+        (tmp_path / ".punt-labs").write_text("a file, not a directory")
+        result = runner.invoke(app, ["--json", "enable", str(tmp_path)])
+        assert result.exit_code == 1
+        assert "Skill(punt:*)" in json.loads(result.output)["error"]
