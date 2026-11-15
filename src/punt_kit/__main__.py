@@ -78,6 +78,40 @@ def init(
     run_init(path, language=language or None)
 
 
+def _toggle(path: str, *, on: bool) -> None:
+    """Run ``enable`` or ``disable`` in the repo at ``path`` and report it."""
+    from pathlib import Path
+
+    from punt_kit.enablement import PuntEnablement
+
+    root = Path(path).resolve()
+    if not root.is_dir():
+        _die(f"{root} is not a directory")
+    punt = PuntEnablement(root)
+    report = punt.enable() if on else punt.disable()
+    if report.error:
+        _die(f"nothing changed: {report.error}")
+    verb = "enabled" if on else "disabled"
+    text = "\n".join(report.changes) or f"punt already {verb} in {root}"
+    _emit({"changes": list(report.changes)}, text)
+
+
+@app.command()
+def enable(
+    path: str = typer.Argument(".", help="Path to the repo root"),
+) -> None:
+    """Enable punt in this repo: guide, marker, import line, Skill rules."""
+    _toggle(path, on=True)
+
+
+@app.command()
+def disable(
+    path: str = typer.Argument(".", help="Path to the repo root"),
+) -> None:
+    """Disable punt in this repo; the guide stays in place, dormant."""
+    _toggle(path, on=False)
+
+
 @app.command()
 def audit(
     path: str = typer.Argument(".", help="Path to the project root"),

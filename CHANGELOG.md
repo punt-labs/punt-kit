@@ -6,6 +6,18 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- `punt enable` / `punt disable` (PL-1037, `tool-enable-disable.md` § 2.10).
+  `enable` deposits punt's user guide at `.punt-labs/punt/CLAUDE.md` from the
+  packaged template, writes the `enabled` marker, adds
+  `@.punt-labs/punt/CLAUDE.md` to the repo `CLAUDE.md`, and adds
+  `Skill(punt:*)` to `permissions.allow` with `Skill(punt:auto)` and
+  `Skill(punt:reconcile)` in `permissions.ask` in the repo's
+  `.claude/settings.json`. `disable` removes those exact rules, the import
+  line and the marker, and leaves the guide in place. `Bash(punt:*)` stays the
+  `punt init` baseline. Nothing is written to `~/.claude/settings.json`, and
+  no `punt-dev` rule is granted. The import and settings writers are ported
+  from biff's reference implementation.
+
 - `docs/designs/seed-makefile-go.md` — the design for `punt seed makefile` on
   Go repos (PL-1043). Today the subcommand skips every non-Python repo, so
   the five Go repos carry hand-rolled Makefiles with no managed block. The

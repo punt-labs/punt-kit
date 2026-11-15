@@ -37,6 +37,8 @@ uv tool install punt-kit
 |---------|-------------|
 | `punt init` | Scaffold a new Punt Labs project (CI, linter config, CLAUDE.md, permissions, beads) |
 | `punt audit` | Check compliance against standards (read-only, no file changes) |
+| `punt enable` | Enable punt in this repo: deposit its guide, add the `@.punt-labs/punt/CLAUDE.md` import, allow `Skill(punt:*)` with `ask` rules for `/punt:auto` and `/punt:reconcile` |
+| `punt disable` | Remove punt's import, `enabled` marker and permission rules; the guide stays in place, dormant |
 | `punt seed <target>` | Render and merge managed sections in project files (makefile, settings). Supports `--dry-run` |
 | `punt release [version]` | 11-phase release workflow (preflight → PyPI → cross-repo propagation). Supports `--resume-from` and `--dry-run` |
 | `punt pii` | Scan repo for PII (emails, home paths, hostnames). Supports `--staged` for pre-commit |

@@ -1,0 +1,288 @@
+"""punt's allow and ask rules in a project's ``.claude/settings.json``.
+
+``punt enable`` is the operator's explicit opt-in, so it grants Claude Code
+permission to run the punt plugin's slash commands without a prompt. The rules
+land in the enabled repo's ``<repo>/.claude/settings.json`` only, never the
+user-global ``~/.claude/settings.json``, and ``punt disable`` removes exactly
+the same set (``permissions.md`` §6, ``tool-enable-disable.md`` §2.10). The
+``punt-dev`` plugin's rules are never granted: maintainers add them by hand.
+
+Ported from biff's ``claude_permissions.py`` (copy-not-symlink, §2.4).
+"""
+
+from __future__ import annotations
+
+import contextlib
+import errno
+import fcntl
+import json
+import os
+import secrets
+import stat
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, Self, cast, final
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+__all__ = ["PUNT_RULES", "PermissionChange", "ProjectPermissions"]
+
+# Broad allow with exact ask carve-outs (permissions.md §6): ask beats allow,
+# so the commands that edit files or run release work keep prompting while new
+# safe commands work without a rule update. ``Bash(punt:*)`` is the ``punt
+# init`` baseline (permissions.md §3), so it is not in this set. enable adds
+# every missing member, disable removes these exact values.
+PUNT_RULES: Final[dict[str, tuple[str, ...]]] = {
+    "allow": ("Skill(punt:*)",),
+    "ask": tuple(f"Skill(punt:{cmd})" for cmd in ("auto", "reconcile")),
+}
+
+_NEW_FILE_MODE: Final = 0o644
+_SETTINGS: Final = "settings.json"
+_LOCK: Final = ".settings.json.punt-import.lock"
+_NOFOLLOW: Final = os.O_NOFOLLOW | os.O_CLOEXEC
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionChange:
+    """What a grant or revoke did to the project's ``.claude/settings.json``.
+
+    ``changed`` lists the rules added (grant) or removed (revoke); an empty
+    tuple with no ``error`` means the file already matched. ``error`` explains
+    why the file was left untouched.
+    """
+
+    changed: tuple[str, ...] = ()
+    error: str = ""
+
+    def lines(self, verb: str) -> list[str]:
+        """Return one report line per changed rule, the refusal, or none."""
+        if self.error:
+            return [f"Permissions not changed: {self.error}"]
+        return [f"Permission {verb} .claude/settings.json: {r}" for r in self.changed]
+
+
+@final
+class ProjectPermissions:
+    """Add or remove :data:`PUNT_RULES` in one repo's ``.claude/settings.json``.
+
+    Every filesystem step runs relative to a ``.claude`` directory descriptor
+    opened with ``O_NOFOLLOW``, so a symlinked ``.claude/``, ``settings.json``
+    or lock file -- or one swapped in mid-run -- cannot redirect the write out
+    of the repo. The read-modify-write holds the tool-agnostic
+    ``.settings.json.punt-import.lock`` (other punt tools edit the same file;
+    it is opened without truncation), appends in rule order without reordering
+    existing entries, and does not write when nothing changes. Every other key
+    and rule in the file is preserved.
+    """
+
+    __slots__ = ("_root",)
+
+    _root: Path
+
+    def __new__(cls, root: Path) -> Self:
+        self = super().__new__(cls)
+        self._root = root
+        return self
+
+    def grant(self) -> PermissionChange:
+        """Append each missing punt rule; return the rules added."""
+        return self._update(PUNT_RULES, add=True)
+
+    def revoke(self, rules: Iterable[str] | None = None) -> PermissionChange:
+        """Remove *rules* (default: every punt rule); return the rules removed."""
+        if rules is None:
+            return self._update(PUNT_RULES, add=False)
+        selected = set(rules)
+        return self._update(
+            {
+                tier: tuple(r for r in owned if r in selected)
+                for tier, owned in PUNT_RULES.items()
+            },
+            add=False,
+        )
+
+    def _update(
+        self, rules: dict[str, tuple[str, ...]], *, add: bool
+    ) -> PermissionChange:
+        """Apply the grant or revoke under the lock, reporting any refusal."""
+        if self._root.resolve() == Path.home().resolve():
+            return PermissionChange(
+                error="the repo is the home directory, whose .claude/"
+                "settings.json is user-global"
+            )
+        if not any(rules.values()):
+            return PermissionChange()
+        try:
+            root_fd = os.open(self._root, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+            try:
+                dir_fd = _open_claude_dir(root_fd, create=add)
+                if dir_fd is None:
+                    return PermissionChange()
+                try:
+                    return PermissionChange(
+                        changed=_locked_apply(dir_fd, rules, add=add)
+                    )
+                finally:
+                    os.close(dir_fd)
+            finally:
+                os.close(root_fd)
+        except ValueError as exc:
+            return PermissionChange(error=str(exc))
+        except OSError as exc:
+            return PermissionChange(error=exc.strerror or type(exc).__name__)
+
+
+def _refuse_link(exc: OSError, name: str) -> ValueError:
+    """Translate an ``O_NOFOLLOW`` refusal into a user-facing reason."""
+    if exc.errno == errno.ELOOP:
+        return ValueError(f"{name} is a symlink; refusing to edit through it")
+    if exc.errno == errno.ENOTDIR:
+        return ValueError(f"{name} is not a directory")
+    raise exc
+
+
+def _open_claude_dir(root_fd: int, *, create: bool) -> int | None:
+    """Open ``.claude`` without following a link; ``None`` if absent on revoke."""
+    if create:
+        with contextlib.suppress(FileExistsError):
+            os.mkdir(".claude", 0o755, dir_fd=root_fd)
+    flags = os.O_RDONLY | os.O_DIRECTORY | _NOFOLLOW
+    try:
+        return os.open(".claude", flags, dir_fd=root_fd)
+    except FileNotFoundError:
+        if create:
+            raise
+        return None
+    except OSError as exc:
+        # Linux reports O_DIRECTORY|O_NOFOLLOW on a link as ENOTDIR, not ELOOP.
+        if stat.S_ISLNK(
+            os.stat(".claude", dir_fd=root_fd, follow_symlinks=False).st_mode
+        ):
+            exc.errno = errno.ELOOP
+        raise _refuse_link(exc, ".claude") from exc
+
+
+def _locked_apply(
+    dir_fd: int, rules: dict[str, tuple[str, ...]], *, add: bool
+) -> tuple[str, ...]:
+    """Run :func:`_apply` holding the shared lock in ``.claude``."""
+    if not add and not _exists(dir_fd, _SETTINGS):
+        return ()
+    # Refuse a bad file before creating the lock, so a refusal leaves nothing
+    # behind; the locked pass below re-validates.
+    settings = _read(dir_fd)[0]
+    for tier in rules:
+        _rule_list(settings, tier)
+    try:
+        lock = os.open(_LOCK, os.O_RDWR | os.O_CREAT | _NOFOLLOW, 0o600, dir_fd=dir_fd)
+    except OSError as exc:
+        raise _refuse_link(exc, f".claude/{_LOCK}") from exc
+    try:
+        if not stat.S_ISREG(os.fstat(lock).st_mode):
+            msg = f".claude/{_LOCK} is not a regular file"
+            raise ValueError(msg)
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _apply(dir_fd, rules, add=add)
+    finally:
+        os.close(lock)
+
+
+def _exists(dir_fd: int, name: str) -> bool:
+    try:
+        os.stat(name, dir_fd=dir_fd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return True
+
+
+def _apply(
+    dir_fd: int, rules: dict[str, tuple[str, ...]], *, add: bool
+) -> tuple[str, ...]:
+    """Edit each tier's list in place and write it back if it changed."""
+    settings, mode = _read(dir_fd)
+    changed: tuple[str, ...] = ()
+    for tier, owned in rules.items():
+        have = _rule_list(settings, tier, create=add)
+        if add:
+            added = tuple(rule for rule in owned if rule not in have)
+            have.extend(added)
+            changed += added
+        else:
+            removed = tuple(rule for rule in owned if rule in have)
+            have[:] = [rule for rule in have if rule not in removed]
+            changed += removed
+    if changed:
+        _write(dir_fd, json.dumps(settings, indent=2) + "\n", mode)
+    return changed
+
+
+def _read(dir_fd: int) -> tuple[dict[str, object], int]:
+    """Return the parsed settings and file mode; ``{}`` when absent.
+
+    Refuses a symlink, a non-regular file, and a non-object.
+    """
+    try:
+        fd = os.open(_SETTINGS, os.O_RDONLY | os.O_NONBLOCK | _NOFOLLOW, dir_fd=dir_fd)
+    except FileNotFoundError:
+        return {}, _NEW_FILE_MODE
+    except OSError as exc:
+        raise _refuse_link(exc, _SETTINGS) from exc
+    with os.fdopen(fd, "rb") as handle:
+        info = os.fstat(handle.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            msg = ".claude/settings.json is not a regular file"
+            raise ValueError(msg)
+        raw = handle.read()
+    try:
+        data: object = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        msg = f".claude/settings.json is not valid JSON ({exc.msg})"
+        raise ValueError(msg) from exc
+    except UnicodeDecodeError as exc:
+        msg = ".claude/settings.json is not valid UTF-8"
+        raise ValueError(msg) from exc
+    if not isinstance(data, dict):
+        msg = ".claude/settings.json is not a JSON object"
+        raise ValueError(msg)
+    return cast("dict[str, object]", data), stat.S_IMODE(info.st_mode)
+
+
+def _rule_list(
+    settings: dict[str, object], tier: str, *, create: bool = True
+) -> list[object]:
+    """Return ``permissions.<tier>``, created if absent and *create*.
+
+    A ``permissions`` or tier list of the wrong type is the user's data, so it
+    is reported rather than overwritten. Containers created here are only
+    written when a rule changes.
+    """
+    permissions = settings.setdefault("permissions", {})
+    if not isinstance(permissions, dict):
+        msg = ".claude/settings.json 'permissions' is not an object"
+        raise ValueError(msg)
+    tiers = cast("dict[str, object]", permissions)
+    rules = tiers.setdefault(tier, []) if create else tiers.get(tier, [])
+    if not isinstance(rules, list):
+        msg = f".claude/settings.json 'permissions.{tier}' is not a list"
+        raise ValueError(msg)
+    return cast("list[object]", rules)
+
+
+def _write(dir_fd: int, text: str, mode: int) -> None:
+    """Replace ``settings.json`` atomically inside the pinned ``.claude``."""
+    tmp = f".settings.json.{secrets.token_hex(8)}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | _NOFOLLOW
+    fd = os.open(tmp, flags, 0o600, dir_fd=dir_fd)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fchmod(handle.fileno(), mode)
+            os.fsync(handle.fileno())
+        os.replace(tmp, _SETTINGS, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp, dir_fd=dir_fd)
+        raise
