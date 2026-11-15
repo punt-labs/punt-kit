@@ -239,6 +239,30 @@ class TestFenceMarkerMatching:
         assert imp.prune() is False
         assert host.read_text() == f"````text\n```\n{_LINE}\n````\n"
 
+    @pytest.mark.parametrize("tail", ["\t", "\u00a0"])
+    def test_only_spaces_may_follow_closing_run(
+        self, tmp_path: Path, tail: str
+    ) -> None:
+        # Claude Code's lexer closes on trailing spaces only: a tab or a
+        # non-breaking space after the run leaves the block open through EOF.
+        host = tmp_path / "CLAUDE.md"
+        host.write_text(f"~~~\n~~~{tail}\n{_LINE}\n", encoding="utf-8")
+        imp = ClaudeMdImport(host, _LINE)
+        assert imp.is_registered() is False
+        assert imp.append_would_be_fenced() is True
+        host.write_text(f"~~~\n~~~  \n{_LINE}\n", encoding="utf-8")
+        assert imp.is_registered() is True
+
+    def test_info_tagged_run_does_not_close_block(self, tmp_path: Path) -> None:
+        host = tmp_path / "CLAUDE.md"
+        # An info string is valid on an opener only: ```python is content.
+        text = f"```\n```python\n{_LINE}\n```\n"
+        host.write_text(text)
+        imp = ClaudeMdImport(host, _LINE)
+        assert imp.is_registered() is False
+        assert imp.prune() is False
+        assert host.read_text() == text
+
     def test_tilde_block_shields_import(self, tmp_path: Path) -> None:
         host = tmp_path / "CLAUDE.md"
         host.write_text(f"~~~\n{_LINE}\n~~~\n")

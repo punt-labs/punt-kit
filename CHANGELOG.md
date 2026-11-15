@@ -195,6 +195,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `CLAUDE.md` fence scanning: a fence line with an info string (```` ```python ````) no longer closes an open block; only a bare same-marker run at least as long as the opener does (CommonMark). Before, a correctly closed example block could make `punt enable` refuse with an unclosed-fence error (PL-1087).
+
 - The root `.gitignore` no longer ignores ethos lock files, live logs,
   temporaries, or `.punt-labs/ethos/.biff` from its repo-specific section;
   `standards/punt-labs-dir.md` § 4 and § 6 allow only the canonical block and
