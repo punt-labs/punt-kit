@@ -95,6 +95,19 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- `standards/readme.md`: a GUI app with no command line documents itself in a
+  required **Using the App** section instead of a Commands table, and the
+  Working Backwards badge stage must be `hypothesis`, `validated`, or
+  `growth`, matching the `\prfaqstage{}` in `prfaq.tex`.
+- README: restructured to the README standard. It adds Quick Start (with what
+  the installer does), top-level Commands, Setup, and Documentation sections;
+  documents `punt audit --fix` and Go detection in `punt init`; lists
+  `standards/ci.md` and the Homebrew formula pattern, drops the dead Sibling
+  PPID pattern link, and corrects the GitHub (Qodo and Bugbot, Copilot on
+  request) and Makefile (`depot` optional) rows. The Working Backwards stage is
+  now `hypothesis` in the badge and `prfaq.tex`. Development setup and quality
+  gates moved to the new `CONTRIBUTING.md`, and plugin development notes to
+  `docs/development.md`.
 - `standards/permissions.md` § 6 and `standards/tool-enable-disable.md`:
   `<tool> enable` allows each surface broadly (`Bash(<cli>:*)`, the MCP
   wildcard, `Skill(<plugin>:*)`) and puts exact `permissions.ask` carve-outs
