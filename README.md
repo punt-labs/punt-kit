@@ -67,6 +67,8 @@ Each command that takes `[path]` runs on the current directory when the path is 
 | `punt init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, Claude Code permissions, and beads. `--language` overrides the detected language |
 | `punt audit [path]` | Check the project against the standards. Read-only unless you pass `--fix` |
 | `punt audit --fix [path]` | Also create missing files that need no judgment: markdownlint config, `py.typed`, and `CHANGELOG.md` |
+| `punt enable [path]` | Enable punt in the repo: deposit its guide, add the `@.punt-labs/punt/CLAUDE.md` import, and allow `Skill(punt:*)`, with `ask` rules for `/punt:auto` and `/punt:reconcile` |
+| `punt disable [path]` | Remove punt's import, `enabled` marker and permission rules. The guide stays in place, dormant |
 | `punt seed <target> [path]` | Write or update the punt-managed sections of a project file. Targets: `makefile` (Python projects only) and `settings` (`.claude/settings.json`). `--dry-run` shows the changes without writing them |
 | `punt release [version]` | Run the 11-phase release, from preflight checks through PyPI publishing to updates in sibling repositories. Supports `--resume-from <phase>`, `--dry-run`, and `--path` |
 | `punt pii [path]` | Scan tracked files for personal information (email addresses, home directory paths, `.local` hostnames). `--staged` scans only staged files, for use in a pre-commit hook |

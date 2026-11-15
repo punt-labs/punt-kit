@@ -2430,3 +2430,43 @@ agent.
 | Declare `_caller` on every tool schema | Puts transport plumbing in every tool and in what agents see; middleware stripping keeps tools unchanged. Allowed where a framework cannot strip (ethos, Go). |
 | Stamp Claude's `session_id` only, no engine session | Leaves the engine without authority over its own records and gives hooks and applets nothing shared; vox's split state is the result. |
 | Key main-thread state on `CLAUDE_PID` | The pid changes on every `--resume` (measured), orphaning the leader's state. |
+
+## DES-038: One Shared Sibling Lock for Every Tool's `CLAUDE.md` Import
+
+**Date:** 2026-11-15
+**Status:** SETTLED
+**Topic:** How `punt enable` and the other tools serialize edits to one repo
+`CLAUDE.md` and `.claude/settings.json`, and why punt copies biff's writers
+
+### Context
+
+Every punt CLI's `enable`/`disable` edits the same repo `CLAUDE.md` (its
+`@`-import line) and `.claude/settings.json` (its permission rules). Two tools
+toggled at once must not lose each other's edit. Writes land through an atomic
+temp-file rename, so the host file's inode changes on every write.
+
+### Design
+
+1. **The lock is a sibling, not the host.** Each writer takes an exclusive
+   `flock` on `.<host-name>.punt-import.lock` beside the host for the whole
+   read-modify-write. A lock on the host would be held on an inode the rename
+   replaces, so a second writer opening the new file would not wait.
+2. **The name is tool-agnostic.** `punt-import`, not `<tool>-import`, so every
+   tool contends on one inode (`tool-enable-disable.md` §2.4). The file stays
+   after the write, so all tools keep sharing that inode; `punt init`
+   gitignores `*.punt-import.lock`.
+3. **The lock opens with `O_NOFOLLOW` and without `O_TRUNC`**, so a lock path
+   committed as a symlink cannot redirect or truncate a file outside the repo.
+4. **The writers are copied from biff, not imported or symlinked.**
+   `claude_md.py` and `claude_permissions.py` are ports of biff's reference
+   implementation, held to the same tests.
+
+### Rejected alternatives
+
+| Alternative | Why rejected |
+|---|---|
+| Lock the host file itself | The atomic rename replaces the inode, so the lock no longer covers the file the next writer reads. |
+| Per-tool lock names | Two tools would hold different locks and race on the same host. |
+| Delete the lock after each write | A writer could lock a just-unlinked inode while another creates a new one, splitting the lock. |
+| Depend on biff as a library | punt-kit would install biff's runtime (MCP server, NATS relay) to reuse two small modules. |
+| Symlink biff's files into punt-kit | A symlink into a sibling checkout does not survive a wheel build or a fresh clone. |

@@ -152,21 +152,22 @@ where its marker is absent is a graceful no-op, not a trigger to self-enable.
     `~~~` or by a shorter run; a mismatched or shorter delimiter inside the block
     is content, not a close. Blocks do not nest: once open, every line up to the
     matching close is content.
-  - A line is **inside a fenced block** iff it lies after a matched opener and at
-    or before that opener's matching close (the content and the closing delimiter
-    are inside; the opening delimiter is not). An **unterminated trailing opener
-    delimits nothing** — a dangling fence in the user's prose above the import
-    line must not swallow the rest of the file. The naive "odd count of preceding
-    delimiters" rule fails on exactly this case: one stray opener flips the
-    parity of every following line, the tool misclassifies its own column-0
-    import line as fenced, `enable` appends a duplicate, and `disable` cannot
-    remove it — a 404ing `@`-import that loads in every session.
+  - A line is **inside a fenced block** iff it lies after an opener and at or
+    before that opener's matching close (the content and the closing delimiter
+    are inside; the opening delimiter is not). An **unterminated opener runs to
+    the end of the file**, as in CommonMark: Claude Code resolves `@`-imports
+    from its Markdown lexer's tokens and skips code tokens, and that lexer
+    treats a fence that never closes as code through EOF, so an import after it
+    loads nothing. An import **before** the dangling opener is unaffected.
+    `enable` must therefore refuse — before granting any rule — when the import
+    is absent and the file ends inside an open fence, instead of appending an
+    inert line and reporting success. (The naive "odd count of preceding
+    delimiters" rule is still wrong: a balanced pair above the import must not
+    flip its classification.)
   - A line is an **indented code block** line if it begins with a tab or four or
     more spaces. A line matching neither fenced-inside nor indented is top-level.
     `@`-imports and the canonical string are always written at column 0 with no
-    info string, so they are top-level by construction, and a conformant
-    implementation always matches (and prunes) its own line regardless of a
-    dangling fence above it.
+    info string, so they are top-level unless a fence above them is open.
 - **Serialized, atomic, byte-preserving write.** The read-append-replace on the
   host file must be:
   - **Mutually exclusive — one mandated sibling lock, every shared host file.**
