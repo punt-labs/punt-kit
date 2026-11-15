@@ -56,11 +56,19 @@ class PuntEnablement:
         return ClaudeMdImport(self._root / "CLAUDE.md", IMPORT_LINE)
 
     def _refusal(self, *files: Path) -> str:
-        """Name a symlinked subtree path, which would redirect writes elsewhere."""
+        """Name a path that would make the toggle misfire or write elsewhere.
+
+        A symlinked subtree path would redirect writes, and anything other
+        than a regular file at the marker would fail its unlink only after
+        the rules were already revoked.
+        """
         for path in (self._root / ".punt-labs", self._subtree, *files):
             if path.is_symlink():
                 name = path.relative_to(self._root)
                 return f"{name} is a symlink; refusing to write through it"
+        marker = self._marker
+        if marker.exists() and not marker.is_symlink() and not marker.is_file():
+            return f"{_SUBTREE}/enabled is not a regular file; remove it first"
         return ""
 
     @property

@@ -177,3 +177,9 @@ class TestHardening:
         assert old_inode.read_text() == "old guide\n"
         assert guide.read_text() != "old guide\n"
         assert list(guide.parent.glob("*.tmp")) == []
+
+    def test_refuses_a_directory_at_the_marker(self, tmp_path: Path) -> None:
+        (tmp_path / ".punt-labs/punt/enabled").mkdir(parents=True)
+        assert "not a regular file" in PuntEnablement(tmp_path).enable().error
+        assert "not a regular file" in PuntEnablement(tmp_path).disable().error
+        assert not (tmp_path / ".claude").exists()
