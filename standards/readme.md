@@ -1,6 +1,6 @@
 # README Standard
 
-**Updated:** 2026-08-29
+**Updated:** 2026-11-14
 
 How every Punt Labs project README should be structured and written.
 
@@ -88,7 +88,10 @@ standard set. Use `/prfaq:badge` to generate it.
 [![Working Backwards](https://img.shields.io/badge/Working_Backwards-hypothesis-lightgrey)](./prfaq.pdf)
 ```
 
-Stages: `hypothesis` (grey), `validated` (blue), `growth` (green).
+Stages: `hypothesis` (grey), `validated` (blue), `growth` (green). These
+are the only three stages. The badge label must match the `\prfaqstage{}`
+value in the project's `prfaq.tex`; if the document uses any other stage, set
+it to one of these three and regenerate the badge.
 
 Rules:
 
@@ -229,10 +232,12 @@ Show concrete examples of the tool in use. Use fenced code blocks with
 `text` language for terminal output. This section lets a reader see what
 the tool actually does before installing it.
 
-### 8. Commands / API / MCP Tools
+### 8. Commands / API / MCP Tools / Using the App
 
 Use the heading that matches your project type: **Commands** (CLIs and
-plugins), **API** (libraries), or **MCP Tools** (MCP servers).
+plugins), **API** (libraries), **MCP Tools** (MCP servers), or **Using the
+App** (GUI apps with no command line). Every README has one of these
+sections.
 
 ```markdown
 ## Commands
@@ -241,6 +246,22 @@ plugins), **API** (libraries), or **MCP Tools** (MCP servers).
 |---------|-------------|
 | `cmd foo` | Does foo |
 | `cmd bar` | Does bar |
+```
+
+A GUI app with no command line (for example a macOS menu bar app or an iOS
+app) uses a **Using the App** section instead of Commands. It describes the
+main tasks a user performs and how to perform each one: the menus, screens,
+buttons, and keyboard shortcuts that exist in the shipped app. Do not build a
+Commands table of user actions for an app that has no commands. If a GUI app
+also ships a CLI, document the CLI under Commands.
+
+```markdown
+## Using the App
+
+### Search Your Documents
+
+Click the menu bar icon, type a query, and press Return. Results appear
+below the search field; click one to open the file.
 ```
 
 ### 9. Setup *(optional)*
@@ -328,6 +349,7 @@ user-facing description of the project.
 - **No version numbers in prose** — they go stale; badges stay current
 - **No portfolio content** — each project describes itself, not its siblings
 - **No multi-line copy-paste command blocks** — a command to run is one line per block; see [Code Blocks](#code-blocks)
+- **No Commands table for a GUI app without a CLI** — use a Using the App section; see [Commands / API / MCP Tools / Using the App](#8-commands--api--mcp-tools--using-the-app)
 
 ### Tone
 

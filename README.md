@@ -6,78 +6,111 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/punt-labs/punt-kit/test.yml?label=CI)](https://github.com/punt-labs/punt-kit/actions/workflows/test.yml)
 [![PyPI](https://img.shields.io/pypi/v/punt-kit)](https://pypi.org/project/punt-kit/)
 [![Python](https://img.shields.io/pypi/pyversions/punt-kit)](https://pypi.org/project/punt-kit/)
-[![Working Backwards](https://img.shields.io/badge/Working_Backwards-internal--adoption-blue)](./prfaq.pdf)
+[![Working Backwards](https://img.shields.io/badge/Working_Backwards-hypothesis-lightgrey)](./prfaq.pdf)
 
-Punt-kit serves two purposes. For **Punt Labs projects**, it is the standards authority — coding conventions, CI templates, naming rules, and an audit checklist that the `punt` CLI enforces automatically. For **Claude Code plugin developers**, it is a pattern library — fourteen reusable design patterns extracted from shipping plugins, plus a standards corpus covering architecture, five languages (Python, Go, C, Swift, Pharo), git and workflow discipline, distribution, and more.
+punt-kit holds the engineering standards for Punt Labs projects and the `punt` CLI that applies them: `punt init` creates the files a project needs, and `punt audit` reports where a project differs from the standards. It also documents fourteen design patterns for Claude Code plugins, drawn from Punt Labs plugins, and standards for five languages (Python, Go, C, Swift, Pharo). A Claude Code plugin, `punt@punt-labs`, runs the CLI as slash commands.
 
-Individual projects reference these standards from their CLAUDE.md rather than duplicating them. The [standards/](standards/) directory is the source of truth; [lang-rules/](lang-rules/) carries the per-language coding rules agents load automatically; [patterns/](patterns/) documents the design patterns; [AGENTS.md](AGENTS.md) has the full audit checklist.
+Projects link to these standards from their `CLAUDE.md` (the instructions file Claude Code reads at the start of a session) instead of copying them. [standards/](standards/) holds the standards, [lang-rules/](lang-rules/) the per-language coding rules that Claude Code loads when it edits files in that language, [patterns/](patterns/) the design patterns, and [AGENTS.md](AGENTS.md) the full audit checklist.
 
 **Platforms:** macOS, Linux
 
-## punt CLI
-
-### Install
+## Quick Start
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/0740213/install.sh | sh
 ```
 
+The installer installs [uv](https://docs.astral.sh/uv/) and Python 3.13 if they are missing, then installs the `punt-kit` package from PyPI, which provides the `punt` command. If the `claude` command is on your `PATH`, it also adds the `punt-labs` plugin marketplace to Claude Code and installs the `punt@punt-labs` plugin. It finishes by running `punt doctor`.
+
 <details>
 <summary>Manual install (if you already have uv)</summary>
+
+Install the CLI:
 
 ```bash
 uv tool install punt-kit
 ```
 
+Add the Punt Labs marketplace to Claude Code:
+
+```bash
+claude plugin marketplace add punt-labs/claude-plugins
+```
+
+Install the plugin:
+
+```bash
+claude plugin install punt@punt-labs
+```
+
 </details>
 
-### Commands
+<details>
+<summary>Verify the install</summary>
+
+```bash
+punt doctor
+```
+
+`punt doctor` exits non-zero if Python 3.13 or later or `uv` is missing. It also reports whether `ruff`, `mypy`, and `pyright` are on your `PATH`, but their absence does not cause a failure.
+
+</details>
+
+## Commands
+
+### CLI
+
+Each command that takes `[path]` runs on the current directory when the path is omitted.
 
 | Command | What it does |
 |---------|-------------|
-| `punt init` | Scaffold a new Punt Labs project (CI, linter config, CLAUDE.md, permissions, beads) |
-| `punt audit` | Check compliance against standards (read-only, no file changes) |
-| `punt seed <target>` | Render and merge managed sections in project files (makefile, settings). Supports `--dry-run` |
-| `punt release [version]` | 11-phase release workflow (preflight → PyPI → cross-repo propagation). Supports `--resume-from` and `--dry-run` |
-| `punt pii` | Scan repo for PII (emails, home paths, hostnames). Supports `--staged` for pre-commit |
-| `punt doctor` | Check installation health (Python, uv, ruff, mypy, pyright) |
-| `punt status` | Show detected project type, standards version, and beads state |
+| `punt init [path]` | Set up a Punt Labs project: CI workflows, linter config, `CLAUDE.md`, Claude Code permissions, and beads. `--language` overrides the detected language |
+| `punt audit [path]` | Check the project against the standards. Read-only unless you pass `--fix` |
+| `punt audit --fix [path]` | Also create missing files that need no judgment: markdownlint config, `py.typed`, and `CHANGELOG.md` |
+| `punt seed <target> [path]` | Write or update the punt-managed sections of a project file. Targets: `makefile` (Python projects only) and `settings` (`.claude/settings.json`). `--dry-run` shows the changes without writing them |
+| `punt release [version]` | Run the 11-phase release, from preflight checks through PyPI publishing to updates in sibling repositories. Supports `--resume-from <phase>`, `--dry-run`, and `--path` |
+| `punt pii [path]` | Scan tracked files for personal information (email addresses, home directory paths, `.local` hostnames). `--staged` scans only staged files, for use in a pre-commit hook |
+| `punt doctor` | Check the installation (Python, uv, ruff, mypy, pyright) |
+| `punt status [path]` | Show the detected language and project type, whether the project is a plugin or MCP server, and its open and in-progress bead counts |
 | `punt version` | Print the installed punt-kit version |
+
+Beads is a local issue tracker with the `bd` command. `punt init` runs `bd init` when `bd` is on your `PATH` and skips that step otherwise.
 
 ### Global Flags
 
-All commands accept these flags:
+These flags go before the command name, for example `punt --json status`. `punt status --json` is an error.
 
 | Flag | What it does |
 |------|-------------|
-| `--json` | Output as JSON (machine-readable) |
-| `--verbose` / `-v` | Verbose output |
-| `--quiet` / `-q` | Suppress non-essential output (errors only) |
+| `--json` | Print machine-readable JSON |
+| `--verbose` / `-v` | Print more detail |
+| `--quiet` / `-q` | Print errors only |
 
-### Usage
+### Slash Commands
 
-```bash
-# In any Punt Labs project directory:
-punt init          # Generate missing files
-punt audit         # Check compliance
-punt doctor        # Check installation health
-punt status        # Show project summary
-punt pii           # Scan for PII leaks
-punt pii --staged  # Pre-commit: scan only staged files
-punt --json status # JSON output for scripting
-punt init /path    # Target a specific directory
-```
+The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does not include the `punt` program; the commands that call it need the CLI from the Quick Start.
 
-`punt init` detects the project type (Python, Node.js, Swift, docs) and scaffolds everything a Punt Labs project needs to pass `punt audit`:
+| Slash Command | What it does |
+|---------------|-------------|
+| `/punt:init [path]` | Run `punt init` |
+| `/punt:audit [path] [--fix]` | Run `punt audit` |
+| `/punt:pii [path] [--staged]` | Run `punt pii` |
+| `/punt:reconcile [path]` | Run `punt audit`, then have Claude compare the project's CI workflows, `CLAUDE.md`, and `pyproject.toml` with the standards and edit the parts that differ. Use it for changes that need judgment, which `punt audit --fix` does not make |
+| `/punt:auto <playbook>` | Run an automation playbook: `release`, `autopilot`, `makefile`, `permissions-rollout`, `reconcile-memory`, or `standards-rollout` |
+| `/punt:bead-review [repo]` | Review every open bead for clarity, validity, and priority, closing invalid ones and rewriting the rest. In a repository whose backlog has moved to Linear it stops and points you to Linear |
 
-- **CI workflows** — lint, test, docs, and release workflows from Jinja2 templates
-- **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, `[tool.pytest]` sections merged into `pyproject.toml`
-- **CLAUDE.md** — standards references and quality gates tailored to the detected language
-- **Claude Code permissions** — `.claude/settings.json` with the baseline allowlist (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` are not seeded; each tool's `enable` adds them and its `disable` removes them.
-- **Gitignore** — `.claude/` exceptions appended to `.gitignore`
-- **Beads** — issue tracking initialized via `bd init`
+### What `punt init` Creates
 
-After scaffolding, it lists the manual steps that need GitHub or dashboard access:
+`punt init` detects the project type (Python, Node.js, Go, Swift, or documentation only) and creates or updates:
+
+- **CI workflows** — `docs.yml` for Markdown linting in every project; `lint.yml` and `test.yml` for Python; `lint.yml` for Node.js; `release.yml` for Python projects whose `pyproject.toml` names the package and its CLI command
+- **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, and `[tool.pytest]` sections merged into `pyproject.toml`
+- **CLAUDE.md** — links to the relevant standards and the quality-gate commands for the detected language
+- **Claude Code permissions** — `.claude/settings.json` with the baseline allow list (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` rule are not added here; each tool's `enable` command adds them and its `disable` command removes them.
+- **Gitignore** — a `.claude/` entry, with exceptions so `.claude/settings.json` and `.claude/hooks/` can still be committed
+- **Beads** — issue tracking set up with `bd init`
+
+It then lists the steps that need GitHub or dashboard access:
 
 - **Branch protection** — the ruleset on `main`.
 - **Review bots** ([PR and Review](standards/pr-review.md)):
@@ -86,61 +119,38 @@ After scaffolding, it lists the manual steps that need GitHub or dashboard acces
   - set Qodo's "Review every push" to Disable;
   - set Bugbot to review each PR once;
   - leave Copilot on request only, with no `copilot_code_review` ruleset rule.
-- **Repository settings** — Dependabot, secret scanning, and auto-delete of head branches.
+- **Repository settings** — Dependabot, secret scanning, and automatic deletion of merged branches.
 
-Init is idempotent — re-running it updates existing files without overwriting customizations.
+Running `punt init` again updates the files it manages without overwriting your own changes to them.
 
-`punt audit` checks all standards without modifying files. It uses `gh api` to check GitHub-side settings when authenticated. The permissions check requires the baseline and allows any tool-owned entries.
+`punt audit` checks GitHub repository settings with the `gh` CLI when `gh` is installed and signed in. Its permissions check requires the baseline allow list and accepts entries added by each tool's `enable` command.
 
-`punt release` verifies the published package the way users install it, and keeps the Homebrew tap current. A project opts in to each part:
+## Setup
 
-| Opt-in | Effect |
+### PII Scan Allow and Deny Lists
+
+`punt pii` reads optional lists from a `[tool.punt.pii]` table in `pyproject.toml`: `allow_emails` (addresses that are not reported), `allow_patterns` (regular expressions for matches that are not reported), and `deny` (extra strings that are always reported). `--config <file>` reads the table from another file.
+
+### Release Options
+
+`punt release` installs the published package the way users install it, and can keep a Homebrew tap up to date. A project turns on each part:
+
+| Option | Effect |
 |--------|--------|
 | `install-constraints.txt` at the repo root, exported from `uv.lock` | The verify install (Phase 8) reads it from the release tag and passes it as `uv tool install --constraints`. Without it the install is unpinned and the release says so. |
 | `install-overrides.txt` at the repo root | Read from the release tag and passed as `--overrides`, so the verified environment matches the project's installer. |
 | `[tool.punt-kit.release.service]` in `pyproject.toml`, with `systemd = "<unit>"` and/or `launchd = "<label>"` | After the verify install, the declared user service is restarted and must come back with a new PID. If the service manager cannot be queried, the release fails. If the service isn't loaded on this host, the release records a manual-action skip. |
 | A `brew-formula` make target that honours `FORMULA_OUT=<path>`, plus `../homebrew-tap/Formula/<name>.rb` | Propagation (Phase 10) regenerates the formula, checks its version and archive URL name the release, adds a tap CHANGELOG entry, and opens the tap PR. Verify (Phase 11) checks the formula committed on the tap's `main`. |
 
-`punt pii` scans tracked files for personally identifiable information — email addresses, home directory paths (`/Users/X/`, `/home/X/`), and `.local` hostnames. Configure allow/deny lists in `[tool.punt.pii]` in `pyproject.toml`.
-
-## Claude Code Plugin
-
-Punt-kit is also a Claude Code plugin (`punt@punt-labs` on the marketplace). The plugin surfaces CLI commands as slash commands and adds LLM-driven capabilities that are inherently prompt-driven.
-
-| Slash Command | What it does |
-|---------------|-------------|
-| `/punt:init` | Scaffold a Punt Labs project (wraps `punt init`) |
-| `/punt:audit` | Check compliance (wraps `punt audit`) |
-| `/punt:pii` | Scan for PII (wraps `punt pii`) |
-| `/punt:auto <playbook>` | Execute automation playbooks (release, autopilot, makefile, permissions-rollout, reconcile-memory, standards-rollout) |
-| `/punt:bead-review [repo]` | Audit every open bead for clarity, validity and priority; refuses in a Linear-migrated repo and redirects to Linear |
-| `/punt:reconcile` | LLM-driven standards reconciliation (no CLI equivalent — prompt-driven) |
-
-Install from the marketplace:
-
-```text
-/plugin install punt@punt-labs
-```
-
-The plugin surface lives in [plugin/](plugin/) — the manifest, `commands/`,
-`skills/`, and the `playbooks/` the `auto` skill loads. The marketplace
-installs that subdirectory, so `src/`, `tests/`, `standards/`, `lang-rules/`,
-`patterns/`, and `docs/` never reach a plugin install; repo-root files still
-do, because the underlying cone sparse checkout excludes directories rather
-than files. The `punt` binary the commands invoke comes from PyPI, not from the
-plugin.
-
----
-
 ## Standards
 
-Standards documents covering the full development lifecycle:
+One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 
 | Standard | Covers |
 |----------|--------|
 | [Architecture](standards/architecture.md) | The engine-and-clients model: one engine, thin library/CLI/MCP/REST client surfaces |
 | [OO](standards/oo.md) | The object-oriented stance shared by Python, Swift, and Pharo |
-| [Python](standards/python.md) | ruff, mypy, pyright, pytest, the OO ratchet, pyproject.toml conventions |
+| [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, the OO ratchet, pyproject.toml conventions |
 | [Go](standards/go.md) | Idiomatic Go: modules, small interfaces, explicit errors, go vet + staticcheck |
 | [C](standards/c.md) | Idiomatic C: memory ownership, `-Werror`, sanitizers |
 | [Swift](standards/swift.md) | Idiomatic Swift realizing the OO stance |
@@ -148,7 +158,8 @@ Standards documents covering the full development lifecycle:
 | [CLI](standards/cli.md) | typer, `punt-` PyPI prefix, entry point naming, global flags |
 | [Shell](standards/shell.md) | POSIX install scripts, bash dev scripts, shellcheck |
 | [CLI-Only Install](standards/install-cli-only.md) | `install.sh --no-plugin` / `<TOOL>_NO_PLUGIN=1`: install the CLI, skip the Claude Code plugin, identically across tools |
-| [GitHub](standards/github.md) | Branch protection, PR workflow, Copilot review, Dependabot |
+| [GitHub](standards/github.md) | Branch protection, PR workflow, review bots (Qodo, Bugbot), Dependabot |
+| [CI](standards/ci.md) | What continuous integration must check before a merge, on every supported OS |
 | [Workflow](standards/workflow.md) | The three-loop development structure (backlog / PR / mission), doorway conditions, gates, invariants |
 | [PR and Review](standards/pr-review.md) | PR boundaries, the agent-owned review sequence, local review before remote, dismissal discipline |
 | [Agent Engineering](standards/agent-engineering.md) | Operating rules for AI coding agents: reversibility, test coverage, comment discipline |
@@ -163,85 +174,41 @@ Standards documents covering the full development lifecycle:
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned); enable/disable verbs; required user-guide doc |
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone; committed except local-convention paths (`local/`, `*.local`, `*.local.*`); live state never tracked (seal pattern, chunk-based); canonical gitignore block; subtree zones |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
-| [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean, depot) |
+| [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean) and the optional `depot` target |
 | [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
 | [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
 | [Release Requirements](standards/release-requirements.md) | End-state artifacts every release must satisfy, in the originating repo and siblings |
-| [Integration](standards/integration.md) | (Draft) How tools discover and coordinate each other in a session without hard dependencies |
-| [README](standards/readme.md) | Badge set, section order, anti-patterns for project READMEs |
-
----
+| [Integration](standards/integration.md) | How tools discover and coordinate each other in a session without hard dependencies |
+| [README](standards/readme.md) | Audience, badge set, section order, tone, anti-patterns for project READMEs |
 
 ## Plugin Development Patterns
 
-Fourteen design patterns extracted from shipping Claude Code plugins. Each pattern documents the problem, solution, trade-offs, and which projects use it.
+Fourteen design patterns drawn from Punt Labs Claude Code plugins. Each one describes the problem, the solution, the trade-offs, and which projects use it.
 
 | Pattern | What it solves |
 |---------|---------------|
-| [Two-Phase Install](patterns/two-phase-install.md) | `curl \| sh` bootstraps uv, then uv installs the package |
-| [CLAUDE.md @-import Includes](patterns/claude-md-import-includes.md) | Tools own their usage doc; the host CLAUDE.md carries one bare `@`-import line, zero managed content |
-| [Daemon + Proxy MCP](patterns/daemon-proxy-mcp.md) | A resident daemon behind an MCP proxy for tools with heavy initialization costs |
+| [Two-Phase Install](patterns/two-phase-install.md) | `uv tool install` cannot run the `claude` CLI, so the package install and the Claude Code setup are separate steps |
+| [CLAUDE.md @-import Includes](patterns/claude-md-import-includes.md) | Each tool owns its usage doc; the project's `CLAUDE.md` holds one bare `@`-import line and no tool-managed text |
+| [Daemon + Proxy MCP](patterns/daemon-proxy-mcp.md) | A long-running daemon behind an MCP proxy, for tools that are slow to start |
 | [Humble Object Commands](patterns/humble-object-commands.md) | CLI commands as thin shells over testable core calls — no infrastructure in `@app.command()` bodies |
 | [Ethos Extension Setup](patterns/ethos-ext-setup.md) | Tools write session context into ethos identity extension files during install |
-| [Dual Command Path](patterns/dual-command-path.md) | Dev commands use local source, prod commands use the installed CLI |
-| [Two-Channel Display](patterns/two-channel-display.md) | Status bar for ambient state, conversation for interactions |
-| [Stash and Wrap](patterns/stash-and-wrap.md) | PostToolUse hooks suppress raw MCP output, show clean narration |
-| [Copy Not Symlink](patterns/copy-not-symlink.md) | Plugin install copies files instead of symlinking |
-| [Doctor Checks](patterns/doctor-checks.md) | `doctor` command validates wiring (MCP, plugin, permissions) |
-| [Prior Context Priming](patterns/prior-context-priming.md) | SessionStart hooks inject context that agents need immediately |
-| [Dynamic Description Notify](patterns/dynamic-description-notify.md) | MCP tool descriptions change based on state |
-| [Sibling PPID](patterns/sibling-ppid.md) | Detect whether a process is running inside Claude Code |
+| [Dual Command Path](patterns/dual-command-path.md) | Short top-level commands (`/who`) alongside the plugin's namespaced ones (`/biff:who`) |
+| [Two-Channel Display](patterns/two-channel-display.md) | A one-line summary in the tool-result panel, with the full output passed to the model to print |
+| [Stash and Wrap](patterns/stash-and-wrap.md) | Add a segment to Claude Code's single status line command without losing the user's existing one |
+| [Copy Not Symlink](patterns/copy-not-symlink.md) | Copy top-level commands into `~/.claude/commands/` instead of symlinking into the plugin cache |
+| [Doctor Checks](patterns/doctor-checks.md) | A `doctor` command that checks the installation, with required and informational checks |
+| [Prior Context Priming](patterns/prior-context-priming.md) | Deliver formatting guidance through the MCP server's `instructions` field, before any tool call |
+| [Dynamic Description Notify](patterns/dynamic-description-notify.md) | Change an MCP tool's description to show new state, then send `tools/list_changed` |
+| [Homebrew Formula for a PyPI CLI](patterns/homebrew-pypi-formula.md) | Ship a PyPI-published Python CLI through the Homebrew tap with every dependency declared |
 | [Design Decision Log](patterns/design-decision-log.md) | DESIGN.md with rejected alternatives and rationale |
 
----
+## Documentation
 
-## Projects Built With These Patterns
-
-The standards and patterns above were extracted from shipping projects. Each has its own repo and README at [punt-labs](https://github.com/punt-labs).
-
-- **[biff](https://github.com/punt-labs/biff)** — Team communication for the terminal (BSD Unix vocabulary over NATS)
-- **[quarry](https://github.com/punt-labs/quarry)** — Local semantic search across 30+ document formats
-- **[vox](https://github.com/punt-labs/vox)** — General-purpose TTS engine (ElevenLabs, OpenAI, Polly)
-- **[lux](https://github.com/punt-labs/lux)** — Visual display surface for Claude Code (dashboards, tables, interactive elements)
-- **[ethos](https://github.com/punt-labs/ethos)** — Identity and persona management for Claude Code sessions
-- **[beadle](https://github.com/punt-labs/beadle)** — Email client for Claude Code (Proton Bridge SMTP/IMAP)
-- **[prfaq](https://github.com/punt-labs/prfaq)** — Working Backwards PR/FAQ generator (skill + 8 agents + 10 commands)
-- **[z-spec](https://github.com/punt-labs/z-spec)** — Formal Z specifications for stateful systems
-- **[dungeon](https://github.com/punt-labs/dungeon)** — Text adventure game (prompt-driven game engine)
-
----
-
-## Development
-
-```bash
-uv sync                        # Install dependencies
-make check                     # All gates: lint, shellcheck, types, tests
-claude --plugin-dir plugin     # Load the local plugin as punt-dev:*
-```
-
-`make check` runs `ruff check`, `ruff format --check`, `shellcheck` on
-`install.sh` and `scripts/*.sh`, `mypy`, `pyright`, and `pytest`. The
-`--plugin-dir` argument is `plugin`, not `.` — it must name the directory
-holding `.claude-plugin/plugin.json` so `${CLAUDE_PLUGIN_ROOT}` matches what a
-marketplace install sees.
-
-The local plugin exposes these development commands alongside the installed
-`punt:*` commands:
-
-| Command | Local development behavior |
-|---------|----------------------------|
-| `/punt-dev:init-dev [project-path]` | Scaffold a project using the local CLI |
-| `/punt-dev:audit-dev [project-path] [--fix]` | Audit compliance using the local CLI |
-| `/punt-dev:pii-dev [project-path] [--staged]` | Scan for PII using the local CLI |
-| `/punt-dev:reconcile-dev [project-path]` | Reconcile standards with the local command and CLI |
-| `/punt-dev:auto-dev <playbook> [key=value ...]` | Execute local playbooks with the local executor skill |
-| `/punt-dev:bead-review-dev [repo-path]` | Review a backlog with the local bead-review skill |
-
-CLI wrappers use `uv run --project "${CLAUDE_PLUGIN_ROOT}/.."`, which selects
-punt-kit's source environment while preserving the invoking directory. An
-omitted project path targets that directory; relative paths resolve from it.
-`auto-dev` also runs playbook steps in the invoking directory; each step uses
-the command specified in the playbook. Development commands are removed from release tags.
+[Contributing](CONTRIBUTING.md) |
+[Plugin Development](docs/development.md) |
+[Design Decisions](DESIGN.md) |
+[PR/FAQ](prfaq.pdf) |
+[Changelog](CHANGELOG.md)
 
 ## License
 
