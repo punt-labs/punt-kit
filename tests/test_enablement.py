@@ -10,11 +10,14 @@ from typer.testing import CliRunner
 
 from punt_kit.__main__ import app
 from punt_kit.audit_verdict import FAIL
+from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.claude_permissions import PUNT_RULES
 from punt_kit.enablement import IMPORT_LINE, PuntEnablement
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import pytest
 
 runner = CliRunner()
 
@@ -192,6 +195,15 @@ class TestHardening:
         assert host.read_text() == "# Repo\n\n```text\nnever closed\n"
         assert not (tmp_path / ".claude").exists()
         assert not (tmp_path / ".punt-labs").exists()
+
+    def test_reports_a_fence_opened_after_the_check(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / "CLAUDE.md").write_text("```text\nopened mid-enable\n")
+        monkeypatch.setattr(ClaudeMdImport, "append_would_be_fenced", lambda _: False)
+        report = PuntEnablement(tmp_path).enable()
+        assert "unclosed code fence" in report.error
+        assert "Wrote .punt-labs/punt/enabled" in report.changes
 
     def test_upgrades_with_an_import_before_an_open_fence(self, tmp_path: Path) -> None:
         host = tmp_path / "CLAUDE.md"

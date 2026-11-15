@@ -91,7 +91,7 @@ class PuntEnablement:
         changes = granted.lines("added to")
         try:
             self._deposit(changes)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             return EnablementReport(changes=tuple(changes), error=str(exc))
         return EnablementReport(changes=tuple(changes))
 
