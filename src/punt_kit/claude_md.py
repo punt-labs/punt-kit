@@ -66,6 +66,17 @@ class ClaudeMdImport:
         """
         return self._present(self._read())
 
+    def ends_in_open_fence(self) -> bool:
+        """Return ``True`` when the host's last code fence is never closed.
+
+        :meth:`register` appends at the end of the file, so an import added
+        after an open fence would be fenced and inert while ``enable`` reported
+        success. Callers check this before changing anything.
+        """
+        if not self._host.is_file():
+            return False
+        return self._scan_fences(self._physical_lines(self._read()))[1]
+
     def register(self) -> bool:
         """Append the import line if absent. Return ``True`` if the file changed.
 
@@ -163,15 +174,21 @@ class ClaudeMdImport:
 
     @classmethod
     def _fenced_ranges(cls, lines: list[str]) -> list[tuple[int, int]]:
-        """Return ``(open_idx, close_idx)`` index pairs of matched fenced blocks.
+        """Return ``(open_idx, close_idx)`` index pairs of matched fenced blocks."""
+        return cls._scan_fences(lines)[0]
+
+    @classmethod
+    def _scan_fences(cls, lines: list[str]) -> tuple[list[tuple[int, int]], bool]:
+        """Return the matched fenced blocks and whether a fence is left open.
 
         A block opened by a run of *N* of a marker closes only on a later
         **same-marker** delimiter of length ``>= N`` (CommonMark); a mismatched
         marker or a shorter run is content, not a close, so an inner ``~~~`` in a
-        ```` ``` ```` block never toggles the state. An unterminated opener is
-        dropped (delimits nothing), so a dangling fence never swallows the rest
-        of the file. Blocks do not nest — once open, every line up to the
-        matching close is content.
+        ```` ``` ```` block never toggles the state. An unterminated opener
+        delimits no block, so a dangling fence never swallows the lines before
+        it; it is reported instead, because a line appended after it would be
+        fenced. Blocks do not nest — once open, every line up to the matching
+        close is content.
         """
         ranges: list[tuple[int, int]] = []
         open_at: int | None = None
@@ -185,7 +202,7 @@ class ClaudeMdImport:
             elif fence is not None and fence[0] == open_marker and fence[1] >= open_len:
                 ranges.append((open_at, i))
                 open_at = None
-        return ranges
+        return ranges, open_at is not None
 
     @classmethod
     def _top_level_flags(cls, lines: list[str]) -> list[bool]:

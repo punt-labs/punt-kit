@@ -90,6 +90,25 @@ class TestRegister:
         assert host.read_text() == f"```text\n{_LINE}\n```\n{_LINE}\n"
 
 
+class TestOpenFence:
+    """``ends_in_open_fence`` reports a host whose appended import would be inert."""
+
+    def test_unclosed_fence_is_reported(self, tmp_path: Path) -> None:
+        host = tmp_path / "CLAUDE.md"
+        host.write_text("# Repo\n```text\nopen\n")
+        assert ClaudeMdImport(host, _LINE).ends_in_open_fence() is True
+
+    def test_closed_fence_is_not_reported(self, tmp_path: Path) -> None:
+        host = tmp_path / "CLAUDE.md"
+        host.write_text("```text\nx\n~~~\n```\n")
+        assert ClaudeMdImport(host, _LINE).ends_in_open_fence() is False
+
+    def test_missing_host_is_not_reported(self, tmp_path: Path) -> None:
+        assert (
+            ClaudeMdImport(tmp_path / "CLAUDE.md", _LINE).ends_in_open_fence() is False
+        )
+
+
 class TestBytePreservation:
     """Every byte outside the appended line survives verbatim."""
 

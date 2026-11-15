@@ -183,3 +183,12 @@ class TestHardening:
         assert "not a regular file" in PuntEnablement(tmp_path).enable().error
         assert "not a regular file" in PuntEnablement(tmp_path).disable().error
         assert not (tmp_path / ".claude").exists()
+
+    def test_refuses_a_claude_md_ending_in_an_open_fence(self, tmp_path: Path) -> None:
+        host = tmp_path / "CLAUDE.md"
+        host.write_text("# Repo\n\n```text\nnever closed\n")
+        report = PuntEnablement(tmp_path).enable()
+        assert "unclosed code fence" in report.error
+        assert host.read_text() == "# Repo\n\n```text\nnever closed\n"
+        assert not (tmp_path / ".claude").exists()
+        assert not (tmp_path / ".punt-labs").exists()
