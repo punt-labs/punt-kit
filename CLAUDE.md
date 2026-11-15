@@ -16,9 +16,9 @@ make check
 
 The Makefile is the source of truth for what `check` means (`make help` lists targets).
 
-## Beads: Dual Role
+## Issue Tracking
 
-punt-kit `.beads/` tracks **both** project-specific work (punt-kit tooling, standards doc updates) and **org-wide** cross-project work (CI rollouts, security enablement, multi-repo changes). See the [parent CLAUDE.md](../CLAUDE.md#where-to-create-a-bead) for the full placement scheme.
+Work is tracked in Linear (team Punt Labs, key `PL`); punt-kit's issues carry the `repo:pkit` label, and org-wide cross-project work (CI rollouts, security enablement, multi-repo changes) carries the owning product's label. See the [parent CLAUDE.md](../CLAUDE.md) for the org-wide scheme.
 
 ## Plugin Lifecycle
 
