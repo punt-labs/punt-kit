@@ -200,7 +200,11 @@ class TestHardening:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         (tmp_path / "CLAUDE.md").write_text("```text\nopened mid-enable\n")
-        monkeypatch.setattr(ClaudeMdImport, "append_would_be_fenced", lambda _: False)
+
+        def unchecked(_: ClaudeMdImport) -> bool:
+            return False
+
+        monkeypatch.setattr(ClaudeMdImport, "append_would_be_fenced", unchecked)
         report = PuntEnablement(tmp_path).enable()
         assert "unclosed code fence" in report.error
         assert "Wrote .punt-labs/punt/enabled" in report.changes
