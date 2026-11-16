@@ -467,7 +467,7 @@ whole of this section.
 
    | Surface | `permissions.allow` | `permissions.ask` |
    |---------|---------------------|-------------------|
-   | CLI | `Bash(<cli>:*)` | `Bash(<cli> -*)`, plus `Bash(<cli> <verb>:*)` for each unsafe verb |
+   | CLI | `Bash(<cli>:*)` | `Bash(<cli> <verb>:*)` for each unsafe verb |
    | MCP | the server's tool wildcard as Claude Code names it (`mcp__plugin_<plugin>_<server>__*` for a plugin-bundled server, `mcp__<name>__*` for one the tool registers natively; see [MCP wildcards](#mcp-wildcards)) | `mcp__<prefix>__<tool>` for each unsafe tool |
    | Skills | `Skill(<plugin>:*)` | `Skill(<plugin>:<cmd>)` for each unsafe command |
 
@@ -480,9 +480,13 @@ whole of this section.
    ask, then allow, so an exact `ask` rule prompts even though the broad
    allow also matches. Carve-outs use `ask`, never `deny`: a deny cannot be
    approved, so it would break the command for the user too. The verb rules
-   match only a verb right after the CLI name, so `Bash(<cli> -*)` asks for
-   any global option placed before the verb; without it,
-   `<cli> --quiet uninstall` would run under the broad allow. A tool
+   match only a verb right after the CLI name (`Bash(<cli> <verb>:*)`); a
+   global option placed before the verb (`<cli> --quiet uninstall`) runs under
+   the broad allow and is deliberately not carved out. The `ask` tier is a
+   safety net, not a security boundary — it catches the common form of a
+   mutating verb so a person sees it, nothing more. No catch-all flag rule
+   (`Bash(<cli> -*)`): it would also prompt on read-only `--version` and
+   `--help`, which is noise, not safety. A tool
    with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
    ever granted — the dev plugin only exists in a maintainer's checkout.
    Claude Code matches `Skill(<plugin>:*)` as a plain prefix of the skill
