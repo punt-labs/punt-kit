@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format build clean depot prfaq clean-tex
+.PHONY: help test lint type check check-oo report update-oo format build clean depot prfaq clean-tex
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -16,6 +16,12 @@ type: ## Type check with mypy and pyright
 	uv run pyright src/ tests/ tools/
 
 check: lint type test ## Run all quality gates
+
+# OO ratchet not yet adopted here (tracked follow-up). These stubs exist so an
+# agent following the deployed .claude/rules/ (which reference them) does not hit
+# a missing target. They pass as no-ops until the real ratchet lands.
+check-oo report update-oo: ## OO ratchet — not yet adopted in this repo (no-op)
+	@echo "$@: OO ratchet not yet adopted in this repo; see the OO-adoption follow-up."
 
 format: ## Auto-format code
 	uv run ruff format .
