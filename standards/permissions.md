@@ -486,7 +486,8 @@ whole of this section.
    safety net, not a security boundary — it catches the common form of a
    mutating verb so a person sees it, nothing more. No catch-all flag rule
    (`Bash(<cli> -*)`): it would also prompt on read-only `--version` and
-   `--help`, which is noise, not safety. A tool
+   `--help`, which is noise, not safety (see [DESIGN.md](../DESIGN.md) DES-039).
+   A tool
    with no CLI or no MCP server adds no rule for it, and no `-dev` rule is
    ever granted — the dev plugin only exists in a maintainer's checkout.
    Claude Code matches `Skill(<plugin>:*)` as a plain prefix of the skill

@@ -2470,3 +2470,37 @@ temp-file rename, so the host file's inode changes on every write.
 | Delete the lock after each write | A writer could lock a just-unlinked inode while another creates a new one, splitting the lock. |
 | Depend on biff as a library | punt-kit would install biff's runtime (MCP server, NATS relay) to reuse two small modules. |
 | Symlink biff's files into punt-kit | A symlink into a sibling checkout does not survive a wheel build or a fresh clone. |
+
+## DES-039: CLI `ask` Carve-Out Is Per-Unsafe-Verb Only, No Flag Catch-All
+
+### Design
+
+A tool's `enable` set grants a broad allow per surface (`Bash(<cli>:*)`, the
+MCP server wildcard, `Skill(<plugin>:*)`) plus exact `ask` carve-outs. For the
+CLI surface the carve-out is `Bash(<cli> <verb>:*)` for each unsafe verb and
+nothing more. There is no `Bash(<cli> -*)` catch-all.
+
+### Why
+
+The `ask` tier is a safety net, not a security boundary. It surfaces the common
+form of a mutating verb (`<cli> uninstall`) so a person sees it before it runs;
+it does not attempt to gate every spelling of every operation. Punt Labs tools
+ship no operation dangerous enough to need a real gate here — `ask` beats
+allow only to raise a prompt, and a prompt is a courtesy, not a control.
+
+A catch-all `Bash(<cli> -*)` was previously listed to also prompt a global
+option placed before the verb (`<cli> --quiet uninstall`). It is removed
+because the same glob matches read-only `<cli> --version` and `<cli> --help`,
+which have no verb and are not unsafe — so every tool's `enable` made those
+harmless commands prompt. That is noise, not safety, and it is the cost the
+catch-all actually imposed in practice (`biff --version` prompting on every
+call). A global flag before an unsafe verb now runs under the broad allow,
+accepted deliberately.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|-------------|-------------|
+| Keep `Bash(<cli> -*)` in the ask tier | It prompts read-only `--version`/`--help` (no verb, not unsafe) on every call — noise with no safety gain, since the tier is a net, not a boundary. |
+| Keep the catch-all, add explicit allow exceptions for `--version`/`--help` | Maintains a growing exception list and re-breaks on each new read-only flag; the per-verb rule needs no exceptions. |
+| Treat the flag-before-verb bypass as a security hole to close | The `ask` tier was never a security boundary; closing a "bypass" in a courtesy prompt is effort against a threat model Punt Labs tools do not have. |
