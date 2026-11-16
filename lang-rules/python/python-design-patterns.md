@@ -113,18 +113,21 @@ Override every method with a no-op, empty return, or error raise. Methods will
 not access `self` — this is correct and expected.
 
 **Known tooling false positive**: `ruff PLR6301` flags every method in a Null
-Object because none use `self`. This standard pre-authorizes the suppression
-for Null Object classes — no per-case operator approval is needed — and each
-use must cite the authorizing rule in the comment:
-`# noqa: PLR6301 — Null Object, PY-DP-9`. An agent must not "fix" these by
-removing `self` or converting to static methods — that would break the
-interface contract.
+Object because none use `self`. Resolve this at the **repo level**, not with an
+inline suppression: PLR6301 is a preview-only rule, so a repo that does not
+select it never fires it, and a repo that does should scope it off the files
+where Null Objects and interface stubs live with
+`[tool.ruff.lint.per-file-ignores]` rather than per-line `# noqa`. Inline
+`# noqa` comments are counted by the suppression ratchet
+(`make check-suppressions`), so an agent that "follows the rule" by adding one
+fails the gate. An agent must not "fix" these by removing `self` or converting
+to static methods — that would break the interface contract.
 
 **Tooling**:
 
 - LLM review: Null Object classes must implement the full parent interface
-- ruff PLR6301: suppression pre-authorized by this rule for Null Object
-  classes; every suppression comment cites PY-DP-9
+- ruff PLR6301: handle at repo config (don't select it, or `per-file-ignores`
+  for interface files) — never a per-line `# noqa`, which the ratchet penalizes
 
 ## PY-DP-10: Facade Pattern
 
@@ -148,17 +151,22 @@ legitimate design, not a "data holder missing methods."
 any class with fewer than 2 public methods. Single-method ABCs and Protocols
 are correct by design — the interface IS one method.
 
-**Suppress**: Add `# pylint: disable=too-few-public-methods` on the class, or
-configure pylint with `min-public-methods=1` for the project.
+**Resolve at repo config, not inline**: configure pylint with
+`min-public-methods=1` in the project's pylint config so single-method
+interfaces never trip R0903 at all. Do not add a per-class
+`# pylint: disable=too-few-public-methods` — the suppression ratchet
+(`make check-suppressions`) counts it and fails the gate.
 
 **How to distinguish from a real R0903 problem**:
 
-- Class is an ABC/Protocol with 1 abstract method → **legitimate**, suppress
+- Class is an ABC/Protocol with 1 abstract method → **legitimate**, covered by
+  `min-public-methods=1`
 - Class is a concrete class with 1 method and stored data → **data holder**,
   consider replacing with a function or dataclass
 - Class has 0 public methods → **always a problem** unless it's a mixin
 
 **Tooling**:
 
-- pylint R0903: suppress on ABC/Protocol classes with exactly 1 abstract method
+- pylint R0903: set `min-public-methods=1` at repo level; never a per-class
+  `# pylint: disable`, which the ratchet penalizes
 - LLM review: concrete classes with < 2 methods still need scrutiny

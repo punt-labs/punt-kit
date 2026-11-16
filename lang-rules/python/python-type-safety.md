@@ -132,13 +132,19 @@ and it would cause a circular import at runtime, import under
 ## PY-TS-9: No Any Without Documented Reason
 
 **Statement**: Never use `Any` unless interfacing with an untyped third-party
-library. Every `Any` must have an inline `# type: ignore[...]` or comment
-explaining why it is unavoidable.
+library. Every `Any` must carry a plain-language comment explaining why it is
+unavoidable. Do **not** reach for `# type: ignore` as that justification — a
+correctly-annotated `Any` type-checks without one, and `# type: ignore` is
+counted by the suppression ratchet (`make check-suppressions`), so adding it to
+"justify" an `Any` fails the gate. Reserve `# type: ignore[code]` for an actual
+checker error you cannot otherwise resolve (an untyped import, a known false
+positive), where it goes through the ratchet like any other suppression.
 
 **Criterion**:
 
-- Pass: zero `Any` in annotations, or each has a justifying comment
-- Fail: bare `Any` without explanation
+- Pass: zero `Any` in annotations, or each has a justifying plain comment
+- Fail: bare `Any` without explanation; or a `# type: ignore` used only to
+  excuse an `Any` that would type-check without it
 
 **Tooling**:
 
