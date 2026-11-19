@@ -202,6 +202,26 @@ def test_missing_executable_fails_gate(
     assert "pydoclint" in result.stderr
 
 
+def test_doclint_checks_paths_containing_tox(tmp_path: Path) -> None:
+    directory = tmp_path / "checkout.tox"
+    directory.mkdir()
+    path = directory / "example.py"
+    path.write_text(
+        '''def f(timeout: int) -> int:
+    """Return the timeout.
+
+    Args:
+        deadline: The obsolete parameter in seconds.
+    """
+    return timeout
+''',
+        encoding="utf-8",
+    )
+    result = _run_doclint(directory)
+    assert result.returncode == 1
+    assert "DOC103" in result.stderr
+
+
 @pytest.mark.parametrize(
     "source",
     [

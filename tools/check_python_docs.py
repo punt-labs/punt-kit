@@ -217,6 +217,8 @@ def _check_docstrings(source: Path) -> list[str]:
             "--config",
             "pyproject.toml",
             "--quiet",
+            "--exclude",
+            "",
             "--show-filenames-in-every-violation-message",
             "true",
             *[str(path.resolve()) for path in files],
