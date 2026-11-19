@@ -465,10 +465,8 @@ def run_release(
 
     Args:
         path: The project root.
-        version: The release version. A fresh release uses the changelog to
-            suggest a default. A resumed release reads the current version
-            unless Go resumes at or before tagging, which requires an explicit
-            version.
+        version: Release version; required for Go resumes at or before tagging.
+            Defaults to the changelog suggestion or, on resume, current version.
         resume_from: The phase name to start from instead of preflight.
 
     Raises:
