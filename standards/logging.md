@@ -2,7 +2,7 @@
 
 **Updated:** 2026-11-19
 
-Standards for logging across all Punt Labs Python projects. Reference patterns: **vox**'s centralized `dictConfig` and its `vibe-trace` sink (atomic `O_APPEND`, `0600`, escaped) — the append/escape/permission model this standard generalizes — and **quarry**'s operational coverage. (The patterns are the reference, not a clean bill of health: the 2026-07-17 vox audit found the previous "role model" had `0644` files, a content leak, and a multi-writer race. This revision codifies the fixes; see [Current project status](#current-project-status).)
+Standards for logging across all Punt Labs Python projects. Reference patterns: **vox**'s centralized `dictConfig` and its `vibe-trace` sink (atomic `O_APPEND`, `0600`, escaped) — the append/escape/permission model this standard generalizes — and **quarry**'s `LogRedactor`.
 
 ---
 
@@ -521,20 +521,6 @@ For projects adopting this standard:
 - [ ] Suppress noisy third-party loggers (including the MCP framework's request logger)
 - [ ] Document the project's **sink map** — which processes write which file; prefer one durable file per tool, avoid split-brain
 - [ ] Standardize log format to `%(asctime)s [%(levelname)s] %(name)s: %(message)s`
-
-### Current project status
-
-Source survey checked 2026-11-19; this records implementation state, not a
-runtime permissions or full PII audit. Shared-package adoption is pending for all.
-
-| Project | Current state | Rollout work |
-|---------|---------------|--------------|
-| vox | Compliant rotation/permission reference: `logging_config.py`, `log_append_handler.py`, `append_log.py` use `dictConfig`, private atomic append and locked rotation | Adopt shared redactor and package |
-| quarry | `logging_config.py` uses `dictConfig`; `log_redaction.py` applies `LogRedactor`; usage telemetry exists | Log handler inherits plain stdlib rotation, does not guarantee `0600`; CLI/MCP clients share a file and can race on rotation |
-| biff | `logging_config.py` uses plain `RotatingFileHandler`, no `0600` guarantee; `_hook_entry.py` dispatches without configuring logging | Private multi-process-safe sink, redaction and hook setup |
-| lux | `basicConfig` in daemon/display/CLI paths; `_backend_launchd.py` declares stdout/stderr files | Central durable sink with private, safe rotation and redaction |
-| z-spec | No logging configuration in `src/` | Configure every entry point |
-| punt-kit | No logging configuration in `src/` | Configure every entry point |
 
 ## Enforcement
 
