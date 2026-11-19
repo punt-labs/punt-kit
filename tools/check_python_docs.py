@@ -35,6 +35,7 @@ _OPTIONAL_DOC_CODES = {
 _OMITTED_ARGS = "Arguments in the function signature but not in the docstring:"
 _STALE_ARGS = "Arguments in the docstring but not in the function signature:"
 _ARGS_HEADER = re.compile(r"^(?:Args|Arguments|Parameters|Params):[ \t\r\f\v]*$", re.M)
+_FENCE = re.compile(r"^ *(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
 _TRACKER_REFERENCE = re.compile(
     r"(?<![\w-])(?:PL-\d+|pkit-[a-z0-9]{4,8})(?![\w-])"
     r"|\b(?:PR|issue|pull request)\s+#\d+\b"
@@ -173,6 +174,47 @@ def _python_files(root: Path) -> list[Path]:
     )
 
 
+def _without_fenced_examples(docstring: str) -> str:
+    lines = []
+    opened = ""
+    for line in docstring.splitlines():
+        match = _FENCE.match(line)
+        if not opened:
+            if match:
+                opened = match["marker"]
+            else:
+                lines.append(line)
+        elif match and match["marker"].startswith(opened) and not match["info"].strip():
+            opened = ""
+    return "\n".join(lines)
+
+
+def _uses_only_new(node: ast.ClassDef) -> bool:
+    if node.keywords or any(
+        not isinstance(base, ast.Name) or base.id != "object" for base in node.bases
+    ):
+        return False
+    for decorator in node.decorator_list:
+        # A decorator may synthesize __init__; require a static opt-out.
+        if (
+            not isinstance(decorator, ast.Call)
+            or ast.unparse(decorator.func) not in {"dataclass", "dataclasses.dataclass"}
+            or not any(
+                keyword.arg == "init"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is False
+                for keyword in decorator.keywords
+            )
+        ):
+            return False
+    methods = {
+        item.name
+        for item in node.body
+        if isinstance(item, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    return "__new__" in methods and "__init__" not in methods
+
+
 def _argument_doc_findings(path: Path) -> list[str]:
     with tokenize.open(path) as source:
         tree = ast.parse(source.read(), filename=str(path))
@@ -182,6 +224,7 @@ def _argument_doc_findings(path: Path) -> list[str]:
             continue
         if not (docstring := ast.get_docstring(node)):
             continue
+        docstring = _without_fenced_examples(docstring)
         if len(_ARGS_HEADER.findall(docstring)) > 1:
             findings.append(f"{path}:{node.lineno}: repeated Args section")
             continue
@@ -190,14 +233,10 @@ def _argument_doc_findings(path: Path) -> list[str]:
         except ParseError:
             # pydoclint reports malformed sections separately.
             continue
-        if isinstance(node, ast.ClassDef) and params:
-            methods = {
-                item.name for item in node.body if isinstance(item, ast.FunctionDef)
-            }
-            if "__new__" in methods and "__init__" not in methods:
-                findings.append(
-                    f"{path}:{node.lineno}: document constructor arguments on __new__"
-                )
+        if isinstance(node, ast.ClassDef) and params and _uses_only_new(node):
+            findings.append(
+                f"{path}:{node.lineno}: document constructor arguments on __new__"
+            )
         seen: set[str] = set()
         for param in params:
             name = param.arg_name.lstrip("*")

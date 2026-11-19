@@ -278,6 +278,64 @@ def test_repeated_parameter_sections_fail(tmp_path: Path) -> None:
     assert "repeated Args section" in result.stderr
 
 
+def test_parameter_heading_inside_example_is_not_a_section(tmp_path: Path) -> None:
+    path = tmp_path / "example.py"
+    path.write_text(
+        '''def f(timeout: int) -> int:
+    """Return the timeout.
+
+    ````text
+    ```
+    Args:
+        deadline: Part of the example.
+    ````
+
+    Args:
+        timeout: The input in seconds.
+    """
+    return timeout
+''',
+        encoding="utf-8",
+    )
+    result = _run_doclint(path)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    ("decorator", "violation"),
+    [
+        ("@dataclass", ""),
+        ("@dataclass(init=False)", "document constructor arguments on __new__"),
+    ],
+)
+def test_class_args_account_for_generated_init(
+    tmp_path: Path, decorator: str, violation: str
+) -> None:
+    path = tmp_path / "example.py"
+    path.write_text(
+        f'''from dataclasses import dataclass
+
+{decorator}
+class Reader:
+    """Read a file.
+
+    Args:
+        timeout: Limit the wait in seconds.
+    """
+
+    timeout: int
+
+    def __new__(cls, timeout: int) -> Reader:
+        """Allocate a reader."""
+        return super().__new__(cls)
+''',
+        encoding="utf-8",
+    )
+    result = _run_doclint(path)
+    assert result.returncode == (1 if violation else 0), result.stderr
+    assert violation in result.stderr
+
+
 @pytest.mark.parametrize("gate", ["comments", "docstrings"])
 def test_python_file_walk_does_not_skip_unreadable_directories(
     tmp_path: Path,
