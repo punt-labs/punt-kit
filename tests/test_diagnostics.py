@@ -78,6 +78,9 @@ def test_subprocess_outcomes_are_content_free(
     else:
         assert "Subprocess did not complete command=git" in caplog.text
     assert "private" not in caplog.text
+    assert {record.name for record in caplog.records} == {
+        "punt_kit.phases.shared.command_diagnostics"
+    }
 
 
 @pytest.mark.parametrize(
@@ -89,7 +92,7 @@ def test_command_diagnostics_categories_and_result_identity(
 ) -> None:
     caplog.set_level(logging.DEBUG)
     result = subprocess.CompletedProcess(command, 0, "private-output", "private-error")
-    with CommandDiagnostics(command, logging.getLogger(__name__)) as diagnostics:
+    with CommandDiagnostics(command) as diagnostics:
         assert diagnostics.completed(result) is result
     assert f"Starting subprocess command={category}" in caplog.text
     assert f"Subprocess finished command={category} status=0" in caplog.text

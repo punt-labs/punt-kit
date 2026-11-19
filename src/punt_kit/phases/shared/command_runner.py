@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import logging
 import subprocess
 from typing import final
 
 from punt_kit.phases.shared import hook_firing, timeouts
 from punt_kit.phases.shared.command_diagnostics import CommandDiagnostics
-
-logger = logging.getLogger(__name__)
 
 
 @final
@@ -41,7 +38,7 @@ class CommandRunner:
             OSError: The command cannot start.
             UnicodeDecodeError: Captured output cannot be decoded with ``errors``.
         """
-        with CommandDiagnostics(cmd, logger) as diagnostics:
+        with CommandDiagnostics(cmd) as diagnostics:
             return diagnostics.completed(
                 subprocess.run(
                     cmd,

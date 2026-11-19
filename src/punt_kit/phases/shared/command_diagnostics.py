@@ -2,35 +2,35 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    import logging
     from types import TracebackType
+
+logger = logging.getLogger(__name__)
 
 
 @final
 class CommandDiagnostics:
-    """Bind privacy-safe subprocess reporting to the boundary's module logger."""
+    """Report subprocess outcomes in this module's diagnostic namespace."""
 
-    __slots__ = ("_command", "_logger")
+    __slots__ = ("_command",)
 
     _command: str
-    _logger: logging.Logger
 
-    def __new__(cls, cmd: list[str], logger: logging.Logger) -> Self:
-        """Bind reporting to the caller's diagnostic namespace."""
+    def __new__(cls, cmd: list[str]) -> Self:
+        """Bind reporting to a safe command category, never its arguments."""
         self = super().__new__(cls)
         self._command = (
             cmd[0] if cmd and cmd[0] in {"git", "gh", "uv", "uvx"} else "external"
         )
-        self._logger = logger
         return self
 
     def __enter__(self) -> Self:
         """Report the safe command category before crossing the process boundary."""
-        self._logger.debug("Starting subprocess command=%s", self._command)
+        logger.debug("Starting subprocess command=%s", self._command)
         return self
 
     def __exit__(
@@ -41,19 +41,19 @@ class CommandDiagnostics:
     ) -> None:
         """Report unsuccessful boundaries without suppressing their exceptions."""
         if isinstance(exc, subprocess.CalledProcessError):
-            self._logger.info(
+            logger.info(
                 "Subprocess finished command=%s status=%d",
                 self._command,
                 exc.returncode,
             )
         elif exc is not None:
-            self._logger.info("Subprocess did not complete command=%s", self._command)
+            logger.info("Subprocess did not complete command=%s", self._command)
 
     def completed(
         self, result: subprocess.CompletedProcess[str]
     ) -> subprocess.CompletedProcess[str]:
         """Report a completed process and return the original result unchanged."""
-        self._logger.info(
+        logger.info(
             "Subprocess finished command=%s status=%d", self._command, result.returncode
         )
         return result
