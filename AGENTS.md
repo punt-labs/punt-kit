@@ -12,6 +12,7 @@ Each standard lives in its own document under `standards/`.
 
 | Standard | What it covers |
 |----------|---------------|
+| [Standards and Rules](standards/standards.md) | Policy in `standards/`, per-language rules in `lang-rules/<lang>/`, stable clause IDs, rule citations and gates, no status, the `make check-standards` traceability check |
 | [Distribution](standards/distribution.md) | Install paths (marketplace, PyPI, .mcpb), dependency pinning, installation scope, init vs install, uninstall requirements |
 | [CLI](standards/cli.md) | CLI + plugin duality, required subcommands (install, doctor, version, serve), --json flag, shell completion |
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | User-owned CLAUDE.md, the bare `@`-import line, the zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned), the `enabled` marker, enable/disable verbs, audit checks, sentinel migration |

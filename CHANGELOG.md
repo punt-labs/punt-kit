@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Standards and Rules standard (`standards/standards.md`): standards hold
+  language-neutral policy and no status, `lang-rules/<lang>/` holds each
+  language's implementation, every clause has a stable ID, and every rule
+  cites the clauses it implements and names its gate. `make check-standards`,
+  run by `make lint`, fails on duplicate, undefined, retired or uncited IDs.
+  The Markdown rules in `lang-rules/markdown/` implement it.
+
 - Python docstring and API reference standards: Google-style public contracts,
   focused comment cleanup, Ruff and pydoclint checks, and mkdocstrings builds.
 
