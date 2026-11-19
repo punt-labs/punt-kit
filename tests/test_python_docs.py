@@ -127,6 +127,34 @@ def _run_doclint(path: Path) -> subprocess.CompletedProcess[str]:
             "DOC103",
         ),
         (
+            '''class Reader:
+    """Read a file.
+
+    Args:
+        deadline: Limit the wait in seconds.
+    """
+
+    def __new__(cls, timeout: int) -> Reader:
+        """Create a reader."""
+        return super().__new__(cls)
+''',
+            "document constructor arguments on __new__",
+        ),
+        (
+            '''class Reader:
+    """Read a file."""
+
+    def __new__(cls, timeout: int) -> Reader:
+        """Create a reader.
+
+        Args:
+            timeout: Limit the wait in seconds.
+        """
+        return super().__new__(cls)
+''',
+            "",
+        ),
+        (
             '''def f(timeout: int) -> int:
     """Return the timeout.
 

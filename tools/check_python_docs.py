@@ -173,7 +173,7 @@ def _python_files(root: Path) -> list[Path]:
     )
 
 
-def _duplicate_parameters(path: Path) -> list[str]:
+def _argument_doc_findings(path: Path) -> list[str]:
     with tokenize.open(path) as source:
         tree = ast.parse(source.read(), filename=str(path))
     findings: list[str] = []
@@ -190,6 +190,14 @@ def _duplicate_parameters(path: Path) -> list[str]:
         except ParseError:
             # pydoclint reports malformed sections separately.
             continue
+        if isinstance(node, ast.ClassDef) and params:
+            methods = {
+                item.name for item in node.body if isinstance(item, ast.FunctionDef)
+            }
+            if "__new__" in methods and "__init__" not in methods:
+                findings.append(
+                    f"{path}:{node.lineno}: document constructor arguments on __new__"
+                )
         seen: set[str] = set()
         for param in params:
             name = param.arg_name.lstrip("*")
@@ -221,7 +229,7 @@ def _check_docstrings(source: Path) -> list[str]:
     findings = doclint_findings(result.returncode, result.stdout)
     if not findings:
         for path in files:
-            findings.extend(_duplicate_parameters(path))
+            findings.extend(_argument_doc_findings(path))
     return findings
 
 
