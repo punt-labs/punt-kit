@@ -374,7 +374,9 @@ separates lint checks from review.
   `D105` and `D107` so lint does not require a docstring on every special
   method or initializer; review the ones that are part of the public API.
   Ruff's visibility rules are an approximation; separately check supported
-  symbols Ruff cannot see, such as re-exports from private modules.
+  symbols Ruff cannot see, such as re-exports from private modules. Use
+  scoped missing-docstring exclusions for modules that are explicitly
+  internal despite their names.
 - Run `uv run ruff check --select ERA001 .` to flag commented-out Python code.
   Inspect findings and remove confirmed dead code; do not auto-delete comments.
   Rephrase false positives where possible without losing meaning.
@@ -400,7 +402,9 @@ or a `DOC103` that only reports undocumented parameters. Do not ignore
 `DOC103` wholesale: a renamed parameter can leave a stale docstring entry
 without changing the entry count. Put constructor argument documentation on
 the class unless `__init__` has its own docstring; when both docstrings exist,
-put constructor arguments in `__init__` and fail on `DOC304`.
+put constructor arguments in `__init__` and fail on `DOC304`. For classes
+that implement construction in `__new__` instead, document its arguments
+on `__new__` and include that member in the generated class reference.
 
 Test the gate with partial and omitted sections, stale argument names
 (including in constructors), non-Google sections, parse errors, and tool
