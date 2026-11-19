@@ -302,8 +302,7 @@ for index in range(100):
     backups = [path for path in files if path.suffix[1:].isdigit()]
     assert 1 <= len(backups) <= 5
     logs = [directory / "punt.log", *backups]
-    # Shared-lock appends can overshoot the threshold by in-flight bounded records.
-    file_bound = 5 * 1024 * 1024 + workers * (64 * 1024 + 1)
+    file_bound = 5 * 1024 * 1024
     assert all(path.stat().st_size <= file_bound for path in logs)
     assert sum(path.stat().st_size for path in files) <= 6 * file_bound
     seen: list[tuple[int, int]] = []

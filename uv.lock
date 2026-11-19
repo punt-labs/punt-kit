@@ -599,7 +599,7 @@ requires-dist = [
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "markdown-it-py", specifier = ">=3.0.0" },
     { name = "packaging", specifier = ">=24.0" },
-    { name = "punt-observe", git = "https://github.com/punt-labs/punt-observe?rev=a90872cc20cf688dfd41aeb36c7120e63fc69849" },
+    { name = "punt-observe", git = "https://github.com/punt-labs/punt-observe?rev=53e657555cab240795c850ea7f0e4dd77a8d98fc" },
     { name = "rich", specifier = ">=13.0.0" },
     { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
@@ -626,7 +626,7 @@ docs = [
 [[package]]
 name = "punt-observe"
 version = "0.1.0"
-source = { git = "https://github.com/punt-labs/punt-observe?rev=a90872cc20cf688dfd41aeb36c7120e63fc69849#a90872cc20cf688dfd41aeb36c7120e63fc69849" }
+source = { git = "https://github.com/punt-labs/punt-observe?rev=53e657555cab240795c850ea7f0e4dd77a8d98fc#53e657555cab240795c850ea7f0e4dd77a8d98fc" }
 dependencies = [
     { name = "opentelemetry-api" },
     { name = "opentelemetry-sdk" },

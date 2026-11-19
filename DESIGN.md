@@ -2521,7 +2521,7 @@ content. Logging, privacy, rotation and telemetry transport belong in the shared
 ### Design
 
 `punt-observe` is pinned to Git commit
-`a90872cc20cf688dfd41aeb36c7120e63fc69849` because it is not yet on PyPI.
+`53e657555cab240795c850ea7f0e4dd77a8d98fc` because it is not yet on PyPI.
 PyPI rejects direct-reference dependencies: a punt-kit PyPI release therefore
 requires publishing punt-observe first and replacing the Git reference with a
 released version. Publication timing is Jim's call; this change publishes neither
