@@ -5,6 +5,8 @@ paths:
 
 # Module Coupling Standards
 
+**Updated:** 2026-11-19
+
 ## PL-CU-1: Efferent Coupling (Fan-Out)
 
 **Statement**: A module should not import from too many other internal
@@ -13,9 +15,9 @@ the rest of the system — a change in any dependency can break it.
 
 **Criterion**:
 
-- Pass: module imports from <= 7 internal modules
+- Pass: module imports from <= 10 internal modules
 - Pass (`__main__.py`): <= 15 (CLI entry points legitimately wire many modules)
-- Fail: module imports from > 7 internal modules (> 15 for `__main__.py`)
+- Fail: module imports from > 10 internal modules (> 15 for `__main__.py`)
 
 **Tooling**:
 

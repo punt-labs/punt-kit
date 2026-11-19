@@ -108,6 +108,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Upgrade `punt-oo-ratchet` to 0.3.0 and audit the OO baseline adoption of
+  code-only module sizes and responsibility-class counting (PL-1141).
+  Raise the default efferent-coupling policy from 7 to 10 internal modules
+  to match the package (PL-1188).
+
 - Repin the OO quality gates to PyPI `punt-oo-ratchet` 0.1.0 and update
   live documentation for the renamed `python-oo-ratchet` source repository
   (PL-1155). The `oo-ratchet` CLI is unchanged.
