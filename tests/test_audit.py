@@ -49,7 +49,6 @@ def test_audit_compliant_project_passes(tmp_path: Path) -> None:
     """Audit exits cleanly for a fully compliant project."""
     _make_compliant_python(tmp_path)
 
-    # Should not raise SystemExit
     run_audit(str(tmp_path))
 
 
@@ -216,11 +215,9 @@ def test_audit_passes_with_extra_permissions(tmp_path: Path) -> None:
 
 
 def _make_compliant_plugin(tmp_path: Path, *, subdir: bool = False) -> Path:
-    """Create a compliant plugin project scaffold with dev commands.
+    """Create a compliant plugin fixture and return its plugin root.
 
-    ``subdir`` selects the DES-025 layout, where the whole surface lives under
-    ``plugin/``. Returns the plugin root so callers name paths the way the
-    audit does, rather than hardcoding a layout the fleet is migrating off.
+    If subdir is set, put the plugin surface under plugin/.
     """
     plugin_root = tmp_path / "plugin" if subdir else tmp_path
     (tmp_path / "README.md").write_text("# Test Plugin\n")
@@ -356,13 +353,8 @@ def test_audit_hybrid_fails_missing_release_scripts(
 def test_audit_pure_plugin_without_release_scripts_passes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A pure plugin without the scripts is compliant, not a failure.
-
-    plugins.md "Release flow for pure plugins" says a pure plugin may lack
-    scripts/release-plugin.sh and do the swap-tag-restore by hand. Failing
-    dungeon, prfaq, and z-spec for following the standard is a
-    false-positive gate — and it must still emit a row, so the reader learns
-    the manual sequence applies rather than seeing nothing.
+    """A pure plugin without release scripts is compliant and reports the
+    manual swap, tag, and restore sequence.
     """
     _make_compliant_plugin(tmp_path)
     (tmp_path / "scripts" / "release-plugin.sh").unlink()

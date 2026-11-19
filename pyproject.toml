@@ -26,6 +26,14 @@ dev = [
     "mypy>=1.15.0",
     "pyright>=1.1.0",
     "punt-oo-ratchet==0.1.0",
+    "pydoclint==0.12.0",
+    "docstring-parser-fork==0.0.16",
+    "markdown==3.11.3",
+    "types-markdown>=3.10,<4",
+]
+docs = [
+    "mkdocs>=1.6.1",
+    "mkdocstrings[python]>=1.0.8",
 ]
 
 [project.urls]
@@ -51,6 +59,16 @@ extend-exclude = [".docs/native-harness-plan/sources", ".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+skip-checking-short-docstrings = false
+allow-init-docstring = true
+check-style-mismatch = true
 
 [tool.mypy]
 python_version = "3.13"

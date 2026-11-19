@@ -1,4 +1,4 @@
-"""Installation health checks for punt-kit."""
+"""Check the punt-kit installation."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True, slots=True)
 class CheckResult:
-    """Result of a single health check."""
+    """Record the result of one health check."""
 
     name: str
     passed: bool
@@ -18,12 +18,7 @@ class CheckResult:
 
     @property
     def status_suffix(self) -> str:
-        """Return the trailing '(required)'/'(optional)' annotation to print.
-
-        A passing required check needs no annotation; everything else does,
-        since it explains why a failed check does or doesn't affect the
-        doctor's exit code.
-        """
+        """Return the required/optional suffix; omit it for a passing required check."""
         if self.passed and self.required:
             return ""
         return " (optional)" if not self.required else " (required)"
@@ -47,10 +42,11 @@ def _check_binary(name: str, *, required: bool = True) -> CheckResult:
 
 
 def run_doctor(*, print_results: bool = True) -> tuple[int, list[CheckResult]]:
-    """Run all health checks.
+    """Run all health checks, printing each result when ``print_results``.
 
-    Returns (exit_code, results).  exit_code is 0 when all required checks
-    pass, 1 otherwise.
+    Returns:
+        The exit code, 0 when every required check passes and 1 otherwise, and
+        the results.
     """
     results = [
         _check_python(),

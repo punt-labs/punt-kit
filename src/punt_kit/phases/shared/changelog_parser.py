@@ -1,4 +1,4 @@
-"""Parsing CHANGELOG.md text into versioned sections and their subsections."""
+"""Parse CHANGELOG.md into versioned sections and subsections."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class _Kind(Enum):
 
 @final
 class ChangelogDocument:
-    """The one parser for CHANGELOG.md: every reader goes through it.
+    """Parse version headings and their entries from CHANGELOG.md.
 
     Structure comes from a CommonMark parse (markdown-it-py), not from
     scanning lines: a ``## [version]`` heading, a ``###`` subsection, and an
@@ -61,6 +61,7 @@ class ChangelogDocument:
     _tokens: tuple[Token, ...]
 
     def __new__(cls, text: str) -> Self:
+        """Parse changelog text as CommonMark."""
         self = super().__new__(cls)
         self._bom = "\ufeff" if text.startswith("\ufeff") else ""
         body = text.removeprefix("\ufeff")
@@ -82,11 +83,11 @@ class ChangelogDocument:
         return self
 
     def section(self, version: str) -> Section | None:
-        """The first section for ``version``; ``None`` is a legitimate absence."""
+        """Return the first section for ``version``, or ``None`` if absent."""
         return next((s for s in self._sections if s.version == version), None)
 
     def unclosed_block_lines(self) -> tuple[int, ...]:
-        """The 1-based lines of fences and HTML blocks that never close.
+        """Return the 1-based lines of fences and HTML blocks that never close.
 
         Such a block runs to the end of the document and swallows every
         later release, so a reader must not trust the sections after it.
@@ -94,15 +95,17 @@ class ChangelogDocument:
         return UnclosedBlockScan(self._tokens, self._lines).opening_lines()
 
     def is_stamped(self, version: str) -> bool:
-        """True if a dated ``## [<version>] - YYYY-MM-DD`` heading exists."""
+        """Check for a dated ``## [<version>] - YYYY-MM-DD`` heading."""
         return any(s.version == version and s.is_stamped for s in self._sections)
 
     def stamped(self, version: str, today: str) -> str:
-        """Return the text with a new dated ``version`` heading under Unreleased.
+        """Insert a dated version heading under the parsed Unreleased heading.
 
-        Inserts at the parsed [Unreleased] heading (never at a look-alike
-        inside a code fence) and preserves the file's BOM and line endings.
-        Text with no [Unreleased] section comes back unchanged.
+        Preserve BOM and line endings. If Unreleased is missing, return the
+        original text unchanged.
+
+        Args:
+            today: Release date in YYYY-MM-DD form.
         """
         unreleased = self.section("Unreleased")
         if unreleased is None:
@@ -121,13 +124,14 @@ class ChangelogDocument:
         )
 
     def suggest_next_version(self, current: str) -> str:
-        """Suggest the next version from the [Unreleased] entries.
+        """Suggest the next version from the Unreleased entries.
 
-        No entries means nothing to release, so no bump. A ``Changed``
-        subsection whose heading says ``(BREAKING)`` or that has an entry
-        opening with a breaking marker is a major bump, entries under
-        ``Added`` a minor one, anything else a patch. ``current`` must be a
-        plain ``MAJOR.MINOR.PATCH``; a pre-release has no defined next bump.
+        Use a major bump for a breaking ``Changed`` entry or heading, a
+        minor bump for ``Added`` entries, and a patch for other changes.
+        Return the current version if there are no entries.
+
+        Raises:
+            ReleaseError: A bump is needed but ``current`` is not MAJOR.MINOR.PATCH.
         """
         unreleased = self.section("Unreleased")
         if unreleased is None or not unreleased.has_entries:
@@ -144,7 +148,7 @@ class ChangelogDocument:
         return f"{major}.{minor}.{patch + 1}"
 
     def _version_of(self, index: int) -> str | None:
-        """The version in a top-level ``## [version]`` heading, else ``None``.
+        """Extract the version from a top-level ``## [version]`` heading, if any.
 
         Only an ATX heading counts: a setext underline would make the stamp's
         one-line insertion split the heading.
@@ -230,14 +234,14 @@ class ChangelogDocument:
 
     @staticmethod
     def _is_entry_block(token: Token) -> bool:
-        """True for a list item at any depth, or a top-level non-list block."""
+        """Accept list items at any depth and non-list blocks at the top level."""
         if token.type == "list_item_open":
             return True
         return token.level == 0 and token.type not in _LIST_OPENERS
 
     @staticmethod
     def _span(token: Token) -> tuple[int, int]:
-        """The ``[first, end)`` source lines of a block token."""
+        """Return the half-open source line range of a block token."""
         if token.map is None:
             msg = f"block token {token.type!r} has no line map"
             raise ValueError(msg)
@@ -245,7 +249,7 @@ class ChangelogDocument:
         return first, end
 
     def _text(self, token: Token) -> str:
-        """The source text of a block token, without its trailing line ending."""
+        """Extract a block token's source text without its trailing line ending."""
         first, end = self._span(token)
         return "".join(self._lines[first:end]).rstrip("\r\n")
 
@@ -262,7 +266,7 @@ class ChangelogDocument:
         )
 
     def _subsection_title(self, index: int) -> str | None:
-        """The title of a ``###`` ATX heading at ``index`` (comments left out)."""
+        """Extract the ATX heading title at ``index``, ignoring comments."""
         token = self._tokens[index]
         if token.tag != "h3" or not token.markup.startswith("#"):
             return None
@@ -273,7 +277,7 @@ class ChangelogDocument:
         ).strip()
 
     def _has_content(self, first: int, end: int) -> bool:
-        """True when tokens ``[first, end)`` carry something a reader sees.
+        """Check whether tokens ``[first, end)`` render visible content.
 
         Comment-only blocks, empty list items, and blank text do not count.
         """
@@ -281,7 +285,7 @@ class ChangelogDocument:
 
     @classmethod
     def _shows(cls, token: Token) -> bool:
-        """True when this one token renders something a reader sees."""
+        """Check whether this token renders visible content."""
         if token.type == "inline":
             return any(cls._is_visible(child) for child in token.children or [])
         if token.type == "html_block":
@@ -290,12 +294,12 @@ class ChangelogDocument:
 
     @staticmethod
     def _is_comment(token: Token) -> bool:
-        """True when nothing but HTML comments (and blanks) is left in the token."""
+        """Check whether only HTML comments and whitespace remain."""
         return not _COMMENT.sub("", token.content).strip()
 
     @classmethod
     def _is_visible(cls, child: Token) -> bool:
-        """True for an inline token that renders: not a comment or whitespace."""
+        """Check whether the inline token renders more than whitespace."""
         if child.type == "html_inline":
             return not cls._is_comment(child)
         if child.type in ("softbreak", "hardbreak"):

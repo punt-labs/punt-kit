@@ -1,4 +1,4 @@
-"""Project status summary for punt-kit."""
+"""Summarize a project's status for punt-kit."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from punt_kit import __version__
 
 @dataclass(frozen=True)
 class StatusInfo:
-    """Operational state summary for a project."""
+    """Record a project's detected configuration and issue counts."""
 
     punt_kit_version: str
     language: str | None
@@ -26,10 +26,7 @@ class StatusInfo:
 
 
 def _count_beads(root: Path) -> tuple[int, int, int]:
-    """Count open and in-progress beads from the JSONL file.
-
-    Returns (open, in_progress, skipped).
-    """
+    """Count open, in-progress, and skipped rows in the beads JSONL file."""
     jsonl = root / ".beads" / "issues.jsonl"
     if not jsonl.exists():
         return (0, 0, 0)
@@ -62,7 +59,11 @@ def _count_beads(root: Path) -> tuple[int, int, int]:
 
 
 def run_status(path: str = ".") -> StatusInfo:
-    """Gather project status information."""
+    """Gather project status information.
+
+    Raises:
+        ReleaseError: A project file detection reads is unreadable.
+    """
     from punt_kit.detect import detect
 
     root = Path(path).resolve()

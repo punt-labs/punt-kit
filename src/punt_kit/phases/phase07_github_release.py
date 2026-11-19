@@ -1,4 +1,4 @@
-"""Phase 7: create the GitHub release for a tagged version."""
+"""Create the GitHub release for a tagged version."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ _console = Console()
 
 @final
 class Phase7GithubRelease:
-    """Phase 7: create GitHub release."""
+    """Create the GitHub release for a tagged version."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_version")
 
@@ -30,6 +30,7 @@ class Phase7GithubRelease:
     def __new__(
         cls, info: ProjectInfo, version: str, *, dry_run: bool, ops: ReleaseOps
     ) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -38,6 +39,13 @@ class Phase7GithubRelease:
         return self
 
     def run(self) -> None:
+        """Create the GitHub release for a tagged version.
+
+        Raises:
+            ReleaseError: The CLI is missing, release notes are invalid, or creation
+                fails.
+            subprocess.TimeoutExpired: An external command exceeds its timeout.
+        """
         info = self._info
         version = self._version
         ops = self._ops
@@ -53,8 +61,7 @@ class Phase7GithubRelease:
         if gh is None:
             ops.fail("gh CLI not found")
 
-        # Check if CI already created the release (e.g., Go projects use
-        # softprops/action-gh-release in their release workflow).
+        # CI may create the release itself, as in Go release workflows.
         existing = ops.run(
             [gh, "release", "view", tag],
             cwd=str(info.root),

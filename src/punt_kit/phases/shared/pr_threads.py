@@ -1,4 +1,4 @@
-"""Resolving a PR's unresolved review threads, page by page."""
+"""Resolve pull request review threads across all result pages."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ class _ThreadPage:
 
 @final
 class PrThreadResolver:
-    """Resolves unresolved review threads on a PR (Copilot/Bugbot auto-review)."""
+    """Resolve unresolved review threads on a pull request."""
 
     __slots__ = ("_ops", "_repo")
 
@@ -35,17 +35,21 @@ class PrThreadResolver:
     _ops: ReleaseOps
 
     def __new__(cls, repo: GithubRepo, *, ops: ReleaseOps) -> Self:
+        """Bind a repository and release operations for thread resolution."""
         self = super().__new__(cls)
         self._repo = repo
         self._ops = ops
         return self
 
     def resolve(self, gh: str, cwd: str, pr_number: int) -> None:
-        """Resolve all unresolved review threads on a PR.
+        """Resolve unresolved review threads across all result pages.
 
-        Copilot and Bugbot auto-post reviews on every PR. With
-        required_review_thread_resolution=true, unresolved threads block
-        merge. Every page of threads is read, not only the first.
+        Warn if the repo cannot be resolved or GitHub rejects a query or
+        mutation; unresolved conversations may still block the merge.
+
+        Raises:
+            subprocess.TimeoutExpired: A GitHub query or mutation timed out.
+            OSError: A GitHub command could not start.
         """
         slug = self._slug_or_warn(pr_number)
         if slug is None:
@@ -70,7 +74,7 @@ class PrThreadResolver:
         self._resolve_all(gh, cwd, pr_number, unresolved)
 
     def _slug_or_warn(self, pr_number: int) -> RepoSlug | None:
-        """The repository's slug; ``None`` after warning that there is none."""
+        """Resolve the repository slug, warning before returning ``None``."""
         try:
             slug = self._repo.slug()
         except (ValueError, RemoteLookupError) as exc:
@@ -155,7 +159,7 @@ class PrThreadResolver:
 
     @staticmethod
     def _threads_query(slug: RepoSlug, pr_number: int, cursor: str | None) -> str:
-        """The GraphQL query for one page of a PR's review threads."""
+        """Build the GraphQL query for one page of review threads."""
         after = f", after: {json.dumps(cursor)}" if cursor is not None else ""
         return (
             f'{{ repository(owner: "{slug.owner}", name: "{slug.name}") {{'
@@ -174,7 +178,7 @@ class PrThreadResolver:
 
     @classmethod
     def _page_of(cls, data: object) -> _ThreadPage:
-        """The unresolved ids and next cursor of a ``_threads_query`` response.
+        """Extract unresolved thread IDs and the next page cursor.
 
         Raises ``ValueError`` saying why when the response has no
         ``reviewThreads`` object: that is a query that failed, not a PR with

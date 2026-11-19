@@ -1,10 +1,6 @@
-"""The § 9 migration tables of ``standards/punt-labs-dir.md`` as data.
+"""Represent the migration tables in the repo-local state directory standard.
 
-Those four tables are the sole source for every path the layout audit grades:
-the root sentinels (§ 9.1), the bare file (§ 9.2), the registry gitlink
-(§ 9.3), and the live paths the canonical gitignore block carries interim
-excludes for (§ 9.4). Each row here transcribes one table row; the test suite
-parses the Markdown at test time and fails when the two drift apart.
+The tables supply every path the layout audit grades.
 """
 
 from __future__ import annotations
@@ -16,7 +12,7 @@ from typing import Self, final
 
 @final
 class RowKind(Enum):
-    """Which § 9 table a row comes from, which is also how audit grades it."""
+    """Identify which migration rule the audit applies."""
 
     ROOT_SENTINEL = "root-sentinel"
     BARE_FILE = "bare-file"
@@ -27,7 +23,7 @@ class RowKind(Enum):
 @final
 @dataclass(frozen=True, slots=True)
 class MigrationRow:
-    """One § 9 table row: what moves, where to, and the paths audit observes.
+    """Describe what moves, where to, and the paths the audit observes.
 
     ``paths`` are the legacy paths the row names (the Live path column for a
     live-state row); ``destination`` is the first path the Destination column
@@ -50,7 +46,11 @@ class MigrationRow:
         return tuple(path.split("/", 1)[0] for path in self.paths)
 
     def path_naming(self, sentinel: str) -> str:
-        """The row's legacy path under root entry ``sentinel``."""
+        """Return the row's legacy path under root entry ``sentinel``.
+
+        Raises:
+            KeyError: No path of this row sits under ``sentinel``.
+        """
         for path in self.paths:
             if path.split("/", 1)[0] == sentinel:
                 return path
@@ -60,41 +60,43 @@ class MigrationRow:
 
 @final
 class MigrationTable:
-    """The § 9 rows, queried the way the audit checks need them."""
+    """Look up migration rows for the layout audit."""
 
     __slots__ = ("_rows",)
 
     _rows: tuple[MigrationRow, ...]
 
     def __new__(cls, rows: tuple[MigrationRow, ...]) -> Self:
+        """Create a table that answers the audit's queries over ``rows``."""
         self = super().__new__(cls)
         self._rows = rows
         return self
 
     @property
     def rows(self) -> tuple[MigrationRow, ...]:
+        """Every row, in the order given."""
         return self._rows
 
     def rows_of(self, kind: RowKind) -> tuple[MigrationRow, ...]:
+        """Return the rows of table ``kind``, in the order given."""
         return tuple(row for row in self._rows if row.kind is kind)
 
     def live_paths(self) -> tuple[str, ...]:
-        """Every § 9.4 live path: the interim excludes the gitignore block carries."""
+        """Return every § 9.4 live path: the gitignore block's interim excludes."""
         return tuple(
             path for row in self.rows_of(RowKind.LIVE_STATE) for path in row.paths
         )
 
     def rows_naming_sentinel(self, sentinel: str) -> tuple[MigrationRow, ...]:
-        """The § 9.1 rows whose legacy path sits under root entry ``sentinel``."""
+        """Return the § 9.1 rows with a legacy path under root entry ``sentinel``."""
         return tuple(
             row
             for row in self.rows_of(RowKind.ROOT_SENTINEL)
             if sentinel in row.root_sentinels
         )
 
-    # None is the contract: a path no row names is the caller's FAIL, not an error.
     def row_naming_path(self, kind: RowKind, path: str) -> MigrationRow | None:
-        """The row of ``kind`` naming ``path`` exactly; None means no row does."""
+        """Return the row of ``kind`` naming ``path`` exactly, or ``None``."""
         for row in self.rows_of(kind):
             if path in row.paths:
                 return row

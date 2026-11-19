@@ -1,4 +1,4 @@
-"""The one place the release starts a process."""
+"""Run subprocesses for the release workflow."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from punt_kit.phases.shared import hook_firing, timeouts
 
 @final
 class CommandRunner:
-    """Runs a command with the release's standard options and timeout floor."""
+    """Run commands with release defaults and a hook-aware timeout."""
 
     __slots__ = ()
 
@@ -24,13 +24,18 @@ class CommandRunner:
         capture: bool = True,
         errors: str = "strict",
     ) -> subprocess.CompletedProcess[str]:
-        """Run a subprocess with standard options.
+        """Run a subprocess with release defaults.
 
-        ``timeout`` defaults to a short metadata budget. Call sites that need
-        longer (installs, quality gates, network git, ``gh run watch``) pass a
-        named ``timeouts`` budget; every hook-firing command is floored at
-        ``GIT_HOOK`` here. ``errors`` is the output decoding's error handler:
-        ``"strict"`` unless the caller reads a program that may write any bytes.
+        Args:
+            timeout: Timeout in seconds, raised to the hook budget for commands
+                that may run a Git hook.
+            errors: Error handler for decoding captured output.
+
+        Raises:
+            subprocess.CalledProcessError: The command exits nonzero with ``check`` set.
+            subprocess.TimeoutExpired: The command exceeds its timeout.
+            OSError: The command cannot start.
+            UnicodeDecodeError: Captured output cannot be decoded with ``errors``.
         """
         return subprocess.run(
             cmd,

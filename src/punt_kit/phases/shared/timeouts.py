@@ -1,4 +1,4 @@
-"""Timeout budgets for subprocess calls made during a release.
+"""Define subprocess timeout budgets for the release workflow.
 
 Legitimate PY-OO-7 primitives module — no class here, nothing to be
 "missing methods on".

@@ -1,5 +1,4 @@
-"""Phase 11: post-release verification checks across the project and its
-propagation siblings."""
+"""Verify a release across the project and its propagation siblings (phase 11)."""
 
 from __future__ import annotations
 
@@ -42,7 +41,7 @@ _console = Console()
 
 @final
 class Phase11Verify:
-    """Phase 11: run release verification checks."""
+    """Run the phase 11 release verification checks."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
@@ -61,6 +60,7 @@ class Phase11Verify:
         ops: ReleaseOps,
         skips: SkipRecorder,
     ) -> Self:
+        """Bind phase 11 to the project and the release ``version``."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -74,6 +74,11 @@ class Phase11Verify:
         return f"v{self._version}"
 
     def run(self) -> None:
+        """Print a verdict per check and fail if any check failed.
+
+        Raises:
+            ReleaseError: A check fails, or a file or git read it needs fails.
+        """
         ops = self._ops
         _console.print("\n[bold]Phase 11: Verify[/bold]")
 
@@ -113,7 +118,7 @@ class Phase11Verify:
             ops.fail("Some verification checks failed — see above")
 
     def _local_checks(self) -> list[VerificationCheck]:
-        """The tag, the version in every file that pins it, and the changelog."""
+        """Check the tag, the version in every file that pins it, and the changelog."""
         info = self._info
         ops = self._ops
         tag = self._tag
@@ -125,7 +130,6 @@ class Phase11Verify:
             VerificationCheck("Git tag", tag_exists, tag if tag_exists else "not found")
         ]
         checks.extend(VersionPinChecks(info, self._version, ops=ops).checks())
-        # Stamped means dated: ## [X.Y.Z] - YYYY-MM-DD
         stamped = Changelog(info.root, ops=ops).is_stamped(self._version)
         checks.append(
             VerificationCheck(
@@ -135,8 +139,9 @@ class Phase11Verify:
         return checks
 
     def _remote_slug(self) -> tuple[RepoSlug | None, list[VerificationCheck]]:
-        """The project's GitHub slug (``None`` when there is nothing to verify),
-        and the failed checks resolving it produced.
+        """Return the project's GitHub slug and the failed checks resolving it.
+
+        The slug is ``None`` when there is nothing to verify.
 
         A remote that names GitHub but is not ``owner/repo``, a lookup git
         could not answer, and a missing github.com origin on a project that
@@ -158,7 +163,7 @@ class Phase11Verify:
         return slug, []
 
     def _remote_check_names(self) -> list[str]:
-        """The checks that need the origin slug AND apply to this project.
+        """Name the checks that need the origin slug AND apply to this project.
 
         Naming a check that would have been skipped anyway (no README pin to
         verify on a project with no install.sh, no marketplace entry for a
@@ -179,11 +184,11 @@ class Phase11Verify:
         return names
 
     def _installs_from_github(self) -> bool:
-        """True for a project with an ``install.sh`` or a plugin manifest."""
+        """Report whether the project has an ``install.sh`` or a plugin manifest."""
         return (self._info.root / "install.sh").exists() or self._info.is_plugin
 
     def _github_sibling(self, repo: RepoSlug) -> Path | None:
-        """The ``.github`` sibling's path; an absent one is recorded as a skip.
+        """Return the ``.github`` sibling's path; record an absent one as a skip.
 
         An absent .github sibling is not a verification failure: Phase 10a
         already skipped propagation for the same reason (the workspace
@@ -203,13 +208,15 @@ class Phase11Verify:
         return sibling.path
 
     def _entry_matcher(self, repo: RepoSlug) -> EntryMatcher:
-        """Matches marketplace entries by the plugin's short name or its repo."""
+        """Return a matcher for the plugin's short name or its repo."""
         marketplace_name = ReleaseProject(self._info, ops=self._ops).marketplace_name()
         return EntryMatcher.for_marketplace(repo, marketplace_name)
 
     def _install_all_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The install-all.sh entry: a curl SHA for CLI projects, a plugin loop
-        entry for pure plugins."""
+        """Check the install-all.sh entry.
+
+        CLI projects pin a curl SHA; pure plugins have a plugin loop entry.
+        """
         if not self._installs_from_github():
             return []
         sibling = self._github_sibling(repo)
@@ -227,17 +234,16 @@ class Phase11Verify:
         if shas:
             return [self._install_all_sha_check(sha) for sha in shas]
         if re.search(rf"for plugin in [^;]*\b{re.escape(repo.name)}\b", content):
-            # Pure-plugin loop entry (no SHA to verify)
             return [VerificationCheck("install-all.sh", True, "in plugin loop")]
         return [VerificationCheck("install-all.sh", False, "entry not found")]
 
     @staticmethod
     def _distinct(shas: list[str]) -> list[str]:
-        """``shas`` without repeats, in first-seen order."""
+        """Return ``shas`` without repeats, in first-seen order."""
         return list(dict.fromkeys(shas))
 
     def _install_all_sha_check(self, sha: str) -> VerificationCheck:
-        """A pinned install-all.sh SHA must be current and part of this release."""
+        """Check that a pinned install-all.sh SHA is current and in this release."""
         ops = self._ops
         root = str(self._info.root)
         shown = ops.run(["git", "show", f"{sha}:install.sh"], cwd=root, check=False)
@@ -245,11 +251,7 @@ class Phase11Verify:
             return VerificationCheck(
                 "install-all.sh", False, f"SHA={sha} (does not resolve)"
             )
-        # A resolvable SHA whose content happens to match is not enough — the
-        # pin has to actually be part of this release. Without this, a SHA on
-        # an unmerged or superseded branch (never reachable from the tag) can
-        # carry the right VERSION string by coincidence and pass a
-        # content-only check while installing an untagged commit.
+        # A matching VERSION on an unmerged branch is not part of the release.
         ancestor = ops.run(
             ["git", "merge-base", "--is-ancestor", sha, self._tag],
             cwd=root,
@@ -290,7 +292,7 @@ class Phase11Verify:
         return VerificationCheck("install-all.sh", ok, f"SHA={sha}")
 
     def _marketplace_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The marketplace entry's version and ref, for plugin and hybrid projects."""
+        """Check the marketplace entry's version and ref for plugins and hybrids."""
         info = self._info
         if not (info.is_plugin or info.is_hybrid):
             return []
@@ -324,7 +326,7 @@ class Phase11Verify:
         ]
 
     def _profile_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The org profile's install-all.sh pin: resolves, is on main, is current."""
+        """Check that the org profile's install-all.sh pin resolves and is current."""
         if not self._installs_from_github():
             return []
         sibling = self._github_sibling(repo)
@@ -349,7 +351,7 @@ class Phase11Verify:
     def _profile_pin_check(
         self, repo: RepoSlug, sibling: Path, profile_sha: str
     ) -> VerificationCheck:
-        """One profile pin: it resolves, is on main, and carries the current SHA."""
+        """Check that one profile pin resolves, is on main, and is current."""
         # The pinned SHA must resolve AND its content must carry this
         # project's current install SHA — a resolvable pin that predates the
         # propagation merge is stale and serves the previous installer.
@@ -391,7 +393,7 @@ class Phase11Verify:
     def _profile_entry_check(
         self, repo: RepoSlug, profile_sha: str, install_all: str
     ) -> VerificationCheck:
-        """The pinned install-all.sh must carry this project's current install SHA."""
+        """Check that the pinned install-all.sh carries the current install SHA."""
         install_sha = ReleaseProject(self._info, ops=self._ops).install_sh_sha()
         currency = PinCurrency(install_sha, cwd=self._info.root, ops=self._ops)
         pins = self._distinct(ShaPin.install_all_entry(repo.name).all_shas(install_all))
@@ -409,7 +411,7 @@ class Phase11Verify:
     def _profile_marketplace_chain(
         self, repo: RepoSlug, profile_sha: str, install_all: str
     ) -> VerificationCheck:
-        """The marketplace-pin chain, for a marketplace-only plugin.
+        """Check the marketplace-pin chain for a marketplace-only plugin.
 
         With no install.sh there is no direct curl URL to verify. The
         equivalent invariant is the chain: the profile-pinned install-all.sh
@@ -432,16 +434,14 @@ class Phase11Verify:
             self._entry_matcher(repo), self._version, self._tag, ops=self._ops
         )
         cp_path = cp_sibling.path if cp_sibling is not None else None
-        # The first pin that fails is the verdict; all passing, the last one's.
         results = [check.run(cp_path, mp_pin) for mp_pin in mp_pins]
         ok, detail = next((r for r in results if not r[0]), results[-1])
         return VerificationCheck("profile SHA", ok, f"SHA={profile_sha} ({detail})")
 
     def _readme_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The product README's own install URLs against the current install.sh.
+        """Check the product README's install URLs against the current install.sh.
 
-        See ``InstallShaCheck`` for why ancestry alone would miss the realistic
-        rot. Pins are recognized by the same ``InstallUrlRecognizer``
+        Pins are recognized by the same ``InstallUrlRecognizer``
         ``ReadmeShaPin.bump`` rewrites and verifies with, so the two can never
         disagree about what a pin is. A README with no pin at all (no install
         snippet, or a branch URL) has nothing to go stale.
@@ -457,7 +457,7 @@ class Phase11Verify:
         )
 
     def _website_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The website entry's version and install command (the sibling is optional)."""
+        """Check the website entry's version and install command, if present."""
         sibling = SiblingRepo.resolve(self._info.root, "public-website", ops=self._ops)
         if sibling is None:
             return []
@@ -496,7 +496,7 @@ class Phase11Verify:
         return checks
 
     def _homebrew_checks(self, repo: RepoSlug) -> list[VerificationCheck]:
-        """The tap's committed formula must be this release.
+        """Check that the tap's committed formula is this release.
 
         Applies to every project with a ``brew-formula`` target, so a missing
         tap or formula fails here rather than vanishing. Reads the formula as
@@ -597,7 +597,7 @@ class Phase11Verify:
         *,
         all_urls_relevant: bool,
     ) -> list[VerificationCheck]:
-        """One verdict per pinned install URL ``slug``'s recognizer finds in ``text``.
+        """Return a verdict per pinned install URL ``slug``'s recognizer finds.
 
         Trusted and untrusted pins are detected and reported independently —
         a text can carry one trusted current-SHA pin AND one untrusted-host

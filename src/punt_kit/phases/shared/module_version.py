@@ -1,4 +1,4 @@
-"""The ``__version__`` a Python module assigns, classified from its syntax tree."""
+"""Classify a Python module's ``__version__`` using its syntax tree."""
 
 from __future__ import annotations
 
@@ -14,19 +14,14 @@ if TYPE_CHECKING:
 _NAME = "__version__"
 # A string the rewriter can set in place: one line, no prefix, no escape.
 _PLAIN_STRING = re.compile(r"""(["'])[^"'\\\n]*\1""")
-# What may follow the closing quote: whitespace and a comment, nothing else.
 _TRAILER = re.compile(r"\s*(?:#.*)?")
-# What a rewrite may put between the quotes: PEP 440 public and local versions.
 _VERSION_CHARS = re.compile(r"[0-9A-Za-z.+!_-]+")
 # One source line with its ending; ``ast`` breaks lines on CRLF, CR and LF.
 _LINE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z")
-# A string that spells a version somewhere in it: digits, a dot, digits.
 _VERSION_TEXT = re.compile(r"\d+\.\d+")
-# Any digit, full-width ones too: "2", "v2", " 2", "２".
 _ANY_DIGIT = re.compile(r"\d")
 # Names Python binds in every module; only a metadata reader may take them.
 _MODULE_DUNDERS = frozenset({"__name__", "__package__"})
-# Callees that read installed package metadata, however they were imported.
 _METADATA_READERS = ("importlib.metadata.", "importlib_metadata.")
 _ADVICE = (
     "use a plain string or a call to an imported reader such as "
@@ -42,19 +37,19 @@ _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 
 class UnpinnableVersionError(ValueError):
-    """A ``__version__`` that is neither a plain literal nor computed."""
+    """Signal that a version binding cannot be safely classified or rewritten."""
 
 
 @dataclass(frozen=True, slots=True)
 class ComputedVersion:
-    """A ``__version__`` computed at import time: there is nothing to pin."""
+    """Represent an import-time version with no literal to pin."""
 
     source: str
 
 
 @dataclass(frozen=True, slots=True)
 class LiteralVersion:
-    """A plain quoted version, located so it can be set in place."""
+    """Locate a quoted version that can be replaced in place."""
 
     value: str
     line: int  # 0-based index into the text's lines, as ``ast`` counts them
@@ -62,7 +57,14 @@ class LiteralVersion:
     end: int  # the closing quote
 
     def rewritten(self, text: str, version: str) -> str:
-        """``text`` with this literal set to ``version``, quotes kept."""
+        """Replace the version literal without changing its quotes.
+
+        Args:
+            text: The same source text used to locate the literal.
+
+        Raises:
+            ValueError: The replacement cannot safely appear between the quotes.
+        """
         if not _VERSION_CHARS.fullmatch(version):
             msg = f"not a version that can sit between quotes: {version!r}"
             raise ValueError(msg)
@@ -74,7 +76,7 @@ class LiteralVersion:
 
 @final
 class ModuleVersion:
-    """The module-level ``__version__`` of a Python source file.
+    """Inspect the module-level ``__version__`` of a Python source file.
 
     Read from the syntax tree, never the text, so a docstring that mentions
     ``__version__ = "9.9"`` is not an assignment. Every binding in the
@@ -97,15 +99,8 @@ class ModuleVersion:
       installed metadata at import time, so there is nothing to bump or
       verify. ``_ReaderCall`` holds the rules for the call.
 
-    That is an allow-list: anything else raises ``UnpinnableVersionError``,
-    because skipping it could ship a stale version. That covers a file that
-    does not parse; ``__version__``, or a name it resolves through, bound
-    more than once (Python keeps the last), bound only inside a block or a
-    function, or imported from another module; an ``import *`` beside them;
-    an f-, r-, u- or b-string; a parenthesised, concatenated, triple-quoted
-    or conditional value; and any expression built on a call
-    (``version("x").split("+")[0]``, ``get_versions()["version"]``,
-    ``".".join(...)``, ``__import__("x").VERSION``).
+    This is an allow-list: ambiguous bindings or unsupported expressions
+    raise ``UnpinnableVersionError`` rather than risk shipping a stale version.
     """
 
     __slots__ = ("_bindings", "_lines")
@@ -114,6 +109,11 @@ class ModuleVersion:
     _lines: list[str]
 
     def __new__(cls, text: str) -> Self:
+        """Parse Python source for static inspection of its version binding.
+
+        Raises:
+            UnpinnableVersionError: The source is not valid Python syntax.
+        """
         try:
             tree = ast.parse(text)
         except SyntaxError as exc:
@@ -124,10 +124,13 @@ class ModuleVersion:
         self._bindings = _ModuleBindings(tree)
         return self
 
-    # None: absence is the contract; a module may omit __version__, provided
-    # no ``import *`` could supply it.
     def resolved(self) -> ComputedVersion | LiteralVersion | None:
-        """What the module assigns to ``__version__``; ``None`` when nothing."""
+        """Classify the module's ``__version__`` binding, or return ``None``.
+
+        Raises:
+            UnpinnableVersionError: The binding is ambiguous, unsupported, or
+                only potentially supplied by a wildcard import.
+        """
         if not self._bindings.of(_NAME):
             for star in self._bindings.star_imports():
                 msg = (
@@ -186,7 +189,7 @@ class ModuleVersion:
                 raise UnpinnableVersionError(msg)
 
     def _only_binding(self, name: str) -> _Binding:
-        """The one module-body binding of ``name``."""
+        """Find the sole module-body binding of ``name``."""
         bindings = self._bindings.of(name)
         if not bindings:
             msg = f"{name} is not assigned at module level"
@@ -210,7 +213,7 @@ class ModuleVersion:
 
     @staticmethod
     def _value(stmt: ast.stmt, name: str, source: str) -> ast.expr:
-        """The expression ``stmt`` assigns to ``name`` alone."""
+        """Extract the expression assigned to ``name`` alone."""
         match stmt:
             case ast.Assign(targets=[ast.Name(id=target)], value=value) if (
                 target == name
@@ -387,7 +390,7 @@ class _Import:
     is_dotted: bool = False
 
     def qualified(self, parts: list[str]) -> str | None:
-        """The dotted name a callee spelled ``parts`` reaches; ``None`` if none."""
+        """Resolve the callee named by ``parts``, or return ``None``."""
         *path, function = parts
         if not path:
             return self.origin
@@ -418,7 +421,7 @@ class _Binding:
         return self.imported is not None
 
     def qualified(self, parts: list[str]) -> str | None:
-        """The dotted name a callee spelled ``parts`` reaches through this import."""
+        """Resolve the callee named by ``parts`` through this import."""
         return self.imported.qualified(parts) if self.imported else None
 
     @property
@@ -493,7 +496,7 @@ class _ModuleBindings:
         return self._by_name.get(name, [])
 
     def bound_after(self, name: str, reader: ast.stmt | ast.expr) -> _Binding | None:
-        """A binding of ``name`` at or after ``reader``, which reads it."""
+        """Find a binding of ``name`` at or after its read by ``reader``."""
         position = (reader.lineno, reader.col_offset)
         for binding in self.of(name):
             if (binding.stmt.lineno, binding.stmt.col_offset) >= position:
@@ -657,8 +660,7 @@ def _captured(pattern: ast.pattern) -> Iterator[str]:
 
 
 def _is_version_text(text: str, *, reads_metadata: bool) -> bool:
-    """Whether ``text`` could be a version: ``digits.digits`` anywhere, or,
-    passed to anything but a metadata reader, any digit (``"v2"``, ``"２"``)."""
+    """Recognize dotted digits, or any digit outside a metadata reader call."""
     if _VERSION_TEXT.search(text):
         return True
     return not reads_metadata and _ANY_DIGIT.search(text) is not None
@@ -692,7 +694,7 @@ def _is_a_fallback(bindings: list[_Binding]) -> bool:
 def _read_too_early(
     name: str, binding: _Binding, reader: str, node: ast.stmt | ast.expr
 ) -> str:
-    """The refusal for ``reader`` reading ``name`` before ``binding`` binds it."""
+    """Describe a read of ``name`` before its binding."""
     return (
         f"`{name}` is assigned at line {binding.line}, after `{reader}` reads it "
         f"at line {node.lineno}"
@@ -700,7 +702,7 @@ def _read_too_early(
 
 
 def _not_plain(source: str, line: int, name: str) -> UnpinnableVersionError:
-    """The refusal for a value that is neither a plain string nor a reader call."""
+    """Explain why a binding is neither a string literal nor a reader call."""
     return UnpinnableVersionError(
         f"`{source}` (line {line}) is not a plain quoted string "
         f'({name} = "X.Y.Z") or a call to an imported reader; {_ADVICE}'

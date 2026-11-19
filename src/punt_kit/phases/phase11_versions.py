@@ -1,4 +1,4 @@
-"""Phase 11: the version recorded in every file that pins the release version."""
+"""Verify the version in every file that pins the release version (phase 11)."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 @final
 class VersionPinChecks:
-    """One verdict per file that pins the release version, read fresh from disk.
+    """Produce one verdict per file that pins the release version.
 
     ``info.pyproject`` is stale after Phase 2 bumps the version, so every file
     is read again here.
@@ -36,6 +36,7 @@ class VersionPinChecks:
     _ops: ReleaseOps
 
     def __new__(cls, info: ProjectInfo, version: str, *, ops: ReleaseOps) -> Self:
+        """Bind the checks to the project and the release ``version``."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -43,7 +44,11 @@ class VersionPinChecks:
         return self
 
     def checks(self) -> list[VerificationCheck]:
-        """Verdicts for pyproject, __init__, plugin.json, install.sh, deployed CI."""
+        """Return verdicts for pyproject, __init__, plugin.json, install.sh, CI.
+
+        Raises:
+            ReleaseError: A pinning file cannot be read or parsed.
+        """
         return [
             *self._pyproject(),
             *self._init_py(),

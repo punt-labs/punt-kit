@@ -1,4 +1,4 @@
-"""Exception type raised by release phases and their collaborators."""
+"""Classify and report exceptions from release operations."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from punt_kit.phases.shared.repo_slug import RepoSlug
 
 @final
 class OperationalFailure:
-    """Tells a failure the environment caused from a bug, and reports each.
+    """Classify and render environmental failures separately from bugs.
 
     Operational means a timeout, a failed command, or any ``OSError``: a
     missing tool and a permission problem are properties of the machine, not
@@ -27,7 +27,7 @@ class OperationalFailure:
 
     @classmethod
     def covers(cls, exc: BaseException) -> bool:
-        """True when ``exc`` is an environmental failure, not a bug."""
+        """Distinguish environmental command failures from programming errors."""
         return isinstance(exc, cls.TYPES)
 
     DETAIL_LIMIT = 300
@@ -46,7 +46,7 @@ class OperationalFailure:
 
     @classmethod
     def detail(cls, exc: BaseException) -> str:
-        """What a command said before it ended, or ``""`` when it said nothing.
+        """Extract command output captured before failure, or return an empty string.
 
         Its stderr, or its output when stderr is empty: one line, URL
         credentials removed, cut to its tail. Only a failed or timed-out
@@ -79,11 +79,11 @@ class OperationalFailure:
 
 
 class ReleaseError(Exception):
-    """Raised by release phases to indicate a failure with a message."""
+    """Signal a release failure with a diagnostic message."""
 
 
 class ReportedReleaseError(ReleaseError):
-    """A :class:`ReleaseError` whose message was already printed to the operator.
+    """Signal a release failure whose message has already been printed.
 
     ``Reporter.fail`` prints before it raises. Every other ``ReleaseError``
     (an unreadable file, a failed detection) reaches ``run_release`` unprinted,
@@ -93,7 +93,7 @@ class ReportedReleaseError(ReleaseError):
 
 
 class RemoteLookupError(ReleaseError):
-    """Raised when git cannot say what the ``origin`` remote is.
+    """Signal that Git could not determine the origin remote.
 
     Distinct from "there is no github.com origin", which is a legitimate
     answer: this one means the question itself failed (git timed out, could

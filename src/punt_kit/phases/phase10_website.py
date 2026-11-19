@@ -22,8 +22,7 @@ if TYPE_CHECKING:
 
 @final
 class WebsitePropagator:
-    """10d. Updates the project's version and install-URL pin in public-website
-    projects.json."""
+    """Update the project's entry in public-website projects.json (phase 10d)."""
 
     __slots__ = ("_info", "_ops", "_skips")
 
@@ -34,6 +33,7 @@ class WebsitePropagator:
     def __new__(
         cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
     ) -> Self:
+        """Bind the propagator to the project, reporting through ``ops``."""
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
@@ -47,6 +47,19 @@ class WebsitePropagator:
         dry_run: bool,
         merge_sibling: Callable[..., bool],
     ) -> None:
+        """Set the entry's version and install-URL pin, and merge the change.
+
+        An absent website sibling or projects.json is skipped; an absent entry
+        is recorded for manual action.
+
+        Args:
+            merge_sibling: Commits ``files`` on a branch in the website and
+                merges them through a PR; returns False when nothing changed.
+
+        Raises:
+            ReleaseError: The website checkout is not ready, projects.json
+                cannot be parsed, or the merge fails.
+        """
         info = self._info
         ops = self._ops
         # The website is optional: look for its sibling before asking for the

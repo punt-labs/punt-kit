@@ -1,4 +1,4 @@
-"""Finding fenced and HTML blocks that run unclosed to the end of a changelog."""
+"""Detect fenced and HTML blocks left open in a changelog."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ _HTML_OPENERS = (
 
 @final
 class UnclosedBlockScan:
-    """The fences and HTML blocks that are opened and never closed.
+    """Find fences and HTML blocks that remain open at the end of the document.
 
     A block counts only when it reaches the end of the document: inside a
     list item or quote, the container ending closes it, and no later line is
@@ -39,6 +39,7 @@ class UnclosedBlockScan:
     _end: int
 
     def __new__(cls, tokens: tuple[Token, ...], lines: tuple[str, ...]) -> Self:
+        """Inspect Markdown tokens for blocks that reach the document's end."""
         self = super().__new__(cls)
         self._tokens = tokens
         self._lines = lines
@@ -49,7 +50,7 @@ class UnclosedBlockScan:
         return self
 
     def opening_lines(self) -> tuple[int, ...]:
-        """The 1-based line of every unclosed opener, in document order."""
+        """Return the 1-based line of every unclosed opener in document order."""
         return tuple(
             token.map[0] + 1
             for token in self._tokens
@@ -67,7 +68,7 @@ class UnclosedBlockScan:
 
     @staticmethod
     def _fence_is_unclosed(token: Token) -> bool:
-        """True unless the parser consumed a closing line after the content.
+        """Check whether the parser stopped without consuming a closing line.
 
         The token's ``map`` covers the opener, the content and a closer when
         there is one, and ``content`` holds only the content lines: so the
@@ -86,7 +87,7 @@ class UnclosedBlockScan:
 
     @staticmethod
     def _html_is_unclosed(token: Token) -> bool:
-        """True when the block starts a kind that only a closing marker ends."""
+        """Check for an opener whose HTML block requires a closing marker."""
         return any(
             opener.match(token.content) and not closer.search(token.content)
             for opener, closer in _HTML_OPENERS

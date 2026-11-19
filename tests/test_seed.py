@@ -303,7 +303,7 @@ class TestMergeJsonPermissions:
 
 
 # ---------------------------------------------------------------------------
-# Integration: run_seed
+# Seed runner integration
 # ---------------------------------------------------------------------------
 
 
@@ -418,7 +418,7 @@ class TestRunSeed:
     def test_seed_claude_target_removed(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        """Regression: the retired claude target fails listing the remaining ones."""
+        """The unsupported claude target fails and lists the available targets."""
         (tmp_path / "pyproject.toml").write_text('[project]\nname = "test"\n')
 
         with pytest.raises(SystemExit, match="1"):

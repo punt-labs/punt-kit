@@ -1,4 +1,4 @@
-"""A git checkout on disk: the GitHub repository its origin remote names."""
+"""Resolve the GitHub origin remote for a git checkout."""
 
 from __future__ import annotations
 
@@ -14,24 +14,24 @@ from punt_kit.phases.shared.repo_slug import RepoSlug
 
 @final
 class GitCheckout:
-    """The checkout whose working tree should be rooted at ``root``."""
+    """Inspect the checkout whose working tree should be rooted at ``root``."""
 
     __slots__ = ("_root",)
 
     _root: Path
 
     def __new__(cls, root: Path) -> Self:
+        """Describe the checkout expected at ``root``."""
         self = super().__new__(cls)
         self._root = root
         return self
 
     def github_slug(self) -> str:
-        """The clean ``owner/repo`` of origin.
+        """Return the clean ``owner/repo`` of origin.
 
-        Raises ``ValueError`` saying why there is none: git is not installed,
-        ``root`` is not the top of a git checkout, the checkout has no origin
-        (or git could not read it), or origin is not a GitHub ``owner/repo``,
-        in which case the message names the URL with any credentials removed.
+        Raises:
+            ValueError: Git cannot run, the path is not a checkout root,
+                or origin cannot be resolved to a GitHub repository.
         """
         if shutil.which("git") is None:
             msg = "git is not installed"
@@ -77,11 +77,7 @@ class GitCheckout:
         raise ValueError(msg)
 
     def _git(self, *args: str) -> subprocess.CompletedProcess[str]:
-        """``git <args>`` run in ``root`` with git's messages in the C locale.
-
-        Raises ``ValueError`` when git cannot start or does not finish, so a
-        caller never mistakes that for an answer.
-        """
+        """Run git in the C locale; raise ``ValueError`` if it cannot finish."""
         command = f"git {' '.join(args)}"
         try:
             return subprocess.run(

@@ -1,4 +1,4 @@
-.PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions format build clean depot prfaq clean-tex
+.PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings build-api-docs format build clean depot prfaq clean-tex
 
 SRC := src/punt_kit/
 OO_BASE ?=
@@ -11,10 +11,22 @@ help: ## Show available targets
 test: ## Run tests (excludes slow integration tests)
 	uv run pytest
 
-lint: ## Lint and format check
+lint: check-comments check-docstrings ## Lint and format check
 	uv run ruff check .
 	uv run ruff format --check .
 	shellcheck install.sh scripts/*.sh
+
+check-comments: ## Reject commented-out code and tracker references in Python prose
+	uv run ruff check --select ERA001 .
+	uv run python tools/check_python_docs.py comments src tests tools
+
+check-docstrings: ## Check public Python docstrings and documented argument names
+	uv run ruff check --select D,D401 --ignore D105,D107,D417 src/
+	uv run python tools/check_python_docs.py docstrings src/
+
+build-api-docs: ## Build and verify the generated Python API reference
+	uv run --group docs mkdocs build --strict
+	uv run python tools/check_python_docs.py api .tmp/api-site/objects.inv
 
 type: ## Type check with mypy and pyright
 	uv run mypy src/ tests/ tools/

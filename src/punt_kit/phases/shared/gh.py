@@ -1,4 +1,4 @@
-"""Required-check polling and review-thread resolution for a GitHub PR."""
+"""Poll required GitHub checks for a pull request."""
 
 from __future__ import annotations
 
@@ -37,7 +37,7 @@ _MAX_STRIKES = 5
 
 @final
 class RequiredChecksWaiter:
-    """Polls required CI checks on a PR until all pass or any fail."""
+    """Poll required CI checks until all pass or any fail."""
 
     __slots__ = ("_ops", "_repo")
 
@@ -45,6 +45,7 @@ class RequiredChecksWaiter:
     _ops: ReleaseOps
 
     def __new__(cls, repo: GithubRepo, *, ops: ReleaseOps) -> Self:
+        """Bind a GitHub repository and release operations for check polling."""
         self = super().__new__(cls)
         self._repo = repo
         self._ops = ops
@@ -64,17 +65,10 @@ class RequiredChecksWaiter:
         Uses a direct GraphQL query to get ``isRequired(pullRequestNumber:
         N)`` which the ``gh pr view --json statusCheckRollup`` path cannot
         populate (the ``isRequired`` field is always null without the PR
-        number argument). Ignores non-required checks (e.g. Anthropic's
-        'Claude Code Review') when the repo is governed — by legacy branch
-        protection or by a modern ruleset. A repo governed by neither has no
+        number argument). Ignore non-required checks when a branch protection
+        rule or ruleset governs the repository. A repo governed by neither has no
         ``isRequired`` checks at all, so this falls back to waiting for
         every check instead of failing after the no-checks grace window.
-
-        ``resolve_repo`` is injected rather than calling
-        ``self._repo.slug_text()`` directly so callers that expose repo
-        resolution as a monkeypatchable seam
-        (``punt_kit.release._get_github_repo``) can pass that seam through
-        unchanged.
 
         Two runs of consecutive failures are kept, and five in a row in either
         ends the wait. Query failures (a non-zero exit, a timeout, unparseable
@@ -85,15 +79,16 @@ class RequiredChecksWaiter:
         ``statusCheckRollup``, the normal state of a PR whose checks have not
         attached yet.
 
-        ``interrupted`` is release.py's own ``threading.Event`` — checked at
-        the top of every loop iteration so an operator's Ctrl-C reaches a
-        worker thread blocked here (e.g. inside Phase 10's sibling PR merge)
-        within one poll interval instead of only after the full two-hour
-        deadline. Worker threads never receive the SIGINT that sets the
-        event directly — only the main thread does — so without this check a
-        hung wait blocks ``ThreadPoolExecutor.__exit__``'s join for the
-        remainder of the deadline, leaving an interrupted release silently
-        unfinished instead of failing fast.
+        Args:
+            resolve_repo: Resolve a checkout path to a GitHub slug, or ``None``.
+            interrupted: Event set by the interrupt handler; workers do not
+                receive SIGINT directly.
+
+        Raises:
+            ReleaseError: The origin cannot be resolved, required checks fail,
+                polling fails repeatedly, the wait is interrupted, or it ends
+                without a verdict.
+            OSError: A GitHub command could not start.
         """
         slug = self._slug_of(cwd, resolve_repo)
         owner, repo_name = slug.owner, slug.name
@@ -279,7 +274,7 @@ class RequiredChecksWaiter:
     def _slug_of(
         self, cwd: str, resolve_repo: Callable[[Path], str | None]
     ) -> RepoSlug:
-        """The GitHub slug of ``cwd``'s origin; fail, saying why, when there is none."""
+        """Resolve the GitHub slug of the origin or fail with a diagnosis."""
         try:
             remote = resolve_repo(Path(cwd))
             if remote is None:
@@ -301,7 +296,7 @@ class RequiredChecksWaiter:
 
     @staticmethod
     def _shape_of(raw: object, depth: int = 4) -> str:
-        """The key skeleton of a JSON value, enough to see where it ran out."""
+        """Summarize the JSON keys for a response shape diagnostic."""
         if depth <= 0:
             return type(raw).__name__
         if isinstance(raw, dict):
@@ -317,7 +312,7 @@ class RequiredChecksWaiter:
 
     @staticmethod
     def _checks_query(slug: RepoSlug, pr_number: int) -> str:
-        """The GraphQL query for a PR's last-commit check contexts."""
+        """Build the GraphQL query for the last commit's check contexts."""
         owner, repo_name = slug.owner, slug.name
         return (
             "{"

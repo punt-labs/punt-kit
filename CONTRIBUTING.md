@@ -42,7 +42,8 @@ make check
 
 `make check` runs these targets, which you can also run on their own.
 
-Lint and format check with ruff, and ShellCheck on `install.sh` and `scripts/*.sh`:
+Check Python formatting, comments, and public docstrings; run ShellCheck on
+`install.sh` and `scripts/*.sh`:
 
 ```bash
 make lint
@@ -71,6 +72,14 @@ CI also lints every Markdown file. Run the same check locally:
 ```bash
 markdownlint-cli2 "**/*.md"
 ```
+
+Build and verify the [Python API reference](docs/api-reference/index.md):
+
+```bash
+make build-api-docs
+```
+
+Open `.tmp/api-site/index.html` to read the generated reference.
 
 After editing `prfaq.tex`, rebuild the PDF and commit both files:
 

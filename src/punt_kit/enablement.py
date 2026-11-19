@@ -1,10 +1,7 @@
-"""``punt enable`` / ``punt disable``: punt turning itself on in one repo.
+"""Manage punt activation in a repository.
 
-Per ``tool-enable-disable.md`` §2.3 and §2.10, ``enable`` grants punt's
-permission rules, deposits punt's user guide at ``.punt-labs/punt/CLAUDE.md``,
-writes the ``enabled`` marker and adds the ``@.punt-labs/punt/CLAUDE.md`` line
-to the repo ``CLAUDE.md``. ``disable`` reverses the rules, the import line and
-the marker, and leaves the guide in place, dormant (§2.9).
+Enablement writes the permission rules, guide, marker, and import line.
+Disabling removes everything except the guide.
 """
 
 from __future__ import annotations
@@ -43,6 +40,7 @@ class PuntEnablement:
     _root: Path
 
     def __new__(cls, root: Path) -> Self:
+        """Bind enablement operations to the repository at ``root``."""
         self = super().__new__(cls)
         self._root = root
         return self
@@ -80,7 +78,10 @@ class PuntEnablement:
         return self._subtree / "enabled"
 
     def enable(self) -> EnablementReport:
-        """Grant the rules first, so a refused settings file changes nothing."""
+        """Grant punt's rules, then deposit the guide, marker and import line.
+
+        The rules go first, so a refused settings file changes nothing.
+        """
         if refusal := self._refusal(self._guide, self._marker):
             return EnablementReport(error=refusal)
         if self._import.append_would_be_fenced():
@@ -108,10 +109,9 @@ class PuntEnablement:
             changes.append(f"Added {IMPORT_LINE} to CLAUDE.md")
 
     def disable(self) -> EnablementReport:
-        """Revoke the rules first, so a refused settings file changes nothing.
+        """Revoke punt's rules, then remove the import line and marker.
 
-        Unlinking a symlinked marker removes only the link, so disable refuses
-        just a symlinked directory, which would redirect the unlink elsewhere.
+        A refused settings file changes nothing. The guide stays in place.
         """
         if refusal := self._refusal():
             return EnablementReport(error=refusal)

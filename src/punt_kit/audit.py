@@ -54,9 +54,15 @@ def _doctor_invocation(binaries: list[str]) -> re.Pattern[str]:
 
 
 def run_audit(path: str, *, fix: bool = False) -> None:
-    """Check compliance against Punt Labs standards.
+    """Check a project against Punt Labs standards and print the findings.
 
-    When *fix* is True, create missing mechanical files from templates.
+    Args:
+        path: Project directory to audit.
+        fix: Create missing mechanical files from templates.
+
+    Raises:
+        SystemExit: With status 1 when ``path`` is not a directory, its
+            project files cannot be read, or any check fails.
     """
     root = Path(path).resolve()
     if not root.is_dir():
@@ -97,7 +103,6 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     )
     results = [finding for check in checks for finding in _guarded(check)]
 
-    # Print results
     passes = 0
     failures = 0
     fixes = 0
@@ -305,7 +310,6 @@ def _check_markdownlint_content(info: ProjectInfo) -> list[tuple[str, str, str]]
             return [
                 (PASS, "Markdown lint passes", f"{len(tracked_md)} file(s) checked")
             ]
-        # Count errors from output
         error_lines = [
             line
             for line in result.stdout.splitlines()
@@ -473,7 +477,7 @@ def _check_plugin_dev_isolation(
     """Check plugin repos follow the dev/prod namespace isolation standard.
 
     Checks:
-    1. Exactly one plugin.json — a second one means a half-finished move
+    1. Exactly one plugin.json — a second one is a stale copy
     2. plugin.json name ends in -dev (working tree is the dev namespace)
     3. Release/restore scripts exist (hybrid projects only)
     4. Every prod command has a -dev variant
@@ -483,10 +487,9 @@ def _check_plugin_dev_isolation(
 
     results: list[tuple[str, str, str]] = []
 
-    # A stale manifest left behind by an incomplete move to the plugin/
-    # layout is worse than a missing one: every reader takes the winning
-    # candidate and the loser drifts unnoticed until a release swaps the
-    # wrong file.
+    # A stale second manifest is worse than a missing one: every reader takes
+    # the winning candidate and the loser drifts unnoticed until a release
+    # swaps the wrong file.
     if len(info.plugin_manifests) > 1:
         found = ", ".join(
             p.relative_to(info.root).as_posix() for p in info.plugin_manifests
@@ -503,11 +506,10 @@ def _check_plugin_dev_isolation(
 
     results.extend(_check_plugin_dev_suffix(info))
 
-    # Check release/restore scripts exist. Required of hybrid projects only:
-    # plugins.md "Release flow for pure plugins" states a pure plugin may lack
-    # scripts/release-plugin.sh and do the swap-tag-restore by hand (DES-007).
-    # Failing dungeon, prfaq, and z-spec for following the standard is a
-    # false-positive gate, and a gate that cries wolf gets ignored wholesale.
+    # Required of hybrid projects only: plugins.md "Release flow for pure
+    # plugins" lets a pure plugin lack scripts/release-plugin.sh and do the
+    # swap-tag-restore by hand, so failing one would be a false
+    # positive.
     release_script = info.root / "scripts" / "release-plugin.sh"
     restore_script = info.root / "scripts" / "restore-dev-plugin.sh"
     missing_scripts: list[str] = []
@@ -534,9 +536,8 @@ def _check_plugin_dev_isolation(
             )
         )
 
-    # Check -dev command variants. Anchored on the plugin root, not the repo
-    # root: under the plugin/ layout the commands moved with the manifest, and
-    # a repo-root glob would find nothing and report no findings at all.
+    # Anchored on the plugin root, not the repo root: commands live beside the
+    # manifest, and a repo-root glob would find nothing and report nothing.
     commands_dir = info.plugin_root / "commands"
     if commands_dir.is_dir():
         prod_commands = sorted(
@@ -666,7 +667,7 @@ def _check_readme_sha_pins(info: ProjectInfo) -> list[tuple[str, str, str]]:
 
 
 def _readme_pin_problems(refs: list[InstallUrl], slug: str) -> list[str]:
-    """What is wrong with the install URLs ``refs``, one phrase per kind of problem."""
+    """Describe what is wrong with ``refs``, one phrase per kind of problem."""
     problems: list[str] = []
     branches = sorted({r.segment for r in refs if r.is_trusted and not r.is_sha_pin})
     if branches:
@@ -741,7 +742,6 @@ def _find_package_dir(info: ProjectInfo) -> Path | None:
     if not src_dir.is_dir():
         return None
 
-    # Look for directories with __init__.py under src/
     for child in sorted(src_dir.iterdir()):
         if child.is_dir() and (child / "__init__.py").exists():
             return child

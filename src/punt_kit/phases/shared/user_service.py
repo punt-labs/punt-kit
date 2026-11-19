@@ -1,4 +1,4 @@
-"""A project's per-user daemon service: find it, restart it, prove it was replaced."""
+"""Restart a project's declared user service and verify its new PID."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ type Manager = Literal["systemd", "launchd"]
 
 @dataclass(frozen=True, slots=True)
 class ServiceSpec:
-    """The names a project's user service is registered under.
+    """Describe the names under which a project registers its user service.
 
     ``None`` means the project does not register one with that manager.
     """
@@ -37,12 +37,14 @@ class ServiceSpec:
 
     @property
     def is_declared(self) -> bool:
-        """True when the project names a service under at least one manager."""
+        """Check whether the project names a service under any manager."""
         return self.systemd is not None or self.launchd is not None
 
     @classmethod
     def for_project(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
-        """The service the project declares in ``pyproject.toml``, else none::
+        """Read the service declaration, or return an empty spec if absent.
+
+        For example::
 
             [tool.punt-kit.release.service]
             systemd = "quarry"
@@ -53,6 +55,10 @@ class ServiceSpec:
         that is present but unusable (not a table, a non-string name, or no
         name at all) fails: it must not silently degrade to "no service".
         A mistyped parent key is indistinguishable from no declaration.
+
+        Raises:
+            ReleaseError: The service declaration is not a table, includes
+                a non-string service name, or names neither supported manager.
         """
         table: dict[str, object] = info.pyproject or {}
         for key in ("tool", "punt-kit", "release"):
@@ -90,7 +96,7 @@ class ServiceSpec:
 
 @final
 class UserService:
-    """Restarts a project's user service and confirms the process was replaced."""
+    """Restart a declared user service and confirm its process was replaced."""
 
     __slots__ = ("_ops", "_skips", "_spec")
 
@@ -101,6 +107,7 @@ class UserService:
     def __new__(
         cls, spec: ServiceSpec, *, ops: ReleaseOps, skips: SkipRecorder
     ) -> Self:
+        """Bind the declared service, release operations, and skip recording."""
         self = super().__new__(cls)
         self._spec = spec
         self._ops = ops
@@ -116,6 +123,12 @@ class UserService:
         against a restarted daemon. A daemon started before the install keeps
         the old code in memory, so an unchanged PID means the release was
         verified against the wrong process.
+
+        Raises:
+            ReleaseError: The service manager is unavailable or cannot be
+                queried, the restart fails, or no new PID can be confirmed.
+            subprocess.TimeoutExpired: A service manager command timed out.
+            OSError: A service manager command could not start.
         """
         if not self._spec.is_declared:
             self._ops.info("No user service declared — nothing to restart")
@@ -149,7 +162,7 @@ class UserService:
         return self._spec.systemd or self._spec.launchd or ""
 
     def _manager(self) -> Manager:
-        """The manager to use: declared AND present; the native one if both are."""
+        """Choose an available, declared manager, preferring the native one."""
         available: list[Manager] = []
         if self._spec.systemd is not None and shutil.which("systemctl"):
             available.append("systemd")
@@ -197,7 +210,7 @@ class UserService:
         )
 
     def _pid(self, manager: Manager, name: str) -> int:
-        """The service's main PID, 0 when it is not running."""
+        """Read the service's main PID, or return zero if not running."""
         if manager == "systemd":
             result = self._ops.run(
                 ["systemctl", "--user", "show", name, "--property=MainPID", "--value"],

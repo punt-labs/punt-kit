@@ -1,4 +1,4 @@
-"""The project's GitHub slug under one skip-or-fail policy for propagation steps."""
+"""Apply one skip-or-fail policy to GitHub origin lookups."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 @final
 class ProjectRemote:
-    """Resolves the project's slug for a named step, never silently.
+    """Resolve the project's GitHub slug for a named release step.
 
     These steps run after the release has published, so an absent GitHub
     remote is recorded as a skip the operator must act on; a remote that is
@@ -35,6 +35,7 @@ class ProjectRemote:
     def __new__(
         cls, root: Path, *, ops: ReleaseOps, skips: SkipRecorder, step: str
     ) -> Self:
+        """Bind a checkout and the release step that requires its GitHub origin."""
         self = super().__new__(cls)
         self._repo = GithubRepo(root, ops=ops)
         self._ops = ops
@@ -43,11 +44,10 @@ class ProjectRemote:
         return self
 
     def slug(self) -> RepoSlug | None:
-        """The slug, or ``None`` after recording that the step is skipped.
+        """Resolve the slug or record a skip and return ``None``.
 
-        ``None`` is the documented answer for "no github.com origin": the
-        caller returns, and the skip is already on the recap. Any other
-        failure to name the repository raises.
+        Raises:
+            ReleaseError: The GitHub origin is malformed or Git could not query it.
         """
         try:
             slug = self._repo.slug()

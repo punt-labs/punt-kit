@@ -1,28 +1,12 @@
-"""Exhaustive ``--resume-from`` sweep across all 11 release phases.
+"""Exercise --resume-from at every release phase.
 
-One parametrized test, one case per resume point: drive ``run_release``
-FRESH against a fully scripted release — real git repos for every git
-question, ``FaultRule`` responses for every ``gh``/``uv``/PyPI boundary,
-and the local GitHub emulation below for the few commands whose outcome
-depends on run-time state — stop it during phase N by injecting the
-failure a real stop produces on one of phase N's own commands, assert the
-incomplete-release report names the phase and the exact ``--resume-from``
-string, then re-run ``run_release --resume-from <name>`` against the
-exact on-disk state the stopped run left behind and assert it completes
-cleanly (docs/design-release-failure-harness.md §5 Wave 5, matrix row 53,
-defect #7).
+Inject a stop in each phase, verify the reported resume command, and rerun
+against the same checkout. Git commands use real fixture repositories;
+external service calls use scripted responses and local GitHub emulation.
 
-Two stop mechanisms, per the design's corrected two-path interrupt model
-(§2c): phases that run synchronously on the main thread are stopped with
-a ``KeyboardInterrupt`` whose construction also sets
-``release.interrupt_event()`` — exactly what ``run_release``'s signal handler
-does atomically on a real Ctrl-C. Phases 9/10 run inside a
-``ThreadPoolExecutor``, where a real signal's ``KeyboardInterrupt`` can
-never be delivered (signals reach the main thread only), so injecting one
-there would model a delivery that cannot physically happen; the realistic
-in-worker stop is a raised ``ReleaseError``, and that is what those two
-cases inject. The mid-poll interrupt path for a live worker is Wave 3's
-coverage, not this sweep's.
+The synchronous phases model SIGINT by setting the shared interrupt event
+and raising KeyboardInterrupt. Phases 9 and 10 run in worker threads, which
+cannot receive SIGINT directly, so those cases inject ReleaseError instead.
 """
 
 from __future__ import annotations

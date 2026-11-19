@@ -17,10 +17,6 @@ from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
 
-# ---------------------------------------------------------------------------
-# Built-in patterns
-# ---------------------------------------------------------------------------
-
 _EMAIL_RE = re.compile(
     r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",
 )
@@ -57,11 +53,6 @@ _BUILTIN_ALLOW_PATHS: tuple[str, ...] = (
 )
 
 
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
 @dataclass(frozen=True)
 class PiiConfig:
     """User-configurable PII scanning settings."""
@@ -82,13 +73,16 @@ class Finding:
     match: str
 
 
-# ---------------------------------------------------------------------------
-# Config loading
-# ---------------------------------------------------------------------------
-
-
 def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
-    """Load PII config from pyproject.toml or .punt-pii.toml."""
+    """Load the PII config for the repository at ``root``.
+
+    An explicit ``config_path`` wins; a missing one warns and yields the
+    defaults. Otherwise ``[tool.punt.pii]`` in ``pyproject.toml`` is used,
+    then ``.punt-pii.toml``, then the defaults.
+
+    Raises:
+        ReleaseError: A config file cannot be read or is not valid TOML.
+    """
     if config_path is not None:
         p = Path(config_path)
         if p.exists():
@@ -96,7 +90,6 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
         console.print(f"[yellow]Warning:[/yellow] config not found: {config_path}")
         return PiiConfig()
 
-    # Try pyproject.toml first
     pyproject = root / "pyproject.toml"
     if pyproject.exists():
         data = TextFile(pyproject).toml()
@@ -104,7 +97,6 @@ def load_config(root: Path, config_path: str | None = None) -> PiiConfig:
         if pii_section is not None:
             return _config_from_dict(pii_section)
 
-    # Fallback to standalone file
     standalone = root / ".punt-pii.toml"
     if standalone.exists():
         return _parse_toml_config(standalone)
@@ -146,13 +138,12 @@ def _drill(data: dict[str, object], *keys: str) -> dict[str, object] | None:
     return current
 
 
-# ---------------------------------------------------------------------------
-# File enumeration
-# ---------------------------------------------------------------------------
-
-
 def get_files(root: Path, *, staged: bool) -> list[str]:
-    """List files to scan, relative to root."""
+    """List the files to scan, relative to ``root``; ``[]`` if git fails.
+
+    Args:
+        staged: Scan only staged, non-deleted files instead of all tracked ones.
+    """
     if staged:
         cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=d"]
     else:
@@ -174,7 +165,7 @@ def get_files(root: Path, *, staged: bool) -> list[str]:
 
 
 def is_binary(path: Path) -> bool:
-    """Check if a file is binary by looking for null bytes in the first 8KB."""
+    """Return whether a file has a NUL byte in its first 8 KiB or is unreadable."""
     try:
         with path.open("rb") as f:
             chunk = f.read(8192)
@@ -183,17 +174,16 @@ def is_binary(path: Path) -> bool:
         return True
 
 
-# ---------------------------------------------------------------------------
-# Scanning
-# ---------------------------------------------------------------------------
-
-
 def scan_file(
     rel_path: str,
     root: Path,
     config: PiiConfig,
 ) -> list[Finding]:
-    """Scan a single file for PII. Returns findings."""
+    """Scan one file for PII.
+
+    A missing, binary or unreadable file yields no findings. An invalid
+    ``allow_patterns`` regex is skipped with a warning.
+    """
     full_path = root / rel_path
 
     if not full_path.is_file() or is_binary(full_path):
@@ -217,7 +207,6 @@ def scan_file(
             )
 
     for line_num, line in enumerate(content.splitlines(), start=1):
-        # --- Email detector ---
         for m in _EMAIL_RE.finditer(line):
             email = m.group()
             # Skip .local addresses — those are hostnames, not emails
@@ -231,7 +220,6 @@ def scan_file(
                 continue
             findings.append(Finding(rel_path, line_num, "email", email))
 
-        # --- Home path detector ---
         for m in _HOME_PATH_RE.finditer(line):
             path_match = m.group()
             if any(path_match.startswith(ap) for ap in _BUILTIN_ALLOW_PATHS):
@@ -240,14 +228,12 @@ def scan_file(
                 continue
             findings.append(Finding(rel_path, line_num, "path", path_match))
 
-        # --- Hostname detector ---
         for m in _HOSTNAME_RE.finditer(line):
             hostname = m.group()
             if _suppressed(hostname, allow_regexes):
                 continue
             findings.append(Finding(rel_path, line_num, "hostname", hostname))
 
-        # --- Custom deny patterns ---
         for pattern in config.deny:
             if pattern in line:
                 if _suppressed(pattern, allow_regexes):
@@ -262,18 +248,22 @@ def _suppressed(text: str, allow_regexes: list[re.Pattern[str]]) -> bool:
     return any(r.search(text) for r in allow_regexes)
 
 
-# ---------------------------------------------------------------------------
-# Main entry point
-# ---------------------------------------------------------------------------
-
-
 def run_pii(
     path: str,
     *,
     staged: bool = False,
     config: str | None = None,
 ) -> None:
-    """Scan repository for personally identifiable information."""
+    """Scan a repository for personally identifiable information.
+
+    Args:
+        staged: Scan only staged files, as a pre-commit hook does.
+        config: Explicit config file path, overriding the default lookup.
+
+    Raises:
+        SystemExit: With status 1 when ``path`` is not a directory, the config
+            cannot be read, or any finding is reported.
+    """
     root = Path(path).resolve()
     if not root.is_dir():
         console.print(f"[red]Error:[/red] {root} is not a directory")
@@ -292,7 +282,6 @@ def run_pii(
         console.print("  No files to scan.\n")
         return
 
-    # Filter by ignore_files globs
     if cfg.ignore_files:
         files = [
             f for f in files if not any(fnmatch.fnmatch(f, g) for g in cfg.ignore_files)
@@ -308,7 +297,6 @@ def run_pii(
         )
         return
 
-    # Group by file
     by_file: dict[str, list[Finding]] = {}
     for f in all_findings:
         by_file.setdefault(f.file, []).append(f)

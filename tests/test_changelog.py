@@ -493,7 +493,7 @@ def test_require_unreleased_entries_ignores_a_fenced_unreleased(tmp_path: Path) 
         _changelog(tmp_path, text).require_unreleased_entries()
 
 
-# --- review round: breaking markers, subsections, headings, versions ---
+# --- Breaking markers, subsections, headings, versions ---
 
 
 @pytest.mark.parametrize(

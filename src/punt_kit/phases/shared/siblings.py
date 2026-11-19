@@ -1,4 +1,4 @@
-"""Sibling-repo resolution, validation, and propagation-branch recovery."""
+"""Resolve, validate, and recover propagation checkouts."""
 
 from __future__ import annotations
 
@@ -43,7 +43,7 @@ PROPAGATION_OWNED_PATHS: dict[str, tuple[str, ...]] = {
 
 @final
 class SiblingRepo:
-    """A resolved sibling git repository, ready for validation or reset."""
+    """Inspect and recover a sibling Git checkout."""
 
     __slots__ = ("_name", "_ops", "_path")
 
@@ -52,6 +52,7 @@ class SiblingRepo:
     _ops: ReleaseOps
 
     def __new__(cls, path: Path, name: str, *, ops: ReleaseOps) -> Self:
+        """Bind a sibling repository's name and checkout path."""
         self = super().__new__(cls)
         self._path = path
         self._name = name
@@ -73,14 +74,24 @@ class SiblingRepo:
 
     @property
     def path(self) -> Path:
+        """Return the path to the sibling checkout."""
         return self._path
 
     @property
     def name(self) -> str:
+        """Return the name of the sibling repository."""
         return self._name
 
     def validate(self) -> None:
-        """Validate this sibling repo is ready for propagation."""
+        """Require a clean sibling checkout on main and fast-forward it.
+
+        Ignore untracked files and tracked changes confined to .beads.
+
+        Raises:
+            ReleaseError: The checkout is not ready or a Git command fails.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
+        """
         branch_result = self._ops.run(
             ["git", "branch", "--show-current"], cwd=str(self._path), check=False
         )
@@ -144,20 +155,19 @@ class SiblingRepo:
     def reset_owned_dirt(
         self, *, fail_on_error: bool, owned: tuple[str, ...] | None = None
     ) -> None:
-        """Restore propagation-owned files if this sibling is dirty in them.
+        """Restore propagation-owned changes without touching unrelated edits.
 
-        The propagation writes a tracked file before calling into
-        ``PrMerger.merge_in_sibling``; any interruption between those two
-        steps leaves the sibling on main with the write on disk.
-        ``validate`` correctly refuses to proceed against a dirty sibling —
-        this restores the owned files so the retry can re-run the same
-        idempotent write.
+        Leave the checkout alone if any other tracked path is dirty, except
+        for .beads state. An unreadable status produces a notice, not a reset.
 
-        Only touches files in ``PROPAGATION_OWNED_PATHS[name]``. If any other
-        file in the sibling is modified, this does nothing and lets
-        ``validate`` fail — the whole point of the ownership map is that a
-        human's unrelated work in the sibling survives the reset. On sibling
-        names with no ownership entry, also do nothing rather than guess.
+        Args:
+            owned: Override owned paths; an empty tuple or ``None`` uses the default.
+            fail_on_error: Raise on a failed restore instead of reporting it.
+
+        Raises:
+            ReleaseError: Git rejected the restore with ``fail_on_error`` set.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         owned = owned or PROPAGATION_OWNED_PATHS.get(self._name)
         if not owned:
@@ -217,13 +227,14 @@ class SiblingRepo:
 
 @final
 class SiblingRegistry:
-    """Recovery over the fixed set of propagation siblings."""
+    """Recover the fixed set of propagation sibling repositories."""
 
     __slots__ = ("_ops",)
 
     _ops: ReleaseOps
 
     def __new__(cls, *, ops: ReleaseOps) -> Self:
+        """Bind release operations for sibling propagation."""
         self = super().__new__(cls)
         self._ops = ops
         return self
@@ -236,28 +247,20 @@ class SiblingRegistry:
         fail_on_error: bool = True,
         tap_paths: tuple[str, ...] = (),
     ) -> None:
-        """Return all propagation sibling repos to the main branch.
+        """Recover interrupted propagation checkouts without discarding unrelated edits.
 
-        No-op for siblings already on main and clean. Used by the interrupt
-        handler and at the start of Phase 10 to recover from prior interrupted
-        runs. Handles two residues a mid-phase-10 interruption can leave:
+        Switch propagation branches to main and restore owned changes in
+        otherwise clean checkouts on main.
 
-        * a sibling on a ``propagate/v*`` branch — check it out back to main
-        * a sibling on main with a propagation-owned file dirty — the more
-          likely residue, since the propagation writes the file *before*
-          calling ``PrMerger.merge_in_sibling`` and any interruption between
-          the two leaves exactly that. Restored to HEAD so the idempotent
-          retry re-runs the same write.
+        Args:
+            resolve: Find a named sibling by project root, or return ``None``.
+            fail_on_error: Raise on failed checkout or restore instead of reporting it.
+            tap_paths: Formula paths owned by this release, or empty to skip the tap.
 
-        ``fail_on_error=False`` should be used from the signal handler so
-        that a checkout failure on one sibling does not abort cleanup of the
-        remaining siblings. The Phase 10 call site uses the default
-        ``fail_on_error=True`` so that release failures are loud.
-
-        ``resolve`` is injected rather than calling ``SiblingRepo.resolve``
-        directly so callers that expose sibling resolution as a
-        monkeypatchable seam (``punt_kit.release._resolve_sibling``) can pass
-        that seam through unchanged.
+        Raises:
+            ReleaseError: Git rejected a checkout or restore with ``fail_on_error`` set.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         for sib_name in PROPAGATION_SIBLINGS:
             # The tap is shared with every other project's formulas: a project

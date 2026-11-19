@@ -1,4 +1,4 @@
-"""The version a Homebrew formula installs."""
+"""Extract the version a Homebrew formula installs."""
 
 from __future__ import annotations
 
@@ -26,22 +26,20 @@ _ARCHIVE_VERSION = re.compile(
 
 @final
 class FormulaVersion:
-    """Reads the versions a formula states: an explicit ``version "X"`` and the
-    one in the first ``url`` line's archive name.
-    """
+    """Read a Homebrew formula's explicit and archive-derived versions."""
 
     __slots__ = ("_text",)
 
     _text: str
 
     def __new__(cls, text: str) -> Self:
+        """Prepare to read the formula's declared versions."""
         self = super().__new__(cls)
         self._text = text
         return self
 
     def stated(self) -> tuple[str, ...]:
-        """Every version the formula states: its top-level ``version`` and its
-        main url's archive version, whichever are present.
+        """Return the top-level version and main URL's archive version, if present.
 
         Only the formula's own statements count: a ``resource`` block, a
         platform block or a method body carries other things' versions.
@@ -59,7 +57,7 @@ class FormulaVersion:
         )
 
     def is_release(self, version: str) -> bool:
-        """True when the formula states a version and every one is ``version``.
+        """Check that the formula declares only the requested version.
 
         A bumped ``version`` over an archive url that still names the old
         release installs the old release, so both must agree.
@@ -68,12 +66,12 @@ class FormulaVersion:
         return bool(stated) and all(v == version for v in stated)
 
     def describe(self) -> str:
-        """The stated versions as text, for a verdict line."""
+        """Format the stated versions for a verification verdict."""
         stated = self.stated()
         return ", ".join(dict.fromkeys(stated)) if stated else "not found"
 
     def _top_level(self) -> list[str]:
-        """The lines directly inside ``class ... < Formula``, nesting excluded."""
+        """Extract the formula class's lines, excluding nested blocks."""
         depth = 0
         top: list[str] = []
         for line in self._text.splitlines():

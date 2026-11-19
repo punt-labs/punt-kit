@@ -1,11 +1,4 @@
-"""Release-specific interpretation of a detected project: version, package
-name, install-sh SHA, and template-pin rewriting.
-
-Composes ``punt_kit.detect.ProjectInfo`` rather than subclassing or editing
-it — ``detect.py`` is generic project detection, owned separately; this
-module adds release-specific behavior (template-pin rewriting, install-sh
-SHA) on top.
-"""
+"""Resolve release metadata and rewrite self-referential package pins."""
 
 from __future__ import annotations
 
@@ -21,13 +14,8 @@ if TYPE_CHECKING:
     from punt_kit.detect import ProjectInfo
     from punt_kit.phases.shared.ops import ReleaseOps
 
-# Bundled template files (CI workflow YAMLs deployed by a project's own
-# `enable`/`init` commands) sometimes hardcode a pinned `uvx --from` invocation
-# of the project's own CLI for supply-chain reasons — running unpinned/latest
-# in a customer's CI is rejected. That pin lives outside pyproject.toml and
-# plugin.json, so without this scan a fix landing in a template after a
-# version already tagged stays stale in every future deployment of that
-# template until the NEXT release re-pins it.
+# Bundled workflows pin their own CLI so deployment never runs an unpinned
+# release in a customer's CI.
 _TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
     "src/**/data/*.yml",
     "src/**/data/*.yaml",
@@ -35,12 +23,8 @@ _TEMPLATE_PIN_GLOBS: tuple[str, ...] = (
     "plugin/**/*.yaml",
 )
 
-# The project's own DEPLOYED CI workflows are rendered copies of those
-# templates and carry the same self-referential pin. They are bumped only in
-# phase 9, after phase 8 confirms the version is on PyPI: a failure notifier
-# that runs `uvx --from <pkg>==<main pin>` must never name an unpublished
-# version, and phase 2 (pre-publish) would leave it so if the release failed
-# between the merge and the publish.
+# Deployed workflows may run during the release, so their pins can only
+# advance after the target version is available on PyPI.
 _DEPLOYED_WORKFLOW_GLOBS: tuple[str, ...] = (
     ".github/workflows/*.yml",
     ".github/workflows/*.yaml",
@@ -73,7 +57,7 @@ def normalize_package_name(name: str) -> str:
 
 @final
 class ReleaseProject:
-    """Release-relevant facts about a detected project."""
+    """Read release metadata for a detected project."""
 
     __slots__ = ("_info", "_ops")
 
@@ -81,13 +65,21 @@ class ReleaseProject:
     _ops: ReleaseOps
 
     def __new__(cls, info: ProjectInfo, *, ops: ReleaseOps) -> Self:
+        """Wrap detected project metadata with release-specific operations."""
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
         return self
 
     def version(self) -> str:
-        """Extract current version from pyproject.toml, plugin.json, or git tag."""
+        """Extract the current version from project metadata or a Go tag.
+
+        Raises:
+            ReleaseError: Version metadata is missing or cannot be read.
+            subprocess.CalledProcessError: Git could not list Go tags.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
+        """
         info = self._info
         if info.language == "go":
             return self.latest_tag_version()
@@ -108,12 +100,14 @@ class ReleaseProject:
         return version
 
     def latest_tag_version(self) -> str:
-        """Get the latest semantic version from git tags.
+        """Return the highest version-sorted ``v*`` tag without its prefix.
 
-        Public rather than private: ``version()`` calls it for Go projects,
-        and ``punt_kit.release._get_latest_tag_version`` (kept for public API
-        preservation and tested directly against a bare ``root``) calls it
-        too.
+        Return ``0.0.0`` if no such tag exists.
+
+        Raises:
+            subprocess.CalledProcessError: Git could not list tags.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         result = self._ops.run(
             ["git", "tag", "--list", "v*", "--sort=-v:refname"],
@@ -125,7 +119,11 @@ class ReleaseProject:
         return tags[0].removeprefix("v")
 
     def package_name(self) -> str:
-        """Extract package name from pyproject.toml."""
+        """Extract the package name from pyproject.toml.
+
+        Raises:
+            ReleaseError: The project name metadata is absent or invalid.
+        """
         info = self._info
         if info.pyproject is None:
             self._ops.fail("No pyproject.toml found")
@@ -148,6 +146,9 @@ class ReleaseProject:
         ``vox-dev`` etc., and the ``-dev`` must be dropped before comparison.
         ``None`` for non-plugin projects — they have no marketplace entry to
         match against.
+
+        Raises:
+            ReleaseError: The plugin manifest cannot be read as UTF-8 JSON.
         """
         info = self._info
         if not info.is_plugin:
@@ -170,6 +171,10 @@ class ReleaseProject:
         non-plugin projects (e.g. Go CLIs) — there is no self-referential
         package name to match template pins against, and that absence is
         expected, not an error.
+
+        Raises:
+            ReleaseError: The project name metadata is absent or invalid, or
+                the plugin manifest cannot be read as UTF-8 JSON.
         """
         info = self._info
         if info.pyproject is not None:
@@ -198,6 +203,12 @@ class ReleaseProject:
         is wrong for hybrid projects because the tag sits on the
         "prepare plugin for release" commit, which comes *after* the
         version-bump commit that actually changes install.sh.
+
+        Raises:
+            ReleaseError: No commit touched install.sh.
+            subprocess.CalledProcessError: Git could not read install.sh history.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         result = self._ops.run(
             ["git", "log", "-1", "--format=%h", "--", "install.sh"],
@@ -209,27 +220,45 @@ class ReleaseProject:
         return sha
 
     def rewrite_template_pins(self, version: str, *, dry_run: bool) -> list[Path]:
-        """Rewrite self-referential own-package pins in bundled templates (phase 2)."""
+        """Rewrite own-package pins in bundled templates.
+
+        Returns:
+            Paths changed, or paths that would change in a dry run.
+
+        Raises:
+            ReleaseError: Package metadata or a template cannot be read.
+            OSError: A template cannot be written.
+        """
         return self._rewrite_own_pins(_TEMPLATE_PIN_GLOBS, version, dry_run=dry_run)
 
     def rewrite_deployed_workflow_pins(
         self, version: str, *, dry_run: bool
     ) -> list[Path]:
-        """Rewrite own-package pins in deployed ``.github/workflows`` (phase 9).
+        """Rewrite own-package pins in deployed ``.github/workflows``.
 
         Call only once ``version`` is published to PyPI.
+
+        Returns:
+            Paths changed, or paths that would change in a dry run.
+
+        Raises:
+            ReleaseError: Package metadata or a workflow cannot be read.
+            OSError: A workflow cannot be written.
         """
         return self._rewrite_own_pins(
             _DEPLOYED_WORKFLOW_GLOBS, version, dry_run=dry_run
         )
 
     def deployed_workflow_own_pins(self) -> dict[Path, list[str]]:
-        """Own-package ``uvx --from <own-pkg>==X.Y.Z`` versions per deployed workflow.
+        """List own-package pin versions by deployed workflow.
 
         Read-only counterpart to :meth:`rewrite_deployed_workflow_pins`, for
         Phase 11 to verify the post-publish bump actually landed. Keyed by the
         repo-relative path; files with no own-package pin are omitted. Foreign
         ``punt-*`` pins are excluded, matching the rewrite's own-package guard.
+
+        Raises:
+            ReleaseError: Package metadata or a workflow cannot be read.
         """
         own_pkg = self.self_package_name()
         if own_pkg is None:

@@ -1,5 +1,4 @@
-"""Phase 9: dev plugin restore via its own PR, right after the release PR
-squash-merges."""
+"""Restore dev plugin state and pin deployed workflows via PR."""
 
 from __future__ import annotations
 
@@ -24,7 +23,7 @@ _console = Console()
 
 @final
 class Phase9PostRelease:
-    """Phase 9: dev plugin restore via PR."""
+    """Restore dev plugin state and pin deployed workflows via PR."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_version")
 
@@ -36,6 +35,7 @@ class Phase9PostRelease:
     def __new__(
         cls, info: ProjectInfo, version: str, *, dry_run: bool, ops: ReleaseOps
     ) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -44,10 +44,17 @@ class Phase9PostRelease:
         return self
 
     def run(self, *, merge: Callable[..., str]) -> None:
-        """``merge`` is injected rather than composing ``PrMerger`` directly —
-        several tests monkeypatch ``punt_kit.release._pr_merge`` and call
-        ``punt_kit.release._phase9_post_release`` expecting the patch to be
-        observed.
+        """Restore dev plugin state and pin deployed workflows via PR.
+
+        Args:
+            merge: Merge the post-release branch using the supplied PR metadata.
+
+        Raises:
+            ReleaseError: Restoring, pinning workflows, git operations, or merging
+                fails.
+            subprocess.CalledProcessError: A checked repository command fails.
+            subprocess.TimeoutExpired: An external command exceeds its timeout.
+            OSError: Writing a version pin or manifest fails.
         """
         info = self._info
         version = self._version
@@ -69,7 +76,6 @@ class Phase9PostRelease:
             ops.dry(f'merge(branch={branch}, title="chore: post-release v{version}")')
             return
 
-        # Create post-release branch — ensure we're on main first
         workspace = GitWorkspace(root, ops=ops)
         workspace.ensure_on_main()
 
@@ -78,27 +84,11 @@ class Phase9PostRelease:
         else:
             ops.ok(f"Created branch {branch}")
 
-        # Dev restore (hybrid/plugin — idempotent: skip only when the
-        # restore commit is already at HEAD). Mirror of the phase 4 check.
-        #
-        # The restore script stages the reverted files but does not commit
-        # (see scripts/restore-dev-plugin.sh CONTRACT). That lets this phase
-        # re-stamp the version — the historical dev commit's plugin.json has
-        # the old version — and land the restore + re-stamp as one commit
-        # with hooks running. The previous shape committed inside the script
-        # and then --amend --no-verify'd here to fix up the version; the
-        # org bans --no-verify outright and the amend existed only because
-        # the script committed too early.
-        #
-        # Consulting the working tree here has the same failure mode phase
-        # 4 does: if the commit fails on a pre-commit hook, the restore is
-        # already staged and the tree already shows the dev name — a disk
-        # read would report "already in dev state (resume)" and fall
-        # through to the README-SHA commit, which would then sweep the
-        # staged plugin.json into itself under the wrong commit message.
-        # Consult HEAD, and require BOTH the dev name AND the released
-        # version at HEAD before treating the restore as done — a partial
-        # historical commit with a mismatched version must still re-run.
+        # Use committed HEAD for idempotency; a rejected hook can leave staged dev
+        # files.
+        # The restore script stages without committing, so restore and version stamp
+        # land together with hooks. Require both the dev name and released version
+        # at HEAD before skipping, to keep partial restores out of workflow-pin commits.
         if info.is_hybrid or info.is_plugin:
             plugin_swap = PluginSwap(info, ops=ops)
             head_data = plugin_swap.head_state()
@@ -113,21 +103,15 @@ class Phase9PostRelease:
                     cwd=str(root),
                     capture=False,
                     check=False,
-                    # git checkout inside the script fires the post-checkout
-                    # hook; same reasoning as the phase 4 swap above.
+                    # The restore script's checkout runs post-checkout hooks.
                     timeout=GIT_HOOK,
                 )
                 if restore_result.returncode != 0:
-                    # HEAD is untouched (the script only mutates the working
-                    # tree and its own internal checkout), so the next
-                    # --resume-from post-release re-enters this branch,
-                    # resets to HEAD, and retries — same shape as phase 4's
-                    # swap-script diagnosis above.
+                    # HEAD is unchanged; resuming resets staged restore paths and
+                    # retries.
                     ops.fail(f"{restore_script} failed — see output above")
-                # The restore checks plugin.json out of the last dev commit,
-                # which reverts the version field along with the name. Put
-                # the just-released version back before committing so main
-                # advertises the current release, not the previous one.
+                # The dev manifest supplies the name, but must retain the released
+                # version.
                 plugin_json = info.plugin_manifest
                 manifest = JsonFile(plugin_json)
                 pj_data = cast("dict[str, object]", manifest.load())
@@ -135,13 +119,8 @@ class Phase9PostRelease:
                     pj_data["version"] = version
                     manifest.save(pj_data)
                     ops.run(["git", "add", str(plugin_json)], cwd=str(root))
-                # No [skip ci] marker on this commit: the PR's required
-                # status checks (lint/test/docs) run per branch protection,
-                # and GitHub Actions honors [skip ci] on pull_request
-                # triggers too — so the marker would make the PR
-                # unmergeable. The squash-merge onto main uses the PR
-                # title (which never carried the marker), so removing it
-                # here also does not add a redundant CI run on main.
+                # Do not use [skip ci]: required pull_request checks would never
+                # complete.
                 commit_result = ops.run(
                     [
                         "git",
@@ -154,11 +133,8 @@ class Phase9PostRelease:
                     timeout=GIT_HOOK,
                 )
                 if commit_result.returncode != 0:
-                    # A pre-commit hook rejection here leaves the restore
-                    # staged but not committed at HEAD — exactly the state
-                    # this phase's HEAD-consult idempotency check (above)
-                    # exists to detect and re-run from on the next
-                    # --resume-from post-release.
+                    # A rejected hook leaves the restore staged, so the HEAD check must
+                    # retry it.
                     ops.fail(
                         "git commit (restore dev plugin state) failed — "
                         f"{commit_result.stderr.strip()}"
@@ -168,12 +144,8 @@ class Phase9PostRelease:
             else:
                 ops.ok("Dev restore already at HEAD (resume)")
 
-        # Deployed workflow pin: phase 8 has confirmed ``version`` is on PyPI,
-        # so the project's own .github/workflows may now name it. Doing this
-        # in phase 2 would let a release that fails before publish leave the
-        # deployed failure notifier pinned to a version PyPI does not have.
-        # Idempotent: on resume the pins already match, nothing is staged,
-        # and the ahead-of-main check below sees the earlier commit.
+        # Pin deployed workflows only after phase 8 verifies publication, so they
+        # cannot reference an unpublished version. Matching pins are a no-op on resume.
         project = ReleaseProject(info, ops=ops)
         pinned = project.rewrite_deployed_workflow_pins(version, dry_run=False)
         if pinned:
@@ -185,7 +157,6 @@ class Phase9PostRelease:
                 has_changes = True
 
         if not has_changes:
-            # Check if branch has commits ahead of main (resume case)
             ahead = ops.run(
                 ["git", "log", "main..HEAD", "--oneline"],
                 cwd=str(root),
@@ -193,8 +164,7 @@ class Phase9PostRelease:
             if ahead:
                 has_changes = True
             else:
-                # Hook-firing checkout + local branch delete — same
-                # diagnosed convention as this phase's restore commit above.
+                # Checkout runs hooks and needs the hook timeout budget.
                 checkout = ops.run(
                     ["git", "checkout", "main"],
                     cwd=str(root),

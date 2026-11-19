@@ -1,12 +1,4 @@
-"""The primitives every release phase and shared collaborator needs.
-
-``ReleaseOps`` is a structural interface, not a shared implementation — every
-phase and shared class receives one at construction and calls ``self._ops.*``
-instead of a bare module-level helper. The concrete implementation
-(``_ReleaseOpsAdapter``) lives in ``punt_kit.release`` itself, so that
-``monkeypatch.setattr(release_mod, "_run", ...)`` reaches every collaborator
-built on top of it — see ``punt_kit.release`` for the mechanism.
-"""
+"""Define subprocess and reporting operations for release phases."""
 
 from __future__ import annotations
 
@@ -20,26 +12,11 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class ReleaseOps(Protocol):
-    """Subprocess execution and console reporting, as an injectable seam.
+    """Expose subprocess execution and console reporting to release phases.
 
-    ``run``'s ``check`` default of ``True`` is deliberately caller-set, not
-    changed here — individual call sites opt into ``check=False`` plus a
-    diagnosed ``fail(...)`` message, rather than flipping the shared
-    default, because a silently-flipped default would hide which sites were
-    actually reviewed. The convention's boundary: a call site opts in when
-    it can plausibly fail *operationally* — a network op
-    (fetch/push/pull/ls-remote), an external tool (uv, gh, a
-    release/restore script), a hook-firing mutation (checkout, commit,
-    branch delete), or a read against a sibling repo (a checkout this
-    process does not fully control). A call site is left at ``check=True``
-    when it is a local, read-only metadata query (``git branch
-    --show-current``, ``status --porcelain``, ``rev-parse``, ``tag
-    --list``, ``log``, ``diff --cached``, ``show``) or a local index-stage
-    (``git add``) against the *project's own* repo, whose cleanliness an
-    earlier phase (or, for a sibling, that sibling's own ``validate()``)
-    already established — a failure there indicates the repo itself is
-    corrupt beyond any single call's control, not an independent
-    operational failure mode the diagnosis convention targets.
+    Use ``check=False`` and diagnose nonzero exits for network operations,
+    external tools, hook-firing mutations, and sibling checkout reads.
+    Keep ``check=True`` for routine local reads and staging in a known checkout.
     """
 
     def run(
@@ -51,16 +28,45 @@ class ReleaseOps(Protocol):
         check: bool = True,
         capture: bool = True,
         errors: str = "strict",
-    ) -> subprocess.CompletedProcess[str]: ...
+    ) -> subprocess.CompletedProcess[str]:
+        """Run a release command with a hook-aware timeout.
 
-    def ok(self, msg: str) -> None: ...
+        Args:
+            timeout: Timeout in seconds, subject to the Git hook minimum.
+            errors: Error handler for decoding captured output.
 
-    def info(self, msg: str) -> None: ...
+        Raises:
+            subprocess.CalledProcessError: The command exits nonzero with ``check`` set.
+            subprocess.TimeoutExpired: The command exceeds its timeout.
+            OSError: The command cannot start.
+            UnicodeDecodeError: Captured output cannot be decoded with ``errors``.
+        """
+        ...
 
-    def dry(self, msg: str) -> None: ...
+    def ok(self, msg: str) -> None:
+        """Report a successful operation."""
+        ...
 
-    def warn(self, msg: str) -> None: ...
+    def info(self, msg: str) -> None:
+        """Report release progress."""
+        ...
 
-    def error(self, msg: str) -> None: ...
+    def dry(self, msg: str) -> None:
+        """Describe an operation without performing it."""
+        ...
 
-    def fail(self, msg: str) -> NoReturn: ...
+    def warn(self, msg: str) -> None:
+        """Report a nonfatal warning."""
+        ...
+
+    def error(self, msg: str) -> None:
+        """Report an error without raising."""
+        ...
+
+    def fail(self, msg: str) -> NoReturn:
+        """Report and raise a release failure.
+
+        Raises:
+            ReleaseError: Always, with the supplied diagnosis.
+        """
+        ...

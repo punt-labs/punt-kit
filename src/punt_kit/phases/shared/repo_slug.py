@@ -1,4 +1,4 @@
-"""A GitHub ``owner/repo`` slug, parsed once so no caller splits text itself."""
+"""Parse and render GitHub ``owner/repo`` identifiers."""
 
 from __future__ import annotations
 
@@ -26,20 +26,19 @@ _USERINFO_IN_TEXT = re.compile(r"[\w.~%+-]+:[\w.~%+-]*@")
 
 @dataclass(frozen=True, slots=True)
 class RepoSlug:
-    """The owner and repository halves of ``owner/repo``."""
+    """Represent the owner and repository halves of a GitHub slug."""
 
     owner: str
     name: str
 
     @classmethod
     def parse(cls, raw: str) -> Self:
-        """Parse ``raw`` after stripping surrounding whitespace and slashes.
+        """Parse an ``owner/repo`` slug and discard surrounding whitespace and slashes.
 
-        A remote URL such as ``https://github.com/owner/repo/`` yields the
-        path ``owner/repo/``, and an scp-style one ``owner/repo.git/``;
-        stripping here is what makes every consumer see the same slug.
-        Raises ``ValueError`` unless exactly one owner and one repo name
-        remain.
+        Strip an optional ``.git`` suffix.
+
+        Raises:
+            ValueError: The slug does not contain valid owner and repository names.
         """
         parts = raw.strip().strip("/").removesuffix(".git").split("/")
         if len(parts) != 2 or not all(
@@ -51,11 +50,12 @@ class RepoSlug:
 
     @classmethod
     def from_remote_url(cls, url: str) -> Self | None:
-        """The slug of a github.com remote URL (https, ssh or scp-style).
+        """Parse a github.com remote in HTTPS, SSH, or SCP-style form.
 
-        ``None`` when the URL is not on github.com or names no path. Raises
-        ``ValueError`` when it is on github.com but the path is not
-        ``owner/repo``.
+        Return ``None`` for URLs outside github.com or without a repository path.
+
+        Raises:
+            ValueError: URL parsing fails or the GitHub path is not a valid slug.
         """
         url = url.strip()
         if scp := _SCP_GITHUB.fullmatch(url):
@@ -66,11 +66,12 @@ class RepoSlug:
         return cls.parse(parsed.path.lstrip("/"))
 
     def __str__(self) -> str:
+        """Render the slug as ``owner/repo``."""
         return f"{self.owner}/{self.name}"
 
     @staticmethod
     def without_userinfo(url: str) -> str:
-        """``url`` without ``user[:token]@``, query and fragment, safe to show."""
+        """Strip credentials, query, and fragment from a URL before displaying it."""
         if "://" not in url:
             # scp-style ``[user@]host:path``: the user may itself be a token.
             head, colon, path = url.partition(":")
@@ -87,11 +88,11 @@ class RepoSlug:
 
     @classmethod
     def redacted(cls, text: str) -> str:
-        """``text`` with the credentials of every URL in it removed.
+        """Remove credentials from URL-shaped text.
 
-        Covers ``scheme://user:pass@host``, scp-style ``user@host:path`` (the
-        conventional ``git@`` stays) and a ``user:pass@`` fragment that
-        follows a URL which did not parse.
+        Redact URL userinfo, query strings, fragments, SCP-style user names,
+        and stray credential fragments. Preserve the conventional SCP user
+        ``git``.
         """
         text = _URL_IN_TEXT.sub(lambda m: cls.without_userinfo(m.group()), text)
         text = _SCP_IN_TEXT.sub(

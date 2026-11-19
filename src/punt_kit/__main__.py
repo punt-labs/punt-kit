@@ -1,3 +1,5 @@
+"""Run the ``punt`` command-line interface."""
+
 from __future__ import annotations
 
 import json
@@ -14,7 +16,6 @@ app = typer.Typer(
     rich_markup_mode=None,
 )
 
-# Global flag state, set by the callback before any command runs.
 _json_output: bool = False
 _verbose: bool = False
 _quiet: bool = False

@@ -58,8 +58,11 @@ def run_init(path: str, *, language: str | None = None) -> None:
 
     *language* overrides auto-detection. When detection returns no language
     and no override is given, prompts interactively (if stdin is a tty).
-    A file that cannot be read is reported and ends the run with exit 1; no
-    file is ever rewritten from a guess at what it held.
+    No file is ever rewritten from a guess at what it held.
+
+    Raises:
+        SystemExit: Exit code 1 for a non-directory path, unsupported language,
+            unreadable input file, or beads initialization failure.
     """
     try:
         _init_project(path, language=language)
@@ -77,7 +80,6 @@ def _init_project(path: str, *, language: str | None) -> None:
 
     info = detect(root)
 
-    # Apply language override or prompt when detection fails
     if language is not None:
         if language not in SUPPORTED_LANGUAGES:
             console.print(
@@ -218,9 +220,8 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
         standards_refs.append("cli")
 
     # replace(), not a field-by-field rebuild: this function overrides three
-    # fields and must carry the rest through untouched. A rebuild silently
-    # drops any field added to ProjectInfo later — a language override would
-    # have quietly erased the plugin manifests it never mentioned.
+    # fields and must carry every other field through untouched, including
+    # any field ProjectInfo gains.
     return replace(
         info,
         language=language,
@@ -232,7 +233,7 @@ def _with_language(info: ProjectInfo, language: str) -> ProjectInfo:
 def _workflow_targets(
     info: ProjectInfo, *, with_release: bool
 ) -> list[tuple[str, str]]:
-    """The ``(template, target file)`` pairs init may write under workflows/.
+    """Return the ``(template, target file)`` pairs init may write under workflows/.
 
     One list for the merge and for the validation that precedes it, so init
     reads exactly the files it may touch and no others. Release needs package
@@ -246,7 +247,6 @@ def _workflow_targets(
         pairs.append(("lint-node.yml", "lint.yml"))
     if with_release:
         pairs.append(("release-python.yml.j2", "release.yml"))
-    # All repos get docs.yml for markdown linting
     pairs.append(("docs.yml", "docs.yml"))
     return pairs
 
@@ -392,7 +392,6 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
     """Generate or update CLAUDE.md with standards references."""
     claude_md_path = info.root / "CLAUDE.md"
 
-    # Render the standards references section
     template_ref = TEMPLATES / "claude-md.md.j2"
     template_str = template_ref.read_text(encoding="utf-8")
     env = jinja2.Environment(autoescape=False)
@@ -407,7 +406,6 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
         claude_md = TextFile(claude_md_path)
         existing = claude_md.read()
 
-        # Check if standards references section already exists
         if "## Standards References" in existing:
             return []
 
@@ -438,28 +436,16 @@ def build_standard_permissions(info: ProjectInfo) -> list[str]:
     ``enable`` and removed by its ``disable``; seeding them here would make
     ``disable`` strip a baseline value, or leave the seeded copy behind.
     Public so that both init and audit can share the same logic.
+
+    Raises:
+        KeyError: ``info.language`` has no entry in ``LANGUAGE_TOOLS``.
     """
     # github is not a Punt Labs plugin: it ships with Claude Code, no enable
     # owns it, and these settings scaffold a development environment.
     perms: list[str] = ["mcp__github__*"]
 
-    # Cross-project file access belongs in settings.local.json with absolute
-    # paths per DES-004 rule 3 — not in the portable settings.json.
-
-    # Generic Bash commands required for all projects (§3).
-    #
-    # Deliberately absent: Bash(bash:*) and Bash(sed:*).
-    #
-    # Bash(bash:*) permits any command at all — `bash -c "<anything>"` matches
-    # it — which makes every other entry here decorative and reaches straight
-    # through the deny list in §4. Seeding it granted a scaffolded repo an
-    # unrestricted shell in a committed file that nobody reviews.
-    #
-    # Bash(sed:*) edits any file in place, bypassing the Edit(path) rules that
-    # gate file modification.
-    #
-    # git and gh stay: they are development tools, and this file scaffolds a
-    # development environment.
+    # A bash wildcard bypasses the command deny list; a sed wildcard bypasses
+    # path restrictions on edits. Keep both out of committed permissions.
     perms.extend(
         [
             "Bash(bd:*)",
@@ -604,9 +590,8 @@ def _init_permissions(info: ProjectInfo) -> list[str]:
             deny.append(rule)
             added_deny.append(rule)
 
-    # Prune rules Claude Code can never match. Earlier versions of this seeder
-    # wrote Write(.env) / Write(.envrc); every repo it touched warns once per
-    # session until the entries are gone.
+    # Prune rules Claude Code can never match, such as Write(.env) and
+    # Write(.envrc): each one warns once per session until it is gone.
     dead = _prune_dead_rules(permissions)
 
     if not added and not added_deny and not dead:
@@ -724,7 +709,7 @@ _CLAUDE_GITIGNORE_LINES = [
 
 
 def _names_claude_dir(pattern: str) -> bool:
-    """True when a gitignore pattern names the ``.claude`` directory.
+    """Return True when a gitignore pattern names the ``.claude`` directory.
 
     Matches every spelling git accepts — ``.claude/``, ``.claude/*``,
     ``/.claude/`` (root-anchored), ``**/.claude/*`` — by testing path

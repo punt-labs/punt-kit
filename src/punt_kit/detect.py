@@ -10,13 +10,8 @@ from typing import cast
 from punt_kit.phases.shared.json_file import JsonFile
 from punt_kit.phases.shared.text_file import TextFile
 
-# Where a plugin manifest can sit, most specific first.
-#
-# ``plugin/.claude-plugin/`` is the DES-025 layout: the shippable surface lives
-# in one subdirectory so the marketplace can install it with a ``git-subdir``
-# source. The two repo-root shapes are the pre-DES-025 layout, which the fleet
-# still carries while it migrates one repo at a time — and ``punt audit`` /
-# ``punt release`` run against those repos, not just this one.
+# Prefer the subdirectory that the marketplace can install independently;
+# sibling repositories can also declare their plugin at the root.
 PLUGIN_MANIFEST_CANDIDATES: tuple[tuple[str, ...], ...] = (
     ("plugin", ".claude-plugin", "plugin.json"),
     (".claude-plugin", "plugin.json"),
@@ -44,7 +39,7 @@ class ProjectInfo:
     """Detected project characteristics."""
 
     root: Path
-    language: str | None = None  # "python", "node", "swift", or None
+    language: str | None = None  # "python", "node", "go", "swift", or None
     project_type: str | None = None  # "package", "plugin", "mcp-server", "docs", etc.
     has_ci: bool = False
     has_claude_md: bool = False
@@ -70,9 +65,12 @@ class ProjectInfo:
     def plugin_manifest(self) -> Path:
         """The manifest that governs the plugin.
 
-        Raises when the project has none. Guard with ``is_plugin`` — a caller
-        that reaches for the manifest of a non-plugin project has a bug, and a
-        ``None`` here would push that bug downstream into a path join.
+        Guard with ``is_plugin``: a caller that reaches for the manifest of a
+        non-plugin project has a bug, and a ``None`` here would push that bug
+        downstream into a path join.
+
+        Raises:
+            ValueError: The project has no plugin manifest.
         """
         if not self.plugin_manifests:
             raise ValueError(f"no plugin manifest under {self.root}")
@@ -83,8 +81,11 @@ class ProjectInfo:
         """The directory Claude Code treats as ``CLAUDE_PLUGIN_ROOT``.
 
         This is the manifest's grandparent under a ``.claude-plugin/`` layout
-        and its parent under the bare ``plugin.json`` shape — never assume the
-        repo root, which is what breaks once the surface moves to ``plugin/``.
+        and its parent under the bare ``plugin.json`` shape; it is not the repo
+        root under the ``plugin/`` layout.
+
+        Raises:
+            ValueError: The project has no plugin manifest.
         """
         manifest = self.plugin_manifest
         if manifest.parent.name == ".claude-plugin":
@@ -95,10 +96,13 @@ class ProjectInfo:
 def detect(root: Path) -> ProjectInfo:
     """Scan a directory and return detected project info.
 
-    Raises :class:`ReleaseError` when ``pyproject.toml`` is not readable TOML,
-    or when ``package.json`` or the highest-precedence plugin manifest is not a
-    readable JSON object: detection built on a file it could not read would
-    report a project it never saw.
+    Detection built on a file it could not read would report a project it
+    never saw, so an unreadable input raises instead.
+
+    Raises:
+        ReleaseError: ``pyproject.toml`` is not readable TOML, or
+            ``package.json`` or the highest-precedence plugin manifest is not a
+            readable JSON object.
     """
     root = root.resolve()
 
@@ -110,7 +114,6 @@ def detect(root: Path) -> ProjectInfo:
     package_json_data: dict[str, object] | None = None
     standards_refs: list[str] = []
 
-    # Check pyproject.toml
     pyproject_path = root / "pyproject.toml"
     if pyproject_path.exists():
         pyproject_data = TextFile(pyproject_path).toml()
@@ -119,7 +122,6 @@ def detect(root: Path) -> ProjectInfo:
             project_type = "package"
             standards_refs.append("python")
 
-    # Check package.json
     package_json_path = root / "package.json"
     if package_json_path.exists():
         package_json_data = JsonFile(package_json_path).load_object()
@@ -128,21 +130,18 @@ def detect(root: Path) -> ProjectInfo:
             project_type = "package"
             standards_refs.append("node")
 
-    # Check Go
     go_mod = root / "go.mod"
     if go_mod.exists() and language is None:
         language = "go"
         project_type = "package"
         standards_refs.append("go")
 
-    # Check Swift
     swift_files = list(root.glob("**/*.swift"))
     xcodegen = root / "project.yml"
     if (swift_files or xcodegen.exists()) and language is None:
         language = "swift"
         project_type = "app"
 
-    # Check Claude Code plugin
     manifests = plugin_manifests(root)
     if manifests:
         is_plugin = True
@@ -150,13 +149,11 @@ def detect(root: Path) -> ProjectInfo:
             project_type = "plugin"
         standards_refs.append("plugins")
 
-    # Check MCP server
     if _has_mcp_server(root, language):
         is_mcp_server = True
         if project_type is None:
             project_type = "mcp-server"
 
-    # Check CI
     workflows_dir = root / ".github" / "workflows"
     workflow_files: list[str] = []
     has_ci = False
@@ -165,21 +162,17 @@ def detect(root: Path) -> ProjectInfo:
         workflow_files.extend(f.name for f in workflows_dir.glob("*.yaml"))
         has_ci = len(workflow_files) > 0
 
-    # Check CLAUDE.md
     has_claude_md = (root / "CLAUDE.md").exists()
 
-    # Check beads
     has_beads = (root / ".beads").is_dir()
 
-    # If no language detected but has markdown files, it's a docs project
     if language is None and project_type is None:
         md_files = list(root.glob("*.md"))
         if md_files:
             project_type = "docs"
 
-    # Extract CLI entry points
     cli_commands: list[str] = []
-    # Python: pyproject.toml [project.scripts]
+    # Python CLIs are the keys of the project scripts table.
     if pyproject_data is not None:
         project_raw = pyproject_data.get("project")
         if isinstance(project_raw, dict):
@@ -197,14 +190,12 @@ def detect(root: Path) -> ProjectInfo:
                 if d.is_dir() and (d / "main.go").is_file()
             ]
 
-    # Extract MCP server names from plugin.json
     plugin_mcp_servers: list[str] = []
     if manifests:
         servers = JsonFile(manifests[0]).load_object().get("mcpServers")
         if isinstance(servers, dict):
             plugin_mcp_servers = list(cast("dict[str, object]", servers).keys())
 
-    # All projects get these standard refs
     standards_refs.append("github")
     standards_refs.append("workflow")
     if cli_commands:

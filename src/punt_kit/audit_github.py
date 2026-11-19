@@ -1,4 +1,4 @@
-"""The GitHub-side findings of `punt audit`: rulesets and Dependabot alerts."""
+"""Check GitHub rulesets and Dependabot alerts for `punt audit`."""
 
 from __future__ import annotations
 
@@ -27,19 +27,20 @@ _RULESET = "Branch protection ruleset exists"
 
 @final
 class GithubSettingsAudit:
-    """Checks a repository's GitHub settings through the ``gh`` CLI."""
+    """Check a repository's GitHub settings through the ``gh`` CLI."""
 
     __slots__ = ("_root",)
 
     _root: Path
 
     def __new__(cls, root: Path) -> Self:
+        """Create an audit of the repository checked out at ``root``."""
         self = super().__new__(cls)
         self._root = root
         return self
 
     def findings(self) -> list[Finding]:
-        """Check GitHub repo settings via gh API. Falls back gracefully."""
+        """Check remote settings, or report INFO without ``gh`` or a GitHub origin."""
         gh = shutil.which("gh")
         if gh is None:
             return [
@@ -49,12 +50,10 @@ class GithubSettingsAudit:
                     "Install gh to check remote settings",
                 )
             ]
-        # Detect repo from git remote — verify we're in a git repo rooted here
         try:
             repo = GitCheckout(self._root).github_slug()
         except ValueError as exc:
             return [(INFO, f"GitHub settings ({exc})", "")]
-        # Branch protection via the rulesets API (not legacy branch protection)
         return [*self.rulesets(gh, repo), *self.dependabot_alerts(gh, repo)]
 
     def dependabot_alerts(self, gh: str, repo: str) -> list[Finding]:
@@ -127,7 +126,7 @@ class GithubSettingsAudit:
     def _gh_json(
         gh: str, endpoint: str, *, not_found: Finding, unreadable_label: str
     ) -> object | Finding:
-        """The parsed JSON of ``gh api <endpoint>``, or the finding saying why not.
+        """Return the parsed JSON of ``gh api <endpoint>``, or why it is missing.
 
         ``not_found`` answers a definite HTTP 404. Any other way the answer
         could not be had (another status, a timeout, a missing ``gh``, a body
@@ -151,7 +150,7 @@ class GithubSettingsAudit:
 
     @staticmethod
     def _ruleset_id(rulesets: list[object]) -> int | None:
-        """The id of the "Protect main" ruleset (org convention), else the first."""
+        """Return the id of the "Protect main" ruleset, else of the first one."""
         entries = [
             cast("dict[str, object]", raw)
             for raw in rulesets
@@ -165,7 +164,7 @@ class GithubSettingsAudit:
 
     @staticmethod
     def _rules_findings(ruleset: dict[str, object]) -> list[Finding]:
-        """Bypass actors, PR rule, thread resolution, deletion and force-push rules."""
+        """Check bypass actors and the PR, thread, deletion and force-push rules."""
         bypass_raw = ruleset.get("bypass_actors", [])
         bypass = (
             cast("list[object]", bypass_raw) if isinstance(bypass_raw, list) else []
