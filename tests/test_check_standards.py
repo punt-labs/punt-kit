@@ -79,6 +79,14 @@ def test_gate_may_follow_in_its_own_paragraph(tmp_path: Path) -> None:
     assert check(_tree(tmp_path, files)) == []
 
 
+def test_id_like_headings_in_documents_without_ids_pass(tmp_path: Path) -> None:
+    files = {
+        "standards/http.md": "# HTTP\n\n### HTTP-2 transport\n",
+        "lang-rules/go/notes.md": "# Go\n\n## Go-1 notes\n\n## Go-Mod-2 layout\n",
+    }
+    assert check(_tree(tmp_path, files)) == []
+
+
 def test_documents_without_ids_are_not_checked(tmp_path: Path) -> None:
     files = {
         "standards/legacy.md": "# Legacy\n\n## 1. Rule\n",
@@ -144,12 +152,13 @@ def test_fenced_examples_are_ignored(tmp_path: Path) -> None:
         ),
         (
             "standards/new.md",
-            "# New\n\n### NEW-1 Missing colon\n",
+            "# New\n\n### NEW-1: Valid\n\n### NEW-2 Missing colon\n",
             "expected '### <PREFIX>-<n>: <title>'",
         ),
         (
             "lang-rules/python/extra.md",
-            "## py-log-2: Lowercase\n",
+            "## PY-LOG-2: A\n\n**Implements:** LOG-2 · **Gate:** review\n\n"
+            "## py-log-3: Lowercase\n",
             "expected '## <LANG>-<AREA>-<n>: <title>'",
         ),
         (

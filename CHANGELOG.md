@@ -229,6 +229,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `make check-standards` no longer fails ordinary headings such as
+  `### HTTP-2 transport` in documents without clause or rule IDs; malformed
+  ID headings are reported only in documents that already use IDs.
+
 - `CLAUDE.md` fence scanning: a fence line with an info string (```` ```python ````) no longer closes an open block; only a bare same-marker run at least as long as the opener does (CommonMark). Before, a correctly closed example block could make `punt enable` refuse with an unclosed-fence error (PL-1087).
 
 - The root `.gitignore` no longer ignores ethos lock files, live logs,
