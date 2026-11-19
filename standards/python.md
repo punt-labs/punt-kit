@@ -413,10 +413,10 @@ unexpected exit status rather than treating it as an empty result.
 
 Review still checks whether a comment is redundant or stale and whether a
 docstring captures the API contract, including exceptions that static
-analysis cannot infer. Fail lint on unambiguous tracker references in comments
-and docstrings using the repository's known tracker URL and issue key
-patterns. Do not scan arbitrary string literals or treat every issue-like
-token as a reference.
+analysis cannot infer. Add a `make check-comments` target that fails on
+unambiguous tracker references in comments and docstrings using the
+repository's known tracker URL and issue key patterns. Do not scan arbitrary
+string literals or treat every issue-like token as a reference.
 
 ### Generated API reference
 

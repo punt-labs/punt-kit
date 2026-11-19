@@ -29,7 +29,7 @@ An agent MUST run these before reporting compliance.
 | PY-EH-3 | ruff | `ruff check --select S101` | exit 0 (config-dependent) |
 | PY-OP-5 | ruff | `ruff check --select SIM,C1901` | exit 0 |
 | PY-DOC-1 | ruff | `uv run ruff check --select ERA001 .` (commented-out code) | exit 0 |
-| PY-DOC-2 | Tokenizer + AST | Match known tracker URLs and issue keys in comments and docstrings | Zero matches |
+| PY-DOC-2 | Tokenizer + AST | `make check-comments` (known tracker references in comments and docstrings) | exit 0 |
 | PY-DOC-3 | ruff | `uv run ruff check --select D,D401 --ignore D105,D107,D417 src/` (Google convention) | exit 0 |
 | PY-DOC-3 | pydoclint | `make check-docstrings` (gate for documented argument names) | exit 0 |
 | Public Python API reference | MkDocs + mkdocstrings | `uv run mkdocs build --strict` (projects with a public Python API) | exit 0 |
