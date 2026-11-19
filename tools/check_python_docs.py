@@ -13,6 +13,8 @@ import zlib
 from pathlib import Path
 
 from docstring_parser import DocstringStyle, ParseError, parse
+from markdown import Markdown
+from markdown.util import HTML_PLACEHOLDER_RE
 
 _DOC_DIAGNOSTIC = re.compile(r".+:\d+: DOC(\d{3}): (.+)")
 _REQUIRED_DOC_CODES = {1, 2, 3, 102, 111, 304}
@@ -35,7 +37,6 @@ _OPTIONAL_DOC_CODES = {
 _OMITTED_ARGS = "Arguments in the function signature but not in the docstring:"
 _STALE_ARGS = "Arguments in the docstring but not in the function signature:"
 _ARGS_HEADER = re.compile(r"^(?:Args|Arguments|Parameters|Params):[ \t\r\f\v]*$", re.M)
-_FENCE = re.compile(r"^ *(?P<marker>`{3,}|~{3,})(?P<info>.*)$")
 _TRACKER_REFERENCE = re.compile(
     r"(?<![\w-])(?:PL-\d+|pkit-[a-z0-9]{4,8})(?![\w-])"
     r"|\b(?:PR|issue|pull request)\s+#\d+\b"
@@ -175,22 +176,10 @@ def _python_files(root: Path) -> list[Path]:
 
 
 def _without_fenced_examples(docstring: str) -> str:
-    lines: list[str] = []
-    opening_marker = ""
-    start = 0
-    for line in docstring.splitlines():
-        if match := _FENCE.match(line):
-            marker, info = match["marker"], match["info"]
-            if not opening_marker:
-                if marker.startswith("~") or "`" not in info:
-                    opening_marker = marker
-                    start = len(lines)
-            elif marker.startswith(opening_marker) and not info.strip():
-                del lines[start:]
-                opening_marker = ""
-                continue
-        lines.append(line)
-    return "\n".join(lines)
+    markdown = Markdown(extensions=["fenced_code"])
+    fenced_code = markdown.preprocessors["fenced_code_block"]
+    lines = fenced_code.run(docstring.split("\n"))
+    return "\n".join(line for line in lines if not HTML_PLACEHOLDER_RE.fullmatch(line))
 
 
 def _uses_only_new(node: ast.ClassDef) -> bool:

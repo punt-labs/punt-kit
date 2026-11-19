@@ -278,16 +278,22 @@ def test_repeated_parameter_sections_fail(tmp_path: Path) -> None:
     assert "repeated Args section" in result.stderr
 
 
-def test_parameter_heading_inside_example_is_not_a_section(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "opening",
+    ["````text", '```` {.text title="Use `timeout`"}', "~~~text\n\n    ````text"],
+)
+def test_parameter_heading_inside_example_is_not_a_section(
+    tmp_path: Path, opening: str
+) -> None:
     path = tmp_path / "example.py"
     path.write_text(
-        '''def f(timeout: int) -> int:
+        f'''def f(timeout: int) -> int:
     """Return the timeout.
 
-    ````text
-    ```
+    {opening}
     Args:
         deadline: Part of the example.
+    ```
     ````
 
     Args:
