@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import argparse
 import re
-import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import typer
+
+from punt_kit.logging_config import EntryPointLogging
 
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _HEADING = re.compile(r"^#{1,6} ")
@@ -225,9 +228,10 @@ def main() -> int:
     except (OSError, UnicodeDecodeError) as error:
         findings = [str(error)]
     for finding in findings:
-        print(finding, file=sys.stderr)
+        typer.echo(finding, err=True, color=True)
     return int(bool(findings))
 
 
 if __name__ == "__main__":
+    EntryPointLogging("cli").configure()
     raise SystemExit(main())

@@ -157,7 +157,7 @@ transport; stderr is optional, not the system of record. Follow the canonical
 **Tooling**:
 
 - Ruff: select `LOG`, `G`, `T20`; narrowly exempt intentional CLI output
-- Source check (planned; review until supplied): ban `basicConfig` and stdlib rotating handlers in `src/`,
+- Consumer AST source check: ban `basicConfig` and stdlib rotating handlers in `src/` and `tools/`,
   including aliases, subclasses and config strings; rotating handlers require
   a reviewed proof of single-process ownership
 

@@ -58,6 +58,17 @@ punt doctor
 
 ## Commands
 
+### Diagnostics and telemetry
+
+Each `punt` invocation writes private diagnostics to
+`~/.punt-labs/punt/logs/punt.log` (0700 directories, 0600 files); only warnings
+and errors appear on stderr. Shared `punt-observe` handles redaction and rotation.
+Local usage spans in `~/.punt-labs/punt/telemetry.db` contain only the closed
+command name, outcome and JSON-output flag, never arguments, paths or content.
+Set `PUNT_TELEMETRY=off` to disable capture entirely. Network export is not enabled.
+The shared package is temporarily pinned to a Git commit, so source installation
+requires Git and access to GitHub until it is available on PyPI.
+
 ### CLI
 
 Each command that takes `[path]` runs on the current directory when the path is omitted.

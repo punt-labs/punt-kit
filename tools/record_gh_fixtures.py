@@ -25,6 +25,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Self, TypedDict, cast, final
 
+import typer
+
+from punt_kit.logging_config import EntryPointLogging
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -1004,9 +1008,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         mismatches = GhFixtureDriftChecker(runner=runner, dest=args.dest).check()
         if mismatches:
             for line in mismatches:
-                print(f"DRIFT: {line}")
+                typer.echo(f"DRIFT: {line}", color=True)
             return 1
-        print("no drift — every recorded fixture still matches live gh output")
+        typer.echo(
+            "no drift — every recorded fixture still matches live gh output", color=True
+        )
         return 0
 
     repo = RepoContext.parse(args.repo)
@@ -1015,9 +1021,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     sanitizer = GhSanitizer()
     recorder = GhFixtureRecorder(runner=runner, sanitizer=sanitizer, dest=args.dest)
     for path in recorder.record_all(plan.recordings()):
-        print(f"wrote {_display_path(path)}")
+        typer.echo(f"wrote {_display_path(path)}", color=True)
     return 0
 
 
 if __name__ == "__main__":
+    EntryPointLogging("cli").configure()
     raise SystemExit(main())

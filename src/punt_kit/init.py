@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -21,6 +22,7 @@ from punt_kit.phases.shared.text_file import TextFile
 from punt_kit.tool_config import ToolConfigPatch
 
 console = Console()
+logger = logging.getLogger(__name__)
 
 TEMPLATES = importlib.resources.files("punt_kit") / "templates"
 
@@ -67,6 +69,7 @@ def run_init(path: str, *, language: str | None = None) -> None:
     try:
         _init_project(path, language=language)
     except ReleaseError as exc:
+        logger.info("Project initialization stopped: unreadable project files")
         console.print(f"[red]Error:[/red] {escape(str(exc))}")
         raise SystemExit(1) from exc
 
@@ -119,10 +122,12 @@ def _init_project(path: str, *, language: str | None) -> None:
     changed.extend(rel for rel in _init_gitignore_locks(info) if rel not in changed)
 
     if changed:
+        logger.info("Project initialization updated files count=%d", len(changed))
         console.print("\n[bold green]Files generated/updated:[/bold green]")
         for f in changed:
             console.print(f"  [green]✓[/green] {f}")
     else:
+        logger.info("Project initialization found no files needing updates")
         console.print("\n[dim]No files needed updating.[/dim]")
 
     _report_manual_steps(info)

@@ -1,0 +1,187 @@
+"""Exercise real entry-point diagnostic files and local telemetry capture."""
+
+from __future__ import annotations
+
+import json
+import os
+import sqlite3
+import stat
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+from punt_observe.telemetry import EnumAttr
+from typer.core import TyperGroup
+from typer.main import get_command
+
+from punt_kit.__main__ import app
+from punt_kit.telemetry import ObservedGroup
+
+
+def _run(
+    home: Path, *args: str, code: str = "", off: bool = False
+) -> subprocess.CompletedProcess[str]:
+    env = dict(os.environ, HOME=str(home), PUNT_TELEMETRY="off" if off else "on")
+    command = (
+        [sys.executable, "-c", code]
+        if code
+        else [sys.executable, "-m", "punt_kit", *args]
+    )
+    return subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+
+
+def _rows(home: Path) -> list[tuple[str, int, str, dict[str, object]]]:
+    with sqlite3.connect(home / ".punt-labs/punt/telemetry.db") as connection:
+        rows = connection.execute(
+            "SELECT name, schema_version, status, attributes FROM spans"
+        ).fetchall()
+    return [
+        (name, version, status, json.loads(attrs))
+        for name, version, status, attrs in rows
+    ]
+
+
+def test_real_private_entrypoint_files(tmp_path: Path) -> None:
+    result = _run(tmp_path, "--json", "version")
+    assert result.returncode == 0, result.stderr
+    assert "version" in json.loads(result.stdout)
+    log = tmp_path / ".punt-labs/punt/logs/punt.log"
+    assert stat.S_IMODE(log.stat().st_mode) == 0o600
+    for directory in (log.parent, log.parent.parent, log.parent.parent.parent):
+        assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert "CLI invocation command=version" in log.read_text()
+    assert _rows(tmp_path) == [
+        (
+            "punt.cli.command",
+            1,
+            "OK",
+            {
+                "command": "version",
+                "json": True,
+                "outcome": "ok",
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "args,command,exit_code,outcome",
+    [
+        (["status", "/nonexistent-punt-observe-test"], "status", 1, "error"),
+        (["--verbose", "--quiet", "version"], "version", 1, "error"),
+        (["version", "--invalid-option"], "version", 2, "error"),
+        ([], "punt", 0, "ok"),
+        (["--help"], "punt", 0, "ok"),
+        (["not-a-command"], "unknown", 2, "error"),
+    ],
+)
+def test_outcomes(
+    tmp_path: Path, args: list[str], command: str, exit_code: int, outcome: str
+) -> None:
+    result = _run(tmp_path, *args)
+    assert result.returncode == exit_code, result.stderr
+    rows = _rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0][3]["command"] == command
+    assert rows[0][3]["outcome"] == outcome
+
+
+@pytest.mark.parametrize(
+    "statement,expected",
+    [
+        ("raise typer.Exit(7)", 7),
+        ("raise typer.Exit(0)", 0),
+        ("raise RuntimeError('private content')", 1),
+    ],
+)
+def test_command_exceptions(tmp_path: Path, statement: str, expected: int) -> None:
+    code = f"""
+import typer
+from punt_kit.__main__ import app
+@app.command()
+def example():
+    {statement}
+app(['example'])
+"""
+    result = _run(tmp_path, code=code)
+    assert result.returncode == expected
+    rows = _rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0][3]["outcome"] == ("ok" if expected == 0 else "error")
+    assert "private content" not in json.dumps(rows)
+
+
+def test_disabled_creates_no_store(tmp_path: Path) -> None:
+    assert _run(tmp_path, "version", off=True).returncode == 0
+    assert not (tmp_path / ".punt-labs/punt/telemetry.db").exists()
+    assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
+
+
+def test_nonstandalone_exit_code(tmp_path: Path) -> None:
+    result = _run(
+        tmp_path,
+        code="""
+import typer
+from punt_kit.__main__ import app
+@app.command()
+def example():
+    raise typer.Exit(7)
+assert app(['example'], standalone_mode=False) == 7
+""",
+    )
+    assert result.returncode == 0, result.stderr
+    assert _rows(tmp_path)[0][3]["outcome"] == "error"
+
+
+def test_installed_console_entrypoint(tmp_path: Path) -> None:
+    executable = Path(sys.executable).parent / "punt"
+    env = dict(os.environ, HOME=str(tmp_path), PUNT_TELEMETRY="on")
+    result = subprocess.run(
+        [str(executable), "version"],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert _rows(tmp_path)[0][3]["command"] == "version"
+
+
+def test_unavailable_store_preserves_result(tmp_path: Path) -> None:
+    (tmp_path / ".punt-labs/punt/telemetry.db").mkdir(parents=True)
+    result = _run(tmp_path, "version")
+    assert result.returncode == 0
+    assert result.stdout.startswith("punt ")
+
+
+def test_closed_schema_drops_unknown_values(tmp_path: Path) -> None:
+    result = _run(
+        tmp_path,
+        code="""
+from punt_observe.telemetry import open_telemetry
+from punt_kit.telemetry import ObservedGroup
+t = open_telemetry('punt', [ObservedGroup.command_schema(('version',))])
+with t.span('punt.cli.command', 1, command='unregistered'):
+    pass
+with t.span('punt.cli.command', 1, command='version', secret='private content'):
+    pass
+with t.span('punt.cli.command', 1, command='version'):
+    pass
+t.shutdown(timeout_s=2)
+""",
+    )
+    assert result.returncode == 0, result.stderr
+    rows = _rows(tmp_path)
+    assert len(rows) == 1
+    assert rows[0][3]["command"] == "version"
+    assert "private content" not in json.dumps(rows)
+
+
+def test_schema_matches_registered_commands() -> None:
+    group = get_command(app)
+    assert isinstance(group, TyperGroup)
+    schema = ObservedGroup.command_schema(tuple(group.commands))
+    command = schema.attributes["command"]
+    assert isinstance(command, EnumAttr)
+    assert set(command.values) == {"punt", "unknown", *group.commands}

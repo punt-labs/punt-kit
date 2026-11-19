@@ -2504,3 +2504,47 @@ accepted deliberately.
 | Keep `Bash(<cli> -*)` in the ask tier | It prompts read-only `--version`/`--help` (no verb, not unsafe) on every call — noise with no safety gain, since the tier is a net, not a boundary. |
 | Keep the catch-all, add explicit allow exceptions for `--version`/`--help` | Maintains a growing exception list and re-breaks on each new read-only flag; the per-verb rule needs no exceptions. |
 | Treat the flag-before-verb bypass as a security hole to close | The `ask` tier was never a security boundary; closing a "bypass" in a courtesy prompt is effort against a threat model Punt Labs tools do not have. |
+
+## DES-040: Shared Observability and One Span per CLI Invocation
+
+**Date:** 2026-11-19
+**Status:** SETTLED
+**Topic:** Private diagnostics and privacy-safe local command telemetry
+
+### Context
+
+Punt needs durable diagnostics at each process entry point and typed local
+telemetry without recording arguments, paths, subprocess output or exception
+content. Logging, privacy, rotation and telemetry transport belong in the shared
+`punt-observe` package, not in each consumer.
+
+### Design
+
+`punt-observe` is pinned to Git commit
+`a90872cc20cf688dfd41aeb36c7120e63fc69849` because it is not yet on PyPI.
+PyPI rejects direct-reference dependencies: a punt-kit PyPI release therefore
+requires publishing punt-observe first and replacing the Git reference with a
+released version. Publication timing is Jim's call; this change publishes neither
+package.
+
+`EntryPointLogging` binds the process role and terminal policy to the shared
+configuration boundary. Libraries only obtain module loggers. Diagnostics
+remain separate from the shared package's local SQLite telemetry store.
+
+`ObservedGroup` wraps Typer's outer invocation boundary, not individual command
+callbacks. It records one `punt.cli.command` v1 span for success, help, usage
+errors and failed commands, with a closed vocabulary derived from the actual
+registered commands, an outcome enum and a JSON-output boolean. Nonzero exits
+are errors; zero exits are successful. Original exceptions and exit codes are
+preserved. Shutdown waits at most two seconds. Off switches and failure isolation
+remain owned by the shared facade; instrumentation never imports exporters.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|---|---|
+| Vendor diagnostics or telemetry code | Duplicates security-sensitive rotation, redaction and failure isolation. |
+| Use an unpinned Git branch | Makes installation and release inputs mutable. |
+| Publish punt-kit with the direct Git dependency | PyPI rejects direct-reference dependencies. |
+| Decorate individual callbacks | Misses help and parsing failures and can double-count grouped dispatch. |
+| Record raw argv or exception messages | Exposes paths and content outside the closed telemetry schema. |

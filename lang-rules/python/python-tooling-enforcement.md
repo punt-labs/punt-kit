@@ -204,7 +204,7 @@ An agent SHOULD run these or implement them as pre-commit hooks.
 
 | Rule | Check | Command |
 |------|-------|---------|
-| PY-LOG-4, PY-LOG-9 | Ban `basicConfig` and unsafe rotating handlers, including aliases/subclasses/config strings | Planned source check; review until supplied |
+| PY-LOG-4, PY-LOG-9 | Ban `basicConfig` and unsafe rotating handlers, including aliases/subclasses/config strings | Consumer AST source check with negative fixtures |
 | PY-TS-1 | `from __future__ import annotations` present | `ruff check --select FA100` (exit 0) |
 | PY-CC-1 | No `__init__` in non-dataclass classes | `grep -rn "def __init__" --include="*.py"` (zero hits) |
 | PY-EN-1 | No public attributes | `grep -Pn "self\.[a-z][a-zA-Z_0-9]*\s*=" --include="*.py"` (zero hits) |

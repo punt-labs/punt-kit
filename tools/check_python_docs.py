@@ -7,14 +7,16 @@ import ast
 import io
 import re
 import subprocess
-import sys
 import tokenize
 import zlib
 from pathlib import Path
 
+import typer
 from docstring_parser import DocstringStyle, ParseError, parse
 from markdown import Markdown
 from markdown.util import HTML_PLACEHOLDER_RE
+
+from punt_kit.logging_config import EntryPointLogging
 
 _DOC_DIAGNOSTIC = re.compile(r".+:\d+: DOC(\d{3}): (.+)")
 _REQUIRED_DOC_CODES = {1, 2, 3, 102, 111, 304}
@@ -297,9 +299,12 @@ def main() -> int:
     except (OSError, SyntaxError, ValueError, tokenize.TokenError, zlib.error) as error:
         findings = [str(error)]
     for finding in findings:
-        print(finding.replace("\r", r"\r").replace("\n", r"\n"), file=sys.stderr)
+        typer.echo(
+            finding.replace("\r", r"\r").replace("\n", r"\n"), err=True, color=True
+        )
     return int(bool(findings))
 
 
 if __name__ == "__main__":
+    EntryPointLogging("cli").configure()
     raise SystemExit(main())

@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Private diagnostics and closed-schema local CLI telemetry through the
+  SHA-pinned shared `punt-observe` package; `PUNT_TELEMETRY=off` disables capture.
+
 - Standards and Rules standard (`standards/standards.md`): standards hold
   language-neutral policy and no status, `lang-rules/<lang>/` holds each
   language's implementation, every clause has a stable ID, and every rule
