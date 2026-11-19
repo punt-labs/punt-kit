@@ -2527,10 +2527,12 @@ requires publishing punt-observe first and replacing the Git reference with a
 released version. Publication timing is Jim's call; this change publishes neither
 package.
 
-Release Phase 1 rejects any direct URL reference in `[project].dependencies`,
-including VCS, archive and local-file references, before repository mutations,
-quality gates or tagging. Its remedy names the dependency: publish it to PyPI
-and pin a version before releasing. This prevents discovering the distribution
+Release prerequisites reject direct URL references in `[project].dependencies`
+and every `[project.optional-dependencies]` group, including VCS, archive and
+local-file references. The metadata-only check runs before phase selection on
+every invocation, including resumed releases, and at the start of Phase 1.
+Its remedy names the dependency and any optional group: publish it to PyPI and
+pin a version before releasing. This prevents discovering the distribution
 constraint only during a post-tag PyPI upload.
 
 `EntryPointLogging` binds the process role and terminal policy to the shared
