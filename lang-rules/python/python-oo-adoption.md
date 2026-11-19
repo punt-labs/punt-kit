@@ -41,19 +41,19 @@ every file better than you found it.
 - `uv run oo-ratchet oo <file>` — direct scoring, before and after a change
 - `uv run oo-ratchet oo <directory> --threshold` — per-file breakdown
 
-## PL-OA-2: The oo-ratchet Package Is Required
+## PL-OA-2: The punt-oo-ratchet Package Is Required
 
 **Statement**: Every Python project depends on the dev package
-[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet), the canonical
+[`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/), the canonical
 implementation of the OO, coupling/cohesion, and suppression-count gates.
 It requires Python 3.13+ and has no runtime dependencies. Do not copy its
 implementation into the consumer's `tools/` directory. Existing baseline
 and audit filenames are compatible with the extracted package.
 
-Pin a reviewed commit SHA (the repository name is spelled `rachet`):
+Install the PyPI release (source: [`python-oo-ratchet`](https://github.com/punt-labs/python-oo-ratchet)):
 
 ```bash
-uv add --dev "oo-ratchet @ git+https://github.com/punt-labs/python-oo-rachet@cf6f8846888009e6fb739c8ec95a8240870369e7"
+uv add --dev "punt-oo-ratchet>=0.1,<0.2"
 ```
 
 Commit `pyproject.toml` and `uv.lock`; CI installs with `uv sync --frozen`.

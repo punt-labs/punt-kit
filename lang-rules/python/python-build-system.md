@@ -102,9 +102,9 @@ make report SRC=src/<package>/          # scoped diagnostics
 
 **Statement**: Enforcement tooling must pass its own `make check` in its
 own repository. For OO, coupling/cohesion, and suppression gates, that is
-[`python-oo-rachet`](https://github.com/punt-labs/python-oo-rachet), which
+[`python-oo-ratchet`](https://github.com/punt-labs/python-oo-ratchet), which
 dogfoods all three gates on `src/oo_ratchet/`. Consumers depend on the
-SHA-pinned `oo-ratchet` dev package; they do not embed its implementation
+PyPI `punt-oo-ratchet` dev package; they do not embed its implementation
 under `tools/` or score a vendored copy.
 
 **Criterion**:
@@ -114,7 +114,7 @@ under `tools/` or score a vendored copy.
 
 **Tooling**:
 
-- In the `python-oo-rachet` checkout: `make check` before committing tool changes
+- In the `python-oo-ratchet` checkout: `make check` before committing tool changes
 - In a consumer checkout: `make check` runs the installed package's gates
 
 ## PY-BS-6: Every Module Must Have Tests

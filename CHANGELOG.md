@@ -102,6 +102,10 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Repin the OO quality gates to PyPI `punt-oo-ratchet` 0.1.0 and update
+  live documentation for the renamed `python-oo-ratchet` source repository
+  (PL-1155). The `oo-ratchet` CLI is unchanged.
+
 - `standards/readme.md`: a GUI app with no command line documents itself in a
   required **Using the App** section instead of a Commands table, and the
   Working Backwards badge stage must be `hypothesis`, `validated`, or
