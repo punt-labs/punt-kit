@@ -36,6 +36,7 @@ from punt_kit.phases.shared.command_runner import CommandRunner
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
+from punt_kit.phases.shared.phase_diagnostics import PhaseDiagnostics
 from punt_kit.phases.shared.phase_order import PhaseOrder
 from punt_kit.phases.shared.pipeline import PhaseStep, ReleasePipeline, ThreadedStep
 from punt_kit.phases.shared.pr_merge import PrMerger
@@ -186,6 +187,7 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     PrThreadResolver(repo, ops=_ops).resolve(gh, cwd, pr_number)
 
 
+@PhaseDiagnostics(1)
 def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
     """Run phase 1: pre-flight checks."""
     Phase1Preflight(info, dry_run=dry_run, ops=_ops).run()
@@ -226,16 +228,19 @@ def _pr_merge(
     )
 
 
+@PhaseDiagnostics(2)
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 2: bump the version on the release branch."""
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
+@PhaseDiagnostics(3)
 def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 3: build validation."""
     Phase3Build(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
+@PhaseDiagnostics(4)
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
     """Run phase 4: plugin swap, push branch, create PR, merge.
 
@@ -246,6 +251,7 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str
     )
 
 
+@PhaseDiagnostics(5)
 def _phase5_tag(
     info: ProjectInfo, version: str, *, dry_run: bool, release_sha: str | None
 ) -> None:
@@ -266,6 +272,7 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
     )
 
 
+@PhaseDiagnostics(6)
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 6: wait for CI."""
     Phase6CiWait(info, version, dry_run=dry_run, ops=_ops).run(
@@ -273,16 +280,19 @@ def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     )
 
 
+@PhaseDiagnostics(7)
 def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 7: create the GitHub release."""
     Phase7GithubRelease(info, version, dry_run=dry_run, ops=_ops).run()
 
 
+@PhaseDiagnostics(8)
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 8: verify the PyPI install."""
     Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
+@PhaseDiagnostics(9)
 def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 9: dev plugin restore via PR."""
     Phase9PostRelease(info, version, dry_run=dry_run, ops=_ops).run(merge=_pr_merge)
@@ -365,6 +375,7 @@ def _collect_thread_results(
     ThreadedStep(ops=_ops).collect(futures, interrupted=_interrupted)
 
 
+@PhaseDiagnostics(10)
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 10: cross-repo propagation via PRs."""
     Phase10Propagate(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run(
@@ -398,6 +409,7 @@ def _run_phases_9_10(
         _phase10_propagate(info, version, dry_run=dry_run)
 
 
+@PhaseDiagnostics(11)
 def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     """Run phase 11: release verification checks."""
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
@@ -508,6 +520,8 @@ def run_release(
         # Drop any skips retained from a prior release in this process so this
         # run's summary recaps only its own outstanding manual actions.
         _skips.clear()
+
+        Phase1Preflight(info, dry_run=dry_run, ops=_ops).check_dependencies()
 
         if not dry_run:
 

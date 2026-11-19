@@ -6,6 +6,7 @@ import subprocess
 from typing import final
 
 from punt_kit.phases.shared import hook_firing, timeouts
+from punt_kit.phases.shared.command_diagnostics import CommandDiagnostics
 
 
 @final
@@ -37,12 +38,15 @@ class CommandRunner:
             OSError: The command cannot start.
             UnicodeDecodeError: Captured output cannot be decoded with ``errors``.
         """
-        return subprocess.run(
-            cmd,
-            cwd=cwd,
-            capture_output=capture,
-            text=True,
-            errors=errors,
-            timeout=hook_firing.HookFiringCommand(cmd).timeout(timeout),
-            check=check,
-        )
+        with CommandDiagnostics(cmd) as diagnostics:
+            return diagnostics.completed(
+                subprocess.run(
+                    cmd,
+                    cwd=cwd,
+                    capture_output=capture,
+                    text=True,
+                    errors=errors,
+                    timeout=hook_firing.HookFiringCommand(cmd).timeout(timeout),
+                    check=check,
+                )
+            )

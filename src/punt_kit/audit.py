@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import re
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 
 # No emoji codes: a finding that cites ``.gitignore:100:`` must print as written.
 console = Console(emoji=False)
+logger = logging.getLogger(__name__)
 
 # One audit finding: (status, label, detail).
 type _Findings = list[tuple[str, str, str]]
@@ -66,12 +68,14 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     """
     root = Path(path).resolve()
     if not root.is_dir():
+        logger.info("Audit rejected a non-directory target")
         console.print(f"[red]Error:[/red] {root} is not a directory")
         raise SystemExit(1)
 
     try:
         info = detect(root)
     except ReleaseError as exc:
+        logger.info("Audit stopped because project files could not be read")
         console.print(f"\n[bold]punt audit[/bold] — {root.name}")
         console.print(f"  {FAIL} Project files are readable")
         console.print(f"      [dim]{escape(str(exc))}[/dim]")
@@ -121,6 +125,7 @@ def run_audit(path: str, *, fix: bool = False) -> None:
     if fixes:
         summary += f", [bold yellow]{fixes} fixed[/bold yellow]"
     console.print(f"\n{summary}\n")
+    logger.info("Audit finished passed=%d failed=%d fixed=%d", passes, failures, fixes)
 
     if failures > 0:
         raise SystemExit(1)

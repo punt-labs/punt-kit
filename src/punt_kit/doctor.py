@@ -6,6 +6,8 @@ import shutil
 import sys
 from dataclasses import dataclass
 
+import typer
+
 
 @dataclass(frozen=True, slots=True)
 class CheckResult:
@@ -59,7 +61,7 @@ def run_doctor(*, print_results: bool = True) -> tuple[int, list[CheckResult]]:
     if print_results:
         for r in results:
             mark = "\u2713" if r.passed else "\u2717"
-            print(f"  {mark} {r.name}: {r.message}{r.status_suffix}")
+            typer.echo(f"  {mark} {r.name}: {r.message}{r.status_suffix}", color=True)
 
     failed_required = any(not r.passed and r.required for r in results)
     return (1 if failed_required else 0, results)

@@ -10,6 +10,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
 ]
 dependencies = [
+    "punt-observe @ git+https://github.com/punt-labs/punt-observe@53e657555cab240795c850ea7f0e4dd77a8d98fc",
     "typer>=0.15.0",
     "rich>=13.0.0",
     "tomli>=2.0.0;python_version<'3.11'",
@@ -58,7 +59,7 @@ target-version = "py313"
 extend-exclude = [".docs/native-harness-plan/sources", ".claude"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "UP", "B", "SIM", "TCH"]
+select = ["E", "F", "I", "UP", "B", "SIM", "TCH", "LOG", "G", "T20"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"

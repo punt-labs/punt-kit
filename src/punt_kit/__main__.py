@@ -3,18 +3,14 @@
 from __future__ import annotations
 
 import json
-import sys
 from typing import Annotated, NoReturn
 
 import typer
 
 from punt_kit import __version__
+from punt_kit.telemetry import ObservedGroup
 
-app = typer.Typer(
-    name="punt",
-    no_args_is_help=False,
-    rich_markup_mode=None,
-)
+app = ObservedGroup.create_app()
 
 _json_output: bool = False
 _verbose: bool = False
@@ -24,18 +20,18 @@ _quiet: bool = False
 def _die(msg: str) -> NoReturn:
     """Report an error as JSON or on stderr, and exit 1."""
     if _json_output:
-        print(json.dumps({"error": msg}))
+        typer.echo(json.dumps({"error": msg}), color=True)
     else:
-        print(f"Error: {msg}", file=sys.stderr)
+        typer.echo(f"Error: {msg}", err=True, color=True)
     raise typer.Exit(code=1)
 
 
 def _emit(data: object, text: str) -> None:
     """Print text or JSON depending on --json flag. Respects --quiet."""
     if _json_output:
-        print(json.dumps(data, default=str))
+        typer.echo(json.dumps(data, default=str), color=True)
     elif not _quiet:
-        print(text)
+        typer.echo(text, color=True)
 
 
 @app.callback(invoke_without_command=True)
@@ -59,7 +55,7 @@ def main_callback(
     if verbose and quiet:
         _die("--verbose and --quiet are mutually exclusive")
     if ctx.invoked_subcommand is None:
-        print(ctx.get_help())
+        typer.echo(ctx.get_help(), color=True)
         raise typer.Exit(code=0)
 
 
@@ -190,7 +186,7 @@ def doctor() -> None:
 
     code, results = run_doctor(print_results=not _json_output and not _quiet)
     if _json_output:
-        print(
+        typer.echo(
             json.dumps(
                 [
                     {
@@ -201,10 +197,11 @@ def doctor() -> None:
                     }
                     for r in results
                 ]
-            )
+            ),
+            color=True,
         )
     if _quiet and code != 0:
-        print("doctor: required checks failed", file=sys.stderr)
+        typer.echo("doctor: required checks failed", err=True, color=True)
     raise typer.Exit(code=code)
 
 
@@ -228,24 +225,25 @@ def status(
     except ReleaseError as exc:
         _die(str(exc))
     if _json_output:
-        print(json.dumps(asdict(info), default=str))
+        typer.echo(json.dumps(asdict(info), default=str), color=True)
     elif not _quiet:
-        print(f"punt {info.punt_kit_version}")
+        typer.echo(f"punt {info.punt_kit_version}", color=True)
         if info.language:
-            print(f"Language:     {info.language}")
+            typer.echo(f"Language:     {info.language}", color=True)
         if info.project_type:
-            print(f"Project type: {info.project_type}")
+            typer.echo(f"Project type: {info.project_type}", color=True)
         if info.is_plugin:
-            print("Plugin:       yes")
+            typer.echo("Plugin:       yes", color=True)
         if info.is_mcp_server:
-            print("MCP server:   yes")
+            typer.echo("MCP server:   yes", color=True)
         if info.has_beads:
             open_n, ip_n = info.beads_open, info.beads_in_progress
-            print(f"Beads:        {open_n} open, {ip_n} in progress")
+            typer.echo(f"Beads:        {open_n} open, {ip_n} in progress", color=True)
     if info.beads_skipped and not _quiet:
-        print(
+        typer.echo(
             f"Warning: skipped {info.beads_skipped} malformed bead line(s)",
-            file=sys.stderr,
+            err=True,
+            color=True,
         )
 
 
