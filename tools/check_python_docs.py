@@ -34,6 +34,7 @@ _OPTIONAL_DOC_CODES = {
 }
 _OMITTED_ARGS = "Arguments in the function signature but not in the docstring:"
 _STALE_ARGS = "Arguments in the docstring but not in the function signature:"
+_ARGS_HEADER = re.compile(r"^(?:Args|Arguments|Parameters|Params):[ \t\r\f\v]*$", re.M)
 _TRACKER_REFERENCE = re.compile(
     r"(?<![\w-])(?:PL-\d+|pkit-[a-z0-9]{4,8})(?![\w-])"
     r"|\b(?:PR|issue|pull request)\s+#\d+\b"
@@ -180,6 +181,9 @@ def _duplicate_parameters(path: Path) -> list[str]:
         if not isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             continue
         if not (docstring := ast.get_docstring(node)):
+            continue
+        if len(_ARGS_HEADER.findall(docstring)) > 1:
+            findings.append(f"{path}:{node.lineno}: repeated Args section")
             continue
         try:
             params = parse(docstring, style=DocstringStyle.GOOGLE).params

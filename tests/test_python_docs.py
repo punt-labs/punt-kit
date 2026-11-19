@@ -209,6 +209,27 @@ def test_repeated_parameter_is_not_selective_documentation(
     assert "repeated Args entry 'timeout'" in result.stderr
 
 
+def test_repeated_parameter_sections_fail(tmp_path: Path) -> None:
+    path = tmp_path / "example.py"
+    path.write_text(
+        '''def f(timeout: int) -> int:
+    """Return the timeout.
+
+    Args:
+        deadline: The obsolete parameter in seconds.
+
+    Args:
+        timeout: The input in seconds.
+    """
+    return timeout
+''',
+        encoding="utf-8",
+    )
+    result = _run_doclint(path)
+    assert result.returncode == 1
+    assert "repeated Args section" in result.stderr
+
+
 @pytest.mark.parametrize("gate", ["comments", "docstrings"])
 def test_python_file_walk_does_not_skip_unreadable_directories(
     tmp_path: Path,
