@@ -65,7 +65,18 @@ Each `punt` invocation writes private diagnostics to
 and errors appear on stderr. Shared `punt-observe` handles redaction and rotation.
 Local usage spans in `~/.punt-labs/punt/telemetry.db` contain only the closed
 command name, outcome and JSON-output flag, never arguments, paths or content.
-Set `PUNT_TELEMETRY=off` to disable capture entirely. Network export is not enabled.
+Set `PUNT_TELEMETRY=off` to disable capture entirely, or persist the preference in
+`~/.punt-labs/punt/config.toml`:
+
+```toml
+[telemetry]
+enabled = false
+```
+
+Any off switch wins: environment settings cannot override a configuration opt-out,
+and `PUNT_TELEMETRY=off` overrides `enabled = true`. Missing or malformed settings
+fall back to defaults without changing the command result. Network export is not
+enabled.
 The shared package is temporarily pinned to a Git commit, so source installation
 requires Git and access to GitHub until it is available on PyPI.
 

@@ -125,6 +125,53 @@ def test_disabled_creates_no_store(tmp_path: Path) -> None:
     assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
 
 
+@pytest.mark.parametrize("enabled,off", [(False, False), (True, True), (False, True)])
+def test_persistent_and_environment_opt_outs_are_any_off_wins(
+    tmp_path: Path, enabled: bool, off: bool
+) -> None:
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text(f"[telemetry]\nenabled = {str(enabled).lower()}\n")
+    result = _run(tmp_path, "version", off=off)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("punt ")
+    assert not (config.parent / "telemetry.db").exists()
+    assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        b"",
+        b"[telemetry]\nenabled = true\n",
+        b"[telemetry]\nenabled = 'private-content'\n",
+        b"telemetry = 'private-content'\n",
+        b"[telemetry\nprivate-content",
+        b"\xffprivate-content",
+    ],
+)
+def test_user_settings_defaults_and_invalid_input_preserve_command(
+    tmp_path: Path, source: bytes
+) -> None:
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_bytes(source)
+    result = _run(tmp_path, "version")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("punt ")
+    assert _rows(tmp_path)[0][3]["outcome"] == "ok"
+    assert "private-content" not in (config.parent / "logs/punt.log").read_text()
+    assert "private-content" not in result.stderr
+
+
+def test_unreadable_user_settings_preserve_command(tmp_path: Path) -> None:
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.mkdir(parents=True)
+    result = _run(tmp_path, "version")
+    assert result.returncode == 0, result.stderr
+    assert _rows(tmp_path)[0][3]["outcome"] == "ok"
+
+
 def test_nonstandalone_exit_code(tmp_path: Path) -> None:
     result = _run(
         tmp_path,
