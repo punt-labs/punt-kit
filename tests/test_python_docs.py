@@ -301,6 +301,30 @@ def test_parameter_heading_inside_example_is_not_a_section(tmp_path: Path) -> No
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.parametrize("prefix", ["```timeout``` is measured in seconds.", "```text"])
+def test_unpaired_fence_does_not_hide_duplicate_args(
+    tmp_path: Path, prefix: str
+) -> None:
+    path = tmp_path / "example.py"
+    path.write_text(
+        f'''def f(timeout: int, retries: int, limit: int) -> int:
+    """Return the timeout.
+
+    {prefix}
+
+    Args:
+        timeout: The input in seconds.
+        timeout: The input in minutes.
+    """
+    return timeout
+''',
+        encoding="utf-8",
+    )
+    result = _run_doclint(path)
+    assert result.returncode == 1
+    assert "repeated Args entry 'timeout'" in result.stderr
+
+
 @pytest.mark.parametrize(
     ("decorator", "violation"),
     [

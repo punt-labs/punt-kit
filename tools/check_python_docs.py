@@ -176,16 +176,20 @@ def _python_files(root: Path) -> list[Path]:
 
 def _without_fenced_examples(docstring: str) -> str:
     lines: list[str] = []
-    opened = ""
+    opening_marker = ""
+    start = 0
     for line in docstring.splitlines():
-        match = _FENCE.match(line)
-        if not opened:
-            if match:
-                opened = match["marker"]
-            else:
-                lines.append(line)
-        elif match and match["marker"].startswith(opened) and not match["info"].strip():
-            opened = ""
+        if match := _FENCE.match(line):
+            marker, info = match["marker"], match["info"]
+            if not opening_marker:
+                if marker.startswith("~") or "`" not in info:
+                    opening_marker = marker
+                    start = len(lines)
+            elif marker.startswith(opening_marker) and not info.strip():
+                del lines[start:]
+                opening_marker = ""
+                continue
+        lines.append(line)
     return "\n".join(lines)
 
 
