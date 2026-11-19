@@ -53,7 +53,7 @@ and audit filenames are compatible with the extracted package.
 Install the PyPI release (source: [`python-oo-ratchet`](https://github.com/punt-labs/python-oo-ratchet)):
 
 ```bash
-uv add --dev "punt-oo-ratchet==0.1.0"   # exact reviewed release
+uv add --dev "punt-oo-ratchet==0.3.0"   # exact reviewed release
 ```
 
 Commit `pyproject.toml` and `uv.lock`; CI installs with `uv sync --frozen`.
