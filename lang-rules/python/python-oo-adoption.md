@@ -5,6 +5,8 @@ paths:
 
 # OO Standards Adoption
 
+**Updated:** 2026-11-18
+
 ## PL-OA-1: Ratchet — Every Commit Improves OO Quality
 
 **Statement**: The OO Python rules (PY-CC, PY-EN, PY-TS, PY-IC, PY-OP, PY-DP,
@@ -14,7 +16,7 @@ fully comply. The rule is: every commit must improve compliance, never regress.
 When you touch a file:
 
 1. Record the baseline: `make check-oo` scores touched files against the
-   committed `.oo-baseline.json`; `python tools/oo_score.py <file>` runs the
+   committed `.oo-baseline.json`; `uv run oo-ratchet oo <file>` runs the
    same scoring directly
 2. Make your change
 3. Re-run the scoring — no metric may worsen
@@ -36,16 +38,111 @@ every file better than you found it.
 
 - `make check-oo` — score touched files against the committed baseline
 - `make update-oo` — rewrite the baseline after the code passes
-- `python tools/oo_score.py <file>` — direct scoring, before and after a change
-- `python tools/oo_score.py <directory> --threshold` — per-file breakdown
+- `uv run oo-ratchet oo <file>` — direct scoring, before and after a change
+- `uv run oo-ratchet oo <directory> --threshold` — per-file breakdown
 
-## PL-OA-2: The oo_score.py Tool Is Required
+## PL-OA-2: The oo-ratchet Package Is Required
 
-**Statement**: Every Python project must have `tools/oo_score.py` available.
-This is a zero-dependency AST analysis script (stdlib only) that produces
-numeric OO quality metrics. It is provided by punt-kit as the canonical,
-deployable source for the ratchet tooling; obtain it from there rather than
-copying a developer-local file.
+**Statement**: Every Python project depends on the dev package
+[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet), the canonical
+implementation of the OO, coupling/cohesion, and suppression-count gates.
+It requires Python 3.13+ and has no runtime dependencies. Do not copy its
+implementation into the consumer's `tools/` directory. Existing baseline
+and audit filenames are compatible with the extracted package.
+
+Pin a reviewed commit SHA (the repository name is spelled `rachet`):
+
+```bash
+uv add --dev "oo-ratchet @ git+https://github.com/punt-labs/python-oo-rachet@cf6f8846888009e6fb739c8ec95a8240870369e7"
+```
+
+Commit `pyproject.toml` and `uv.lock`; CI installs with `uv sync --frozen`.
+
+### Makefile wiring
+
+Replace `src/pkg/` with the project's source directory:
+
+```make
+SRC := src/pkg/
+OO_BASE ?=
+COUPLING_BASE ?=
+SUPPRESSION_BASE ?=
+
+.PHONY: check check-oo update-oo report check-coupling update-coupling check-suppressions update-suppressions
+check: lint type test check-oo check-coupling check-suppressions
+
+check-oo:
+	uv run oo-ratchet oo $(SRC) --check $(OO_BASE)
+update-oo:
+	uv run oo-ratchet oo $(SRC) --update $(OO_BASE)
+report:
+	uv run oo-ratchet oo $(SRC) --threshold
+check-coupling:
+	uv run oo-ratchet coupling $(SRC) --check $(COUPLING_BASE)
+update-coupling:
+	uv run oo-ratchet coupling $(SRC) --update $(COUPLING_BASE)
+check-suppressions:
+	uv run oo-ratchet suppressions $(SRC) --check $(SUPPRESSION_BASE)
+update-suppressions:
+	uv run oo-ratchet suppressions $(SRC) --update
+```
+
+### Initial baselines
+
+Only for a repo without baselines, seed from its current source:
+
+```bash
+uv run oo-ratchet oo src/pkg/ --rebaseline
+uv run oo-ratchet coupling src/pkg/ --rebaseline
+uv run oo-ratchet suppressions src/pkg/ --update
+```
+
+Commit `.oo-baseline.json`, `.oo-audit.jsonl`,
+`.oo-coupling-baseline.json`, `.oo-coupling-audit.jsonl`,
+`.suppression-baseline.json`, and `.suppression-audit.jsonl` together.
+OO and coupling baselines map repo-relative paths to metric dictionaries;
+suppression baselines contain total, category, and per-file counts. Audits
+are JSON Lines. Normal changes use the update targets, not `--rebaseline`.
+Never hand-edit a baseline to bypass a regression. Suppression checks rescan
+source at the comparison base; the count snapshot supports updates and audit.
+
+### CI wiring
+
+Run on `pull_request` and `push` to `main`. Checkout must use
+`fetch-depth: 0`; install Python 3.13+ and run `uv sync --frozen` first.
+Use the package's merge-base comparison and post-merge tripwire steps:
+
+```yaml
+- name: Ratchets (PR, merge-base compare)
+  if: github.event_name == 'pull_request'
+  env:
+    HEAD_REF: ${{ github.head_ref }}
+    BASE_REF: ${{ github.base_ref }}
+  run: |
+    git fetch --no-tags origin "${BASE_REF}"
+    BASE="$(git merge-base "origin/${BASE_REF}" HEAD)"
+    OO_ARGS="--base-ref ${BASE} --require-base"
+    case "${HEAD_REF}" in
+      release/*|post-release/*) OO_ARGS="${OO_ARGS} --allow-no-improvement" ;;
+    esac
+    make check-oo OO_BASE="${OO_ARGS}"
+    make check-coupling COUPLING_BASE="--base-ref ${BASE} --require-base"
+    make check-suppressions SUPPRESSION_BASE="--base-ref ${BASE} --require-base"
+- name: Ratchets (main, post-merge tripwire)
+  if: github.event_name == 'push'
+  run: |
+    make check-oo OO_BASE="--base-ref HEAD~1 --require-base --allow-no-improvement --tripwire"
+    make check-coupling COUPLING_BASE="--base-ref HEAD~1 --require-base --tripwire"
+    make check-suppressions SUPPRESSION_BASE="--base-ref HEAD~1 --require-base --tripwire"
+```
+
+The OO/coupling gates bootstrap when both the merge base and `origin/main`
+lack their baseline, even with `--require-base`; an unresolvable base fails.
+Once main has baselines, a pre-adoption branch must rebase instead of
+bootstrapping. `--tripwire` handles the one-time adoption merge on main.
+Suppression comparisons already work on pre-adoption source via a live rescan.
+See punt-kit's [workflow](../../.github/workflows/ratchet.yml) for a complete
+consumer configuration and the package README for gate-specific flags.
 
 **Metrics and thresholds**:
 
@@ -65,8 +162,9 @@ copying a developer-local file.
 
 **Criterion**:
 
-- Pass: `tools/oo_score.py` exists in the project and runs without error
-- Fail: tool missing or broken
+- Pass: the pinned package installs and all three ratchets run in `make check`
+  and CI
+- Fail: package missing, embedded tooling used instead, or a gate bypassed
 
 ## PL-OA-3: Apply the Refactoring Protocol for Legacy Code
 

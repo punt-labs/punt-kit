@@ -1,6 +1,6 @@
 # Python Standards
 
-**Updated:** 2026-08-14
+**Updated:** 2026-11-18
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
@@ -239,9 +239,20 @@ Every Punt Labs Python project adopts the OO ratchet tooling. The ratchet is the
 mechanism that holds Python to the object-oriented stance, and no Python project
 is exempt from it.
 
-The ratchet tooling, currently in lux, moves to punt-kit, so any Python project
-can install it from one shared source rather than copying it out of lux. That
-promotion is a required follow-on to adopting this standard.
+Depend on the dev package
+[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet), pinned to a
+reviewed commit SHA in `pyproject.toml` and `uv.lock`. Do not embed copies of
+the tooling under `tools/`. The package provides `oo-ratchet oo`,
+`oo-ratchet coupling`, and `oo-ratchet suppressions`; all three checks belong
+in `make check`. Coupling/cohesion and suppression counts are regression-only
+gates, alongside the OO must-improve gate.
+
+The [adoption rule](../lang-rules/python/python-oo-adoption.md) specifies
+dependency installation, Makefile targets, initial baseline seeding, and CI
+wiring. PRs compare against the merge base with `--require-base`; main pushes
+use the post-merge tripwire. Only release and post-release branches waive
+the OO improvement requirement, never regression checks. Baselines and audit
+logs remain repo-owned; implementation lives in the external package.
 
 ## Toolchain
 

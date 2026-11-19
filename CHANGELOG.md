@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- SHA-pinned `oo-ratchet` dev dependency, OO/coupling/suppression baselines
+  and audit logs, real Makefile gates and per-file `make report`, and CI
+  merge-base checks with post-merge tripwires. Python adoption documentation
+  now points to the external package instead of embedded tooling.
+
 - `punt enable` / `punt disable` (PL-1037, `tool-enable-disable.md` § 2.10).
   `enable` deposits punt's user guide at `.punt-labs/punt/CLAUDE.md` from the
   packaged template, writes the `enabled` marker, adds

@@ -183,6 +183,15 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [Integration](standards/integration.md) | How tools discover and coordinate each other in a session without hard dependencies |
 | [README](standards/readme.md) | Audience, badge set, section order, tone, anti-patterns for project READMEs |
 
+## Development Quality Gates
+
+For this checkout, `uv sync` installs the SHA-pinned
+[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet) dev package.
+`make check` includes OO, coupling/cohesion, and suppression-count ratchets;
+`make report` shows per-file OO metrics. See the
+[adoption rule](lang-rules/python/python-oo-adoption.md) for baseline updates
+and CI wiring.
+
 ## Plugin Development Patterns
 
 Fourteen design patterns drawn from Punt Labs Claude Code plugins. Each one describes the problem, the solution, the trade-offs, and which projects use it.
