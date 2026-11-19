@@ -472,7 +472,8 @@ missing directive.
 ## Logging
 
 - `logger = logging.getLogger(__name__)` per module.
-- Follow [Logging](logging.md): entry points call `configure_logging` for
+- Follow [Python logging rules](../lang-rules/python/python-logging.md):
+  entry points call `configure_logging` for
   `dictConfig` setup and a durable, private file sink; never `basicConfig`.
 - Reserve stdout for stdio transport in MCP servers. stderr is optional,
   never the only diagnostic sink. Hooks and detached processes configure too.

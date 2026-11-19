@@ -6,6 +6,8 @@ paths:
 
 # Package Architecture Standards
 
+**Updated:** 2026-11-19
+
 Punt Labs Python packages realize the four-surface engine-and-clients model:
 one engine fronted by thin clients — a library import, a CLI, an MCP server, and
 a REST API. The engine, made of the `core`, `commands`, and `types` modules, is
@@ -121,7 +123,7 @@ in `pyproject.toml` under `[project.scripts]` using the short name (not the
 ## PL-PA-6: MCP Server Framework
 
 **Statement**: Use `FastMCP` for MCP servers. Follow the
-[Logging standard](https://github.com/punt-labs/punt-kit/blob/main/standards/logging.md):
+[Python logging rules](python-logging.md) (PY-LOG-1 and PY-LOG-6):
 call `configure_logging` for `dictConfig` setup and a durable private file sink.
 stdout is reserved for stdio transport; stderr is optional, never the only
 diagnostic sink. Register as `<name>-server` entry point.

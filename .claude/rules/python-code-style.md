@@ -5,6 +5,8 @@ paths:
 
 # Code Style Standards
 
+**Updated:** 2026-11-19
+
 ## PY-CS-1: Naming Conventions
 
 | Entity | Convention | Example |
@@ -145,7 +147,7 @@ optional heavy dependencies at system boundaries.
 for `dictConfig` setup with a durable private file sink, never `basicConfig`.
 Library modules never configure logging. stdout is reserved for stdio
 transport; stderr is optional, not the system of record. Follow the canonical
-[Logging standard](https://github.com/punt-labs/punt-kit/blob/main/standards/logging.md).
+[Python logging rules](python-logging.md) (PY-LOG-1 through PY-LOG-9).
 
 **Criterion**:
 
@@ -155,7 +157,7 @@ transport; stderr is optional, not the system of record. Follow the canonical
 **Tooling**:
 
 - Ruff: select `LOG`, `G`, `T20`; narrowly exempt intentional CLI output
-- Source check: ban `basicConfig` and stdlib rotating handlers in `src/`,
+- Source check (planned; review until supplied): ban `basicConfig` and stdlib rotating handlers in `src/`,
   including aliases, subclasses and config strings; rotating handlers require
   a reviewed proof of single-process ownership
 
