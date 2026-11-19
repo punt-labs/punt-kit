@@ -5,6 +5,8 @@ paths:
 
 # Tooling Enforcement Matrix
 
+**Updated:** 2026-11-18
+
 Every standard must be checkable. This file maps each rule to the tool(s) that
 can deterministically judge compliance. Rules without deterministic tooling are
 marked for LLM review — these are the gaps an agent must cover.
@@ -35,8 +37,12 @@ make check
 
 ## Tier 0: OO Score (Custom, Deterministic, Exit Code 0/1)
 
-The `tools/oo_score.py` script produces numeric OO quality metrics via AST
-analysis. No external dependencies. Exits 1 if any metric fails.
+The [`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet) dev package
+produces numeric OO quality metrics via AST analysis, with no runtime
+dependencies. Depend on the pinned package, not an embedded copy of the tool
+(see `python-oo-adoption.md`). Diagnostic output exits 1 when aggregate
+metrics miss absolute thresholds; the `--check` gate instead enforces the
+committed baseline's must-improve contract on touched files.
 
 | Metric | Threshold | What It Catches |
 |--------|-----------|----------------|
@@ -55,16 +61,17 @@ analysis. No external dependencies. Exits 1 if any metric fails.
 **Usage**:
 
 ```bash
-python tools/oo_score.py path/to/module.py           # human-readable
-python tools/oo_score.py path/to/package/ --json      # machine-readable
-python tools/oo_score.py path/to/package/ --threshold  # per-file breakdown
+uv run oo-ratchet oo path/to/module.py             # human-readable
+uv run oo-ratchet oo path/to/package/ --json        # machine-readable
+uv run oo-ratchet oo path/to/package/ --threshold   # per-file breakdown
+make report                                      # project diagnostics
 ```
 
 **Agent protocol**: Run before AND after every change. Score must not regress.
 
 ## Tier 0b: External OO Metrics (pip-installable, JSON output)
 
-These complement `oo_score.py` with metrics it cannot compute.
+These complement `oo-ratchet oo` with additional diagnostics.
 
 **Install** (all work on Python 3.13):
 
@@ -169,7 +176,8 @@ make report SRC=src/<package>/              # full diagnostics, no fail-fast
 ```
 
 `make check` runs the full quality gate — lint, type checking, tests, and the
-OO ratchet (`make check-oo`) — per PL-TC-5.
+OO ratchet (`make check-oo`), coupling/cohesion (`make check-coupling`), and
+suppression counts (`make check-suppressions`) — per PL-TC-5 and PL-OA-2.
 `make report` adds the diagnostics: radon CC/MI, pylint design, cohesion LCOM,
 vulture dead code.
 
