@@ -129,8 +129,8 @@ alone coordinates neither processes nor rotation. Use it only when all writers
 route to a single listener owning the file, not per-process rotating listeners.
 
 **Gate:** Review process topology; require concurrent-writer rollover tests
-for loss, corruption, bounded storage and private backups. Require the
-unsafe-handler source check in PY-LOG-9.
+for loss, corruption, bounded storage and private backups. The unsafe-handler
+source check in PY-LOG-9 is planned, not supplied here.
 
 ## PY-LOG-5: Redaction and Injection Safety
 
@@ -214,8 +214,8 @@ store, exporter failure, bounded shutdown and exporter-only migration.
 **Statement**: Select Ruff `LOG`, `G`, `T20`. A consumer source check MUST ban
 `basicConfig` and unsafe stdlib rotating handlers in `src/`, including aliases,
 subclasses and `dictConfig` strings; allow handlers only with reviewed proof
-of single ownership. Ruff cannot enforce these bans; each consumer supplies
-an AST source check and negative fixtures covering every forbidden form.
+of single ownership. Ruff cannot enforce these bans. The source check is
+planned; until provided, review is the gate.
 
 **Gate:** Ruff codes plus review. `make check-standards`, included
 in `make lint` and `make check`, checks policy citation coverage, dangling
@@ -226,8 +226,8 @@ citations and duplicate definitions, not implementation correctness.
 Every policy ID maps to a rule and gate. An explicit row with Python rule(s)
 `gap` and gate `gap` records a policy without claiming implementation; only
 `Implements` lines count as citations. Review is a gate, not
-automated runtime coverage. Required consumer checks are not represented as
-universally installed automated checks. There are no unmapped clauses.
+automated runtime coverage. Planned source checks and required consumer tests
+are not represented as existing automated checks. There are no unmapped clauses.
 
 | Policy ID | Python rule(s) | Gate |
 |-----------|----------------|------|
@@ -235,13 +235,13 @@ universally installed automated checks. There are no unmapped clauses.
 | LOG-2 | PY-LOG-5 | Review; consumer privacy tests required |
 | LOG-3 | PY-LOG-6 | Review |
 | LOG-4 | PY-LOG-6 | Review; running sink inspection |
-| LOG-5 | PY-LOG-1, PY-LOG-2, PY-LOG-9 | Review; Ruff LOG/G/T20; consumer AST source check |
+| LOG-5 | PY-LOG-1, PY-LOG-2, PY-LOG-9 | Review; Ruff LOG/G/T20; source check planned |
 | LOG-6 | PY-LOG-5 | Review; consumer redaction tests required |
 | LOG-7 | PY-LOG-3 | Review |
 | LOG-8 | PY-LOG-3 | Review; consumer permission tests required |
 | LOG-9 | PY-LOG-6 | Review |
 | LOG-10 | PY-LOG-4 | Review; consumer rollover tests required |
-| LOG-11 | PY-LOG-4, PY-LOG-9 | Review; consumer concurrency tests required; consumer AST source check |
+| LOG-11 | PY-LOG-4, PY-LOG-9 | Review; consumer concurrency tests required; source check planned |
 | LOG-12 | PY-LOG-6 | Review |
 | LOG-13 | PY-LOG-6 | Review |
 | LOG-14 | PY-LOG-2, PY-LOG-5, PY-LOG-9 | Ruff G; review; consumer injection tests required |
