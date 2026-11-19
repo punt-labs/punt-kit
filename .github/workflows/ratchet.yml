@@ -37,7 +37,15 @@ jobs:
           make check-suppressions SUPPRESSION_BASE="--base-ref ${BASE} --require-base"
       - name: Ratchets (main, post-merge tripwire)
         if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
         run: |
-          make check-oo OO_BASE="--base-ref HEAD~1 --require-base --allow-no-improvement --tripwire"
-          make check-coupling COUPLING_BASE="--base-ref HEAD~1 --require-base --tripwire"
-          make check-suppressions SUPPRESSION_BASE="--base-ref HEAD~1 --require-base --tripwire"
+          # Compare against the pre-push tip so every commit in the push is covered.
+          BASE="HEAD~1"
+          if [ -n "${BEFORE}" ] && [ "${BEFORE}" != "0000000000000000000000000000000000000000" ] \
+            && git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            BASE="${BEFORE}"
+          fi
+          make check-oo OO_BASE="--base-ref ${BASE} --require-base --allow-no-improvement --tripwire"
+          make check-coupling COUPLING_BASE="--base-ref ${BASE} --require-base --tripwire"
+          make check-suppressions SUPPRESSION_BASE="--base-ref ${BASE} --require-base --tripwire"
