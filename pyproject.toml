@@ -25,7 +25,7 @@ dev = [
     "ruff>=0.11.0",
     "mypy>=1.15.0",
     "pyright>=1.1.0",
-    "oo-ratchet",
+    "punt-oo-ratchet==0.1.0",
 ]
 
 [project.urls]
@@ -42,9 +42,6 @@ build-backend = "uv_build"
 
 [tool.uv.build-backend]
 module-name = "punt_kit"
-
-[tool.uv.sources]
-oo-ratchet = { git = "https://github.com/punt-labs/python-oo-rachet", rev = "cf6f8846888009e6fb739c8ec95a8240870369e7" }
 
 [tool.ruff]
 line-length = 88

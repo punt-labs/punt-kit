@@ -240,8 +240,8 @@ mechanism that holds Python to the object-oriented stance, and no Python project
 is exempt from it.
 
 Depend on the dev package
-[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet), pinned to a
-reviewed commit SHA in `pyproject.toml` and `uv.lock`. Do not embed copies of
+[`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/), pinned to an
+exact reviewed release (`==X.Y.Z`) in `pyproject.toml` and locked in `uv.lock`. Do not embed copies of
 the tooling under `tools/`. The package provides `oo-ratchet oo`,
 `oo-ratchet coupling`, and `oo-ratchet suppressions`; all three checks belong
 in `make check`. Coupling/cohesion and suppression counts are regression-only

@@ -37,7 +37,7 @@ make check
 
 ## Tier 0: OO Score (Custom, Deterministic, Exit Code 0/1)
 
-The [`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet) dev package
+The [`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/) dev package
 produces numeric OO quality metrics via AST analysis, with no runtime
 dependencies. Depend on the pinned package, not an embedded copy of the tool
 (see `python-oo-adoption.md`). Diagnostic output exits 1 when aggregate

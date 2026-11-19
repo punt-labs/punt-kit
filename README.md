@@ -185,8 +185,8 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 
 ## Development Quality Gates
 
-For this checkout, `uv sync` installs the SHA-pinned
-[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet) dev package.
+For this checkout, `uv sync` installs the PyPI
+[`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/) dev package.
 `make check` includes OO, coupling/cohesion, and suppression-count ratchets;
 `make report` shows per-file OO metrics. See the
 [adoption rule](lang-rules/python/python-oo-adoption.md) for baseline updates

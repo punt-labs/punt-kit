@@ -3,8 +3,8 @@
 Filed 2026-08-30 from operator direction: fix release engine bugs (weekly pain), then strengthen standards auditing/enforcement, then review standards rot, then decompose. `claude2cursor` is already gone (DES-021); no action. OO ratchet tooling moves to its own external repo — punt-kit's standards depend on it but do not embed it (see `pkit-kmos` update 2026-08-30).
 
 **OO adoption update — 2026-11-18:** the shared implementation now lives in
-[`python-oo-rachet`](https://github.com/punt-labs/python-oo-rachet).
-punt-kit depends on its SHA-pinned `oo-ratchet` dev package and runs all
+[`python-oo-ratchet`](https://github.com/punt-labs/python-oo-ratchet).
+punt-kit depends on its PyPI `punt-oo-ratchet` dev package and runs all
 three gates in `make check` and CI, with root baselines and audit logs.
 The Python standard and adoption lang-rule now document package-based wiring,
 superseding embedded-tool deployment instructions in the historical plan.
