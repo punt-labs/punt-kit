@@ -63,6 +63,7 @@ class _Index:
     def add_standard(self, path: Path) -> None:
         current: str | None = None
         doc_prefixes: set[str] = set()
+        near_misses: list[str] = []
         for number, line in _lines(self.root / path):
             where = f"{path}:{number}"
             if match := _CLAUSE.match(line):
@@ -79,13 +80,15 @@ class _Index:
                 self.clauses[clause_id] = _Clause(where, retired, None)
                 current = clause_id
             elif _NEAR_CLAUSE.match(line):
-                self.findings.append(f"{where}: expected '### <PREFIX>-<n>: <title>'")
+                near_misses.append(f"{where}: expected '### <PREFIX>-<n>: <title>'")
                 current = None
             elif _HEADING.match(line):
                 current = None
             elif current and (match := _APPLIES.match(line)):
                 names = {name.strip() for name in match[1].split(",")}
                 self.clauses[current].languages = frozenset(names - {""})
+        if doc_prefixes:
+            self.findings.extend(near_misses)
         if len(doc_prefixes) > 1:
             self.findings.append(
                 f"{path}: clauses use more than one prefix: "
@@ -101,15 +104,14 @@ class _Index:
     def add_rule_file(self, path: Path, language: str) -> None:
         file_rules: list[_Rule] = []
         current: _Rule | None = None
+        near_misses: list[str] = []
         for number, line in _lines(self.root / path):
             where = f"{path}:{number}"
             if match := _RULE.match(line):
                 current = _Rule(match[1], where, language)
                 file_rules.append(current)
             elif _NEAR_RULE.match(line):
-                self.findings.append(
-                    f"{where}: expected '## <LANG>-<AREA>-<n>: <title>'"
-                )
+                near_misses.append(f"{where}: expected '## <LANG>-<AREA>-<n>: <title>'")
                 current = None
             elif _HEADING.match(line):
                 current = None
@@ -117,6 +119,8 @@ class _Index:
                 self._add_trace(current, line, where)
             elif current and current.traced and _GATE.match(line):
                 current.gated = True
+        if file_rules:
+            self.findings.extend(near_misses)
         if any(rule.traced for rule in file_rules):
             self.findings.extend(
                 f"{rule.where}: rule {rule.rule_id} has no Implements line"
