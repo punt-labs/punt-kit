@@ -5,6 +5,8 @@ paths:
 
 # Refactoring Protocol
 
+**Updated:** 2026-11-18
+
 Refactoring means small, incremental, behavior-preserving transformations.
 Each step must leave the system running identically. Each step must improve
 a measurable score. No big-bang rewrites.
@@ -204,7 +206,8 @@ was already identified as needing change.
 
 Stop refactoring when any of these hold:
 
-- All OO scores are above their thresholds (see oo_score.py)
+- All OO scores meet their thresholds (see
+  `uv run oo-ratchet oo <src> --threshold` or `make report`)
 - No single transformation improves any score
 - The only remaining fix would break the public API, change invocation
   semantics, or add architectural complexity disproportionate to the metric

@@ -5,6 +5,8 @@ paths:
 
 # Object-Oriented Design Requirements
 
+**Updated:** 2026-11-18
+
 These rules close the gap between "code that passes style checks" and "code
 that is actually object-oriented." They prevent procedural codebases that
 technically satisfy all other rules.
@@ -171,7 +173,7 @@ shares vocabulary or parameters with the class — operates on its types, builds
 its instances, formats its errors — it is almost certainly a missing method on
 the class.
 
-**The smell**: `oo_score.py` flags it numerically as `method_ratio < 0.8` and
+**The smell**: `oo-ratchet oo` flags it numerically as `method_ratio < 0.8` and
 `class_to_func_ratio < 0.5`. This rule names the design pattern those metrics
 detect so an author can recognize and prevent it instead of catching it after
 the fact.
@@ -262,7 +264,8 @@ class WireContext:
 
 **Tooling**:
 
-- Primary numeric: `oo_score.py` — `method_ratio >= 0.8` and
+- Primary numeric: `uv run oo-ratchet oo <src> --threshold` (or `--json`) —
+  `method_ratio >= 0.8` and
   `class_to_func_ratio >= 0.5` per file.
 - AST recipe: in any module where `count(ClassDef) >= 1`, list every
   `FunctionDef` at module scope; for each, check whether its parameter or

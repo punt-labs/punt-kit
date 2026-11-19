@@ -101,10 +101,16 @@ worker or evaluator.
 ## The standing worker contract
 
 Every implementation mission in punt-kit carries this block verbatim in its
-contract. punt-kit has no ratchet gate (`make check` runs ruff, mypy,
-pyright, shellcheck, and pytest; there is no `check-oo`, baseline file, or
-update target), so the ratchet clauses of the standard's reference block
-name nothing here and the block reads:
+contract. `make check` runs ruff, mypy, pyright, shellcheck, pytest, and the
+three gates from the pinned dev package
+[`oo-ratchet`](https://github.com/punt-labs/python-oo-rachet) on
+`src/punt_kit/`: OO must-improve, coupling/cohesion regression-only, and
+suppression-count regression-only. `make report` shows per-file OO metrics.
+After passing, use `make update-oo`, `make update-coupling`, and
+`make update-suppressions`; stage changed root baselines and audit logs with
+the source. The [adoption rule](../lang-rules/python/python-oo-adoption.md)
+defines seeding and the PR merge-base / main post-merge CI wiring.
+The standing block reads:
 
 > **Goal.** Good design, stated as responsibilities: which unit (type,
 > module, or package) owns what, who depends on what.
@@ -113,6 +119,11 @@ name nothing here and the block reads:
 > number without improving responsibilities — a grab-bag unit, a bundle of
 > collaborators handed out for callers to reach through, a second facade
 > forwarding to the first — is rejected even when the gate goes green.
+>
+> **Ratchets.** No OO metric regresses on a touched file and at least one
+> improves. Coupling/cohesion and suppression counts must not regress.
+> Commit updated baselines and audit logs with the source; never hand-edit
+> them or rebaseline existing debt to make a gate pass.
 >
 > **Forbidden.** Restoring any file from git (`git show REV:path > path`,
 > `checkout --`, `restore`, `reset`, `stash`), `rm`, `clean`, or switching

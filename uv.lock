@@ -335,6 +335,11 @@ wheels = [
 ]
 
 [[package]]
+name = "oo-ratchet"
+version = "0.1.0"
+source = { git = "https://github.com/punt-labs/python-oo-rachet?rev=cf6f8846888009e6fb739c8ec95a8240870369e7#cf6f8846888009e6fb739c8ec95a8240870369e7" }
+
+[[package]]
 name = "packaging"
 version = "26.3"
 source = { registry = "https://pypi.org/simple" }
@@ -377,6 +382,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "oo-ratchet" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "ruff" },
@@ -396,6 +402,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.15.0" },
+    { name = "oo-ratchet", git = "https://github.com/punt-labs/python-oo-rachet?rev=cf6f8846888009e6fb739c8ec95a8240870369e7" },
     { name = "pyright", specifier = ">=1.1.0" },
     { name = "pytest", specifier = ">=8.0.0" },
     { name = "ruff", specifier = ">=0.11.0" },

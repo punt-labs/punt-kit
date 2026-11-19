@@ -1,4 +1,9 @@
-.PHONY: help test lint type check check-oo report update-oo format build clean depot prfaq clean-tex
+.PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions format build clean depot prfaq clean-tex
+
+SRC := src/punt_kit/
+OO_BASE ?=
+COUPLING_BASE ?=
+SUPPRESSION_BASE ?=
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -15,13 +20,28 @@ type: ## Type check with mypy and pyright
 	uv run mypy src/ tests/ tools/
 	uv run pyright src/ tests/ tools/
 
-check: lint type test ## Run all quality gates
+check: lint type test check-oo check-coupling check-suppressions ## Run all quality gates
 
-# OO ratchet not yet adopted here (tracked follow-up). These stubs exist so an
-# agent following the deployed .claude/rules/ (which reference them) does not hit
-# a missing target. They pass as no-ops until the real ratchet lands.
-check-oo report update-oo: ## OO ratchet — not yet adopted in this repo (no-op)
-	@echo "$@: OO ratchet not yet adopted in this repo; see the OO-adoption follow-up."
+check-oo: ## OO must-improve ratchet
+	uv run oo-ratchet oo $(SRC) --check $(OO_BASE)
+
+update-oo: ## Update touched OO baseline entries
+	uv run oo-ratchet oo $(SRC) --update $(OO_BASE)
+
+report: ## Report per-file OO metrics and thresholds
+	uv run oo-ratchet oo $(SRC) --threshold
+
+check-coupling: ## Coupling/cohesion regression gate
+	uv run oo-ratchet coupling $(SRC) --check $(COUPLING_BASE)
+
+update-coupling: ## Update touched coupling baseline entries
+	uv run oo-ratchet coupling $(SRC) --update $(COUPLING_BASE)
+
+check-suppressions: ## Suppression-count regression gate
+	uv run oo-ratchet suppressions $(SRC) --check $(SUPPRESSION_BASE)
+
+update-suppressions: ## Update suppression baseline
+	uv run oo-ratchet suppressions $(SRC) --update
 
 format: ## Auto-format code
 	uv run ruff format .
