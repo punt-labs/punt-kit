@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import sys
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 
@@ -10,6 +12,11 @@ from tools.check_policy_traceability import main, traceability_findings
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+
+def _run(args: list[str]) -> int:
+    with patch.object(sys, "argv", ["check_policy_traceability.py", *args]):
+        return main()
 
 
 @pytest.fixture
@@ -28,7 +35,7 @@ def corpus(tmp_path: Path) -> Path:
 
 def test_pass(corpus: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert traceability_findings(corpus) == []
-    assert main(["--root", str(corpus)]) == 0
+    assert _run(["--root", str(corpus)]) == 0
     assert "Policy traceability: all definitions cited" in capsys.readouterr().out
 
 
@@ -58,7 +65,7 @@ def test_violations(
 ) -> None:
     (corpus / path).write_text(source)
     assert any(expected in finding for finding in traceability_findings(corpus))
-    assert main(["--root", str(corpus)]) == 1
+    assert _run(["--root", str(corpus)]) == 1
     assert expected in capsys.readouterr().err
 
 
@@ -98,4 +105,4 @@ def test_missing_inputs_fail_closed(corpus: Path) -> None:
     (corpus / "lang-rules/python/python-logging.md").unlink()
     assert "lang-rules/python: no rule files" in traceability_findings(corpus)
     (corpus / "standards/logging.md").unlink()
-    assert main(["--root", str(corpus)]) == 1
+    assert _run(["--root", str(corpus)]) == 1

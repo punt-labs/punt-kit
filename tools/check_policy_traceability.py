@@ -77,13 +77,13 @@ def traceability_findings(root: Path) -> list[str]:
     return findings
 
 
-def main(argv: list[str] | None = None) -> int:
+def main() -> int:
     """Run the traceability gate and fail on violations or unreadable inputs."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--root", type=Path, default=Path(__file__).resolve().parents[1]
     )
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
     try:
         findings = traceability_findings(args.root)
     except (OSError, UnicodeError) as error:
