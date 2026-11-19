@@ -48,8 +48,10 @@ unused number. Retire a clause by renaming its title to start with
 **Implements:** STD-5 · **Gate:** `make check-standards` (missing citations)
 
 Write `**Implements:** <IDs> · **Gate:** <gate>` as the first line under a
-`## <LANG>-<AREA>-<n>: <title>` heading. Name `review` as the gate only when
-no mechanical check is practical.
+`## <LANG>-<AREA>-<n>: <title>` heading. When the gate needs a paragraph,
+write `**Implements:** <IDs>` alone and start a later paragraph of the rule
+with `**Gate:**`. Name `review` as the gate only when no mechanical check is
+practical.
 
 ## MD-STD-6: Run the traceability check in make check
 

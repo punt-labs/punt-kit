@@ -65,6 +65,20 @@ def test_complete_tree_passes(tmp_path: Path) -> None:
     assert check(_tree(tmp_path, _base())) == []
 
 
+def test_gate_may_follow_in_its_own_paragraph(tmp_path: Path) -> None:
+    rules = _GO_RULES.replace(
+        "**Implements:** LOG-1 · **Gate:** `review` (evaluator)",
+        "**Implements:** LOG-1\n\nStatement.\n\n**Gate:** `review` (evaluator)",
+    )
+    assert rules != _GO_RULES
+    files = {
+        "standards/logging.md": _STANDARD,
+        "lang-rules/python/logging.md": _PYTHON_RULES,
+        "lang-rules/go/logging.md": rules,
+    }
+    assert check(_tree(tmp_path, files)) == []
+
+
 def test_documents_without_ids_are_not_checked(tmp_path: Path) -> None:
     files = {
         "standards/legacy.md": "# Legacy\n\n## 1. Rule\n",
@@ -110,7 +124,12 @@ def test_fenced_examples_are_ignored(tmp_path: Path) -> None:
         (
             "lang-rules/python/extra.md",
             "## PY-LOG-2: No gate\n\n**Implements:** LOG-2\n",
-            "expected '**Implements:** <IDs> · **Gate:** <gate>'",
+            "rule PY-LOG-2 names no Gate",
+        ),
+        (
+            "lang-rules/python/extra.md",
+            "## PY-LOG-2: Bad\n\n**Implements:** log-2\n",
+            "expected '**Implements:** <IDs>'",
         ),
         (
             "lang-rules/python/extra.md",

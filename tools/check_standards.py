@@ -17,7 +17,8 @@ _NEAR_CLAUSE = re.compile(r"^#{2,6} [A-Za-z][A-Za-z0-9]*-\d+\b")
 _NEAR_RULE = re.compile(r"^#{2,6} [A-Za-z][A-Za-z0-9]*-[A-Za-z][A-Za-z0-9]*-\d+")
 _APPLIES = re.compile(r"^\*\*Applies to:\*\* (.+)$")
 _IMPLEMENTS = re.compile(r"^\*\*Implements:\*\*")
-_TRACE = re.compile(r"^\*\*Implements:\*\* ([A-Z0-9, -]+?) · \*\*Gate:\*\* (\S.*)$")
+_TRACE = re.compile(r"^\*\*Implements:\*\* ([A-Z0-9, -]+?)( · \*\*Gate:\*\* \S.*)?$")
+_GATE = re.compile(r"^\*\*Gate:\*\* \S")
 _CLAUSE_ID = re.compile(r"^[A-Z][A-Z0-9]{1,7}-\d+$")
 
 
@@ -35,6 +36,7 @@ class _Rule:
     language: str
     cites: list[str] = field(default_factory=list[str])
     traced: bool = False
+    gated: bool = False
 
 
 def _lines(path: Path) -> list[tuple[int, str]]:
@@ -113,12 +115,19 @@ class _Index:
                 current = None
             elif _IMPLEMENTS.match(line):
                 self._add_trace(current, line, where)
+            elif current and current.traced and _GATE.match(line):
+                current.gated = True
         if any(rule.traced for rule in file_rules):
             self.findings.extend(
                 f"{rule.where}: rule {rule.rule_id} has no Implements line"
                 for rule in file_rules
                 if not rule.traced
             )
+        self.findings.extend(
+            f"{rule.where}: rule {rule.rule_id} names no Gate"
+            for rule in file_rules
+            if rule.traced and not rule.gated
+        )
         self.rules.extend(file_rules)
 
     def _add_trace(self, rule: _Rule | None, line: str, where: str) -> None:
@@ -130,11 +139,10 @@ class _Index:
                 f"{where}: rule {rule.rule_id} has two Implements lines"
             )
         elif match is None:
-            self.findings.append(
-                f"{where}: expected '**Implements:** <IDs> · **Gate:** <gate>'"
-            )
+            self.findings.append(f"{where}: expected '**Implements:** <IDs>'")
         else:
             rule.traced = True
+            rule.gated = bool(match[2])
             rule.cites = [cited.strip() for cited in match[1].split(",")]
             self.findings.extend(
                 f"{where}: malformed clause ID {cited!r}"

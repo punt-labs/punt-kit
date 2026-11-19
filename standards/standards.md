@@ -96,6 +96,9 @@ across `lang-rules/`. Directly under it is one line:
 **Implements:** LOG-2, LOG-5 · **Gate:** `make lint` (Ruff `LOG`, `G`)
 ```
 
+A rule whose gate needs a paragraph puts `**Gate:**` at the start of its own
+paragraph later in the rule instead.
+
 `Implements` lists the clause IDs the rule makes true. `Gate` names what
 fails when the rule is broken: a make target, a linter rule, a CI job, an
 in-image check or test, or `review` with the evaluator role when no

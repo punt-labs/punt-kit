@@ -1,8 +1,12 @@
 # Pharo Standards
 
+**Updated:** 2026-11-19
+
 Standards for all Punt Labs Pharo and Smalltalk projects. This document is the
 canonical reference — individual project CLAUDE.md files should reference it, not
 duplicate it.
+
+Follow [Logging](logging.md) and [Telemetry](telemetry.md) policy; language-specific implementation rules are a separate follow-on.
 
 Current Pharo projects: anthropic-sdk-pharo, lux-pharo.
 

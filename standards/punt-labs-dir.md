@@ -1,6 +1,6 @@
 # Repo-Local State Directory Standard
 
-**Introduced:** 2026-07-20 · **Updated:** 2026-11-11
+**Introduced:** 2026-07-20 · **Updated:** 2026-11-19
 
 Where a tool stores per-repo state, what is committed, what is ignored, and how
 the two are told apart. A tool's committed repo state lives under one directory —
@@ -209,6 +209,11 @@ file?**
 | Person- or machine-scoped **ephemeral** live state, but repo-bound | `<repo>/.punt-labs/local/<tool>/` — the local zone ([§ 2](#2-repo-local-locations-the-tool-root-and-the-local-zone)) | No ([§ 4](#4-committed-by-default-the-local-convention-is-the-only-ignore-convention)) | Locks, live mission logs, pre-seal session/audit streams, trace, scratch |
 | Person- or machine-scoped and repo-independent | `~/.punt-labs/<tool>/` | N/A (outside any repo) | Daemon runtime, caches, indexes, cross-repo preferences, **durable diagnostic logs** ([logging.md](logging.md)) |
 | Secret — credential, token, key | Platform secret store, or `~/.punt-labs/<tool>/` at mode `0600` | Never in any repo | API keys, signing keys |
+
+Usage telemetry is machine-scoped, repo-independent home-tree data:
+`~/.punt-labs/<tool>/telemetry.db`, never a repo-local file. It is separate
+from diagnostic `logs/`, with a `0700` directory and `0600` database and
+sidecars; see [Telemetry](telemetry.md) for private creation and retention.
 
 **Secrets never live under a repo `.punt-labs/` at all** — not even as a
 local-convention (uncommitted) file. Such a file is uncommitted, but it still
