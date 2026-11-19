@@ -8,8 +8,7 @@ from typing import TYPE_CHECKING, Any, final
 
 import typer
 from punt_observe.telemetry import BoolAttr, EnumAttr, SignalSchema, open_telemetry
-from typer._click.core import Command
-from typer.core import TyperGroup
+from typer.core import TyperCommand, TyperGroup
 
 from punt_kit.logging_config import EntryPointLogging
 
@@ -53,7 +52,8 @@ class ObservedGroup(TyperGroup):
 
     def _metadata(self, arguments: list[str]) -> tuple[str, bool]:
         with self.context_class(self, resilient_parsing=True) as context:
-            remaining = Command.parse_args(self, context, list(arguments))
+            parser = TyperCommand(name=self.name, params=self.get_params(context))
+            remaining = parser.parse_args(context, list(arguments))
             output_json = bool(context.params.get("output_json", False))
         command = remaining[0] if remaining else "punt"
         if command not in self.commands and command != "punt":
@@ -87,13 +87,31 @@ class ObservedGroup(TyperGroup):
         )
 
     @staticmethod
-    def _invoke(invoke: Callable[[], Any]) -> tuple[Any, SystemExit | None]:
+    def _invoke(
+        invoke: Callable[[], Any], command: str, standalone_mode: bool
+    ) -> tuple[Any, SystemExit | None]:
+        outcome = "error"
+        exit_code = 1
         try:
-            return invoke(), None
+            result = invoke()
+            exit_code = result if not standalone_mode and isinstance(result, int) else 0
+            outcome = "ok" if exit_code == 0 else "error"
+            return result, None
         except SystemExit as exc:
+            exit_code = (
+                exc.code if isinstance(exc.code, int) else int(exc.code is not None)
+            )
+            outcome = "ok" if exc.code in (None, 0) else "error"
             if exc.code not in (None, 0):
                 raise
             return None, exc
+        finally:
+            logger.info(
+                "CLI invocation finished command=%s outcome=%s exit_code=%d",
+                command,
+                outcome,
+                exit_code,
+            )
 
     def _record(
         self, arguments: list[str], invoke: Callable[[], Any], standalone_mode: bool
@@ -108,7 +126,9 @@ class ObservedGroup(TyperGroup):
                     "punt.cli.command", 1, command=command, json=output_json
                 ):
                     logger.info("CLI invocation command=%s", command)
-                    result, successful_exit = self._invoke(invoke)
+                    result, successful_exit = self._invoke(
+                        invoke, command, standalone_mode
+                    )
                     if not standalone_mode and isinstance(result, int) and result != 0:
                         raise _CommandFailed
             except _CommandFailed:

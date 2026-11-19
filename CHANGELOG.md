@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Release preflight rejects direct URL dependencies before tagging, with a
+  publish-to-PyPI and version-pin remedy instead of a later upload failure.
+
 - Private diagnostics and closed-schema local CLI telemetry through the
   SHA-pinned shared `punt-observe` package; `PUNT_TELEMETRY=off` disables capture.
 

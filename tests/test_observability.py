@@ -85,6 +85,9 @@ def test_outcomes(
     assert len(rows) == 1
     assert rows[0][3]["command"] == command
     assert rows[0][3]["outcome"] == outcome
+    log = (tmp_path / ".punt-labs/punt/logs/punt.log").read_text()
+    assert log.count("CLI invocation finished") == 1
+    assert f"command={command} outcome={outcome} exit_code={exit_code}" in log
 
 
 @pytest.mark.parametrize(
@@ -110,6 +113,10 @@ app(['example'])
     assert len(rows) == 1
     assert rows[0][3]["outcome"] == ("ok" if expected == 0 else "error")
     assert "private content" not in json.dumps(rows)
+    log = (tmp_path / ".punt-labs/punt/logs/punt.log").read_text()
+    assert log.count("CLI invocation finished") == 1
+    assert f"exit_code={expected}" in log
+    assert "private content" not in log
 
 
 def test_disabled_creates_no_store(tmp_path: Path) -> None:
@@ -132,6 +139,9 @@ assert app(['example'], standalone_mode=False) == 7
     )
     assert result.returncode == 0, result.stderr
     assert _rows(tmp_path)[0][3]["outcome"] == "error"
+    log = (tmp_path / ".punt-labs/punt/logs/punt.log").read_text()
+    assert log.count("CLI invocation finished") == 1
+    assert "command=example outcome=error exit_code=7" in log
 
 
 def test_installed_console_entrypoint(tmp_path: Path) -> None:
@@ -185,3 +195,80 @@ def test_schema_matches_registered_commands() -> None:
     command = schema.attributes["command"]
     assert isinstance(command, EnumAttr)
     assert set(command.values) == {"punt", "unknown", *group.commands}
+
+
+def test_concurrent_entrypoint_logging_rolls_over_without_loss(tmp_path: Path) -> None:
+    workers, records = 4, 100
+    payload = ("x" * 1000 + " ") * 20
+    code = """
+import json
+import logging
+import sys
+from punt_kit.logging_config import EntryPointLogging
+EntryPointLogging().configure()
+sys.stdout.write('ready\\n')
+sys.stdout.flush()
+sys.stdin.readline()
+logger = logging.getLogger('rotation')
+for index in range(100):
+    logger.info(json.dumps({
+        'worker': int(sys.argv[1]), 'index': index,
+        'payload': ('x' * 1000 + ' ') * 20,
+    }))
+"""
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", code, str(worker)],
+            env=dict(os.environ, HOME=str(tmp_path)),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        for worker in range(workers)
+    ]
+    try:
+        for process in processes:
+            assert process.stdout is not None
+            assert process.stdout.readline() == "ready\n"
+        for process in processes:
+            assert process.stdin is not None
+            process.stdin.write("go\n")
+            process.stdin.flush()
+        for process in processes:
+            stdout, stderr = process.communicate(timeout=60)
+            assert process.returncode == 0, stderr
+            assert stdout == stderr == ""
+    finally:
+        for process in processes:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=10)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+
+    directory = tmp_path / ".punt-labs/punt/logs"
+    files = list(directory.iterdir())
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o700
+    assert all(stat.S_IMODE(path.stat().st_mode) == 0o600 for path in files)
+    backups = [path for path in files if path.suffix[1:].isdigit()]
+    assert 1 <= len(backups) <= 5
+    logs = [directory / "punt.log", *backups]
+    # Shared-lock appends can overshoot the threshold by in-flight bounded records.
+    file_bound = 5 * 1024 * 1024 + workers * (64 * 1024 + 1)
+    assert all(path.stat().st_size <= file_bound for path in logs)
+    assert sum(path.stat().st_size for path in files) <= 6 * file_bound
+    seen: list[tuple[int, int]] = []
+    for path in logs:
+        for line in path.read_text().splitlines(keepends=True):
+            assert line.endswith("\n")
+            prefix, message = line.split(" [INFO] rotation: ", 1)
+            assert len(prefix) == 19
+            record = json.loads(message)
+            assert record["payload"] == payload
+            seen.append((record["worker"], record["index"]))
+    assert len(seen) == workers * records
+    assert set(seen) == {
+        (worker, index) for worker in range(workers) for index in range(records)
+    }

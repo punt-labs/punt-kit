@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import shlex
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
+from packaging.requirements import InvalidRequirement, Requirement
 from rich.console import Console
 
 from punt_kit.phases.phase10_homebrew import has_brew_formula_target
@@ -61,6 +62,7 @@ class Phase1Preflight:
         dry_run = self._dry_run
         ops = self._ops
         _console.print("\n[bold]Phase 1: Pre-flight[/bold]")
+        self._check_dependencies()
 
         branch = ops.run(
             ["git", "branch", "--show-current"], cwd=str(info.root)
@@ -209,6 +211,25 @@ class Phase1Preflight:
             ops.ok("All quality gates passed")
         elif dry_run:
             ops.dry("Would run quality gates")
+
+    def _check_dependencies(self) -> None:
+        """Reject dependencies PyPI cannot accept before release side effects."""
+        project = cast(
+            "dict[str, object]", (self._info.pyproject or {}).get("project", {})
+        )
+        for dependency in cast("list[str]", project.get("dependencies", [])):
+            try:
+                requirement = Requirement(dependency)
+            except InvalidRequirement:
+                self._ops.fail(
+                    "Invalid project dependency; "
+                    "fix [project].dependencies before releasing"
+                )
+            if requirement.url:
+                self._ops.fail(
+                    f"Direct URL dependency: publish {requirement.name} to PyPI "
+                    "and pin a version before releasing"
+                )
 
     def _dirty_tree_message(
         self, dirty_lines: list[str], untracked_lines: list[str]
