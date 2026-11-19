@@ -175,7 +175,7 @@ def _python_files(root: Path) -> list[Path]:
 
 
 def _without_fenced_examples(docstring: str) -> str:
-    lines = []
+    lines: list[str] = []
     opened = ""
     for line in docstring.splitlines():
         match = _FENCE.match(line)
