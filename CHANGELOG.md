@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Language-neutral logging and OpenTelemetry telemetry policies with stable clause
+  IDs, private multi-process-safe diagnostics and privacy-safe local SQLite capture;
+  separate Python implementation rules and policy-to-rule traceability. A data-driven
+  `make check-policy-traceability` gate runs in `make lint` / `make check` to reject
+  uncited policy clauses, dangling rule citations and duplicate definitions.
+
 - Python docstring and API reference standards: Google-style public contracts,
   focused comment cleanup, Ruff and pydoclint checks, and mkdocstrings builds.
 

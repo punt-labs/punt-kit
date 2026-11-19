@@ -177,7 +177,8 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone; committed except local-convention paths (`local/`, `*.local`, `*.local.*`); live state never tracked (seal pattern, chunk-based); canonical gitignore block; subtree zones |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean) and the optional `depot` target |
-| [Logging](standards/logging.md) | Structured logging, log levels, stderr conventions |
+| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md) |
+| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md) |
 | [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
 | [Release Requirements](standards/release-requirements.md) | End-state artifacts every release must satisfy, in the originating repo and siblings |
 | [Integration](standards/integration.md) | How tools discover and coordinate each other in a session without hard dependencies |
