@@ -28,6 +28,14 @@ An agent MUST run these before reporting compliance.
 | PY-IC-2 | mypy | subclass of `@final` → error | exit 0 |
 | PY-EH-3 | ruff | `ruff check --select S101` | exit 0 (config-dependent) |
 | PY-OP-5 | ruff | `ruff check --select SIM,C1901` | exit 0 |
+| PY-DOC-1 | ruff | `uv run ruff check --select ERA001 .` (commented-out code) | exit 0 |
+| PY-DOC-2 | Tokenizer + AST | `make check-comments` (known tracker references in comments and docstrings) | exit 0 |
+| PY-DOC-3 | ruff | `uv run ruff check --select D,D401 --ignore D105,D107,D417 src/` (Google convention) | exit 0 |
+| PY-DOC-3 | pydoclint | `make check-docstrings` (gate for documented argument names) | exit 0 |
+| Public Python API reference | MkDocs + mkdocstrings | `uv run mkdocs build --strict` (projects with a public Python API) | exit 0 |
+
+See [Docstrings and API Reference](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md#docstrings-and-api-reference)
+for the lint configuration and pydoclint findings the gate retains.
 
 **Composite check command** (prefer `make check` over individual invocations):
 
@@ -261,6 +269,8 @@ An agent must reason about the code to check these.
 
 | Rule | What to Check |
 |------|--------------|
+| PY-DOC-1, PY-DOC-2 | Remove non-compliant comments on sight. Reject redundant, stale, and historical prose and tracker references; preserve useful current rationale. |
+| PY-DOC-3 | Public contracts, selective sections, accurate caller-facing exceptions, and a complete runtime description for MCP tools. |
 | PY-OO-1 | Domain nouns with data + behavior are classes, not dicts + functions |
 | PY-OO-4 | TypedDicts not used as substitute for domain classes with behavior |
 | PY-OO-5 | Functions that read 3+ fields from an arg should be methods |
