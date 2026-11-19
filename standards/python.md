@@ -260,6 +260,8 @@ logs remain repo-owned; implementation lives in the external package.
 |------|---------|---------|
 | **uv** | Package manager, virtualenv, task runner | `uv sync`, `uv run`, `uv build`, `uv publish` |
 | **ruff** | Linting and formatting | `uv run ruff check .`, `uv run ruff format .` |
+| **pydoclint** | Check documented parameter names against signatures | Via `make lint` |
+| **MkDocs + mkdocstrings** | Generate the public Python API reference | `uv run mkdocs build --strict` |
 | **mypy** | Type checking (strict) | `uv run mypy src/ tests/` |
 | **pyright** | Type checking (strict, second opinion) | `uv run pyright src/ tests/` |
 | **pytest** | Testing | `uv run pytest` |
@@ -345,6 +347,97 @@ uvx twine check dist/*
 - **Double quotes.** Line length 88. Enforced by ruff.
 - All imports at top of file, grouped per PEP 8 (stdlib, third-party, local).
 - No inline imports.
+
+## Docstrings and API Reference
+
+Follow the [Python comments and docstrings rule](../lang-rules/python/python-comments.md).
+Public modules, packages, classes, functions, and methods in `src/` need
+Google-style docstrings with imperative summaries. Private names and tests
+do not. Describe the caller-visible contract, not the implementation or its
+history. Keep types in annotations, explain only non-obvious parameters and
+results, and list all caller-facing exceptions. The supported surface includes
+public re-exports, even from private modules, and every registered MCP tool.
+MCP tools need a fuller runtime docstring even when their names are private.
+
+### Linting
+
+When adopting this standard, run these checks in `make lint` and CI.
+Keep pydoclint in the locked uv development dependencies. The
+[enforcement matrix](../lang-rules/python/python-tooling-enforcement.md)
+separates lint checks from review.
+
+- Run Ruff's `D` rules in a separate `src/` invocation, not in the usual
+  whole-repo Ruff check. Set `convention = "google"` under
+  `[tool.ruff.lint.pydocstyle]`. Select `D401` explicitly: the Google convention
+  alone does not enforce imperative mood. Ignore `D417`, which requires
+  documenting all parameters whenever an `Args:` section exists. Ignore
+  `D105` and `D107` so lint does not require a docstring on every special
+  method or initializer; review the ones that are part of the public API.
+  Ruff's visibility rules are an approximation; separately check supported
+  symbols Ruff cannot see, such as re-exports from private modules.
+- Run `uv run ruff check --select ERA001 .` to flag commented-out Python code.
+  Inspect findings and remove confirmed dead code; do not auto-delete comments.
+  Rephrase false positives where possible without losing meaning.
+- Provide a `make check-docstrings` target for the pydoclint argument gate
+  below. The plain pydoclint exit status is not the gate: the standard
+  permits both partial `Args:` and omitted return descriptions.
+
+```toml
+[tool.pydoclint]
+style = "google"
+arg-type-hints-in-docstring = false
+skip-checking-short-docstrings = false
+allow-init-docstring = true
+check-style-mismatch = true
+```
+
+Use pydoclint's reported findings (from its CLI or AST visitor). Fail on tool
+errors, `DOC001`/`DOC002` parse errors, `DOC003` style mismatches,
+`DOC102` (surplus entries), `DOC111`
+(repeated argument types), and `DOC103` when it reports arguments in the
+docstring that are not in the function signature. Do not fail on `DOC101`
+or a `DOC103` that only reports undocumented parameters. Do not ignore
+`DOC103` wholesale: a renamed parameter can leave a stale docstring entry
+without changing the entry count. Put constructor argument documentation on
+the class unless `__init__` has its own docstring; when both docstrings exist,
+put constructor arguments in `__init__` and fail on `DOC304`.
+
+Test the gate with partial and omitted sections, stale argument names
+(including in constructors), non-Google sections, parse errors, and tool
+failures. If filtering CLI output, fail on unrecognized output or an
+unexpected exit status rather than treating it as an empty result.
+
+Review still checks whether a comment is redundant or stale and whether a
+docstring captures the API contract, including exceptions that static
+analysis cannot infer. Fail lint on unambiguous tracker references in comments
+and docstrings using the repository's known tracker URL and issue key
+patterns. Do not scan arbitrary string literals or treat every issue-like
+token as a reference.
+
+### Generated API reference
+
+Projects that expose a public Python API build its reference with MkDocs
+and `mkdocstrings[python]`. Lock the build dependencies in a uv dependency
+group, point the Python handler at `src/`, and set the parser to Google style:
+
+```yaml
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+          options:
+            docstring_style: google
+            show_signature_annotations: true
+```
+
+In reference pages, use `::: package.symbol` directives for supported modules
+and objects. Select public members explicitly where needed; do not publish
+internal names or copy signatures and API descriptions into Markdown.
+Keep narrative guides separate. Require `uv run mkdocs build --strict` in
+CI, with the docs dependencies installed. Check that the expected public
+symbols appear in the built reference: a strict build can succeed with a
+missing directive.
 
 ## Types
 

@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Python docstring and API reference standards: Google-style public contracts,
+  focused comment cleanup, Ruff and pydoclint checks, and mkdocstrings builds.
+
 - SHA-pinned `oo-ratchet` dev dependency, OO/coupling/suppression baselines
   and audit logs, real Makefile gates and per-file `make report`, and CI
   merge-base checks with post-merge tripwires. Python adoption documentation
