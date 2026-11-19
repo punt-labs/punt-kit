@@ -1,4 +1,4 @@
-"""The files a built wheel installs, and whether they make up a given module."""
+"""Inspect the module files installed by a built wheel."""
 
 from __future__ import annotations
 
@@ -22,25 +22,31 @@ _CODE_SUFFIXES = (".py", ".so", ".pyd")
 
 @final
 class WheelContents:
-    """The paths a wheel installs into site-packages, relative to it."""
+    """Inspect paths that a wheel installs relative to site-packages."""
 
     __slots__ = ("_paths",)
 
     _paths: tuple[str, ...]
 
     def __new__(cls, names: Iterable[str]) -> Self:
+        """Index archive member names."""
         self = super().__new__(cls)
         self._paths = tuple(_INSTALLED_DATA.sub("", name, count=1) for name in names)
         return self
 
     @classmethod
     def of(cls, wheel: Path) -> Self:
-        """The contents of ``wheel``; ``zipfile.BadZipFile`` if it is not a zip."""
+        """Read member names from a wheel archive.
+
+        Raises:
+            zipfile.BadZipFile: The wheel is not a valid ZIP archive.
+            OSError: The archive cannot be read.
+        """
         with zipfile.ZipFile(wheel) as archive:
             return cls(archive.namelist())
 
     def top_level(self) -> tuple[str, ...]:
-        """The top-level importable names the wheel installs, sorted.
+        """List the wheel's top-level importable names in sorted order.
 
         A top-level directory counts when it holds a ``.py``, ``.so`` or
         ``.pyd`` file at any depth (a data directory such as ``assets/`` does
@@ -76,7 +82,7 @@ class WheelContents:
 
 
 def _importable_name(code_path: str) -> str:
-    """The top-level name a code file installs: its directory, or its stem.
+    """Find the import name supplied by a file's directory or stem.
 
     ``pkg/sub/mod.py`` is ``pkg``; ``fast.cpython-313-x86_64-linux-gnu.so``
     is ``fast``.

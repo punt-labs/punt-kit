@@ -169,7 +169,7 @@ _GIT_LIKE = frozenset({"git", "gh"}) | _SHELLS
 
 @final
 class HookFiringCommand:
-    """One concrete argv, classified by whether it may run a git hook.
+    """Classify an invocation by whether it may run a Git hook.
 
     Every punt-labs repo installs beads hooks that call a networked Dolt
     server, so a command that fires one needs ``GIT_HOOK``, not the 60s
@@ -188,12 +188,13 @@ class HookFiringCommand:
     _argv: tuple[str, ...]
 
     def __new__(cls, argv: Sequence[str]) -> Self:
+        """Classify the potential hooks of a command invocation."""
         self = super().__new__(cls)
         self._argv = tuple(argv)
         return self
 
     def fires_hooks(self) -> bool:
-        """True unless the argv is provably a command that runs no hook."""
+        """Check whether the command might run a hook."""
         if not self._argv:
             return True
         binary = PurePath(self._argv[0]).name
@@ -209,7 +210,7 @@ class HookFiringCommand:
         return False
 
     def timeout(self, requested: int) -> int:
-        """``requested``, raised to the hook budget when this command may fire one."""
+        """Raise the requested timeout to the hook budget if a hook may run."""
         return max(requested, GIT_HOOK) if self.fires_hooks() else requested
 
     @staticmethod
@@ -248,7 +249,7 @@ class HookFiringCommand:
 
     @staticmethod
     def _gh_split(words: Sequence[str]) -> tuple[list[str], set[str]]:
-        """The command words and the flags given, a cluster split into its letters."""
+        """Split out command words and flags, expanding short-option clusters."""
         positional: list[str] = []
         given: set[str] = set()
         index = 0
@@ -267,7 +268,7 @@ class HookFiringCommand:
 
     @staticmethod
     def _splits_a_string(words: Sequence[str]) -> bool:
-        """True for ``env -S`` / ``--split-string`` in any form, attached or not.
+        """Recognize ``env -S`` and ``--split-string`` in any form.
 
         The string it carries is a command line, and any short-option cluster
         holding ``S`` (``-iSgit``) may carry one, so these are over-approximated.

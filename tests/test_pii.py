@@ -236,7 +236,7 @@ def test_allow_patterns_suppress_paths(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Integration: run_pii
+# PII runner integration
 # ---------------------------------------------------------------------------
 
 
@@ -273,7 +273,6 @@ def test_staged_mode(tmp_path: Path) -> None:
     # Staged mode should find nothing (dirty.py not staged)
     run_pii(str(tmp_path), staged=True)
 
-    # Now stage it
     subprocess.run(["git", "add", "dirty.py"], cwd=str(tmp_path), capture_output=True)
 
     with pytest.raises(SystemExit, match="1"):

@@ -1,4 +1,4 @@
-"""Recognizing a project's pinned install.sh URLs in free-form text."""
+"""Recognize a project's pinned install.sh URLs in free-form text."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ _TRUSTED_HOST = "raw.githubusercontent.com"
 
 @dataclass(frozen=True, slots=True)
 class InstallUrl:
-    """One install.sh URL reference found in text, already classified.
+    """Represent a classified install.sh URL reference and its location.
 
     ``url`` is the percent-decoded URL of the reference — for a token whose
     decoding never settles, the raw token. ``segment`` is the pinned path
@@ -40,12 +40,12 @@ class InstallUrl:
 
     @property
     def is_sha_pin(self) -> bool:
-        """True for a trusted URL pinned to a commit SHA."""
+        """Check for a trusted URL pinned to a commit SHA."""
         return self.is_trusted and InstallUrlRecognizer.is_sha_segment(self.segment)
 
     @property
     def is_pin(self) -> bool:
-        """True for a trusted URL pinned to a commit SHA or a release tag."""
+        """Check for a trusted URL pinned to a commit SHA or release tag."""
         return self.is_sha_pin or (
             self.is_trusted and _RELEASE_TAG_SHAPE.fullmatch(self.segment) is not None
         )
@@ -53,7 +53,7 @@ class InstallUrl:
 
 @final
 class InstallUrlRecognizer:
-    """The single definition of "a pinned install URL for this repository".
+    """Recognize trusted and untrusted install URLs for a repository.
 
     ``ReadmeShaPin.bump`` (which rewrites pins and then verifies its own
     output), the website propagator, Phase 11 (which verifies the published
@@ -140,6 +140,11 @@ class InstallUrlRecognizer:
     _reference: re.Pattern[str]
 
     def __new__(cls, owner: str, repo_name: str) -> Self:
+        """Bind the recognizer to an exact GitHub owner and repository name.
+
+        Raises:
+            ValueError: The owner or repository name is empty.
+        """
         if not owner or not repo_name:
             msg = f"owner and repo must both be non-empty: {owner!r}/{repo_name!r}"
             raise ValueError(msg)
@@ -155,17 +160,15 @@ class InstallUrlRecognizer:
 
     @property
     def slug(self) -> str:
-        """The ``owner/repo`` this recognizer trusts."""
+        """Return the ``owner/repo`` this recognizer trusts."""
         return f"{self._owner}/{self._repo}"
 
     @classmethod
     def for_slug(cls, slug: str) -> Self:
         """Build a recognizer from an ``owner/repo`` slug.
 
-        Surrounding slashes and whitespace are stripped (a remote URL such
-        as ``https://github.com/owner/repo/`` resolves to ``owner/repo/``).
-        Raises ``ValueError`` unless exactly one non-empty owner and one
-        non-empty repo remain.
+        Raises:
+            ValueError: The slug does not name a valid owner and repository.
         """
         parsed = RepoSlug.parse(slug)
         return cls(parsed.owner, parsed.name)
@@ -242,7 +245,7 @@ class InstallUrlRecognizer:
 
     @staticmethod
     def is_sha_segment(segment: str) -> bool:
-        """True when ``segment`` is shaped like a 7-40 hex commit SHA."""
+        """Recognize a 7- to 40-digit hexadecimal commit SHA."""
         return _SHA_SHAPE.fullmatch(segment) is not None
 
     def repinned(
@@ -273,7 +276,7 @@ class InstallUrlRecognizer:
         return content
 
     def _trusted_match(self, parsed: ParseResult) -> re.Match[str] | None:
-        """The path match when ``parsed`` is exactly this repo's trusted install URL."""
+        """Match the exact trusted install URL path for this repository."""
         if parsed.scheme != "https" or parsed.netloc.lower() != _TRUSTED_HOST:
             return None
         return self._trusted.fullmatch(parsed.path)

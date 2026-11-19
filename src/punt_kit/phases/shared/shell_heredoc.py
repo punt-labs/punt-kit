@@ -1,4 +1,4 @@
-"""Where the bodies of the here-documents in a shell script are."""
+"""Locate here-document bodies in shell scripts."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ _OPENER = re.compile(
 
 @final
 class HeredocBodies:
-    """The text a shell reads as data, not commands, because a ``<<`` opened it.
+    """Identify source ranges a shell reads as here-document data.
 
     A body starts on the line after its opener and ends at a line that is just
     the delimiter (with leading tabs allowed for ``<<-``). One that never
@@ -30,6 +30,7 @@ class HeredocBodies:
     _spans: tuple[tuple[int, int], ...]
 
     def __new__(cls, text: str) -> Self:
+        """Index here-document bodies in shell source text."""
         self = super().__new__(cls)
         spans: list[tuple[int, int]] = []
         pending: list[tuple[str, bool]] = []
@@ -54,12 +55,12 @@ class HeredocBodies:
         return self
 
     def contains(self, position: int) -> bool:
-        """True when ``position`` is inside a here-document body."""
+        """Check whether the character offset falls inside a here-document body."""
         return any(start <= position < end for start, end in self._spans)
 
     @classmethod
     def _openers(cls, line: str) -> list[tuple[str, bool]]:
-        """The ``(delimiter, strips tabs)`` of each here-document ``line`` opens."""
+        """Find delimiter and tab-stripping pairs for openers on ``line``."""
         opaque = cls._opaque_spans(line)
         return [
             (m.group(2) or m.group(3) or m.group(4), m.group(1) == "-")
@@ -70,7 +71,7 @@ class HeredocBodies:
 
     @staticmethod
     def _opaque_spans(line: str) -> list[tuple[int, int]]:
-        """The ``(start, end)`` of each quoted string and of a trailing comment.
+        """Locate quoted strings and a trailing comment as half-open ranges.
 
         A ``#`` starts a comment only at the beginning of a word; a backslash
         escapes the next character; a quote left open runs to the line's end.

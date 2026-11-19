@@ -1,4 +1,4 @@
-"""The one test for whether a commit pin names the commit a release produced."""
+"""Compare a commit pin to the commit a release produced."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class PinVerdict:
-    """Whether a pin is current, and the detail to show for it."""
+    """Report whether a pin is current and explain the verdict."""
 
     is_current: bool
     detail: str
@@ -24,7 +24,7 @@ class PinVerdict:
 
 @final
 class PinCurrency:
-    """Decides whether a pin names the same commit as ``expected_sha``.
+    """Check whether a pin resolves to the expected commit.
 
     Writers ask it before leaving a pin alone and Phase 11 asks it when
     verifying, so a pin one calls current the other cannot call stale.
@@ -48,6 +48,7 @@ class PinCurrency:
     _ops: ReleaseOps
 
     def __new__(cls, expected_sha: str, *, cwd: Path, ops: ReleaseOps) -> Self:
+        """Compare install pins against an expected commit in a local checkout."""
         self = super().__new__(cls)
         self._expected = expected_sha
         self._cwd = cwd
@@ -55,11 +56,23 @@ class PinCurrency:
         return self
 
     def is_current(self, pinned: str) -> bool:
-        """True when ``pinned`` resolves to the expected commit."""
+        """Check whether ``pinned`` resolves to the expected commit.
+
+        Raises:
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
+        """
         return self.verdict(pinned).is_current
 
     def verdict(self, pinned: str) -> PinVerdict:
-        """The verdict for ``pinned``, with the reason when it is not current."""
+        """Report whether ``pinned`` resolves to the expected commit.
+
+        A nonzero Git exit yields a negative verdict with a diagnostic.
+
+        Raises:
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
+        """
         if not InstallUrlRecognizer.is_sha_segment(pinned):
             return PinVerdict(
                 False,

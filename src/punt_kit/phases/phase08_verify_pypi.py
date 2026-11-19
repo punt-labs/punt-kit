@@ -1,5 +1,4 @@
-"""Phase 8: verify the just-published version installs from PyPI, then
-restore the editable dev install."""
+"""Verify the PyPI install and restore the editable install."""
 
 from __future__ import annotations
 
@@ -30,7 +29,6 @@ if TYPE_CHECKING:
 
 _console = Console()
 
-# The uv flag each optional install-pin file feeds.
 _PIN_FLAGS = {
     CONSTRAINTS_FILENAME: "--constraints",
     OVERRIDES_FILENAME: "--overrides",
@@ -39,7 +37,7 @@ _PIN_FLAGS = {
 
 @final
 class Phase8VerifyPypi:
-    """Phase 8: verify PyPI install."""
+    """Verify the PyPI install and restore the editable install."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
@@ -58,6 +56,7 @@ class Phase8VerifyPypi:
         ops: ReleaseOps,
         skips: SkipRecorder,
     ) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -67,6 +66,17 @@ class Phase8VerifyPypi:
         return self
 
     def run(self) -> None:
+        """Verify the PyPI install and restore the editable install.
+
+        Skip non-Python projects. Attempt editable restoration after any install
+        failure without masking the primary error.
+
+        Raises:
+            ReleaseError: Release metadata, installation, or service restart
+                fails, or restoration fails after successful verification.
+            subprocess.TimeoutExpired: An external command exceeds its timeout.
+            OSError: Creating, writing, or cleaning temporary pin files fails.
+        """
         info = self._info
         version = self._version
         ops = self._ops
@@ -93,8 +103,7 @@ class Phase8VerifyPypi:
                 "(the project's lock is not applied)"
             )
 
-        # The editable install is the operator's dev environment. Whatever
-        # happens from the first PyPI install on, it is put back.
+        # Restore the operator's editable environment even if verification fails.
         primary: BaseException | None = None
         try:
             self._verify_published(package_name, pins)
@@ -145,10 +154,7 @@ class Phase8VerifyPypi:
     def _restore_editable(self, primary: BaseException | None) -> None:
         """Put the editable install back; never mask the error already in flight.
 
-        Convention for external commands: run with check=False, and turn a
-        non-zero exit into a diagnosed fail. With another error in flight the
-        restore failure is reported as secondary instead, so the operator
-        sees the original cause.
+        Report restoration failure as secondary when another error is in flight.
         """
         ops = self._ops
         ops.info("Restoring editable install...")

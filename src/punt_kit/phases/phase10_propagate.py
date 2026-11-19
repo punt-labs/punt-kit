@@ -1,5 +1,4 @@
-"""Phase 10: local cross-repo propagation via PRs — install-all.sh SHA,
-marketplace.json, public-website projects.json, and the homebrew-tap formula."""
+"""Propagate release pins to sibling repositories through PRs."""
 
 from __future__ import annotations
 
@@ -34,8 +33,7 @@ _console = Console()
 
 @final
 class InstallAllPropagator:
-    """10a. Updates project's install.sh SHA in .github/install-all.sh, then
-    the org profile README's pin to the commit that lands it."""
+    """Update the installer and org profile pins in the .github repository."""
 
     __slots__ = ("_info", "_ops", "_skips")
 
@@ -46,6 +44,7 @@ class InstallAllPropagator:
     def __new__(
         cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
     ) -> Self:
+        """Bind the propagator to the project, reporting through ``ops``."""
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
@@ -59,17 +58,21 @@ class InstallAllPropagator:
         dry_run: bool,
         merge_sibling: Callable[..., bool],
     ) -> None:
-        """Also updates the org profile README with the install-all.sh
-        commit SHA so that both changes land in a single .github PR.
+        """Repin install-all.sh, then the org profile README, for ``version``.
 
         When the ``.github`` sibling is absent (does not resolve as a git
         repo root), propagation is skipped with a loud warning and a clean
         return rather than a failure: this phase runs after the release has
         already published, and the workspace meta-repo layout legitimately
-        has no resolvable ``.github`` sibling. A ``.github`` sibling that
-        *is* present but is missing ``install-all.sh`` remains a hard
-        failure — that is a genuine misconfiguration, not the expected
-        meta-repo case.
+        has no resolvable ``.github`` sibling.
+
+        Args:
+            merge_sibling: Commits ``files`` on a branch in the sibling and
+                merges them through a PR; returns False when nothing changed.
+
+        Raises:
+            ReleaseError: A present ``.github`` sibling lacks install-all.sh or
+                is not ready, a git read or file read fails, or a merge fails.
         """
         info = self._info
         ops = self._ops
@@ -85,19 +88,8 @@ class InstallAllPropagator:
 
         github_sibling = SiblingRepo.resolve(info.root, ".github", ops=ops)
         if github_sibling is None:
-            # Phase 10a runs *after* the tag, PyPI publish, and GitHub
-            # release (phases 5-7) have irreversibly landed, so aborting
-            # here would report failure on an already-published release.
-            # The absent-sibling case is also legitimate: in the workspace
-            # meta-repo layout the ``.github`` path is occupied by the
-            # meta-repo's own (non-git-root) folder and can never resolve
-            # as a propagation sibling — Phase 1d already tolerates this by
-            # skipping siblings that resolve to None. Mirror that here:
-            # skip loudly and tell the operator exactly what to do by hand.
-            # Recorded through the shared template so the end-of-run
-            # summary recaps it even if this line scrolls past among the
-            # concurrent Phase 10 output — and so it deduplicates against
-            # the identical Phase 11 verify-skip into one line.
+            # Absence is allowed after publication. Match the verify skip so
+            # the final summary reports the missing checkout only once.
             self._skips.record(
                 GITHUB_ABSENT_SKIP.format(name=project_name, ver=version)
             )
@@ -118,8 +110,7 @@ class InstallAllPropagator:
         )
 
         if count == 0:
-            # Phase 11 fails an absent entry, so say so now, with the fix. The
-            # profile pin is independent of this entry and is still refreshed.
+            # The profile pin is independent of the installer entry.
             self._skips.record(
                 f"SKIPPED — manual action required: ../.github/install-all.sh has no "
                 f"entry for {project_name}, so its install SHA was not propagated "
@@ -156,10 +147,7 @@ class InstallAllPropagator:
             ):
                 ops.ok(f"install-all.sh: {project_name} SHA → {install_sha} ({tag})")
 
-        # The sibling is back on main with the merge pulled, so the profile
-        # can now pin the commit that actually contains the propagated
-        # content. Pinning before the merge would point one commit behind
-        # and serve the previous installer on every release.
+        # Pin the merged installer; the pre-merge commit serves stale content.
         self._sync_profile_readme(sibling, version, project_name, merge_sibling)
 
     def _sync_profile_readme(
@@ -181,7 +169,6 @@ class InstallAllPropagator:
         readme = sibling / "profile" / "README.md"
         tag = f"v{version}"
         if not readme.exists():
-            # Phase 11 fails an absent profile, so say so now, with the fix.
             self._skips.record(
                 f"SKIPPED — manual action required: ../.github/profile/README.md "
                 f"not found, so the org profile's install-all.sh SHA pin was not "
@@ -219,7 +206,6 @@ class InstallAllPropagator:
             readme_content, github_sha, is_current=currency.is_current
         )
         if readme_count == 0:
-            # Phase 11 fails a profile with no reference, so say so now.
             self._skips.record(
                 f"SKIPPED — manual action required: ../.github/profile/README.md "
                 f"has no install-all.sh SHA reference, so its pin was not "
@@ -248,7 +234,7 @@ class InstallAllPropagator:
 
 @final
 class MarketplacePropagator:
-    """10b. Updates version and ref in claude-plugins marketplace.json."""
+    """Update version and ref in claude-plugins marketplace.json (phase 10b)."""
 
     __slots__ = ("_info", "_ops", "_skips")
 
@@ -259,6 +245,7 @@ class MarketplacePropagator:
     def __new__(
         cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
     ) -> Self:
+        """Bind the propagator to the project, reporting through ``ops``."""
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
@@ -272,6 +259,19 @@ class MarketplacePropagator:
         dry_run: bool,
         merge_sibling: Callable[..., bool],
     ) -> None:
+        """Set the plugin's marketplace version and ref to ``version``.
+
+        Projects that are neither plugin nor hybrid are skipped.
+
+        Args:
+            merge_sibling: Commits ``files`` on a branch in the sibling and
+                merges them through a PR; returns False when nothing changed.
+
+        Raises:
+            ReleaseError: The claude-plugins sibling, marketplace.json or the
+                project's entry is missing, the sibling is not ready, the file
+                cannot be parsed, or the merge fails.
+        """
         info = self._info
         ops = self._ops
         if not info.is_plugin and not info.is_hybrid:
@@ -355,7 +355,7 @@ class MarketplacePropagator:
 
 @final
 class Phase10Propagate:
-    """Phase 10: local cross-repo propagation via PRs, run concurrently."""
+    """Run the phase 10 propagators concurrently, one per sibling repo."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
@@ -374,6 +374,7 @@ class Phase10Propagate:
         ops: ReleaseOps,
         skips: SkipRecorder,
     ) -> Self:
+        """Bind phase 10 to the project and the release ``version``."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -398,9 +399,16 @@ class Phase10Propagate:
         a caller that rebinds ``punt_kit.release._propagate_install_all``/
         ``_propagate_marketplace``/``_propagate_website``/``_propagate_homebrew``/
         ``_reset_propagation_siblings`` has each observed by
-        ``punt_kit.release._phase10_propagate``. ``interrupted`` is release.py's
-        own ``threading.Event`` (its signal handler sets it), so it is passed
-        in.
+        ``punt_kit.release._phase10_propagate``.
+
+        Args:
+            reset_propagation_siblings: Returns siblings left on propagation
+                branches by an interrupted run to main.
+            interrupted: Set by release.py's signal handler to stop collection.
+
+        Raises:
+            ReleaseError: A sibling reset or any propagator fails.
+            KeyboardInterrupt: ``interrupted`` is set once the threads drain.
         """
         info = self._info
         version = self._version
@@ -408,8 +416,6 @@ class Phase10Propagate:
         ops = self._ops
         _console.print("\n[bold]Phase 10: Propagate[/bold]")
 
-        # Auto-recover siblings left on propagation branches from a prior
-        # interrupted run. No-op when all siblings are already on main.
         if not dry_run:
             reset_propagation_siblings(info)
 

@@ -1,12 +1,4 @@
-"""Phase 5: tag the release commit and push the tag.
-
-Tags the commit Phase 4's squash-merge produced — not whatever ``main`` HEAD
-happens to be at tag-time. A later commit (Phase 4c's README-install-SHA
-pin) lands on ``main`` right after the squash-merge (see
-``phase04_release_pr.py``'s module docstring), so by the time this phase
-runs, ``main`` HEAD can already be one commit past the actual release.
-Tagging HEAD blindly would drift the tag onto that commit instead.
-"""
+"""Tag the release commit and push the tag."""
 
 from __future__ import annotations
 
@@ -27,7 +19,7 @@ _console = Console()
 
 @final
 class Phase5Tag:
-    """Phase 5: tag the release commit and push the tag."""
+    """Tag the release commit and push the tag."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_version")
 
@@ -39,6 +31,7 @@ class Phase5Tag:
     def __new__(
         cls, info: ProjectInfo, version: str, *, dry_run: bool, ops: ReleaseOps
     ) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -48,22 +41,11 @@ class Phase5Tag:
 
     @staticmethod
     def _remote_tag_commit_sha(ls_remote_output: str, tag: str) -> str | None:
-        """Extract the commit SHA a remote tag points at, or ``None`` if
-        the remote has no tag by that name.
+        """Extract a remote tag's commit SHA, or return None if absent.
 
-        ``ls_remote_output`` must come from the *unfiltered*
-        ``git ls-remote --tags origin`` (no ref argument) — the filtered,
-        explicit-ref form (``git ls-remote --tags origin <tag>``) never
-        emits the peeled ``^{}`` line at all (server-side ref-advertisement
-        filtering strips it), and for an ANNOTATED tag its one remaining
-        line reports the tag *object's own* SHA, not the commit it points
-        at. Comparing that against a local lightweight tag's commit SHA
-        (`Phase5Tag` only ever creates lightweight tags itself, but the
-        remote's copy can be annotated by other tooling) would treat every
-        annotated remote tag as a mismatch — even one at the exact right
-        commit. The peeled line, present only in the unfiltered listing,
-        is the one that actually names a commit, so it is preferred when
-        both are present.
+        Require unfiltered git ls-remote --tags output: explicit-ref filtering
+        omits annotated tags' peeled refs and leaves only the tag object's SHA.
+        Prefer the peeled ref when present; lightweight tags use the plain ref.
         """
         plain_ref = f"refs/tags/{tag}"
         peeled_ref = f"{plain_ref}^{{}}"
@@ -77,22 +59,10 @@ class Phase5Tag:
         return plain_sha
 
     def _find_release_commit_sha(self) -> str:
-        """Resolve the release commit from git history when no captured SHA
-        is available.
+        """Resolve the release commit from main when no captured SHA is available.
 
-        ``--resume-from tag`` re-enters this phase without running Phase 4
-        first, so there is no ``merge()`` return value to thread through
-        this run. Falling back to ``git rev-parse HEAD`` here would
-        reproduce the exact defect this phase exists to fix — see the
-        module docstring. Phase 4's squash-merge always carries the commit
-        message ``chore: release vX.Y.Z`` (the ``title=`` it passes to
-        ``merge()``) as the *subject line* — GitHub's default squash commit
-        appends `` (#<pr-number>)`` to that subject, so the safe fallback
-        matches the subject either bare (hand-committed, e.g. in tests) or
-        followed by exactly that PR-number suffix. A loose prefix check
-        (``subject.startswith(f"{target} (")``) would also accept an
-        unrelated commit like ``chore: release v1.0.0 (manual fix)`` —
-        the regex below only accepts a real GitHub PR-number suffix.
+        Match the exact release subject with an optional GitHub PR-number suffix,
+        not an arbitrary parenthesized suffix. HEAD may include a later README pin.
         """
         ops = self._ops
         root = self._info.root
@@ -113,6 +83,18 @@ class Phase5Tag:
         )
 
     def run(self, *, release_sha: str | None = None) -> None:
+        """Tag the release commit and push the tag.
+
+        Args:
+            release_sha: Release commit SHA; resolve from main's release subject if
+                omitted.
+
+        Raises:
+            ReleaseError: The release commit is missing, tags disagree, or git
+                operations fail.
+            subprocess.CalledProcessError: A checked repository command fails.
+            subprocess.TimeoutExpired: An external command exceeds its timeout.
+        """
         info = self._info
         version = self._version
         ops = self._ops
@@ -129,26 +111,14 @@ class Phase5Tag:
         workspace = GitWorkspace(root, ops=ops)
         workspace.ensure_on_main()
 
-        # Both sources yield full-length SHAs — Phase 4's merge() reads the
-        # PR's mergeCommit oid from GitHub (PrMerger._merge_commit_oid),
-        # and the fallback above reads `git log --format=%H`. No
-        # canonicalization needed for the full-vs-full comparisons below.
+        # Both the merge result and git log return full-length SHAs.
         if release_sha is None:
             release_sha = self._find_release_commit_sha()
 
-        # Check if tag already exists locally. A local tag alone is not
-        # proof the push succeeded: Phase 5 creates the tag *before*
-        # pushing it (below), so a push that failed on a prior run — a
-        # network blip, a transient auth failure — leaves the tag sitting
-        # at the release commit locally while the remote has nothing.
-        # Re-entering via --resume-from tag must tell "exists locally and
-        # was already pushed" apart from "exists locally and was never
-        # pushed", or the resume silently skips the retry it exists to
-        # enable.
+        # A local tag does not prove its push succeeded; check the remote on resume.
         existing = ops.run(["git", "tag", "--list", tag], cwd=str(root)).stdout.strip()
         if existing:
-            # Verify it points to the release commit, not wherever main
-            # HEAD has since moved to.
+            # The tag must point to the release commit, not a later main HEAD.
             tag_sha = ops.run(["git", "rev-parse", tag], cwd=str(root)).stdout.strip()
             if tag_sha != release_sha:
                 ops.fail(
@@ -157,10 +127,7 @@ class Phase5Tag:
                 )
                 return
 
-            # Unfiltered (no ref argument) — see _remote_tag_commit_sha's
-            # docstring for why the filtered, explicit-ref form cannot be
-            # used here. A network read: check=False under a network budget,
-            # and a non-zero exit becomes a diagnosed fail.
+            # Use an unfiltered listing to retain annotated tags' peeled commit refs.
             ls_remote = ops.run(
                 ["git", "ls-remote", "--tags", "origin"],
                 cwd=str(root),
@@ -174,16 +141,8 @@ class Phase5Tag:
             remote_listing = ls_remote.stdout
             remote_sha = self._remote_tag_commit_sha(remote_listing, tag)
             if remote_sha is not None:
-                # A remote tag's mere presence only proves *some* ref named
-                # `tag` exists — an earlier, wrong-commit attempt (operator
-                # recovery, a stale push from a prior run) can leave one
-                # there. Compare the SHA, not just presence: a blind
-                # "already exists" here would be the exact silent
-                # wrong-state this phase's fix exists to close, one branch
-                # over. A bare `git push` (no `--force`) is not a safe
-                # correction either — it would just fail non-fast-forward
-                # with a worse diagnosis, and force-pushing over a possibly
-                # intentional remote tag is not this code's call to make.
+                # Compare the commit SHA, not just tag presence. Never force-push over a
+                # potentially intentional remote tag; require manual resolution.
                 if remote_sha != tag_sha:
                     ops.fail(
                         f"Tag {tag} exists on the remote but points to "
@@ -199,12 +158,7 @@ class Phase5Tag:
             ops.ok(f"Pushed tag {tag}")
             return
 
-        # A local write (disk full, permission, or a lock held by a
-        # concurrent git process) — kept in the same diagnosed convention as
-        # the push two lines below rather than left as the odd one out.
-        #
-        # Tags `release_sha` explicitly rather than bare
-        # `git tag {tag}` (which would tag HEAD) — see the module docstring.
+        # Tag the captured release commit rather than a potentially newer HEAD.
         tag_result = ops.run(
             ["git", "tag", tag, release_sha], cwd=str(root), check=False
         )
@@ -215,7 +169,6 @@ class Phase5Tag:
             )
         ops.ok(f"Tagged {tag}")
 
-        # Push tag (not blocked by branch protection — targets refs/tags/*).
-        # pre-push still fires bd hooks, so use the hook budget.
+        # Tag pushes bypass branch protection but still run pre-push hooks.
         workspace.push(tag)
         ops.ok(f"Pushed tag {tag}")

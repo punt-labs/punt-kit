@@ -1,31 +1,17 @@
-"""Manual recorder for the release engine's ``gh``-fixture library (§2b).
+"""Record sanitized GitHub CLI fixtures for the release engine.
 
-Never run in CI — it needs a live ``gh`` session against a real GitHub org.
-Every invocation this tool makes is read-only: ``ReadOnlyGhRunner`` checks
-each command against a fixed argv-prefix allowlist before shelling out, and
-additionally refuses any ``gh api`` call carrying a mutating ``--method``
-flag, an opaque ``--input``/``key=@file`` request body, or a GraphQL
-``mutation`` operation. Every short-flag argv token is checked
-structurally, not by spelling: ``gh``'s pflag parser bundles short flags
-POSIX-style, so a sensitive flag (``-X``/``-f``/``-F``) can be smuggled
-behind an unrelated boolean flag in the same token (``-ifx=1`` sends the
-same mutation as ``-i -f x=1``) — a command outside the read-only inventory
-below is a bug caught in this tool, not a live side effect on a real repo.
-Fixture envelopes for a *mutation's outcome* (PR create, release create, a
-squash-merge result) cannot be produced by this tool at all — the recording
-table has no entry that could build one — and are hand-authored instead,
-documented as such in the envelope's ``_meta``.
+Run manually with authenticated gh, never in CI. The runner permits only
+read-only commands and rejects mutating methods, opaque request bodies,
+and GraphQL mutations. Mutation outcomes are hand-authored and marked in
+the envelope metadata.
 
 Usage::
 
     uv run python tools/record_gh_fixtures.py [--repo OWNER/NAME] [--dest DIR]
     uv run python tools/record_gh_fixtures.py --check [--dest DIR]
 
-``--check`` re-runs each *recorded* (non-hand-authored) fixture's stored
-command live and diffs the live response's JSON key-shape against what is
-committed — the live-reality drift detector described in §2b step 4. It is
-never run in CI (no live credentials there); it is a scheduled or
-pre-release manual gate.
+Use --check to replay recorded commands and compare live response shapes.
+Hand-authored fixtures are never replayed.
 """
 
 from __future__ import annotations
@@ -90,21 +76,11 @@ _MUTATING_METHOD_RE = re.compile(r"^(post|put|patch|delete)$", re.IGNORECASE)
 
 
 class ReadOnlyViolation(RuntimeError):
-    """Raised when a command does not qualify as read-only.
-
-    Never caught inside this tool — a violation here means the recording
-    table itself was built wrong, and the fix is to correct the table, not
-    to work around the refusal.
-    """
+    """A command does not qualify as read-only."""
 
 
 class CommandNotReplayableError(RuntimeError):
-    """Raised when a recorded command needs redaction before it is safe to
-    commit — see ``GhFixtureRecorder._replayable_command``. Never caught
-    inside this tool: a live branch/tag/PR-title that looks like a token or
-    email is an operator problem to look at, not a shape to paper over by
-    storing a ``_meta.command`` that no longer replays the real command.
-    """
+    """A command contains sensitive data and cannot be stored unchanged for replay."""
 
 
 def _matches_prefix(cmd: Sequence[str], prefix: Sequence[str]) -> bool:
@@ -115,39 +91,17 @@ def _matches_prefix(cmd: Sequence[str], prefix: Sequence[str]) -> bool:
     return list(cmd[1 : len(prefix)]) == list(prefix[1:])
 
 
-# Every short flag `gh api` defines that can smuggle a mutation through
-# — `-X` (`--method`), `-f` (`--raw-field`), `-F` (`--field`) — confirmed
-# exhaustive against a real `gh api --help` (no other short flag controls
-# method or body; `--input` has no short form at all).
+# Method and body short flags are security-sensitive; --input is long-only.
 _SENSITIVE_SHORT_FLAG_CHARS = frozenset({"X", "f", "F"})
 _SHORT_FLAG_RE = re.compile(r"^-[^-].*$")
 
 
 def _is_dangerous_short_flag_cluster(arg: str) -> bool:
-    """True if ``arg`` is a short-flag argv token that contains one of
-    gh's sensitive short flags (``X``/``f``/``F``) *anywhere* in the
-    cluster, not only as the token's first character after the dash.
+    """Detect a method or body flag anywhere in a short-flag cluster.
 
-    ``gh``'s pflag-based parser bundles short flags POSIX-style: ``-ifx=1``
-    is ``-i`` (a boolean flag, e.g. ``--include``) followed by ``-f``
-    consuming the rest of the token (``x=1``) as its value, and executes it
-    exactly as ``-i -f x=1`` would — a real mutating POST, verified live
-    against a real GitHub endpoint. No ``startswith``-on-the-whole-token
-    check can ever see a sensitive flag bundled behind another one; three
-    rounds of enumerating individual spellings (split, equals-form,
-    attached-form, repeated/dual-spelled, ``key=@file``) each closed one
-    adversarial example and left this one open, because bundling is not a
-    *spelling* of a flag, it is a different flag *position* within the
-    token. This is the structural fix: a token matching this shape is
-    refused outright regardless of what non-sensitive flags share it.
-
-    False positives are deliberately accepted and cost nothing here: this
-    tool's own recording table uses only the long-form flags below
-    (``--method``/``--field``/``--raw-field``/``--input``), which cannot
-    bundle at all (pflag never bundles double-dash tokens), and no other
-    read-only ``gh`` subcommand this tool issues uses a short flag of any
-    kind. A legitimate boolean short flag this tool never needs (``-i``,
-    ``-p``, ``-q``, ...) is always spellable in long form instead.
+    Gh can bundle either flag after an unrelated boolean flag, so checking
+    only the first character would let a mutating request through. Refuse the
+    entire cluster; recorder commands use long forms instead.
     """
     return bool(_SHORT_FLAG_RE.match(arg)) and any(
         char in arg for char in _SENSITIVE_SHORT_FLAG_CHARS
@@ -178,18 +132,10 @@ def _long_flag_occurrences(cmd: Sequence[str], name: str) -> list[tuple[int, str
 
 
 def _file_backed_field(cmd: Sequence[str]) -> str | None:
-    """The first ``--field``/``--raw-field`` value using ``gh``'s
-    ``key=@filename`` convention to load the field's actual content from
-    disk, or ``None`` if none does.
+    """Return the first field value loaded from disk, if any.
 
-    This is the same class of gap ``--input`` closes, reached through a
-    different flag: a GraphQL query loaded via ``--raw-field
-    query=@payload.graphql`` never appears as argv text at all, so scanning
-    argv for the literal ``"mutation"`` (the GraphQL-specific check below)
-    cannot see a mutation hidden inside that file — and ``--field``/
-    ``--raw-field`` are otherwise legitimately unrestricted on the GraphQL
-    branch (this tool's own recording table builds every query with
-    ``--raw-field query={inline}``).
+    A file-backed request body is opaque to argv inspection, including the
+    check for GraphQL mutations.
     """
     for name in ("--field", "--raw-field"):
         for _, value in _long_flag_occurrences(cmd, name):
@@ -200,15 +146,10 @@ def _file_backed_field(cmd: Sequence[str]) -> str | None:
 
 
 def _effective_method(cmd: Sequence[str]) -> str | None:
-    """The HTTP method ``gh`` will actually use for this call, considering
-    only ``--method`` — every ``-X`` spelling is already refused
-    unconditionally by ``_is_dangerous_short_flag_cluster`` before this
-    runs, so ``-X``'s own value never needs inspecting here.
+    """Return the effective HTTP method from long options.
 
-    ``gh``'s pflag-based parser applies "last occurrence wins" for a
-    repeated flag, so a repeated ``--method`` must be considered in argv
-    order and the *last* occurrence used — checking only the first would
-    miss ``--method GET --method POST``.
+    Short method flags are rejected before this check. Gh applies the last
+    occurrence of a repeated method option.
     """
     occurrences = _long_flag_occurrences(cmd, "--method")
     if not occurrences:
@@ -219,14 +160,11 @@ def _effective_method(cmd: Sequence[str]) -> str | None:
 
 @final
 class ReadOnlyGhRunner:
-    """Runs a command only after proving it cannot mutate anything.
+    """Restrict ordinary gh commands to a fixed argv-prefix allowlist.
 
-    Two layers of proof, both required: the command must match one of
-    ``_READ_ONLY_ALLOWLIST``'s argv prefixes, and — for ``gh api`` calls
-    specifically, since ``gh api repos/...`` and ``gh api graphql`` both
-    admit a mutating verb the prefix alone cannot see — the call must carry
-    no explicit mutating HTTP method and, for GraphQL, no ``mutation``
-    operation in its query text.
+    Validate gh api separately because an endpoint prefix cannot distinguish
+    reads from writes. Reject mutating methods, opaque bodies, and GraphQL
+    mutations.
     """
 
     __slots__ = ()
@@ -392,14 +330,10 @@ class GhSanitizer:
         return value
 
     def _scrub_field(self, key: str, value: object) -> object:
-        """Blank ``value`` only when it is itself the identity string a
-        key like ``login`` normally holds. GitHub's REST/GraphQL responses
-        sometimes nest a whole object under an identity key instead (e.g.
-        ``"author": {"login": ..., "id": ...}``) — blanking the object
-        wholesale would replace a dict with a bare string, corrupting the
-        shape `GhFixtureDriftChecker` fingerprints and producing a false
-        "drift" report the next time a live response happens to carry that
-        shape. Recursing instead keeps walking for a nested identity string.
+        """Scrub identity strings without replacing an enclosing object.
+
+        Recursion preserves the response shape used for drift checks while
+        still removing nested identities.
         """
         if key in self._IDENTITY_KEYS and isinstance(value, str):
             return "redacted-user"
@@ -415,11 +349,7 @@ class RepoContext:
 
     @classmethod
     def parse(cls, slug: str) -> Self:
-        # A GitHub repo slug is exactly two components — `partition("/")`
-        # alone accepts a third, embedding it into `name` (`"owner/repo/
-        # extra".partition("/")` gives `name == "repo/extra"`), which would
-        # then ride unnoticed into every REST path and GraphQL argument this
-        # tool builds from `self.slug`.
+        # Reject extra slug components before constructing REST and GraphQL arguments.
         parts = slug.split("/")
         if len(parts) != 2 or not parts[0] or not parts[1]:
             raise ValueError(f"expected 'owner/repo', got {slug!r}")
@@ -529,27 +459,10 @@ class GhTargetDiscovery:
         )
 
     def _latest_release_run(self) -> _RunListingEntry:
-        """The most recent tag-*push*, *successfully completed* run of
-        ``release.yml``.
+        """Select the latest successful release.yml run triggered by a tag push.
 
-        Two independent conditions, both required. ``release.yml`` commonly
-        also permits ``workflow_dispatch`` (a manual re-run), and ``gh run
-        list`` returns runs newest-first regardless of trigger — so the
-        newest entry can be a manual dispatch rather than the tag push this
-        fixture is documented to represent. ``TagRunSelector.matches`` (the
-        production collaborator this fixture exists to feed) rejects any
-        run whose ``event`` is not ``"push"`` outright, so recording from a
-        dispatch run would produce a ``gh_run_list_matching_tag.json``
-        fixture that fails to ``match()`` the very selector it is named
-        for. Separately, the newest push run can itself be still running or
-        have failed — recording from one would write failure data into
-        fixtures named and documented as the *healthy*-run case
-        (``gh_run_view_success.json``, ``gh_run_watch_healthy.json``), and
-        ``gh run watch`` against a run that is still in progress blocks
-        until it finishes rather than returning immediately, which is not
-        something a recording pass should ever wait out. Filtering to
-        ``event == "push" and conclusion == "success"`` keeps every fixture
-        this run feeds honest with its own name and returns promptly.
+        Manual dispatches are not valid tag-run fixtures. A pending run neither
+        represents the healthy case nor returns promptly from gh run watch.
         """
         result = self._runner.run(
             [
@@ -594,13 +507,7 @@ class FixtureRecording:
 
 @final
 class GhRecordingPlan:
-    """Builds the full recorded-fixture argv list from discovered targets.
-
-    Pure command construction, no execution — this is what
-    ``tests/test_record_gh_fixtures.py`` calls with synthetic targets to
-    assert every command the tool can ever issue matches the read-only
-    allowlist, with no network access required to prove it.
-    """
+    """Build the recorded-fixture argv list without running commands."""
 
     __slots__ = ("_repo", "_targets")
 
@@ -800,14 +707,8 @@ class GhRecordingPlan:
                 ),
                 "RequiredChecksWaiter.wait, every required check SUCCESS.",
             ),
-            # gh_graphql_required_checks_mixed_conclusions.json is
-            # deliberately NOT in this plan: it needs a genuine mix of
-            # SUCCESS/NEUTRAL conclusions, and the live PR this table would
-            # otherwise source it from is actively updated — a prior
-            # recording pass caught it mid-mix, a later one caught it after
-            # every check had since settled to SUCCESS, silently
-            # invalidating the fixture's own documented shape. Hand-authored
-            # instead; see that fixture's own `_meta.note`.
+            # Hand-author mixed check conclusions: a live PR can settle to all SUCCESS
+            # by the time it is recorded, violating the fixture's shape.
             FixtureRecording(
                 "gh_graphql_pr_threads.json",
                 (
@@ -913,31 +814,15 @@ class GhFixtureRecorder:
         return path
 
     def _replayable_command(self, recording: FixtureRecording) -> list[str]:
-        """``recording.command``, verified to need no sanitization.
+        """Return replay argv unchanged or refuse to record it if it contains secrets.
 
-        A branch, tag, or PR-title argument copied from live GitHub data
-        could in principle contain a token- or email-shaped substring,
-        which would bypass ``stdout``/``stderr``'s redaction pass entirely
-        by riding into ``_meta.command`` unchanged — so this checks the
-        same way ``sanitize`` would. Storing the *sanitized* command
-        instead, rather than refusing outright, would be worse: `--check`
-        (`GhFixtureDriftChecker`) executes `_meta.command` as the live argv
-        to replay, so a silently-redacted branch name would make it target
-        a different, likely-nonexistent ref — the drift check would then
-        report a wrong result instead of no longer validating anything
-        real, which is a worse failure mode than simply refusing to record.
-        A live branch/tag/PR-title that actually looks like a token or
-        email is itself worth an operator's attention, not something to
-        paper over.
+        A redacted argument can select a different ref or endpoint, making drift
+        verification meaningless. Never store the raw argument in the fixture.
         """
         sanitized = [self._sanitizer.sanitize(arg) for arg in recording.command]
         original = list(recording.command)
         if sanitized != original:
-            # The exception message reports only the already-redacted
-            # form — never `original`, which still carries the live
-            # secret substring this whole check exists to keep out of any
-            # output, including a traceback an operator might paste
-            # somewhere without noticing what it contains.
+            # Use redacted argv in the exception to protect logs and tracebacks.
             changed_at = [
                 i
                 for i, (o, s) in enumerate(zip(original, sanitized, strict=True))
@@ -954,12 +839,9 @@ class GhFixtureRecorder:
 
 @final
 class GhFixtureDriftChecker:
-    """Re-runs every recorded fixture's command live and diffs its shape.
+    """Replay recorded fixture commands and compare their response shapes.
 
-    The actual drift-from-reality detector (§2b step 4) — the contract test
-    (``tests/test_gh_fixture_contracts.py``) only ever compares the static,
-    committed fixtures against the parser, so it cannot see a live ``gh``
-    upgrade on its own. This is the piece that can.
+    Static parser contract tests cannot detect changes in live CLI output.
     """
 
     __slots__ = ("_dest", "_runner")
@@ -1005,11 +887,10 @@ class GhFixtureDriftChecker:
         return mismatches
 
     def _check_one(self, path: Path) -> list[str] | None:
-        """The mismatches for one fixture, or ``None`` if it is
-        hand-authored and therefore was never replayed live at all — a
-        distinct outcome from "replayed live and found clean" (``[]``),
-        which ``check`` needs told apart to detect the all-hand-authored
-        vacuous-pass case.
+        """Return the fixture's mismatches, or None if it is not replayable.
+
+        An empty list means replay ran and found no drift; None does not count
+        as a live check.
         """
         # Wire boundary — a fixture file's decoded JSON is `object` until
         # narrowed to the envelope shape every fixture this tool writes

@@ -34,7 +34,7 @@ _LOCK_LINE = "*.punt-import.lock\n"
 
 @pytest.fixture(autouse=True)
 def _without_bd(monkeypatch: pytest.MonkeyPatch) -> None:
-    """No test here runs the host's `bd init`, which a failure now fails the run."""
+    """Fail any test that attempts to run the host's `bd init`."""
     monkeypatch.setattr(shutil, "which", _no_bd)
 
 

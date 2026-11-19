@@ -105,7 +105,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_kit/init_beads.py": {
-    "efferent_coupling": 3.0,
+    "efferent_coupling": 4.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -280,7 +280,7 @@
     "avg_lcom": 0.05
   },
   "src/punt_kit/phases/shared/command_runner.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 3.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -315,7 +315,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_kit/phases/shared/git.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 1.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,
@@ -469,7 +469,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_kit/phases/shared/siblings.py": {
-    "efferent_coupling": 1.0,
+    "efferent_coupling": 2.0,
     "public_names": 3.0,
     "circular_imports": 0.0,
     "max_lcom": 0.1,
@@ -539,7 +539,7 @@
     "avg_lcom": 0.0
   },
   "src/punt_kit/release.py": {
-    "efferent_coupling": 29.0,
+    "efferent_coupling": 30.0,
     "public_names": 4.0,
     "circular_imports": 0.0,
     "max_lcom": 0.0,

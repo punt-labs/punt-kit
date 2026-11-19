@@ -33,7 +33,7 @@ _PROBE = ["uv", "run", "--isolated", "--no-project", "--with"]
 _RELEASE = "1.0.0"
 _ORIGIN = "/venv/lib/python3.13/site-packages/test_pkg/__init__.py"
 
-# What the probe prints, given the head (marker plus nonce) it was handed.
+# Probe stdout for a supplied marker and nonce.
 type Answer = Callable[[str], str]
 
 
@@ -1230,15 +1230,10 @@ def test_a_real_dependency_shadowing_the_module_fails(
 def test_a_real_dependency_overwriting_the_module_fails(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
-    """A dependency installing the same path must not pass for the wheel.
+    """Reject a dependency that overwrites the wheel's version-bearing file.
 
-    The wheel ``sfhpkg``'s ``sfhpkg/__init__.py`` reports a stale version;
-    its dependency ``zzdep`` ships the same path with the release version
-    (the reviewer's case). uv installs the two in no fixed order: when zzdep's
-    copy lands last, the path is still the wheel's but its RECORD hash no
-    longer matches; when the wheel's lands last, the stale version is read.
-    Either way the release fails. The hash path alone is pinned down by
-    ``test_a_real_file_no_longer_matching_its_record_hash_fails``.
+    Installation order is unspecified. The dependency copy fails the wheel's
+    RECORD hash check; the wheel's own copy reports a stale version.
     """
     own = {"sfhpkg/__init__.py": '__version__ = "0.0.1"\n'}
     zzdep = _Dependency("zzdep", {"sfhpkg/__init__.py": "__version__ = '1.0.0'\n"})
@@ -1276,13 +1271,10 @@ _VERSION_FROM_SUBMODULE = "from ._version import __version__\n"
 def test_a_real_dependency_overwriting_a_submodule_fails(
     tmp_path: Path, skips: SkipRecorder
 ) -> None:
-    """The reviewer's ``_version.py`` case: only the submodule is replaced.
+    """Check RECORD hashes beyond the package origin, including _version.py.
 
-    ``__init__.py`` is the wheel's own, so a check of the origin alone would
-    pass; the dependency's copy of ``_version.py`` carries the release
-    version over the wheel's stale one. As with the ``__init__`` case, uv
-    installs the two in no fixed order, so the release fails either as an
-    overwrite or on the stale version.
+    A dependency can replace _version.py without changing __init__.py.
+    Either install order must fail: a hash mismatch or a stale version.
     """
     own = {
         "sfhpkg/__init__.py": _VERSION_FROM_SUBMODULE,

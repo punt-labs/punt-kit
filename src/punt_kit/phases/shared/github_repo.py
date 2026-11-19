@@ -1,4 +1,4 @@
-"""A project's GitHub repository: slug resolution and branch governance probes."""
+"""Resolve a GitHub origin and probe its branch governance."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ _NO_SUCH_REMOTE = 2
 
 @final
 class GithubRepo:
-    """A project's GitHub repository, resolved from its git remote."""
+    """Inspect the GitHub repository named by a checkout's origin."""
 
     __slots__ = ("_ops", "_root")
 
@@ -29,25 +29,31 @@ class GithubRepo:
     _ops: ReleaseOps
 
     def __new__(cls, root: Path, *, ops: ReleaseOps) -> Self:
+        """Bind GitHub queries to a local checkout."""
         self = super().__new__(cls)
         self._root = root
         self._ops = ops
         return self
 
     def slug_text(self) -> str | None:
-        """``slug()`` as ``owner/repo`` text; ``None`` without a github.com origin."""
+        """Return the GitHub origin as ``owner/repo``, or ``None`` if absent.
+
+        Raises:
+            ValueError: The GitHub origin URL or its repository path is malformed.
+            RemoteLookupError: Git could not query the origin.
+        """
         slug = self.slug()
         return None if slug is None else str(slug)
 
     def slug(self) -> RepoSlug | None:
-        """The parsed slug of the ``origin`` remote.
+        """Resolve the GitHub slug of the ``origin`` remote.
 
-        ``None`` only when there is no github.com origin to name: the remote
-        is absent or on another host. Raises ``ValueError`` when the remote
-        names github.com but its path is not ``owner/repo``, and
-        ``RemoteLookupError`` when git could not answer at all (timeout, not
-        runnable, or its own refusal such as dubious ownership), because a
-        failed lookup is not the same fact as "no GitHub remote".
+        Return ``None`` for an absent or non-GitHub origin, or for a GitHub
+        URL that names no repository path.
+
+        Raises:
+            ValueError: The GitHub origin URL or its repository path is malformed.
+            RemoteLookupError: Git failed to query the origin.
         """
         argv = ["git", "remote", "get-url", "origin"]
         try:
@@ -66,7 +72,7 @@ class GithubRepo:
         return RepoSlug.from_remote_url(result.stdout)
 
     def has_branch_protection(self, gh: str, owner: str, repo_name: str) -> bool:
-        """True if ``main`` has a branch protection rule.
+        """Check whether ``main`` has a branch protection rule.
 
         ``gh api .../branches/main/protection`` returns HTTP 404 with the
         message body ``"Branch not protected"`` when no protection rule is
@@ -94,8 +100,7 @@ class GithubRepo:
         return "branch not protected" not in combined
 
     def has_ruleset(self, gh: str, owner: str, repo_name: str) -> bool:
-        """True if a GitHub ruleset (not the legacy branch-protection API)
-        governs ``main``.
+        """Check whether an active GitHub ruleset governs ``main``.
 
         ``gh api repos/{owner}/{repo}/rules/branches/main`` returns the list
         of *active* rules for the branch — a JSON array, empty when no

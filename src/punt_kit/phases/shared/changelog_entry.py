@@ -1,4 +1,4 @@
-"""Adding one bullet to a CHANGELOG's ``[Unreleased]`` section."""
+"""File a bullet under a changelog's Unreleased section."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ _CATEGORY = re.compile(r"^### (?P<name>.+?)[ \t]*\r?$", re.MULTILINE)
 
 @final
 class UnreleasedEntry:
-    """A bullet to file under a Keep a Changelog category of ``[Unreleased]``."""
+    """Represent a bullet destined for a category under Unreleased."""
 
     __slots__ = ("_category", "_line")
 
@@ -20,17 +20,21 @@ class UnreleasedEntry:
     _category: str
 
     def __new__(cls, line: str, *, category: str = "Changed") -> Self:
+        """Prepare a bullet for the Unreleased section.
+
+        Args:
+            line: Bullet text without its list marker.
+            category: Keep a Changelog subsection title.
+        """
         self = super().__new__(cls)
         self._line = line
         self._category = category
         return self
 
     def added_to(self, text: str) -> str | None:
-        """``text`` with the bullet filed, or ``None`` if it cannot be.
+        """File the bullet or return ``None`` if Unreleased is absent.
 
-        ``None`` means there is no ``[Unreleased]`` section. A bullet already
-        present in that section is left alone, so a resumed release does not
-        file it twice.
+        Leave the input unchanged if the bullet is already present.
         """
         heading = _UNRELEASED.search(text)
         if heading is None:

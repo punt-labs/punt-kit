@@ -1,4 +1,4 @@
-"""Install-pin files a project ships so a PyPI install resolves like its installer."""
+"""Read install-pin files from a release tag for PyPI installs."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ OVERRIDES_FILENAME = "install-overrides.txt"
 
 @final
 class ReleaseTagFile:
-    """One optional file, as committed at a release tag.
+    """Read an optional file as committed at a release tag.
 
     ``uv tool install pkg==X`` ignores the project's lock and its installer's
     overrides, so a project that wants its users to get the same dependency
@@ -33,6 +33,7 @@ class ReleaseTagFile:
     _ops: ReleaseOps
 
     def __new__(cls, root: Path, tag: str, filename: str, *, ops: ReleaseOps) -> Self:
+        """Identify a repository path at a release tag."""
         self = super().__new__(cls)
         self._root = root
         self._tag = tag
@@ -41,13 +42,14 @@ class ReleaseTagFile:
         return self
 
     def text(self) -> str | None:
-        """The file's content at the tag, or ``None`` when the tag has none.
+        """Read the file at the tag, or return ``None`` when it is absent.
 
-        "Absent" and "could not be read" are different answers: only an
-        ``ls-tree`` that succeeds and lists nothing means absent. An
-        unresolvable tag, a failing git command, or a failing ``git show``
-        fails the phase, because installing unpinned on a read error would
-        verify an environment no user gets.
+        A failed Git read must not silently trigger unpinned installation.
+
+        Raises:
+            ReleaseError: Git could not resolve the tag or read its tree or file.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         ops = self._ops
         cwd = str(self._root)

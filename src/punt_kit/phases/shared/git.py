@@ -1,11 +1,4 @@
-"""Common git workspace operations shared across release phases.
-
-Consolidates the "ensure on main / checkout-or-create branch / commit if
-staged / push" sequence that today is duplicated near-verbatim across five
-call sites in ``punt_kit.release`` — each hand-rolling the same three
-``_run`` calls. A genuine PY-RF-3 Extract Method opportunity the procedural
-structure never surfaced, not just a relocation.
-"""
+"""Prepare checkouts, commit changes, and push release refs."""
 
 from __future__ import annotations
 
@@ -22,7 +15,7 @@ if TYPE_CHECKING:
 
 @final
 class GitWorkspace:
-    """Git operations against one project or sibling repo checkout."""
+    """Run Git operations against one project or sibling checkout."""
 
     __slots__ = ("_ops", "_root")
 
@@ -30,27 +23,35 @@ class GitWorkspace:
     _ops: ReleaseOps
 
     def __new__(cls, root: Path, *, ops: ReleaseOps) -> Self:
+        """Bind release operations to a repository checkout."""
         self = super().__new__(cls)
         self._root = root
         self._ops = ops
         return self
 
     def current_branch(self) -> str:
+        """Return the current branch name, or an empty string if detached.
+
+        Raises:
+            subprocess.CalledProcessError: Git could not query the branch.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
+        """
         return self._ops.run(
             ["git", "branch", "--show-current"], cwd=str(self._root)
         ).stdout.strip()
 
     def ensure_on_main(self) -> None:
-        """Check out main (if needed) and fast-forward pull.
+        """Check out main if needed and fast-forward it from origin.
 
-        Resume may leave the working tree on a release/propagation branch
-        from an interrupted prior run — checkout handles that case. The
-        pull always runs, even when already on main: a ``--resume-from``
-        that skips phase 1 can leave main checked out but stale, and
-        basing a new branch off it would silently root the release on an
-        outdated commit. Pulling from an explicit ``origin main`` refspec
-        (rather than bare ``git pull``) works even when the local branch
-        has no configured upstream tracking.
+        Pull even on main and specify the remote branch so no upstream
+        configuration is required.
+
+        Raises:
+            ReleaseError: Checkout or fast-forward pull failed.
+            subprocess.CalledProcessError: Git could not query the current branch.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         if self.current_branch() != "main":
             checkout = self._ops.run(
@@ -75,9 +76,16 @@ class GitWorkspace:
             )
 
     def checkout_or_create(self, branch: str) -> bool:
-        """Check out ``branch``, creating it if absent.
+        """Check out a branch, creating it if absent.
 
-        Returns whether the branch already existed (resume case).
+        Returns:
+            Whether the branch already existed.
+
+        Raises:
+            ReleaseError: Git could not check out or create the branch.
+            subprocess.CalledProcessError: Git could not list branches.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         existing = self._ops.run(
             ["git", "branch", "--list", branch], cwd=str(self._root)
@@ -105,19 +113,22 @@ class GitWorkspace:
         return False
 
     def commit_if_staged(self, paths: Sequence[str], message: str) -> bool:
-        """Stage ``paths`` and commit ``message`` if anything is staged.
+        """Stage the paths and commit if the index contains changes.
 
-        Returns whether a commit was created (``False`` means the paths
-        were already at the target state — the resume case).
+        Returns:
+            Whether a commit was created.
+
+        Raises:
+            ReleaseError: Git rejected the commit.
+            subprocess.CalledProcessError: Git could not stage or inspect the index.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start.
         """
         self._ops.run(["git", "add", "--", *paths], cwd=str(self._root))
         staged = self._ops.run(
             ["git", "diff", "--cached", "--name-only"], cwd=str(self._root)
         ).stdout.strip()
         if staged:
-            # Hook-firing mutation: check=False, and a non-zero exit becomes a
-            # diagnosed fail. This commit backs every phase's own
-            # release/propagation commit, including Phase 2's version bump.
             commit = self._ops.run(
                 ["git", "commit", "-m", message],
                 cwd=str(self._root),
@@ -130,14 +141,13 @@ class GitWorkspace:
         return False
 
     def push(self, branch_or_tag: str) -> None:
-        # A network push is the most externally-fragile call this workspace
-        # makes — a transient auth failure or connectivity blip must raise a
-        # diagnosed ReleaseError, not a raw CalledProcessError. Phase 5 (the
-        # only caller) is a synchronous, non-threaded phase, so an
-        # undiagnosed CalledProcessError here would escape
-        # run_release's `except ReleaseError`/`except TimeoutExpired`
-        # handlers entirely and surface as a bare traceback instead of the
-        # usual "Release incomplete — resume with ..." diagnosis.
+        """Push a branch or tag to origin.
+
+        Raises:
+            ReleaseError: Git rejected the push or could not reach origin.
+            subprocess.TimeoutExpired: Git exceeded the hook timeout.
+            OSError: Git could not start.
+        """
         result = self._ops.run(
             ["git", "push", "origin", branch_or_tag],
             cwd=str(self._root),

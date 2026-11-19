@@ -1,13 +1,7 @@
-"""Register/prune a tool's bare ``@``-import line in a repo ``CLAUDE.md``.
+"""Maintain a tool's bare ``@``-import line in the host ``CLAUDE.md``.
 
-Per ``tool-enable-disable.md`` §2.4: a tool registers exactly one *bare*
-``@``-import line pointing at a file it owns entirely. Composition happens at
-read time, when Claude Code resolves the import — never at write time. This
-module owns only that single line; every other byte of the host ``CLAUDE.md``
-is preserved verbatim.
-
-Ported from biff's reference ``ClaudeMdImport`` (``punt-labs/biff``,
-``src/biff/claude_md.py``; copy-not-symlink, §2.4).
+Leave the rest of the host file untouched; Claude Code resolves imports at
+read time (tool-enable-disable.md §2.4).
 """
 
 from __future__ import annotations
@@ -33,13 +27,7 @@ _LOCK_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
 
 @final
 class ClaudeMdImport:
-    """Owns a single bare ``@``-import line inside a host ``CLAUDE.md``.
-
-    The read-modify-write is serialized by an exclusive ``flock`` on a sibling
-    lock file (§2.4 mandates the lock for every shared host-file mutation), and
-    each write lands atomically so an interrupted write never corrupts the
-    user's hand-authored file.
-    """
+    """Edit one bare import under a shared lock and replace the file atomically."""
 
     __slots__ = ("_host", "_import_line", "_lock_path")
 
@@ -48,14 +36,16 @@ class ClaudeMdImport:
     _lock_path: Path
 
     def __new__(cls, host_path: Path, import_line: str) -> Self:
+        """Own ``import_line`` inside the host file at ``host_path``.
+
+        Raises:
+            ValueError: ``import_line`` is not a single bare ``@`` line.
+        """
         cls._validate(import_line)
         self = super().__new__(cls)
         self._host = host_path
         self._import_line = import_line
-        # Sibling lock file — a lock on the target itself would race the atomic
-        # rename that replaces it, so serialize on a stable neighbour instead.
-        # The name is tool-agnostic (``punt-import``): every punt CLI edits the
-        # same repo CLAUDE.md, so all of them must take this same lock (§2.4).
+        # All tools lock the same sibling because the host inode is replaced.
         self._lock_path = host_path.parent / f".{host_path.name}.punt-import.lock"
         return self
 
@@ -84,10 +74,12 @@ class ClaudeMdImport:
     def register(self) -> bool:
         """Append the import line if absent. Return ``True`` if the file changed.
 
-        Idempotent: a line already present (net of its terminator, top-level
-        only) is a no-op, so re-running ``install`` never duplicates it.
-        Raises :class:`ValueError` instead of appending an inert line after a
-        fence that never closes.
+        An existing top-level import is a no-op.
+
+        Raises:
+            ValueError: The file ends inside a fence that never closes, so the
+                appended line would be inert.
+            OSError: The host file or its lock file cannot be read or written.
         """
         with self._locked():
             text = self._read()
@@ -104,6 +96,9 @@ class ClaudeMdImport:
         Collapses an accidental duplicate to zero and leaves any inert copy
         inside a code block untouched. An absent host has nothing to prune, so
         no lock file is created for it.
+
+        Raises:
+            OSError: The host file or its lock file cannot be read or written.
         """
         if not self._host.is_file():
             return False
@@ -114,8 +109,6 @@ class ClaudeMdImport:
                 return False
             self._write(new_text)
             return True
-
-    # ── content transforms ───────────────────────────────────────────
 
     def _present(self, text: str) -> bool:
         """Return ``True`` when a top-level line matches the import line."""
@@ -249,7 +242,7 @@ class ClaudeMdImport:
 
     @staticmethod
     def _detect_eol(text: str) -> str:
-        """Return the host file's EOL convention, defaulting to ``\\n``."""
+        r"""Return the host file's EOL convention, defaulting to ``\\n``."""
         crlf = text.find("\r\n")
         lf = text.find("\n")
         cr = text.find("\r")
@@ -260,8 +253,6 @@ class ClaudeMdImport:
         if cr != -1:
             return "\r"
         return "\n"
-
-    # ── I/O ────────────────────────────────────────────────────────────
 
     @contextmanager
     def _locked(self) -> Generator[None]:
@@ -331,6 +322,9 @@ def write_atomically(target: Path, text: str) -> None:
     Writes a temp file in the target's own directory, ``fsync``s it, then
     ``os.replace``s it over the target, so an interrupted write leaves the
     original untouched.
+
+    Raises:
+        OSError: The temp file cannot be written or moved over ``target``.
     """
     directory = target.parent
     directory.mkdir(parents=True, exist_ok=True)

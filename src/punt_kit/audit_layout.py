@@ -1,13 +1,7 @@
-"""The `.punt-labs/` layout findings of `punt audit` (punt-labs-dir.md § 8).
+"""Check the `.punt-labs/` layout for `punt audit` (punt-labs-dir.md § 8).
 
-Verdicts come from git, not from reading `.gitignore`: `git check-ignore`
-probes decide whether the canonical block behaves, `git ls-files` decides what
-is tracked and what is ignored. The block's text is read only to explain a
-failed probe. Every path the checks grade comes from the § 9 migration tables
-in :mod:`punt_kit.adoption_table`.
-
-Not implemented: the seal-manifest check ("No unsanctioned live state"), which
-depends on an ethos seal-manifest format this package does not read.
+Git probes determine verdicts; `.gitignore` text only explains failed probes.
+The migration tables supply the paths to probe. Seal manifests are not checked.
 """
 
 from __future__ import annotations
@@ -53,9 +47,12 @@ _TOOL_PROBES = (
 
 
 def _is_local_convention(path: str) -> bool:
-    """True when a path segment is exactly ``local``, ends in ``.local``, or
-    carries ``.local.`` inside it — the boundary-aware forms of § 4, never a
-    substring scan, so ``locales/`` and ``config.locales.yaml`` stay shared."""
+    """Return whether ``path`` has a local-convention segment (§ 4).
+
+    A segment qualifies when it is exactly ``local``, ends in ``.local``, or
+    carries ``.local.`` inside it. Segments are matched whole, never by
+    substring, so ``locales/`` and ``config.locales.yaml`` stay shared.
+    """
     return any(
         segment == LOCAL_ZONE or segment.endswith(".local") or ".local." in segment
         for segment in path.strip("/").split("/")
@@ -71,6 +68,7 @@ class GitignoreText:
     _patterns: tuple[tuple[int, str], ...]
 
     def __new__(cls, text: str) -> Self:
+        """Parse ``text``, the contents of a ``.gitignore``."""
         self = super().__new__(cls)
         self._patterns = tuple(
             (number, line.strip())
@@ -81,13 +79,15 @@ class GitignoreText:
 
     @property
     def deny_all(self) -> bool:
+        """Whether the first pattern ignores everything (``*`` or ``/*``)."""
         return bool(self._patterns) and self._patterns[0][1] in {"*", "/*"}
 
     def has_canonical_block(self) -> bool:
+        """Return whether any canonical-block line is present."""
         return any(pattern in CANONICAL_BLOCK for _, pattern in self._patterns)
 
     def interim_excludes(self) -> tuple[tuple[int, str], ...]:
-        """The block's interim excludes: its non-canonical ``.punt-labs/`` lines.
+        """Return the block's interim excludes: non-canonical ``.punt-labs/`` lines.
 
         The block is the run of ``.punt-labs/`` patterns that starts at the
         first canonical line and ends at the first pattern outside
@@ -109,7 +109,7 @@ class GitignoreText:
         return tuple(excludes)
 
     def diagnostic(self) -> str:
-        """Why a probe may have failed, from the block's text; ``""`` if no clue."""
+        """Explain from the block's text why a probe may fail; ``""`` if unclear."""
         patterns = [pattern for _, pattern in self._patterns]
         missing = [line for line in CANONICAL_BLOCK if line not in patterns]
         if len(missing) == len(CANONICAL_BLOCK):
@@ -148,12 +148,13 @@ class LayoutAudit:
     _root: Path
 
     def __new__(cls, info: ProjectInfo) -> Self:
+        """Create an audit of the repository at ``info.root``."""
         self = super().__new__(cls)
         self._root = info.root
         return self
 
     def findings(self) -> list[Finding]:
-        """Every layout finding; the root-sentinel check runs even outside git."""
+        """Return every layout finding; the root-sentinel check runs outside git."""
         if not self._is_git_root() or not (self._root / ".punt-labs").is_dir():
             raw = [self._root_sentinel_finding()]
         else:
@@ -170,8 +171,6 @@ class LayoutAudit:
             ]
         # A gitignore glob such as [abc] is a character class, not rich markup.
         return [(status, label, escape(detail)) for status, label, detail in raw]
-
-    # --- git ---------------------------------------------------------------
 
     def _git(self, *args: str, stdin: bytes = b"") -> bytes:
         """Run git; a git that cannot start is reported, not a traceback.
@@ -201,7 +200,7 @@ class LayoutAudit:
         return [entry.decode() for entry in out.split(b"\0") if entry]
 
     def _gitlinks(self) -> list[str]:
-        """The ``.punt-labs/<tool>`` index entries recorded at gitlink mode 160000."""
+        """Return the ``.punt-labs/<tool>`` index entries at gitlink mode 160000."""
         out = self._git("ls-files", "-s", "-z", "--", ".punt-labs")
         gitlinks: list[str] = []
         for entry in out.split(b"\0"):
@@ -213,7 +212,7 @@ class LayoutAudit:
         return gitlinks
 
     def _check_ignore(self, paths: list[str]) -> dict[str, str]:
-        """Each path to the ``source:line:pattern`` that ignores it, or ``""``.
+        """Map each path to the ``source:line:pattern`` that ignores it, or ``""``.
 
         Asked against the real index on purpose: a force-added local-convention
         file is tracked, so git reports it not ignored, and the probe fails
@@ -230,10 +229,8 @@ class LayoutAudit:
             verdicts[path] = f"{source}:{line}:{pattern}" if ignored else ""
         return verdicts
 
-    # --- the checks ----------------------------------------------------------
-
     def _tools(self) -> list[str]:
-        """The present ``.punt-labs/<tool>/`` subtrees audit can probe, sorted.
+        """Return the present ``.punt-labs/<tool>/`` subtrees audit can probe.
 
         Never the local zone, and never a gitlinked tool: the superproject's
         git lists no file inside a submodule and answers no probe for one, so
@@ -332,7 +329,7 @@ class LayoutAudit:
         return found
 
     def _occupied(self, rel: str) -> bool:
-        """True when anything sits at ``rel`` — a dangling symlink included.
+        """Return whether anything sits at ``rel``, a dangling symlink included.
 
         ``Path.exists`` follows the link and reports its missing target, which
         would grade a stale sentinel symlink as absent.
@@ -341,7 +338,7 @@ class LayoutAudit:
         return path.is_symlink() or path.exists()
 
     def _tool_ignore_finding(self) -> Finding:
-        """§ 8: a tool's own ``.gitignore`` is defense only when it is tracked.
+        """Check that each tool's own ``.gitignore`` is tracked (§ 8).
 
         The worktree is walked, not the index, so an untracked ignore file
         that the canonical block also ignores is still found and still fails.
@@ -433,7 +430,7 @@ class LayoutAudit:
         )
 
     def _gitlink_finding(self) -> Finding:
-        """§ 8: a submodule at ``.punt-labs/<tool>`` hides everything audit probes."""
+        """Warn on each submodule at ``.punt-labs/<tool>``; it hides probes (§ 8)."""
         label = "Unvendored gitlink is audit-unverifiable"
         details: list[str] = []
         for path in self._gitlinks():

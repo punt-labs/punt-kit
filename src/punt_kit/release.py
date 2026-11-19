@@ -1,4 +1,4 @@
-"""punt release — deterministic release workflow for Punt Labs projects."""
+"""Run the deterministic ``punt release`` workflow for Punt Labs projects."""
 
 from __future__ import annotations
 
@@ -58,10 +58,6 @@ _interrupted = threading.Event()
 # `_phase6_ci_wait` at call time.
 _CI_RUN_POLL_INTERVAL = timeouts.CI_RUN_POLL_INTERVAL
 _CI_RUN_POLL_ATTEMPTS = timeouts.CI_RUN_POLL_ATTEMPTS
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _run(
@@ -175,10 +171,11 @@ def _get_latest_tag_version(root: Path) -> str:
 
 
 def _get_github_repo(root: Path) -> str | None:
-    """GitHub owner/repo of ``origin``; ``None`` when it is not on github.com.
+    """Return ``origin``'s GitHub owner/repo, or ``None`` off github.com.
 
-    ``ValueError`` if the remote is malformed, ``RemoteLookupError`` if git
-    could not be asked.
+    Raises:
+        ValueError: The remote is malformed.
+        RemoteLookupError: Git could not be asked.
     """
     return GithubRepo(root, ops=_ops).slug_text()
 
@@ -189,13 +186,8 @@ def _resolve_pr_threads(gh: str, cwd: str, pr_number: int) -> None:
     PrThreadResolver(repo, ops=_ops).resolve(gh, cwd, pr_number)
 
 
-# ---------------------------------------------------------------------------
-# Phase implementations
-# ---------------------------------------------------------------------------
-
-
 def _phase1_preflight(info: ProjectInfo, *, dry_run: bool) -> None:
-    """Phase 1: Pre-flight checks."""
+    """Run phase 1: pre-flight checks."""
     Phase1Preflight(info, dry_run=dry_run, ops=_ops).run()
 
 
@@ -235,17 +227,17 @@ def _pr_merge(
 
 
 def _phase2_version_bump(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 2: Bump version on release branch."""
+    """Run phase 2: bump the version on the release branch."""
     Phase2VersionBump(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 def _phase3_build(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 3: Build validation."""
+    """Run phase 3: build validation."""
     Phase3Build(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
 def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str:
-    """Phase 4: Plugin swap, push branch, create PR, merge.
+    """Run phase 4: plugin swap, push branch, create PR, merge.
 
     Returns the squash-merge commit SHA — the release commit Phase 5 tags.
     """
@@ -257,7 +249,7 @@ def _phase4_release_pr(info: ProjectInfo, version: str, *, dry_run: bool) -> str
 def _phase5_tag(
     info: ProjectInfo, version: str, *, dry_run: bool, release_sha: str | None
 ) -> None:
-    """Phase 5: Tag the release commit and push the tag.
+    """Run phase 5: tag the release commit and push the tag.
 
     ``release_sha`` is the SHA Phase 4 returned in this same run. It is
     ``None`` only when ``--resume-from tag`` re-enters at this phase
@@ -275,35 +267,25 @@ def _land_readme_sha_pin(info: ProjectInfo, version: str, *, dry_run: bool) -> N
 
 
 def _phase6_ci_wait(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 6: Wait for CI."""
+    """Run phase 6: wait for CI."""
     Phase6CiWait(info, version, dry_run=dry_run, ops=_ops).run(
         poll_attempts=_CI_RUN_POLL_ATTEMPTS, poll_interval=_CI_RUN_POLL_INTERVAL
     )
 
 
 def _phase7_github_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 7: Create GitHub release."""
+    """Run phase 7: create the GitHub release."""
     Phase7GithubRelease(info, version, dry_run=dry_run, ops=_ops).run()
 
 
 def _phase8_verify_pypi(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 8: Verify PyPI install."""
+    """Run phase 8: verify the PyPI install."""
     Phase8VerifyPypi(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-# ---------------------------------------------------------------------------
-# Phase 9: Post-release (dev restore + README SHA bump via PR)
-# ---------------------------------------------------------------------------
-
-
 def _phase9_post_release(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 9: Dev plugin restore via PR."""
+    """Run phase 9: dev plugin restore via PR."""
     Phase9PostRelease(info, version, dry_run=dry_run, ops=_ops).run(merge=_pr_merge)
-
-
-# ---------------------------------------------------------------------------
-# Sibling repo helpers
-# ---------------------------------------------------------------------------
 
 
 def _resolve_sibling(root: Path, name: str) -> Path | None:
@@ -323,41 +305,37 @@ def _sibling_pr_merge(
 ) -> bool:
     """Create branch, stage files, commit, and merge via PR in a sibling repo.
 
-    Returns True if a PR was created and merged, False if no changes.
+    Returns:
+        True if a PR was created and merged, False if nothing changed.
     """
     return PrMerger(ops=_ops, skips=_skips).merge_in_sibling(
         path, branch, files, message, name, dry_run=dry_run, merge=_pr_merge
     )
 
 
-# ---------------------------------------------------------------------------
-# Phase 10: Local propagation via PRs
-# ---------------------------------------------------------------------------
-
-
 def _propagate_install_all(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10a. Update project's install.sh SHA in .github/install-all.sh."""
+    """Update the project's install.sh SHA in .github/install-all.sh (10a)."""
     InstallAllPropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_marketplace(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10b. Update version and ref in claude-plugins marketplace.json."""
+    """Update version and ref in claude-plugins marketplace.json (10b)."""
     MarketplacePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_website(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10d. Update version in public-website projects.json."""
+    """Update version and install pin in public-website projects.json (10d)."""
     WebsitePropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
 
 
 def _propagate_homebrew(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """10e. Regenerate the project's formula in homebrew-tap."""
+    """Regenerate the project's formula in homebrew-tap (10e)."""
     HomebrewTapPropagator(info, ops=_ops, skips=_skips).run(
         version, dry_run=dry_run, merge_sibling=_sibling_pr_merge
     )
@@ -388,7 +366,7 @@ def _collect_thread_results(
 
 
 def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 10: Local cross-repo propagation via PRs."""
+    """Run phase 10: cross-repo propagation via PRs."""
     Phase10Propagate(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run(
         reset_propagation_siblings=_reset_propagation_siblings,
         propagate_install_all=_propagate_install_all,
@@ -397,11 +375,6 @@ def _phase10_propagate(info: ProjectInfo, version: str, *, dry_run: bool) -> Non
         propagate_homebrew=_propagate_homebrew,
         interrupted=_interrupted,
     )
-
-
-# ---------------------------------------------------------------------------
-# Phases 9+10: concurrent post-release + propagation
-# ---------------------------------------------------------------------------
 
 
 def _run_phases_9_10(
@@ -415,7 +388,6 @@ def _run_phases_9_10(
         return
 
     if start <= 9:
-        # Both phases in scope — run concurrently
         with ThreadPoolExecutor(max_workers=2) as pool:
             futures = {
                 pool.submit(_phase9_post_release, info, version, dry_run=dry_run): "P9",
@@ -423,17 +395,11 @@ def _run_phases_9_10(
             }
             _collect_thread_results(futures)
     else:
-        # start == 10: only P10
         _phase10_propagate(info, version, dry_run=dry_run)
 
 
-# ---------------------------------------------------------------------------
-# Phase 11: Verify
-# ---------------------------------------------------------------------------
-
-
 def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
-    """Phase 11: Run release verification checks."""
+    """Run phase 11: release verification checks."""
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
@@ -484,11 +450,6 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
     ReleasePipeline.print_manual_actions(_skips)
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
-
-
 def run_release(
     path: str,
     *,
@@ -501,6 +462,16 @@ def run_release(
     Phases 1–8 handle the originating repo. Phase 9 does post-release
     cleanup (dev restore, README SHA). Phase 10 propagates to sibling
     repos via PRs. Phase 11 runs final verification checks.
+
+    Args:
+        path: The project root.
+        version: The release version; when omitted, a fresh release suggests
+            it from the changelog and a resumed one reads the current version.
+        resume_from: The phase name to start from instead of preflight.
+
+    Raises:
+        SystemExit: Any phase fails, times out, crashes, or is interrupted;
+            the incomplete-release recap is printed first.
     """
     root = Path(path).resolve()
     # Updated inside every `if start <= N:` guard below so the TimeoutExpired
@@ -548,7 +519,6 @@ def run_release(
             signal.signal(signal.SIGINT, _cleanup_handler)
             signal.signal(signal.SIGTERM, _cleanup_handler)
 
-        # Determine start phase
         start = 1
         if resume_from:
             if resume_from not in PhaseOrder.NUMBERS:
@@ -583,10 +553,9 @@ def run_release(
                 # ("unknown") with no recovery advice.
                 current_phase_num = start
 
-            # Determine version
             if version is None:
                 if start == 1:
-                    # Fresh release — detect from changelog
+                    # A fresh release suggests its version from the changelog.
                     if (
                         info.pyproject is None
                         and info.language != "go"
@@ -711,9 +680,8 @@ def run_release(
                 _phase11_verify(info, version, dry_run=dry_run)
 
             # The combined P9+P10 step is numbered 10 (not 9) so the
-            # generic `step.number < start` skip only excludes it once
-            # resuming past phase 10 — it must still run (P10 alone) when
-            # start == 10.
+            # generic `step.number < start` skip excludes it only when
+            # resuming past phase 10; resuming at phase 10 still runs P10.
             pipeline = ReleasePipeline(
                 (
                     PhaseStep(2, "bump", _step2),

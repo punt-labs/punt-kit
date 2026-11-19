@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
   The tooling/build/refactoring/design rules and their deployed
   `.claude/rules/` copies use the package CLI too.
 
+- Punt-kit checks public docstrings and Python comments in lint and CI, and
+  builds a generated Python API reference from the source.
+
 - `punt enable` / `punt disable` (PL-1037, `tool-enable-disable.md` § 2.10).
   `enable` deposits punt's user guide at `.punt-labs/punt/CLAUDE.md` from the
   packaged template, writes the `enabled` marker, adds

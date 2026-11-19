@@ -1,4 +1,4 @@
-"""A thread-safe log of propagation and verification steps skipped mid-release."""
+"""Record skipped propagation and verification steps."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ RESUMED_PAST_BUILD_SKIP = (
 
 @final
 class SkipRecorder:
-    """Thread-safe log of propagation/verification steps skipped mid-release.
+    """Collect skipped release steps in a thread-safe log.
 
     Phase 10 propagates to siblings concurrently, so a warning printed from a
     worker thread can scroll past among interleaved output; and Phase 11 does
@@ -50,6 +50,7 @@ class SkipRecorder:
     _ops: ReleaseOps
 
     def __new__(cls, *, ops: ReleaseOps) -> Self:
+        """Start with no recorded skips and bind release operations."""
         self = super().__new__(cls)
         self._lock = threading.Lock()
         self._notices = []

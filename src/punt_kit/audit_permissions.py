@@ -25,6 +25,7 @@ class PermissionsAudit:
     _info: ProjectInfo
 
     def __new__(cls, info: ProjectInfo) -> Self:
+        """Create an audit of the project described by ``info``."""
         self = super().__new__(cls)
         self._info = info
         return self
@@ -71,7 +72,6 @@ class PermissionsAudit:
         allow_strs = [str(x) for x in cast("list[object]", allow_raw)]
         results.extend(self._allow_findings(allow_strs))
 
-        # Check deny rules
         deny_raw = perms.get("deny")
         if not isinstance(deny_raw, list):
             results.append(
@@ -108,7 +108,7 @@ class PermissionsAudit:
         return results
 
     def _allow_findings(self, allow: list[str]) -> list[Finding]:
-        """The baseline is required; tool-owned entries are allowed, never required.
+        """Check the baseline allow rules; tool-owned entries are never required.
 
         An MCP wildcard (``mcp__plugin_<plugin>_<server>__*`` for a plugin-bundled
         server, ``mcp__<name>__*`` for one the tool registers natively) or a
@@ -180,7 +180,7 @@ class PermissionsAudit:
 
     @staticmethod
     def _dead_rule_remedy(fixable: list[str], manual: list[str]) -> str:
-        """The advice that actually resolves the reported rules."""
+        """Return the advice that resolves the reported rules."""
         if not manual:
             return " — run punt init"
         if not fixable:

@@ -27,9 +27,6 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from typing import Final, NoReturn, Self
 
-# tests/harness/fault_ops.py -> tests/ -> tests/fixtures/gh — the
-# recorded-fixture library. The harness's own unit test points
-# ``from_fixture`` at a fixture file it creates inline instead.
 _DEFAULT_FIXTURES_DIR = Path(__file__).resolve().parent.parent / "fixtures" / "gh"
 
 
@@ -162,10 +159,6 @@ class FaultRule:
                 f"— got {outcomes}"
             )
         if isinstance(times, _Unset):
-            # Unset derives to "one response per element of `responses`" (so
-            # the two-element OPEN->MERGED example consumes exactly two
-            # matches without a separate `times=2`), or `1` for the single
-            # response/raises case — see FaultRule's own docstring above.
             self._times = len(self.responses) if self.responses is not None else 1
         else:
             if times is not None and times < 1:
@@ -220,9 +213,7 @@ class FaultRule:
             return None
         self._consumed += 1
         if self.raises is not None:
-            # A raising match never "returns" — the interrupt fires as a
-            # side effect of the matched call *returning*, so an anchored
-            # rule that raises must not signal completion at all.
+            # Signal completion only for a returned result, not an injected exception.
             raise self.raises
         spec = self._resolved_responses[
             (self._consumed - 1) % len(self._resolved_responses)
@@ -286,10 +277,7 @@ class FaultInjectingOps:
         self._rules = list(rules)
         self._passthrough = [list(prefix) for prefix in passthrough]
         for prefix in self._passthrough:
-            # Same class of bug as an empty FaultRule.match: a
-            # dead-on-arrival prefix that can never admit anything would
-            # silently make a test's "this call is allowed through" claim
-            # false, surfacing only as an unrelated deny-by-default failure.
+            # Reject a prefix that can never allow a command through.
             if not prefix:
                 raise ValueError("passthrough prefix must be non-empty")
             if not prefix[0]:

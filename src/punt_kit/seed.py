@@ -30,9 +30,6 @@ console = Console()
 
 TEMPLATES = importlib.resources.files("punt_kit") / "templates" / "seed"
 
-# ---------------------------------------------------------------------------
-# Marker patterns by file type
-# ---------------------------------------------------------------------------
 
 _MARKERS: dict[str, tuple[str, str]] = {
     "markdown": ("<!-- punt:begin {id} -->", "<!-- punt:end {id} -->"),
@@ -57,10 +54,6 @@ def _compile_marker_patterns() -> tuple[
 _BEGIN_RE, _END_RE = _compile_marker_patterns()
 
 
-# ---------------------------------------------------------------------------
-# Segment: a piece of a file, either managed or local
-# ---------------------------------------------------------------------------
-
 type Segment = tuple[str | None, str]
 """(section_id | None, content). None means local/unmanaged content."""
 
@@ -68,8 +61,15 @@ type Segment = tuple[str | None, str]
 def parse_segments(content: str, file_type: str) -> list[Segment]:
     """Split file content into managed and unmanaged segments.
 
-    Returns a list of ``(id | None, text)`` tuples. Managed segments include
-    the marker lines. Unmanaged segments are everything between managed blocks.
+    Managed segments include the marker lines. Unmanaged segments are
+    everything between managed blocks.
+
+    Returns:
+        ``(id | None, text)`` pairs in file order.
+
+    Raises:
+        SystemExit: A begin marker has no matching end marker; the error is
+            printed first.
     """
     begin_re = _BEGIN_RE[file_type]
     end_re = _END_RE[file_type]
@@ -84,7 +84,6 @@ def parse_segments(content: str, file_type: str) -> list[Segment]:
         if current_id is None:
             m = begin_re.match(line)
             if m:
-                # Flush local content
                 if local_lines:
                     segments.append((None, "\n".join(local_lines)))
                     local_lines = []
@@ -126,10 +125,12 @@ def merge_file(
     (including marker lines). Existing managed sections are replaced;
     new sections are appended after the last existing managed section
     (or at the end if none exist).
+
+    Raises:
+        SystemExit: A begin marker in ``original`` has no matching end marker.
     """
     segments = parse_segments(original, file_type)
 
-    # Track which sections we've seen
     seen_ids: set[str] = set()
     result_parts: list[str] = []
     last_managed_result_idx = -1
@@ -148,33 +149,26 @@ def merge_file(
             result_parts.append(_text)
 
     # Append new sections not yet in the file.
-    # rendered_sections is iterated in insertion order (Python 3.7+);
-    # callers must build the dict in the desired section order.
+    # rendered_sections is iterated in insertion order, so callers must
+    # build the dict in the desired section order.
     new_sections = [
         rendered_sections[sid] for sid in rendered_sections if sid not in seen_ids
     ]
     if new_sections:
         if last_managed_result_idx >= 0:
-            # Insert after the last managed section in result_parts
             insert_pos = last_managed_result_idx + 1
             for ns in reversed(new_sections):
                 result_parts.insert(insert_pos, ns)
         else:
-            # No managed sections yet — append at the end
             for ns in new_sections:
                 result_parts.append(ns)
 
     return "\n".join(result_parts)
 
 
-# ---------------------------------------------------------------------------
-# Template rendering
-# ---------------------------------------------------------------------------
-
-
 @functools.lru_cache(maxsize=1)
 def _jinja_env() -> jinja2.Environment:
-    """Cached Jinja2 environment with a loader for seed templates."""
+    """Return the cached Jinja2 environment that loads seed templates."""
 
     def _load_template(name: str) -> str | None:
         path = TEMPLATES / name
@@ -198,9 +192,11 @@ def render_section(
     context: dict[str, object],
     file_type: str,
 ) -> str:
-    """Render a managed section with markers.
+    """Render a managed section, including its begin and end markers.
 
-    Returns the complete section text including begin/end markers.
+    Raises:
+        SystemExit: The template is missing or fails to render; the error is
+            printed first.
     """
     begin_tmpl, end_tmpl = _MARKERS[file_type]
     begin_line = begin_tmpl.format(id=section_id)
@@ -223,10 +219,6 @@ def render_section(
     return f"{begin_line}\n{body}\n{end_line}"
 
 
-# ---------------------------------------------------------------------------
-# Target definitions: which sections each target manages
-# ---------------------------------------------------------------------------
-
 # Each target maps section_id -> template_name (relative to templates/seed/)
 MAKEFILE_SECTIONS: list[tuple[str, str]] = [
     ("standard-targets", "makefile/python.mk.j2"),
@@ -238,18 +230,20 @@ TARGETS: dict[str, tuple[str, list[tuple[str, str]]]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# JSON structural merge (settings.json)
-# ---------------------------------------------------------------------------
-
-
 def merge_json_permissions(
     existing: dict[str, object],
     info: ProjectInfo,
 ) -> tuple[dict[str, object], bool]:
-    """Merge standard permissions into settings.json structure.
+    """Merge standard permissions into a parsed settings.json, in place.
 
-    Returns (merged_dict, changed). Never removes existing entries.
+    Never removes existing entries.
+
+    Returns:
+        ``existing`` and whether it changed.
+
+    Raises:
+        SystemExit: ``permissions`` is not an object, or its ``allow`` or
+            ``deny`` is not a list; the error is printed first.
     """
     standard_perms = build_standard_permissions(info)
     standard_deny = build_standard_deny_rules()
@@ -267,7 +261,6 @@ def merge_json_permissions(
     )
     existing["permissions"] = permissions
 
-    # Allow list
     allow_raw = permissions.get("allow")
     if allow_raw is not None and not isinstance(allow_raw, list):
         console.print(
@@ -289,7 +282,6 @@ def merge_json_permissions(
             allow_set.add(perm)
             changed = True
 
-    # Deny list
     deny_raw = permissions.get("deny")
     if deny_raw is not None and not isinstance(deny_raw, list):
         console.print(
@@ -313,11 +305,6 @@ def merge_json_permissions(
     return existing, changed
 
 
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-
 def run_seed(
     path: str,
     *,
@@ -326,7 +313,13 @@ def run_seed(
 ) -> list[str]:
     """Render and merge managed sections for a target file type.
 
-    Returns list of files changed (empty if dry_run or no changes).
+    Returns:
+        The files changed; empty on a dry run or when nothing changed.
+
+    Raises:
+        SystemExit: ``path`` is not a directory, ``target`` is unknown, a
+            project file is unreadable, or a seeding step fails; the error is
+            printed first.
     """
     root = Path(path).resolve()
     if not root.is_dir():
@@ -373,22 +366,18 @@ def _seed_file(
     dry_run: bool,
 ) -> list[str]:
     """Render and merge sections for a single file."""
-    # Determine target file path
     if target == "makefile":
         target_path = info.root / "Makefile"
     else:
         msg = f"No file path mapping for target '{target}'"
         raise ValueError(msg)
 
-    # Filter sections by relevance
     if target == "makefile" and info.language != "python":
-        # Only python makefile templates for now
         console.print(
             "  [yellow]⚠[/yellow] Makefile templates only support Python — skipping"
         )
         return []
 
-    # Read existing or start empty
     original = ""
     if target_path.exists():
         original = TextFile(target_path).read()
@@ -397,10 +386,8 @@ def _seed_file(
     for section_id, template_name in sections:
         rendered[section_id] = render_section(section_id, template_name, {}, file_type)
 
-    # Merge
     merged = merge_file(original, rendered, file_type)
 
-    # Ensure trailing newline
     if merged and not merged.endswith("\n"):
         merged += "\n"
 

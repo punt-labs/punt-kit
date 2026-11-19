@@ -1,4 +1,4 @@
-"""The ``__version__`` a built wheel reports when its package is imported."""
+"""Verify the version reported by a built wheel at import time."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ _DEFAULT_MODULE_ROOT = "src"
 # of "-", "_" and "." turned into "_".
 _NORMALIZE = re.compile(r"[-_.]+")
 
-# Which step of the module resolution found the names (see WheelVersionCheck).
 type _Source = Literal[
     "configured", "project-name", "module-root", "repo-root", "nothing"
 ]
@@ -59,38 +58,21 @@ class _ModuleChoice:
 class WheelVersionCheck:
     """Import each built wheel in a fresh environment and read ``__version__``.
 
-    ``ModuleVersion`` reads ``__version__`` from the syntax tree, so it cannot
-    see a ``globals()``, ``vars()``, ``setattr`` or ``exec`` binding, a PEP 562
-    ``__getattr__``, a monkeypatched reader, or a helper module that returns a
-    stale literal. Importing the wheel the release is about to publish can,
-    so the syntax tree has no say here: every module is imported, and the
-    version it reports must be the release version exactly as written, or its
-    PEP 440 canonical form (``1.0.0rc1`` for a ``1.0.0-rc1`` release).
+    Static inspection cannot see dynamic bindings or lazy attributes. The
+    installed module must report the release version or its PEP 440 canonical
+    form.
 
     The modules imported are, first match wins:
 
     1. ``[tool.uv.build-backend] module-name`` (a string or a list);
-    2. the project name normalized as uv does (``Punt-Kit`` is ``punt_kit``),
-       when that directory or ``.py`` file exists under the module root
-       (``module-root``, default ``src``) or, for a flat layout, the repo root;
-    3. the one package or ``.py`` module under the module root, or, when it
-       holds none, the one package at the repo root (a lone root ``.py`` is
-       a tooling script such as ``noxfile.py``, so it never counts here);
-    4. when steps 2 and 3 find nothing, or the one name is step 3's
-       repo-root guess and the wheel holds nothing of it (a root ``tests/``
-       package beside a ``lib/`` layout), each wheel is read, per wheel, for
-       its top-level importable names: its top-level directories holding
-       code, its top-level ``.py``, ``.so`` and ``.pyd`` files, and the same
-       under ``*.data/purelib`` or ``platlib``, identifiers only. Exactly one
-       is used; anything else fails, listing what it holds. No other name is
-       second-guessed: a ``module-name``, a project-name match, a module-root
-       match, or a repo-root guess the wheel ships without code is checked
-       as is, and fails if the wheel lacks it, since that means the build
-       dropped the package.
+    2. the normalized project name if it exists under the module or repo root;
+    3. the sole package or module under the module root, or the sole repo-root
+       package (loose Python files at the repo root may be tooling);
+    4. the wheel's sole importable name when source discovery finds nothing
+       or the wheel lacks the sole repo-root guess.
 
-    Several modules where step 3 wants one fails, naming them. Steps 2 to 4 name one
-    module, so a wheel shipping several top-level packages has only that one
-    checked unless ``module-name`` lists them all.
+    An explicit name or a module-root match is not replaced by a wheel guess:
+    if the wheel lacks it, the build may have dropped a package.
 
     Each module must be in the wheel, and must import from the wheel's own
     installed files: one that a stdlib module or another installed package of
@@ -121,6 +103,11 @@ class WheelVersionCheck:
         ops: ReleaseOps,
         skips: SkipRecorder,
     ) -> Self:
+        """Bind project metadata and the version to verify.
+
+        Raises:
+            ReleaseError: The release version is not a valid PEP 440 version.
+        """
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -130,7 +117,14 @@ class WheelVersionCheck:
         return self
 
     def verify(self, dist: Path) -> None:
-        """Fail unless every wheel in ``dist`` reports the release version."""
+        """Verify the release version by importing from every wheel in ``dist``.
+
+        Raises:
+            ReleaseError: No wheel exists, module discovery or isolated import fails, or
+                the wheel does not provide the expected version.
+            subprocess.TimeoutExpired: The isolated import command timed out.
+            OSError: A probe could not start or a source directory could not be read.
+        """
         wheels = sorted(dist.glob("*.whl"))
         if not wheels:
             self._ops.fail(f"no wheel in {dist} to import for the __version__ check")
@@ -139,7 +133,12 @@ class WheelVersionCheck:
                 self._verify_wheel(wheel, module)
 
     def dry_run(self) -> None:
-        """Report the import the check would run."""
+        """Report the import the check would run.
+
+        Raises:
+            ReleaseError: Project metadata is invalid or module discovery is ambiguous.
+            OSError: A source directory could not be read.
+        """
         modules = self.module_names() or ("<the one module the wheel ships>",)
         for module in modules:
             self._ops.dry(
@@ -148,21 +147,24 @@ class WheelVersionCheck:
             )
 
     def module_names(self) -> tuple[str, ...]:
-        """The import names found from config and the source tree, steps 1 to 3.
+        """Discover import names from project configuration and source files.
 
-        Empty when none of them finds anything: each wheel is then read for
-        its one top-level importable name (step 4 in the class docstring).
+        Return an empty tuple if verification must inspect the wheel for its
+        one top-level importable name.
+
+        Raises:
+            ReleaseError: Project metadata is invalid or module discovery is ambiguous.
+            OSError: A source directory could not be read.
         """
         return self._choice().names
 
     def _choice(self) -> _ModuleChoice:
-        """Steps 1 to 3: the import names, and which step found them."""
+        """Discover import names and whether the result is conclusive."""
         configured = self._configured_names()
         if configured:
             return _ModuleChoice(configured, "configured")
         module_root = self._module_root()
-        # The module root first, then the repo root for a flat layout; one
-        # entry when module-root is "" and the two are the same directory.
+        # An empty module-root and the repo root name the same directory.
         bases = tuple(dict.fromkeys((module_root, self._info.root)))
         name = _NORMALIZE.sub("_", self._project_name()).lower()
         if any(
@@ -218,7 +220,6 @@ class WheelVersionCheck:
                     f"the code file {record.value!r} with no hash"
                 )
             case "raised":
-                # A raising read exits non-zero; _probe reports it there.
                 self._ops.fail(
                     f"{wheel.name}: reading {module}.__version__ raised "
                     f"{record.value}; define __version__ as a plain attribute"
@@ -244,14 +245,14 @@ class WheelVersionCheck:
                 self._ops.ok(f"{wheel.name}: {module}.__version__ == {self._version}")
 
     def _contents(self, wheel: Path) -> WheelContents:
-        """What ``wheel`` installs; fail if it is not a readable zip."""
+        """Inspect the wheel archive for installed import names."""
         try:
             return WheelContents.of(wheel)
         except zipfile.BadZipFile as exc:
             self._ops.fail(f"{wheel.name} is not a readable wheel: {exc}")
 
     def _modules_in(self, wheel: Path) -> tuple[str, ...]:
-        """The modules to check in ``wheel``: steps 1 to 3, else read from it.
+        """Choose modules from the project metadata or, failing that, the wheel.
 
         The wheel is read only when steps 1 to 3 found nothing, or when the
         one name came from the repo-root package scan and the wheel holds
@@ -350,7 +351,7 @@ class WheelVersionCheck:
         return ("--python", requires) if isinstance(requires, str) else ()
 
     def _canonical_release(self) -> str:
-        """The release version's PEP 440 canonical form; fail if it has none."""
+        """Normalize the release version according to PEP 440."""
         # Version() forgives surrounding whitespace; a release version must not.
         try:
             if self._version != self._version.strip():
@@ -386,14 +387,14 @@ class WheelVersionCheck:
         return name
 
     def _project(self) -> dict[str, object]:
-        """The ``[project]`` table; empty when absent."""
+        """Return the ``[project]`` table, or an empty table if absent."""
         project = (self._info.pyproject or {}).get("project")
         if not isinstance(project, dict):
             return {}
         return cast("dict[str, object]", project)
 
     def _module_root(self) -> Path:
-        """The directory uv_build finds the module in."""
+        """Find the module directory specified for uv_build."""
         configured = self._build_backend().get("module-root", _DEFAULT_MODULE_ROOT)
         if not isinstance(configured, str):
             self._ops.fail(
@@ -402,7 +403,7 @@ class WheelVersionCheck:
         return self._info.root / configured
 
     def _build_backend(self) -> dict[str, object]:
-        """The ``[tool.uv.build-backend]`` table; empty when absent."""
+        """Return the uv build-backend table, or an empty table if absent."""
         table = (self._info.pyproject or {}).get("tool")
         for key in ("uv", "build-backend"):
             if not isinstance(table, dict):
@@ -414,7 +415,7 @@ class WheelVersionCheck:
 
 
 def _top_level_modules(base: Path, *, files: bool) -> tuple[str, ...]:
-    """The regular packages directly under ``base``, sorted.
+    """List regular packages directly under ``base`` in sorted order.
 
     With ``files``, its ``.py`` modules count too.
     """
@@ -431,5 +432,5 @@ def _top_level_modules(base: Path, *, files: bool) -> tuple[str, ...]:
 
 
 def _distribution(wheel: Path) -> str:
-    """The distribution name a wheel's filename starts with (PEP 427)."""
+    """Normalize the distribution name for a wheel filename (PEP 427)."""
     return wheel.name.split("-", 1)[0]

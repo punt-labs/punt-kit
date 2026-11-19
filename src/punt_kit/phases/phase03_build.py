@@ -1,5 +1,4 @@
-"""Phase 3: build validation — `uv build`, a twine check on the resulting
-artifacts, and an isolated import of the wheel to read its `__version__`."""
+"""Validate build artifacts before publishing."""
 
 from __future__ import annotations
 
@@ -21,13 +20,7 @@ _console = Console()
 
 @final
 class Phase3Build:
-    """Phase 3: build validation.
-
-    The last phase before anything leaves this machine: Phase 4 merges the
-    release PR and Phase 5 tags it, which publishes. So the wheel's run-time
-    ``__version__`` is checked here, on the artifact just built, rather than
-    in Phase 11, which verifies after the fact.
-    """
+    """Validate build artifacts before publishing."""
 
     __slots__ = ("_dry_run", "_info", "_ops", "_skips", "_version")
 
@@ -46,6 +39,7 @@ class Phase3Build:
         ops: ReleaseOps,
         skips: SkipRecorder,
     ) -> Self:
+        """Create the phase with its release inputs and operations."""
         self = super().__new__(cls)
         self._info = info
         self._version = version
@@ -55,6 +49,16 @@ class Phase3Build:
         return self
 
     def run(self) -> None:
+        """Validate build artifacts before publishing.
+
+        Skip non-Python projects. Check the wheel version before phase 4 merges.
+
+        Raises:
+            ReleaseError: Building, artifact validation, or wheel-version verification
+                fails.
+            subprocess.TimeoutExpired: An external command exceeds its timeout.
+            OSError: Cleaning dist or reading build artifacts fails.
+        """
         info = self._info
         ops = self._ops
         if info.language != "python":
@@ -84,7 +88,6 @@ class Phase3Build:
         if build_result.returncode != 0:
             ops.fail("uv build failed — see output above")
 
-        # twine check on built artifacts only (.whl and .tar.gz)
         artifacts = sorted(p for p in dist.iterdir() if p.suffix in {".whl", ".gz"})
         if not artifacts:
             ops.fail("No build artifacts found in dist/ for twine check")

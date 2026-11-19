@@ -78,12 +78,7 @@ def test_detect_plugin(tmp_path: Path) -> None:
 
 
 def test_detect_plugin_subdir_layout(tmp_path: Path) -> None:
-    """The DES-025 layout is detected, and the plugin root is plugin/.
-
-    plugin_root is what every ${CLAUDE_PLUGIN_ROOT}-relative path is anchored
-    on. Returning the repo root here is the specific bug that makes the audit
-    glob commands/ in a directory that no longer holds any.
-    """
+    """Detect a plugin surface under plugin/ and use that directory as its root."""
     manifest = _write_manifest(tmp_path, "plugin", ".claude-plugin", "plugin.json")
 
     info = detect(tmp_path)

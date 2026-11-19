@@ -1,4 +1,4 @@
-"""The parsed shape of a changelog: versioned sections and their subsections."""
+"""Represent version sections and subsections of a changelog."""
 
 from __future__ import annotations
 
@@ -25,13 +25,13 @@ _BREAKING_HEADING = re.compile(r"\(breaking\)", re.IGNORECASE)
 
 @dataclass(frozen=True, slots=True)
 class Subsection:
-    """One ``### Title`` block and the entry lines under it."""
+    """Represent a ``### Title`` block and its entries."""
 
     title: str
     entries: tuple[str, ...]
 
     def is_named(self, name: str) -> bool:
-        """True when the title starts with ``name`` (``Changed (BREAKING)``)."""
+        """Match the title prefix, as in ``Changed (BREAKING)``."""
         return self.title.lower().startswith(name.lower())
 
     @property
@@ -45,7 +45,7 @@ class Subsection:
 
 @dataclass(frozen=True, slots=True)
 class Section:
-    """One ``## [version]`` block of a changelog."""
+    """Represent a ``## [version]`` block of a changelog."""
 
     version: str
     heading: str  # the heading text after the ``##``, as parsed
@@ -66,6 +66,7 @@ class Section:
 
     @property
     def is_breaking(self) -> bool:
+        """Check whether any subsection declares a breaking change."""
         return any(sub.is_breaking for sub in self.subsections)
 
     @property
@@ -74,5 +75,5 @@ class Section:
         return _STAMPED_HEADING.match(self.heading) is not None
 
     def has_entries_under(self, name: str) -> bool:
-        """True when a subsection titled ``name`` has at least one entry."""
+        """Check whether a subsection matching ``name`` has an entry."""
         return any(sub.is_named(name) and sub.entries for sub in self.subsections)

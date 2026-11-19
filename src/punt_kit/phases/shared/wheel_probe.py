@@ -1,4 +1,4 @@
-"""The probe that imports a module from a built wheel, and the record it answers."""
+"""Probe a wheel's import at runtime and parse its result."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ answer('type', _type(found).__name__)
 
 @dataclass(frozen=True, slots=True)
 class ProbeRecord:
-    """What the probe saw: the kind of ``__version__``, and where it imported from.
+    """Record the imported module's location and version attribute.
 
     ``value`` is the version for ``"str"``, the type name for ``"type"``,
     ``"<ExcType>: <message>"`` for ``"raised"``, the offending file for
@@ -154,7 +154,7 @@ class ProbeRecord:
 
     @classmethod
     def lines(cls, stdout: str, nonce: str) -> list[str]:
-        """The record payloads in ``stdout`` that carry ``nonce``."""
+        """Extract stdout record payloads marked with ``nonce``."""
         head = f"{_MARKER}{nonce}"
         lines = stdout.split("\n")
         return [line.removeprefix(head) for line in lines if line.startswith(head)]
@@ -162,7 +162,7 @@ class ProbeRecord:
     # None: a payload the probe could not have written; the caller fails on it.
     @classmethod
     def parse(cls, payload: str) -> Self | None:
-        """The record ``payload`` spells; ``None`` when it is malformed."""
+        """Decode a record payload, or return ``None`` if malformed."""
         try:
             fields: object = ast.literal_eval(payload)
         except (ValueError, SyntaxError):

@@ -513,7 +513,7 @@ def test_only_table_backed_excludes_pass(tmp_path: Path) -> None:
 
 
 def test_interim_exclude_no_row_names_fails(tmp_path: Path) -> None:
-    """A line inside the canonical block for a path § 9.4 no longer names."""
+    """A canonical block entry whose path is absent from § 9.4 is unexpected."""
     root = _repo(tmp_path, "normal.gitignore")
     text = (root / ".gitignore").read_text()
     (root / ".gitignore").write_text(text + ".punt-labs/ethos/sessions/\n")

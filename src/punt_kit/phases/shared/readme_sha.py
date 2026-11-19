@@ -1,6 +1,4 @@
-"""Pinning README's install-URL SHA to the commit that last touched
-install.sh, and landing that pin via its own PR right after the release
-squash-merge lands on main."""
+"""Land README install pins for the commit that last modified install.sh."""
 
 from __future__ import annotations
 
@@ -26,7 +24,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class PinResult:
-    """What ``ReadmeShaPin.bump`` did, and what it could not fix."""
+    """Describe the outcome of a README pin rewrite."""
 
     changed: bool
     # One line per install pin (or reason) still not current after the bump.
@@ -38,7 +36,7 @@ class PinResult:
 
 @final
 class ReadmeShaPin:
-    """Keeps README's SHA-pinned install URL current with install.sh's commit."""
+    """Keep README install URLs pinned to the install.sh commit."""
 
     __slots__ = ("_info", "_ops", "_skips")
 
@@ -49,6 +47,7 @@ class ReadmeShaPin:
     def __new__(
         cls, info: ProjectInfo, *, ops: ReleaseOps, skips: SkipRecorder
     ) -> Self:
+        """Bind a project checkout, release operations, and skip recording."""
         self = super().__new__(cls)
         self._info = info
         self._ops = ops
@@ -64,7 +63,7 @@ class ReadmeShaPin:
     def _recognizer(
         self, resolve_repo: Callable[[Path], str | None]
     ) -> InstallUrlRecognizer | PinResult:
-        """The recognizer for this repo, or the skip when its slug is unknown.
+        """Build the URL recognizer or record a skip if the slug is unknown.
 
         No slug is guessed from the directory name: a pin recognized under a
         guessed owner would rewrite, or miss, the wrong URLs.
@@ -92,11 +91,16 @@ class ReadmeShaPin:
         — and the result is verified with it too: any pin it would trust
         whose SHA still differs from the new one, and any install URL for
         this repo it does not trust, is reported by URL rather than left
-        stale in silence. A repository that cannot be named is a skip, not a
-        guess.
+        stale in silence. Record a skip instead of guessing an unknown slug.
 
-        ``resolve_repo`` is injected rather than composing ``GithubRepo``
-        directly, so a caller's patched resolver is observed here.
+        Args:
+            resolve_repo: Resolve a checkout path to a GitHub slug, or ``None``.
+
+        Raises:
+            ReleaseError: The README is unreadable or install.sh has no commit.
+            subprocess.CalledProcessError: Git could not read install.sh history.
+            subprocess.TimeoutExpired: Git exceeded its timeout.
+            OSError: Git could not start or README could not be written.
         """
         root = self._info.root
         readme_path = root / "README.md"
@@ -176,8 +180,15 @@ class ReadmeShaPin:
         tree on the just-merged main, pins a commit that is main's own
         permanent history.
 
-        ``merge`` is injected rather than composing ``PrMerger`` directly,
-        so a caller's patched merger is observed here.
+        Args:
+            merge: Land a branch using the checkout, branch, and PR title.
+            resolve_repo: Resolve a checkout path to a GitHub slug, or ``None``.
+
+        Raises:
+            ReleaseError: A file or Git operation fails or the PR cannot land.
+            subprocess.CalledProcessError: A checked Git command failed.
+            subprocess.TimeoutExpired: A subprocess exceeded its timeout.
+            OSError: A subprocess could not start or README could not be written.
         """
         root = self._info.root
         branch = self._branch_name(version)
@@ -251,7 +262,7 @@ class ReadmeShaPin:
 
     @staticmethod
     def _branch_name(version: str) -> str:
-        """The branch a version's README pin lands from."""
+        """Name the branch that lands a version's README pin."""
         return f"release-readme-pin/v{version}"
 
     def _preview_land(

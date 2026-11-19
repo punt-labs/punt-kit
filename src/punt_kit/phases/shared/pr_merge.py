@@ -1,4 +1,4 @@
-"""Pushing a branch, opening a PR, waiting for CI, and squash-merging."""
+"""Push a branch, open a pull request, and squash-merge after CI."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 @final
 class PrMerger:
-    """Composes a release/propagation PR from branch push through squash-merge.
+    """Land a release or propagation branch through a squash-merge.
 
     ``wait_for_checks`` and ``resolve_threads`` are required, injected
     callables rather than composed ``RequiredChecksWaiter``/``PrThreadResolver``
@@ -40,13 +40,11 @@ class PrMerger:
     __slots__ = ("_ops", "_skips")
 
     _ops: ReleaseOps
-    # Absent by default — only the Phase 10 sibling-merge path
-    # (_sibling_pr_merge) has a sibling to record a skip against; Phase 4's
-    # own release-PR merge (_pr_merge) has no such concept and leaves this
-    # None.
+    # Only sibling propagation can record a repo-specific skip.
     _skips: SkipRecorder | None
 
     def __new__(cls, *, ops: ReleaseOps, skips: SkipRecorder | None = None) -> Self:
+        """Bind operations and optional skip recording for PR merges."""
         self = super().__new__(cls)
         self._ops = ops
         self._skips = skips
@@ -99,7 +97,21 @@ class PrMerger:
         wait_for_checks: Callable[[str, str, int], None],
         resolve_threads: Callable[[str, str, int], None],
     ) -> str:
-        """Push branch, create PR, wait for CI, squash-merge. Return merge SHA."""
+        """Push a branch and land it through a squash-merge.
+
+        Args:
+            wait_for_checks: Poll CI using the gh path, checkout, and PR number.
+            resolve_threads: Resolve review threads with those same arguments.
+
+        Returns:
+            The full squash-merge commit SHA, or ``"<SHA>"`` for a dry run.
+
+        Raises:
+            ReleaseError: The workflow cannot create, check, merge, or reconcile the PR.
+            subprocess.CalledProcessError: A checked subprocess failed.
+            subprocess.TimeoutExpired: A subprocess exceeded its timeout.
+            OSError: A subprocess could not start.
+        """
         gh = shutil.which("gh")
         if gh is None:
             self._ops.fail("gh CLI not found — install from https://cli.github.com")
@@ -115,8 +127,7 @@ class PrMerger:
             self._ops.dry("gh pr merge <number> --squash --delete-branch")
             return "<SHA>"
 
-        # 1. Push branch (idempotent). pre-push fires bd hooks — needs the
-        # hook budget, which subsumes the network timeout.
+        # Allow the hook timeout because a push can also run local hooks.
         result = self._ops.run(
             ["git", "push", "-u", "origin", branch],
             cwd=root,
@@ -172,7 +183,6 @@ class PrMerger:
                     return self._merge_commit_oid(gh, root, pr_number)
                 self._ops.info(f"Found existing open PR #{pr_number}")
 
-        # 3. Create PR if none exists
         if pr_number is None:
             create_cmd = [
                 gh,
@@ -196,11 +206,9 @@ class PrMerger:
                 self._ops.fail(f"Failed to extract PR number from gh output: {pr_url}")
             self._ops.ok(f"Created PR #{pr_number}")
 
-        # 4. Wait for CI (required checks only — ignores non-required checks
-        # such as "Claude Code Review").
+        # Only required checks should hold up the merge.
         wait_for_checks(gh, root, pr_number)
 
-        # 5. Check if already merged (handles resume)
         state = self._ops.run(
             [gh, "pr", "view", str(pr_number), "--json", "state"],
             cwd=root,
@@ -219,14 +227,9 @@ class PrMerger:
             self._sync_local_main(root)
             return self._merge_commit_oid(gh, root, pr_number)
 
-        # 6. Resolve review threads (Copilot/Bugbot auto-post on PRs)
         resolve_threads(gh, root, pr_number)
 
-        # 7. Squash-merge (retry on branch protection / pending checks). Some
-        # repos have long-running checks (CodeQL) that gh pr checks --watch
-        # doesn't wait for if they aren't required. Branch protection may
-        # also require conversation resolution that takes a moment to
-        # propagate.
+        # Branch protection can lag behind completed checks and resolutions.
         merge_cmd = [gh, "pr", "merge", str(pr_number), "--squash", "--delete-branch"]
         for merge_attempt in range(6):
             # --delete-branch makes gh check out the base, delete the local
@@ -272,7 +275,6 @@ class PrMerger:
             self._ops.fail(f"Failed to merge PR #{pr_number}: {combined}")
         self._ops.ok(f"PR #{pr_number} merged")
 
-        # 8. Update local main
         self._sync_local_main(root)
         return self._merge_commit_oid(gh, root, pr_number)
 
@@ -296,7 +298,6 @@ class PrMerger:
         )
         if checkout.returncode != 0:
             self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
-        # A network call, same risk class as the branch push above.
         pull = self._ops.run(
             ["git", "pull", "--ff-only"], cwd=root, check=False, timeout=GIT_HOOK
         )
@@ -304,8 +305,7 @@ class PrMerger:
             self._ops.fail(f"git pull --ff-only failed:\n{pull.stderr.strip()}")
 
     def _merge_commit_oid(self, gh: str, root: str, pr_number: int) -> str:
-        """Resolve PR #<pr_number>'s authoritative squash-merge commit oid
-        from GitHub itself, rather than reading local main HEAD.
+        """Resolve the squash-merge commit from GitHub's merge record.
 
         GitHub's own record of the merge is the one source that cannot
         drift: local main HEAD (even freshly pulled by
@@ -357,13 +357,15 @@ class PrMerger:
     ) -> bool:
         """Create branch, stage files, commit, and merge via PR in a sibling repo.
 
-        Returns True if a PR was created and merged, False if no changes.
+        Returns:
+            Whether there were changes to land, including in a dry run.
 
-        ``merge`` is injected (not ``self.merge``) for the same reason
-        ``wait_for_checks``/``resolve_threads`` are injected on ``merge``
-        itself — tests monkeypatch ``punt_kit.release._pr_merge`` directly
-        and call ``punt_kit.release._sibling_pr_merge`` expecting the patch
-        to be observed.
+        Raises:
+            ReleaseError: Git could not prepare or restore the checkout,
+                or the merge operation failed.
+            subprocess.CalledProcessError: A checked Git command failed.
+            subprocess.TimeoutExpired: A Git or GitHub command timed out.
+            OSError: An external command could not start.
         """
         cwd = str(path)
         # A sibling checkout is far less controlled than the project's own
@@ -408,8 +410,7 @@ class PrMerger:
     def _return_sibling_to_main(
         self, cwd: str, name: str, primary_exc: BaseException | None
     ) -> None:
-        """Best-effort cleanup after ``merge_in_sibling``: leave the sibling
-        checked out on ``main``.
+        """Return the sibling checkout to ``main`` without masking a merge failure.
 
         ``merge()`` already checks out main on success, so this is a no-op
         in that case; on failure it prevents a stale branch from breaking a
