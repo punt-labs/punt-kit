@@ -33,7 +33,7 @@ An agent MUST run these before reporting compliance.
 | PY-DOC-3 | ruff | `uv run ruff check --select D,D401 --ignore D105,D107,D417 src/` (Google convention) | exit 0 |
 | PY-DOC-3 | pydoclint | `make check-docstrings` (gate for documented argument names) | exit 0 |
 | PY-LOG-2, PY-LOG-9 | Ruff | `uv run ruff check --select LOG,G,T20 src/` (select in consumer config) | exit 0; not semantic coverage |
-| PY-LOG-9 | Policy citation checker | `make check-policy-traceability` (punt-kit) | exit 0; coverage, dangling IDs, duplicates |
+| PY-LOG-9 | Policy citation checker | `make check-standards` (punt-kit) | exit 0; coverage, dangling IDs, duplicates |
 | Public Python API reference | MkDocs + mkdocstrings | `uv run mkdocs build --strict` (projects with a public Python API) | exit 0 |
 
 See [Docstrings and API Reference](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md#docstrings-and-api-reference)

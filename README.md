@@ -150,6 +150,7 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 
 | Standard | Covers |
 |----------|--------|
+| [Standards and Rules](standards/standards.md) | How standards and language rules relate: clause IDs, rule citations and gates, no status, multi-language policy |
 | [Architecture](standards/architecture.md) | The engine-and-clients model: one engine, thin library/CLI/MCP/REST client surfaces |
 | [OO](standards/oo.md) | The object-oriented stance shared by Python, Swift, and Pharo |
 | [Python](standards/python.md) | uv, ruff, mypy, pyright, pytest, the OO ratchet, pyproject.toml conventions |

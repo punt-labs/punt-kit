@@ -6,11 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Standards and Rules standard (`standards/standards.md`): standards hold
+  language-neutral policy and no status, `lang-rules/<lang>/` holds each
+  language's implementation, every clause has a stable ID, and every rule
+  cites the clauses it implements and names its gate. `make check-standards`,
+  run by `make lint`, fails on duplicate, undefined, retired or uncited IDs.
+  It replaces `make check-policy-traceability`. The Markdown rules in
+  `lang-rules/markdown/` implement it.
+
 - Language-neutral logging and OpenTelemetry telemetry policies with stable clause
   IDs, private multi-process-safe diagnostics and privacy-safe local SQLite capture;
-  separate Python implementation rules and policy-to-rule traceability. A data-driven
-  `make check-policy-traceability` gate runs in `make lint` / `make check` to reject
-  uncited policy clauses, dangling rule citations and duplicate definitions.
+  separate Python implementation rules and policy-to-rule traceability.
 
 - Python docstring and API reference standards: Google-style public contracts,
   focused comment cleanup, Ruff and pydoclint checks, and mkdocstrings builds.
