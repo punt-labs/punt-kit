@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Separate OpenTelemetry usage-capture standard with privacy-safe schemas,
+  local SQLite and exporter-only backend migration; shared observation package,
+  mandatory multi-process-safe log rotation, redaction and aligned Python rules.
+
 - Python docstring and API reference standards: Google-style public contracts,
   focused comment cleanup, Ruff and pydoclint checks, and mkdocstrings builds.
 

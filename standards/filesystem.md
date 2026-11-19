@@ -1,6 +1,6 @@
 # Filesystem Standards
 
-**Updated:** 2026-11-04
+**Updated:** 2026-11-19
 
 Standards for home directory layout across all Punt Labs projects. Reference implementations: **biff** and **vox**.
 
@@ -71,6 +71,12 @@ Tools are free to create any subdirectory structure. The following names are res
 | `cache/` | Content-addressed or ephemeral cache | `~/.punt-labs/vox/cache/` |
 | `data/` | Persistent user data (databases, indexes) | `~/.punt-labs/quarry/data/lancedb/` |
 | `sessions/` | Per-Claude-Code-session state, one directory per `session_id` (see [mcp-caller-identity.md](mcp-caller-identity.md) § 4.2) | `~/.punt-labs/lux/sessions/<session_id>/handle` |
+
+The reserved home-tree file `~/.punt-labs/<tool>/telemetry.db` holds local
+usage capture, separate from `logs/` (see [telemetry.md](telemetry.md)). Its
+directory is `0700`; the database and sidecars are `0600`, created privately
+before SQLite opens them. The shared per-install telemetry salt also lives
+under `~/.punt-labs/` at `0600`, never in a repo.
 
 ---
 

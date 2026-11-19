@@ -1,6 +1,6 @@
 # Python Standards
 
-**Updated:** 2026-11-18
+**Updated:** 2026-11-19
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
@@ -472,8 +472,11 @@ missing directive.
 ## Logging
 
 - `logger = logging.getLogger(__name__)` per module.
-- `logging.basicConfig()` configured once in CLI and server entry points.
-- MCP server logs to stderr only (stdout reserved for stdio transport).
+- Follow [Logging](logging.md): entry points call `configure_logging` for
+  `dictConfig` setup and a durable, private file sink; never `basicConfig`.
+- Reserve stdout for stdio transport in MCP servers. stderr is optional,
+  never the only diagnostic sink. Hooks and detached processes configure too.
+- Usage capture follows [Telemetry](telemetry.md), separate from logging.
 
 ## Project Layout
 

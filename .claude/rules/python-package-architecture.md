@@ -120,13 +120,16 @@ in `pyproject.toml` under `[project.scripts]` using the short name (not the
 
 ## PL-PA-6: MCP Server Framework
 
-**Statement**: Use `FastMCP` for MCP servers. Server logs to stderr only
-(stdout reserved for stdio transport). Register as `<name>-server` entry point.
+**Statement**: Use `FastMCP` for MCP servers. Follow the
+[Logging standard](https://github.com/punt-labs/punt-kit/blob/main/standards/logging.md):
+call `configure_logging` for `dictConfig` setup and a durable private file sink.
+stdout is reserved for stdio transport; stderr is optional, never the only
+diagnostic sink. Register as `<name>-server` entry point.
 
 **Criterion**:
 
-- Pass: `server.py` uses FastMCP; no stdout logging in server mode
-- Fail: custom JSON-RPC implementation; print() in server code
+- Pass: `server.py` uses FastMCP; durable file logging, no stdout logging
+- Fail: custom JSON-RPC implementation; print() in server code; stderr-only logs
 
 **Tooling**:
 

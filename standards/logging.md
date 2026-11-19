@@ -1,17 +1,19 @@
 # Logging Standards
 
+**Updated:** 2026-11-19
+
 Standards for logging across all Punt Labs Python projects. Reference patterns: **vox**'s centralized `dictConfig` and its `vibe-trace` sink (atomic `O_APPEND`, `0600`, escaped) — the append/escape/permission model this standard generalizes — and **quarry**'s operational coverage. (The patterns are the reference, not a clean bill of health: the 2026-07-17 vox audit found the previous "role model" had `0644` files, a content leak, and a multi-writer race. This revision codifies the fixes; see [Current project status](#current-project-status).)
 
 ---
 
 ## Core Principles
 
-1. **Logs are for diagnosis, not monitoring.** These are local-first CLI tools, not cloud services. Logs exist to answer "what happened?" after something goes wrong.
+1. **Logs are diagnostics only.** Logs answer "what happened?" after something goes wrong. Usage capture belongs in [telemetry](telemetry.md), not diagnostic logs.
 2. **Never log content.** User text, document bodies, speech payloads, and message content are PII. Log metadata, counts, and content-derived hashes instead.
 3. **No silent gaps — but no noise.** Every **decision, state change, outcome (success *and* failure, symmetrically), and boundary cross** must leave a line, so an operator never has to *guess* what the system did. The corollary is the discipline: *absence of a line means nothing happened.* That only holds if you also **suppress noise** — pure no-ops, per-iteration chatter, and the same event logged at every layer. Log at the decision point, once. (See [Levels](#levels) and [What Not to Log](#what-not-to-log).)
 4. **Readable by a user, not just a developer.** INFO is plain language a user can follow ("spoke 12 chars with say"), not internal codes or key=value dumps ("Direct-play ok: provider=say voice= elapsed=0.512s"). Developer detail lives at DEBUG. (See [User-Readable INFO](#user-readable-info-vs-developer-debug).)
 5. **A durable file is the only sink that counts — never stderr alone.** For MCP servers and hook subprocesses the host (e.g. Claude Code) **discards stderr entirely.** Anything you need to prove happened — an outcome, a security event, a proof trail — must reach a file. stderr is a convenience for an attached terminal, never the system of record. (See [Where logs land](#where-logs-land).)
-6. **One process owns each file.** Multiple processes appending one `RotatingFileHandler` corrupts it on rotation. Either one process owns the file, or writers use atomic single-line `O_APPEND`. (See [Multi-Process Safety](#multi-process-safety).)
+6. **Multi-process-safe rotation is mandatory.** Any file that can have more than one writer process MUST use multi-process-safe rotation, not just atomic appends. (See [Multi-Process Safety](#multi-process-safety).)
 
 ---
 
@@ -19,7 +21,31 @@ Standards for logging across all Punt Labs Python projects. Reference patterns: 
 
 Every project with a CLI or MCP server must have a `logging_config.py` module that owns all logging setup.
 
+### Shared implementation
+
+Implementations come from one shared Punt Labs package: provisionally
+`punt-observe`, module `punt_observe.logging`, with entry point
+`configure_logging(tool, role, ...)`. It uses `dictConfig`, a durable file sink,
+vox's `AtomicAppendLog` writer and quarry's `LogRedactor`. Each CLI, MCP, hook,
+daemon and detached-process entry point configures its role; libraries do not.
+Repos MUST adopt it once it ships, not hand-roll or vendor copies. Until then,
+the existing reference pattern below applies, subject to the rotation and
+redaction requirements in this standard. The shared package also owns
+[telemetry](telemetry.md); the two pipelines remain separate.
+
+### Redaction
+
+Every file record MUST pass through a redactor after formatting, including
+arguments, exception text and tracebacks. Follow quarry's `LogRedactor`:
+mask URL credentials, paths, query strings and fragments, bare credentials,
+escape control characters and line-forging characters, and cap record size
+(64 KiB reference limit). Withhold a record whose redaction cannot settle.
+Redaction is defense in depth, not permission to log content.
+
 ### Required pattern
+
+The example shows configuration and single-owner permissions; attach the
+required final-record redactor to its file sink before use.
 
 ```python
 """Logging configuration for punt-<name>."""
@@ -282,13 +308,25 @@ Do not add structured key-value formatting (e.g., `key=value` pairs). The log is
 
 **A *per-process* `QueueHandler`/`QueueListener` does NOT fix this.** A queue decouples logging I/O from a hot thread *within one process*; if each process still owns its own listener and file handler, you still have multiple writers. A `QueueHandler` feeding a **shared `multiprocessing.Queue` drained by a single listener process** that owns the one file handler *is* valid — but that is simply the **single-owner** pattern below, mechanized through a queue, and it requires the writers to share the queue object (i.e. a common parent process). Independent process launches — a fresh `<tool> hook` per event, across sessions — have no shared parent, so for that topology the single-owner-over-transport or atomic-`O_APPEND` options below are the fit, not a queue.
 
+**Hard rule:** any log file that can have multiple writer processes MUST use
+multi-process-safe rotation. Stdlib `RotatingFileHandler` and
+`TimedRotatingFileHandler` (including subclasses) are forbidden unless one
+process provably owns the file. Atomic append alone does not make rotation safe.
 Choose one of:
 
 | Pattern | Use when | Tradeoff |
 |---------|----------|----------|
 | **Single owner** — one process (the daemon) owns the file; other processes ship records to it over the transport they already hold | there is a natural central process | needs a tiny local fallback for when the owner is down |
-| **Atomic `O_APPEND` line-writer** — each process opens `os.open(path, O_WRONLY\|O_APPEND\|O_CREAT, 0o600)`, then `os.fchmod(fd, 0o600)` on the opened fd (the `os.open` mode is **ignored for a pre-existing file**, so re-tighten a `0644` log left by an earlier run — same rule as [File Permissions](#file-permissions-0600--required)), and writes the whole line in one `os.write` | no central process; stdlib-only | lose automatic size-rotation — bound growth with external rotation. `logrotate`'s `copytruncate` keeps each append fd valid but has a small **loss window** (writes between the copy and the truncate are dropped) — acceptable for size-capping, not when the trail must be complete; for a lossless proof trail, rotate by rename and signal the writers to reopen a fresh fd. **Not** `WatchedFileHandler` — a buffered `FileHandler`, not a raw `os.write` writer; mixing them forfeits per-line atomicity |
-| **Cross-process locking handler** (`concurrent-log-handler`) | you must keep `RotatingFileHandler` semantics | adds a dependency; lock contention under bursty writers |
+| **Atomic `O_APPEND` line-writer with locked rotation** — vox's `AtomicAppendLog`: open at `0600`, re-tighten existing files, write the whole escaped line in one `os.write` | no central process | all writers participate in the same stable `fcntl` lock-file protocol |
+
+For the multi-writer atomic-append design, rotation MUST be serialized with
+an exclusive `fcntl` lock on a stable lock file that is never renamed.
+Writers coordinate with that lock across append
+and reopen when the active inode changes; vox avoids stale descriptors by
+holding a shared lock across open/write/close on every append. The rotator
+re-checks size under its exclusive lock before renaming. Keep the same
+5 MB threshold and five backups (30 MB total, including the active file).
+`copytruncate` is not an acceptable substitute: it can lose writes.
 
 `RotatingFileHandler` is correct **only for a single-writer file** (e.g. a daemon's own log). The atomic-`O_APPEND` pattern is the stdlib reference: with `O_APPEND` the kernel seeks-to-end and writes as one operation under a lock, so a single `os.write` of a whole log line from concurrent writers lands intact at EOF without tearing or interleaving. (`PIPE_BUF` — the classic "atomic below N bytes" guarantee — governs *pipes and FIFOs*, not regular files; the regular-file guarantee here rests on `O_APPEND` + a single `write()` per line, which for log-line-sized buffers does not short-write in practice. Surface a short write as an error rather than looping — a second `write` would break the atomicity.)
 
@@ -468,9 +506,11 @@ A detached subprocess's stderr typically goes to `DEVNULL`, and even when it doe
 
 For projects adopting this standard:
 
-- [ ] Create `logging_config.py` with the `dictConfig` pattern above
+- [ ] Adopt `punt_observe.logging.configure_logging(tool, role, ...)` once shipped; until then use the reference `dictConfig` pattern
 - [ ] Log **files** are `0600` (active *and* rotated backups), pre-existing files re-tightened — not just the `0o700` dir
-- [ ] No file written by more than one process via `RotatingFileHandler` (single owner or atomic `O_APPEND` — see [Multi-Process Safety](#multi-process-safety))
+- [ ] Prove single ownership or use atomic append with locked rotation and inode reopening; retain the 5 MB / five-backup cap
+- [ ] Every file record passes through the redactor, including exceptions
+- [ ] Ruff selects `LOG`, `G`, `T20`; source checks reject `basicConfig` and unsafe rotating handlers
 - [ ] Nothing security- or proof-relevant lives in MCP/hook/subprocess **stderr alone** — verify by grepping the running system
 - [ ] Untrusted values are escaped (`%r` or the escape table) before interpolation — see [Log Injection](#log-injection)
 - [ ] Auth/authz outcomes and rejected requests are logged (metadata only) — see [Security Events](#security-events-to-log)
@@ -484,11 +524,27 @@ For projects adopting this standard:
 
 ### Current project status
 
-| Project | dictConfig | files 0600 | multi-proc safe | no silent gaps | injection-safe | PII audit |
-|---------|:-:|:-:|:-:|:-:|:-:|:-:|
-| vox | Yes | **No** (0644 — vox-q637) | **No** (`tts.log` multi-writer) | **No** (state machine unlogged) | Partial (`vibe-trace` only) | **Leak** (music prompt — vox-q637) |
-| quarry | No (manual) | ? | ? | ? | ? | Needed |
-| biff | No | N/A | N/A | ? | ? | Needed |
-| langlearn-tts | Yes | ? | ? | ? | ? | Low risk |
+Source survey checked 2026-11-19; this records implementation state, not a
+runtime permissions or full PII audit. Shared-package adoption is pending for all.
 
-The 2026-07-17 vox audit ([`docs/logging-proposal.md`](https://github.com/punt-labs/vox/blob/main/docs/logging-proposal.md)) showed the previous all-green vox row was optimistic — the role model had `0644` files, a content leak, a multi-writer race, and silent gaps. Every project needs a real audit against the columns above, not a self-report.
+| Project | Current state | Rollout work |
+|---------|---------------|--------------|
+| vox | Compliant rotation/permission reference: `logging_config.py`, `log_append_handler.py`, `append_log.py` use `dictConfig`, private atomic append and locked rotation | Adopt shared redactor and package |
+| quarry | `logging_config.py` uses `dictConfig`; `log_redaction.py` applies `LogRedactor`; usage telemetry exists | Log handler inherits plain stdlib rotation, does not guarantee `0600`; CLI/MCP clients share a file and can race on rotation |
+| biff | `logging_config.py` uses plain `RotatingFileHandler`, no `0600` guarantee; `_hook_entry.py` dispatches without configuring logging | Private multi-process-safe sink, redaction and hook setup |
+| lux | `basicConfig` in daemon/display/CLI paths; `_backend_launchd.py` declares stdout/stderr files | Central durable sink with private, safe rotation and redaction |
+| z-spec | No logging configuration in `src/` | Configure every entry point |
+| punt-kit | No logging configuration in `src/` | Configure every entry point |
+
+## Enforcement
+
+Select Ruff `LOG`, `G` and `T20` to catch logging misuse, eager formatting and
+accidental prints. Intentional CLI output is not diagnostic logging; keep any
+necessary output exemptions narrow.
+
+CI MUST also check `src/` for `logging.basicConfig` (including imported aliases)
+and stdlib `RotatingFileHandler` / `TimedRotatingFileHandler` use, including
+subclasses and `dictConfig` string references. Reject `basicConfig`; reject
+rotating-handler hits unless a reviewed single-owner exception documents the
+process topology. Ruff alone does not enforce these bans. Audit the sink map
+for CLI, MCP, daemon and hook processes, not just one entry point.

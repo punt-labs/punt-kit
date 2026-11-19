@@ -141,18 +141,23 @@ optional heavy dependencies at system boundaries.
 ## PY-CS-11: Logging Convention
 
 **Statement**: Every module that logs must use
-`logger = logging.getLogger(__name__)`. Configure `logging.basicConfig()` once
-in the entry point (CLI main, server main), never in library modules.
+`logger = logging.getLogger(__name__)`. Entry points call `configure_logging`
+for `dictConfig` setup with a durable private file sink, never `basicConfig`.
+Library modules never configure logging. stdout is reserved for stdio
+transport; stderr is optional, not the system of record. Follow the canonical
+[Logging standard](https://github.com/punt-labs/punt-kit/blob/main/standards/logging.md).
 
 **Criterion**:
 
-- Pass: `getLogger(__name__)` used; no `basicConfig()` in library code
-- Fail: `print()` used for operational output; `basicConfig()` in a library module
+- Pass: `getLogger(__name__)`; each entry point configures a durable file sink
+- Fail: operational `print()`, `basicConfig()`, stderr-only diagnostics or unsafe rotation
 
 **Tooling**:
 
-- Grep: `grep -rn "basicConfig" --include="*.py" src/` — only in entry points
-- Grep: `grep -rn "print(" --include="*.py" src/` — flag in non-test code
+- Ruff: select `LOG`, `G`, `T20`; narrowly exempt intentional CLI output
+- Source check: ban `basicConfig` and stdlib rotating handlers in `src/`,
+  including aliases, subclasses and config strings; rotating handlers require
+  a reviewed proof of single-process ownership
 
 ## PY-CS-12: Walrus Operator for Inline Assignment
 

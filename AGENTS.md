@@ -21,7 +21,8 @@ Each standard lives in its own document under `standards/`.
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout, reserved subdirectories, per-project activation marker, migration from legacy dot-directories |
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone, committed except local-convention paths (`local/`, `*.local`, `*.local.*`), live state never tracked (the seal pattern, chunk-based), the canonical gitignore block, subtree zones (vendored/config/local/marker) |
 | [Integration](standards/integration.md) | Peer-tool discovery tiers L0–L5, presence markers, graceful degradation, integration matrix, bundled integrations |
-| [Logging](standards/logging.md) | Centralized dictConfig, log locations, atomic append, file permissions, content escaping |
+| [Logging](standards/logging.md) | Diagnostic files, shared configuration, multi-process-safe rotation, permissions, redaction |
+| [Telemetry](standards/telemetry.md) | Separate OTel usage capture, typed privacy-safe schemas, local SQLite, retention, opt-in export |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, review bots (Qodo, Bugbot), required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
