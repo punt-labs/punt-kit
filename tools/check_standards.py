@@ -13,6 +13,8 @@ _FENCE = re.compile(r"^\s*(```|~~~)")
 _HEADING = re.compile(r"^#{1,6} ")
 _CLAUSE = re.compile(r"^#{2,6} ([A-Z][A-Z0-9]{1,7})-(\d+): (.+)$")
 _RULE = re.compile(r"^#{2,6} ([A-Z][A-Z0-9]*-[A-Z][A-Z0-9]*-\d+[a-z]?): ")
+_NEAR_CLAUSE = re.compile(r"^#{2,6} [A-Za-z][A-Za-z0-9]*-\d+\b")
+_NEAR_RULE = re.compile(r"^#{2,6} [A-Za-z][A-Za-z0-9]*-[A-Za-z][A-Za-z0-9]*-\d+")
 _APPLIES = re.compile(r"^\*\*Applies to:\*\* (.+)$")
 _IMPLEMENTS = re.compile(r"^\*\*Implements:\*\*")
 _TRACE = re.compile(r"^\*\*Implements:\*\* ([A-Z0-9, -]+?) · \*\*Gate:\*\* (\S.*)$")
@@ -74,6 +76,9 @@ class _Index:
                 retired = match[3].startswith("Retired")
                 self.clauses[clause_id] = _Clause(where, retired, None)
                 current = clause_id
+            elif _NEAR_CLAUSE.match(line):
+                self.findings.append(f"{where}: expected '### <PREFIX>-<n>: <title>'")
+                current = None
             elif _HEADING.match(line):
                 current = None
             elif current and (match := _APPLIES.match(line)):
@@ -99,6 +104,11 @@ class _Index:
             if match := _RULE.match(line):
                 current = _Rule(match[1], where, language)
                 file_rules.append(current)
+            elif _NEAR_RULE.match(line):
+                self.findings.append(
+                    f"{where}: expected '## <LANG>-<AREA>-<n>: <title>'"
+                )
+                current = None
             elif _HEADING.match(line):
                 current = None
             elif _IMPLEMENTS.match(line):

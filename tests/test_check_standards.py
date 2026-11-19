@@ -125,6 +125,16 @@ def test_fenced_examples_are_ignored(tmp_path: Path) -> None:
         ),
         (
             "standards/new.md",
+            "# New\n\n### NEW-1 Missing colon\n",
+            "expected '### <PREFIX>-<n>: <title>'",
+        ),
+        (
+            "lang-rules/python/extra.md",
+            "## py-log-2: Lowercase\n",
+            "expected '## <LANG>-<AREA>-<n>: <title>'",
+        ),
+        (
+            "standards/new.md",
             "# New\n\n### NEW-1: Uncited\n",
             "clause NEW-1 is cited by no rule",
         ),

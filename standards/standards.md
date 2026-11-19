@@ -56,7 +56,9 @@ format (`markdown`). When languages differ, the rules differ and the policy
 does not. A language's overview (its toolchain and how it realizes the
 policies) is `lang-rules/<lang>/README.md`; it links to rules and does not
 restate them. A clause that holds only for some languages lists them on an
-`**Applies to:**` line, and each listed language implements it.
+`**Applies to:**` line, and each listed language implements it. The names
+are those of the files the clause governs: this standard's clauses govern
+standards and rules documents, so they apply to `markdown`.
 
 ### STD-3: Standards and rules carry no status
 
