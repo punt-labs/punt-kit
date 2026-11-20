@@ -225,7 +225,6 @@ with t.span('punt.cli.command', 1, command='version', secret='private content'):
     pass
 with t.span('punt.cli.command', 1, command='version'):
     pass
-t.shutdown(timeout_s=2)
 """,
     )
     assert result.returncode == 0, result.stderr
