@@ -13,7 +13,6 @@ dependencies = [
     "punt-observe @ git+https://github.com/punt-labs/punt-observe@53e657555cab240795c850ea7f0e4dd77a8d98fc",
     "typer>=0.15.0",
     "rich>=13.0.0",
-    "tomli>=2.0.0;python_version<'3.11'",
     "tomli-w>=1.0.0",
     "jinja2>=3.1.0",
     "markdown-it-py>=3.0.0",

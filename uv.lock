@@ -601,7 +601,6 @@ requires-dist = [
     { name = "packaging", specifier = ">=24.0" },
     { name = "punt-observe", git = "https://github.com/punt-labs/punt-observe?rev=53e657555cab240795c850ea7f0e4dd77a8d98fc" },
     { name = "rich", specifier = ">=13.0.0" },
-    { name = "tomli", marker = "python_full_version < '3.11'", specifier = ">=2.0.0" },
     { name = "tomli-w", specifier = ">=1.0.0" },
     { name = "typer", specifier = ">=0.15.0" },
 ]
