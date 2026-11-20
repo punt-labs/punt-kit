@@ -282,6 +282,9 @@ All notable changes to this project will be documented in this file.
 
 ### Removed
 
+- The unused `tomli` compatibility dependency for Python below 3.11. punt-kit
+  requires Python 3.13 or later and uses the standard-library `tomllib`.
+
 - `make skills-check` and `make skills-check-fix`, with `tools/skills_check.py`.
   They reconciled the `Skill()` table `punt init` used to seed; that table is
   gone, each plugin's `enable` owns its own `Skill()` rules.
