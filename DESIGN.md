@@ -2527,12 +2527,12 @@ required publishing punt-observe first and replacing the Git reference with a
 released version. Publication timing was Jim's call; the adoption change published
 neither package.
 
-The original release prerequisites rejected direct URL references in `[project].dependencies`
+Release prerequisites reject direct URL references in `[project].dependencies`
 and every `[project.optional-dependencies]` group, including VCS, archive and
-local-file references. The metadata-only check ran before phase selection on
+local-file references. The metadata-only PyPI-compatibility check runs before phase selection on
 every invocation, including resumed releases, and at the start of Phase 1.
-Its remedy named the dependency and any optional group: publish it to PyPI and
-pin a version before releasing. This prevented discovering the distribution
+Its remedy names the dependency and any optional group: publish it to PyPI and
+pin a version before releasing. This prevents discovering the distribution
 constraint only during a post-tag PyPI upload.
 
 `EntryPointLogging` binds the process role and terminal policy to the shared
@@ -2550,11 +2550,13 @@ remain owned by the shared facade; instrumentation never imports exporters.
 ### Amendment — 2026-11-20: PyPI distribution
 
 `punt-observe` is now published on PyPI and pinned as `punt-observe==0.1.0`.
-This supersedes the Git pin and publication prerequisite above. The temporary
-direct-reference release guard, including its resume and optional-dependency
-checks, has been removed with its dedicated tests. Releases no longer need to
-wait for the shared package's publication. Version 0.1.0 includes the fork-hook
-and exit-flush fixes; schema and lifecycle ownership remain unchanged.
+This supersedes the Git pin and publication prerequisite above. The general
+PyPI-compatibility release guard and its tests remain: direct references in
+runtime dependencies or any optional-dependency group are rejected before
+tagging, both in Phase 1 and before phase selection on resumed releases.
+The check is independent of punt-observe's distribution source. Releases no
+longer need to wait for the shared package's publication. Version 0.1.0 includes
+the fork-hook and exit-flush fixes; schema and lifecycle ownership remain unchanged.
 
 ### Rejected Alternatives
 

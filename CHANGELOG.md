@@ -6,8 +6,8 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Switched to `punt-observe==0.1.0` from PyPI and removed the temporary
-  Git-pin release guard.
+- Switched to `punt-observe==0.1.0` from PyPI; release preflight rejects
+  direct-reference dependencies before tagging as a general PyPI-compatibility check.
 
 - Private diagnostics and closed-schema local CLI telemetry through the
   version-pinned shared `punt-observe` package; `PUNT_TELEMETRY=off` disables capture.
