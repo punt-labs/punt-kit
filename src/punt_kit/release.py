@@ -521,8 +521,6 @@ def run_release(
         # run's summary recaps only its own outstanding manual actions.
         _skips.clear()
 
-        Phase1Preflight(info, dry_run=dry_run, ops=_ops).check_dependencies()
-
         if not dry_run:
 
             def _cleanup_handler(signum: int, _frame: object) -> None:

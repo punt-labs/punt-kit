@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import shlex
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 
-from packaging.requirements import InvalidRequirement, Requirement
 from rich.console import Console
 
 from punt_kit.phases.phase10_homebrew import has_brew_formula_target
@@ -62,7 +61,6 @@ class Phase1Preflight:
         dry_run = self._dry_run
         ops = self._ops
         _console.print("\n[bold]Phase 1: Pre-flight[/bold]")
-        self.check_dependencies()
 
         branch = ops.run(
             ["git", "branch", "--show-current"], cwd=str(info.root)
@@ -211,38 +209,6 @@ class Phase1Preflight:
             ops.ok("All quality gates passed")
         elif dry_run:
             ops.dry("Would run quality gates")
-
-    def check_dependencies(self) -> None:
-        """Reject dependencies PyPI cannot accept before release side effects."""
-        project = cast(
-            "dict[str, object]", (self._info.pyproject or {}).get("project", {})
-        )
-        groups = {
-            "[project].dependencies": cast("list[str]", project.get("dependencies", []))
-        }
-        optional = cast(
-            "dict[str, list[str]]", project.get("optional-dependencies", {})
-        )
-        groups.update(
-            (f"[project.optional-dependencies].{name}", dependencies)
-            for name, dependencies in optional.items()
-        )
-        for group, dependencies in groups.items():
-            for dependency in dependencies:
-                try:
-                    requirement = Requirement(dependency)
-                except InvalidRequirement:
-                    self._ops.fail(
-                        f"Invalid project dependency; fix {group} before releasing"
-                    )
-                if requirement.url:
-                    context = (
-                        "" if group == "[project].dependencies" else f" in {group}"
-                    )
-                    self._ops.fail(
-                        f"Direct URL dependency{context}: publish {requirement.name} "
-                        "to PyPI and pin a version before releasing"
-                    )
 
     def _dirty_tree_message(
         self, dirty_lines: list[str], untracked_lines: list[str]

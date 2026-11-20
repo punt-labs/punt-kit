@@ -2520,19 +2520,19 @@ content. Logging, privacy, rotation and telemetry transport belong in the shared
 
 ### Design
 
-`punt-observe` is pinned to Git commit
-`53e657555cab240795c850ea7f0e4dd77a8d98fc` because it is not yet on PyPI.
+Initially, `punt-observe` was pinned to Git commit
+`53e657555cab240795c850ea7f0e4dd77a8d98fc` because it was not yet on PyPI.
 PyPI rejects direct-reference dependencies: a punt-kit PyPI release therefore
-requires publishing punt-observe first and replacing the Git reference with a
-released version. Publication timing is Jim's call; this change publishes neither
-package.
+required publishing punt-observe first and replacing the Git reference with a
+released version. Publication timing was Jim's call; the adoption change published
+neither package.
 
-Release prerequisites reject direct URL references in `[project].dependencies`
+The original release prerequisites rejected direct URL references in `[project].dependencies`
 and every `[project.optional-dependencies]` group, including VCS, archive and
-local-file references. The metadata-only check runs before phase selection on
+local-file references. The metadata-only check ran before phase selection on
 every invocation, including resumed releases, and at the start of Phase 1.
-Its remedy names the dependency and any optional group: publish it to PyPI and
-pin a version before releasing. This prevents discovering the distribution
+Its remedy named the dependency and any optional group: publish it to PyPI and
+pin a version before releasing. This prevented discovering the distribution
 constraint only during a post-tag PyPI upload.
 
 `EntryPointLogging` binds the process role and terminal policy to the shared
@@ -2546,6 +2546,15 @@ registered commands, an outcome enum and a JSON-output boolean. Nonzero exits
 are errors; zero exits are successful. Original exceptions and exit codes are
 preserved. Shutdown waits at most two seconds. Off switches and failure isolation
 remain owned by the shared facade; instrumentation never imports exporters.
+
+### Amendment — 2026-11-20: PyPI distribution
+
+`punt-observe` is now published on PyPI and pinned as `punt-observe==0.1.0`.
+This supersedes the Git pin and publication prerequisite above. The temporary
+direct-reference release guard, including its resume and optional-dependency
+checks, has been removed with its dedicated tests. Releases no longer need to
+wait for the shared package's publication. Version 0.1.0 includes the fork-hook
+and exit-flush fixes; schema and lifecycle ownership remain unchanged.
 
 ### Rejected Alternatives
 

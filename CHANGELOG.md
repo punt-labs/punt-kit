@@ -6,13 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- Release preflight rejects direct URL dependencies before tagging, with a
-  publish-to-PyPI and version-pin remedy instead of a later upload failure.
+- Switched to `punt-observe==0.1.0` from PyPI and removed the temporary
+  Git-pin release guard.
 
 - Private diagnostics and closed-schema local CLI telemetry through the
-  SHA-pinned shared `punt-observe` package; `PUNT_TELEMETRY=off` disables capture.
-  Pinned to `53e657555cab240795c850ea7f0e4dd77a8d98fc` with concurrent SQLite
-  safety, strict 5 MiB rotation caps, and idle telemetry pruning.
+  version-pinned shared `punt-observe` package; `PUNT_TELEMETRY=off` disables capture.
+  Includes concurrent SQLite safety, strict 5 MiB rotation caps, idle telemetry
+  pruning, fork hooks and exit flushing.
 
 - Standards and Rules standard (`standards/standards.md`): standards hold
   language-neutral policy and no status, `lang-rules/<lang>/` holds each
