@@ -4,11 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Fixed
-
-- `punt enable` and `punt disable` now log configuration changes, no-ops,
-  refusals, and partial failures without paths or file contents.
-
 ### Added
 
 - Switched to `punt-observe==0.1.0` from PyPI; release preflight rejects
@@ -241,6 +236,9 @@ All notable changes to this project will be documented in this file.
   `bd sync`, which does not exist in server mode.
 
 ### Fixed
+
+- `punt enable` and `punt disable` now log configuration changes, no-ops,
+  refusals, and partial failures without paths or file contents.
 
 - `make check-standards` no longer fails ordinary headings such as
   `### HTTP-2 transport` in documents without clause or rule IDs; malformed
