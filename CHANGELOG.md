@@ -237,6 +237,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt enable` and `punt disable` now log configuration changes, no-ops,
+  refusals, and partial failures without paths or file contents.
+
 - `make check-standards` no longer fails ordinary headings such as
   `### HTTP-2 transport` in documents without clause or rule IDs; malformed
   ID headings are reported only in documents that already use IDs.
