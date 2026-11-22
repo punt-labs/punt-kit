@@ -586,7 +586,7 @@ The full naming convention is in [CLI Standards](cli.md#naming-and-distribution)
 
 - Every module ships with tests. Untested code is unfinished code.
 - Tests mirror source structure: `test_cli.py`, `test_server.py`, etc.
-- If a test fails, fix it. Do not skip, ignore, or work around it.
+- Fix failures; handle flaky cases under [Testing](testing.md#tst-9-make-quarantines-temporary-and-visible).
 - Integration tests requiring external services are marked with pytest markers (e.g., `@pytest.mark.integration`).
 
 ### Testing Pyramid
@@ -594,14 +594,16 @@ The full naming convention is in [CLI Standards](cli.md#naming-and-distribution)
 For current trigger names, CI placement and release test evidence, see
 [Testing](testing.md). The older pyramid below describes test scope.
 
-| Tier | What It Tests | Speed |
-|------|---------------|-------|
-| **1. Unit** | Tool logic, data models, pure functions | Fast (~1s) |
-| **2. Integration** | MCP protocol, cross-component state | Medium (~2-5s) |
-| **3. Subprocess/E2E** | Wire protocol, CLI args, process lifecycle | Slow (~5-10s) |
-| **4. SDK** | End-to-end with Claude (optional, costs money) | Very slow (~30s) |
+| Test scope | What It Tests | Speed |
+|------------|---------------|-------|
+| **Unit** | Tool logic, data models, pure functions | Fast (~1s) |
+| **Integration** | MCP protocol, cross-component state | Medium (~2-5s) |
+| **Subprocess/E2E** | Wire protocol, CLI args, process lifecycle | Slow (~5-10s) |
+| **SDK** | End-to-end with Claude (optional, costs money) | Very slow (~30s) |
 
-Default `pytest` runs tiers 1-2 only. Higher tiers are opt-in via markers.
+Select and document the credential-free default suite and required boundary
+checks under [Testing](testing.md) and the
+[Python testing rules](../lang-rules/python/python-testing.md).
 
 ### Humble Object Testing
 
@@ -707,15 +709,17 @@ CLI-only tools (like `punt-kit`) install via `pip install` or `uv tool install` 
 Releases are automated via `release.yml`. A tag push (`v*`) triggers the full pipeline:
 
 ```text
-build → testpypi → test-install → pypi
+build → testpypi → test-install → pypi → published smoke
 ```
 
 1. **build** — `uv build` + `uvx twine check dist/*`, uploads artifact
 2. **testpypi** — Publishes to TestPyPI via trusted publishing (OIDC)
-3. **test-install** — Installs the package from TestPyPI and verifies the CLI entry point
+3. **test-install** — Installs and exercises the exact candidate as required by [TST-7](testing.md#tst-7-prove-the-installed-candidate-before-promotion)
 4. **pypi** — Publishes to production PyPI via trusted publishing (OIDC)
+5. **published smoke** — Installs the exact published version from production PyPI in a clean environment and asserts its identity and a representative real operation, as required by [TST-8](testing.md#tst-8-verify-the-published-distribution)
 
-TestPyPI failure blocks PyPI publish. This catches packaging issues before they reach production.
+TestPyPI or candidate test failure blocks PyPI publication. A failed published
+smoke fails release verification and alerts the release owner.
 
 ### Developer steps
 
@@ -724,9 +728,8 @@ TestPyPI failure blocks PyPI publish. This catches packaging issues before they 
 3. Run all quality gates
 4. Commit: `chore: release vX.Y.Z`
 5. Tag and push: `git tag vX.Y.Z && git push origin main vX.Y.Z`
-6. CI handles build, TestPyPI, install verification, and PyPI upload
+6. CI builds and tests the candidate, publishes it to PyPI only after the candidate tests pass, and runs the published smoke
 7. Create GitHub release: `gh release create vX.Y.Z --title "vX.Y.Z" --notes-file -`
-8. Verify: `uv tool install --upgrade punt-<name> && <name> --version`
 
 ### Trusted publishing setup (one-time per package)
 
