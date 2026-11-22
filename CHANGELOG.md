@@ -6,6 +6,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Repository-local ethos check policy: advisory file checks on edit, blocking
+  staged checks and ratchets at commit, and the full gate at handoff. Requires
+  an ethos build containing DES-085; see `docs/advisory-checks.md`.
+
 - Report-only architecture layers and design diagnostics using
   `punt-oo-ratchet==0.4.0`. `make design-shadow` compares against `origin/main`
   (override `DESIGN_BASE`), `make report` includes a non-failing full design scan,

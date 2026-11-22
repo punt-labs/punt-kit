@@ -216,6 +216,13 @@ For this checkout, `uv sync` installs the PyPI
 [adoption rule](lang-rules/python/python-oo-adoption.md) for baseline updates
 and CI wiring.
 
+Agent check policy selects `checks: punt-kit` in `.punt-labs/ethos.yaml`:
+advisory file-local edits, blocking staged checks, and blocking `make check`
+at subagent handoff through the ethos plugin (not main-session stop).
+Linux generated edit hooks have an unresolved upstream stdin caveat and may
+not run their checks. See [agent quality checks](docs/advisory-checks.md)
+for setup, the required DES-085 ethos build and timing reproduction.
+
 ## Plugin Development Patterns
 
 Fourteen design patterns drawn from Punt Labs Claude Code plugins. Each one describes the problem, the solution, the trade-offs, and which projects use it.
