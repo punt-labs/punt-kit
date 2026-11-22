@@ -118,7 +118,8 @@ to hide a failure in a required case.
 **Tooling**:
 
 - Exclude quarantine from required runs with `-m "not quarantine"` or
-  include `and not quarantine` in an explicit marker expression. A default
+  group the explicit selection before appending `and not quarantine`, for
+  example `-m "(integration or e2e) and not quarantine"`. A default
   expression in pytest configuration does not cover CI commands that pass
   their own `-m`.
 - List quarantines with `uv run pytest --collect-only -m quarantine`.
