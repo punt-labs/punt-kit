@@ -245,6 +245,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Bump punt-observe to 0.1.1: diagnostic logs now mask bare bearer
+  credentials and home-directory prefixes, and URL query redaction keeps
+  prose punctuation.
+
 - `punt enable` and `punt disable` now log configuration changes, no-ops,
   refusals, and partial failures without paths or file contents.
 

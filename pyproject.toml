@@ -10,7 +10,7 @@ classifiers = [
     "Development Status :: 4 - Beta",
 ]
 dependencies = [
-    "punt-observe==0.1.0",
+    "punt-observe==0.1.1",
     "typer>=0.15.0",
     "rich>=13.0.0",
     "tomli-w>=1.0.0",
