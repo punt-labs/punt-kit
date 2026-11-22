@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Report-only architecture layers and design diagnostics using
+  `punt-oo-ratchet==0.4.0`. `make design-shadow` compares against `origin/main`
+  (override `DESIGN_BASE`), `make report` includes a non-failing full design scan,
+  and PR CI appends the advisory verdict to its job summary even after a gate
+  fails. Neither design report gates `make check` or CI; existing gate policies
+  and baselines are unchanged.
+
 - Switched to `punt-observe==0.1.0` from PyPI; release preflight rejects
   direct-reference dependencies before tagging as a general PyPI-compatibility check.
 
