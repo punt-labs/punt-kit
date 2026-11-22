@@ -50,17 +50,17 @@ jobs:
           make check-coupling COUPLING_BASE="--base-ref ${BASE} --require-base --tripwire"
           make check-suppressions SUPPRESSION_BASE="--base-ref ${BASE} --require-base --tripwire"
 
-      # Advisory only: retain the verdict or input error even after a gate
-      # fails, without letting a reporting failure gate this job.
-      - name: Design ratchet (shadow, report only)
+      # Retain the verdict or input error even after another gate fails.
+      - name: Design ratchet (shadow gate)
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
-        continue-on-error: true
         env:
           DESIGN_BASE: origin/${{ github.base_ref }}
         run: |
+          status=0
           {
-            echo '### Design ratchet (shadow, report only)'
+            echo '### Design ratchet (shadow gate)'
             echo '```text'
-            make design-shadow 2>&1 || true
+            make design-shadow 2>&1 || status=$?
             echo '```'
+            exit "${status}"
           } | tee -a "${GITHUB_STEP_SUMMARY}"
