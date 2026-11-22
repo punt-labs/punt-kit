@@ -1,6 +1,6 @@
 # Python Standards
 
-**Updated:** 2026-11-19
+**Updated:** 2026-11-22
 
 Standards for all Punt Labs Python projects. This document is the canonical reference — individual project CLAUDE.md files should reference it, not duplicate it.
 
