@@ -1,10 +1,4 @@
-"""The migration table in code matches the one in the standard, row for row.
-
-The standard's § 9 tables are the sole source for the paths `punt audit`
-grades. This suite parses those tables out of ``standards/punt-labs-dir.md``
-at test time and compares them with :data:`MIGRATION_TABLE`, so an edit to
-the Markdown without the matching data edit fails here.
-"""
+"""Keep punt's documented compatibility inventory and code in sync."""
 
 from __future__ import annotations
 
@@ -15,24 +9,23 @@ import pytest
 
 from punt_kit.adoption_table import MIGRATION_TABLE, MigrationRow, RowKind
 
-STANDARD = Path(__file__).resolve().parents[1] / "standards" / "punt-labs-dir.md"
+REFERENCE = Path(__file__).resolve().parents[1] / "docs" / "repo-layout.md"
 
 _SECTIONS: dict[str, RowKind] = {
-    "9.1": RowKind.ROOT_SENTINEL,
-    "9.2": RowKind.BARE_FILE,
-    "9.3": RowKind.REGISTRY,
-    "9.4": RowKind.LIVE_STATE,
+    "PLD-10": RowKind.ROOT_SENTINEL,
+    "PLD-12": RowKind.REGISTRY,
+    "PLD-2": RowKind.LIVE_STATE,
 }
 
 _CODE = re.compile(r"`([^`]+)`")
 
 
 def _section_tables() -> dict[str, list[list[str]]]:
-    """The body rows of the Markdown table under each § 9.x heading."""
+    """The body rows under each policy-linked compatibility heading."""
     tables: dict[str, list[list[str]]] = {}
     current = ""
-    for line in STANDARD.read_text(encoding="utf-8").splitlines():
-        heading = re.match(r"^### (9\.\d) ", line)
+    for line in REFERENCE.read_text(encoding="utf-8").splitlines():
+        heading = re.match(r"^### (PLD-\d+) ", line)
         if heading:
             current = heading.group(1)
             continue
@@ -63,8 +56,9 @@ def _row_from_markdown(section: str, cells: list[str]) -> MigrationRow:
 
     The artifact is the first cell's head with backticks stripped; the
     destination is the first code span of the Destination column; the paths
-    are the code spans of the Live path column (§ 9.4) or of the Legacy cell's
-    head (§ 9.1-9.3); a Rule that opens "No migration" marks a non-migrating row.
+    are the code spans of the Live path column (PLD-2) or of the Legacy cell's
+    head (root/registry rows); a Rule that opens "No migration" marks a
+    non-migrating row.
     """
     kind = _SECTIONS[section]
     artifact = _head(cells[0]).replace("`", "")
@@ -90,8 +84,14 @@ def test_every_section_has_a_table() -> None:
     assert set(_section_tables()) == set(_SECTIONS)
 
 
-def test_table_matches_the_standard_row_for_row() -> None:
+def test_table_matches_the_reference_row_for_row() -> None:
     assert MIGRATION_TABLE.rows == _expected_rows()
+
+
+def test_inventory_cites_defined_policy_clauses() -> None:
+    standard = REFERENCE.parents[1] / "standards" / "punt-labs-dir.md"
+    clauses = set(re.findall(r"^### (PLD-\d+):", standard.read_text(), re.MULTILINE))
+    assert {row.section for row in MIGRATION_TABLE.rows} <= clauses
 
 
 @pytest.mark.parametrize(
@@ -118,10 +118,8 @@ def test_live_paths_are_the_interim_excludes() -> None:
     )
 
 
-def test_bare_file_and_gitlink_rows() -> None:
-    assert tuple(r.paths for r in MIGRATION_TABLE.rows_of(RowKind.BARE_FILE)) == (
-        (".punt-labs/lux.md",),
-    )
+def test_canonical_lux_has_no_migration_and_gitlink_is_named() -> None:
+    assert all(".punt-labs/lux.md" not in row.paths for row in MIGRATION_TABLE.rows)
     assert tuple(r.paths for r in MIGRATION_TABLE.rows_of(RowKind.REGISTRY)) == (
         (".punt-labs/ethos",),
     )

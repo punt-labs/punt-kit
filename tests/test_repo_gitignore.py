@@ -1,13 +1,9 @@
 """This repository's own root .gitignore honors the .punt-labs/ ignore contract.
 
-standards/punt-labs-dir.md § 4 makes the local convention the only ignore
-convention under .punt-labs/: no manifest, no per-file exception, no directory
-glob. § 6 then sanctions exactly one place for a ``.punt-labs/`` ignore line in
-a root .gitignore: the canonical block, plus one interim exclude per § 9.4
-live-state row. That block sits above the ``# === Repo-specific ===`` marker
-and is owned by the workspace rollout (``.bin/gitignore-canonical.template`` in
-punt-labs/punt-labs), so the repo-specific section below the marker must carry
-no ``.punt-labs/`` pattern at all.
+standards/punt-labs-dir.md PLD-4 defines the local naming boundary.
+PY-PLD-4 implements the patterns; docs/repo-layout.md owns the compatibility
+excludes. This repo keeps them above ``# === Repo-specific ===``, with no
+independent ``.punt-labs/`` patterns below it.
 """
 
 from __future__ import annotations

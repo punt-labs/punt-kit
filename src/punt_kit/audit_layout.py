@@ -1,7 +1,7 @@
-"""Check the `.punt-labs/` layout for `punt audit` (punt-labs-dir.md § 8).
+"""Check the `.punt-labs/` layout for `punt audit` (punt-labs-dir.md PLD-11).
 
 Git probes determine verdicts; `.gitignore` text only explains failed probes.
-The migration tables supply the paths to probe. Seal manifests are not checked.
+The tool-owned compatibility inventory supplies the paths to probe.
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ CANONICAL_BLOCK = (
 )
 ROOT_SENTINELS = (".biff", ".vox", ".lux", ".ethos", ".quarry.toml")
 LOCAL_ZONE = "local"
-NAMED_EXCEPTION = "ethos.yaml"
+NAMED_EXCEPTIONS = ("ethos.yaml", "lux.md")
 
 # Set (a) of the gitignore probe, per present tool: (relative path, must be ignored).
 _TOOL_PROBES = (
@@ -47,7 +47,7 @@ _TOOL_PROBES = (
 
 
 def _is_local_convention(path: str) -> bool:
-    """Return whether ``path`` has a local-convention segment (§ 4).
+    """Return whether ``path`` has a local-convention segment (PLD-4).
 
     A segment qualifies when it is exactly ``local``, ends in ``.local``, or
     carries ``.local.`` inside it. Segments are matched whole, never by
@@ -141,7 +141,7 @@ class GitignoreText:
 
 @final
 class LayoutAudit:
-    """Checks a repository's ``.punt-labs/`` layout against punt-labs-dir.md § 8."""
+    """Checks a repository's ``.punt-labs/`` layout against punt-labs-dir.md PLD-11."""
 
     __slots__ = ("_root",)
 
@@ -290,13 +290,14 @@ class LayoutAudit:
         label = "No gitignored non-local-convention path"
         live = MIGRATION_TABLE.live_paths()
         ignored = self._ls_files("--others", "--ignored", "--exclude-standard")
-        # Scoped to .punt-labs/<tool>/: a bare file is the bare-file check's.
-        candidates = [path for path in ignored if path.count("/") > 1]
+        canonical = set(map(".punt-labs/{}".format, NAMED_EXCEPTIONS))
+        candidates = set(ignored) & canonical
+        candidates.update(path for path in ignored if path.count("/") > 1)
         # The index never lists an empty directory; the standard's scan reads
         # the worktree, so a fileless directory is probed on its own.
         empty = self._fileless_directories()
         verdicts = self._check_ignore(empty) if empty else {}
-        candidates.extend(path for path in empty if verdicts[path])
+        candidates.update(path for path in empty if verdicts[path])
         offenders = sorted(
             path
             for path in candidates
@@ -338,7 +339,7 @@ class LayoutAudit:
         return path.is_symlink() or path.exists()
 
     def _tool_ignore_finding(self) -> Finding:
-        """Check that each tool's own ``.gitignore`` is tracked (§ 8).
+        """Check that each tool's own ``.gitignore`` is tracked (PLD-11).
 
         The worktree is walked, not the index, so an untracked ignore file
         that the canonical block also ignores is still found and still fails.
@@ -370,16 +371,16 @@ class LayoutAudit:
     def _sentinel_grade(self, name: str) -> tuple[str, str]:
         rows = MIGRATION_TABLE.rows_naming_sentinel(name)
         if not rows:
-            return (FAIL, f"{name} — no § 9 row names it")
+            return (FAIL, f"{name} — no PLD-10 inventory row names it")
         existing = [r for r in rows if self._occupied(r.path_naming(name))]
         row = existing[0] if existing else rows[0]
         if not row.migrates:
-            return (FAIL, f"{name} — a stray, not a sentinel (§ 9.1: no migration)")
+            return (FAIL, f"{name} — a stray, not a sentinel (PLD-10: no migration)")
         destination = row.destination or "delete"
         return (
             WARN,
             f"{name} — migration pending"
-            f" (§ {row.section} {row.path_naming(name)} → {destination})",
+            f" ({row.section} {row.path_naming(name)} → {destination})",
         )
 
     def _live_state_findings(self) -> list[Finding]:
@@ -390,10 +391,10 @@ class LayoutAudit:
                 count = len(self._git("ls-files", "-z", "--", path).split(b"\0")) - 1
                 if count:
                     files = "1 file" if count == 1 else f"{count} files"
-                    pending = f"migration pending (§ {row.section} → {row.destination})"
+                    pending = f"migration pending ({row.section} → {row.destination})"
                     detail = f"{path} is git-tracked ({files}) — {pending}"
                     findings.append((WARN, label, detail))
-        return findings or [(PASS, label, "no § 9.4 live path is git-tracked")]
+        return findings or [(PASS, label, "no PLD-2 live path is git-tracked")]
 
     def _interim_exclude_finding(self) -> Finding:
         label = "No interim exclude survives a completed migration"
@@ -401,14 +402,13 @@ class LayoutAudit:
         if not gitignore.has_canonical_block():
             return (PASS, label, "no canonical block, so no interim excludes")
         live = {path.rstrip("/") for path in MIGRATION_TABLE.live_paths()}
-        # A line for a path another § 9 row names (.punt-labs/lux.md) is that
-        # row's check's business, never reported twice.
         other_rows = {
             path.rstrip("/")
             for row in MIGRATION_TABLE.rows
             if row.kind is not RowKind.LIVE_STATE
             for path in row.paths
         }
+        other_rows.update(map(".punt-labs/{}".format, NAMED_EXCEPTIONS))
         backed: list[str] = []
         stale: list[str] = []
         for number, pattern in gitignore.interim_excludes():
@@ -420,17 +420,17 @@ class LayoutAudit:
                 stale.append(f"{pattern} (.gitignore:{number})")
         if stale:
             noun = "this path" if len(stale) == 1 else "these paths"
-            why = f"no § 9.4 row names {noun}; the migration is finished yet its"
+            why = f"no PLD-2 row names {noun}; the migration is finished yet its"
             detail = f"Stale: {', '.join(stale)} — {why} old location is still ignored"
             return (FAIL, label, detail)
         return (
             PASS,
             label,
-            f"{len(backed)} interim exclude(s), each named by a § 9.4 row",
+            f"{len(backed)} interim exclude(s), each named by a PLD-2 row",
         )
 
     def _gitlink_finding(self) -> Finding:
-        """Warn on each submodule at ``.punt-labs/<tool>``; it hides probes (§ 8)."""
+        """Warn on each submodule at ``.punt-labs/<tool>``; it hides probes (PLD-11)."""
         label = "Unvendored gitlink is audit-unverifiable"
         details: list[str] = []
         for path in self._gitlinks():
@@ -438,7 +438,7 @@ class LayoutAudit:
             detail += " until vendored"
             row = MIGRATION_TABLE.row_naming_path(RowKind.REGISTRY, path)
             if row is not None:
-                detail += f" (§ {row.section} → {row.destination})"
+                detail += f" ({row.section} → {row.destination})"
             details.append(detail)
         if not details:
             return (PASS, label, "no .punt-labs/<tool> entry is a gitlink")
@@ -454,12 +454,7 @@ class LayoutAudit:
                     detail = f"{rel} is not a directory — it blocks the local zone"
                     findings.append((FAIL, label, detail))
                 continue
-            if entry.is_dir() or entry.name == NAMED_EXCEPTION:
+            if entry.is_dir() or entry.name in NAMED_EXCEPTIONS:
                 continue
-            row = MIGRATION_TABLE.row_naming_path(RowKind.BARE_FILE, rel)
-            if row is None:
-                findings.append((FAIL, label, f"{rel} — no § 9 row names it"))
-            else:
-                pending = f"migration pending (§ {row.section} → {row.destination})"
-                findings.append((WARN, label, f"{rel} — {pending}"))
+            findings.append((FAIL, label, f"{rel} — no declared shared path (PLD-1)"))
         return findings or [(PASS, label, "")]

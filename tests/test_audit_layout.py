@@ -2,7 +2,7 @@
 
 Each test builds a repository under ``tmp_path`` with one of the gitignore
 fixtures in ``tests/fixtures/punt_labs_dir/`` and asserts the exact finding
-each check of standards/punt-labs-dir.md § 8 produces.
+each check of standards/punt-labs-dir.md PLD-11 produces.
 """
 
 from __future__ import annotations
@@ -277,22 +277,18 @@ def test_empty_local_and_interim_directories_pass(tmp_path: Path) -> None:
     )
 
 
-def test_ignored_bare_file_is_the_bare_file_checks_business(tmp_path: Path) -> None:
-    """§ 8 scopes check 3 to ``.punt-labs/<tool>/``; a bare file is graded once."""
-    root = _repo(tmp_path, "normal.gitignore", {".punt-labs/lux.md": "x\n"})
+@pytest.mark.parametrize("name", ["lux.md", "ethos.yaml"])
+def test_ignored_canonical_bare_file_fails(tmp_path: Path, name: str) -> None:
+    root = _repo(tmp_path, "normal.gitignore", {f".punt-labs/{name}": "x\n"})
     with (root / ".gitignore").open("a") as f:
-        f.write("*.pyc\n.punt-labs/lux.md\n")
+        f.write(f"*.pyc\n.punt-labs/{name}\n")
     assert _finding(root, "No gitignored non-local-convention path") == (
-        PASS,
+        FAIL,
         "No gitignored non-local-convention path",
-        "",
+        f"Ignored: .punt-labs/{name} (.gitignore:8:.punt-labs/{name})",
     )
     assert _findings_for(root, "No bare file under .punt-labs/") == [
-        (
-            WARN,
-            "No bare file under .punt-labs/",
-            ".punt-labs/lux.md — migration pending (§ 9.2 → .punt-labs/lux/)",
-        )
+        (PASS, "No bare file under .punt-labs/", "")
     ]
 
 
@@ -370,28 +366,27 @@ def test_no_root_sentinel_passes(tmp_path: Path) -> None:
     [
         (
             ".biff",
-            ".biff — migration pending (§ 9.1 .biff → .punt-labs/biff/config.yaml)",
+            ".biff — migration pending (PLD-10 .biff → .punt-labs/biff/config.yaml)",
         ),
         (
             ".vox/config.md",
-            ".vox — migration pending (§ 9.1 .vox/config.md → .punt-labs/vox/vox.md)",
+            ".vox — migration pending (PLD-10 .vox/config.md → .punt-labs/vox/vox.md)",
         ),
-        (".vox/", ".vox — migration pending (§ 9.1 .vox → delete)"),
+        (".vox/", ".vox — migration pending (PLD-10 .vox → delete)"),
         (
             ".lux/config.md",
-            ".lux — migration pending"
-            " (§ 9.1 .lux/config.md → .punt-labs/lux/config.md)",
+            ".lux — migration pending (PLD-10 .lux/config.md → .punt-labs/lux.md)",
         ),
-        (".lux/", ".lux — migration pending (§ 9.1 .lux → delete)"),
+        (".lux/", ".lux — migration pending (PLD-10 .lux → delete)"),
         (
             ".ethos/missions.jsonl",
             ".ethos — migration pending"
-            " (§ 9.1 .ethos/missions.jsonl → .punt-labs/local/ethos/missions.jsonl)",
+            " (PLD-10 .ethos/missions.jsonl → .punt-labs/ethos/missions.jsonl)",
         ),
         (
             ".ethos/",
             ".ethos — migration pending"
-            " (§ 9.1 .ethos/missions.jsonl → .punt-labs/local/ethos/missions.jsonl)",
+            " (PLD-10 .ethos/missions.jsonl → .punt-labs/ethos/missions.jsonl)",
         ),
     ],
 )
@@ -418,7 +413,7 @@ def test_dangling_symlink_sentinel_is_present(tmp_path: Path) -> None:
         (
             WARN,
             "No legacy root sentinel",
-            ".vox — migration pending (§ 9.1 .vox → delete)",
+            ".vox — migration pending (PLD-10 .vox → delete)",
         )
     ]
 
@@ -430,7 +425,7 @@ def test_sentinel_with_no_migration_fails(tmp_path: Path) -> None:
         (
             FAIL,
             "No legacy root sentinel",
-            ".quarry.toml — a stray, not a sentinel (§ 9.1: no migration)",
+            ".quarry.toml — a stray, not a sentinel (PLD-10: no migration)",
         )
     ]
 
@@ -443,7 +438,7 @@ def test_sentinel_check_runs_outside_git(tmp_path: Path) -> None:
         (
             WARN,
             "No legacy root sentinel",
-            ".vox — migration pending (§ 9.1 .vox → delete)",
+            ".vox — migration pending (PLD-10 .vox → delete)",
         )
     ]
 
@@ -461,7 +456,7 @@ def test_no_findings_without_punt_labs_dir(tmp_path: Path) -> None:
 def test_untracked_live_path_grades_nothing(tmp_path: Path) -> None:
     root = _repo(tmp_path, "normal.gitignore", {".punt-labs/vox/ephemeral/s": ""})
     assert _findings_for(root, "Live-state migration pending") == [
-        (PASS, "Live-state migration pending", "no § 9.4 live path is git-tracked")
+        (PASS, "Live-state migration pending", "no PLD-2 live path is git-tracked")
     ]
 
 
@@ -485,13 +480,13 @@ def test_tracked_live_path_warns(tmp_path: Path) -> None:
             WARN,
             "Live-state migration pending",
             ".punt-labs/quarry/captures/ is git-tracked (2 files) — migration"
-            " pending (§ 9.4 → ~/.punt-labs/quarry/captures/)",
+            " pending (PLD-2 → ~/.punt-labs/quarry/captures/)",
         ),
         (
             WARN,
             "Live-state migration pending",
             ".punt-labs/vox/ephemeral/ is git-tracked (1 file) — migration"
-            " pending (§ 9.4 → ~/.punt-labs/vox/)",
+            " pending (PLD-2 → ~/.punt-labs/vox/)",
         ),
     ]
 
@@ -508,19 +503,19 @@ def test_only_table_backed_excludes_pass(tmp_path: Path) -> None:
     assert _finding(root, "No interim exclude survives a completed migration") == (
         PASS,
         "No interim exclude survives a completed migration",
-        "2 interim exclude(s), each named by a § 9.4 row",
+        "2 interim exclude(s), each named by a PLD-2 row",
     )
 
 
 def test_interim_exclude_no_row_names_fails(tmp_path: Path) -> None:
-    """A canonical block entry whose path is absent from § 9.4 is unexpected."""
+    """A canonical block entry whose path is absent from PLD-2 is unexpected."""
     root = _repo(tmp_path, "normal.gitignore")
     text = (root / ".gitignore").read_text()
     (root / ".gitignore").write_text(text + ".punt-labs/ethos/sessions/\n")
     assert _finding(root, "No interim exclude survives a completed migration") == (
         FAIL,
         "No interim exclude survives a completed migration",
-        "Stale: .punt-labs/ethos/sessions/ (.gitignore:7) — no § 9.4 row names"
+        "Stale: .punt-labs/ethos/sessions/ (.gitignore:7) — no PLD-2 row names"
         " this path; the migration is finished yet its old location is still"
         " ignored",
     )
@@ -536,14 +531,14 @@ def test_ignore_line_outside_the_block_is_not_an_interim_exclude(
     assert _finding(root, "No interim exclude survives a completed migration") == (
         PASS,
         "No interim exclude survives a completed migration",
-        "2 interim exclude(s), each named by a § 9.4 row",
+        "2 interim exclude(s), each named by a PLD-2 row",
     )
 
 
-def test_block_line_for_a_bare_file_row_is_that_rows_business(
+def test_block_line_for_canonical_file_is_the_shared_checks_business(
     tmp_path: Path,
 ) -> None:
-    """``.punt-labs/lux.md`` in the block is graded by the bare-file row, not here."""
+    """An ignored canonical file fails once, without a migration warning."""
     root = _repo(tmp_path, "normal.gitignore", {".punt-labs/lux.md": "x\n"})
     text = (root / ".gitignore").read_text()
     (root / ".gitignore").write_text(text + ".punt-labs/lux.md\n")
@@ -551,17 +546,17 @@ def test_block_line_for_a_bare_file_row_is_that_rows_business(
     assert (
         PASS,
         "No interim exclude survives a completed migration",
-        "2 interim exclude(s), each named by a § 9.4 row",
-    ) in findings
-    assert (
-        WARN,
-        "No bare file under .punt-labs/",
-        ".punt-labs/lux.md — migration pending (§ 9.2 → .punt-labs/lux/)",
+        "2 interim exclude(s), each named by a PLD-2 row",
     ) in findings
     assert (
         PASS,
-        "No gitignored non-local-convention path",
+        "No bare file under .punt-labs/",
         "",
+    ) in findings
+    assert (
+        FAIL,
+        "No gitignored non-local-convention path",
+        "Ignored: .punt-labs/lux.md (.gitignore:7:.punt-labs/lux.md)",
     ) in findings
 
 
@@ -599,7 +594,7 @@ def test_gitlink_entry_warns(tmp_path: Path) -> None:
         WARN,
         "Unvendored gitlink is audit-unverifiable",
         ".punt-labs/ethos is a gitlink (mode 160000) — audit trail unverifiable"
-        " until vendored (§ 9.3 → .punt-labs/ethos/)",
+        " until vendored (PLD-12 → .punt-labs/ethos/)",
     )
 
 
@@ -654,7 +649,7 @@ def test_checked_out_submodule_gets_the_warning_and_nothing_else(
         WARN,
         "Unvendored gitlink is audit-unverifiable",
         ".punt-labs/ethos is a gitlink (mode 160000) — audit trail unverifiable"
-        " until vendored (§ 9.3 → .punt-labs/ethos/)",
+        " until vendored (PLD-12 → .punt-labs/ethos/)",
     ) in findings
     assert (PASS, "Gitignore behaves correctly", CANONICAL_PASS) in findings
     assert (PASS, "Tool ignore files are committed", "no tool ships a .gitignore") in (
@@ -677,14 +672,12 @@ def test_subtrees_and_named_exception_pass(tmp_path: Path) -> None:
     ]
 
 
-def test_bare_file_named_by_a_row_warns(tmp_path: Path) -> None:
-    root = _repo(tmp_path, "normal.gitignore", {".punt-labs/lux.md": "display\n"})
+@pytest.mark.parametrize("name", ["lux.md", "ethos.yaml"])
+@pytest.mark.parametrize("content", ["", "display: n\n"])
+def test_canonical_bare_file_passes(tmp_path: Path, name: str, content: str) -> None:
+    root = _repo(tmp_path, "normal.gitignore", {f".punt-labs/{name}": content})
     assert _findings_for(root, "No bare file under .punt-labs/") == [
-        (
-            WARN,
-            "No bare file under .punt-labs/",
-            ".punt-labs/lux.md — migration pending (§ 9.2 → .punt-labs/lux/)",
-        )
+        (PASS, "No bare file under .punt-labs/", "")
     ]
 
 
@@ -694,7 +687,7 @@ def test_bare_file_with_no_row_fails(tmp_path: Path) -> None:
         (
             FAIL,
             "No bare file under .punt-labs/",
-            ".punt-labs/foo — no § 9 row names it",
+            ".punt-labs/foo — no declared shared path (PLD-1)",
         )
     ]
 

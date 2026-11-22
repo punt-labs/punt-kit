@@ -1,4 +1,4 @@
-"""Represent the migration tables in the repo-local state directory standard.
+"""Represent punt's compatibility inventory in docs/repo-layout.md.
 
 The tables supply every path the layout audit grades.
 """
@@ -15,7 +15,6 @@ class RowKind(Enum):
     """Identify which migration rule the audit applies."""
 
     ROOT_SENTINEL = "root-sentinel"
-    BARE_FILE = "bare-file"
     REGISTRY = "registry"
     LIVE_STATE = "live-state"
 
@@ -25,7 +24,8 @@ class RowKind(Enum):
 class MigrationRow:
     """Describe what moves, where to, and the paths the audit observes.
 
-    ``paths`` are the legacy paths the row names (the Live path column for a
+    ``section`` cites the policy clause governing the row. ``paths`` are the
+    legacy paths the row names (the Live path column for a
     live-state row); ``destination`` is the first path the Destination column
     names, or ``""`` for a row that only deletes. ``migrates`` is False for a
     row whose Rule says no migration exists, so a matching artifact is a stray.
@@ -40,7 +40,7 @@ class MigrationRow:
 
     @property
     def root_sentinels(self) -> tuple[str, ...]:
-        """The repo-root entries this row's paths sit under (§ 9.1 rows only)."""
+        """The repo-root entries this row's paths sit under (root rows only)."""
         if self.kind is not RowKind.ROOT_SENTINEL:
             return ()
         return tuple(path.split("/", 1)[0] for path in self.paths)
@@ -82,13 +82,13 @@ class MigrationTable:
         return tuple(row for row in self._rows if row.kind is kind)
 
     def live_paths(self) -> tuple[str, ...]:
-        """Return every § 9.4 live path: the gitignore block's interim excludes."""
+        """Return each compatibility live path needing an ignore exemption."""
         return tuple(
             path for row in self.rows_of(RowKind.LIVE_STATE) for path in row.paths
         )
 
     def rows_naming_sentinel(self, sentinel: str) -> tuple[MigrationRow, ...]:
-        """Return the § 9.1 rows with a legacy path under root entry ``sentinel``."""
+        """Return the root rows with a legacy path under entry ``sentinel``."""
         return tuple(
             row
             for row in self.rows_of(RowKind.ROOT_SENTINEL)
@@ -106,14 +106,14 @@ class MigrationTable:
 MIGRATION_TABLE = MigrationTable(
     (
         MigrationRow(
-            "9.1",
+            "PLD-10",
             RowKind.ROOT_SENTINEL,
             ".biff",
             ".punt-labs/biff/config.yaml",
             (".biff",),
         ),
         MigrationRow(
-            "9.1",
+            "PLD-10",
             RowKind.ROOT_SENTINEL,
             ".quarry.toml",
             ".punt-labs/quarry/config.md",
@@ -121,63 +121,56 @@ MIGRATION_TABLE = MigrationTable(
             migrates=False,
         ),
         MigrationRow(
-            "9.1",
+            "PLD-10",
             RowKind.ROOT_SENTINEL,
             ".vox/config.md",
             ".punt-labs/vox/vox.md",
             (".vox/config.md",),
         ),
         MigrationRow(
-            "9.1",
+            "PLD-10",
             RowKind.ROOT_SENTINEL,
             ".lux/config.md",
-            ".punt-labs/lux/config.md",
+            ".punt-labs/lux.md",
             (".lux/config.md",),
         ),
         MigrationRow(
-            "9.1",
+            "PLD-10",
             RowKind.ROOT_SENTINEL,
             ".biff / .vox / .lux",
             "",
             (".biff", ".vox", ".lux"),
         ),
         MigrationRow(
-            "9.1",
+            "PLD-10",
             RowKind.ROOT_SENTINEL,
             ".ethos/missions.jsonl",
-            ".punt-labs/local/ethos/missions.jsonl",
+            ".punt-labs/ethos/missions.jsonl",
             (".ethos/missions.jsonl",),
         ),
         MigrationRow(
-            "9.2",
-            RowKind.BARE_FILE,
-            ".punt-labs/lux.md",
-            ".punt-labs/lux/",
-            (".punt-labs/lux.md",),
-        ),
-        MigrationRow(
-            "9.3",
+            "PLD-12",
             RowKind.REGISTRY,
             ".punt-labs/ethos gitlink",
             ".punt-labs/ethos/",
             (".punt-labs/ethos",),
         ),
         MigrationRow(
-            "9.4",
+            "PLD-2",
             RowKind.LIVE_STATE,
             "quarry captures/",
             "~/.punt-labs/quarry/captures/",
             (".punt-labs/quarry/captures/",),
         ),
         MigrationRow(
-            "9.4",
+            "PLD-2",
             RowKind.LIVE_STATE,
             "vox ephemeral/",
             "~/.punt-labs/vox/",
             (".punt-labs/vox/ephemeral/",),
         ),
         MigrationRow(
-            "9.4",
+            "PLD-2",
             RowKind.LIVE_STATE,
             "ethos live logs",
             ".punt-labs/local/ethos/",

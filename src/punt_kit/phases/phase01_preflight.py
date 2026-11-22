@@ -26,8 +26,8 @@ if TYPE_CHECKING:
 _console = Console()
 
 # Keep an explicit allowlist of daemon-written Config-zone paths
-# (standards/punt-labs-dir.md § 7), not a path-shape heuristic:
-# lux/config.md has the same shape but is only written by enable/disable.
+# (standards/punt-labs-dir.md PLD-7), not a path-shape heuristic:
+# Lux's .punt-labs/lux.md has a separate display-mode API.
 _DAEMON_MUTABLE_PATHS = frozenset({".punt-labs/vox/vox.md"})
 
 
@@ -276,7 +276,7 @@ class Phase1Preflight:
             if len(daemon_paths) == len(dirty_lines):
                 message = (
                     "Working tree has only daemon-mutable settings files "
-                    f"dirty (standards/punt-labs-dir.md § 7):\n{dirty}\n\n"
+                    f"dirty (standards/punt-labs-dir.md PLD-7):\n{dirty}\n\n"
                     "If this is a deliberate settings change you want in "
                     "the release, commit it instead. Otherwise, stash it "
                     "before releasing and restore it after:\n"
@@ -289,7 +289,7 @@ class Phase1Preflight:
                 message = (
                     f"Working tree is not clean:\n{dirty}\n\n"
                     "Note: the following are daemon-mutable settings "
-                    f"files (standards/punt-labs-dir.md § 7):\n{daemon_list}"
+                    f"files (standards/punt-labs-dir.md PLD-7):\n{daemon_list}"
                     "\n\nIf the change is deliberate, commit it; "
                     "otherwise, once the rest is cleaned up, stash and "
                     f"restore it with `{stash_cmd}` / "

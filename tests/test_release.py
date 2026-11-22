@@ -218,8 +218,8 @@ def test_preflight_daemon_mutable_only_dirt_names_stash_command(
 ) -> None:
     """Only a daemon-rewritten settings file dirty → actionable stash hint.
 
-    ``.punt-labs/vox/vox.md`` is the one file standards/punt-labs-dir.md § 7
-    names as continuously rewritten by a running daemon. When it is the
+    ``.punt-labs/vox/vox.md`` is daemon-mutable shared config under
+    standards/punt-labs-dir.md PLD-7. When it is the
     *only* dirty path, the failure names the exact stash-push command and
     the post-release pop step instead of the generic dirty-tree dump.
     """

@@ -197,7 +197,7 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [Permissions](standards/permissions.md) | Tool allowlists, deny rules, scope management |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout; reserved subdirectories; migration from legacy dot-directories |
 | [Tool Enable/Disable](standards/tool-enable-disable.md) | One @-import per enabled tool; zoned `.punt-labs/<tool>/` subtree (vendored zone tool-owned); enable/disable verbs; required user-guide doc |
-| [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone; committed except local-convention paths (`local/`, `*.local`, `*.local.*`); live state never tracked (seal pattern, chunk-based); canonical gitignore block; subtree zones |
+| [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, declared canonical paths, ownership, privacy and preservation; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt audit reference](docs/repo-layout.md) |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean) and the optional `depot` target |
 | [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md) |

@@ -65,7 +65,7 @@ logs use the same root. See [filesystem.md](filesystem.md).
 
 Repo-bound live audit/session streams are different: they belong in
 `<repo>/.punt-labs/local/<tool>/` while live and are sealed into committed
-history per [punt-labs-dir.md](punt-labs-dir.md#5-live-state-is-never-a-tracked-file).
+history per [punt-labs-dir.md](punt-labs-dir.md#pld-6-live-streams-and-published-records-are-distinct-artifacts).
 Do not pull repo-bound first-class data into the home tree or put durable
 tool diagnostics in a repo. A log that reads identically regardless of the
 triggering repo is home-tree; one meaningful only alongside a repo's work is
