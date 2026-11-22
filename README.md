@@ -17,7 +17,7 @@ Projects link to these standards from their `CLAUDE.md` (the instructions file C
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/0740213/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/8e2d51e/install.sh | sh
 ```
 
 The installer installs [uv](https://docs.astral.sh/uv/) and Python 3.13 if they are missing, then installs the `punt-kit` package from PyPI, which provides the `punt` command. If the `claude` command is on your `PATH`, it also adds the `punt-labs` plugin marketplace to Claude Code and installs the `punt@punt-labs` plugin. It finishes by running `punt doctor`.
