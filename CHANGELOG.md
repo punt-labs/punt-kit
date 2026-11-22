@@ -13,6 +13,10 @@ All notable changes to this project will be documented in this file.
   fails. Neither design report gates `make check` or CI; existing gate policies
   and baselines are unchanged.
 
+- Go logging and telemetry implementation rules with gates for private
+  multi-process-safe diagnostics and privacy-safe OpenTelemetry capture.
+  The traceability checker requires both Go and Python coverage.
+
 - Switched to `punt-observe==0.1.0` from PyPI; release preflight rejects
   direct-reference dependencies before tagging as a general PyPI-compatibility check.
 
