@@ -1,12 +1,13 @@
 # Go Standards
 
-**Updated:** 2026-11-19
+**Updated:** 2026-11-22
 
 Standards for all Punt Labs Go projects. This document is the canonical
 reference --- individual project CLAUDE.md files should reference it, not
 duplicate it.
 
-Follow [Logging](logging.md) and [Telemetry](telemetry.md) policy; language-specific implementation rules are a separate follow-on.
+Follow the [Go logging and telemetry rules](../lang-rules/go/go-logging.md)
+for the [Logging](logging.md) and [Telemetry](telemetry.md) policies.
 
 Go is idiomatic in its own paradigm. It is a language of composition, of small
 interfaces satisfied structurally, and of explicit error handling, and we write

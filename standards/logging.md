@@ -1,17 +1,22 @@
 # Logging Standards
 
-**Updated:** 2026-11-19
+**Updated:** 2026-11-22
 
-Language-neutral diagnostic logging policy for Punt Labs tools. Python mechanisms
-live in [Python logging rules](../lang-rules/python/python-logging.md).
+Language-neutral diagnostic logging policy for Punt Labs tools. See the
+[Python](../lang-rules/python/python-logging.md) and
+[Go](../lang-rules/go/go-logging.md) implementation rules.
 Stable clause IDs identify the policy enforced by language rules.
 
 ## LOG-1: Diagnostics, Not Usage
+
+**Applies to:** python, go
 
 Logs answer "what happened?" during diagnosis. Usage capture belongs in
 [telemetry](telemetry.md), a separate pipeline, not diagnostic logs.
 
 ## LOG-2: PII and Content Safety
+
+**Applies to:** python, go
 
 Never log user text, prompts, queries, document or message bodies, speech
 payloads, API keys, tokens, credentials, or full URLs containing user data.
@@ -21,6 +26,8 @@ file paths is permitted only after redaction. Use hashes, request IDs or
 timestamps for correlation, not raw content or a new per-project scheme.
 
 ## LOG-3: Coverage Without Noise
+
+**Applies to:** python, go
 
 Every decision, state change, outcome (success and failure) and boundary cross
 must leave a diagnostic line. Log at the decision point, once, not at every
@@ -32,6 +39,8 @@ bookkeeping belong at DEBUG. Absence of a line should mean nothing happened.
 
 ## LOG-4: Durable Sinks
 
+**Applies to:** python, go
+
 A durable file is the system of record; stderr alone never counts. MCP hosts
 and hook runners can discard stderr. An attached terminal's stderr is only a
 convenience. stdout is reserved for stdio transport in MCP servers. Do not
@@ -41,6 +50,8 @@ system's bytes on disk, not merely that a logger was called.
 
 ## LOG-5: Configuration Ownership
 
+**Applies to:** python, go
+
 Each CLI, MCP server, hook dispatcher, daemon and detached-process entry point
 configures its logging role. Libraries never configure global logging; they
 use module-scoped loggers. Centralize configuration and reuse the shared
@@ -48,6 +59,8 @@ implementation rather than hand-rolling or vendoring copies. Suppress noisy
 dependencies at configuration time.
 
 ## LOG-6: Final-Record Redaction
+
+**Applies to:** python, go
 
 Every file record MUST pass through a redactor after formatting, including
 arguments, exception text and tracebacks. Mask URL credentials, URL paths,
@@ -57,6 +70,8 @@ Withhold a record whose redaction cannot settle. Redaction is defense in
 depth, not permission to log content.
 
 ## LOG-7: Log Location
+
+**Applies to:** python, go
 
 Durable diagnostics are machine-scoped and repo-independent. Store them under
 `~/.punt-labs/<tool>/logs/`, never in a repo: the primary file is `<tool>.log`,
@@ -73,6 +88,8 @@ repo-bound.
 
 ## LOG-8: File Permissions
 
+**Applies to:** python, go
+
 Create the log directory owner-only (`0700`), and active files and every
 rotated backup owner-only (`0600`). Create files privately and atomically;
 an open-then-tighten window is forbidden. Tighten pre-existing directories,
@@ -81,6 +98,8 @@ alone is insufficient defense in depth. Surface startup permission failures;
 do not silently proceed with an insecure sink.
 
 ## LOG-9: Format
+
+**Applies to:** python, go
 
 Use local time at second precision, bracketed uppercase level, module or
 component name and a human-readable sentence:
@@ -95,10 +114,14 @@ bookkeeping at DEBUG, not INFO. Never include content at either level.
 
 ## LOG-10: Rotation
 
+**Applies to:** python, go
+
 Bound storage to a **5 MB (5,242,880-byte) active file × 5 backups**, approximately
 30 MB total. Use UTF-8. Apply the same permissions and redaction to backups.
 
 ## LOG-11: Multi-Process Safety
+
+**Applies to:** python, go
 
 Any log file that can have more than one writer process MUST use
 multi-process-safe rotation, not merely atomic appends. Single-process
@@ -111,6 +134,8 @@ avoid orphaned inodes. Test concurrent CLI, server and hook writers through
 rollover for record loss, corruption, bounded storage and private backups.
 
 ## LOG-12: Levels
+
+**Applies to:** python, go
 
 Production files default to INFO; developer detail belongs at DEBUG.
 
@@ -126,11 +151,15 @@ values are not ERRORs. Warnings should be actionable.
 
 ## LOG-13: Symmetric Outcomes
 
+**Applies to:** python, go
+
 If a failure is logged, log the corresponding success at the same level
 (usually INFO), or neither. One user-visible event gets one INFO sentence;
 per-action transport traces belong at DEBUG.
 
 ## LOG-14: Log Injection
+
+**Applies to:** python, go
 
 Never interpolate an untrusted value raw, including eagerly formatted values.
 Escape wire/RPC data, subprocess stderr, provider errors and user-controlled
@@ -141,6 +170,8 @@ terminal control sequences or forged follow-on records. Use shared escaping
 across sinks rather than inventing per-call substitutions.
 
 ## LOG-15: Security Events
+
+**Applies to:** python, go
 
 Log security-relevant decisions at WARNING to the durable file: authentication
 and authorization outcomes, rejected/malformed requests and permission-tightening
@@ -153,6 +184,8 @@ sink without recursion; handle it best-effort there. This exception does not
 apply to startup/directory preparation, where permission failures MUST surface.
 
 ## LOG-16: Detached Processes
+
+**Applies to:** python, go
 
 Detached children configure their own durable sink even when all standard
 streams are discarded. Record spawn intent, child startup, completion and
