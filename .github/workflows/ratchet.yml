@@ -53,6 +53,7 @@ jobs:
       # Retain the verdict or input error even after another gate fails.
       - name: Design ratchet (shadow gate)
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        shell: bash
         env:
           DESIGN_BASE: origin/${{ github.base_ref }}
         run: |

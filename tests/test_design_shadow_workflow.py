@@ -86,6 +86,7 @@ def test_shadow_is_a_pr_gate_separate_from_check() -> None:
     step = shadow_step()
     assert "if: ${{ !cancelled() && github.event_name == 'pull_request' }}" in step
     assert "continue-on-error" not in step
+    assert "        shell: bash\n" in step
     assert "DESIGN_BASE: origin/${{ github.base_ref }}" in step
     assert "${{" not in step.split("run: |\n", 1)[1]
     check = next(
@@ -123,8 +124,9 @@ def test_shadow_is_a_pr_gate_separate_from_check() -> None:
         "origin/$(printf${IFS}injected)",
     ],
 )
+@pytest.mark.parametrize("pipefail", [True, False])
 def test_shadow_publishes_reports_and_gates_verdicts(
-    tmp_path: Path, status: int, output: str, passes: bool, base: str
+    tmp_path: Path, status: int, output: str, passes: bool, base: str, pipefail: bool
 ) -> None:
     uv = tmp_path / "uv"
     uv.write_text('#!/bin/sh\nshift 2\nexec "$PYTHON" "$@"\n')
@@ -150,16 +152,16 @@ def test_shadow_publishes_reports_and_gates_verdicts(
         "PYTHON": sys.executable,
     }
     script = textwrap.dedent(shadow_step().split("run: |\n", 1)[1])
+    script_file = tmp_path / "step.sh"
+    script_file.write_text(script)
     result = subprocess.run(
         [
             "/bin/bash",
             "--noprofile",
             "--norc",
             "-e",
-            "-o",
-            "pipefail",
-            "-c",
-            script,
+            *(["-o", "pipefail"] if pipefail else []),
+            str(script_file),
         ],
         cwd=ROOT,
         env=env,
@@ -167,7 +169,9 @@ def test_shadow_publishes_reports_and_gates_verdicts(
         text=True,
         check=False,
     )
-    assert (result.returncode == 0) == passes, result.stdout + result.stderr
+    assert (result.returncode == 0) == (passes or not pipefail), (
+        result.stdout + result.stderr
+    )
     assert argv_log.read_text().strip() == (
         f"design src/punt_kit/ --shadow-check {base} --json"
     )
