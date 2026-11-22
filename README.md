@@ -185,6 +185,7 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [CLI-Only Install](standards/install-cli-only.md) | `install.sh --no-plugin` / `<TOOL>_NO_PLUGIN=1`: install the CLI, skip the Claude Code plugin, identically across tools |
 | [GitHub](standards/github.md) | Branch protection, PR workflow, review bots (Qodo, Bugbot), Dependabot |
 | [CI](standards/ci.md) | What continuous integration must check before a merge, on every supported OS |
+| [Testing](standards/testing.md) | When test suites run, what they prove, and how language rules implement the gates |
 | [Workflow](standards/workflow.md) | The three-loop development structure (backlog / PR / mission), doorway conditions, gates, invariants |
 | [PR and Review](standards/pr-review.md) | PR boundaries, the agent-owned review sequence, local review before remote, dismissal discipline |
 | [Agent Engineering](standards/agent-engineering.md) | Operating rules for AI coding agents: reversibility, test coverage, comment discipline |

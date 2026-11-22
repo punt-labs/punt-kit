@@ -557,7 +557,7 @@ documents through the real entry point and does not re-test the recipe.
 | Alternative | Why rejected |
 |-------------|--------------|
 | Real-TeX tests only, `@pytest.mark.skipif(shutil.which("pdflatex") is None)` | Skips in today's CI and on any host without TeX, so the gate passes for the wrong reason; the Python testing rule forbids a skip without a tracked fix. |
-| Real-TeX tests behind a `tex` marker excluded from `make test`, run only in CI | This is the Python testing rule's default (PL-TT-1: external-tool subprocess tests are tier 3, optional in CI, behind a marker), and the design departs from it; see decision 5. Local `make check` green would stop meaning CI green on the operator's hosts, and the pattern-drift check would never run where the recipe is edited. |
+| Real-TeX tests behind a `tex` marker excluded from `make test`, run only in CI | This was the Python testing rule's default at the time of this decision. Local `make check` green would stop meaning CI green on the operator's hosts, and the pattern-drift check would never run where the recipe is edited. |
 | Stub-tool tests only | Captured logs go stale silently when TeX changes its warning text; the real tier is what notices. |
 | Assert on `tests/test_seed.py` rendering alone (the section contains the grep patterns) | Proves the template renders, not that the recipe fails on a bad document; the bead's defect is behavioral. |
 | Keep variant A in the tree as a fixture so the suite shows it passing a bad document | Encodes the bug as expected behavior; the failing run is recorded in the mission result instead. |
@@ -722,14 +722,13 @@ fixes a choice the bead left open, and is phrased for a one-word ruling.
    hundred megabytes), and every CI run pays an `apt-get install` of
    `texlive-latex-base`, `texlive-latex-recommended`,
    `texlive-bibtex-extra`, and `biber` before pytest. The standard it
-   departs from: `python-testing.md` PL-TT-1 places subprocess tests that
-   need an external tool at tier 3, optional in CI, behind a pytest marker,
-   so the rule's own default is the rejected alternative in § 5.3 (a `tex`
-   marker outside `make test`, run in CI only). The two options:
+   departed from was the former four-tier Python testing pyramid, which
+   put subprocess tests requiring external tools behind an optional
+   pytest marker. The two options:
    (a) hard-fail plus the CI step, on ethos's `fuzz` precedent, so local
    `make check` green means CI green and the pattern-drift check runs
    wherever the recipe is edited, at the cost of TeX on every dev host;
-   (b) a tier-3 `tex` marker per PL-TT-1, run by CI and by `make test-tex`
+   (b) a separate `tex` marker, run by CI and by `make test-tex`
    on demand, so dev hosts need no TeX and local `make check` does not
    prove the real-TeX rows. Recommend (a): the recipe's whole defect is a
    tool whose output is read instead of its exit code, and the one test

@@ -591,6 +591,9 @@ The full naming convention is in [CLI Standards](cli.md#naming-and-distribution)
 
 ### Testing Pyramid
 
+For current trigger names, CI placement and release test evidence, see
+[Testing](testing.md). The older pyramid below describes test scope.
+
 | Tier | What It Tests | Speed |
 |------|---------------|-------|
 | **1. Unit** | Tool logic, data models, pure functions | Fast (~1s) |

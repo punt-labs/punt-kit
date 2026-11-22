@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Cross-repo [Testing standard](standards/testing.md) with seven trigger-based
+  tiers and traced implementation rules for Python, Go, Pharo, Swift, C and Rust.
+
 - Report-only architecture layers and design diagnostics using
   `punt-oo-ratchet==0.4.0`. `make design-shadow` compares against `origin/main`
   (override `DESIGN_BASE`), `make report` includes a non-failing full design scan,
