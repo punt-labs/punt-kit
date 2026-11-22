@@ -387,10 +387,7 @@ import line, deletes the `enabled` marker (2.7), and deregisters hooks, but leav
 the rest of `<repo>/.punt-labs/<tool>/` in place — the **dormant** state.
 Rationale:
 
-- Dormancy preserves committed guides and repository configuration without
-  granting the tool ownership of the config or local zones. Ownership remains
-  as specified in
-  [PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones).
+- Ownership and overwrite scope: [PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones).
 - **Deletion-on-toggle is surprising and asymmetric.** `enable` writes the
   subtree's vendored zone (repo config and local-convention files are carved
   out — see
@@ -481,22 +478,36 @@ marker and the tool's `enable` in that repo. Forward-integration closes
 the gap without a compat shim — but the migration must **never delete live
 config or live settings**.
 
-Classify legacy contents and preserve them under
-[PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content).
-Canonical shared destinations and declared exceptions are owned by
-[PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root);
-private runtime state follows
-[PLD-2](punt-labs-dir.md#pld-2-private-repository-state-stays-local-to-its-owning-store).
-The concrete compatibility inventory and format conversions are described in
-[punt's layout reference](../docs/repo-layout.md#compatibility-inventory).
+Legacy content classes, preservation and destinations: [PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).
 
-The marker contract does not imply that a normal configuration read or every
-existing enable command automatically migrates arbitrary legacy formats.
-Where enablement includes relocation, validate the legacy source before any
-ordinary write creates the destination, preserve settings on a collision,
-and never enable a tool as a side effect of a read. Pure presence markers,
-shared settings, close-summary records and private live streams require
-separate dispositions; their directory names alone do not classify them.
+**Migration steps (per tool, on first run):**
+
+- `enable` — or the tool's SessionStart hook — detects the legacy sentinel and,
+  in one operation, deposits `.punt-labs/<tool>/` + the `enabled` marker, then
+  applies the matching class rule above (delete a pure sentinel; migrate-then-clear
+  a config-bearing one, human-set or daemon-rewritten, into the config zone;
+  move a runtime-state directory into the local zone). No separate migration
+  command; the legacy sentinel ceases to be a *presence marker* on the tool's
+  first run in the repo.
+- **Ordering within that one operation: detect-and-move the legacy source
+  before any enable-time write to its destination, never after.** A tool
+  whose own `enable` writes a Config-zone field it owns (lux's `display`,
+  [punt-labs-dir.md PLD-7](punt-labs-dir.md#pld-7-tool-deployment-respects-ownership-zones))
+  must check for and move a legacy source (`.lux/config.md`) **first** — if
+  `enable`'s ordinary deposit step writes the destination
+  ([canonical path](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root)) before the legacy source is moved, that write
+  itself creates the destination, and [PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content)'s
+  destination-collision rule then makes the required move fail permanently
+  on every subsequent run. There is no case where writing the destination
+  first is correct: detect, move, delete the empty legacy source, *then* let
+  the tool's own logic read or write the now-migrated file.
+- **Ordering dependency.** A peer's switch to checking the `enabled` marker
+  (integration.md L0) lands in the **same release train** as the tool release
+  that performs the migration, so no peer checks the marker before the tool
+  that writes it has shipped.
+- **`.beads/` needs no migration because it is out of scope for this section
+  entirely** — [punt-labs-dir.md PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root)
+  states the canonical exemption.
 
 ## 2.13 `enable` versus `init`
 

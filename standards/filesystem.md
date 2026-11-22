@@ -94,19 +94,7 @@ subtree:
   `<tool> disable`
   ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 
-Shared roots and declared tool-specific exceptions are defined by
-[PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root).
-Private repository state belongs to the owning store's local zone under
-[PLD-2](punt-labs-dir.md#pld-2-private-repository-state-stays-local-to-its-owning-store),
-not to this home tree. Linked checkouts and canonical stores can differ.
-Harness integration paths follow their harness contract.
-
-Preserve legacy contents according to
-[PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content),
-classifying shared mission summaries separately from private session streams.
-Concrete legacy paths and conversions belong to
-[punt's compatibility reference](../docs/repo-layout.md#compatibility-inventory),
-not a second placement table here.
+Repo-local placement, exceptions and legacy destinations: [layout policy](punt-labs-dir.md) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).
 
 ---
 

@@ -439,17 +439,7 @@ scope leaks credentials, creates confusion, or fails silently.
 
 ### Per-repo config files
 
-Repository configuration follows the declared paths and exceptions in
-[PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root),
-not a uniform config filename or a root-level sentinel. For example Biff
-uses shared YAML config.yaml plus ignored config.local.yaml; root `.biff`
-TOML is not automatically read by that YAML API.
-
-Preservation and format conversion follow
-[PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content),
-with concrete paths in [punt's compatibility reference](../docs/repo-layout.md).
-The external-tool exemption, including `.beads/`, is scoped by the layout
-policy rather than an instruction to migrate a third-party tool's data.
+Per-repo paths, exemptions and legacy destinations: [layout policy](punt-labs-dir.md) and [compatibility reference](../docs/repo-layout.md#compatibility-inventory).
 
 The config file should be committed to git (minus secrets). Secrets belong in
 environment variables or a `.local` file that is gitignored.
