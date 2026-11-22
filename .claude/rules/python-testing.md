@@ -23,7 +23,7 @@ checks in PR CI and on main. Document the actual selectors and commands
 
 ## PL-TT-2: Coverage Increases With Every Change
 
-**Implements:** TST-5 · **Gate:** `make coverage`, CI coverage report and review (code-reviewer)
+**Implements:** TST-5 · **Gate:** project coverage entry point, CI coverage report and review (code-reviewer)
 
 **Statement**: New behavior gets tests. A bug fix includes a regression test.
 
