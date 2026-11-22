@@ -200,8 +200,8 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, declared canonical paths, ownership, privacy and preservation; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt audit reference](docs/repo-layout.md) |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean) and the optional `depot` target |
-| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md) |
-| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md) |
+| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md) |
+| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md) |
 | [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
 | [Release Requirements](standards/release-requirements.md) | End-state artifacts every release must satisfy, in the originating repo and siblings |
 | [Integration](standards/integration.md) | How tools discover and coordinate each other in a session without hard dependencies |
