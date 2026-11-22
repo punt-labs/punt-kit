@@ -30,6 +30,8 @@ Pass the resolved store root to private writers. Test a main checkout, a
 linked checkout whose store is elsewhere, and a missing or invalid store.
 Keep temporary publication bytes local until finalization. Never silently
 fall back to a tracked directory on a path or permission error.
+Use the top-level local zone for runtime data, not an in-subtree override
+path; the latter is for static settings. The name local is reserved.
 
 ## PY-PLD-3: Use the home-path authority
 
@@ -38,6 +40,8 @@ fall back to a tracked directory on a path or permission error.
 Use the tool's home resolver for caches and diagnostics. Test that changing
 cwd does not change machine-scoped paths and that an unavailable home root
 produces a visible error rather than a repo-local fallback.
+Keep durable diagnostics in logs/ and telemetry in telemetry.db with a 0700
+directory and 0600 database and sidecars, separate from logs.
 
 ## PY-PLD-4: Test the ignore boundary with Git
 
@@ -51,6 +55,12 @@ Use these canonical patterns in the root ignore file:
 .punt-labs/**/*.local
 .punt-labs/**/*.local.*
 ```
+
+Tooling owns this block: init writes it, rollout propagates it and audit
+verifies behavior. Tools must not hand-edit it. A tool's committed ignore
+file may add narrower local-convention rules, never replace the block.
+The local/** line states descendant intent as defense in depth; the exact
+local segment already excludes its directory and contents.
 
 In a deny-all repository, precede them with directory and descendant
 re-inclusions, in that order:
@@ -77,6 +87,7 @@ require explicit local selection and verify the destination is ignored and
 untracked. Test shared rejection, explicit local success, and a force-tracked
 or unignored destination. Do not add a repo-local credential fallback to an
 API that does not support one.
+Use mode 0600 for credentials stored in a private home-tree file.
 
 ## PY-PLD-6: Separate stream and publication writers
 
@@ -87,6 +98,8 @@ publication to private staging and atomically expose the finalized artifact;
 do not continue appending to it. Test empty streams, concurrent writers,
 publication failure and consent refusal. Preserve the distinct close-summary
 writer when a tool has one.
+Preserve the sealing and record-mode invariants in
+[the seal contract](../../docs/repo-layout.md#sealing-and-publication-contract).
 
 ## PY-PLD-7: Keep configuration out of vendored replacement
 
@@ -107,16 +120,24 @@ prefix with `~` and the repository prefix with `<repo>`; reject unresolved
 sensitive values. Test incidental third-party information, deliberate identity
 fields, an empty record, and a scrubber failure. Do not use a later review
 or ignore rule as a substitute for the write boundary.
+Check that no absolute paths, usernames or machine identifiers remain outside
+the declared identity/attribution fields.
 
 ## PY-PLD-9: Verify the previous inventory
 
 **Implements:** PLD-9 · **Gate:** `review` (deployment-safety evaluator)
 
-Compare old and new inventories before replacement or pruning. On bootstrap,
-require a known legacy inventory or verified content identity; otherwise fail
-on occupied paths. Test new files, identical known copies, locally changed
-copies, unknown collisions, absent manifests and unreadable manifests. Preserve
-all config and local-convention data regardless of inventory membership.
+Ship and persist the vendored manifest, including itself in its path set.
+Read the previous manifest before writing; overwrite the new set and remove
+old-minus-new paths. No read-modify-merge of vendored bytes is permitted.
+On bootstrap only, an absent previous manifest means previous = new for
+vendored paths. Overwrite existing files there and warn with each differing
+file's path. Missing is not the same as unreadable or malformed.
+With a previous manifest, an occupied new path outside its set must error,
+name the colliding paths and deposit nothing. Reject config, local and marker
+paths from both inventories, including on bootstrap. Test repeat output,
+bootstrap with changed files and named warnings, real prior inventories,
+new-path collisions, pruning, and unreadable/malformed manifests.
 
 ## PY-PLD-10: Convert legacy content explicitly
 
@@ -129,6 +150,9 @@ source before any ordinary enablement write creates its destination. Test
 empty sources, unknown fields, malformed content, duplicate record IDs and
 destination collisions; keep the original on failure. Do not claim a normal
 config reader runs a migration merely because the audit names a destination.
+An occupied destination must leave both paths unchanged and name both in the
+error, even if its contents match. Do not install compatibility readers or
+writers; forward integration replaces the legacy location.
 
 ## PY-PLD-11: Grade the compatibility inventory per artifact
 

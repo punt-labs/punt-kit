@@ -359,11 +359,11 @@ and are untouched by `enable`.
 |-------------|--------------|
 | A provenance comment inserted into each deployed file at deploy time | Breaks byte-equality, so drift detection needs a transform that strips the line; and the deployed bytes then differ by punt-kit version for identical content. The guide precedent is byte-identical too. |
 | A provenance sentence authored into each canonical file | Makes the canonical source describe its own deployment, which is true but is content, not mechanism; it can be adopted later without changing anything here. |
-| Infer ownership from the `<lang>-` filename prefix | Write provenance cannot be inferred after the fact (punt-labs-dir PLD-9); a hand-written `python-local.md` would be overwritten. |
+| Infer ownership from the `<lang>-` filename prefix | Use the explicit vendored inventory and its PLD-9 bootstrap rule, not a filename-prefix guess that could include hand-written `python-local.md`. |
 | Refuse to overwrite a locally edited deployed file | The vendored-zone contract is wholesale overwrite; a refusal makes `enable` non-idempotent and leaves the repo on a private fork of a canonical rule with no upgrade path. |
 | Per-repo `exclude` list to drop individual canonical rules | Not in this unit: a uniform set is the point. A repo that disagrees with a rule changes the rule in punt-kit. |
 | `disable` leaves the deployed rules in place, dormant (§ 2.9 read literally) | Not dormant: Claude Code loads `.claude/rules/` with no import-line gate, so the rules keep composing after `disable` while the marker-keyed audit stops checking them. The guide is dormant because its import line is gone; the rules have no such gate (§ 3.2). |
-| First-run collision refusal on every canonical-name file (PLD-9 of punt-labs-dir) | A verified content identity can establish that a hand copy is canonical (§ 3.5); filename membership alone cannot. |
+| First-run collision refusal on every canonical-name file (PLD-9 of punt-labs-dir) | The bootstrap grandfather treats the new vendored set as the previous set, overwriting existing vendored files with named warnings; config is never grandfathered (§ 3.5). |
 
 ### 5.3 The audit drift check
 
@@ -551,9 +551,9 @@ text, and is phrased for a one-word ruling.
    § 2.9; the rules go, and the next `enable` re-creates them byte-identical.
    Recommend removal. Confirm or course-correct.
 10. **The first `punt enable` overwrites a canonical-name file punt never
-    deposited.** punt-labs-dir PLD-9 requires verifiable ownership before
-    replacement; a known legacy inventory or content identity can establish
-    that ownership, but new path membership alone cannot. The
+    deposited.** punt-labs-dir PLD-9's first-manifest bootstrap treats the
+    new vendored paths as the previous set and warns on differing overwrites;
+    it never grandfathers config, local data or the marker. The
     fleet's files at those names are hand copies of the canonical set, and
     a refusal would fail the first `enable` in exactly the repos the design
     fixes. Recommend overwrite, with one printed line per file whose bytes

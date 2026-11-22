@@ -50,8 +50,13 @@ TOML requires validated conversion rather than a filesystem rename.
 | `.ethos/missions.jsonl` | `.punt-labs/ethos/missions.jsonl` | Preserve tracked close-summary history; validate records and resolve duplicate IDs without losing conflicting content. |
 
 Classify contents before selecting a destination. Unknown files in a root
-directory are not authorization to purge the directory. Refuse unresolved
-collisions before creating a destination as part of ordinary enablement.
+directory are not authorization to purge the directory. An occupied migration
+destination always errors, names source and destination, and changes neither.
+Detect the legacy source before ordinary enablement creates its destination.
+Operator-directed reconciliation is separate from an automatic relocation.
+Retire the old location through forward integration, not compatibility readers
+or writers. Pure presence markers are removed only once the subtree and its
+enabled marker exist; settings must be preserved first.
 
 ### Bare-file classification
 
@@ -105,3 +110,102 @@ private trace archives and domain-qualified hashed lock paths. Its
 formats, manifests, atomic staging, ordering, redaction and integrity checks.
 Do not replicate those algorithms or a version-based compliance guess in
 the language-neutral policy. Review a publication's actual format and bytes.
+
+## Vendored deployment contract
+
+The vendored manifest is shipped and persisted in the subtree, includes itself,
+and is distinct from a seal manifest. Read the previous inventory before any
+replacement. Write exactly the current set and delete previous-minus-current
+paths; do not read-modify-merge vendored bytes. The same tool version and repo
+configuration must produce identical output.
+
+On the first manifest-aware write, no previous manifest on disk means the
+effective previous set is the new manifest's vendored set. Overwrite those
+paths, warning with the name of each existing file whose bytes differ. This
+bootstrap grandfather keeps pre-manifest deployments upgradable; it does not
+assert that historical authorship can be inferred from a pathname.
+
+After a previous manifest has been persisted, an occupied new-manifest path
+absent from that previous set is a collision: error, name both paths and
+deposit nothing. Configuration, local data and the enabled marker are outside
+the vendored set, including on bootstrap. A manifest cannot claim a config
+path: the config-zone carve-out is unconditional, not grandfathered.
+An unreadable or malformed manifest is not an absent manifest.
+
+## Sealing and publication contract
+
+The seal implementation preserves the ethos audit-seal invariants; the seal
+manifest declares each managed stream explicitly, never by a directory glob.
+It is not the vendored deployment manifest. The implementation authority is
+Ethos's docs/audit-seal.md invariant block, not a pinned section number.
+
+- Live appends use the session lock and strictly monotonic timestamps:
+  ts = max(now, last_ts + 1ns). Seed the floor from the full sealed watermark,
+  including sealed chunks, verified quarantine-marker bounds and the frozen
+  legacy file's maximum, not just the latest valid chunk.
+- Seal at deliberate lifecycle points: pre-commit is primary, mission close
+  secondary. Write each chunk once with temp-and-rename; never append to or
+  rewrite a chunk. Use no growing tracked audit.jsonl and no merge driver.
+- Within a branch lineage, chunk timestamp ranges are disjoint and contiguous.
+  A branch rewind may overlap merged history; resolve overlaps at read time.
+- Sealing is lossless: every complete live line enters at least one chunk
+  after a following seal. Duplicate copies of a (session, ts) line have
+  identical bytes. There is no seq field.
+- Read the union of chunks and the live tail beyond the watermark. Deduplicate
+  post-discipline lines on (session, ts); never deduplicate frozen legacy lines.
+  Legacy timestamps precede all post-upgrade timestamps and the pools do not mix.
+- A chunk that does not parse whole or whose final timestamp disagrees with
+  its filename errors with its name, never disappears silently. Salvage it on
+  the next tool run; bypassing verification is not recovery.
+- In every Ethos record mode, seal into the owning store's local trace tier.
+  Only record: full publishes eligible session chunks into the checkout's
+  tracked .punt-labs/ethos/sessions/ tree, adding them at pre-commit. Record:
+  blame publishes no trace-tier chunks; blame-tier mission records and closed
+  mission exports remain tracked in both modes.
+- Vendor a gitlinked record tree before relying on tracked publication. A
+  gitlink defers each publication, never local sealing or completion. There is
+  no publication spool implied by this rule. Removing a disposable checkout
+  distinct from the canonical store does not remove the store's sealed traces.
+
+## Audit probe and grading contract
+
+The root ignore block is tooling-owned: punt init writes it, workspace rollout
+propagates it, and punt audit verifies behavior. Tools may add narrower
+local-convention rules in their own committed ignore files, but must not edit
+the canonical block. The local/** pattern is defense in depth; local segment
+matching already excludes its descendants. Deny-all re-inclusions precede the
+four exclusions. All listed compatibility live paths receive excludes in both
+normal and deny-all repositories, one row per artifact, never per tool.
+
+For every present tool directory, excluding the reserved local zone and
+gitlinks, probe shared CLAUDE.md and config.yaml as not ignored; local/x,
+foo.local and config.local.yaml as ignored; and locales/en.yaml and
+config.locales.yaml as not ignored. Probe each inventoried live path itself
+as ignored, independently of whether its tool is present. Probe the reserved
+top-level `local/<tool>/x` path as ignored;
+its name must be a directory when occupied. Evaluate Git behavior, including
+later overrides, not the presence of canonical text. Include empty directories
+and report offending ignore lines as diagnostics rather than verdicts.
+
+Tracked local-convention paths fail. Ignored shared paths fail except the
+explicit inventoried compatibility live paths; do not re-fail a sanctioned
+live-path exemption in the shared-path check. An exclude for a path no longer
+in the inventory fails even if the path or tool is absent. Grade each artifact
+by its own row, never a sibling artifact's state. A warning does not escalate
+merely with time. The Ethos live-log row is audit-silent because it has no live
+path; a tool-root gitlink always warns and its hidden contents are not probed.
+The bare-file scan uses the worktree, not only the index, including ignored
+and untracked strays. Tool-shipped ignore files must themselves be tracked.
+
+Keep best-effort secret scanning and punt pii separate from layout verdicts:
+neither is proof of absence or a substitute for writer-side protection. PII
+scanning targets tracked .punt-labs content for absolute home paths, email
+addresses and .local hostnames. Declared identity fields and explicitly
+supported ignored local credentials retain their policy exceptions. Review,
+not a static attempt to infer write cadence, catches undeclared live streams.
+
+The canonical-block rollout uses the workspace meta-repo's single-template
+pattern, like .bin/envrc-canonical-rollout.sh, not release-process phase 10's
+fixed-artifact propagation. Remove each compatibility exclusion in the same
+change that relocates its row's live path; generate the list from concrete
+inventory paths, never infer it from prose or a tool-wide migration status.

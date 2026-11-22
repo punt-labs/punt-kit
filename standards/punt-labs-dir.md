@@ -49,9 +49,10 @@ These are storage contracts, not evidence of enablement. The committed
 **Applies to:** python, go
 
 Place private repository-bound runtime data under
-`.punt-labs/local/<tool>/`, or a local-convention path within its tool subtree
-as defined by PLD-4. It must not enter shared history. This includes live
-streams, locks, staging, retained private traces, and machine overlays.
+`.punt-labs/local/<tool>/`. It must not enter shared history. This includes
+live streams, locks, staging, retained private traces, and scratch. Reserve
+`local` as the zone name, never a tool name. Static per-user overrides instead
+use local-convention paths within the tool subtree as defined by PLD-4.
 
 Resolve the owning store separately from the current checkout. In Ethos, S is
 the canonical store and C is the checkout: private state belongs under
@@ -91,7 +92,8 @@ of the writer or its write cadence, determines whether a setting travels.
 **Applies to:** python, go
 
 Keep credentials out of tracked configuration. Prefer the platform secret
-store or private home-tree storage. A repository-local credential is allowed
+store or private home-tree storage with owner-only read/write permissions.
+A repository-local credential is allowed
 only where the tool's API explicitly supports it, in an ignored local file
 excluded from Git. Biff relay credentials in config.local.yaml are such a
 case; shared config.yaml is not. Ignoring a file is not protection against
@@ -137,7 +139,8 @@ enablement operations. Neither makes the whole config zone tool-vendored.
 
 **Applies to:** python, go
 
-Before writing shared tool data, redact machine-identifying paths and values
+Before writing shared tool data, remove absolute paths, usernames and machine
+identifiers through redaction
 and scrub incidental third-party PII and profanity. Withhold data that cannot
 be made safe. Private local/home data is outside this shared-content contract,
 not outside the credential rule.
@@ -152,14 +155,23 @@ that produced it, so review after commit is too late to be the privacy boundary.
 
 **Applies to:** python, go
 
-Replace or prune only content demonstrably owned by the deploying tool.
-Produce identical vendored bytes for the same tool version. Fail visibly on
-an ambiguous collision rather than overwriting it. A new inventory's path
-membership does not prove ownership of pre-existing bytes at that path.
+Replace and prune vendored content according to the tool's shipped inventory,
+persisted in the subtree as part of that inventory. Write the current set and
+remove the previous-minus-current set, producing identical output for the same
+tool version and repository configuration. Configuration, local data and the
+activation marker are outside this replacement set.
 
-On first deployment, verified legacy inventories or content identities can
-establish provenance; an absent prior inventory cannot. This protects user
-files even when their names happen to match a newly shipped artifact.
+On the first inventory-aware write, when no previous inventory exists on disk,
+treat the new inventory's vendored paths as the previous set. Overwrite those
+paths, naming each differing existing file in a warning so replacement is
+visible. This bootstrap grandfather is a declared ownership rule, not a claim
+that filenames establish historical write provenance.
+
+Once a previous inventory exists, an occupied new path absent from it is a
+collision: error, name both paths and deposit nothing. A path outside the
+vendored zone must not be claimed by an inventory. In particular, a path in
+the configuration zone always errors, even on bootstrap; configuration is
+never grandfathered. The same protection applies to local data and markers.
 
 ### PLD-10: Relocation preserves meaning and content
 
@@ -167,7 +179,8 @@ files even when their names happen to match a newly shipped artifact.
 
 Before removing a legacy artifact, classify its contents and preserve them
 in the appropriate shared or private destination. Convert formats where
-necessary and refuse unresolved destination collisions. Remove a pure presence
+necessary. An occupied destination is an error: name source and destination
+and make no change, leaving reconciliation to the operator. Remove a pure presence
 marker only after establishing the replacement enablement signal. A legacy
 pathname is neither evidence of live use nor permission to discard data.
 
