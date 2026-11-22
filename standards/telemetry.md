@@ -1,6 +1,6 @@
 # Telemetry Standards
 
-**Introduced:** 2026-11-19 · **Updated:** 2026-11-19
+**Introduced:** 2026-11-19 · **Updated:** 2026-11-22
 
 Language-neutral usage capture across Punt Labs tools. See the
 [Python](../lang-rules/python/python-logging.md) and

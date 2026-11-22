@@ -1,6 +1,6 @@
 # Logging Standards
 
-**Updated:** 2026-11-19
+**Updated:** 2026-11-22
 
 Language-neutral diagnostic logging policy for Punt Labs tools. See the
 [Python](../lang-rules/python/python-logging.md) and
