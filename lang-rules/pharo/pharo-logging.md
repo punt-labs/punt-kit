@@ -210,8 +210,10 @@ generator and not cryptographic. Derive identifiers with HMAC-SHA256
 (`SHA256 new hmac`) in the facade. Write the salt privately to
 `~/.punt-labs/telemetry.salt` at `0600` (see PHARO-LOG-3) and publish it
 atomically without overwriting a concurrent installer's file. All images
-use the winning file. Read the salt from disk at session startup and clear
-it on shutdown so that an image snapshot never carries it. Never put a raw
+use the winning file. Never keep the salt in a variable that a snapshot
+saves: read it from disk when needed, or cache it only until the
+`SessionManager` shutdown handler, which runs before every image save as well
+as at quit, clears it. Never put a raw
 identifier or the salt in the queue, store or network payload.
 
 **Gate:** SUnit tests check valid and rejected attributes, unknown versions,
@@ -227,9 +229,10 @@ cross-install separation.
 shared package, built on the Pharo-SQLite3 binding. Store telemetry at
 `~/.punt-labs/<tool>/telemetry.db`, separate from logs. Secure the tool
 directory at `0700` and pre-create the database with `O_CREAT|O_EXCL` at
-`0600` (see PHARO-LOG-3) before SQLite opens it. Validate and tighten
-existing database, journal, WAL and SHM files; never open insecurely and fix
-modes afterward. Bound SQLite busy waits and use transactions so that
+`0600` (see PHARO-LOG-3) before SQLite opens it. Ensure that the SQLite VFS
+creates new journal, WAL and SHM files at `0600`, for example by inheriting
+the database file's mode, and validate and tighten existing database and
+sidecar files. Never open insecurely and fix modes afterward. Bound SQLite busy waits and use transactions so that
 concurrent images can share the store. SQLite calls run through FFI and can
 stall every Pharo process in the image, so keep them off the operation's
 process and short.
@@ -240,7 +243,7 @@ new events arrive. Reclaim expired storage with vacuuming or incremental
 auto-vacuum, and checkpoint and bound WAL growth if WAL is enabled.
 
 **Gate:** SUnit tests use real SQLite files in an isolated home and verify
-initial and existing modes, sidecars, concurrent images, startup and idle
+initial and existing modes, newly created and existing sidecars, concurrent images, startup and idle
 pruning, and reclamation after expiry.
 
 ## PHARO-TEL-4: Exporter-Only Migration and Consent
