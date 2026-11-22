@@ -1,9 +1,17 @@
 .PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build clean depot prfaq clean-tex
 
 SRC := src/punt_kit/
+.DEFAULT_GOAL := help
 OO_BASE ?=
 COUPLING_BASE ?=
 SUPPRESSION_BASE ?=
+DESIGN_BASE ?= origin/main
+override export DESIGN_BASE := $(value DESIGN_BASE)
+
+.PHONY: design-shadow
+
+design-shadow: ## Report advisory design changes; never part of check
+	uv run oo-ratchet design "$(SRC)" --shadow-check "$${DESIGN_BASE}"
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -44,7 +52,8 @@ update-oo: ## Update touched OO baseline entries
 	uv run oo-ratchet oo $(SRC) --update $(OO_BASE)
 
 report: ## Report per-file OO metrics and thresholds
-	uv run oo-ratchet oo $(SRC) --threshold
+	-uv run oo-ratchet oo $(SRC) --threshold
+	-uv run oo-ratchet design "$(SRC)"
 
 check-coupling: ## Coupling/cohesion regression gate
 	uv run oo-ratchet coupling $(SRC) --check $(COUPLING_BASE)

@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Report-only architecture layers and design diagnostics using
+  `punt-oo-ratchet==0.4.0`. `make design-shadow` compares against `origin/main`
+  (override `DESIGN_BASE`), `make report` includes a non-failing full design scan,
+  and PR CI appends the advisory verdict to its job summary even after a gate
+  fails. Neither design report gates `make check` or CI; existing gate policies
+  and baselines are unchanged.
+
 - Go logging and telemetry implementation rules with gates for private
   multi-process-safe diagnostics and privacy-safe OpenTelemetry capture.
   The traceability checker requires both Go and Python coverage.

@@ -5,6 +5,34 @@ proposing changes to settled decisions. See
 [patterns/design-decision-log.md](patterns/design-decision-log.md) for the
 format spec.
 
+## DES-041: Report-Only Design Shadow
+
+**Decision.** Use the published `punt-oo-ratchet==0.4.0` dev dependency and
+declare responsibility layers for all current Python modules. Entry owns the
+CLI and command presentation, application owns release phase orchestration and
+audit coordination, adapters own concrete Git/GitHub, filesystem, wheel and
+observability integrations, and domain owns values, contracts and pure policies.
+
+Layer by responsibility, not package location. The `phases.shared` package mixes
+pure argv classification (`hook_firing`), a process port (`ops`), process
+execution (`command_runner`) and workflow orchestration (`pipeline`). These
+belong to domain, domain, adapters and application respectively. `wheel_probe`
+ships the concrete isolated-interpreter probe as well as parsing its response,
+so it remains an adapter rather than being treated as only a value type.
+
+**Alternatives.** A blanket layer for `phases.shared` would conceal those
+boundaries. Enforcing current architecture findings would add a new gate before
+calibration. Both are rejected: genuine dependency findings remain visible.
+
+**Outcome.** `make design-shadow` passes a literal environment-provided base ref
+to the CLI, which computes its merge-base internally. PR CI captures successful,
+empty and input-error output and appends it to the job summary without gating.
+`make report` runs the full design scan non-fatally; its existing OO diagnostic
+also continues on threshold findings so the design section is reached.
+Neither report is part of `make check`, and bare `make` continues to show help.
+Existing gate policies and baselines remain unchanged. Future unmatched modules
+produce advisory `unlayered-module` findings rather than failing a gate.
+
 ## DES-001: Plugin Dev/Prod Namespace Isolation
 
 **Date:** 2026-02-22
