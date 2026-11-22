@@ -5,6 +5,22 @@ proposing changes to settled decisions. See
 [patterns/design-decision-log.md](patterns/design-decision-log.md) for the
 format spec.
 
+## DES-042: Testing Tiers Name Triggers, Not Test Kinds
+
+**Date:** 2026-11-22
+
+**Decision.** Use [Testing](standards/testing.md) for the cross-repo
+schedule. Derive it from vox, including the automated candidate and
+published smoke restored in [vox #635](https://github.com/punt-labs/vox/pull/635).
+Keep the language mechanics in traced rules. Keep the legacy Python pyramid
+as a scope reference, not as a second schedule.
+
+**Alternatives.** Numbering tiers by kind makes the same test change tiers
+when it becomes cheaper, and one tier cannot describe both an offline
+round trip and a live one. Copying the schedule into each language standard
+would make the policy drift. A fleet-wide workflow rewrite in the standards
+change would couple the policy decision to each project's rollout.
+
 ## DES-041: Report-Only Design Shadow
 
 **Decision.** Use the published `punt-oo-ratchet==0.4.0` dev dependency and

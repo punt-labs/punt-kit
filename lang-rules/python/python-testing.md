@@ -35,6 +35,7 @@ checks in PR CI and on main. Document the actual selectors and commands
 **Tooling**:
 
 - LLM review: diff includes test changes proportional to source changes
+
 Use coverage.py with pytest-cov and branch measurement. Start instrumentation
 in the subprocesses or installed-wheel entry points whose coverage the report
 claims. Combine worker and child data with source paths mapped to the same
@@ -116,7 +117,12 @@ to hide a failure in a required case.
 
 **Tooling**:
 
+- Exclude quarantine from required runs with `-m "not quarantine"` or
+  include `and not quarantine` in an explicit marker expression. A default
+  expression in pytest configuration does not cover CI commands that pass
+  their own `-m`.
 - List quarantines with `uv run pytest --collect-only -m quarantine`.
+- Run the separate selection with `uv run pytest -m quarantine`.
 
 ## PL-TT-7: Test the live and distributed entry points
 
