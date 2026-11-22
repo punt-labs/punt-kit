@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- Bump punt-observe to 0.1.1 (log masking fixes)
+
 ### Added
 
 - Switched to `punt-observe==0.1.0` from PyPI; release preflight rejects
