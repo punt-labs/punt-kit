@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-11-22
+
 ### Added
 
 - Report-only architecture layers and design diagnostics using
