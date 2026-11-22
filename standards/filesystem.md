@@ -89,41 +89,24 @@ subtree:
 - `config.yaml` (or `config.md`) — tracked shared team config (roster,
   database name, poll interval), the same for everyone working the repo;
 - `config.local.yaml` — gitignored per-user override, carrying a local-convention
-  name ([punt-labs-dir.md § 4](punt-labs-dir.md#4-committed-by-default-the-local-convention-is-the-only-ignore-convention));
+  name ([punt-labs-dir.md PLD-4](punt-labs-dir.md#pld-4-naming-determines-the-shared-versus-local-boundary));
 - `enabled` — the marker file, written by `<tool> enable` and deleted by
   `<tool> disable`
   ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 
-This is the ethos precedent (`.punt-labs/ethos/`) generalized: **no tool
-creates a dot-file or dot-directory at the repo root.** The subtree supersedes
-every legacy repo-root sentinel as the enabled signal — a settings dotfile
-(e.g. a bare `.biff`), a config-bearing root directory (`.vox/`, `.lux/`), or a
-bare presence marker;
-[punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)
-enumerates the attested shapes and [§ 9](punt-labs-dir.md#9-migration) is the
-migration table.
-**No per-repo state for a Punt Labs tool built to this convention lives
-outside `.punt-labs/` at all, in any form** — this Core Principle's "no
-top-level dot-directory" rule holds at the repo root exactly as it holds under
-`$HOME`; every such per-repo path lives under `.punt-labs/`, either in the
-tool's own root (`.punt-labs/<tool>/`) or in the one reserved non-tool
-exception, the local zone (`.punt-labs/local/<tool>/`), which
-[punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)
-sanctions for per-checkout, machine-local live state (e.g. the `.ethos/`
-root-runtime-dir migration in [punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)
-lands there, not in `.punt-labs/<tool>/`; `.beads/` is out of scope for this
-rule entirely, not an exception to it —
-[punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle) states the
-canonical exemption). Both `.punt-labs/<tool>/` and `.punt-labs/local/<tool>/`
-are **not** under `~/.punt-labs/` — they live in the project directory, but
-they are **not** both committed: the tool root is committed (except its own
-local-convention paths) while the local zone is **always gitignored**
-([punt-labs-dir.md § 2](punt-labs-dir.md#2-repo-local-locations-the-tool-root-and-the-local-zone)) —
-that is the whole reason the zone exists. Which files under a repo's
-`.punt-labs/<tool>/` are committed (e.g. `config.yaml`, and any file a daemon
-rewrites, e.g. `vox.md` — naming-determined, never write-cadence-determined)
-versus gitignored (`config.local.yaml`, `local/`) is governed by
-[punt-labs-dir.md](punt-labs-dir.md).
+Shared roots and declared tool-specific exceptions are defined by
+[PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root).
+Private repository state belongs to the owning store's local zone under
+[PLD-2](punt-labs-dir.md#pld-2-private-repository-state-stays-local-to-its-owning-store),
+not to this home tree. Linked checkouts and canonical stores can differ.
+Harness integration paths follow their harness contract.
+
+Preserve legacy contents according to
+[PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content),
+classifying shared mission summaries separately from private session streams.
+Concrete legacy paths and conversions belong to
+[punt's compatibility reference](../docs/repo-layout.md#compatibility-inventory),
+not a second placement table here.
 
 ---
 

@@ -52,10 +52,11 @@ its **enabled marker** at the git root: `.punt-labs/<tool>/enabled`, written
 by `<tool> enable` and deleted by `<tool> disable`
 ([tool-enable-disable.md § 2.7](tool-enable-disable.md#27-the-enabled-marker)).
 The marker supersedes every legacy repo-root sentinel as the presence signal,
-whatever shape it took — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
-is the sole, canonical list of attested shapes; this document does not
-maintain a second copy. `.beads/` has no separate enable step and stays
-as-is — the same section states its exemption.
+whatever shape it took. The
+[compatibility inventory](../docs/repo-layout.md#compatibility-inventory)
+owns concrete legacy shapes; this document does not maintain a second copy.
+The [layout policy](punt-labs-dir.md) scopes the third-party `.beads/`
+exemption; it has no separate enable step here.
 
 | Tool | Presence check |
 |------|----------------|
@@ -82,13 +83,13 @@ def has_biff() -> bool:
 A legacy sentinel that carries live config (`.vox/config.md`,
 `.lux/config.md`) is **moved**, never deleted: the sentinel migration
 ([tool-enable-disable.md § 2.12](tool-enable-disable.md#212-migration),
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)) relocates the settings
-into the tool's own Config-zone destination (not a uniform `config.*` shape:
-vox's is `.punt-labs/vox/vox.md`, lux's is `.punt-labs/lux/config.md`, biff's
+[punt-labs-dir.md PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content)) preserves the settings
+at the tool's own Config-zone destination (not a uniform `config.*` shape:
+vox's is `.punt-labs/vox/vox.md`, lux's is `.punt-labs/lux.md`, biff's
 is `.punt-labs/biff/config.yaml`), deletes the empty legacy root path, and
 leaves the config readable as L3 state **at the new path**, never at the old
 one. quarry has no legacy sentinel; its config lives at its Config-zone
-destination ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
+destination ([punt-labs-dir.md PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root)).
 
 #### L1: Discovery
 

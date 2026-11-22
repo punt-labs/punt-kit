@@ -439,26 +439,17 @@ scope leaks credentials, creates confusion, or fails silently.
 
 ### Per-repo config files
 
-**Projects with per-repo state use the config zone, `.punt-labs/<tool>/config.*`
-— never a dotfile at the git root.** No per-repo tool artifact lives at the
-repo root, in any form ([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
-A legacy root dotfile is migrated to the tool's config-zone destination:
+Repository configuration follows the declared paths and exceptions in
+[PLD-1](punt-labs-dir.md#pld-1-shared-repository-data-has-a-declared-root),
+not a uniform config filename or a root-level sentinel. For example Biff
+uses shared YAML config.yaml plus ignored config.local.yaml; root `.biff`
+TOML is not automatically read by that YAML API.
 
-| Project | Legacy config file | Config-zone destination | Contents |
-|---------|--------------------|--------------------------|----------|
-| Biff | `.biff` | `.punt-labs/biff/config.yaml` | Team roster, relay URL, auth credentials |
-
-The migration from legacy dotfile to config zone is
-[punt-labs-dir.md § 9](punt-labs-dir.md#9-migration)'s root-sentinel table; it
-never deletes a file that still holds settings. Quarry has no legacy shape:
-its config is `.punt-labs/quarry/config.md` (YAML frontmatter), deposited
-directly at the config-zone destination
-([punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)).
-
-**`.beads/` is not a row in this table because it is out of scope for the
-migration entirely** — [punt-labs-dir.md § 1](punt-labs-dir.md#1-core-principle)
-states the canonical exemption. There is no legacy shape of `.beads/` to
-migrate.
+Preservation and format conversion follow
+[PLD-10](punt-labs-dir.md#pld-10-relocation-preserves-meaning-and-content),
+with concrete paths in [punt's compatibility reference](../docs/repo-layout.md).
+The external-tool exemption, including `.beads/`, is scoped by the layout
+policy rather than an instruction to migrate a third-party tool's data.
 
 The config file should be committed to git (minus secrets). Secrets belong in
 environment variables or a `.local` file that is gitignored.

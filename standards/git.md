@@ -309,7 +309,7 @@ made with `--no-verify` (or on a machine without the hook) is still caught
 secret scanning are the server-side backstop behind both
 ([github.md](github.md)). `gitleaks` catches **secrets** (keys, tokens,
 credentials); it is distinct from the committed-content PII/profanity scrub
-([punt-labs-dir.md § 4](punt-labs-dir.md)), which covers personal data about
+([punt-labs-dir.md PLD-8](punt-labs-dir.md#pld-8-shared-records-are-safe-to-distribute)), which covers personal data about
 people — a different detector class. A repo whose threat model needs more than
 regex+entropy secret detection (image or artifact scanning) may add a stricter
 layer on top; the `gitleaks` pre-commit gate is the floor every repo meets.

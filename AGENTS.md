@@ -20,7 +20,7 @@ Each standard lives in its own document under `standards/`.
 | [Hooks](standards/hooks.md) | Claude Code state machine, three-layer dispatch, shell gates, Python handlers, decision-block and workflow-gate patterns, startup performance, audit checklist |
 | [Permissions](standards/permissions.md) | Allow/prompt/deny tiers, settings.json vs settings.local.json, required allow and deny rules, plugin-distributed permissions |
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout, reserved subdirectories, per-project activation marker, migration from legacy dot-directories |
-| [Repo-Local State Directory](standards/punt-labs-dir.md) | `<repo>/.punt-labs/<tool>/` tool roots plus the machine-local `.punt-labs/local/` zone, committed except local-convention paths (`local/`, `*.local`, `*.local.*`), live state never tracked (the seal pattern, chunk-based), the canonical gitignore block, subtree zones (vendored/config/local/marker) |
+| [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, canonical paths, ownership and privacy; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt audit reference](docs/repo-layout.md) |
 | [Integration](standards/integration.md) | Peer-tool discovery tiers L0–L5, presence markers, graceful degradation, integration matrix, bundled integrations |
 | [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md) |
 | [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md) |
