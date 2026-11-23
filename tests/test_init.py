@@ -198,7 +198,8 @@ def test_init_creates_release_workflow_with_metadata(tmp_path: Path) -> None:
     assert '"punt-quarry==$version"' in smoke
     assert "actual=$(venv/bin/python -I -c" in smoke
     assert "from importlib.metadata import version" in smoke
-    assert '"$actual" != "$version"' in smoke
+    assert "from packaging.version import Version" in smoke
+    assert "Version(actual) != Version(expected)" in smoke
     assert 'venv/bin/"quarry" --help' in smoke
     assert 'venv/bin/"quarry" version' not in smoke
 

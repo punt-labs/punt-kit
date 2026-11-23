@@ -80,10 +80,17 @@ jobs:
             sleep 7
           done
           actual=$(venv/bin/punt version)
-          if [[ "$actual" != "punt $version" ]]; then
-            echo "::error::Expected punt $version, got $actual"
-            exit 1
-          fi
+          uv --no-config run --isolated --no-project --with packaging \
+            --default-index https://pypi.org/simple/ --python 3.13 \
+            python -I - "$version" "$actual" <<'PY'
+          import sys
+          from packaging.version import Version
+
+          expected, output = sys.argv[1:]
+          command, _, actual = output.rpartition(" ")
+          if command != "punt" or Version(actual) != Version(expected):
+              sys.exit(f"::error::Expected punt {expected}, got {output}")
+          PY
           printf '%s\n' '[project]' 'name = "smoke-demo"' >pyproject.toml
           mkdir .beads
           venv/bin/punt init .
