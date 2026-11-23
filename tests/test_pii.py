@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import subprocess
+import sys
 import time
 from typing import TYPE_CHECKING
 
@@ -57,6 +58,9 @@ def _matches(tmp_path: Path, text: str) -> list[str]:
         ("jim@acme.io@", ["jim@acme.io"]),
         ("see jim@acme.io@ now", ["jim@acme.io"]),
         ("jim@acme.io@ foo", ["jim@acme.io"]),
+        ("bob@x.io-note", ["bob@x.io"]),
+        ("bob@host.local-note", ["bob@host.local"]),
+        ("bob@x.io-" + "a" * 256 + "@x.io", ["bob@x.io", "a" * 256 + "@x.io"]),
         ("a@x.io-bob.ab@y.io", ["a@x.io", "bob.ab@y.io"]),
         ("a@host.local-b@x.io", ["a@host.local", "b@x.io"]),
         (r"\n@pytest.fixture", []),
@@ -87,6 +91,27 @@ def test_long_run_without_address_scans_linearly(tmp_path: Path) -> None:
     started = time.perf_counter()
     assert _matches(tmp_path, "a" * 200_000 + " " + "b-" * 100_000) == []
     assert time.perf_counter() - started < 2
+
+
+@pytest.mark.parametrize("prefix", ["a@", ""])
+def test_repeated_domain_boundaries_scan_linearly(tmp_path: Path, prefix: str) -> None:
+    """Repeated TLD boundaries cannot trigger unbounded suffix rescans."""
+    (tmp_path / "input.txt").write_text(prefix + "x.io-" * 50_000)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pathlib import Path; import sys; "
+            "from punt_kit.pii import PiiConfig, scan_file; "
+            "print(len(scan_file('input.txt', Path(sys.argv[1]), PiiConfig())))",
+            str(tmp_path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=2,
+        check=True,
+    )
+    assert int(result.stdout) == bool(prefix)
 
 
 def test_generated_addresses_all_found_and_redaction_idempotent(

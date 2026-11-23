@@ -19,12 +19,13 @@ console = Console()
 
 # One pass finds emails and ``.local`` hostnames. A JSON escape (``\\n``,
 # ``\\u003c``) is consumed whole, so no address starts at its letter; a domain
-# ends before a hyphen-glued local part, so addresses are each found whole; and a
-# run that holds no address is consumed whole, so the scan stays linear.
+# checks for another address once before splitting a hyphen-glued local part.
+# Runs that hold no address are consumed whole, so the scan stays linear.
 _ADDRESS_RE = re.compile(
     r'\\(?:u[0-9a-fA-F]{4}|["\\/bfnrt])'
-    r"|(?P<address>[\w%+][\w.%+-]*+@[\w.-]+?\.[a-zA-Z]{2,}\b"
-    r"(?=-[\w.%+-]*+@|(?![\w-]|\.\w)))"
+    r"|(?P<address>[\w%+][\w.%+-]*+@(?:"
+    r"(?=[\w.%+-]*+@[\w.-]+\.[a-zA-Z]{2,}\b)[\w.-]+?\.[a-zA-Z]{2,}\b(?=-)"
+    r"|[\w.-]+\.[a-zA-Z]{2,}\b))"
     r"|[.-]|[\w.%+-]++",
 )
 
