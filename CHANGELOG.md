@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- `punt pii` no longer reads a JSON escape's letter as the start of an address
+  (`\n@pytest.fixture` is not an email; `\u003cnoreply@github.com` stays
+  allowlisted), reports each of two glued addresses (`a@x.io-b@y.io`) whole,
+  and reports `.local` hostnames with `%`, `+` or multi-label hosts that it
+  previously missed. Scanning a long line with no address is now linear, not
+  quadratic (PL-906).
+
 - Reconcile release-owned local main commits after a squash merge without
   discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
   with recovery instructions, and preserve pre-reset main in
