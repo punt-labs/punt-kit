@@ -100,3 +100,55 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # release/v1
+
+  published-smoke:
+    needs: pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - name: Smoke test the published CLI
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "Smoke testing {{ package_name }}==$version from PyPI"
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          cd "$work"
+          unset PYTHONPATH PYTHONHOME
+          unset UV_INDEX UV_INDEX_URL UV_EXTRA_INDEX_URL UV_FIND_LINKS UV_NO_INDEX
+          uv venv --python 3.13 venv
+          for attempt in {1..6}; do
+            if uv --no-config pip install --python venv/bin/python \
+                --default-index https://pypi.org/simple/ --refresh-package "{{ package_name }}" \
+                "{{ package_name }}==$version"; then
+              break
+            fi
+            if (( attempt == 6 )); then
+              echo "::error::Could not install {{ package_name }}==$version from PyPI"
+              exit 1
+            fi
+            sleep 12
+          done
+          actual=$(venv/bin/python -I -c \
+            'import sys; from importlib.metadata import version; print(version(sys.argv[1]))' \
+            "{{ package_name }}")
+          output=$(venv/bin/"{{ cli_command }}" version)
+          uv --no-config run --isolated --no-project --with packaging \
+            --default-index https://pypi.org/simple/ --python 3.13 \
+            python -I - "$version" "$actual" "$output" <<'PY'
+          import sys
+          from packaging.version import Version
+
+          expected, actual, output = sys.argv[1:]
+          if Version(actual) != Version(expected):
+              sys.exit(f"::error::Expected {{ package_name }}=={expected}, got {actual}")
+          cli_version = output.removeprefix("{{ cli_command }} ")
+          if Version(cli_version) != Version(expected):
+              sys.exit(f"::error::Expected {{ cli_command }} to report {expected}, got {output}")
+          PY
+          venv/bin/"{{ cli_command }}" --help
+          echo "Published PyPI smoke passed: {{ package_name }}==$actual"

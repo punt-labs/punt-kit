@@ -46,3 +46,53 @@ jobs:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  published-smoke:
+    needs: pypi
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Smoke test the published CLI
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "Smoke testing punt-kit==$version from PyPI"
+          work=$(mktemp -d)
+          trap 'rm -rf -- "$work"' EXIT
+          cd "$work"
+          unset PYTHONPATH PYTHONHOME
+          unset UV_INDEX UV_INDEX_URL UV_EXTRA_INDEX_URL UV_FIND_LINKS UV_NO_INDEX
+          uv venv --python 3.13 venv
+          for attempt in {1..6}; do
+            if uv --no-config pip install --python venv/bin/python \
+                --default-index https://pypi.org/simple/ --refresh-package punt-kit \
+                "punt-kit==$version"; then
+              break
+            fi
+            if (( attempt == 6 )); then
+              echo "::error::Could not install punt-kit==$version from PyPI"
+              exit 1
+            fi
+            sleep 12
+          done
+          actual=$(venv/bin/punt version)
+          venv/bin/python -I - "$version" "$actual" <<'PY'
+          import sys
+          from packaging.version import Version
+
+          expected, output = sys.argv[1:]
+          command, _, actual = output.rpartition(" ")
+          if command != "punt" or Version(actual) != Version(expected):
+              sys.exit(f"::error::Expected punt {expected}, got {output}")
+          PY
+          printf '%s\n' '[project]' 'name = "smoke-demo"' \
+            '[project.scripts]' 'smoke-demo = "smoke_demo.cli:app"' >pyproject.toml
+          mkdir .beads
+          venv/bin/punt init .
+          test -s .github/workflows/lint.yml
+          grep -q '^  published-smoke:$' .github/workflows/release.yml
+          echo "Published PyPI smoke passed: $actual (scaffolded Python CI and release smoke)"

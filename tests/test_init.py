@@ -188,6 +188,23 @@ def test_init_creates_release_workflow_with_metadata(tmp_path: Path) -> None:
     assert "{{ package_name }}" not in content
     assert "{{ cli_command }}" not in content
 
+    smoke = content.split("\n  published-smoke:\n", 1)[1]
+    assert smoke.startswith("    needs: pypi\n")
+    assert "timeout-minutes: 2" in smoke
+    assert 'version="${GITHUB_REF_NAME#v}"' in smoke
+    assert "uv venv --python 3.13 venv" in smoke
+    assert "pip install --python venv/bin/python" in smoke
+    assert "--default-index https://pypi.org/simple/" in smoke
+    assert '"punt-quarry==$version"' in smoke
+    assert "actual=$(venv/bin/python -I -c" in smoke
+    assert "from importlib.metadata import version" in smoke
+    assert "from packaging.version import Version" in smoke
+    assert "Version(actual) != Version(expected)" in smoke
+    assert 'venv/bin/"quarry" --help' in smoke
+    assert 'venv/bin/"quarry" version' in smoke
+    assert 'cli_version = output.removeprefix("quarry ")' in smoke
+    assert "Version(cli_version) != Version(expected)" in smoke
+
 
 def test_init_skips_release_without_cli_entry_point(tmp_path: Path) -> None:
     """Init skips release.yml when pyproject.toml has no scripts entry."""
