@@ -63,6 +63,8 @@ def _matches(tmp_path: Path, text: str) -> list[str]:
         ("a" * 65 + "@x.io", ["a" * 65 + "@x.io"]),
         ("a%b@host.local", ["a%b@host.local"]),
         ("a@b.c.local", ["a@b.c.local"]),
+        ("josé@mac.local", ["josé@mac.local"]),
+        ("bob@münchen.local", ["bob@münchen.local"]),
         (r"C:\a@x.io", ["a@x.io"]),
         (r"\\\\\nbob@x.io", ["bob@x.io"]),
     ],

@@ -25,7 +25,6 @@ _ADDRESS_RE = re.compile(
     r'\\(?:u[0-9a-fA-F]{4}|["\\/bfnrt])'
     r"|(?P<address>[\w%+][\w.%+-]*+@[\w.-]+\.[a-zA-Z]{2,}\b(?!@))"
     r"|[.-]|[\w.%+-]++",
-    re.ASCII,
 )
 
 _HOME_PATH_RE = re.compile(
