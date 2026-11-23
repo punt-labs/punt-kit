@@ -216,6 +216,14 @@ For this checkout, `uv sync` installs the PyPI
 [adoption rule](lang-rules/python/python-oo-adoption.md) for baseline updates
 and CI wiring.
 
+Agent check policy selects `checks: punt-kit` in `.punt-labs/ethos.yaml`:
+advisory file-local edits, blocking staged checks, and blocking `make check`
+at subagent handoff through the ethos plugin (not main-session stop).
+Ethos skips handoff checks for provably read-only agents.
+Generated edit hooks capture stdin in Bash and forward it through a fresh pipe
+for Linux compatibility. See [agent quality checks](docs/advisory-checks.md)
+for setup, the required ethos v5.2.0 release and timing reproduction.
+
 PR CI also runs `make design-shadow` against the merge base with `origin/main`
 (override `DESIGN_BASE` for another branch). This separate gate rejects
 `would-fail` verdicts and tool/input errors, preserving the JSON report in the
