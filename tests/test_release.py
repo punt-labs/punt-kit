@@ -5431,7 +5431,15 @@ def test_pr_merge_sync_local_main_diagnoses_fetch_failure(
 
 @pytest.mark.parametrize(
     "scenario",
-    ["fast-forward", "squash", "reverted", "foreign", "dirty", "backup-failure"],
+    [
+        "fast-forward",
+        "squash",
+        "reverted",
+        "foreign",
+        "dirty",
+        "hidden-untracked",
+        "backup-failure",
+    ],
 )
 def test_pr_merge_sync_local_main_real_git(
     tmp_path: Path,
@@ -5473,6 +5481,9 @@ def test_pr_merge_sync_local_main_real_git(
     before = _git_out(["rev-parse", "HEAD"], cwd=cwd)
     if scenario == "dirty":
         (root / "release.txt").write_text("uncommitted work\n")
+    if scenario == "hidden-untracked":
+        _git(["config", "status.showUntrackedFiles", "no"], cwd=cwd)
+        (root / "untracked.txt").write_text("uncommitted work\n")
     issued: list[list[str]] = []
     monkeypatch.setattr("shutil.which", _fake_which_gh)
     ops = _fault_ops(
@@ -5511,7 +5522,7 @@ def test_pr_merge_sync_local_main_real_git(
         )
 
     ref = "refs/punt-release/main-before-sync"
-    if scenario in {"foreign", "dirty", "backup-failure"}:
+    if scenario in {"foreign", "dirty", "hidden-untracked", "backup-failure"}:
         error = (
             "update-ref .* failed"
             if scenario == "backup-failure"
@@ -5538,6 +5549,8 @@ def test_pr_merge_sync_local_main_real_git(
         )
         if scenario == "dirty":
             assert (root / "release.txt").read_text() == "uncommitted work\n"
+        if scenario == "hidden-untracked":
+            assert (root / "untracked.txt").read_text() == "uncommitted work\n"
     else:
         assert sync() == merged
         assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == merged

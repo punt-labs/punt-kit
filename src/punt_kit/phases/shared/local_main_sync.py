@@ -61,7 +61,7 @@ class LocalMainSync:
         foreign = self._git(
             ["rev-list", "origin/main..main", "--not", self._local_head]
         )
-        dirty = self._git(["status", "--porcelain"])
+        dirty = self._git(["status", "--porcelain", "--untracked-files=all"])
         if foreign or dirty:
             reason = (
                 "commits outside the pushed release head"
