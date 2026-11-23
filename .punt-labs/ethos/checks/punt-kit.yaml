@@ -1,0 +1,85 @@
+name: punt-kit
+description: Advisory file checks on edit; blocking staged checks and full handoff gate.
+checks:
+  - name: ruff-lint-edit
+    stage: edit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: [ruff, check, "{file}"]
+    on_fail: advisory
+    timeout: 5s
+  - name: ruff-format-edit
+    stage: edit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: [ruff, format, --check, "{file}"]
+    on_fail: advisory
+    timeout: 5s
+  - name: shellcheck-edit
+    stage: edit
+    files: ["**/*.sh"]
+    run: [shellcheck, "{file}"]
+    on_fail: advisory
+    timeout: 5s
+  - name: markdownlint-edit
+    stage: edit
+    files: ["**/*.md"]
+    exclude: [".beads/**", ".claude/**", ".punt-labs/**", ".venv/**", "research/**", "session.md", "standards/makefile.md"]
+    run: [npx, --no-install, markdownlint-cli2, "{file}"]
+    on_fail: advisory
+    timeout: 5s
+  - name: ruff-lint-commit
+    stage: commit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: [ruff, check, "{files}"]
+    on_fail: block
+    timeout: 120s
+  - name: ruff-format-commit
+    stage: commit
+    files: ["**/*.py", "**/*.pyi"]
+    adapter: uv
+    uv: [ruff, format, --check, "{files}"]
+    on_fail: block
+    timeout: 120s
+  - name: shellcheck-commit
+    stage: commit
+    files: ["**/*.sh"]
+    run: [shellcheck, "{files}"]
+    on_fail: block
+    timeout: 120s
+  - name: markdownlint-commit
+    stage: commit
+    files: ["**/*.md"]
+    exclude: [".beads/**", ".claude/**", ".punt-labs/**", ".venv/**", "research/**", "session.md", "standards/makefile.md"]
+    run: [npx, --no-install, markdownlint-cli2, "{files}"]
+    on_fail: block
+    timeout: 120s
+  - name: oo-ratchet
+    stage: commit
+    files: ["src/**/*.py", "src/**/*.pyi", ".oo-baseline.json"]
+    adapter: make
+    target: check-oo
+    on_fail: block
+    timeout: 120s
+  - name: coupling-ratchet
+    stage: commit
+    files: ["src/**/*.py", "src/**/*.pyi", ".oo-coupling-baseline.json"]
+    adapter: make
+    target: check-coupling
+    on_fail: block
+    timeout: 120s
+  - name: suppression-ratchet
+    stage: commit
+    files: ["src/**/*.py", "src/**/*.pyi", ".suppression-baseline.json"]
+    adapter: make
+    target: check-suppressions
+    on_fail: block
+    timeout: 120s
+  - name: full-gate
+    stage: handoff
+    files: all
+    adapter: make
+    target: check
+    on_fail: block
+    timeout: 20m

@@ -130,6 +130,10 @@ The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does 
 - **CI workflows** — `docs.yml` for Markdown linting in every project; `lint.yml` and `test.yml` for Python; `lint.yml` for Node.js; `release.yml` for Python projects whose `pyproject.toml` names the package and its CLI command
 - **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, and `[tool.pytest]` sections merged into `pyproject.toml`
 - **CLAUDE.md** — links to the relevant standards and the quality-gate commands for the detected language
+  and removes legacy `punt:begin` / `punt:end` sections, preserving surrounding
+  prose and bare imports. Malformed markers skip stripping with a warning;
+  missing standards references are still added. Makefile marker sections are
+  not changed.
 - **Claude Code permissions** — `.claude/settings.json` with the baseline allow list (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` rule are not added here; each tool's `enable` command adds them and its `disable` command removes them.
 - **Gitignore** — a `.claude/` entry, with exceptions so `.claude/settings.json` and `.claude/hooks/` can still be committed
 - **Beads** — issue tracking set up with `bd init`
@@ -201,8 +205,8 @@ One document per topic. Each project's `CLAUDE.md` links to the ones it follows.
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, declared canonical paths, ownership, privacy and preservation; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt audit reference](docs/repo-layout.md) |
 | [Naming](standards/naming.md) | Package names, CLI commands, MCP tool prefixes |
 | [Makefile](standards/makefile.md) | Required targets (check, lint, test, build, clean) and the optional `depot` target |
-| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md) |
-| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md) |
+| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |
+| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |
 | [Release Process](standards/release-process.md) | Versioning, changelog, tag workflow |
 | [Release Requirements](standards/release-requirements.md) | End-state artifacts every release must satisfy, in the originating repo and siblings |
 | [Integration](standards/integration.md) | How tools discover and coordinate each other in a session without hard dependencies |
@@ -216,6 +220,14 @@ For this checkout, `uv sync` installs the PyPI
 `make report` shows per-file OO metrics. See the
 [adoption rule](lang-rules/python/python-oo-adoption.md) for baseline updates
 and CI wiring.
+
+Agent check policy selects `checks: punt-kit` in `.punt-labs/ethos.yaml`:
+advisory file-local edits, blocking staged checks, and blocking `make check`
+at subagent handoff through the ethos plugin (not main-session stop).
+Ethos skips handoff checks for provably read-only agents.
+Generated edit hooks capture stdin in Bash and forward it through a fresh pipe
+for Linux compatibility. See [agent quality checks](docs/advisory-checks.md)
+for setup, the required ethos v5.2.0 release and timing reproduction.
 
 PR CI also runs `make design-shadow` against the merge base with `origin/main`
 (override `DESIGN_BASE` for another branch). This separate gate rejects

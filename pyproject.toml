@@ -100,6 +100,7 @@ entry = [
 ]
 adapters = [
     "punt_kit.audit_github",
+    "punt_kit.claude_markers",
     "punt_kit.claude_md",
     "punt_kit.claude_permissions",
     "punt_kit.detect",
@@ -116,6 +117,8 @@ adapters = [
     "punt_kit.phases.shared.git",
     "punt_kit.phases.shared.github_repo",
     "punt_kit.phases.shared.json_file",
+    "punt_kit.phases.shared.local_main_sync",
+    "punt_kit.phases.shared.main_sync_git",
     "punt_kit.phases.shared.phase_diagnostics",
     "punt_kit.phases.shared.pin_currency",
     "punt_kit.phases.shared.plugin_swap",

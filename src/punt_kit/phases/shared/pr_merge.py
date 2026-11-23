@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.local_main_sync import LocalMainSync
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
@@ -86,6 +87,12 @@ class PrMerger:
             return False
         return data.get("state") == "MERGED"
 
+    def _github_cli(self) -> str:
+        """Locate the GitHub CLI or diagnose its absence."""
+        if (gh := shutil.which("gh")) is None:
+            self._ops.fail("gh CLI not found — install from https://cli.github.com")
+        return gh
+
     def merge(
         self,
         *,
@@ -112,9 +119,7 @@ class PrMerger:
             subprocess.TimeoutExpired: A subprocess exceeded its timeout.
             OSError: A subprocess could not start.
         """
-        gh = shutil.which("gh")
-        if gh is None:
-            self._ops.fail("gh CLI not found — install from https://cli.github.com")
+        gh = self._github_cli()
 
         root = str(cwd)
 
@@ -143,9 +148,8 @@ class PrMerger:
         # an OPEN PR or a MERGED PR at this exact head represents the
         # current release — see _select_existing for why CLOSED and stale
         # MERGED PRs must be ignored.
-        local_head = self._ops.run(
-            ["git", "rev-parse", branch], cwd=root
-        ).stdout.strip()
+        head = self._ops.run(["git", "rev-parse", branch], cwd=root).stdout.strip()
+        sync = LocalMainSync(cwd, head, ops=self._ops)
         existing = self._ops.run(
             [
                 gh,
@@ -171,15 +175,15 @@ class PrMerger:
                 self._ops.fail(
                     f"Failed to parse gh pr list output: {existing.stdout[:200]}"
                 )
-            pr_number, already_merged = self._select_existing(prs, local_head)
+            pr_number, already_merged = self._select_existing(prs, head)
             if pr_number is not None:
                 if already_merged:
                     self._ops.ok(f"PR #{pr_number} already merged")
                     # Unconditional (not GitWorkspace.ensure_on_main): a PR
                     # merged by an earlier run may already have left the
-                    # workspace on main, but the pull --ff-only must still
+                    # workspace on main, but synchronization must still
                     # run to pick up that merge commit.
-                    self._sync_local_main(root)
+                    sync.run()
                     return self._merge_commit_oid(gh, root, pr_number)
                 self._ops.info(f"Found existing open PR #{pr_number}")
 
@@ -224,7 +228,7 @@ class PrMerger:
             self._ops.fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
         if pr_state == "MERGED":
             self._ops.ok(f"PR #{pr_number} already merged")
-            self._sync_local_main(root)
+            sync.run()
             return self._merge_commit_oid(gh, root, pr_number)
 
         resolve_threads(gh, root, pr_number)
@@ -275,42 +279,14 @@ class PrMerger:
             self._ops.fail(f"Failed to merge PR #{pr_number}: {combined}")
         self._ops.ok(f"PR #{pr_number} merged")
 
-        self._sync_local_main(root)
+        sync.run()
         return self._merge_commit_oid(gh, root, pr_number)
-
-    def _sync_local_main(self, root: str) -> None:
-        """Fast-forward local main to the just-merged remote state.
-
-        Workspace-state only — the caller's return value comes from
-        ``_merge_commit_oid`` instead. Local HEAD after this pull is not
-        reliably the squash-merge commit: any further commit landing on
-        main between the squash-merge and this pull (a concurrent release,
-        a hotfix) would fast-forward past it too, making local HEAD the
-        LATER commit — the exact race class this method's caller exists to
-        avoid.
-
-        Shared by the existing-PR resume, mid-wait resume, and normal
-        post-merge paths, so the checkout + pull sequence is diagnosed in
-        one place instead of failing as a bare ``CalledProcessError``.
-        """
-        checkout = self._ops.run(
-            ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
-        )
-        if checkout.returncode != 0:
-            self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
-        pull = self._ops.run(
-            ["git", "pull", "--ff-only"], cwd=root, check=False, timeout=GIT_HOOK
-        )
-        if pull.returncode != 0:
-            self._ops.fail(f"git pull --ff-only failed:\n{pull.stderr.strip()}")
 
     def _merge_commit_oid(self, gh: str, root: str, pr_number: int) -> str:
         """Resolve the squash-merge commit from GitHub's merge record.
 
-        GitHub's own record of the merge is the one source that cannot
-        drift: local main HEAD (even freshly pulled by
-        ``_sync_local_main``) is only correct as long as nothing else has
-        landed on main since the squash-merge — a race, not a guarantee.
+        Synchronized main HEAD may include later commits; use GitHub's
+        merge record rather than HEAD to identify the squash commit.
         """
         result = self._ops.run(
             [

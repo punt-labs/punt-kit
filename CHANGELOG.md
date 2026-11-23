@@ -4,10 +4,34 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reconcile release-owned local main commits after a squash merge without
+  discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
+  with recovery instructions, and preserve pre-reset main in
+  `refs/punt-release/main-before-sync` for recovery (PL-885).
+
+- `punt init` removes legacy `punt:begin` / `punt:end` sections from
+  `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
+  unterminated markers skip stripping with a warning while still adding missing
+  standards references. Prose mentions are ordinary content; Makefile marker
+  sections are untouched.
+
 ### Added
 
 - Cross-repo [Testing standard](standards/testing.md) with seven trigger-based
   tiers and traced implementation rules for Python, Go, Pharo, Swift, C and Rust.
+
+- Repository-local ethos check policy: advisory file checks on edit, blocking
+  staged checks and ratchets at commit, and the full gate at handoff. Requires
+  ethos v5.2.0, containing DES-085 and the Linux stdin-forwarding fix;
+  regenerated hooks capture payloads in Bash. See `docs/advisory-checks.md`.
+
+- Pharo logging and telemetry implementation rules: Beacon signals with one
+  shared durable logger per image session, private multi-image-safe rotation,
+  and privacy-safe OpenTelemetry capture through `opentelemetry-pharo` behind a
+  shared facade. The traceability checker requires Pharo coverage of `LOG-*`
+  and `TEL-*`.
 
 ### Changed
 

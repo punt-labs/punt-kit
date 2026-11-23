@@ -22,8 +22,8 @@ Each standard lives in its own document under `standards/`.
 | [Filesystem](standards/filesystem.md) | `~/.punt-labs/<tool>/` home layout, reserved subdirectories, per-project activation marker, migration from legacy dot-directories |
 | [Repo-Local State Directory](standards/punt-labs-dir.md) | PLD policy for shared/local/home placement, canonical paths, ownership and privacy; [Python rules](lang-rules/python/python-layout.md), [Go rules](lang-rules/go/go-layout.md), and [punt audit reference](docs/repo-layout.md) |
 | [Integration](standards/integration.md) | Peer-tool discovery tiers L0–L5, presence markers, graceful degradation, integration matrix, bundled integrations |
-| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md) |
-| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md) |
+| [Logging](standards/logging.md) | Language-neutral diagnostic policy: private files, multi-process-safe rotation, redaction; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |
+| [Telemetry](standards/telemetry.md) | Language-neutral OTel policy: privacy-safe schemas, local SQLite, retention, opt-in export; [Python rules](lang-rules/python/python-logging.md), [Go rules](lang-rules/go/go-logging.md), [Pharo rules](lang-rules/pharo/pharo-logging.md) |
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, review bots (Qodo, Bugbot), required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
