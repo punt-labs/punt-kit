@@ -13,6 +13,7 @@ import jinja2
 from rich.console import Console
 from rich.markup import escape
 
+from punt_kit.claude_markers import ClaudeMarkers
 from punt_kit.detect import ProjectInfo, detect
 from punt_kit.init_beads import BeadsInit, BeadsInitError
 from punt_kit.permission_rules import RuleSet, Tier
@@ -407,25 +408,7 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
         quality_gates=_build_quality_gates(info),
     ).strip()
 
-    if claude_md_path.exists():
-        claude_md = TextFile(claude_md_path)
-        existing = claude_md.read()
-
-        if "## Standards References" in existing:
-            return []
-
-        # Append the references section in the file's own line endings,
-        # ending with a newline only if the file already did.
-        eol = TextFile.line_ending(existing)
-        tail = eol if existing.endswith("\n") else ""
-        block = references_block.replace("\n", eol)
-        claude_md.write(existing.rstrip() + eol + eol + block + tail)
-        console.print("  [yellow]↻[/yellow] Added standards references to CLAUDE.md")
-    else:
-        TextFile(claude_md_path).write(references_block + "\n")
-        console.print("  [green]+[/green] Created CLAUDE.md")
-
-    return ["CLAUDE.md"]
+    return ClaudeMarkers(TextFile(claude_md_path)).update(references_block)
 
 
 def build_standard_permissions(info: ProjectInfo) -> list[str]:

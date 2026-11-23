@@ -18,6 +18,12 @@ All notable changes to this project will be documented in this file.
   with recovery instructions, and preserve pre-reset main in
   `refs/punt-release/main-before-sync` for recovery (PL-885).
 
+- `punt init` removes legacy `punt:begin` / `punt:end` sections from
+  `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
+  unterminated markers skip stripping with a warning while still adding missing
+  standards references. Prose mentions are ordinary content; Makefile marker
+  sections are untouched.
+
 ### Added
 
 - Repository-local ethos check policy: advisory file checks on edit, blocking
