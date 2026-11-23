@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Self, final
 from rich.console import Console
 from rich.markup import escape
 
+from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
@@ -79,9 +80,13 @@ class ClaudeMarkers:
         """
         kept: list[str] = []
         section: str | None = None
-        for line in content.splitlines(keepends=True):
-            marker = re.fullmatch(
-                r"<!-- punt:(begin|end) (\S+) -->", line.rstrip("\r\n")
+        lines = content.splitlines(keepends=True)
+        flags = ClaudeMdImport.top_level_flags(lines)
+        for line, top in zip(lines, flags, strict=True):
+            marker = (
+                re.fullmatch(r"<!-- punt:(begin|end) (\S+) -->", line.rstrip("\r\n"))
+                if top
+                else None
             )
             if marker is None:
                 if section is None:

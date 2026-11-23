@@ -113,7 +113,7 @@ class ClaudeMdImport:
     def _present(self, text: str) -> bool:
         """Return ``True`` when a top-level line matches the import line."""
         lines = self._physical_lines(text)
-        flags = self._top_level_flags(lines)
+        flags = self.top_level_flags(lines)
         return any(
             top and self._line_matches(line)
             for line, top in zip(lines, flags, strict=True)
@@ -135,7 +135,7 @@ class ClaudeMdImport:
     def _removed(self, text: str) -> str:
         """Return *text* with every top-level occurrence of the line removed."""
         lines = self._physical_lines(text)
-        flags = self._top_level_flags(lines)
+        flags = self.top_level_flags(lines)
         kept = [
             line
             for line, top in zip(lines, flags, strict=True)
@@ -219,7 +219,7 @@ class ClaudeMdImport:
         return ranges, open_at
 
     @classmethod
-    def _top_level_flags(cls, lines: list[str]) -> list[bool]:
+    def top_level_flags(cls, lines: list[str]) -> list[bool]:
         """Flag each line ``True`` when it is top-level (not in a code block).
 
         A line is non-top-level when it lies inside a fenced block

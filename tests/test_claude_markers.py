@@ -122,3 +122,24 @@ def test_init_without_markers(tmp_path: Path, content: str) -> None:
     assert b"## Standards References" in migrated
     run_init(str(tmp_path))
     assert host.read_bytes() == migrated
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~", "````", "   ~~~"])
+@pytest.mark.parametrize("closed", [False, True])
+def test_init_preserves_fenced_marker_examples(
+    tmp_path: Path, fence: str, *, closed: bool
+) -> None:
+    """Whole-line markers in code examples are never managed sections."""
+    example = (
+        f"{fence}markdown\n<!-- punt:begin example -->\n"
+        "Keep this example.\n<!-- punt:end example -->\n"
+    )
+    if closed:
+        example += fence + "\n"
+    host = tmp_path / "CLAUDE.md"
+    host.write_text(example)
+
+    run_init(str(tmp_path))
+
+    assert host.read_text().startswith(example)
+    assert "Keep this example." in host.read_text()
