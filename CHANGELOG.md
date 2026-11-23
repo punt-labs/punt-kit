@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt pii` no longer reads a JSON escape's letter as the start of an address
+  (`\n@pytest.fixture` is not an email; `\u003cnoreply@github.com` stays
+  allowlisted), reports each of two glued addresses (`a@x.io-b@y.io`) whole,
+  and reports `.local` hostnames with `%`, `+` or multi-label hosts that it
+  previously missed (PL-906).
+
 ### Added
 
 - Pharo logging and telemetry implementation rules: Beacon signals with one

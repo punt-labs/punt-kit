@@ -17,16 +17,17 @@ from punt_kit.phases.shared.text_file import TextFile
 
 console = Console()
 
-_EMAIL_RE = re.compile(
-    r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b",
+# One pass finds emails and ``.local`` hostnames. A JSON escape (``\\n``,
+# ``\\u003c``) is consumed whole, so no address starts at its letter, and a
+# domain never ends just before ``@``, so glued addresses are each found whole.
+_ADDRESS_RE = re.compile(
+    r"\\(?:u[0-9a-fA-F]{4}|.)"
+    r"|(?P<address>[\w%+][\w.%+-]*+@[\w.-]+\.[a-zA-Z]{2,}\b(?!@))",
+    re.ASCII,
 )
 
 _HOME_PATH_RE = re.compile(
     r"(?:/Users/|/home/)[\w.-]+/",
-)
-
-_HOSTNAME_RE = re.compile(
-    r"\b[\w.-]+@[\w][\w-]*\.local\b",
 )
 
 # Emails that are never flagged.
@@ -207,18 +208,16 @@ def scan_file(
             )
 
     for line_num, line in enumerate(content.splitlines(), start=1):
-        for m in _EMAIL_RE.finditer(line):
-            email = m.group()
-            # Skip .local addresses — those are hostnames, not emails
-            if email.endswith(".local"):
+        for m in _ADDRESS_RE.finditer(line):
+            address = m["address"]
+            if address is None or _suppressed(address, allow_regexes):
                 continue
-            if email in allow_email_set:
-                continue
-            if any(email.endswith(suffix) for suffix in _BUILTIN_ALLOW_EMAIL_SUFFIXES):
-                continue
-            if _suppressed(email, allow_regexes):
-                continue
-            findings.append(Finding(rel_path, line_num, "email", email))
+            if address.endswith(".local"):
+                findings.append(Finding(rel_path, line_num, "hostname", address))
+            elif address not in allow_email_set and not address.endswith(
+                _BUILTIN_ALLOW_EMAIL_SUFFIXES
+            ):
+                findings.append(Finding(rel_path, line_num, "email", address))
 
         for m in _HOME_PATH_RE.finditer(line):
             path_match = m.group()
@@ -227,12 +226,6 @@ def scan_file(
             if _suppressed(path_match, allow_regexes):
                 continue
             findings.append(Finding(rel_path, line_num, "path", path_match))
-
-        for m in _HOSTNAME_RE.finditer(line):
-            hostname = m.group()
-            if _suppressed(hostname, allow_regexes):
-                continue
-            findings.append(Finding(rel_path, line_num, "hostname", hostname))
 
         for pattern in config.deny:
             if pattern in line:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 import subprocess
 from typing import TYPE_CHECKING
 
@@ -41,6 +42,62 @@ def _add_and_commit(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 # Email detection
 # ---------------------------------------------------------------------------
+
+
+def _matches(tmp_path: Path, text: str) -> list[str]:
+    (tmp_path / "input.txt").write_text(text)
+    return [f.match for f in scan_file("input.txt", tmp_path, PiiConfig())]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("bob@x.io-bob@x.io", ["bob@x.io", "bob@x.io"]),
+        ("a@x.io-bob.ab@y.io", ["a@x.io", "bob.ab@y.io"]),
+        ("a@host.local-b@x.io", ["a@host.local", "b@x.io"]),
+        (r"\n@pytest.fixture", []),
+        (r"\u003cbob@x.io\u003e", ["bob@x.io"]),
+        (r"\nbob@host.local", ["bob@host.local"]),
+        (r"\\nbob@x.io", ["nbob@x.io"]),
+        ("a" * 65 + "@x.io", ["a" * 65 + "@x.io"]),
+        ("a%b@host.local", ["a%b@host.local"]),
+        ("a@b.c.local", ["a@b.c.local"]),
+    ],
+)
+def test_address_boundaries(tmp_path: Path, text: str, expected: list[str]) -> None:
+    """Glued addresses, JSON escapes and long local parts are matched whole."""
+    assert _matches(tmp_path, text) == expected
+
+
+def test_allowlist_applies_after_json_escape(tmp_path: Path) -> None:
+    """An escape before an allowlisted address does not defeat the allowlist."""
+    assert _matches(tmp_path, r'{"a": "\u003cnoreply@github.com\u003e"}') == []
+
+
+def test_generated_addresses_all_found_and_redaction_idempotent(
+    tmp_path: Path,
+) -> None:
+    """Redacting every finding leaves no address, and a rescan finds nothing."""
+    rng = random.Random(906)
+
+    def redact(text: str) -> str:
+        for match in _matches(tmp_path, text):
+            text = text.replace(match, "[REDACTED]", 1)
+        return text
+
+    for _ in range(500):
+        addresses = [
+            rng.choice("abcXYZ019_%+")
+            + "".join(rng.choices("abcXYZ019._%+-", k=rng.randint(0, 120)))
+            + rng.choice(["@x.io", "@mail.x.co", "@host.local"])
+            for _ in range(rng.randint(1, 5))
+        ]
+        sep = rng.choice(["-", " ", r"\t", r"\n", r"\u003c"])
+        text = rng.choice(["", r"\n", r"\u003c"]) + sep.join(addresses)
+        redacted = redact(text)
+        assert "@" not in redacted, text
+        assert _matches(tmp_path, redacted) == []
+        assert redact(redacted) == redacted
 
 
 def test_detects_email(tmp_path: Path) -> None:
