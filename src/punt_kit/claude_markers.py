@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Self, final
 from rich.console import Console
 from rich.markup import escape
 
-from punt_kit.claude_md import ClaudeMdImport
+from punt_kit.claude_md import ClaudeMdImport, write_atomically
 from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ class ClaudeMarkers:
 
     def _update_locked(self, references: str) -> list[str]:
         if not self._file.path.exists():
-            self._file.write(references + "\n")
+            self._write(references + "\n")
             console.print("  [green]+[/green] Created CLAUDE.md")
             return ["CLAUDE.md"]
 
@@ -62,11 +62,17 @@ class ClaudeMarkers:
             migrated = self._append_references(existing, migrated, references)
         if migrated == existing:
             return []
-        self._file.write(migrated)
+        self._write(migrated)
         console.print(
             "  [yellow]↻[/yellow] Updated CLAUDE.md references and legacy sections"
         )
         return ["CLAUDE.md"]
+
+    def _write(self, text: str) -> None:
+        target = self._file.path.resolve()
+        raw = target.read_bytes() if target.exists() else b""
+        bom = "\ufeff" if raw.startswith(b"\xef\xbb\xbf") else ""
+        write_atomically(target, bom + text)
 
     @staticmethod
     def _append_references(original: str, migrated: str, references: str) -> str:

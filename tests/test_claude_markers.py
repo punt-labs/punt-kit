@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from punt_kit.claude_md import ClaudeMdImport
+from punt_kit.claude_markers import ClaudeMarkers
 from punt_kit.init import run_init
 from tests.helpers import no_bd
 
@@ -180,3 +181,41 @@ def test_migration_serializes_with_import_writers(tmp_path: Path) -> None:
     content = host.read_text()
     assert "@.punt-labs/punt/CLAUDE.md\n" in content
     assert "## Standards References" in content
+
+
+def test_migration_replaces_atomically(tmp_path: Path) -> None:
+    """Atomic replacement retains a symlink, target mode, BOM and line endings."""
+    target = tmp_path / "instructions.md"
+    target.write_bytes(b"\xef\xbb\xbfUser prose.\r\n")
+    target.chmod(0o640)
+    inode = target.stat().st_ino
+    host = tmp_path / "CLAUDE.md"
+    host.symlink_to(target.name)
+
+    ClaudeMarkers(host).update("## Standards References")
+
+    assert host.is_symlink()
+    assert target.stat().st_ino != inode
+    assert target.stat().st_mode & 0o777 == 0o640
+    assert target.read_bytes() == (
+        b"\xef\xbb\xbfUser prose.\r\n\r\n## Standards References\r\n"
+    )
+
+
+def test_migration_failed_replace_preserves_original(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed atomic rename leaves the original intact with no temporary file."""
+    host = tmp_path / "CLAUDE.md"
+    original = b"User prose.\n"
+    host.write_bytes(original)
+
+    def fail_replace(self: Path, target: Path) -> Path:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        ClaudeMarkers(host).update("## Standards References")
+
+    assert host.read_bytes() == original
+    assert not list(tmp_path.glob("*.tmp"))
