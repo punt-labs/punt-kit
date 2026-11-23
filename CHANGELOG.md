@@ -26,6 +26,10 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Python release templates and punt-kit's own release workflow now install the
+  exact published version from PyPI and smoke-test the installed CLI after
+  publication.
+
 - Cross-repo [Testing standard](standards/testing.md) with seven trigger-based
   tiers and traced implementation rules for Python, Go, Pharo, Swift, C and Rust.
 
