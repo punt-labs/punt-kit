@@ -136,15 +136,19 @@ jobs:
           actual=$(venv/bin/python -I -c \
             'import sys; from importlib.metadata import version; print(version(sys.argv[1]))' \
             "{{ package_name }}")
+          output=$(venv/bin/"{{ cli_command }}" version)
           uv --no-config run --isolated --no-project --with packaging \
             --default-index https://pypi.org/simple/ --python 3.13 \
-            python -I - "$version" "$actual" <<'PY'
+            python -I - "$version" "$actual" "$output" <<'PY'
           import sys
           from packaging.version import Version
 
-          expected, actual = sys.argv[1:]
+          expected, actual, output = sys.argv[1:]
           if Version(actual) != Version(expected):
               sys.exit(f"::error::Expected {{ package_name }}=={expected}, got {actual}")
+          cli_version = output.removeprefix("{{ cli_command }} ")
+          if Version(cli_version) != Version(expected):
+              sys.exit(f"::error::Expected {{ cli_command }} to report {expected}, got {output}")
           PY
           venv/bin/"{{ cli_command }}" --help
           echo "Published PyPI smoke passed: {{ package_name }}==$actual"

@@ -201,7 +201,9 @@ def test_init_creates_release_workflow_with_metadata(tmp_path: Path) -> None:
     assert "from packaging.version import Version" in smoke
     assert "Version(actual) != Version(expected)" in smoke
     assert 'venv/bin/"quarry" --help' in smoke
-    assert 'venv/bin/"quarry" version' not in smoke
+    assert 'venv/bin/"quarry" version' in smoke
+    assert 'cli_version = output.removeprefix("quarry ")' in smoke
+    assert "Version(cli_version) != Version(expected)" in smoke
 
 
 def test_init_skips_release_without_cli_entry_point(tmp_path: Path) -> None:
