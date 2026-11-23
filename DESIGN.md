@@ -21,7 +21,7 @@ round trip and a live one. Copying the schedule into each language standard
 would make the policy drift. A fleet-wide workflow rewrite in the standards
 change would couple the policy decision to each project's rollout.
 
-## DES-041: Report-Only Design Shadow
+## DES-041: Design Shadow Gate
 
 **Decision.** Use the published `punt-oo-ratchet==0.4.0` dev dependency and
 declare responsibility layers for all current Python modules. Entry owns the
@@ -37,17 +37,22 @@ ships the concrete isolated-interpreter probe as well as parsing its response,
 so it remains an adapter rather than being treated as only a value type.
 
 **Alternatives.** A blanket layer for `phases.shared` would conceal those
-boundaries. Enforcing current architecture findings would add a new gate before
-calibration. Both are rejected: genuine dependency findings remain visible.
+boundaries. Gating all current findings would require clearing existing debt.
+Instead, gate the merge-base verdict so existing debt remains visible without
+blocking unchanged code.
 
 **Outcome.** `make design-shadow` passes a literal environment-provided base ref
 to the CLI, which computes its merge-base internally. PR CI captures successful,
-empty and input-error output and appends it to the job summary without gating.
+empty and input-error output and appends it to the job summary even on failure.
+The target parses JSON from the pinned scanner, failing on `would-fail` verdicts,
+tool errors and invalid output. `good-deed: trade` passes: removing tier-1 debt
+can accept metric regressions only when no tier-0 or tier-1 findings are added.
+The existing OO, coupling and suppression gates remain independent constraints.
 `make report` runs the full design scan non-fatally; its existing OO diagnostic
 also continues on threshold findings so the design section is reached.
-Neither report is part of `make check`, and bare `make` continues to show help.
-Existing gate policies and baselines remain unchanged. Future unmatched modules
-produce advisory `unlayered-module` findings rather than failing a gate.
+Neither design target is part of `make check`, and bare `make` continues to show
+help. Baselines remain unchanged. New unmatched modules produce tier-1
+`unlayered-module` findings and fail the shadow gate.
 
 ## DES-001: Plugin Dev/Prod Namespace Isolation
 
