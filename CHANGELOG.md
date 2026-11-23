@@ -10,7 +10,8 @@ All notable changes to this project will be documented in this file.
   (`\n@pytest.fixture` is not an email; `\u003cnoreply@github.com` stays
   allowlisted), reports each of two glued addresses (`a@x.io-b@y.io`) whole,
   and reports `.local` hostnames with `%`, `+` or multi-label hosts that it
-  previously missed (PL-906).
+  previously missed. Scanning a long line with no address is now linear, not
+  quadratic (PL-906).
 
 ### Added
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 import subprocess
+import time
 from typing import TYPE_CHECKING
 
 import pytest
@@ -62,6 +63,8 @@ def _matches(tmp_path: Path, text: str) -> list[str]:
         ("a" * 65 + "@x.io", ["a" * 65 + "@x.io"]),
         ("a%b@host.local", ["a%b@host.local"]),
         ("a@b.c.local", ["a@b.c.local"]),
+        (r"C:\a@x.io", ["a@x.io"]),
+        (r"\\\\\nbob@x.io", ["bob@x.io"]),
     ],
 )
 def test_address_boundaries(tmp_path: Path, text: str, expected: list[str]) -> None:
@@ -72,6 +75,13 @@ def test_address_boundaries(tmp_path: Path, text: str, expected: list[str]) -> N
 def test_allowlist_applies_after_json_escape(tmp_path: Path) -> None:
     """An escape before an allowlisted address does not defeat the allowlist."""
     assert _matches(tmp_path, r'{"a": "\u003cnoreply@github.com\u003e"}') == []
+
+
+def test_long_run_without_address_scans_linearly(tmp_path: Path) -> None:
+    """A long word run with no address does not make the scan quadratic."""
+    started = time.perf_counter()
+    assert _matches(tmp_path, "a" * 200_000 + " " + "b-" * 100_000) == []
+    assert time.perf_counter() - started < 2
 
 
 def test_generated_addresses_all_found_and_redaction_idempotent(
