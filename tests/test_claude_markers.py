@@ -1,10 +1,13 @@
 """Legacy CLAUDE.md marker migration through punt init."""
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.init import run_init
 from tests.helpers import no_bd
 
@@ -143,3 +146,37 @@ def test_init_preserves_fenced_marker_examples(
 
     assert host.read_text().startswith(example)
     assert "Keep this example." in host.read_text()
+
+
+def test_migration_serializes_with_import_writers(tmp_path: Path) -> None:
+    """A migration waits for the shared lock, then reads the latest content."""
+    host = tmp_path / "CLAUDE.md"
+    host.write_text("User prose.\n")
+    script = (
+        "import sys; from pathlib import Path; "
+        "from punt_kit.claude_markers import ClaudeMarkers; "
+        "print('ready', flush=True); "
+        "ClaudeMarkers(Path(sys.argv[1])).update('## Standards References')"
+    )
+    with ClaudeMdImport.locked(host):
+        process = subprocess.Popen(
+            [sys.executable, "-c", script, str(host)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            assert process.stdout is not None
+            assert process.stdout.readline().strip() == "ready"
+            with pytest.raises(subprocess.TimeoutExpired):
+                process.communicate(timeout=0.2)
+            host.write_text("User prose.\n@.punt-labs/punt/CLAUDE.md\n")
+        except BaseException:
+            process.kill()
+            process.communicate()
+            raise
+    stdout, stderr = process.communicate(timeout=10)
+    assert process.returncode == 0, (stdout, stderr)
+    content = host.read_text()
+    assert "@.punt-labs/punt/CLAUDE.md\n" in content
+    assert "## Standards References" in content

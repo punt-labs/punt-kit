@@ -40,6 +40,10 @@ class ClaudeMarkers:
             ReleaseError: The existing file cannot be read as UTF-8.
             OSError: The updated file cannot be written.
         """
+        with ClaudeMdImport.locked(self._file.path):
+            return self._update_locked(references)
+
+    def _update_locked(self, references: str) -> list[str]:
         if not self._file.path.exists():
             self._file.write(references + "\n")
             console.print("  [green]+[/green] Created CLAUDE.md")
