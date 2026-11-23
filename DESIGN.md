@@ -2600,3 +2600,34 @@ the fork-hook and exit-flush fixes; schema and lifecycle ownership remain unchan
 | Publish punt-kit with the direct Git dependency | PyPI rejects direct-reference dependencies. |
 | Decorate individual callbacks | Misses help and parsing failures and can double-count grouped dispatch. |
 | Record raw argv or exception messages | Exposes paths and content outside the closed telemetry schema. |
+
+## DES-042: Advisory Edit Checks and One Handoff Dispatcher
+
+**Date:** 2026-11-23
+**Status:** SETTLED
+**Topic:** Repository agent quality gates
+
+### Context
+
+Running the full quality gate after every edit blocks incomplete work and
+repeats expensive tests. The ethos plugin already dispatches `SubagentStop`.
+
+### Design
+
+Select the repository's named `punt-kit` check set through `.punt-labs/ethos.yaml`.
+Edits run scoped, read-only advisory checks and fail open. Commits block on
+staged-file checks and source ratchets. Handoff blocks on `files: all`,
+`make check`, with the matching ethos plugin as its sole dispatcher.
+Ethos skips handoff checks, including `files: all`, for a provably read-only
+agent: an unchanged start fingerprint and no own or recent unattributed
+mutating audit entries. Missing or unreadable evidence runs the gate.
+Generated agents remain owned by ethos; seed the full bundle before regeneration.
+See [agent quality checks](docs/advisory-checks.md) for prerequisites and reproduction.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|---|---|
+| Full `make check` after each edit | Blocks partial work and repeats the whole suite. |
+| Add a project `SubagentStop` dispatcher | Duplicates the plugin dispatcher and runs the full gate twice. |
+| Hand-edit generated agent hooks | Regeneration overwrites local changes; the generator owns stdin forwarding. |

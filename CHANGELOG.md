@@ -13,7 +13,17 @@ All notable changes to this project will be documented in this file.
   previously missed. Scanning a long line with no address is now linear, not
   quadratic (PL-906).
 
+- Reconcile release-owned local main commits after a squash merge without
+  discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
+  with recovery instructions, and preserve pre-reset main in
+  `refs/punt-release/main-before-sync` for recovery (PL-885).
+
 ### Added
+
+- Repository-local ethos check policy: advisory file checks on edit, blocking
+  staged checks and ratchets at commit, and the full gate at handoff. Requires
+  ethos v5.2.0, containing DES-085 and the Linux stdin-forwarding fix;
+  regenerated hooks capture payloads in Bash. See `docs/advisory-checks.md`.
 
 - Pharo logging and telemetry implementation rules: Beacon signals with one
   shared durable logger per image session, private multi-image-safe rotation,
