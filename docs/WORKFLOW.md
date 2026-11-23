@@ -102,10 +102,11 @@ worker or evaluator.
 
 Every implementation mission in punt-kit carries this block verbatim in its
 contract. `make check` runs ruff, mypy, pyright, shellcheck, pytest, and the
-three gates from the pinned dev package
+four gates from the pinned dev package
 [`punt-oo-ratchet`](https://pypi.org/project/punt-oo-ratchet/) on
-`src/punt_kit/`: OO must-improve, coupling/cohesion regression-only, and
-suppression-count regression-only. `make report` shows per-file OO metrics.
+`src/punt_kit/`: OO must-improve, coupling/cohesion regression-only,
+suppression-count regression-only, and the design gate against the merge base
+with `origin/main` (override `DESIGN_BASE`). `make report` shows per-file OO metrics.
 After passing, use `make update-oo`, `make update-coupling`, and
 `make update-suppressions`; stage changed root baselines and audit logs with
 the source. The [adoption rule](../lang-rules/python/python-oo-adoption.md)

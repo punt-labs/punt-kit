@@ -228,14 +228,16 @@ Generated edit hooks capture stdin in Bash and forward it through a fresh pipe
 for Linux compatibility. See [agent quality checks](docs/advisory-checks.md)
 for setup, the required ethos v5.2.0 release and timing reproduction.
 
-PR CI also runs `make design-shadow` against the merge base with `origin/main`
-(override `DESIGN_BASE` for another branch). This separate gate rejects
-`would-fail` verdicts and tool/input errors, preserving the JSON report in the
-job summary even on failure. It accepts `good-deed: trade`: tier-1 design debt
-removed with no new tier-0 or tier-1 findings can offset size/complexity
-regressions. Existing OO, coupling and suppression gates still apply
-independently. The design gate stays outside `make check`; `make report`
-includes a non-gating full design scan.
+`make check` includes `make design-shadow`, which checks design changes against
+the merge base with `origin/main`. If that ref is missing, fetch it with
+`git fetch origin main:refs/remotes/origin/main`. For a change targeting another
+branch, run `make check DESIGN_BASE=origin/<target-branch>` after fetching it.
+PR CI runs the same gate against the PR base and preserves the JSON report in
+the job summary even on failure. The gate rejects `would-fail` verdicts and
+tool/input errors. It accepts `good-deed: trade`: tier-1 design debt removed
+with no new tier-0 or tier-1 findings can offset size/complexity regressions.
+Existing OO, coupling and suppression gates still apply independently.
+`make report` includes a non-gating full design scan.
 
 ## Plugin Development Patterns
 

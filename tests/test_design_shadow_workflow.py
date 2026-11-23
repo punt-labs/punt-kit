@@ -80,7 +80,7 @@ def shadow_step() -> str:
     return source.split(f"      - name: {STEP}\n", 1)[1].split("\n      - ", 1)[0]
 
 
-def test_shadow_is_a_pr_gate_separate_from_check() -> None:
+def test_shadow_is_a_pr_gate() -> None:
     source = WORKFLOW.read_text()
     assert source.index("- name: Ratchets (PR") < source.index(f"- name: {STEP}")
     step = shadow_step()
@@ -89,13 +89,67 @@ def test_shadow_is_a_pr_gate_separate_from_check() -> None:
     assert "        shell: bash\n" in step
     assert "DESIGN_BASE: origin/${{ github.base_ref }}" in step
     assert "${{" not in step.split("run: |\n", 1)[1]
-    check = next(
-        line
-        for line in (ROOT / "Makefile").read_text().splitlines()
-        if line.startswith("check:")
-    )
-    assert "design-shadow" not in check
     assert "DESIGN_BASE ?= origin/main" in (ROOT / "Makefile").read_text()
+
+
+def mock_design_scanner(tmp_path: Path, status: int, output: str) -> dict[str, str]:
+    """Run the actual gate wrapper with a controlled scanner response."""
+    uv = tmp_path / "uv"
+    uv.write_text('#!/bin/sh\nshift 2\nexec "$PYTHON" "$@"\n')
+    uv.chmod(0o755)
+    scanner = tmp_path / "oo-ratchet"
+    scanner.write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" > "$ARGV_LOG"\n'
+        'printf "%s" "$SHADOW_OUTPUT"\nprintf "scanner diagnostic\\n" >&2\n'
+        'exit "$SHADOW_STATUS"\n'
+    )
+    scanner.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        "ARGV_LOG": str(tmp_path / "argv.txt"),
+        "SHADOW_OUTPUT": output,
+        "SHADOW_STATUS": str(status),
+        "PYTHON": sys.executable,
+    }
+    env.pop("MAKEFLAGS", None)
+    return env
+
+
+@pytest.mark.parametrize(
+    ("status", "output", "passes"),
+    [
+        (0, '{"verdict": "neutral"}\n', True),
+        (0, '{"verdict": "would-fail: tier1"}\n', False),
+        (2, "FAIL: invalid reference\n", False),
+    ],
+)
+def test_check_gates_design_verdicts(
+    tmp_path: Path, status: int, output: str, passes: bool
+) -> None:
+    env = mock_design_scanner(tmp_path, status, output)
+    env.pop("DESIGN_BASE", None)
+    # Isolate design so this test can invoke check without running pytest again.
+    unrelated = (
+        "lint",
+        "type",
+        "test",
+        "check-oo",
+        "check-coupling",
+        "check-suppressions",
+    )
+    result = subprocess.run(
+        ["make", *(f"--old-file={target}" for target in unrelated), "check"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert (result.returncode == 0) == passes, result.stdout + result.stderr
+    assert (tmp_path / "argv.txt").read_text().strip() == (
+        "design src/punt_kit/ --shadow-check origin/main --json"
+    )
 
 
 @pytest.mark.parametrize(
@@ -128,28 +182,12 @@ def test_shadow_is_a_pr_gate_separate_from_check() -> None:
 def test_shadow_publishes_reports_and_gates_verdicts(
     tmp_path: Path, status: int, output: str, passes: bool, base: str, pipefail: bool
 ) -> None:
-    uv = tmp_path / "uv"
-    uv.write_text('#!/bin/sh\nshift 2\nexec "$PYTHON" "$@"\n')
-    uv.chmod(0o755)
-    scanner = tmp_path / "oo-ratchet"
-    scanner.write_text(
-        '#!/bin/sh\nprintf "%s\\n" "$*" > "$ARGV_LOG"\n'
-        'printf "%s" "$SHADOW_OUTPUT"\nprintf "scanner diagnostic\\n" >&2\n'
-        'exit "$SHADOW_STATUS"\n'
-    )
-    scanner.chmod(0o755)
     summary = tmp_path / "summary.md"
     summary.write_text("Earlier step\n")
-    argv_log = tmp_path / "argv.txt"
     env = {
-        **os.environ,
-        "PATH": f"{tmp_path}:{os.environ['PATH']}",
+        **mock_design_scanner(tmp_path, status, output),
         "GITHUB_STEP_SUMMARY": str(summary),
         "DESIGN_BASE": base,
-        "ARGV_LOG": str(argv_log),
-        "SHADOW_OUTPUT": output,
-        "SHADOW_STATUS": str(status),
-        "PYTHON": sys.executable,
     }
     script = textwrap.dedent(shadow_step().split("run: |\n", 1)[1])
     script_file = tmp_path / "step.sh"
@@ -172,7 +210,7 @@ def test_shadow_publishes_reports_and_gates_verdicts(
     assert (result.returncode == 0) == (passes or not pipefail), (
         result.stdout + result.stderr
     )
-    assert argv_log.read_text().strip() == (
+    assert (tmp_path / "argv.txt").read_text().strip() == (
         f"design src/punt_kit/ --shadow-check {base} --json"
     )
     report = summary.read_text()
