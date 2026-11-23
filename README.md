@@ -219,9 +219,10 @@ and CI wiring.
 Agent check policy selects `checks: punt-kit` in `.punt-labs/ethos.yaml`:
 advisory file-local edits, blocking staged checks, and blocking `make check`
 at subagent handoff through the ethos plugin (not main-session stop).
-Linux generated edit hooks have an unresolved upstream stdin caveat and may
-not run their checks. See [agent quality checks](docs/advisory-checks.md)
-for setup, the required DES-085 ethos build and timing reproduction.
+Ethos skips handoff checks for provably read-only agents.
+Generated edit hooks capture stdin in Bash and forward it through a fresh pipe
+for Linux compatibility. See [agent quality checks](docs/advisory-checks.md)
+for setup, the required ethos build and timing reproduction.
 
 PR CI also runs `make design-shadow` against the merge base with `origin/main`
 (override `DESIGN_BASE` for another branch). This separate gate rejects
