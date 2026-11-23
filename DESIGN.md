@@ -34,8 +34,8 @@ can accept metric regressions only when no tier-0 or tier-1 findings are added.
 The existing OO, coupling and suppression gates remain independent constraints.
 `make report` runs the full design scan non-fatally; its existing OO diagnostic
 also continues on threshold findings so the design section is reached.
-Neither design target is part of `make check`, and bare `make` continues to show
-help. Baselines remain unchanged. New unmatched modules produce tier-1
+`make check` includes `design-shadow` but not `report`; bare `make` continues to
+show help. Baselines remain unchanged. New unmatched modules produce tier-1
 `unlayered-module` findings and fail the shadow gate.
 
 ## DES-001: Plugin Dev/Prod Namespace Isolation
