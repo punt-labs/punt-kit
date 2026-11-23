@@ -8,8 +8,9 @@ All notable changes to this project will be documented in this file.
 
 - `punt init` removes legacy `punt:begin` / `punt:end` sections from
   `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
-  unterminated markers leave the file unchanged with a warning; Makefile
-  marker sections are untouched.
+  unterminated markers skip stripping with a warning while still adding missing
+  standards references. Prose mentions are ordinary content; Makefile marker
+  sections are untouched.
 
 ### Added
 

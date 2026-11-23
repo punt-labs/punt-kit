@@ -59,7 +59,6 @@ def test_init_strips_markers(
         "<!-- punt:begin a -->\nKeep me\n<!-- punt:end b -->\n",
         "<!-- punt:begin a -->\n<!-- punt:begin b -->\n<!-- punt:end a -->\n",
         "<!-- punt:end orphan -->\nKeep me\n",
-        "<!-- punt:begin -->\nKeep me\n",
         "<!-- punt:begin ok -->\nOld\n<!-- punt:end ok -->\n"
         "<!-- punt:begin broken -->\nKeep me",
     ],
@@ -67,15 +66,48 @@ def test_init_strips_markers(
 def test_init_preserves_malformed_markers(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], content: str
 ) -> None:
-    """An unsafe migration skips the entire CLAUDE.md, warning the user."""
+    """An unsafe migration preserves original content while adding references."""
     host = tmp_path / "CLAUDE.md"
     original = ("\ufeff# User prose\r\n" + content).encode()
     host.write_bytes(original)
 
     run_init(str(tmp_path))
 
-    assert host.read_bytes() == original
-    assert "Warning: Skipping CLAUDE.md:" in capsys.readouterr().out
+    migrated = host.read_bytes()
+    assert migrated.startswith(original.rstrip() + b"\r\n\r\n")
+    assert b"## Standards References" in migrated
+    assert "Warning: Skipping CLAUDE.md marker migration:" in capsys.readouterr().out
+    run_init(str(tmp_path))
+    assert host.read_bytes() == migrated
+
+
+@pytest.mark.parametrize(
+    "mention",
+    [
+        "Describe punt:begin and punt:end here.",
+        "Example: <!-- punt:begin example --> and <!-- punt:end example -->",
+        "<!-- punt:begin -->",
+        "    <!-- punt:begin example -->",
+        "<!-- punt:end example --> trailing prose",
+    ],
+)
+@pytest.mark.parametrize("fenced", [False, True])
+def test_init_preserves_marker_mentions(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], mention: str, *, fenced: bool
+) -> None:
+    """Prose and code mentions are ordinary content, not malformed markers."""
+    content = f"```text\n{mention}\n```\n" if fenced else mention + "\n"
+    host = tmp_path / "CLAUDE.md"
+    host.write_text(content)
+
+    run_init(str(tmp_path))
+
+    migrated = host.read_bytes()
+    assert migrated.startswith(content.rstrip().encode() + b"\n\n")
+    assert b"## Standards References" in migrated
+    assert "Warning:" not in capsys.readouterr().out
+    run_init(str(tmp_path))
+    assert host.read_bytes() == migrated
 
 
 @pytest.mark.parametrize("content", ["", "User prose", "@.punt-labs/biff/CLAUDE.md\n"])

@@ -33,7 +33,7 @@ class ClaudeMarkers:
     def update(self, references: str) -> list[str]:
         """Remove legacy sections and add references unless already present.
 
-        Malformed markers leave the entire file unchanged with a warning.
+        Malformed markers skip stripping with a warning, but still add references.
 
         Raises:
             ReleaseError: The existing file cannot be read as UTF-8.
@@ -49,14 +49,12 @@ class ClaudeMarkers:
             migrated = self.strip(existing)
         except ValueError as exc:
             console.print(
-                f"  [yellow]Warning:[/yellow] Skipping CLAUDE.md: {escape(str(exc))}"
+                "  [yellow]Warning:[/yellow] Skipping CLAUDE.md marker migration: "
+                f"{escape(str(exc))}"
             )
-            return []
+            migrated = existing
         if "## Standards References" not in migrated:
-            eol = TextFile.line_ending(existing)
-            tail = eol if existing.endswith("\n") else ""
-            block = references.replace("\n", eol)
-            migrated = migrated.rstrip() + eol + eol + block + tail
+            migrated = self._append_references(existing, migrated, references)
         if migrated == existing:
             return []
         self._file.write(migrated)
@@ -66,11 +64,18 @@ class ClaudeMarkers:
         return ["CLAUDE.md"]
 
     @staticmethod
+    def _append_references(original: str, migrated: str, references: str) -> str:
+        eol = TextFile.line_ending(original)
+        tail = eol if original.endswith("\n") else ""
+        block = references.replace("\n", eol)
+        return migrated.rstrip() + eol + eol + block + tail
+
+    @staticmethod
     def strip(content: str) -> str:
         """Return text outside complete, non-nested marker sections.
 
         Raises:
-            ValueError: Markers are unmatched, nested, or malformed.
+            ValueError: Markers are unmatched or nested.
         """
         kept: list[str] = []
         section: str | None = None
@@ -79,8 +84,6 @@ class ClaudeMarkers:
                 r"<!-- punt:(begin|end) (\S+) -->", line.rstrip("\r\n")
             )
             if marker is None:
-                if "punt:begin" in line or "punt:end" in line:
-                    raise ValueError("malformed marker")
                 if section is None:
                     kept.append(line)
             elif marker[1] == "begin" and section is None:
