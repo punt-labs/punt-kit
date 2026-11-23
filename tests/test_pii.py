@@ -54,6 +54,9 @@ def _matches(tmp_path: Path, text: str) -> list[str]:
     ("text", "expected"),
     [
         ("bob@x.io-bob@x.io", ["bob@x.io", "bob@x.io"]),
+        ("jim@acme.io@", ["jim@acme.io"]),
+        ("see jim@acme.io@ now", ["jim@acme.io"]),
+        ("jim@acme.io@ foo", ["jim@acme.io"]),
         ("a@x.io-bob.ab@y.io", ["a@x.io", "bob.ab@y.io"]),
         ("a@host.local-b@x.io", ["a@host.local", "b@x.io"]),
         (r"\n@pytest.fixture", []),
