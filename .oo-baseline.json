@@ -103,6 +103,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_kit/claude_markers.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
+    "max_complexity": 11.0,
+    "avg_complexity": 6.0,
+    "module_size": 64.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_kit/claude_md.py": {
     "method_ratio": 0.95,
     "encapsulation_ratio": 1.0,
@@ -186,8 +199,8 @@
     "encapsulation_ratio": 1.0,
     "avg_params": 1.18,
     "max_complexity": 20.0,
-    "avg_complexity": 6.5,
-    "module_size": 560.0,
+    "avg_complexity": 6.36,
+    "module_size": 548.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,
     "init_violations": 0.0,

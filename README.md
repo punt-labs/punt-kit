@@ -130,6 +130,9 @@ The `punt@punt-labs` plugin adds these commands to Claude Code. The plugin does 
 - **CI workflows** — `docs.yml` for Markdown linting in every project; `lint.yml` and `test.yml` for Python; `lint.yml` for Node.js; `release.yml` for Python projects whose `pyproject.toml` names the package and its CLI command
 - **Python tool config** — `[tool.ruff]`, `[tool.mypy]`, `[tool.pyright]`, and `[tool.pytest]` sections merged into `pyproject.toml`
 - **CLAUDE.md** — links to the relevant standards and the quality-gate commands for the detected language
+  and removes legacy `punt:begin` / `punt:end` sections, preserving surrounding
+  prose and bare imports. Malformed markers leave the file unchanged with a
+  warning. Makefile marker sections are not changed.
 - **Claude Code permissions** — `.claude/settings.json` with the baseline allow list (`mcp__github__*`, the build and language tools, `Bash(bd:*)`, `Bash(punt:*)`, and `Bash(<cli>-server:*)` only when the project declares a `<cli>-server` entry point) and the standard deny rules. A plugin's MCP wildcard, its `Skill()` rules, and its own `Bash(<cli>:*)` rule are not added here; each tool's `enable` command adds them and its `disable` command removes them.
 - **Gitignore** — a `.claude/` entry, with exceptions so `.claude/settings.json` and `.claude/hooks/` can still be committed
 - **Beads** — issue tracking set up with `bd init`

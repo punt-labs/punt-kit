@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- `punt init` removes legacy `punt:begin` / `punt:end` sections from
+  `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
+  unterminated markers leave the file unchanged with a warning; Makefile
+  marker sections are untouched.
+
 ### Added
 
 - Pharo logging and telemetry implementation rules: Beacon signals with one
