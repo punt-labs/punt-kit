@@ -154,31 +154,48 @@ def test_migration_serializes_with_import_writers(tmp_path: Path) -> None:
     """A migration waits for the shared lock, then reads the latest content."""
     host = tmp_path / "CLAUDE.md"
     host.write_text("User prose.\n")
-    script = (
-        "import sys; from pathlib import Path; "
-        "from punt_kit.claude_markers import ClaudeMarkers; "
-        "from punt_kit.phases.shared.text_file import TextFile; "
-        "print('ready', flush=True); "
-        "ClaudeMarkers(TextFile(Path(sys.argv[1]))).update('## Standards References')"
-    )
+    script = """
+import fcntl
+import sys
+from pathlib import Path
+
+from punt_kit.claude_markers import ClaudeMarkers
+from punt_kit.phases.shared.text_file import TextFile
+
+original_flock = fcntl.flock
+
+def checked_flock(fd, operation):
+    if operation == fcntl.LOCK_EX:
+        try:
+            original_flock(fd, operation | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("contended", flush=True)
+            assert sys.stdin.readline() == "continue\\n"
+        else:
+            raise AssertionError("migration did not contend on the shared lock")
+    original_flock(fd, operation)
+
+fcntl.flock = checked_flock
+ClaudeMarkers(TextFile(Path(sys.argv[1]))).update("## Standards References")
+"""
     with ClaudeMdImport(host, "@.punt-labs/punt/CLAUDE.md").locked():
         process = subprocess.Popen(
             [sys.executable, "-c", script, str(host)],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         try:
             assert process.stdout is not None
-            assert process.stdout.readline().strip() == "ready"
-            with pytest.raises(subprocess.TimeoutExpired):
-                process.communicate(timeout=0.2)
+            assert process.stdout.readline().strip() == "contended"
+            assert host.read_text() == "User prose.\n"
             host.write_text("User prose.\n@.punt-labs/punt/CLAUDE.md\n")
         except BaseException:
             process.kill()
             process.communicate()
             raise
-    stdout, stderr = process.communicate(timeout=10)
+    stdout, stderr = process.communicate(input="continue\n", timeout=10)
     assert process.returncode == 0, (stdout, stderr)
     content = host.read_text()
     assert "@.punt-labs/punt/CLAUDE.md\n" in content
