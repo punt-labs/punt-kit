@@ -293,7 +293,7 @@ class PrMerger:
 
         Shared by the existing-PR resume, mid-wait resume, and normal
         post-merge paths. Only clean divergence contained in the pushed
-        release head may be discarded: those commits were squash-merged.
+        release head may be reset, after preserving it in a recovery ref.
         """
         sync.run()
 

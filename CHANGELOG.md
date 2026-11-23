@@ -8,7 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - Reconcile release-owned local main commits after a squash merge without
   discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
-  with recovery instructions (PL-885).
+  with recovery instructions, and preserve pre-reset main in
+  `refs/punt-release/main-before-sync` for recovery (PL-885).
 
 ### Added
 

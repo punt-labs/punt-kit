@@ -5429,9 +5429,15 @@ def test_pr_merge_sync_local_main_diagnoses_fetch_failure(
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
-@pytest.mark.parametrize("scenario", ["fast-forward", "squash", "foreign", "dirty"])
+@pytest.mark.parametrize(
+    "scenario",
+    ["fast-forward", "squash", "reverted", "foreign", "dirty", "backup-failure"],
+)
 def test_pr_merge_sync_local_main_real_git(
-    tmp_path: Path, scenario: str, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
+    scenario: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Only clean, release-owned divergence can be replaced by the squash."""
     root = tmp_path / "checkout"
@@ -5443,19 +5449,25 @@ def test_pr_merge_sync_local_main_real_git(
     (root / "release.txt").write_text("release\n")
     _git(["add", "release.txt"], cwd=cwd)
     _git(["commit", "-m", "prepare release"], cwd=cwd)
+    prepared = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    if scenario == "reverted":
+        _git(["revert", "--no-edit", "HEAD"], cwd=cwd)
     head = _git_out(["rev-parse", "HEAD"], cwd=cwd)
     _git(["push", "origin", "release/v1.0.0"], cwd=cwd)
 
     _git(["checkout", "-b", "merged", base], cwd=cwd)
     _git(["merge", "--squash", "release/v1.0.0"], cwd=cwd)
-    _git(["commit", "-m", "squashed release"], cwd=cwd)
+    _git(["commit", "--allow-empty", "-m", "squashed release"], cwd=cwd)
     merged = _git_out(["rev-parse", "HEAD"], cwd=cwd)
     assert merged != head
     _git(["push", "origin", "HEAD:main"], cwd=cwd)
 
     _git(["checkout", "main"], cwd=cwd)
     if scenario != "fast-forward":
-        _git(["merge", "--ff-only", "release/v1.0.0"], cwd=cwd)
+        _git(
+            ["merge", "--ff-only", prepared if scenario == "reverted" else head],
+            cwd=cwd,
+        )
     if scenario == "foreign":
         _git(["commit", "--allow-empty", "-m", "unrelated work"], cwd=cwd)
     before = _git_out(["rev-parse", "HEAD"], cwd=cwd)
@@ -5463,25 +5475,31 @@ def test_pr_merge_sync_local_main_real_git(
         (root / "release.txt").write_text("uncommitted work\n")
     issued: list[list[str]] = []
     monkeypatch.setattr("shutil.which", _fake_which_gh)
-    merger = PrMerger(
-        ops=_fault_ops(
-            real_run=_recording_run(issued, ["git"]),
-            rules=[
-                FaultRule(
-                    match=["gh", "pr", "list"],
-                    response=CompletedProcessSpec(
-                        stdout=json.dumps(
-                            [{"number": 1, "state": "MERGED", "headRefOid": head}]
-                        )
-                    ),
+    ops = _fault_ops(
+        real_run=_recording_run(issued, ["git"]),
+        rules=[
+            FaultRule(
+                match=["gh", "pr", "list"],
+                response=CompletedProcessSpec(
+                    stdout=json.dumps(
+                        [{"number": 1, "state": "MERGED", "headRefOid": head}]
+                    )
                 ),
-                FaultRule(
-                    match=["gh", "pr", "view"],
-                    response=CompletedProcessSpec(stdout=merged),
-                ),
-            ],
-        )
+            ),
+            FaultRule(
+                match=["gh", "pr", "view"],
+                response=CompletedProcessSpec(stdout=merged),
+            ),
+        ],
     )
+    if scenario == "backup-failure":
+        ops.append_rule(
+            FaultRule(
+                match=["git", "update-ref", "refs/punt-release/main-before-sync"],
+                response=CompletedProcessSpec(returncode=1, stderr="cannot lock ref"),
+            )
+        )
+    merger = PrMerger(ops=ops)
 
     def sync() -> str:
         return merger.merge(
@@ -5492,27 +5510,53 @@ def test_pr_merge_sync_local_main_real_git(
             resolve_threads=lambda _gh, _cwd, _number: None,
         )
 
-    if scenario in {"foreign", "dirty"}:
-        with pytest.raises(ReleaseError, match="Local main diverges") as caught:
+    ref = "refs/punt-release/main-before-sync"
+    if scenario in {"foreign", "dirty", "backup-failure"}:
+        error = (
+            "update-ref .* failed"
+            if scenario == "backup-failure"
+            else "Local main diverges"
+        )
+        with pytest.raises(ReleaseError, match=error) as caught:
             sync()
         message = str(caught.value)
         assert before in message
         assert "--resume-from tag" in message
-        assert (
-            "outside the pushed release head"
-            if scenario == "foreign"
-            else "dirty working tree"
-        ) in message
+        if scenario != "backup-failure":
+            assert (
+                "outside the pushed release head"
+                if scenario == "foreign"
+                else "dirty working tree"
+            ) in message
         assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == before
         assert ["git", "reset", "--hard", "origin/main"] not in issued
+        assert (
+            subprocess.run(
+                ["git", "show-ref", "--verify", ref], cwd=cwd, capture_output=True
+            ).returncode
+            != 0
+        )
         if scenario == "dirty":
             assert (root / "release.txt").read_text() == "uncommitted work\n"
     else:
         assert sync() == merged
         assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == merged
         assert (["git", "reset", "--hard", "origin/main"] in issued) == (
-            scenario == "squash"
+            scenario in {"squash", "reverted"}
         )
+        if scenario in {"squash", "reverted"}:
+            assert _git_out(["rev-parse", ref], cwd=cwd) == before
+            assert _git_out(["show", f"{ref}:release.txt"], cwd=cwd) == "release"
+            output = capsys.readouterr().out
+            assert ref in output
+            assert before in output
+            assert "git cherry-pick" in output
+            assert f"git reset --hard {ref}" in output
+            assert issued.index(["git", "update-ref", ref, before]) < issued.index(
+                ["git", "reset", "--hard", "origin/main"]
+            )
+        if scenario == "reverted":
+            assert not (root / "release.txt").exists()
 
 
 def test_pr_merge_branch_deletion_404_is_success(

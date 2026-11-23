@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from punt_kit.phases.shared.timeouts import GIT_HOOK
+from punt_kit.phases.shared.main_sync_git import MainSyncGit
 
 if TYPE_CHECKING:
     import subprocess
@@ -17,22 +17,20 @@ if TYPE_CHECKING:
 class LocalMainSync:
     """Bind a checkout and pushed release head for post-merge reconciliation."""
 
-    __slots__ = ("_local_head", "_ops", "_root")
+    __slots__ = ("_git_ops", "_local_head")
 
-    _root: Path
+    _git_ops: MainSyncGit
     _local_head: str
-    _ops: ReleaseOps
 
     def __new__(cls, root: Path, local_head: str, *, ops: ReleaseOps) -> Self:
-        """Bind the pushed PR head whose commits are represented by the squash."""
+        """Bind the pushed PR head used to guard post-squash reconciliation."""
         self = super().__new__(cls)
-        self._root = root
+        self._git_ops = MainSyncGit(root, ops=ops)
         self._local_head = local_head
-        self._ops = ops
         return self
 
     def run(self) -> None:
-        """Sync main, discarding only clean divergence owned by the merged head.
+        """Sync main, preserving clean, release-owned divergence in a recovery ref.
 
         Raises:
             ReleaseError: Git fails or divergence cannot safely be discarded.
@@ -51,7 +49,7 @@ class LocalMainSync:
         """Distinguish ancestry from a failed Git query."""
         ancestor = self._run(["merge-base", "--is-ancestor", "main", "origin/main"])
         if ancestor.returncode not in (0, 1):
-            self._ops.fail(
+            self._git_ops.fail(
                 f"Could not compare main with origin/main: {ancestor.stderr.strip()} "
                 "— inspect the repository and retry with --resume-from tag"
             )
@@ -70,25 +68,18 @@ class LocalMainSync:
                 if foreign
                 else "a dirty working tree"
             )
-            self._ops.fail(
+            self._git_ops.fail(
                 f"Local main diverges from origin/main with {reason}. "
                 f"Local-only commits: {local_only}. "
                 "Preserve unrelated work, reconcile main with origin/main, "
                 "then retry with --resume-from tag"
             )
+        self._git_ops.preserve_main(local_only)
 
     def _git(self, args: list[str]) -> str:
         """Run a diagnosed Git command while reconciling main."""
-        result = self._run(args)
-        if result.returncode != 0:
-            self._ops.fail(
-                f"git {' '.join(args)} failed:\n{result.stderr.strip()}\n"
-                "Inspect the repository and retry with --resume-from tag"
-            )
-        return result.stdout.strip()
+        return self._git_ops.checked(args)
 
     def _run(self, args: list[str]) -> subprocess.CompletedProcess[str]:
         """Apply the shared hook timeout and diagnosed-failure convention."""
-        return self._ops.run(
-            ["git", *args], cwd=str(self._root), check=False, timeout=GIT_HOOK
-        )
+        return self._git_ops.run(args)
