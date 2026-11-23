@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.claude_markers import ClaudeMarkers
+from punt_kit.claude_md import ClaudeMdImport
 from punt_kit.init import run_init
+from punt_kit.phases.shared.text_file import TextFile
 from tests.helpers import no_bd
 
 
@@ -156,10 +157,11 @@ def test_migration_serializes_with_import_writers(tmp_path: Path) -> None:
     script = (
         "import sys; from pathlib import Path; "
         "from punt_kit.claude_markers import ClaudeMarkers; "
+        "from punt_kit.phases.shared.text_file import TextFile; "
         "print('ready', flush=True); "
-        "ClaudeMarkers(Path(sys.argv[1])).update('## Standards References')"
+        "ClaudeMarkers(TextFile(Path(sys.argv[1]))).update('## Standards References')"
     )
-    with ClaudeMdImport.locked(host):
+    with ClaudeMdImport(host, "@.punt-labs/punt/CLAUDE.md").locked():
         process = subprocess.Popen(
             [sys.executable, "-c", script, str(host)],
             stdout=subprocess.PIPE,
@@ -192,7 +194,7 @@ def test_migration_replaces_atomically(tmp_path: Path) -> None:
     host = tmp_path / "CLAUDE.md"
     host.symlink_to(target.name)
 
-    ClaudeMarkers(host).update("## Standards References")
+    ClaudeMarkers(TextFile(host)).update("## Standards References")
 
     assert host.is_symlink()
     assert target.stat().st_ino != inode
@@ -215,7 +217,7 @@ def test_migration_failed_replace_preserves_original(
 
     monkeypatch.setattr(Path, "replace", fail_replace)
     with pytest.raises(OSError, match="replace failed"):
-        ClaudeMarkers(host).update("## Standards References")
+        ClaudeMarkers(TextFile(host)).update("## Standards References")
 
     assert host.read_bytes() == original
     assert not list(tmp_path.glob("*.tmp"))
@@ -242,7 +244,8 @@ def test_reference_examples_do_not_suppress_references(
     run_init(str(tmp_path))
 
     migrated = host.read_text()
-    assert migrated.startswith(example.rstrip() + "\n\n## Standards References\n")
+    assert migrated.startswith(example.rstrip() + "\n\n")
+    assert "\n## Standards References\n" in migrated[len(example) :]
     run_init(str(tmp_path))
     assert host.read_text() == migrated
 

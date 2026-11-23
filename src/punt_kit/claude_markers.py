@@ -3,18 +3,30 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Protocol, Self, final
 
 from rich.console import Console
 from rich.markup import escape
 
 from punt_kit.claude_md import ClaudeMdImport, write_atomically
-from punt_kit.phases.shared.text_file import TextFile
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 console = Console()
+
+
+class ClaudeDocument(Protocol):
+    """BOM-aware text access supplied by the initialization boundary."""
+
+    @property
+    def path(self) -> Path:
+        """Return the CLAUDE.md path."""
+        ...
+
+    def read(self) -> str:
+        """Read UTF-8 text without its leading BOM or newline translation."""
+        ...
 
 
 @final
@@ -23,12 +35,12 @@ class ClaudeMarkers:
 
     __slots__ = ("_file",)
 
-    _file: TextFile
+    _file: ClaudeDocument
 
-    def __new__(cls, path: Path) -> Self:
+    def __new__(cls, document: ClaudeDocument) -> Self:
         """Bind the user-owned CLAUDE.md file to update."""
         self = super().__new__(cls)
-        self._file = TextFile(path)
+        self._file = document
         return self
 
     def update(self, references: str) -> list[str]:
@@ -40,7 +52,8 @@ class ClaudeMarkers:
             ReleaseError: The existing file cannot be read as UTF-8.
             OSError: The updated file cannot be written.
         """
-        with ClaudeMdImport.locked(self._file.path):
+        host_import = ClaudeMdImport(self._file.path, "@.punt-labs/punt/CLAUDE.md")
+        with host_import.locked():
             return self._update_locked(references)
 
     def _update_locked(self, references: str) -> list[str]:
@@ -76,7 +89,7 @@ class ClaudeMarkers:
 
     @staticmethod
     def _append_references(original: str, migrated: str, references: str) -> str:
-        eol = TextFile.line_ending(original)
+        eol = "\r\n" if "\r\n" in original else "\n"
         tail = eol if original.endswith("\n") else ""
         block = references.replace("\n", eol)
         return migrated.rstrip() + eol + eol + block + tail

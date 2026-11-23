@@ -408,7 +408,7 @@ def _init_claude_md(info: ProjectInfo) -> list[str]:
         quality_gates=_build_quality_gates(info),
     ).strip()
 
-    return ClaudeMarkers(claude_md_path).update(references_block)
+    return ClaudeMarkers(TextFile(claude_md_path)).update(references_block)
 
 
 def build_standard_permissions(info: ProjectInfo) -> list[str]:

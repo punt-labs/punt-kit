@@ -78,7 +78,7 @@ class ClaudeMdImport:
                 appended line would be inert.
             OSError: The host file or its lock file cannot be read or written.
         """
-        with self.locked(self._host):
+        with self.locked():
             text = self._read()
             if self._present(text):
                 return False
@@ -99,7 +99,7 @@ class ClaudeMdImport:
         """
         if not self._host.is_file():
             return False
-        with self.locked(self._host):
+        with self.locked():
             text = self._read()
             new_text = self._removed(text)
             if new_text == text:
@@ -251,15 +251,14 @@ class ClaudeMdImport:
             return "\r"
         return "\n"
 
-    @staticmethod
     @contextmanager
-    def locked(host: Path) -> Generator[None]:
+    def locked(self) -> Generator[None]:
         """Serialize CLAUDE.md writers using the shared sibling lock.
 
         Raises:
             OSError: The lock cannot be created or acquired.
         """
-        lock_path = host.parent / f".{host.name}.punt-import.lock"
+        lock_path = self._host.parent / f".{self._host.name}.punt-import.lock"
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         fd = os.open(lock_path, _LOCK_FLAGS, _NEW_FILE_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as lock:
