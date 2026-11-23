@@ -5,7 +5,7 @@ proposing changes to settled decisions. See
 [patterns/design-decision-log.md](patterns/design-decision-log.md) for the
 format spec.
 
-## DES-042: Testing Tiers Name Triggers, Not Test Kinds
+## DES-044: Testing Tiers Name Triggers, Not Test Kinds
 
 **Date:** 2026-11-22
 
