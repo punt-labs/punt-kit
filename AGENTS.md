@@ -27,6 +27,7 @@ Each standard lives in its own document under `standards/`.
 | [Naming](standards/naming.md) | Repo names, PyPI names, CLI names, slash commands, versioning (semver) |
 | [GitHub](standards/github.md) | Branch protection, CI/CD workflows, review bots (Qodo, Bugbot), required status checks, repo settings |
 | [Workflow](standards/workflow.md) | Issue tracking, workflow tiers, branch discipline, commits, quality gates, code review, session close protocol, design decision logs, cross-project integration |
+| [Testing](standards/testing.md) | Trigger-based test tiers, independently selectable test kinds, coverage, isolation, and candidate and published-artifact checks |
 | [PR and Review](standards/pr-review.md) | Local-first review: the PR as merge gate, review agents, remote reviewers as second opinion |
 | [Git](standards/git.md) | Git mechanics: branch check before commit, no-rewrite of pushed branches, conflict resolution, post-merge cleanup ordering, worktree lifecycle, submodules, mission trailers, stop-and-ask |
 | [Release Process](standards/release-process.md) | The `/punt:auto release` playbook, deterministic phases 1–11, cross-repo propagation |

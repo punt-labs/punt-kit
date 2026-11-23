@@ -26,6 +26,9 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Cross-repo [Testing standard](standards/testing.md) with seven trigger-based
+  tiers and traced implementation rules for Python, Go, Pharo, Swift, C and Rust.
+
 - Repository-local ethos check policy: advisory file checks on edit, blocking
   staged checks and ratchets at commit, and the full gate at handoff. Requires
   ethos v5.2.0, containing DES-085 and the Linux stdin-forwarding fix;
