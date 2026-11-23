@@ -87,6 +87,12 @@ class PrMerger:
             return False
         return data.get("state") == "MERGED"
 
+    def _github_cli(self) -> str:
+        """Locate the GitHub CLI or diagnose its absence."""
+        if (gh := shutil.which("gh")) is None:
+            self._ops.fail("gh CLI not found — install from https://cli.github.com")
+        return gh
+
     def merge(
         self,
         *,
@@ -113,9 +119,7 @@ class PrMerger:
             subprocess.TimeoutExpired: A subprocess exceeded its timeout.
             OSError: A subprocess could not start.
         """
-        gh = shutil.which("gh")
-        if gh is None:
-            self._ops.fail("gh CLI not found — install from https://cli.github.com")
+        gh = self._github_cli()
 
         root = str(cwd)
 
@@ -144,10 +148,8 @@ class PrMerger:
         # an OPEN PR or a MERGED PR at this exact head represents the
         # current release — see _select_existing for why CLOSED and stale
         # MERGED PRs must be ignored.
-        local_head = self._ops.run(
-            ["git", "rev-parse", branch], cwd=root
-        ).stdout.strip()
-        sync = LocalMainSync(cwd, local_head, ops=self._ops)
+        head = self._ops.run(["git", "rev-parse", branch], cwd=root).stdout.strip()
+        sync = LocalMainSync(cwd, head, ops=self._ops)
         existing = self._ops.run(
             [
                 gh,
@@ -173,7 +175,7 @@ class PrMerger:
                 self._ops.fail(
                     f"Failed to parse gh pr list output: {existing.stdout[:200]}"
                 )
-            pr_number, already_merged = self._select_existing(prs, local_head)
+            pr_number, already_merged = self._select_existing(prs, head)
             if pr_number is not None:
                 if already_merged:
                     self._ops.ok(f"PR #{pr_number} already merged")
@@ -181,7 +183,7 @@ class PrMerger:
                     # merged by an earlier run may already have left the
                     # workspace on main, but synchronization must still
                     # run to pick up that merge commit.
-                    self._sync_local_main(sync)
+                    sync.run()
                     return self._merge_commit_oid(gh, root, pr_number)
                 self._ops.info(f"Found existing open PR #{pr_number}")
 
@@ -226,7 +228,7 @@ class PrMerger:
             self._ops.fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
         if pr_state == "MERGED":
             self._ops.ok(f"PR #{pr_number} already merged")
-            self._sync_local_main(sync)
+            sync.run()
             return self._merge_commit_oid(gh, root, pr_number)
 
         resolve_threads(gh, root, pr_number)
@@ -277,33 +279,14 @@ class PrMerger:
             self._ops.fail(f"Failed to merge PR #{pr_number}: {combined}")
         self._ops.ok(f"PR #{pr_number} merged")
 
-        self._sync_local_main(sync)
-        return self._merge_commit_oid(gh, root, pr_number)
-
-    def _sync_local_main(self, sync: LocalMainSync) -> None:
-        """Reconcile local main with the remote after the squash merge.
-
-        Workspace-state only — the caller's return value comes from
-        ``_merge_commit_oid`` instead. Local HEAD after synchronization is not
-        reliably the squash-merge commit: any further commit landing on
-        main between the squash-merge and this fetch (a concurrent release,
-        a hotfix) would fast-forward past it too, making local HEAD the
-        LATER commit — the exact race class this method's caller exists to
-        avoid.
-
-        Shared by the existing-PR resume, mid-wait resume, and normal
-        post-merge paths. Only clean divergence contained in the pushed
-        release head may be reset, after preserving it in a recovery ref.
-        """
         sync.run()
+        return self._merge_commit_oid(gh, root, pr_number)
 
     def _merge_commit_oid(self, gh: str, root: str, pr_number: int) -> str:
         """Resolve the squash-merge commit from GitHub's merge record.
 
-        GitHub's own record of the merge is the one source that cannot
-        drift: local main HEAD (even freshly synchronized by
-        ``_sync_local_main``) is only correct as long as nothing else has
-        landed on main since the squash-merge — a race, not a guarantee.
+        Synchronized main HEAD may include later commits; use GitHub's
+        merge record rather than HEAD to identify the squash commit.
         """
         result = self._ops.run(
             [

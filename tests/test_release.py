@@ -5381,7 +5381,7 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
     """A failing `git checkout main` while fast-forwarding local main after
     an already-merged PR must diagnose, not leak a raw CalledProcessError.
 
-    `PrMerger.merge` centralizes this synchronization in `_sync_local_main`,
+    `PrMerger.merge` delegates this synchronization to `LocalMainSync`,
     which must not use an unqualified check=True default."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
@@ -6091,10 +6091,10 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``merge()`` must return the PR's authoritative mergeCommit oid from
-    GitHub, not local main HEAD after ``_sync_local_main`` synchronizes it.
+    GitHub, not local main HEAD after ``LocalMainSync`` synchronizes it.
 
     If another commit lands on main between the squash-merge and that
-    pull — a concurrent release, a hotfix — local HEAD becomes the LATER
+    fetch — a concurrent release, a hotfix — local HEAD becomes the LATER
     commit. The old `git rev-parse --short HEAD` return would have handed
     that back silently instead of the actual merge commit; Phase 5 would
     then tag the wrong commit even with the SHA-threading fix in place,

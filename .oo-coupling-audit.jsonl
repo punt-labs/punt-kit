@@ -25,3 +25,4 @@
 {"ts":"2026-11-23T01:31:39Z","commit":"2b6ac09","source":"PL-885","files_scored":88,"files_improved":0,"files_regressed":1,"verdict":"fail","reason":null,"deltas":{},"backfilled":["src/punt_kit/phases/shared/main_sync_git.py"]}
 {"ts":"2026-11-23T01:32:15Z","commit":"2b6ac09","source":"PL-885","files_scored":88,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
 {"ts":"2026-11-23T01:35:04Z","commit":"2b6ac09","source":"PL-885","files_scored":88,"files_improved":0,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{}}
+{"ts":"2026-11-23T01:47:37Z","commit":"ab2d800","source":"PL-885","files_scored":88,"files_improved":1,"files_regressed":0,"verdict":"pass","reason":null,"deltas":{"src/punt_kit/phases/shared/pr_merge.py":{"max_lcom":[0.25,0.0],"avg_lcom":[0.25,0.0]}}}
