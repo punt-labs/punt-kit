@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Gate PRs on the design shadow verdict using `make design-shadow`, separately
+  from `make check`. Reject `would-fail` verdicts, tool errors and invalid JSON
+  while preserving the complete report in the job summary on failure. Accepted
+  `good-deed: trade` verdicts still pass; existing ratchets remain unchanged.
+
 ## [0.19.0] - 2026-11-22
 
 ### Added

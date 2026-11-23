@@ -10,8 +10,8 @@ override export DESIGN_BASE := $(value DESIGN_BASE)
 
 .PHONY: design-shadow
 
-design-shadow: ## Report advisory design changes; never part of check
-	uv run oo-ratchet design "$(SRC)" --shadow-check "$${DESIGN_BASE}"
+design-shadow: ## Gate design changes against DESIGN_BASE; separate from check
+	uv run python tools/design_gate.py "$(SRC)" "$${DESIGN_BASE}"
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
