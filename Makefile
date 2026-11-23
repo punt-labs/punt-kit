@@ -10,7 +10,7 @@ override export DESIGN_BASE := $(value DESIGN_BASE)
 
 .PHONY: design-shadow
 
-design-shadow: ## Gate design changes against DESIGN_BASE; separate from check
+design-shadow: ## Gate design changes against DESIGN_BASE
 	uv run python tools/design_gate.py "$(SRC)" "$${DESIGN_BASE}"
 
 help: ## Show available targets
@@ -43,7 +43,7 @@ type: ## Type check with mypy and pyright
 	uv run mypy src/ tests/ tools/
 	uv run pyright src/ tests/ tools/
 
-check: lint type test check-oo check-coupling check-suppressions ## Run all quality gates
+check: lint type test check-oo check-coupling check-suppressions design-shadow ## Run all quality gates
 
 check-oo: ## OO must-improve ratchet
 	uv run oo-ratchet oo $(SRC) --check $(OO_BASE)

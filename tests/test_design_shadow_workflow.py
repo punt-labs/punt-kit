@@ -80,7 +80,7 @@ def shadow_step() -> str:
     return source.split(f"      - name: {STEP}\n", 1)[1].split("\n      - ", 1)[0]
 
 
-def test_shadow_is_a_pr_gate_separate_from_check() -> None:
+def test_shadow_is_a_pr_gate() -> None:
     source = WORKFLOW.read_text()
     assert source.index("- name: Ratchets (PR") < source.index(f"- name: {STEP}")
     step = shadow_step()
@@ -89,13 +89,19 @@ def test_shadow_is_a_pr_gate_separate_from_check() -> None:
     assert "        shell: bash\n" in step
     assert "DESIGN_BASE: origin/${{ github.base_ref }}" in step
     assert "${{" not in step.split("run: |\n", 1)[1]
-    check = next(
-        line
-        for line in (ROOT / "Makefile").read_text().splitlines()
-        if line.startswith("check:")
-    )
-    assert "design-shadow" not in check
     assert "DESIGN_BASE ?= origin/main" in (ROOT / "Makefile").read_text()
+
+
+def test_check_runs_design_gate() -> None:
+    result = subprocess.run(
+        ["make", "-n", "check"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "uv run python tools/design_gate.py " in result.stdout
 
 
 @pytest.mark.parametrize(
