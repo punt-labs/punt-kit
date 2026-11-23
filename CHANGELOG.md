@@ -10,6 +10,17 @@ All notable changes to this project will be documented in this file.
   staged checks and ratchets at commit, and the full gate at handoff. Requires
   an ethos build containing DES-085; see `docs/advisory-checks.md`.
 
+### Changed
+
+- Gate PRs on the design shadow verdict using `make design-shadow`, separately
+  from `make check`. Reject `would-fail` verdicts, tool errors and invalid JSON
+  while preserving the complete report in the job summary on failure. Accepted
+  `good-deed: trade` verdicts still pass; existing ratchets remain unchanged.
+
+## [0.19.0] - 2026-11-22
+
+### Added
+
 - Report-only architecture layers and design diagnostics using
   `punt-oo-ratchet==0.4.0`. `make design-shadow` compares against `origin/main`
   (override `DESIGN_BASE`), `make report` includes a non-failing full design scan,

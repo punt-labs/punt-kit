@@ -17,7 +17,7 @@ Projects link to these standards from their `CLAUDE.md` (the instructions file C
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/0740213/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/punt-kit/8e2d51e/install.sh | sh
 ```
 
 The installer installs [uv](https://docs.astral.sh/uv/) and Python 3.13 if they are missing, then installs the `punt-kit` package from PyPI, which provides the `punt` command. If the `claude` command is on your `PATH`, it also adds the `punt-labs` plugin marketplace to Claude Code and installs the `punt@punt-labs` plugin. It finishes by running `punt doctor`.
@@ -222,6 +222,15 @@ at subagent handoff through the ethos plugin (not main-session stop).
 Linux generated edit hooks have an unresolved upstream stdin caveat and may
 not run their checks. See [agent quality checks](docs/advisory-checks.md)
 for setup, the required DES-085 ethos build and timing reproduction.
+
+PR CI also runs `make design-shadow` against the merge base with `origin/main`
+(override `DESIGN_BASE` for another branch). This separate gate rejects
+`would-fail` verdicts and tool/input errors, preserving the JSON report in the
+job summary even on failure. It accepts `good-deed: trade`: tier-1 design debt
+removed with no new tier-0 or tier-1 findings can offset size/complexity
+regressions. Existing OO, coupling and suppression gates still apply
+independently. The design gate stays outside `make check`; `make report`
+includes a non-gating full design scan.
 
 ## Plugin Development Patterns
 
