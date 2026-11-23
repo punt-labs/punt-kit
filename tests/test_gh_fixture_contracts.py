@@ -418,7 +418,9 @@ def _selection_ops(
         _rule(["gh", "pr", "list"], pr_list_fixture),
         *rules,
         FaultRule(match=["git", "checkout"], response=_OK),
-        FaultRule(match=["git", "pull"], response=_OK),
+        FaultRule(match=["git", "fetch", "origin", "main"], response=_OK),
+        FaultRule(match=["git", "merge-base", "--is-ancestor"], response=_OK),
+        FaultRule(match=["git", "merge", "--ff-only", "origin/main"], response=_OK),
     )
 
 
@@ -655,7 +657,13 @@ def _merge_env_ops(*merge_rules: FaultRule) -> FaultInjectingOps:
         ),
         *merge_rules,
         FaultRule(match=["git", "checkout"], response=ok, times=None),
-        FaultRule(match=["git", "pull"], response=ok, times=None),
+        FaultRule(match=["git", "fetch", "origin", "main"], response=ok, times=None),
+        FaultRule(
+            match=["git", "merge-base", "--is-ancestor"], response=ok, times=None
+        ),
+        FaultRule(
+            match=["git", "merge", "--ff-only", "origin/main"], response=ok, times=None
+        ),
     )
 
 

@@ -6,6 +6,11 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Reconcile release-owned local main commits after a squash merge without
+  discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
+  with recovery instructions, and preserve pre-reset main in
+  `refs/punt-release/main-before-sync` for recovery (PL-885).
+
 - `punt init` removes legacy `punt:begin` / `punt:end` sections from
   `CLAUDE.md`, preserving surrounding prose and bare imports. Malformed or
   unterminated markers skip stripping with a warning while still adding missing
