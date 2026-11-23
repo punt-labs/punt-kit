@@ -91,8 +91,10 @@ jobs:
           if command != "punt" or Version(actual) != Version(expected):
               sys.exit(f"::error::Expected punt {expected}, got {output}")
           PY
-          printf '%s\n' '[project]' 'name = "smoke-demo"' >pyproject.toml
+          printf '%s\n' '[project]' 'name = "smoke-demo"' \
+            '[project.scripts]' 'smoke-demo = "smoke_demo.cli:app"' >pyproject.toml
           mkdir .beads
           venv/bin/punt init .
           test -s .github/workflows/lint.yml
-          echo "Published PyPI smoke passed: $actual (scaffolded Python CI)"
+          grep -q '^  published-smoke:$' .github/workflows/release.yml
+          echo "Published PyPI smoke passed: $actual (scaffolded Python CI and release smoke)"
