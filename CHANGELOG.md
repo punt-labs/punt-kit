@@ -8,8 +8,14 @@ All notable changes to this project will be documented in this file.
 
 - Repository-local ethos check policy: advisory file checks on edit, blocking
   staged checks and ratchets at commit, and the full gate at handoff. Requires
-  an ethos build containing DES-085 and the Linux stdin-forwarding fix;
+  ethos v5.2.0, containing DES-085 and the Linux stdin-forwarding fix;
   regenerated hooks capture payloads in Bash. See `docs/advisory-checks.md`.
+
+- Pharo logging and telemetry implementation rules: Beacon signals with one
+  shared durable logger per image session, private multi-image-safe rotation,
+  and privacy-safe OpenTelemetry capture through `opentelemetry-pharo` behind a
+  shared facade. The traceability checker requires Pharo coverage of `LOG-*`
+  and `TEL-*`.
 
 ### Changed
 

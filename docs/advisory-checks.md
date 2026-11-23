@@ -21,10 +21,10 @@ Hooks never format files, update baselines or stage changes.
 
 ## Prerequisites
 
-Use an ethos build containing DES-085 and the generated-hook stdin fix.
-Tested with main `d43e70e` (v5.2.0 candidate code; the build identifies itself
-as `5.1.1-20-gd43e70e`). The original rollout used `f4f884f`;
-the latest release tag available then, v5.1.1, predates DES-085.
+Use released ethos v5.2.0 (`83aaba3`), containing DES-085 and the generated-hook
+stdin fix. The built release binary reports `ethos 5.2.0`; seeding and
+regeneration with it produce identical agents to the pre-release main build
+used for the measurements below.
 Put that binary first on `PATH` for Claude and Git hooks. Run `ethos seed` to
 install the full global bundle, not a symlinked roles layer. Run ethos SessionStart
 to regenerate marked agents and install/refresh the local pre-commit shim.
