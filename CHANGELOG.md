@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reconcile release-owned local main commits after a squash merge without
+  discarding unrelated commits or dirty worktrees; diagnose unsafe divergence
+  with recovery instructions (PL-885).
+
 ### Added
 
 - Pharo logging and telemetry implementation rules: Beacon signals with one

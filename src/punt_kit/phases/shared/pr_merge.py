@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.git import GitWorkspace
+from punt_kit.phases.shared.local_main_sync import LocalMainSync
 from punt_kit.phases.shared.timeouts import GIT_HOOK
 
 if TYPE_CHECKING:
@@ -146,6 +147,7 @@ class PrMerger:
         local_head = self._ops.run(
             ["git", "rev-parse", branch], cwd=root
         ).stdout.strip()
+        sync = LocalMainSync(cwd, local_head, ops=self._ops)
         existing = self._ops.run(
             [
                 gh,
@@ -177,9 +179,9 @@ class PrMerger:
                     self._ops.ok(f"PR #{pr_number} already merged")
                     # Unconditional (not GitWorkspace.ensure_on_main): a PR
                     # merged by an earlier run may already have left the
-                    # workspace on main, but the pull --ff-only must still
+                    # workspace on main, but synchronization must still
                     # run to pick up that merge commit.
-                    self._sync_local_main(root)
+                    self._sync_local_main(sync)
                     return self._merge_commit_oid(gh, root, pr_number)
                 self._ops.info(f"Found existing open PR #{pr_number}")
 
@@ -224,7 +226,7 @@ class PrMerger:
             self._ops.fail(f"Failed to parse gh pr view output: {state.stdout[:200]}")
         if pr_state == "MERGED":
             self._ops.ok(f"PR #{pr_number} already merged")
-            self._sync_local_main(root)
+            self._sync_local_main(sync)
             return self._merge_commit_oid(gh, root, pr_number)
 
         resolve_threads(gh, root, pr_number)
@@ -275,40 +277,31 @@ class PrMerger:
             self._ops.fail(f"Failed to merge PR #{pr_number}: {combined}")
         self._ops.ok(f"PR #{pr_number} merged")
 
-        self._sync_local_main(root)
+        self._sync_local_main(sync)
         return self._merge_commit_oid(gh, root, pr_number)
 
-    def _sync_local_main(self, root: str) -> None:
-        """Fast-forward local main to the just-merged remote state.
+    def _sync_local_main(self, sync: LocalMainSync) -> None:
+        """Reconcile local main with the remote after the squash merge.
 
         Workspace-state only — the caller's return value comes from
-        ``_merge_commit_oid`` instead. Local HEAD after this pull is not
+        ``_merge_commit_oid`` instead. Local HEAD after synchronization is not
         reliably the squash-merge commit: any further commit landing on
-        main between the squash-merge and this pull (a concurrent release,
+        main between the squash-merge and this fetch (a concurrent release,
         a hotfix) would fast-forward past it too, making local HEAD the
         LATER commit — the exact race class this method's caller exists to
         avoid.
 
         Shared by the existing-PR resume, mid-wait resume, and normal
-        post-merge paths, so the checkout + pull sequence is diagnosed in
-        one place instead of failing as a bare ``CalledProcessError``.
+        post-merge paths. Only clean divergence contained in the pushed
+        release head may be discarded: those commits were squash-merged.
         """
-        checkout = self._ops.run(
-            ["git", "checkout", "main"], cwd=root, check=False, timeout=GIT_HOOK
-        )
-        if checkout.returncode != 0:
-            self._ops.fail(f"git checkout main failed:\n{checkout.stderr.strip()}")
-        pull = self._ops.run(
-            ["git", "pull", "--ff-only"], cwd=root, check=False, timeout=GIT_HOOK
-        )
-        if pull.returncode != 0:
-            self._ops.fail(f"git pull --ff-only failed:\n{pull.stderr.strip()}")
+        sync.run()
 
     def _merge_commit_oid(self, gh: str, root: str, pr_number: int) -> str:
         """Resolve the squash-merge commit from GitHub's merge record.
 
         GitHub's own record of the merge is the one source that cannot
-        drift: local main HEAD (even freshly pulled by
+        drift: local main HEAD (even freshly synchronized by
         ``_sync_local_main``) is only correct as long as nothing else has
         landed on main since the squash-merge — a race, not a guarantee.
         """

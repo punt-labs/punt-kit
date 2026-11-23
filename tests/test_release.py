@@ -5381,7 +5381,7 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
     """A failing `git checkout main` while fast-forwarding local main after
     an already-merged PR must diagnose, not leak a raw CalledProcessError.
 
-    `PrMerger.merge` centralizes this checkout + pull in `_sync_local_main`,
+    `PrMerger.merge` centralizes this synchronization in `_sync_local_main`,
     which must not use an unqualified check=True default."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
@@ -5404,20 +5404,17 @@ def test_pr_merge_sync_local_main_diagnoses_checkout_failure(
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
 
 
-def test_pr_merge_sync_local_main_diagnoses_pull_failure(
+def test_pr_merge_sync_local_main_diagnoses_fetch_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A failing `git pull --ff-only` while fast-forwarding local main — a
-    network call, structurally identical in risk to `git fetch origin`
-    (Phase 1) and `GitWorkspace.push` (Phase 5), both already diagnosed —
-    must diagnose too."""
+    """A failing fetch while synchronizing local main must diagnose."""
     base_fake_run, _issued = _fake_gh_run(
         [{"number": 5, "state": "MERGED", "headRefOid": _LOCAL_HEAD}],
     )
     base_run = cast("Callable[..., object]", base_fake_run)
 
     def fake_run(cmd: list[str], **kwargs: object) -> object:
-        if cmd == ["git", "pull", "--ff-only"]:
+        if cmd == ["git", "fetch", "origin", "main"]:
             r = MagicMock()
             r.returncode = 1
             r.stdout = ""
@@ -5428,8 +5425,94 @@ def test_pr_merge_sync_local_main_diagnoses_pull_failure(
     waited: list[int] = []
     _patch_pr_merge_env(monkeypatch, fake_run, waited)
 
-    with pytest.raises(ReleaseError, match="git pull --ff-only failed"):
+    with pytest.raises(ReleaseError, match="git fetch origin main failed"):
         _pr_merge(cwd=tmp_path, branch="release/v0.2.0", title="chore: release v0.2.0")
+
+
+@pytest.mark.parametrize("scenario", ["fast-forward", "squash", "foreign", "dirty"])
+def test_pr_merge_sync_local_main_real_git(
+    tmp_path: Path, scenario: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only clean, release-owned divergence can be replaced by the squash."""
+    root = tmp_path / "checkout"
+    root.mkdir()
+    _init_git_repo_with_bare_remote(root, tmp_path / "remote.git")
+    cwd = str(root)
+    base = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    _git(["checkout", "-b", "release/v1.0.0"], cwd=cwd)
+    (root / "release.txt").write_text("release\n")
+    _git(["add", "release.txt"], cwd=cwd)
+    _git(["commit", "-m", "prepare release"], cwd=cwd)
+    head = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    _git(["push", "origin", "release/v1.0.0"], cwd=cwd)
+
+    _git(["checkout", "-b", "merged", base], cwd=cwd)
+    _git(["merge", "--squash", "release/v1.0.0"], cwd=cwd)
+    _git(["commit", "-m", "squashed release"], cwd=cwd)
+    merged = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    assert merged != head
+    _git(["push", "origin", "HEAD:main"], cwd=cwd)
+
+    _git(["checkout", "main"], cwd=cwd)
+    if scenario != "fast-forward":
+        _git(["merge", "--ff-only", "release/v1.0.0"], cwd=cwd)
+    if scenario == "foreign":
+        _git(["commit", "--allow-empty", "-m", "unrelated work"], cwd=cwd)
+    before = _git_out(["rev-parse", "HEAD"], cwd=cwd)
+    if scenario == "dirty":
+        (root / "release.txt").write_text("uncommitted work\n")
+    issued: list[list[str]] = []
+    monkeypatch.setattr("shutil.which", _fake_which_gh)
+    merger = PrMerger(
+        ops=_fault_ops(
+            real_run=_recording_run(issued, ["git"]),
+            rules=[
+                FaultRule(
+                    match=["gh", "pr", "list"],
+                    response=CompletedProcessSpec(
+                        stdout=json.dumps(
+                            [{"number": 1, "state": "MERGED", "headRefOid": head}]
+                        )
+                    ),
+                ),
+                FaultRule(
+                    match=["gh", "pr", "view"],
+                    response=CompletedProcessSpec(stdout=merged),
+                ),
+            ],
+        )
+    )
+
+    def sync() -> str:
+        return merger.merge(
+            cwd=root,
+            branch="release/v1.0.0",
+            title="release",
+            wait_for_checks=lambda _gh, _cwd, _number: None,
+            resolve_threads=lambda _gh, _cwd, _number: None,
+        )
+
+    if scenario in {"foreign", "dirty"}:
+        with pytest.raises(ReleaseError, match="Local main diverges") as caught:
+            sync()
+        message = str(caught.value)
+        assert before in message
+        assert "--resume-from tag" in message
+        assert (
+            "outside the pushed release head"
+            if scenario == "foreign"
+            else "dirty working tree"
+        ) in message
+        assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == before
+        assert ["git", "reset", "--hard", "origin/main"] not in issued
+        if scenario == "dirty":
+            assert (root / "release.txt").read_text() == "uncommitted work\n"
+    else:
+        assert sync() == merged
+        assert _git_out(["rev-parse", "HEAD"], cwd=cwd) == merged
+        assert (["git", "reset", "--hard", "origin/main"] in issued) == (
+            scenario == "squash"
+        )
 
 
 def test_pr_merge_branch_deletion_404_is_success(
@@ -5645,10 +5728,7 @@ def _merge_env(
     monkeypatch.setattr("shutil.which", _fake_which_gh)
     branch = "release/v1.0.0"
     _init_git_repo(root)
-    # PrMerger.merge's post-merge step runs a bare `git pull --ff-only`
-    # (no explicit remote/branch), which needs main's upstream configured —
-    # unlike Phase5Tag's `ensure_on_main`, which always names `origin main`
-    # explicitly and needs no tracking branch at all.
+    # Publish main so post-merge synchronization has a remote branch to fetch.
     _git(["push", "-u", "origin", "main"], cwd=str(root))
     _git(["checkout", "-b", branch], cwd=str(root))
     ops = _fault_ops(
@@ -5954,7 +6034,7 @@ def test_pr_merge_returns_merge_commit_oid_not_a_later_concurrent_commit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """``merge()`` must return the PR's authoritative mergeCommit oid from
-    GitHub, not local main HEAD after ``_sync_local_main``'s pull.
+    GitHub, not local main HEAD after ``_sync_local_main`` synchronizes it.
 
     If another commit lands on main between the squash-merge and that
     pull — a concurrent release, a hotfix — local HEAD becomes the LATER
