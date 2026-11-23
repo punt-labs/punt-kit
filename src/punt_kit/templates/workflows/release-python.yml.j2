@@ -131,7 +131,7 @@ jobs:
               echo "::error::Could not install {{ package_name }}==$version from PyPI"
               exit 1
             fi
-            sleep 7
+            sleep 12
           done
           actual=$(venv/bin/python -I -c \
             'import sys; from importlib.metadata import version; print(version(sys.argv[1]))' \

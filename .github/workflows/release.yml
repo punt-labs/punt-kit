@@ -77,7 +77,7 @@ jobs:
               echo "::error::Could not install punt-kit==$version from PyPI"
               exit 1
             fi
-            sleep 7
+            sleep 12
           done
           actual=$(venv/bin/punt version)
           uv --no-config run --isolated --no-project --with packaging \
