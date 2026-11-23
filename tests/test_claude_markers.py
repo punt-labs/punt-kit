@@ -219,3 +219,48 @@ def test_migration_failed_replace_preserves_original(
 
     assert host.read_bytes() == original
     assert not list(tmp_path.glob("*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "Mention ## Standards References in prose.\n",
+        "## Standards References extra words\n",
+        "### Standards References\n",
+        "    ## Standards References\n",
+        "```markdown\n## Standards References\n```\n",
+        "~~~markdown\n## Standards References\n~~~\n",
+    ],
+)
+def test_reference_examples_do_not_suppress_references(
+    tmp_path: Path, example: str
+) -> None:
+    """Only a real, unfenced heading prevents appending references."""
+    host = tmp_path / "CLAUDE.md"
+    host.write_text(example)
+
+    run_init(str(tmp_path))
+
+    migrated = host.read_text()
+    assert migrated.startswith(example.rstrip() + "\n\n## Standards References\n")
+    run_init(str(tmp_path))
+    assert host.read_text() == migrated
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "## Standards References",
+        "  ## Standards References",
+        "## Standards References ##",
+    ],
+)
+def test_real_reference_headings_are_preserved(tmp_path: Path, heading: str) -> None:
+    """Existing top-level reference headings remain byte-identical."""
+    host = tmp_path / "CLAUDE.md"
+    original = heading + "\nExisting references.\n"
+    host.write_text(original)
+
+    run_init(str(tmp_path))
+
+    assert host.read_text() == original

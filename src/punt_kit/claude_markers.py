@@ -58,7 +58,7 @@ class ClaudeMarkers:
                 f"{escape(str(exc))}"
             )
             migrated = existing
-        if "## Standards References" not in migrated:
+        if not self._has_references(migrated):
             migrated = self._append_references(existing, migrated, references)
         if migrated == existing:
             return []
@@ -80,6 +80,19 @@ class ClaudeMarkers:
         tail = eol if original.endswith("\n") else ""
         block = references.replace("\n", eol)
         return migrated.rstrip() + eol + eol + block + tail
+
+    @staticmethod
+    def _has_references(text: str) -> bool:
+        lines = text.splitlines()
+        flags = ClaudeMdImport.top_level_flags(lines)
+        return any(
+            top
+            and re.fullmatch(
+                r" {0,3}##[ \t]+Standards References(?:[ \t]+#+)?[ \t]*", line
+            )
+            is not None
+            for line, top in zip(lines, flags, strict=True)
+        )
 
     @staticmethod
     def strip(content: str) -> str:
