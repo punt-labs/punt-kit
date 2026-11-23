@@ -231,6 +231,9 @@ class _GithubSim:
         merge_sha = CommandRunner.run(
             ["git", "rev-parse", "HEAD"], cwd=cwd
         ).stdout.strip()
+        CommandRunner.run(
+            ["git", "update-ref", "refs/remotes/origin/main", merge_sha], cwd=cwd
+        )
         # --delete-branch: gh removes the head branch after the merge.
         CommandRunner.run(["git", "branch", "-D", record.branch], cwd=cwd)
         with self._lock:
