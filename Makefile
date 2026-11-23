@@ -43,7 +43,7 @@ type: ## Type check with mypy and pyright
 	uv run mypy src/ tests/ tools/
 	uv run pyright src/ tests/ tools/
 
-check: lint type test check-oo check-coupling check-suppressions design-shadow ## Run all quality gates
+check: design-shadow lint type test check-oo check-coupling check-suppressions ## Run all quality gates
 
 check-oo: ## OO must-improve ratchet
 	uv run oo-ratchet oo $(SRC) --check $(OO_BASE)
