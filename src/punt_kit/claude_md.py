@@ -29,11 +29,10 @@ _LOCK_FLAGS = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC
 class ClaudeMdImport:
     """Edit one bare import under a shared lock and replace the file atomically."""
 
-    __slots__ = ("_host", "_import_line", "_lock_path")
+    __slots__ = ("_host", "_import_line")
 
     _host: Path
     _import_line: str
-    _lock_path: Path
 
     def __new__(cls, host_path: Path, import_line: str) -> Self:
         """Own ``import_line`` inside the host file at ``host_path``.
@@ -45,8 +44,6 @@ class ClaudeMdImport:
         self = super().__new__(cls)
         self._host = host_path
         self._import_line = import_line
-        # All tools lock the same sibling because the host inode is replaced.
-        self._lock_path = host_path.parent / f".{host_path.name}.punt-import.lock"
         return self
 
     def is_registered(self) -> bool:
@@ -81,7 +78,7 @@ class ClaudeMdImport:
                 appended line would be inert.
             OSError: The host file or its lock file cannot be read or written.
         """
-        with self._locked():
+        with self.locked():
             text = self._read()
             if self._present(text):
                 return False
@@ -102,7 +99,7 @@ class ClaudeMdImport:
         """
         if not self._host.is_file():
             return False
-        with self._locked():
+        with self.locked():
             text = self._read()
             new_text = self._removed(text)
             if new_text == text:
@@ -113,7 +110,7 @@ class ClaudeMdImport:
     def _present(self, text: str) -> bool:
         """Return ``True`` when a top-level line matches the import line."""
         lines = self._physical_lines(text)
-        flags = self._top_level_flags(lines)
+        flags = self.top_level_flags(lines)
         return any(
             top and self._line_matches(line)
             for line, top in zip(lines, flags, strict=True)
@@ -135,7 +132,7 @@ class ClaudeMdImport:
     def _removed(self, text: str) -> str:
         """Return *text* with every top-level occurrence of the line removed."""
         lines = self._physical_lines(text)
-        flags = self._top_level_flags(lines)
+        flags = self.top_level_flags(lines)
         kept = [
             line
             for line, top in zip(lines, flags, strict=True)
@@ -219,7 +216,7 @@ class ClaudeMdImport:
         return ranges, open_at
 
     @classmethod
-    def _top_level_flags(cls, lines: list[str]) -> list[bool]:
+    def top_level_flags(cls, lines: list[str]) -> list[bool]:
         """Flag each line ``True`` when it is top-level (not in a code block).
 
         A line is non-top-level when it lies inside a fenced block
@@ -255,12 +252,15 @@ class ClaudeMdImport:
         return "\n"
 
     @contextmanager
-    def _locked(self) -> Generator[None]:
-        """Hold an exclusive lock on the sibling lock file for the whole RMW."""
-        self._lock_path.parent.mkdir(parents=True, exist_ok=True)
-        # No O_TRUNC and no symlink follow: a planted lock link cannot be used
-        # to truncate a file outside the repo, and another tool's lock is kept.
-        fd = os.open(self._lock_path, _LOCK_FLAGS, _NEW_FILE_MODE)
+    def locked(self) -> Generator[None]:
+        """Serialize CLAUDE.md writers using the shared sibling lock.
+
+        Raises:
+            OSError: The lock cannot be created or acquired.
+        """
+        lock_path = self._host.parent / f".{self._host.name}.punt-import.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(lock_path, _LOCK_FLAGS, _NEW_FILE_MODE)
         with os.fdopen(fd, "w", encoding="utf-8") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:

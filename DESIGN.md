@@ -2631,3 +2631,39 @@ See [agent quality checks](docs/advisory-checks.md) for prerequisites and reprod
 | Full `make check` after each edit | Blocks partial work and repeats the whole suite. |
 | Add a project `SubagentStop` dispatcher | Duplicates the plugin dispatcher and runs the full gate twice. |
 | Hand-edit generated agent hooks | Regeneration overwrites local changes; the generator owns stdin forwarding. |
+
+## DES-043: CLAUDE.md Marker Migration Has a Dedicated Collaborator
+
+**Date:** 2026-11-23
+**Status:** SETTLED
+**Topic:** Safe removal of legacy managed CLAUDE.md sections during init
+
+### Design
+
+`punt init` delegates CLAUDE.md marker migration and standards-reference
+updates to `punt_kit.claude_markers.ClaudeMarkers`. Complete, matching
+`punt:begin` / `punt:end` sections are deleted, preserving surrounding user
+prose and bare imports. Fenced examples are ordinary content. Makefile marker
+sections remain a separate mechanism and are untouched.
+
+Malformed, nested, mismatched or unterminated marker structures produce a
+warning and skip stripping the file; missing standards references are still
+appended. The update holds the shared CLAUDE.md import lock and uses atomic
+replacement, preserving the file's BOM, line endings and permissions.
+
+### Why
+
+The collaborator isolates the migration grammar and file-update behavior from
+init's orchestration. Inlining it regressed init's complexity and module size.
+Extraction instead improves init's average complexity from 6.50 to 6.36 and
+module size from 560 to 548. Its added dependency raises efferent coupling
+from 7 to 8, accepted through a file-scoped, audited coupling relaxation with
+source `PL-971`, not a blanket rebaseline.
+
+### Rejected Alternatives
+
+| Alternative | Why Rejected |
+|---|---|
+| Inline marker migration in init | Regresses init's complexity and size ratchets and mixes parsing with orchestration. |
+| Reuse seed's section replacement parser | Normalizes line endings and treats malformed sections as fatal; migration must preserve user content and continue reference initialization. |
+| Strip through an unmatched begin marker | Risks deleting user-owned content without a matching section boundary. |
