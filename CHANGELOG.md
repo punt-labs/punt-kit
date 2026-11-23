@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Pharo logging and telemetry implementation rules: Beacon signals with one
+  shared durable logger per image session, private multi-image-safe rotation,
+  and privacy-safe OpenTelemetry capture through `opentelemetry-pharo` behind a
+  shared facade. The traceability checker requires Pharo coverage of `LOG-*`
+  and `TEL-*`.
+
 ### Changed
 
 - Gate PRs on the design shadow verdict using `make design-shadow`, separately
