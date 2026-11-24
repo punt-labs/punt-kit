@@ -74,7 +74,7 @@ description names:
 | Workflow | Pre-PR certification | Named run |
 |---|---|---|
 | `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`, and `push` to `main`) | The job's commands run locally | The run on the PR head |
-| `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | The build job: `uv build`, then `uvx twine check dist/*` | The next tagged release; the leader checks it after merge |
+| `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | `make smoke-candidate`: the build job's `uv build` and `uvx twine check dist/*`, then `scripts/smoke-release.sh candidate` on the wheel; the PR's `candidate-smoke` job runs the same target | The next tagged release (its `candidate-smoke` gates PyPI, its `published-smoke` checks the PyPI wheel is byte-identical and runs the same operations); the leader checks it after merge |
 | `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command line it would run printed with its variables substituted and compared to the expected text — never executed: a wall reaches every teammate's session, whatever its message or duration | Its first `workflow_run` whose upstream failed on a `push` or `workflow_dispatch` event; until one occurs the post-merge run has not happened, and the leader records that |
 
 A failure in a named post-merge run is a finding, fixed in a fix PR on the
