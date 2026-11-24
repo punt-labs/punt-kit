@@ -71,6 +71,11 @@ record, not in this standard.
 `<tool> --help` prints usage to stdout and exits successfully without
 performing work or requiring a running service.
 
+On full-contract tools, invoking `<tool>` with no arguments also prints
+help to stdout and exits zero, unless the approved command map records a
+different default, such as an interactive session. A bare invocation must
+never start a long-running service.
+
 ### CLI-6: Make the public interface discoverable
 
 **Applies to:** python, go

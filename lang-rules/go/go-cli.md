@@ -14,7 +14,9 @@ map, including setup ownership and documented exceptions. With Cobra,
 attach commands with `AddCommand` and write `version` explicitly rather than
 setting `cobra.Command.Version`, which generates a flag. Use Cobra's
 generated help and completion support, arranging command groups in public
-help order. Check installed-binary usage output, version, and completion
+help order. Use Cobra's root help path for bare invocation unless the
+approved command map specifies a different default; do not dispatch to a
+service. Check bare invocation, explicit help, version, and completion
 with command tests. Check that Cobra's completion script reaches stdout
 unchanged, without a JSON wrapper (CLI-11). Handwritten parsers must provide
 the same contract.

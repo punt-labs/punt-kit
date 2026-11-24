@@ -15,7 +15,11 @@ Register resource groups with `add_typer` and leaf handlers with `command`.
 Compare the registration to the approved command map, including setup
 ownership and documented exceptions. Register `version` as a command, not
 an eager version option. Configure `-h` alongside `--help` on full-contract
-apps and test the public help paths via `CliRunner`. Use Typer's
+apps. For the default no-argument path, use a root callback that prints
+the context's help and exits successfully, rather than relying on a
+missing-command error. Test bare invocation and explicit help separately
+via `CliRunner`; only dispatch a different bare action when the approved
+command map specifies it, and never dispatch to a service. Use Typer's
 `--install-completion` and `--show-completion` for shell completion.
 `--show-completion` writes the script without a JSON wrapper (CLI-11).
 
