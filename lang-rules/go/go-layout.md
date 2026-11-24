@@ -5,9 +5,10 @@ paths:
 
 # Go Repository Layout
 
-**Introduced:** 2026-11-22
+**Introduced:** 2026-11-22 · **Updated:** 2026-11-24
 
-Implements the [repository layout policy](../../standards/punt-labs-dir.md).
+Implements the [repository layout policy](../../standards/punt-labs-dir.md)
+and [home filesystem policy](../../standards/filesystem.md).
 The storage-boundary evaluator reviews the consuming tool's tests for these
 acceptance cases; this file does not imply that punt-kit executes Go tests.
 
@@ -35,14 +36,35 @@ paths are static overrides. The local zone name is never a tool name.
 
 ## GO-PLD-3: Resolve machine data independently of cwd
 
-**Implements:** PLD-3 · **Gate:** `review` (storage-boundary evaluator)
+**Implements:** PLD-3, FS-1, FS-2, FS-3 · **Gate:** `review` (storage-boundary evaluator)
 
-Use the tool's home resolver, with errors propagated, for machine-scoped
-profiles, caches and diagnostics. For example mcp-proxy profiles resolve
-under the home tree. Test cwd independence, empty configuration and home
-resolution/permission errors.
-Keep durable diagnostics in logs/ and telemetry in telemetry.db with a 0700
-directory and 0600 database and sidecars, separate from logs.
+Use `os.UserHomeDir` and `filepath.Join` behind one product resolver and
+propagate errors. Use it for machine-scoped profiles, caches and diagnostics;
+for example, mcp-proxy profiles resolve under the home tree. Review whether
+each writer is product-owned or host-managed. Test the expected namespace
+with an isolated home (including alternate entry points, if any), cwd
+independence, empty configuration and home resolution/permission errors.
+For diagnostics and telemetry, use the [logging rules](go-logging.md).
+
+## GO-FS-1: Pass product-owned cache and data paths to dependencies
+
+**Implements:** FS-4, FS-5 · **Gate:** `review` (storage-boundary evaluator)
+
+Pass paths derived with `filepath.Join` from the product resolver to cache
+and store clients. Resolve a user cache override before passing the path to
+download or cached-read calls. Test default and overridden locations and
+cache reuse with temporary directories. Check the persistent store path
+separately from the cache.
+
+## GO-FS-2: Check install and legacy-directory cutovers
+
+**Implements:** FS-6, FS-7, FS-8 · **Gate:** `review` (storage-boundary evaluator)
+
+Use `os.MkdirAll` with the appropriate permissions for directories provisioned
+by the Go installer and propagate errors. Test fresh and repeat installs
+under an isolated home. On a cutover, check the changelog and seed the
+legacy directory with recognizable data to check that it is neither loaded
+nor altered.
 
 ## GO-PLD-4: Verify Git behavior for local names
 

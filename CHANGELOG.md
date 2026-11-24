@@ -46,6 +46,15 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Give the home filesystem standard stable `FS-*` clauses and traced
+  Python/Go rules. Default tool-downloaded artifacts to the product cache,
+  honor explicit overrides, and declare `beadle` as the namespace for
+  `beadle-email` without moving any files. Repository layout, activation
+  and telemetry details now link to their governing standards.
+- Move the home cutover history out of filesystem policy: the legacy
+  `~/.biff/`, `~/.quarry/` and `~/.punt-vox/` paths were replaced by
+  `~/.punt-labs/biff/`, `~/.punt-labs/quarry/` and `~/.punt-labs/vox/`,
+  respectively.
 - Require the design shadow gate in `make check` and PR CI. Reject `would-fail`
   verdicts, tool errors and invalid JSON while preserving the complete report in
   the CI job summary on failure. Accepted `good-deed: trade` verdicts still pass;
