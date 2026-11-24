@@ -222,8 +222,8 @@ All main-branch changes go through PRs (zero bypass actors).
 - **PyPI approval gate**: The `pypi` job in the release workflow requires
   manual approval in the GitHub Actions UI. Phase 6 (CI wait) blocks until
   all jobs complete, so the developer must approve the deployment during the
-  release. Expect ~20 minutes for the full pipeline (build → TestPyPI →
-  test-install → approve → PyPI).
+  release. Expect ~20 minutes for the full pipeline (build → candidate
+  smoke → approve → PyPI → published smoke).
 - **`--resume-from <phase>`**: The CLI supports resuming from any phase. When
   resuming without an explicit version, reads from `pyproject.toml` (not
   changelog). Always pass the version explicitly when resuming from `bump` if

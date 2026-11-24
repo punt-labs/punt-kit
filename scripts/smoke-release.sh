@@ -5,16 +5,17 @@ set -euo pipefail
 # operations against a throwaway Python project.
 #
 # Usage:
-#   scripts/smoke-release.sh candidate <wheel>
+#   scripts/smoke-release.sh candidate <wheel> [<expected-version>]
 #   scripts/smoke-release.sh published <version> [<candidate-wheel>]
 #
-# candidate: installs the given wheel file, offline from any index for
-#   punt-kit itself, and expects the version in its filename.
+# candidate: installs the given wheel file and expects the version in its
+#   filename, which must equal <expected-version> (e.g. the tag) when given.
 # published: installs punt-kit==<version> from production PyPI. With a
-#   candidate wheel, the wheel PyPI serves must be byte-identical to it.
+#   candidate wheel, the one wheel PyPI serves must be byte-identical to it;
+#   the install itself may only use that wheel, never build the sdist.
 
 usage() {
-    echo "usage: $0 candidate <wheel> | published <version> [<candidate-wheel>]" >&2
+    echo "usage: $0 candidate <wheel> [<expected-version>] | published <version> [<candidate-wheel>]" >&2
     exit 2
 }
 
@@ -27,13 +28,18 @@ fail() {
 mode=$1
 case "$mode" in
     candidate)
-        [ "$#" -eq 2 ] || usage
+        [ "$#" -le 3 ] || usage
         wheel=$(realpath -- "$2")
         [ -f "$wheel" ] || fail "candidate wheel not found: $2"
         name=$(basename -- "$wheel")
         [[ "$name" == punt_kit-*-py3-none-any.whl ]] || fail "not a punt-kit wheel: $name"
         version=${name#punt_kit-}
         version=${version%%-*}
+        if [ "$#" -eq 3 ]; then
+            uv run --quiet --no-project --with packaging python -I -c \
+                'import sys; from packaging.version import Version as V; sys.exit(V(sys.argv[1]) != V(sys.argv[2]))' \
+                "$version" "$3" || fail "wheel version $version is not the expected $3"
+        fi
         ;;
     published)
         [ "$#" -le 3 ] || usage
@@ -70,6 +76,7 @@ else
     for attempt in 1 2 3 4 5 6; do
         if uv pip install --quiet --python "$py" \
             --default-index https://pypi.org/simple/ --refresh-package punt-kit \
+            --only-binary punt-kit \
             "punt-kit==$version"; then
             break
         fi
@@ -147,6 +154,8 @@ audit_rc=$?
 set -e
 [ "$audit_rc" -le 1 ] || { cat "$work/audit.txt"; fail "punt audit crashed (exit $audit_rc)"; }
 for check in "CI lint workflow exists" "CI test workflow exists" "CI docs workflow exists" \
+    "Linting configured ([tool.ruff])" "Type checking configured ([tool.mypy])" \
+    "Type checking configured ([tool.pyright])" "Test config exists ([tool.pytest.ini_options])" \
     "Beads initialized" "CLAUDE.md exists" ".claude/settings.json exists" \
     "Standard allow rules present" "Standard deny rules present"; do
     grep -qF "✓ $check" "$work/audit.txt" || { cat "$work/audit.txt"; fail "audit check did not pass: $check"; }
@@ -158,10 +167,13 @@ import json
 import sys
 from pathlib import Path
 
+from packaging.version import Version
+
 expected, path = sys.argv[1:]
 status = json.loads(Path(path).read_text())
-want = {"punt_kit_version": expected, "language": "python", "has_beads": True}
+want = {"punt_kit_version": Version(expected), "language": "python", "has_beads": True}
 got = {key: status.get(key) for key in want}
+got["punt_kit_version"] = Version(str(got["punt_kit_version"]))
 if got != want:
     sys.exit(f"::error::punt status: expected {want}, got {got}")
 PY

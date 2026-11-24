@@ -26,8 +26,10 @@ def test_candidate_smoke_runs_the_built_wheel_for_the_tag() -> None:
     job = _job(RELEASE, "candidate-smoke")
     assert "    needs: build\n" in job
     assert "name: dist" in job
-    assert "dist/punt_kit-${GITHUB_REF_NAME#v}-py3-none-any.whl" in job
-    assert 'scripts/smoke-release.sh candidate "${wheels[0]}"' in job
+    assert (
+        'scripts/smoke-release.sh candidate "${wheels[0]}" "${GITHUB_REF_NAME#v}"'
+        in job
+    )
 
 
 def test_published_smoke_compares_pypi_to_the_candidate_wheel() -> None:

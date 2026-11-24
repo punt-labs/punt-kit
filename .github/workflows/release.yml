@@ -31,7 +31,7 @@ jobs:
         with:
           name: dist
           path: dist/
-          retention-days: 1
+          retention-days: 7
 
   candidate-smoke:
     needs: build
@@ -56,8 +56,7 @@ jobs:
         run: |
           wheels=(dist/*.whl)
           test "${#wheels[@]}" -eq 1
-          test "${wheels[0]}" = "dist/punt_kit-${GITHUB_REF_NAME#v}-py3-none-any.whl"
-          scripts/smoke-release.sh candidate "${wheels[0]}"
+          scripts/smoke-release.sh candidate "${wheels[0]}" "${GITHUB_REF_NAME#v}"
 
   pypi:
     needs: [build, candidate-smoke]
