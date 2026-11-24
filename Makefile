@@ -1,4 +1,4 @@
-.PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build clean depot prfaq clean-tex
+.PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build smoke-candidate clean depot prfaq clean-tex
 
 SRC := src/punt_kit/
 .DEFAULT_GOAL := help
@@ -75,6 +75,9 @@ build: ## Build wheel and sdist
 	rm -rf dist/
 	uv build
 	uvx twine check dist/*
+
+smoke-candidate: build ## Install the built wheel in a clean venv and run real punt operations
+	scripts/smoke-release.sh candidate dist/punt_kit-*-py3-none-any.whl
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/
