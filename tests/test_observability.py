@@ -22,7 +22,7 @@ from punt_kit.telemetry import ObservedGroup
 
 
 def _run(
-    home: Path, *args: str, code: str = "", off: bool = False
+    home: Path, *args: str, code: str = "", off: bool = False, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, HOME=str(home), PUNT_TELEMETRY="off" if off else "on")
     command = (
@@ -30,7 +30,9 @@ def _run(
         if code
         else [sys.executable, "-m", "punt_kit", *args]
     )
-    return subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+    return subprocess.run(
+        command, env=env, cwd=cwd, capture_output=True, text=True, check=False
+    )
 
 
 def _rows(home: Path) -> list[tuple[str, int, str, dict[str, object]]]:
@@ -141,7 +143,7 @@ def test_user_settings_read_from_home_not_checkout(
 
     paths = PuntPaths()
     assert paths.home == home / ".punt-labs" / "punt"
-    assert not paths.telemetry_config().enabled
+    assert not PuntPaths.telemetry_config().enabled
 
 
 def test_relative_home_does_not_use_checkout(
@@ -152,6 +154,20 @@ def test_relative_home_does_not_use_checkout(
 
     with pytest.raises(RuntimeError, match="user home directory must be absolute"):
         PuntPaths()
+
+
+def test_relative_home_keeps_cli_running_without_local_capture(tmp_path: Path) -> None:
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("[telemetry]\nenabled = true\n")
+
+    result = _run(Path("."), "version", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("punt ")
+    assert "Check telemetry configuration: home unavailable" in result.stderr
+    assert not (config.parent / "telemetry.db").exists()
+    assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
 
 
 def test_unavailable_home_does_not_fall_back(
@@ -168,6 +184,9 @@ def test_unavailable_home_does_not_fall_back(
         pytest.raises(RuntimeError, match="Could not determine home directory"),
     ):
         PuntPaths()
+
+    with patch.object(Path, "home", side_effect=RuntimeError("No home")):
+        assert not PuntPaths.telemetry_config().enabled
 
 
 @pytest.mark.parametrize("enabled,off", [(False, False), (True, True), (False, True)])

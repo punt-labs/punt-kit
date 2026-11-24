@@ -119,7 +119,7 @@ class ObservedGroup(TyperGroup):
     ) -> Any:
         command, output_json = self._metadata(arguments)
         schemas = [self.command_schema(tuple(self.commands))]
-        config = PuntPaths().telemetry_config()
+        config = PuntPaths.telemetry_config()
         telemetry = open_telemetry("punt", schemas, config=config)
         successful_exit: SystemExit | None = None
         result: Any = None

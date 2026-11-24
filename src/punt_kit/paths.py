@@ -38,19 +38,37 @@ class PuntPaths:
         """Return the product home root."""
         return self._home
 
-    def telemetry_config(self) -> TelemetryConfig:
+    @classmethod
+    def telemetry_config(cls) -> TelemetryConfig:
         """Load a boolean preference without surfacing configuration contents."""
         try:
-            config = tomllib.loads((self._home / "config.toml").read_text())
+            path = cls().home / "config.toml"
+        except RuntimeError:
+            logger.warning(
+                "Check telemetry configuration: home unavailable; capture disabled"
+            )
+            return TelemetryConfig(enabled=False)
+
+        try:
+            with path.open("rb") as stream:
+                config = tomllib.load(stream)
         except FileNotFoundError:
             return TelemetryConfig()
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
-            logger.warning("Unreadable or malformed telemetry TOML; using defaults")
+            logger.warning(
+                "Check telemetry configuration: "
+                "unreadable or malformed TOML; using defaults"
+            )
             return TelemetryConfig()
-        section = config.get("telemetry", {})
-        if isinstance(section, dict):
-            enabled = cast("dict[str, object]", section).get("enabled", True)
-            if isinstance(enabled, bool):
-                return TelemetryConfig(enabled=enabled)
-        logger.warning("Telemetry enabled must be boolean; using defaults")
+        telemetry = config.get("telemetry", {})
+        enabled = (
+            cast("dict[str, object]", telemetry).get("enabled", True)
+            if isinstance(telemetry, dict)
+            else None
+        )
+        if isinstance(enabled, bool):
+            return TelemetryConfig(enabled=enabled)
+        logger.warning(
+            "Check telemetry configuration: enabled must be boolean; using defaults"
+        )
         return TelemetryConfig()
