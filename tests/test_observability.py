@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from punt_observe.telemetry import EnumAttr
@@ -16,6 +17,7 @@ from typer.core import TyperGroup
 from typer.main import get_command
 
 from punt_kit.__main__ import app
+from punt_kit.paths import PuntPaths
 from punt_kit.telemetry import ObservedGroup
 
 
@@ -123,6 +125,49 @@ def test_disabled_creates_no_store(tmp_path: Path) -> None:
     assert _run(tmp_path, "version", off=True).returncode == 0
     assert not (tmp_path / ".punt-labs/punt/telemetry.db").exists()
     assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
+
+
+def test_user_settings_read_from_home_not_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    checkout = tmp_path / "checkout"
+    for directory, enabled in ((home, "false"), (checkout, "true")):
+        config = directory / ".punt-labs/punt/config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text(f"[telemetry]\nenabled = {enabled}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(checkout)
+
+    paths = PuntPaths()
+    assert paths.home == home / ".punt-labs" / "punt"
+    assert not paths.telemetry_config().enabled
+
+
+def test_relative_home_does_not_use_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", ".")
+
+    with pytest.raises(RuntimeError, match="user home directory must be absolute"):
+        PuntPaths()
+
+
+def test_unavailable_home_does_not_fall_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch.object(
+            Path,
+            "home",
+            side_effect=RuntimeError("Could not determine home directory."),
+        ),
+        pytest.raises(RuntimeError, match="Could not determine home directory"),
+    ):
+        PuntPaths()
 
 
 @pytest.mark.parametrize("enabled,off", [(False, False), (True, True), (False, True)])
