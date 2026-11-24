@@ -1,4 +1,4 @@
-.PHONY: help test lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build smoke-candidate clean depot prfaq clean-tex
+.PHONY: help hooks test test-changed test-push test-quarantine test-quarantine-run coverage coverage-ci lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build smoke-candidate clean depot prfaq clean-tex
 
 SRC := src/punt_kit/
 .DEFAULT_GOAL := help
@@ -16,13 +16,46 @@ design-shadow: ## Gate design changes against DESIGN_BASE
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-test: ## Run tests (excludes slow integration tests)
+test: ## Run the default suite (excludes quarantined tests)
 	uv run pytest
+
+test-changed: ## Pre-commit: run the tests affected by staged changes
+	TMPDIR=/tmp uv run python tools/test_changed.py
+
+test-push: export TMPDIR = /tmp
+test-push: test ## Pre-push: run the default suite
+
+test-quarantine: ## List quarantines; an empty selection is expected
+	@uv run pytest --collect-only -q -m quarantine || [ "$$?" = 5 ]
+
+test-quarantine-run: ## Run only quarantined tests
+	uv run pytest -m quarantine
+
+coverage: ## Run the default suite with branch coverage (terminal + HTML)
+	uv run pytest --cov --cov-report=term-missing --cov-report=html
+
+coverage-ci: ## Run the default suite with branch coverage (terminal + XML)
+	uv run pytest --cov --cov-report=term --cov-report=xml
+
+hooks: ## Install the pre-commit and pre-push hooks without overwriting other hooks
+	@if path=$$(git config --get core.hooksPath); then \
+		echo "core.hooksPath already set to $$path; chain .githooks manually" >&2; exit 1; \
+	fi; \
+	dir=$$(git rev-parse --git-path hooks) && mkdir -p "$$dir" || exit; \
+	for hook in pre-commit pre-push; do \
+		if { [ -e "$$dir/$$hook" ] || [ -L "$$dir/$$hook" ]; } && \
+		   ! cmp -s ".githooks/$$hook" "$$dir/$$hook"; then \
+			echo "$$dir/$$hook already exists; chain .githooks/$$hook manually" >&2; exit 1; \
+		fi; \
+	done; \
+	for hook in pre-commit pre-push; do \
+		[ -x "$$dir/$$hook" ] || install -m 755 ".githooks/$$hook" "$$dir/$$hook" || exit; \
+	done
 
 lint: check-comments check-docstrings check-standards ## Lint and format check
 	uv run ruff check .
 	uv run ruff format --check .
-	shellcheck install.sh scripts/*.sh
+	shellcheck install.sh scripts/*.sh .githooks/*
 
 check-comments: ## Reject commented-out code and tracker references in Python prose
 	uv run ruff check --select ERA001 .
