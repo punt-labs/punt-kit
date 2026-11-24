@@ -268,7 +268,18 @@ def test_shared_or_unmapped_changes_select_default_suite(
 
 
 def test_docs_only_changes_do_not_select_python_tests(tmp_path: Path) -> None:
-    assert select_tests(tmp_path, {Path("TESTING.md")}) == []
+    assert select_tests(tmp_path, {Path("README.md")}) == []
+
+
+@pytest.mark.parametrize(
+    ("path", "test"),
+    [
+        (".gitignore", "tests/test_repo_gitignore.py"),
+        ("TESTING.md", "tests/test_test_gates.py"),
+    ],
+)
+def test_root_files_select_the_tests_that_read_them(path: str, test: str) -> None:
+    assert select_tests(_ROOT, {Path(path)}) == [Path(test)]
 
 
 @pytest.mark.parametrize(
@@ -362,3 +373,53 @@ def test_quarantine_is_enforced_during_real_collection(
     else:
         assert result.returncode == 0, result.stderr
         assert "1 passed, 1 deselected" in result.stdout
+
+
+def _git(cwd: Path, *args: str) -> str:
+    return subprocess.check_output(
+        ["git", "-c", "user.name=T", "-c", "user.email=t@example.com", *args],
+        cwd=cwd,
+        text=True,
+    ).strip()
+
+
+def _push(
+    hook: Path, cwd: Path, ref: str, oid: str
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(hook)],
+        cwd=cwd,
+        input=f"{ref} {oid} {ref} {'0' * 40}\n",
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+
+
+def test_prepush_lets_a_tag_on_an_earlier_commit_through(
+    tmp_path: Path, prepush_hook: Path
+) -> None:
+    _git(tmp_path, "tag", "-a", "v1", "-m", "release")
+    tag = _git(tmp_path, "rev-parse", "refs/tags/v1")
+    _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "later")
+
+    result = _push(prepush_hook, tmp_path, "refs/tags/v1", tag)
+    assert result.returncode == 0, result.stderr
+    assert "ran-push-gate" not in result.stdout
+
+
+def test_prepush_refuses_uncommitted_changes(
+    tmp_path: Path, prepush_hook: Path
+) -> None:
+    tracked = tmp_path / "tracked.txt"
+    tracked.write_text("committed\n")
+    _git(tmp_path, "add", "tracked.txt")
+    _git(tmp_path, "commit", "--quiet", "-m", "tracked")
+    tracked.write_text("uncommitted\n")
+
+    result = _push(
+        prepush_hook, tmp_path, "refs/heads/main", _git(tmp_path, "rev-parse", "HEAD")
+    )
+    assert result.returncode == 1
+    assert "commit or stash them" in result.stderr

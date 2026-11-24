@@ -19,7 +19,14 @@ if TYPE_CHECKING:
 _WIDTH = 10000
 
 
-_AMBIENT_GIT = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_CONFIG")
+_AMBIENT_GIT = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_INDEX_FILE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+)
 
 
 @pytest.fixture(autouse=True, scope="session")

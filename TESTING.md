@@ -63,7 +63,8 @@ The release smoke runs with a private `HOME`, Git config and venv.
 `make coverage` and `make coverage-ci` measure branch coverage of `punt_kit`
 for the default suite, including Python child processes started by it
 (`[tool.coverage.run] patch = ["subprocess"]`). The installed-wheel smoke
-is not instrumented and is not counted.
+is not instrumented and is not counted. Test CI on `main` keeps
+`coverage.xml` as the `coverage-<sha>` artifact for 90 days.
 
 ## Quarantine
 
@@ -86,4 +87,5 @@ the punt-kit maintainers, expiring 2026-12-07.
 | --- | --- | --- |
 | TST-1 | Nightly tier | No Nightly workflow yet. |
 | TST-2, TST-6, TST-7, TST-8 | Agent kind | The plugin's slash commands and `auto` playbook skill are verified by hand with `claude -p --plugin-dir plugin` ([docs/WORKFLOW.md](docs/WORKFLOW.md)), not by a trusted automated agent job on Nightly, the candidate or the published plugin. |
+| TST-2 | Subprocess kind | Subprocess tests run inside the default suite; there is no marker to select them alone. |
 | TST-6 | Live kind | `record_gh_fixtures.py --check` is run by hand, not on a schedule. |
