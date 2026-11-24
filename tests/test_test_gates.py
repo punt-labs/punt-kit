@@ -451,7 +451,11 @@ def test_nightly_runs_on_main_and_alerts_biff_on_failure() -> None:
     assert re.search(r"^ +run: make test-nightly$", nightly, re.MULTILINE)
     assert "needs.nightly.result == 'failure'" in notify
     assert _TOKEN_BINDING.search(notify)
-    assert re.search(r"^ +uvx --from punt-biff==\S+ biff ", notify, re.MULTILINE)
+    assert re.search(
+        r"^ +uvx --from punt-biff==\S+ biff --user github-actions wall$",
+        notify,
+        re.MULTILINE,
+    )
 
 
 def test_biff_notify_binds_the_relay_token_and_trusted_config() -> None:
