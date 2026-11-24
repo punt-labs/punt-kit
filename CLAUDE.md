@@ -15,6 +15,7 @@ make check
 ```
 
 The Makefile is the source of truth for what `check` means (`make help` lists targets).
+[TESTING.md](TESTING.md) maps the test tiers, selectors and deviations.
 
 ## Issue Tracking
 

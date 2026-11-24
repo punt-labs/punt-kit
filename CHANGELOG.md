@@ -49,6 +49,13 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Testing tiers follow the testing standard: `TESTING.md` maps each tier and
+  test kind and lists deviations (PL-1480). New `make hooks`,
+  `test-changed`, `test-push`, `coverage`, `coverage-ci`, `test-quarantine`
+  and `test-quarantine-run`; PR CI reports branch coverage. Tests own their
+  Git config, so a global `url.insteadOf` rewrite no longer fails them, and
+  quarantines need a Linear issue, owner, reason and a deadline within 14 days.
+
 - The release workflow installs the exact candidate wheel in a clean venv and
   runs real `punt init`, `punt audit` and `punt status` operations before PyPI
   publishes it; after publishing, the same operations run against the PyPI

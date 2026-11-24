@@ -22,6 +22,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
+    "pytest-cov>=6.0.0",
     "ruff>=0.11.0",
     "mypy>=1.15.0",
     "pyright>=1.1.0",
@@ -189,4 +190,21 @@ domain = [
 ]
 
 [tool.pytest.ini_options]
+addopts = "-ra --strict-markers -m 'not quarantine'"
 testpaths = ["tests"]
+markers = [
+    "quarantine(issue, owner, reason, expires): temporarily exclude a tracked flaky test",
+]
+
+[tool.coverage.run]
+source = ["punt_kit"]
+branch = true
+patch = ["subprocess"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+]
+precision = 2
