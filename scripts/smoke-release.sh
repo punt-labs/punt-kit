@@ -29,8 +29,8 @@ mode=$1
 case "$mode" in
     candidate)
         [ "$#" -le 3 ] || usage
+        [ -f "$2" ] || fail "candidate wheel not found: $2"
         wheel=$(realpath -- "$2")
-        [ -f "$wheel" ] || fail "candidate wheel not found: $2"
         name=$(basename -- "$wheel")
         [[ "$name" == punt_kit-*-py3-none-any.whl ]] || fail "not a punt-kit wheel: $name"
         version=${name#punt_kit-}
@@ -46,8 +46,8 @@ case "$mode" in
         version=$2
         candidate_wheel=${3:-}
         if [ -n "$candidate_wheel" ]; then
-            candidate_wheel=$(realpath -- "$candidate_wheel")
             [ -f "$candidate_wheel" ] || fail "candidate wheel not found: $3"
+            candidate_wheel=$(realpath -- "$candidate_wheel")
         fi
         ;;
     *) usage ;;
