@@ -640,18 +640,24 @@ The pattern:
    from the same underlying state, never configured independently — two
    separately-authored fakes can drift apart and hide exactly the
    divergence this test exists to catch.
-2. **Assert the verb/tool-name sets match first.** A cheap, high-value
-   check, using only public APIs. Derive CLI verbs the way Typer does —
-   `c.name` is `None` for the plain `@app.command()` form, so fall back to
-   the callback name:
+2. **Assert the projected capability sets match first.** This example
+   assumes a flat command tree whose product verbs already match MCP tool
+   names. Derive CLI verbs the way Typer does: `c.name` is `None` for
+   plain `@app.command()`, so fall back to the callback name. From the
+   product's command map, exclude CLI-only installation and process
+   supervision per [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration),
+   and any other documented non-product paths or considered omissions:
 
    ```python
    async def test_verb_sets_match() -> None:
+       # CLI-only paths for this example's command map.
+       cli_only_admin = {"install", "uninstall", "start", "stop", "restart"}
        cli_verbs = {
            c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
        }
        mcp_verbs = {tool.name for tool in await mcp.list_tools()}
-       assert cli_verbs == mcp_verbs
+       assert cli_only_admin.isdisjoint(mcp_verbs)
+       assert cli_verbs - cli_only_admin == mcp_verbs
    ```
 
    `FastMCP.list_tools()` is the framework's public tool-listing API — do
@@ -659,11 +665,9 @@ The pattern:
    coroutine: `await` it from an async test (pytest-asyncio/anyio); in a
    sync test with no running event loop, `asyncio.run(mcp.list_tools())`
    works instead — never inside an async test, where `asyncio.run()`
-   raises `RuntimeError`. When one MCP
-   tool multiplexes subcommands (vox's `mic:music`), compare the CLI verb
-   set against the tool's declared subcommand set (the `Literal`/enum type
-   that defines it) instead of against tool names. Either way: a verb on one
-   surface and not the other is a hole in the contract — catch it before
+   raises `RuntimeError`. For grouped commands or an MCP tool that
+   multiplexes subcommands, map paths and declared subcommands to the same
+   capability names before comparing. Catch unexplained differences before
    comparing any payload.
 3. **Compare the parsed JSON payload, field for field**, not the surface's
    prose. A CLI's plain output and an MCP tool's stylized response (vox's
