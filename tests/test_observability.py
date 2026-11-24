@@ -189,13 +189,23 @@ def test_unavailable_home_does_not_fall_back(
         assert not PuntPaths.telemetry_config().enabled
 
 
-@pytest.mark.parametrize("enabled,off", [(False, False), (True, True), (False, True)])
+@pytest.mark.parametrize(
+    "enabled,off,newline",
+    [
+        (False, False, "\n"),
+        (True, True, "\n"),
+        (False, True, "\n"),
+        (False, False, "\r"),
+    ],
+)
 def test_persistent_and_environment_opt_outs_are_any_off_wins(
-    tmp_path: Path, enabled: bool, off: bool
+    tmp_path: Path, enabled: bool, off: bool, newline: str
 ) -> None:
     config = tmp_path / ".punt-labs/punt/config.toml"
     config.parent.mkdir(parents=True)
-    config.write_text(f"[telemetry]\nenabled = {str(enabled).lower()}\n")
+    config.write_text(
+        f"[telemetry]\nenabled = {str(enabled).lower()}\n", newline=newline
+    )
     result = _run(tmp_path, "version", off=off)
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("punt ")

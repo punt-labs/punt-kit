@@ -50,8 +50,7 @@ class PuntPaths:
             return TelemetryConfig(enabled=False)
 
         try:
-            with path.open("rb") as stream:
-                config = tomllib.load(stream)
+            config = tomllib.loads(path.read_text())
         except FileNotFoundError:
             return TelemetryConfig()
         except (OSError, UnicodeError, tomllib.TOMLDecodeError):
