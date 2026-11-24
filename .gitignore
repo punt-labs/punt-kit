@@ -216,3 +216,4 @@ uv.toml
 
 # Working notes, not part of the package
 resume.md
+coverage.xml
