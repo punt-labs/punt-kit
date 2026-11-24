@@ -646,18 +646,19 @@ The pattern:
    plain `@app.command()`, so fall back to the callback name. From the
    product's command map, exclude CLI-only installation and process
    supervision per [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration),
+   [CLI-1](cli.md#cli-1-expose-one-canonical-version-command)'s `version`,
    and any other documented non-product paths or considered omissions:
 
    ```python
    async def test_verb_sets_match() -> None:
        # CLI-only paths for this example's command map.
-       cli_only_admin = {"install", "uninstall", "start", "stop", "restart"}
+       cli_only = {"install", "uninstall", "start", "stop", "restart", "version"}
        cli_verbs = {
            c.name or c.callback.__name__.replace("_", "-") for c in app.registered_commands
        }
        mcp_verbs = {tool.name for tool in await mcp.list_tools()}
-       assert cli_only_admin.isdisjoint(mcp_verbs)
-       assert cli_verbs - cli_only_admin == mcp_verbs
+       assert cli_only.isdisjoint(mcp_verbs)
+       assert cli_verbs - cli_only == mcp_verbs
    ```
 
    `FastMCP.list_tools()` is the framework's public tool-listing API — do
