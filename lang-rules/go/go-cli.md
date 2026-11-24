@@ -7,7 +7,7 @@ applicability and named subsets.
 
 ## GO-CLI-1: Register the canonical command tree in the entry point
 
-**Implements:** CLI-1, CLI-2, CLI-3, CLI-4, CLI-5, CLI-6, CLI-7, CLI-13 · **Gate:** review (Go CLI reviewer)
+**Implements:** CLI-1, CLI-2, CLI-3, CLI-4, CLI-5, CLI-6, CLI-7, CLI-11, CLI-13 · **Gate:** review (Go CLI reviewer)
 
 Compare the registered paths under `cmd/<binary>` with the approved command
 map, including setup ownership and documented exceptions. With Cobra,
@@ -15,7 +15,9 @@ attach commands with `AddCommand` and write `version` explicitly rather than
 setting `cobra.Command.Version`, which generates a flag. Use Cobra's
 generated help and completion support, arranging command groups in public
 help order. Check installed-binary usage output, version, and completion
-with command tests. Handwritten parsers must provide the same contract.
+with command tests. Check that Cobra's completion script reaches stdout
+unchanged, without a JSON wrapper (CLI-11). Handwritten parsers must provide
+the same contract.
 
 ## GO-CLI-2: Keep command handlers at the boundary
 

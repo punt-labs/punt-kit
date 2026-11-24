@@ -7,7 +7,7 @@ applicability and named subsets.
 
 ## PY-CLI-1: Register the canonical command tree with Typer
 
-**Implements:** CLI-1, CLI-2, CLI-3, CLI-4, CLI-5, CLI-6, CLI-7, CLI-13 · **Gate:** review (Python CLI reviewer)
+**Implements:** CLI-1, CLI-2, CLI-3, CLI-4, CLI-5, CLI-6, CLI-7, CLI-11, CLI-13 · **Gate:** review (Python CLI reviewer)
 
 Use the Typer entry point described in
 [Python Package Architecture](python-package-architecture.md#pl-pa-5-cli-framework).
@@ -17,6 +17,7 @@ ownership and documented exceptions. Register `version` as a command, not
 an eager version option. Configure `-h` alongside `--help` on full-contract
 apps and test the public help paths via `CliRunner`. Use Typer's
 `--install-completion` and `--show-completion` for shell completion.
+`--show-completion` writes the script without a JSON wrapper (CLI-11).
 
 ## PY-CLI-2: Adapt command results at the CLI boundary
 

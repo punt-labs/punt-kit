@@ -140,6 +140,8 @@ Protocol streams and servers (such as `mcp` and `serve`), live interactive
 sessions and TUIs (such as live `call`, `talk`, and `ui`), hook dispatch,
 and host-owned output contracts such as statusline text are exempt when
 they do not exit with a command result or own stdout for another contract.
+Shell completion generators that write a script to stdout also follow
+the shell's artifact format rather than the JSON result contract.
 A guided command that exits with an outcome is not exempt merely because
 it takes time or prints progress.
 
