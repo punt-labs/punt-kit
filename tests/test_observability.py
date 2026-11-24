@@ -9,6 +9,7 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from punt_observe.telemetry import EnumAttr
@@ -16,11 +17,12 @@ from typer.core import TyperGroup
 from typer.main import get_command
 
 from punt_kit.__main__ import app
+from punt_kit.paths import PuntPaths
 from punt_kit.telemetry import ObservedGroup
 
 
 def _run(
-    home: Path, *args: str, code: str = "", off: bool = False
+    home: Path, *args: str, code: str = "", off: bool = False, cwd: Path | None = None
 ) -> subprocess.CompletedProcess[str]:
     env = dict(os.environ, HOME=str(home), PUNT_TELEMETRY="off" if off else "on")
     command = (
@@ -28,7 +30,9 @@ def _run(
         if code
         else [sys.executable, "-m", "punt_kit", *args]
     )
-    return subprocess.run(command, env=env, capture_output=True, text=True, check=False)
+    return subprocess.run(
+        command, env=env, cwd=cwd, capture_output=True, text=True, check=False
+    )
 
 
 def _rows(home: Path) -> list[tuple[str, int, str, dict[str, object]]]:
@@ -119,19 +123,105 @@ app(['example'])
     assert "private content" not in log
 
 
+def test_utf8_opt_out_under_ascii_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("PYTHONCOERCECLOCALE", "0")
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("[telemetry]\nenabled = false # café\n", encoding="utf-8")
+
+    result = _run(tmp_path, "version")
+
+    assert result.returncode == 0, result.stderr
+    assert not (config.parent / "telemetry.db").exists()
+
+
 def test_disabled_creates_no_store(tmp_path: Path) -> None:
     assert _run(tmp_path, "version", off=True).returncode == 0
     assert not (tmp_path / ".punt-labs/punt/telemetry.db").exists()
     assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
 
 
-@pytest.mark.parametrize("enabled,off", [(False, False), (True, True), (False, True)])
+def test_user_settings_read_from_home_not_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    home = tmp_path / "home"
+    checkout = tmp_path / "checkout"
+    for directory, enabled in ((home, "false"), (checkout, "true")):
+        config = directory / ".punt-labs/punt/config.toml"
+        config.parent.mkdir(parents=True)
+        config.write_text(f"[telemetry]\nenabled = {enabled}\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(checkout)
+
+    paths = PuntPaths()
+    assert paths.home == home / ".punt-labs" / "punt"
+    assert not PuntPaths.telemetry_config().enabled
+
+
+def test_relative_home_does_not_use_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", ".")
+
+    with pytest.raises(RuntimeError, match="user home directory must be absolute"):
+        PuntPaths()
+
+
+def test_relative_home_keeps_cli_running_without_local_capture(tmp_path: Path) -> None:
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("[telemetry]\nenabled = true\n")
+
+    result = _run(Path("."), "version", cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.startswith("punt ")
+    assert "Check telemetry configuration: home unavailable" in result.stderr
+    assert not (config.parent / "telemetry.db").exists()
+    assert not (tmp_path / ".punt-labs/telemetry.salt").exists()
+
+
+def test_unavailable_home_does_not_fall_back(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    with (
+        patch.object(
+            Path,
+            "home",
+            side_effect=RuntimeError("Could not determine home directory."),
+        ),
+        pytest.raises(RuntimeError, match="Could not determine home directory"),
+    ):
+        PuntPaths()
+
+    with patch.object(Path, "home", side_effect=RuntimeError("No home")):
+        assert not PuntPaths.telemetry_config().enabled
+
+
+@pytest.mark.parametrize(
+    "enabled,off,newline",
+    [
+        (False, False, "\n"),
+        (True, True, "\n"),
+        (False, True, "\n"),
+        (False, False, "\r"),
+    ],
+)
 def test_persistent_and_environment_opt_outs_are_any_off_wins(
-    tmp_path: Path, enabled: bool, off: bool
+    tmp_path: Path, enabled: bool, off: bool, newline: str
 ) -> None:
     config = tmp_path / ".punt-labs/punt/config.toml"
     config.parent.mkdir(parents=True)
-    config.write_text(f"[telemetry]\nenabled = {str(enabled).lower()}\n")
+    config.write_text(
+        f"[telemetry]\nenabled = {str(enabled).lower()}\n", newline=newline
+    )
     result = _run(tmp_path, "version", off=off)
     assert result.returncode == 0, result.stderr
     assert result.stdout.startswith("punt ")

@@ -11,7 +11,7 @@ from punt_observe.telemetry import BoolAttr, EnumAttr, SignalSchema, open_teleme
 from typer.core import TyperCommand, TyperGroup
 
 from punt_kit.logging_config import EntryPointLogging
-from punt_kit.telemetry_settings import TelemetrySettings
+from punt_kit.paths import PuntPaths
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -118,11 +118,9 @@ class ObservedGroup(TyperGroup):
         self, arguments: list[str], invoke: Callable[[], Any], standalone_mode: bool
     ) -> Any:
         command, output_json = self._metadata(arguments)
-        telemetry = open_telemetry(
-            "punt",
-            [self.command_schema(tuple(self.commands))],
-            config=TelemetrySettings().load(),
-        )
+        schemas = [self.command_schema(tuple(self.commands))]
+        config = PuntPaths.telemetry_config()
+        telemetry = open_telemetry("punt", schemas, config=config)
         successful_exit: SystemExit | None = None
         result: Any = None
         try:

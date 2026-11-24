@@ -6,6 +6,9 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- Derive the telemetry configuration path from Punt's shared home resolver
+  without moving the existing `~/.punt-labs/punt/config.toml` (PL-1450).
+
 - `punt pii` no longer reads a JSON escape's letter as the start of an address
   (`\n@pytest.fixture` is not an email; `\u003cnoreply@github.com` stays
   allowlisted), reports each of two glued addresses (`a@x.io-b@y.io`) whole,
