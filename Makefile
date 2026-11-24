@@ -1,4 +1,4 @@
-.PHONY: help hooks test test-changed test-push test-quarantine test-quarantine-run coverage coverage-ci lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build smoke-candidate clean depot prfaq clean-tex
+.PHONY: help hooks test test-changed test-push test-quarantine test-quarantine-run test-nightly coverage coverage-ci lint type check check-oo report update-oo check-coupling update-coupling check-suppressions update-suppressions check-comments check-docstrings check-standards build-api-docs format build smoke-candidate clean depot prfaq clean-tex
 
 SRC := src/punt_kit/
 .DEFAULT_GOAL := help
@@ -6,7 +6,9 @@ OO_BASE ?=
 COUPLING_BASE ?=
 SUPPRESSION_BASE ?=
 DESIGN_BASE ?= origin/main
-override export DESIGN_BASE := $(value DESIGN_BASE)
+# Two lines, not `override export X := ...`: GNU Make 3.81 (macOS) empties it.
+override DESIGN_BASE := $(value DESIGN_BASE)
+export DESIGN_BASE
 
 .PHONY: design-shadow
 
@@ -27,6 +29,8 @@ test-push: test ## Pre-push: run the default suite
 
 test-quarantine: ## List quarantines; an empty selection is expected
 	@uv run pytest --collect-only -q -m quarantine || [ "$$?" = 5 ]
+
+test-nightly: test-quarantine coverage-ci smoke-candidate ## Nightly: quarantines, coverage, installed wheel
 
 test-quarantine-run: ## Run only quarantined tests
 	uv run pytest -m quarantine

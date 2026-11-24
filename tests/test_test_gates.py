@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -430,3 +431,38 @@ def test_prepush_refuses_uncommitted_changes(
     )
     assert result.returncode == 1
     assert "commit or stash them" in result.stderr
+
+
+_TOKEN_BINDING = re.compile(
+    r"^ +BIFF_RELAY_TOKEN: \$\{\{ secrets\.BIFF_RELAY_TOKEN \}\}$", re.MULTILINE
+)
+
+
+def _job(workflow: str, name: str) -> str:
+    start = workflow.index(f"\n  {name}:\n")
+    end = re.search(r"\n  [a-z-]+:\n", workflow[start + 1 :])
+    return workflow[start : start + 1 + end.start()] if end else workflow[start:]
+
+
+def test_nightly_runs_on_main_and_alerts_biff_on_failure() -> None:
+    workflow = (_ROOT / ".github/workflows/nightly.yml").read_text()
+    nightly, notify = _job(workflow, "nightly"), _job(workflow, "notify")
+    assert "github.ref == 'refs/heads/main'" in nightly
+    assert re.search(r"^ +run: make test-nightly$", nightly, re.MULTILINE)
+    assert "needs.nightly.result == 'failure'" in notify
+    assert _TOKEN_BINDING.search(notify)
+    assert re.search(
+        r"^ +uvx --from punt-biff==\S+ biff --user github-actions wall$",
+        notify,
+        re.MULTILINE,
+    )
+
+
+def test_biff_notify_binds_the_relay_token_and_trusted_config() -> None:
+    workflow = (_ROOT / ".github/workflows/biff-notify.yml").read_text()
+    assert _TOKEN_BINDING.search(workflow)
+    assert re.search(
+        r"^ +ref: \$\{\{ github\.event\.repository\.default_branch \}\}$",
+        workflow,
+        re.MULTILINE,
+    )
