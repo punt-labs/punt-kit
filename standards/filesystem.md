@@ -28,11 +28,13 @@ cache it populates on the product's behalf host-managed (FS-4).
 
 **Applies to:** python, go
 
-Use one stable `<tool>` across a product's CLI, daemon and integrations.
+Use one stable `<tool>` for the product's home root across its CLI, daemon
+and integrations.
 Default to the primary CLI name. For a product without a CLI, or one whose
 product namespace differs from its primary CLI name, declare the namespace
 explicitly. The declared namespace for `beadle-email` is `beadle`; use
-`~/.punt-labs/beadle/` without a rename or migration.
+`~/.punt-labs/beadle/` without a rename or migration. This clause does not
+change repository paths.
 
 ### FS-3: Resolve product-owned home paths centrally
 
