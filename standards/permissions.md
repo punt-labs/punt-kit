@@ -731,6 +731,6 @@ multi-client scenarios without a superuser path.
 **Admin verbs stay on the CLI.** Process supervision, install,
 uninstall, enable, disable, and doctor never appear on MCP, REST, or
 the library surface (see [tool-enable-disable.md § 2.3](tool-enable-disable.md#23-the-enable--disable-convention)
-and [cli.md § Layer 2](cli.md#layer-2-admin-commands)). Exposing them
+and [CLI-9](cli.md#cli-9-project-product-capabilities-without-exposing-administration)). Exposing them
 on any client surface an agent-turn can reach recreates the
 superuser surface this rule forbids.

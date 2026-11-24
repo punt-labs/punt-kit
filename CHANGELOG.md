@@ -49,6 +49,11 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- The [CLI standard](standards/cli.md) defines approved command maps,
+  finite JSON results, remote target selection, and per-command success.
+  Stable clauses trace to the Python and Go CLI rules. This does not
+  migrate any product's command tree.
+
 - A Nightly workflow runs `make test-nightly` (quarantines, coverage, the
   installed-wheel smoke) on Ubuntu and macOS against `main` and walls the Biff
   team on failure. `biff-notify` is re-rendered from biff's current template,

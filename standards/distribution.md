@@ -1,6 +1,6 @@
 # Distribution Standards
 
-**Updated:** 2026-10-26
+**Updated:** 2026-11-24
 
 How each of a tool's surfaces is shipped and installed. For what the surfaces
 are — the engine-and-clients model — see
@@ -20,7 +20,7 @@ definitions and the principle). One surface can ship through several channels:
 | Library | PyPI (`uv add punt-<name>`) |
 | CLI | PyPI (`uv tool install punt-<name>`) |
 | MCP server | `claude mcp add` (standalone), plugin `mcpServers` (hybrid), or `.mcpb` one-click bundle (Claude Desktop) |
-| REST API | `<tool> serve` (HTTP) |
+| REST API | HTTP endpoint |
 
 The plugin shell and the `.mcpb` desktop bundle are channels for the MCP
 surface, not separate surfaces; a native app is a channel for a platform-native
