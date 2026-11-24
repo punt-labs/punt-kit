@@ -53,9 +53,10 @@ For diagnostics and telemetry, use the [logging rules](python-logging.md).
 Pass explicit `Path` values from the shared resolver to cache and store APIs
 rather than relying on library defaults. Resolve a user cache override
 before passing the path to download or cached-read calls. Test both a
-download and subsequent cache reuse with default and overridden paths in an
-isolated home.
-Check the resulting persistent store path separately from the cache.
+download and subsequent cache reuse in an isolated home: assert that both
+use `<root>/cache/` by default and the explicit cache override when set.
+Assert that a persistent store uses `<root>/data/` by default and, if a
+separate location is specified, uses that location instead.
 
 ## PY-FS-2: Check install and legacy-directory cutovers
 

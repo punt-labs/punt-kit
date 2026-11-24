@@ -52,9 +52,11 @@ For diagnostics and telemetry, use the [logging rules](go-logging.md).
 
 Pass paths derived with `filepath.Join` from the product resolver to cache
 and store clients. Resolve a user cache override before passing the path to
-download or cached-read calls. Test default and overridden locations and
-cache reuse with temporary directories. Check the persistent store path
-separately from the cache.
+download or cached-read calls. With temporary directories, assert that
+downloads and cache reuse use `<root>/cache/` by default and the explicit
+cache override when set. Assert that a persistent store uses `<root>/data/`
+by default and, if a separate location is specified, uses that location
+instead.
 
 ## GO-FS-2: Check install and legacy-directory cutovers
 
