@@ -1,0 +1,56 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    if: github.repository == 'punt-labs/punt-kit' && github.ref == 'refs/heads/main'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      PUNT_TELEMETRY: "off"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13"
+      - run: uv sync --frozen
+      - name: Quarantines, default suite with coverage, installed wheel
+        run: make test-nightly
+
+  notify:
+    needs: nightly
+    if: >-
+      ${{ always() && github.repository == 'punt-labs/punt-kit' &&
+          github.ref == 'refs/heads/main' &&
+          (needs.nightly.result == 'failure' || needs.nightly.result == 'cancelled') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: .punt-labs/biff
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Notify the Biff team
+        env:
+          BIFF_RELAY_URL: ${{ vars.BIFF_RELAY_URL }}
+          BIFF_RELAY_TOKEN: ${{ secrets.BIFF_RELAY_TOKEN }}
+          BIFF_RELAY_TLS_HANDSHAKE_FIRST: ${{ vars.BIFF_RELAY_TLS_HANDSHAKE_FIRST }}
+        run: >-
+          uvx --from punt-biff==1.19.0 biff --user github-actions wall
+          "Nightly failed on punt-kit — ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          --duration 24h

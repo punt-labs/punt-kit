@@ -49,6 +49,12 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- A Nightly workflow runs `make test-nightly` (quarantines, coverage, the
+  installed-wheel smoke) on Ubuntu and macOS against `main` and walls the Biff
+  team on failure. `biff-notify` now passes the relay URL and token, pins
+  `punt-biff`, reads its config from the default branch, and alerts on
+  `timed_out` runs too.
+
 - Testing tiers follow the testing standard: `TESTING.md` maps each tier and
   test kind and lists deviations (PL-1480). New `make hooks`,
   `test-changed`, `test-push`, `coverage`, `coverage-ci`, `test-quarantine`
