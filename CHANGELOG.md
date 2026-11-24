@@ -4,14 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- The release workflow installs the exact candidate wheel in a clean venv and
-  runs real `punt init`, `punt audit` and `punt status` operations before PyPI
-  publishes it; after publishing, the same operations run against the PyPI
-  package, whose wheel must be byte-identical to the candidate.
-  `make smoke-candidate` and a PR job run the candidate check on every change.
-
 ### Fixed
 
 - Derive the telemetry configuration path from Punt's shared home resolver
@@ -56,6 +48,12 @@ All notable changes to this project will be documented in this file.
   and `TEL-*`.
 
 ### Changed
+
+- The release workflow installs the exact candidate wheel in a clean venv and
+  runs real `punt init`, `punt audit` and `punt status` operations before PyPI
+  publishes it; after publishing, the same operations run against the PyPI
+  package, whose wheel must be byte-identical to the candidate.
+  `make smoke-candidate` and a PR job run the candidate check on every change.
 
 - Give the home filesystem standard stable `FS-*` clauses and traced
   Python/Go rules. Default tool-downloaded artifacts to the product cache,
