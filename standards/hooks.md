@@ -7,7 +7,7 @@ Hooks integrate tools with Claude Code's lifecycle without containing
 business logic themselves.
 
 This standard consolidates hook guidance from
-[cli.md § Hook Architecture](cli.md#hook-architecture) (structure and
+[CLI-10](cli.md#cli-10-keep-hook-dispatch-internal) (structure and
 dispatch) and [plugins.md § Required Hooks](plugins.md#required-hooks)
 (SessionStart and output suppression). Those sections remain as
 cross-references; this document is the authoritative reference for hook
@@ -226,9 +226,8 @@ asynchronously and return immediately.
 | **Nothing** (observation) | Return `None` immediately | Most PostToolUse signal classification |
 
 **Rule**: Match the handler's blocking behavior to whether the caller
-(Claude Code) needs the return value to proceed. This follows the same
-principle as [cli.md § Sync vs Async](cli.md#sync-vs-async): "Does the
-caller need the return value to proceed?"
+(Claude Code) needs the return value to proceed. Public command success
+semantics are defined separately in [CLI-18](cli.md#cli-18-define-what-success-means-for-each-command).
 
 For side-effect handlers, use `subprocess.Popen` (not `subprocess.run`)
 or a daemon thread to avoid blocking the hook timeout:

@@ -69,11 +69,11 @@ scope — they are never committed.
 ## 2.3 The `enable` / `disable` Convention
 
 Every tool CLI with per-repo presence exposes two commands, run from inside a
-repo. This extends the `enable` / `disable` entry in
-[cli.md § Required Subcommands](cli.md#enable--disable).
+repo. See [CLI-7](cli.md#cli-7-apply-the-platforms-naming-and-setup-boundaries)
+for the distinction between machine setup and repository integration.
 
 **`enable` and `disable` are their own tier: per-repo tool
-integration.** They are neither admin-tier (cli.md § Layer 2) nor
+integration.** They are neither machine setup nor
 client-vocabulary (the noun-first product surface) — enablement is a
 distinct concern, orthogonal to that split, and every Punt Labs tool
 implements it across the surfaces this standard defines: CLI + MCP +

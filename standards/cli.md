@@ -1,793 +1,217 @@
 # CLI Standards
 
-Standards for command-line interfaces across all Punt Labs projects. Role models: **beads** (`bd`) and **entire** (`entire`).
-
----
-
-## Core Principle
-
-**The CLI is the complete product.** Every capability the engine offers must be
-reachable from the terminal. The CLI is one of four client surfaces of the
-engine — library, CLI, MCP, REST (see the
-[Projection Model](architecture.md#the-projection-model-canonical)); the library
-import, MCP server, and REST API are peer clients, and they add nothing the
-terminal cannot reach. Slash commands and plugin hooks are distribution
-channels, not surfaces of their own: a slash command ships the MCP surface
-through the plugin channel, and a plugin hook dispatches through the CLI (it
-calls `<tool> hook <event>`). This is why the CLI must expose every engine
-capability as a command.
+**Updated:** 2026-11-24
 
-A user who never opens Claude Code can use every feature. A user inside Claude Code gets the same features surfaced through the plugin layer.
+This standard governs the public command-line contract: what users and scripts
+can invoke, where commands act, and what their results mean.
 
-Projects that are inherently prompt-driven (e.g., Dungeon, where Claude *is* the game engine) are exempt.
+## Applicability
 
----
-
-## Command Layers
+The full contract applies to Punt Labs developer tools, including emerging
+tools and z-spec. They expose `version`, `doctor`, `status`, and `install`.
+Pharo tools are excluded. The following named subsets are exhaustive for
+those entry points:
 
-Organize subcommands into three layers. Product commands come first in `--help`.
+- **Transport-only MCP bridge (mcp-proxy):** CLI-1 and CLI-8 only. For CLI-8,
+  expose the bridge's health check; the subsection's `doctor` and `status`
+  commands are not required.
+- **Crypt game suite (`crypt`, `cryptd`, `crypt-admin`):** CLI-1 and CLI-5
+  only, on each binary.
 
-### Layer 1: Product commands
+Internal hook dispatchers are governed by CLI-10 rather than the public
+command contract. Operator-facing shell scripts follow the
+[shell standard](shell.md#operational-safety).
 
-The reason the tool exists. These are verbs that do the tool's core job.
+## Clauses
 
-```text
-quarry search <query>        biff who              lux scene show <spec>
-quarry ingest <path-or-url>  biff finger <user>    lux session ls
-quarry explain <topic>       biff talk <user>      lux topic publish <t>
-quarry sync                  biff write <user>     lux ping
-```
+### CLI-1: Expose one canonical version command
 
-Product commands are **noun-first** when the tool has more than one
-kind of noun to act on — `lux scene show`, `lux session ls`,
-`bd issue list` — and are a **single verb** when the tool has only one
-noun (`quarry search`, `biff who`). Noun-first is the default at
-scale; the single-verb form is reserved for genuinely single-noun
-tools. Grouping by noun keeps related operations together in `--help`,
-in library discovery, and in the MCP tool list, and lets the vocabulary
-grow without renaming the surface.
+**Applies to:** python, go
 
-`lux ping` in the example above is not an exception to noun-first: it
-is a **diagnostics-tier** top-level singleton, not a product command.
-Diagnostics (`ping`, `doctor`, `version`) sit outside both the
-noun-first product vocabulary and the admin tier — they are read-only,
-safe to run from any surface, and named for what they check rather
-than a domain noun. See [Layer 2](#layer-2-admin-commands) for the
-full tier breakdown.
+`<tool> version` prints one plain stdout line, `<name> <semver>`, by default
+and exits successfully. Do not provide `--version`, `-V`, or other version
+aliases. Full-contract tools also support explicit JSON mode under CLI-11.
 
-Every MCP tool has a corresponding CLI command. Every REST route has a corresponding CLI command. Every library method has a corresponding CLI command. The four surfaces — library, CLI, MCP, REST — are thin clients of the same engine code; the CLI holds no logic the others lack. A slash command, being a distribution channel for the MCP surface, also has a corresponding CLI command because its MCP tool does.
+### CLI-2: Group product operations by noun
 
-**Assess omissions, not inclusions.** The default is equivalence: an operation on any surface is presumed to exist on every surface. An absence is a *considered exception* with a stated reason recorded in the project's design record, not a default. When reviewing surface coverage, list the omissions and demand justification for each; do not audit the inclusions.
+**Applies to:** python, go
 
-**Admin verbs are CLI-only.** Operations that install, uninstall, or
-supervise the tool's process (`install`, `uninstall`, `doctor`, `mcp`,
-`hub install|uninstall|start|stop|restart|status`) are the admin
-tier. They appear on the CLI and nowhere else — an agent-turn is not
-a legitimate caller of a process-supervision verb. Exposing an admin
-verb on MCP recreates the superuser MCP surface the identity model
-forbids (see the reference lux epic `lux-0shg` and its DES-086
-precedent for the invariant statement). The converse also holds:
-every MCP tool has a slash-command equivalent unless a considered
-exception is stated (e.g., non-blocking receive verbs,
-programmatic-only registrations).
+Use `<tool> <noun> <verb>` by default. A noun names an independently
+addressable resource; the same noun (for example, `mission`) must mean the
+same basic thing across tools. Reuse established verbs for equivalent
+operations, such as `list` for enumerating resources. Record a reason for
+every exception, including a bare product verb in a genuinely single-noun
+tool or a top-level command such as `doctor` that has no resource operand.
 
-`enable` / `disable` are **not** admin-tier — they are their own
-tier, per-repo tool integration, defined in full in
-[tool-enable-disable.md](tool-enable-disable.md#23-the-enable--disable-convention).
-Every Punt Labs tool implements them across all four surfaces — library,
-CLI, MCP, and REST — unless an omission is recorded as a considered
-exception in the project's design record (the equivalence default above);
-the slash command rides the
-MCP surface's plugin channel, so it comes with the MCP tool rather than
-counting as a fourth surface.
+### CLI-3: Give each operation one unambiguous spelling
 
-### Layer 2: Admin commands
+**Applies to:** python, go
 
-Setup, health, and lifecycle. Universal across all CLIs.
+Do not keep superseded commands or options as backward-compatibility aliases.
+Use a positional argument for a required operand, an option for a modifier or
+an explicit discriminator, and stdin for piped content when supported.
+Infer an operand's type only when its forms can be distinguished safely;
+otherwise provide an explicit choice. A separate batch command needs a
+distinct contract, such as manifest input and per-item results, not merely a
+different spelling for the same operation.
 
-| Subcommand | Purpose | Required? |
-|-----------|---------|-----------|
-| `version` | Print the version | Yes |
-| `doctor` | Check installation health | Yes |
-| `status` | Current state summary | Yes |
-| `install` | Machine-scoped setup (MCP registration, models, data dirs) | Yes |
-| `enable` / `disable` | Toggle the tool in the current project — its own tier, not admin-tier; see above | If repo-scoped |
-| `serve` | Start the MCP server | If MCP project |
+### CLI-4: Approve each command map before migration
 
-### Layer 3: Hook dispatcher (internal)
+**Applies to:** python, go
 
-Called by shell hook scripts, not by users. Hidden or de-emphasized in `--help`.
+Before migrating a tool, obtain Jim's approval of its command map: the
+public command tree, argument and option forms, shared noun meanings, and
+reasons for any exceptions. Keep the approved map in the product's design
+record, not in this standard.
 
-```text
-<tool> hook <event>          # Claude Code lifecycle hooks
-<tool> hook git <event>      # Git lifecycle hooks (if applicable)
-```
+### CLI-5: Provide working root help
 
-Shell scripts are thin gates (check config, pass stdin). Business logic lives in Python as testable pure functions in a `hooks.py` module. The CLI subcommand is the bridge.
+**Applies to:** python, go
 
-Pattern: `entire hooks <agent> <event>` --- "Commands called by hooks. These are internal and not for direct user use."
+`<tool> --help` prints usage to stdout and exits successfully without
+performing work or requiring a running service.
 
----
+### CLI-6: Make the public interface discoverable
 
-## Naming and Distribution
+**Applies to:** python, go
 
-### PyPI package names
+For full-contract tools, provide `-h` as shorthand for `--help` and help at
+every public command path. Show a short purpose, usage, operands, public
+options and their value types and defaults, and how to discover the output
+contract. List product commands before diagnostics, setup, and service
+management. Document global flags at the root. Keep internal hook
+dispatchers out of the public command list.
 
-All packages use the `punt-` prefix on PyPI:
+### CLI-7: Apply the platform's naming and setup boundaries
 
-| Repo | PyPI package | Install command |
-|------|-------------|-----------------|
-| `punt-labs/quarry` | `punt-quarry` | `pip install punt-quarry` |
-| `punt-labs/biff` | `punt-biff` | `pip install punt-biff` |
-| `punt-labs/tts` | `punt-vox` | `pip install punt-vox` |
-| `punt-labs/langlearn-tts` | `punt-langlearn-tts` | `pip install punt-langlearn-tts` |
-| `punt-labs/punt-kit` | `punt-kit` | `pip install punt-kit` |
+**Applies to:** python, go
 
-The prefix avoids name collisions on PyPI (no namespace mechanism like npm's `@org/pkg`) and makes org affiliation clear.
+Follow [Naming](naming.md) for binaries and packages and
+[Distribution](distribution.md) for installation and registration.
+Document the product-to-binary mapping when the repository and entry points
+differ. Expose machine setup as `install`; repository integration is a
+separate operation governed by
+[Tool Enable/Disable](tool-enable-disable.md#23-the-enable--disable-convention).
 
-### CLI entry point names
+### CLI-8: Distinguish installation health from operating state
 
-CLI entry points use the **short name** (no prefix): `quarry`, `biff`, `vox`, `punt`. Users type the short name; the package name is only visible during install.
+**Applies to:** python, go
 
----
+`doctor` checks installation health. Report pass or fail for applicable
+dependencies, versions, integrations, and connectivity; fail if a required
+check fails. `status` reports current operating state rather than repeating
+installation checks. A transport-only bridge's required health check
+reports reachability of its selected target.
 
-## Structure
+### CLI-9: Project product capabilities without exposing administration
 
-### Framework
+**Applies to:** python, go
 
-| Language | Framework | Rationale |
-|----------|-----------|-----------|
-| Python | [typer](https://typer.tiangolo.com/) | Type-safe, minimal boilerplate, auto-completion |
-| Go | [cobra](https://cobra.dev/) | Dominant Go CLI framework (kubectl, docker, gh). Typed flags, auto-help, subcommands, completion. |
+Apply the [canonical projection model](architecture.md#the-projection-model-canonical)
+to the CLI. Equivalent product capabilities use consistent names; parity is
+judged by capability, not by counting routes or library methods. Record and
+justify omissions in the product's design record. Installation and process
+supervision are CLI-only. Expose `mcp` for an MCP stdio entry point and
+`serve` for a network MCP entry point when those transports are supported.
+A network MCP listener does not by itself make a remote product API.
 
-### Entry point
+### CLI-10: Keep hook dispatch internal
 
-**Python:** Every CLI defines its entry point in `<package>/__main__.py`:
+**Applies to:** python, go
 
-```python
-app = typer.Typer()
-```
+Follow [Hooks](hooks.md) for invocation, payload, and performance contracts.
+A tool can use an internal `<tool> hook` dispatcher or a split
+`<tool>-hook` binary where startup time or memory footprint warrants it.
+Do not require the same dispatcher to be exposed through both paths.
 
-The `pyproject.toml` entry point is `<package>.__main__:app`. This makes `python -m <package>` work automatically.
+### CLI-11: Give every finite public command a JSON result mode
 
-**Go:** Every CLI defines its entry point in `cmd/<tool>/main.go`:
+**Applies to:** python, go
 
-```go
-package main
+Support `--json` on every public command that runs and exits with a result,
+including setup actions such as `enable` and `install` that only confirm
+success. In JSON mode write exactly one JSON value to stdout, including on
+failure; use an array for a list, an object for a detail or action result, and
+an object containing an `error` string for failure. Send progress and
+diagnostic messages to stderr or suppress them. Never accept `--json` and
+print prose instead. Keep exit status meaningful in either mode.
 
-import "os"
+Protocol streams and servers (such as `mcp` and `serve`), live interactive
+sessions and TUIs (such as live `call`, `talk`, and `ui`), hook dispatch,
+and host-owned output contracts such as statusline text are exempt when
+they do not exit with a command result or own stdout for another contract.
+A guided command that exits with an outcome is not exempt merely because
+it takes time or prints progress.
 
-func main() {
-    if err := rootCmd.Execute(); err != nil {
-        os.Exit(1)
-    }
-}
-```
+### CLI-12: Honor global output flags consistently
 
-The root command is defined in a separate file (e.g., `root.go`) with persistent
-flags. Running the binary without a subcommand prints help --- do not default to
-a subcommand like `serve`.
+**Applies to:** python, go
 
-### Help text
+Use normal output by default. `--verbose` / `-v` enables diagnostic logging
+on stderr; `--quiet` / `-q` suppresses nonessential output. They are mutually
+exclusive. Quiet mode does not suppress a requested JSON result. Accept
+applicable global output flags before and after the command path with the
+same effect. Do not let diagnostics contaminate protocol or result stdout.
 
-Help text is an agent interface, not just a human convenience. An AI agent
-that discovers the CLI via `--help` must be able to determine every available
-command, every flag, and the output format without trial and error. If help
-text is vague or incomplete, the agent will hallucinate flags.
+### CLI-13: Provide shell completion
 
-- One-line tagline on the Typer app: `<tool>: <what it does>`
-- Plain text output --- disable typer's rich markup for help screens
-- Per-command docstrings, imperative voice
-- Product commands first, admin commands after
-- Every flag must appear in `--help` with its type and default (if optional)
-- The app-level help must document `--json` as a global flag (see Global Flags)
+**Applies to:** python, go
 
-The same rule extends to operator-facing shell scripts (workspace `.bin/*.sh`, fleet rollouts, install helpers): a header + `Usage:` block + `--help` handler are mandatory. See [shell.md § Operational Safety](shell.md#operational-safety) for the shell-side details.
+Provide a documented way to obtain shell completion generated from the
+public command tree, so suggestions track the supported paths and options.
 
-### Subcommand naming
+### CLI-14: Select a remote product instance explicitly
 
-Subcommands are **`noun verb`** for tools with more than one kind of
-noun to act on (`lux scene show`, `lux session ls`, `bd issue list`),
-and **single verbs** for tools with only one noun (`quarry search`,
-`biff who`, `vox unmute`). Noun-first is the default at scale; the
-single-verb form is reserved for genuinely single-noun tools.
+**Applies to:** python, go
 
-Nouns are stable — they name what the engine holds (`scene`,
-`session`, `issue`) — and verbs grow around them. Grouping by noun
-means adding an operation adds a new verb under an existing noun, not
-a new top-level command; the surface grows without reshuffling.
+A full-contract tool that supports remote product execution must accept
+`--remote <url>` and `<TOOL>_REMOTE`, with the flag taking precedence over
+the environment variable and both overriding a saved default or local
+discovery. Use the uppercase tool name with hyphens replaced by underscores.
+Document the supported URLs and precedence. This applies to selecting another
+instance of the product, not to selecting an upstream service, relay, local
+socket, or MCP transport. Full-contract tools are expected to support remote
+execution eventually; the selector requirement applies when that capability
+exists, not simply when a tool gains a listener.
 
-Arguments disambiguate, not subcommand names. `quarry ingest ./doc.pdf` and `quarry ingest https://example.com` are the same subcommand --- the tool infers the type from the input. Not `ingest-file` and `ingest-url`.
+### CLI-15: Keep credentials and trust separate from remote selection
 
-Exception: batch variants may use a suffix when the interface genuinely differs (e.g., `synthesize-batch` takes a JSON manifest file).
+**Applies to:** python, go
 
----
+The remote URL selects an endpoint only. Supply credentials and trust through
+separate configuration, not through the URL. For an explicit target, do not
+fall back to a local token, even when its URL points to loopback through a
+tunnel. Document how to authenticate and establish trust for a selected
+endpoint.
 
-## Command Architecture
+### CLI-16: Honor the target or report an unsupported operation
 
-Every non-leaf project uses the **Humble Object Commands** pattern
-(Pattern 2 below). Direct delegation (Pattern 1) is the exception,
-reserved for projects with one client surface and no orchestration.
-Any project that ships two or more client surfaces (CLI + MCP,
-CLI + REST, etc.) uses the commands layer — otherwise the same
-operation is written once per surface, and the surfaces drift.
+**Applies to:** python, go
 
-See [Python standards](python.md#rules) for the language mechanics and
-[Humble Object Commands](../patterns/humble-object-commands.md) for
-the full pattern.
+Run applicable commands, including operational status, against the selected
+instance and preserve their output contract across targets. A command that
+cannot operate on an explicitly requested remote target must fail rather
+than fall back to local execution. Local service management commands (such
+as local start, stop, and restart) reject `--remote`.
 
-### Pattern 1: Direct Delegation (single-surface exception)
+### CLI-17: Make remote-selector cutovers explicit
 
-Each CLI command calls one core function and formats the result. Use
-only when the project has one client surface and no shared
-orchestration.
+**Applies to:** python, go
 
-**Python:**
+Remove superseded selector variables rather than accepting them as aliases.
+`doctor` warns when a retired variable remains set. Update setup and
+invocation documentation, including environment examples such as
+`.envrc`, and tell operators to update their environment and restart any
+long-lived MCP processes that inherited the old configuration.
 
-```python
-@app.command()
-def search(query: str) -> None:
-    """Search the knowledge base."""
-    results = quarry.search(query)
-    for r in results:
-        print(f"{r.score:.2f}  {r.title}")
-```
+### CLI-18: Define what success means for each command
 
-**Go:**
+**Applies to:** python, go
 
-```go
-var searchCmd = &cobra.Command{
-    Use:   "search <query>",
-    Short: "Search the knowledge base",
-    Args:  cobra.ExactArgs(1),
-    RunE: func(cmd *cobra.Command, args []string) error {
-        results, err := quarry.Search(args[0])
-        if err != nil {
-            return err
-        }
-        g.printResult(results, func() {
-            for _, r := range results {
-                fmt.Printf("%.2f  %s\n", r.Score, r.Title)
-            }
-        })
-        return nil
-    },
-}
-```
-
-### Pattern 2: Humble Object Commands (default)
-
-Every engine operation is a `@final` callable class in
-`src/<package>/commands/`, exported as a module-level singleton the
-four client adapters (CLI, MCP, REST, library) share. The class takes
-a `Ctx` (collaborators) plus operation-specific arguments and returns
-a `CommandResult`. The CLI wrapper interprets `text` and `exit_code`;
-the MCP adapter JSON-encodes `json_data`; the REST adapter maps the
-same envelope onto HTTP status; the library caller inspects fields
-directly. Vox's `src/punt_vox/commands/voice.py` is the reference:
-
-```python
-# src/<package>/commands/_result.py
-from dataclasses import dataclass
-
-
-@dataclass(frozen=True, slots=True)
-class CommandResult:
-    text: str
-    json_data: dict[str, object] | None = None
-    error: bool = False
-    exit_code: int = 0
-```
-
-```python
-# src/<package>/commands/voice.py
-from typing import Self, final
-
-
-@final
-class VoiceCommand:
-    """List or set the session voice for the active provider."""
-
-    __slots__ = ()
-
-    def __new__(cls) -> Self:
-        return super().__new__(cls)
-
-    async def __call__(self, ctx: Ctx, name: str | None = None) -> CommandResult:
-        if name is None:
-            return self._list(ctx)
-        ctx.store.write_field("voice", name)
-        return CommandResult(text=f"voice: {name}", json_data={"voice": name})
-
-
-voice: VoiceCommand = VoiceCommand()
-```
-
-The class-per-verb shape is deliberate: it satisfies the OO ratchet
-(behavior lives with the operation, not in a module-level function),
-it composes cleanly with `Ctx` for dependency injection, and it lets
-the four adapters share one instance without re-wrapping. The
-module-level singleton (`voice: VoiceCommand = VoiceCommand()`) is
-how each adapter reaches it — `from <package>.commands import voice`,
-then `await voice(ctx, ...)`.
-
-The CLI entry point uses a single `_run()` adapter for all plumbing:
-
-```python
-# src/<package>/__main__.py
-def _run(coro_factory: Callable[[CliContext], Awaitable[CommandResult]]) -> None:
-    async def _inner() -> None:
-        async with cli_context() as ctx:
-            result = await coro_factory(ctx)
-            if json_output:
-                print_json(
-                    result.json_data if result.json_data is not None else result.text
-                )
-            elif result.error:
-                print(result.text, file=sys.stderr)
-            else:
-                print(result.text)
-            if result.error:
-                raise typer.Exit(code=1)
-
-    asyncio.run(_inner())
-
-
-@app.command()
-def who() -> None:
-    _run(commands.who)
-
-
-@app.command()
-def finger(user: Annotated[str, typer.Argument(...)]) -> None:
-    _run(lambda ctx: commands.finger(ctx, user))
-```
-
-`_run()` owns the context lifecycle, JSON/text branching, and exit codes. Command functions are pure — no I/O, no `sys.exit`, no framework imports.
-
-### `CommandResult` specification
-
-| Field | Type | Default | Purpose |
-|-------|------|---------|---------|
-| `text` | `str` | (required) | Human-readable output |
-| `json_data` | `object` | `None` | JSON-serializable payload; `None` means use `text` |
-| `error` | `bool` | `False` | `True` → exit code 1 in CLI, inspectable in library |
-
-**Validation stays at the boundary.** CLI parses strings (`on/off`) into typed values (`bool`) before calling the command function. Command functions accept typed parameters, not raw CLI strings.
-
-See [Humble Object Commands](../patterns/humble-object-commands.md) for the full pattern.
-
----
-
-## Global Flags
-
-Every CLI supports these global flags, following beads:
-
-| Flag | Short | Purpose |
-|------|-------|---------|
-| `--json` | | JSON output for every command |
-| `--verbose` | `-v` | Debug logging |
-| `--quiet` | `-q` | Errors only (suppress non-essential output) |
-| `--help` | `-h` | Show help |
-
-Projects with a `serve` command add one additional global flag:
-
-| Flag | Short | Purpose |
-|------|-------|---------|
-| `--remote <url>` | | Use remote HTTP API instead of local execution (see Remote Mode) |
-
-### `--json`
-
-When set, all output is valid JSON written to stdout. Human-readable messages go to stderr or are suppressed. Errors are JSON objects: `{"error": "<message>"}`. List commands return JSON arrays; detail commands return JSON objects.
-
-Pattern: `bd --json list`, `bd --json show <id>`.
-
-### `--verbose` / `--quiet`
-
-`--verbose` enables debug logging to stderr. `--quiet` suppresses everything except errors. They are mutually exclusive. Default is neither (normal output).
-
-### Go: persistent flags
-
-In cobra, global flags are **persistent flags** on the root command. They
-propagate to all subcommands automatically --- no manual parsing in each handler.
-
-```go
-// globalOpts holds parsed global flags that apply to all subcommands.
-type globalOpts struct {
-    JSON    bool
-    Verbose bool
-    Quiet   bool
-}
-
-var g globalOpts
-
-func init() {
-    rootCmd.PersistentFlags().BoolVar(&g.JSON, "json", false, "JSON output")
-    rootCmd.PersistentFlags().BoolVarP(&g.Verbose, "verbose", "v", false, "Debug logging")
-    rootCmd.PersistentFlags().BoolVarP(&g.Quiet, "quiet", "q", false, "Errors only")
-}
-```
-
-Global flags work in any position: `beadle-email --json contact list` and
-`beadle-email contact list --json` are equivalent. Cobra handles this; hand-rolled
-parsers typically do not.
-
-### Go: output routing
-
-Every Go CLI should have a `printResult` helper that branches on `--json`:
-
-```go
-func (g globalOpts) printResult(v any, humanFn func()) error {
-    if g.JSON {
-        data, err := json.MarshalIndent(v, "", "  ")
-        if err != nil {
-            return fmt.Errorf("marshal JSON: %w", err)
-        }
-        fmt.Println(string(data))
-        return nil
-    }
-    if !g.Quiet {
-        humanFn()
-    }
-    return nil
-}
-```
-
-All commands call `g.printResult(data, humanFn)` --- never `json.Marshal` +
-`fmt.Println` directly. This ensures `--json` and `--quiet` are respected
-everywhere.
-
----
-
-## Required Subcommands
-
-### `version`
-
-Print the version and exit. `<tool> version`, not `--version`.
-
-Output format: `<name> <semver>`.
-
-```text
-$ biff version
-biff 0.12.1
-
-$ quarry version
-quarry 0.10.1
-```
-
-### `doctor`
-
-Check installation health --- pass/fail per dependency. Every project with external dependencies must have this.
-
-The doctor command checks:
-
-- Required binaries found and executable
-- Required libraries/packages installed
-- Correct versions where applicable
-- Plugin registration (for Claude Code plugins)
-- MCP server configuration (for MCP projects)
-- Network connectivity (for projects with relay/API dependencies)
-
-The installer should run `doctor` as its final step.
-
-### `status`
-
-Current state summary --- what the tool knows right now. Not health (that's `doctor`), but operational state.
-
-| Tool | `status` shows |
-|------|---------------|
-| quarry | Active database, document count, registered directories, model info |
-| biff | Connection state, active sessions, pending messages |
-| vox | Current provider, voice, vibe, character usage |
-
-### `install`
-
-Machine-scoped setup --- run once per machine to register the MCP server,
-download models, or create global data directories. It installs **software
-only**: it touches no `CLAUDE.md`, writes no `@`-import line, and deposits no
-user-guide doc. Depositing the guide and writing the repo import line is
-`enable`'s job, and `enable`'s alone (see below and the
-[Tool Enable/Disable Standard](tool-enable-disable.md#26-scope-one-layer-repo-only)).
-
-### `enable` / `disable`
-
-Toggle the tool in the current repository, per the
-[Tool Enable/Disable Standard](tool-enable-disable.md). `enable` deposits
-`.punt-labs/<tool>/` (user guide + `enabled` marker), adds the canonical
-`@.punt-labs/<tool>/CLAUDE.md` import line to the repo `CLAUDE.md`, and may
-register additive `.claude/settings.json` entries. `disable` removes the import
-line, the marker, and the settings entries; the vendored directory stays
-dormant. The enabled signal is the in-directory marker
-`.punt-labs/<tool>/enabled` — not a repo-root dotfile.
-
-Not every tool needs this. If the tool has no per-repo presence, omit it.
-
-### `serve` / `mcp`
-
-Start the MCP server. Required for projects that expose MCP tools. `serve` for HTTP transport, `mcp` for stdio transport.
-
----
-
-## Remote Mode
-
-If a project has a `serve` command that exposes an HTTP API, the CLI should
-also be able to **consume** that API as an alternative to local execution. This
-enables agents and humans to operate on remote instances without MCP overhead.
-
-### The pattern
-
-CLIs like `vercel`, `fly`, and `gh` are local binaries that operate on remote
-services. The user runs a local command; the CLI handles auth, serialization,
-and HTTP under the hood. Our CLIs talk to remote APIs (ElevenLabs, OpenAI
-embeddings, AWS), but core logic runs locally. We lack a pattern where
-`quarry find "query"` could transparently hit a remote Quarry instance ---
-even though Quarry runs on Fly.io for the chat widget.
-
-### `--remote <url>`
-
-Projects with a `serve` command should accept a `--remote <url>` global flag
-that switches the transport from local execution to the remote HTTP API:
-
-```bash
-# Local (default) --- runs against local LanceDB
-quarry find "semantic search"
-
-# Remote --- hits quarry.fly.dev HTTP API
-quarry --remote https://quarry.fly.dev find "semantic search"
-```
-
-When `--remote` is set:
-
-- All commands that have a corresponding REST endpoint delegate to HTTP
-  instead of calling the library directly
-- Auth is handled via an API key in an environment variable
-  (`<TOOL>_API_KEY`) or a config file
-- `--json` output is identical regardless of local or remote execution
-- Commands that have no remote equivalent (e.g., `install`, `doctor`) exit
-  non-zero with an error formatted according to the current output mode:
-  plain text by default, `{"error": "<command> is not available in remote mode"}`
-  when `--json` is set
-
-### Implementation
-
-The library already has the HTTP client (the `serve` command exposes it) and
-the CLI already has the local call path. Remote mode adds a transport switch:
-
-```python
-def _get_client(remote: str | None) -> QuarryClient:
-    if remote:
-        api_key = os.environ.get("QUARRY_API_KEY")
-        if not api_key:
-            raise typer.BadParameter(
-                "QUARRY_API_KEY environment variable is required for --remote"
-            )
-        return RemoteClient(url=remote, api_key=api_key)
-    return LocalClient(db_path=default_db_path())
-```
-
-Both `LocalClient` and `RemoteClient` implement the same interface. CLI
-commands call the client without knowing the transport.
-
-### When to add remote mode
-
-Not every project needs this. Add it when:
-
-- The project has a `serve` command with a stable HTTP API
-- There is a deployed remote instance that users or agents need to reach
-- The alternative would be configuring an MCP proxy for remote access
-
-Current candidates: **quarry** (Fly.io deployment exists).
-
----
-
-## Hook Architecture
-
-See **[hooks.md](hooks.md)** for the full hook standard, including Claude
-Code's state machine, event patterns, the decision-block pattern, workflow
-gates, common bugs, and the audit checklist.
-
-Summary of the three-layer dispatch pattern:
-
-1. **hooks.json** — registration (what events, what matchers)
-2. **Shell script** — thin gate (check config, pass stdin)
-3. **CLI handler** — business logic (`<tool> hook <event>`)
-
-Shell scripts fail-open on observation (`|| true`), fail-closed on
-mutation (propagate errors). Business logic lives in `hooks.py` as
-testable pure functions.
-
----
-
-## Shell Completion
-
-**Python:** Every CLI supports shell completion via typer's built-in `--install-completion` and `--show-completion`.
-
-**Go:** Cobra generates completions via `rootCmd.GenBashCompletionV2`,
-`rootCmd.GenZshCompletion`, and `rootCmd.GenFishCompletion`. Add a `completion`
-subcommand:
-
-```go
-var completionCmd = &cobra.Command{
-    Use:   "completion <bash|zsh|fish>",
-    Short: "Generate shell completion script",
-    Args:  cobra.ExactArgs(1),
-    RunE: func(cmd *cobra.Command, args []string) error {
-        switch args[0] {
-        case "bash":
-            return rootCmd.GenBashCompletionV2(os.Stdout, true)
-        case "zsh":
-            return rootCmd.GenZshCompletion(os.Stdout)
-        case "fish":
-            return rootCmd.GenFishCompletion(os.Stdout, true)
-        default:
-            return fmt.Errorf("unsupported shell: %s", args[0])
-        }
-    },
-}
-```
-
----
-
-## Projection Strategy
-
-Each of the four surfaces is a thin client of the engine (see the
-[Projection Model](architecture.md#the-projection-model-canonical)). The CLI
-covers every engine capability; the other surfaces reach the same engine code:
-
-| Surface | How it reaches the engine |
-|---------|------------------------|
-| **Library import** | Code in the same process calls the engine functions directly. |
-| **MCP server** | Each MCP tool calls the same engine functions the CLI calls. |
-| **REST API** | Each route maps to the same engine functions the CLI calls. |
-
-Slash commands and plugin hooks are distribution **channels**, not surfaces. A
-slash command's `.md` file instructs Claude to call the MCP tool (not Bash →
-CLI), so it ships the MCP surface through the plugin channel. A plugin hook
-calls `<tool> hook <event>` — the CLI is the dispatcher — so it rides the CLI
-surface through the hook channel.
-
-When adding a new capability, implement it in the engine and expose it through the CLI first (the completeness surface). Then wire the MCP server, REST API, and library to the same engine code. Never add a capability to any surface or channel that the terminal cannot reach.
-
-### Call path performance
-
-Two fast paths exist for plugin operations. Choose based on who initiates:
-
-```text
-Model-initiated:    LLM ──► MCP server (persistent, structured)
-Event-driven:       Hook ──► CLI (no LLM, direct execution)
-```
-
-| Path | Avg latency | Use when |
-|------|------------|----------|
-| **LLM → MCP tool** | ~3.2s | Model initiates: synthesis, queries, config changes. Persistent stdio server — zero startup cost. |
-| **Hook → CLI** | ~110ms | Event-driven: stop notifications, chimes, signal tracking. No model round-trip. |
-| ~~LLM → Bash → CLI~~ | ~4.6s | **Avoid.** Combines model round-trip + process spawn. Use only when no MCP tool exists. |
-| ~~LLM → Read/Write~~ | — | **Never.** Couples the model to file format details, bypasses validation. |
-
-**Rule:** Slash commands call MCP tools. Hooks call CLI. The model never
-touches config files directly — use the MCP or CLI layer.
-
----
-
-## Sync vs Async
-
-The core question is not "sync or async" as a library property — it is **"does
-the caller need the return value to proceed?"** The answer depends on both the
-operation type and the projection surface.
-
-### Operation types
-
-| Type | Caller needs result? | Examples |
-|------|---------------------|----------|
-| **Query** | Yes — the result IS the point | `search`, `status`, `list`, `show` |
-| **Transform** | Yes — the output IS the point | `encode`, `convert`, `export` |
-| **Side-effect** | No — confirmation is nice, not essential | `ingest`, `speak`, `send`, `delete`, `sync` |
-
-### Surface behavior
-
-| Surface | Process lifetime | Implication |
-|---------|-----------------|-------------|
-| **CLI** | Ephemeral (exits) | Must wait — needs exit code |
-| **MCP** | Long-lived (server) | Can fire-and-forget side-effects |
-| **REST** | Long-lived (server) | Can 202 + poll for side-effects |
-
-### Decision tree
-
-```text
-Does the caller need the return value to proceed?
-├── YES (query / transform)
-│   └── Block on all surfaces. No choice.
-│
-└── NO (side-effect)
-    ├── CLI   → Block anyway. Process must exit with correct code.
-    ├── MCP   → Fire-and-forget. Return optimistic result immediately.
-    │           Background thread does the real work.
-    └── REST  → 202 Accepted + job ID. Client polls or gets webhook.
-```
-
-### MCP fire-and-forget pattern
-
-For side-effect MCP tools, return predicted metadata immediately and process
-in a background thread:
-
-```python
-# Predict what the result will be (paths, status, metadata)
-predicted = _predict_results(requests, provider, dir_path)
-
-# Do the real work in a background thread
-threading.Thread(
-    target=_process,
-    args=(requests, provider, dir_path),
-    daemon=True,
-).start()
-
-# Return immediately — caller doesn't wait for I/O
-return json.dumps([result_to_dict(r) for r in predicted])
-```
-
-The daemon thread ensures cleanup on server exit. The predicted result gives
-the caller enough information to continue (file paths, voice names, status
-fields) without waiting for network calls, encoding, or disk writes.
-
-Reference implementation: `vox/src/punt_vox/server.py`.
-
-### Eventual consistency
-
-Side-effects processed in background threads create eventual consistency.
-If the caller ingests a document and immediately searches for it, the search
-may return stale results. Two options:
-
-1. **Documented eventual consistency** — caller knows results may lag.
-   Simple and direct. Preferred for MCP, where the LLM rarely chains
-   side-effect → query in the same turn.
-
-2. **Completion signal** — background thread updates a status field or emits
-   a log entry. Caller can check if it needs to.
-
-Prefer option 1 unless the operation has a strong chain-then-query pattern.
-
-### Library determines the ceiling
-
-The library's concurrency model sets the upper bound:
-
-| Library | CLI | MCP | REST |
-|---------|-----|-----|------|
-| **Async-native** (biff/NATS) | `asyncio.run()` | Native async handlers | Native async routes |
-| **Sync + I/O-heavy** (vox/ElevenLabs) | Sync call, wait | Fire-and-forget thread | 202 + thread |
-| **Sync + fast** (quarry/LanceDB reads) | Sync call, wait | Sync return | Sync response |
-| **Sync + slow side-effects** (quarry/ingest) | Sync call, wait | Fire-and-forget thread | 202 + thread |
-
-A sync library can still have non-blocking MCP tools — wrap the blocking call
-in `threading.Thread(daemon=True)`. An async library gets this naturally.
-
-### Per-project summary
-
-| Project | Library style | MCP queries | MCP side-effects |
-|---------|--------------|-------------|-----------------|
-| **quarry** | Sync (LanceDB) | Block (search, list) | Should fire-and-forget (ingest, sync) |
-| **biff** | Async (NATS) | Await (who, finger, read) | Could fire-and-forget (write, wall) |
-| **vox** | Sync (ElevenLabs) | Block (status, who) | Fire-and-forget (unmute, record) |
-| **langlearn-tts** | Sync (delegates to vox) | Block (status) | Should fire-and-forget (synthesize) |
-| **punt-kit** | Sync (local ops) | Block (all ops are queries) | N/A |
-
-### Projection by architecture
-
-How CLI and MCP reach core logic depends on whether the project uses direct delegation or a commands layer:
-
-**Direct delegation** (quarry): Both CLI and MCP call core functions directly. No commands layer exists — each surface is a thin adapter over the same library calls.
-
-```text
-CLI  ──▶ quarry.search(query)
-MCP  ──▶ quarry.search(query)
-Lib  ──▶ quarry.search(query)
-```
-
-**Commands layer** (biff): CLI calls `_run(commands.X)`. MCP tools may call core functions directly (when the orchestration differs) or reuse command functions. Library consumers import command functions.
-
-```text
-CLI  ──▶ _run(commands.who)   ──▶ relay.get_sessions()
-MCP  ──▶ relay.get_sessions()    (MCP tools call core directly)
-Lib  ──▶ commands.who(ctx)    ──▶ relay.get_sessions()
-```
-
-The commands layer gives library consumers the same orchestrated behavior as the CLI without going through CLI plumbing.
+Exit zero means the work was successfully accepted or successfully performed.
+Document which of those a command promises at the noun–verb level and what
+its result proves. When acceptance is the boundary, describe the receipt
+and any supported way to observe later progress or failure. For example,
+a task ID can mean indexing was queued, a playback acknowledgement need not
+mean the audio finished, and accepting scene state need not mean the display
+has drawn it. Neither blocking nor a `--no-wait` switch is a general rule.

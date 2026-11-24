@@ -580,7 +580,7 @@ PyPI has no namespace mechanism (unlike npm's `@org/pkg`), so all packages use t
 | `punt-labs/langlearn-types` | `punt-langlearn-types` | — | `langlearn_types` |
 | `punt-labs/punt-kit` | `punt-kit` | `punt` | `punt_kit` |
 
-The full naming convention is in [CLI Standards](cli.md#naming-and-distribution).
+The full naming convention is in [Naming](naming.md).
 
 ## Testing
 
@@ -619,10 +619,9 @@ See [Humble Object Commands](../patterns/humble-object-commands.md) for the full
 
 ### Surface Parity Testing
 
-[cli.md](cli.md#core-principle) states the principle — every MCP tool has a
-corresponding CLI command, and all client surfaces are thin adapters over the
-same engine — but the principle only holds if a test actually checks it. A
-parity test drives two (or more) surfaces against one shared fixture and
+[Architecture](architecture.md#the-projection-model-canonical) defines the
+projection model. A parity test drives equivalent capabilities on two or
+more surfaces against one shared fixture and
 asserts their answers agree field for field, not just that both happen to
 return `200`/exit `0`.
 
