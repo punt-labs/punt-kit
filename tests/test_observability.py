@@ -123,6 +123,22 @@ app(['example'])
     assert "private content" not in log
 
 
+def test_utf8_opt_out_under_ascii_locale(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("LC_ALL", "C")
+    monkeypatch.setenv("PYTHONCOERCECLOCALE", "0")
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    config = tmp_path / ".punt-labs/punt/config.toml"
+    config.parent.mkdir(parents=True)
+    config.write_text("[telemetry]\nenabled = false # café\n", encoding="utf-8")
+
+    result = _run(tmp_path, "version")
+
+    assert result.returncode == 0, result.stderr
+    assert not (config.parent / "telemetry.db").exists()
+
+
 def test_disabled_creates_no_store(tmp_path: Path) -> None:
     assert _run(tmp_path, "version", off=True).returncode == 0
     assert not (tmp_path / ".punt-labs/punt/telemetry.db").exists()
