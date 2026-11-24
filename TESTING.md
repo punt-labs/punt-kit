@@ -35,7 +35,7 @@ than the checkout's `.tmp`.
 | Pre-push | Local hook: `make test-push` runs the default suite on the pushed commit. | <3 min | Stops push |
 | PR | GitHub Actions: Docs, Lint, Ratchet and Test. Test runs the default suite with branch coverage (`make coverage-ci`) and the installed-wheel smoke (`make smoke-candidate`). | 10 min job timeouts | Required checks block merge |
 | Merge to main | The same workflows run on the main commit. | Same as PR | Red main triggers CI triage; Biff notifies |
-| Nightly | None yet. | — | See [Deviations](#deviations) |
+| Nightly | `nightly.yml` on upstream `main` only, Ubuntu and macOS: `make test-nightly` lists quarantines (and rejects invalid ones), runs the default suite with coverage and the installed-wheel smoke. | 30 min job timeout | Biff wall to the team; not a PR check |
 | Release candidate | `release.yml` `candidate-smoke`: the exact wheel `build` produced for the tag, installed in a clean venv, runs `scripts/smoke-release.sh candidate`. | 10 min job timeout | Blocks the `pypi` job |
 | Post-release | `release.yml` `published-smoke`: `punt-kit==<tag>` from production PyPI, byte-compared with the candidate wheel, runs the same operations. | 10 min job timeout, retries for index propagation | Fails the release run; `punt release` phase `ci` stops; Biff notifies |
 
@@ -85,7 +85,6 @@ the punt-kit maintainers, expiring 2026-12-07.
 
 | Clause | Scope | Reason |
 | --- | --- | --- |
-| TST-1 | Nightly tier | No Nightly workflow yet. |
 | TST-2, TST-6, TST-7, TST-8 | Agent kind | The plugin's slash commands and `auto` playbook skill are verified by hand with `claude -p --plugin-dir plugin` ([docs/WORKFLOW.md](docs/WORKFLOW.md)), not by a trusted automated agent job on Nightly, the candidate or the published plugin. |
 | TST-2 | Subprocess kind | Subprocess tests run inside the default suite; there is no marker to select them alone. |
-| TST-6 | Live kind | `record_gh_fixtures.py --check` is run by hand, not on a schedule. |
+| TST-6 | Live kind | `record_gh_fixtures.py --check` is run by hand, not on a schedule: it needs a token that can read rulesets and branch protection, and `gh_api_rules_branches_governed.json` has drifted from the live ruleset and must be re-recorded first. |

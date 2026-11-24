@@ -68,14 +68,15 @@ A file under `.github/workflows/` is behavior and is never exempt. For a
 change there the pre-PR certification is `gstack-qa` running the changed
 job's commands locally (the same steps the YAML runs) and certifying the
 head; the run named below is the CI re-certification — on the PR head for
-`docs.yml`, `lint.yml`, and `test.yml`, after merge for the other two — that the PR
+`docs.yml`, `lint.yml`, and `test.yml`, after merge for the others — that the PR
 description names:
 
 | Workflow | Pre-PR certification | Named run |
 |---|---|---|
 | `docs.yml`, `lint.yml`, `test.yml` (trigger: `pull_request`, and `push` to `main`) | The job's commands run locally | The run on the PR head |
 | `release.yml` (trigger: tag push `v*` or `workflow_dispatch`; publishes to PyPI on any run) | `make smoke-candidate`: the build job's `uv build` and `uvx twine check dist/*`, then `scripts/smoke-release.sh candidate` on the wheel; the PR's `candidate-smoke` job runs the same target | The next tagged release (its `candidate-smoke` gates PyPI, its `published-smoke` checks the PyPI wheel is byte-identical and runs the same operations); the leader checks it after merge |
-| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed on a `push` or `workflow_dispatch` event) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command line it would run printed with its variables substituted and compared to the expected text — never executed: a wall reaches every teammate's session, whatever its message or duration | Its first `workflow_run` whose upstream failed on a `push` or `workflow_dispatch` event; until one occurs the post-merge run has not happened, and the leader records that |
+| `nightly.yml` (trigger: `schedule` and `workflow_dispatch`; both jobs run only on upstream `main`) | `make test-nightly` locally, and the `notify` job's `biff wall` command line printed with its variables substituted — never executed | Its first `workflow_dispatch` on `main` after merge (`gh workflow run nightly.yml --ref main`); the alert path is drilled on a throwaway branch with the `main` gate removed and a forced failure, never merged |
+| `biff-notify.yml` (trigger: `workflow_run` on completed Docs, Lint, Release, Test; its one job runs only when the upstream run failed or timed out on a `push`, or on a Release `workflow_dispatch`) | The `if:` filter evaluated by hand against a failing and a passing upstream event, and the `biff wall` command line it would run printed with its variables substituted and compared to the expected text — never executed: a wall reaches every teammate's session, whatever its message or duration | Its first `workflow_run` whose upstream failed on a `push` or a Release `workflow_dispatch`; until one occurs the post-merge run has not happened, and the leader records that |
 
 A failure in a named post-merge run is a finding, fixed in a fix PR on the
 spot.
