@@ -71,3 +71,26 @@ def test_smoke_rejects_bad_arguments_before_installing(
     assert result.returncode != 0
     assert message in result.stderr
     assert "Smoke testing" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("tag_version", "matches"),
+    [("0.20.0rc1", True), ("0.20.0-rc.1", True), ("0.20.0", False), ("0.19.0", False)],
+)
+def test_candidate_wheel_must_match_the_tag_version(
+    tmp_path: Path, tag_version: str, matches: bool
+) -> None:
+    wheel = tmp_path / "punt_kit-0.20.0rc1-py3-none-any.whl"
+    wheel.write_bytes(b"")
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "candidate", str(wheel), tag_version],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+    )
+    mismatch = f"wheel version 0.20.0rc1 is not the expected {tag_version}"
+    # A match moves on to installing the empty wheel, which fails later.
+    assert result.returncode != 0
+    assert (mismatch in result.stderr) is not matches
