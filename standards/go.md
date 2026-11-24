@@ -43,7 +43,7 @@ allows: two processes, one engine, complementary jobs.
 ethos is the same model with the daemon deferred. It is a Go tool whose engine
 lives under `internal/` --- `internal/identity`, `internal/attribute`,
 `internal/mission` --- and whose surfaces are the `ethos` CLI in `cmd/ethos` and
-an MCP server that `ethos serve` starts over stdio. ethos keeps its state as YAML
+an MCP server over stdio. ethos keeps its state as YAML
 on disk with no concurrent writers, so it has no daemon; architecture.md names
 it as the example of a tool that defers its daemon until scale demands one.
 Because its CLI and its MCP surface already sit as thin clients over a clean

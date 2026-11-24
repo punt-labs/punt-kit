@@ -325,7 +325,7 @@ Plugins that expose MCP tools must declare them in `plugin.json` using the
     "<server-name>": {
       "type": "stdio",
       "command": "<cli-binary>",
-      "args": ["serve", "--transport", "stdio"]
+      "args": ["mcp"]
     }
   }
 }
