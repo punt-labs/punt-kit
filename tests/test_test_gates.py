@@ -397,16 +397,23 @@ def _push(
     )
 
 
-def test_prepush_lets_a_tag_on_an_earlier_commit_through(
-    tmp_path: Path, prepush_hook: Path
+@pytest.mark.parametrize("on_main", [True, False])
+def test_prepush_lets_a_tag_on_an_earlier_main_commit_through(
+    tmp_path: Path, prepush_hook: Path, on_main: bool
 ) -> None:
     _git(tmp_path, "tag", "-a", "v1", "-m", "release")
     tag = _git(tmp_path, "rev-parse", "refs/tags/v1")
+    if on_main:
+        _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")
     _git(tmp_path, "commit", "--quiet", "--allow-empty", "-m", "later")
 
     result = _push(prepush_hook, tmp_path, "refs/tags/v1", tag)
-    assert result.returncode == 0, result.stderr
     assert "ran-push-gate" not in result.stdout
+    if on_main:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode == 1
+        assert "check it out and push it separately" in result.stderr
 
 
 def test_prepush_refuses_uncommitted_changes(

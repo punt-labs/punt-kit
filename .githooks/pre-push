@@ -17,8 +17,11 @@ while read -r local_ref local_oid _remote_ref _remote_oid; do
   [[ "$local_ref" == '(delete)' || "$local_oid" =~ ^0+$ ]] && continue
   head=${head:-$(git rev-parse HEAD)}
   commit=$(git rev-parse --verify --end-of-options "${local_oid}^{commit}" 2>/dev/null) || commit=
-  # A release tag may name an earlier main commit; main's CI already gated it.
-  [[ "$local_ref" == refs/tags/* && -n "$commit" && "$commit" != "$head" ]] && continue
+  # A release tag may name an earlier commit already on main, which main's CI gated.
+  if [[ "$local_ref" == refs/tags/* && -n "$commit" && "$commit" != "$head" ]] &&
+    git merge-base --is-ancestor "$commit" refs/remotes/origin/main 2>/dev/null; then
+    continue
+  fi
   if [[ "$commit" != "$head" ]]; then
     printf 'Cannot test pushed ref %s: check it out and push it separately.\n' "$local_ref" >&2
     exit 1
