@@ -4,13 +4,15 @@ on:
   schedule:
     - cron: "23 7 * * *"
   workflow_dispatch:
+  push:
+    branches: [devin/1795502100-nightly-drill-green]
 
 permissions:
   contents: read
 
 jobs:
   nightly:
-    if: github.repository == 'punt-labs/punt-kit' && github.ref == 'refs/heads/main'
+    if: github.repository == 'punt-labs/punt-kit' && (github.ref == 'refs/heads/main' || github.event_name == 'push')
     strategy:
       fail-fast: false
       matrix:
