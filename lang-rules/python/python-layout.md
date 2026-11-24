@@ -5,9 +5,10 @@ paths:
 
 # Python Repository Layout
 
-**Introduced:** 2026-11-22
+**Introduced:** 2026-11-22 · **Updated:** 2026-11-24
 
-Implements the [repository layout policy](../../standards/punt-labs-dir.md).
+Implements the [repository layout policy](../../standards/punt-labs-dir.md)
+and [home filesystem policy](../../standards/filesystem.md).
 Review gates below mean the storage-boundary evaluator checks the named
 acceptance cases in the consuming tool; they do not claim punt-kit supplies
 runtime tests for every tool.
@@ -35,13 +36,38 @@ path; the latter is for static settings. The name local is reserved.
 
 ## PY-PLD-3: Use the home-path authority
 
-**Implements:** PLD-3 · **Gate:** `review` (storage-boundary evaluator)
+**Implements:** PLD-3, FS-1, FS-2, FS-3 · **Gate:** `review` (storage-boundary evaluator)
 
-Use the tool's home resolver for caches and diagnostics. Test that changing
-cwd does not change machine-scoped paths and that an unavailable home root
-produces a visible error rather than a repo-local fallback.
-Keep durable diagnostics in logs/ and telemetry in telemetry.db with a 0700
-directory and 0600 database and sidecars, separate from logs.
+Compose the product root with `Path.home()` once in a shared paths module.
+Use a resolver function if callers need home lookup at call time. Derive
+cache and diagnostic paths from that authority. Review writes at the
+storage boundary, including whether the product or an integration host
+owns each file. Test the expected namespace with an isolated home (including
+alternate entry points, if any), a cwd change and a home-resolution failure.
+For diagnostics and telemetry, use the [logging rules](python-logging.md).
+
+## PY-FS-1: Pass product-owned cache and data paths to dependencies
+
+**Implements:** FS-4, FS-5 · **Gate:** `review` (storage-boundary evaluator)
+
+Pass explicit `Path` values from the shared resolver to cache and store APIs
+rather than relying on library defaults. Resolve a user cache override
+before passing the path to download or cached-read calls. Test both a
+download and subsequent cache reuse in an isolated home: assert that both
+use `<root>/cache/` by default and the explicit cache override when set.
+Assert that a persistent store uses `<root>/data/` by default and, if a
+separate location is specified, uses that location instead.
+
+## PY-FS-2: Check install and legacy-directory cutovers
+
+**Implements:** FS-6, FS-7, FS-8 · **Gate:** `review` (storage-boundary evaluator)
+
+Use `Path.mkdir(parents=True, exist_ok=True)` for directories provisioned by
+the Python installer. In an isolated home, verify that a fresh install
+creates the required directories. Seed the canonical root with recognizable
+data and verify its contents are unchanged after reinstalling.
+On a cutover, check the changelog and seed the legacy directory with
+recognizable data to check that it is neither loaded nor altered.
 
 ## PY-PLD-4: Test the ignore boundary with Git
 
