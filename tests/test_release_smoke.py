@@ -94,3 +94,4 @@ def test_candidate_wheel_must_match_the_tag_version(
     # A match moves on to installing the empty wheel, which fails later.
     assert result.returncode != 0
     assert (mismatch in result.stderr) is not matches
+    assert ("Smoke testing candidate" in result.stdout) is matches
