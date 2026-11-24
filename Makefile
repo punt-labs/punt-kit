@@ -6,7 +6,9 @@ OO_BASE ?=
 COUPLING_BASE ?=
 SUPPRESSION_BASE ?=
 DESIGN_BASE ?= origin/main
-override export DESIGN_BASE := $(value DESIGN_BASE)
+# Two lines, not `override export X := ...`: GNU Make 3.81 (macOS) empties it.
+override DESIGN_BASE := $(value DESIGN_BASE)
+export DESIGN_BASE
 
 .PHONY: design-shadow
 
