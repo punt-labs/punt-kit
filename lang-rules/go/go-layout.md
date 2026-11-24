@@ -63,8 +63,10 @@ instead.
 **Implements:** FS-6, FS-7, FS-8 · **Gate:** `review` (storage-boundary evaluator)
 
 Use `os.MkdirAll` with the appropriate permissions for directories provisioned
-by the Go installer and propagate errors. Test fresh and repeat installs
-under an isolated home. On a cutover, check the changelog and seed the
+by the Go installer and propagate errors. In an isolated home, verify that
+a fresh install creates the required directories. Seed the canonical root
+with recognizable data and verify its contents are unchanged after
+reinstalling. On a cutover, check the changelog and seed the
 legacy directory with recognizable data to check that it is neither loaded
 nor altered.
 

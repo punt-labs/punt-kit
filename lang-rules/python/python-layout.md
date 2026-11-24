@@ -63,8 +63,10 @@ separate location is specified, uses that location instead.
 **Implements:** FS-6, FS-7, FS-8 · **Gate:** `review` (storage-boundary evaluator)
 
 Use `Path.mkdir(parents=True, exist_ok=True)` for directories provisioned by
-the Python installer. Test fresh and repeat installs under an isolated
-home. On a cutover, check the changelog and seed the legacy directory with
+the Python installer. In an isolated home, verify that a fresh install
+creates the required directories. Seed the canonical root with recognizable
+data and verify its contents are unchanged after reinstalling.
+On a cutover, check the changelog and seed the legacy directory with
 recognizable data to check that it is neither loaded nor altered.
 
 ## PY-PLD-4: Test the ignore boundary with Git
