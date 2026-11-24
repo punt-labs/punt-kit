@@ -13,7 +13,10 @@ from tempfile import TemporaryDirectory
 import pytest
 
 _SHARED = frozenset({"Makefile", "install.sh", "pyproject.toml", "uv.lock"})
-_DOC_TESTS: dict[Path, Path] = {}
+_DOC_TESTS = {
+    Path(".gitignore"): Path("tests/test_repo_gitignore.py"),
+    Path("TESTING.md"): Path("tests/test_test_gates.py"),
+}
 _TEST_INFRA = frozenset(
     {
         ".github",
