@@ -415,7 +415,9 @@ def _phase11_verify(info: ProjectInfo, version: str, *, dry_run: bool) -> None:
     Phase11Verify(info, version, dry_run=dry_run, ops=_ops, skips=_skips).run()
 
 
-def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> None:
+def _print_incomplete_release(
+    current_phase_num: int, resume_phase_num: int
+) -> dict[str, object]:
     """Report exactly what didn't land and how to finish, on any non-success exit.
 
     Called from every stop-early path — an interrupt, a propagation
@@ -428,7 +430,8 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
 
     ``current_phase_num`` is where the release stopped; ``resume_phase_num`` is
     where it must be re-entered, which is earlier when a recorded Phase 9/10
-    failure is still outstanding. Phase 0 means nothing had run yet.
+    failure is still outstanding. Phase 0 means nothing had run yet. Return
+    the named resume phase for JSON output when available.
     """
     if current_phase_num == 0:
         reason, action = (
@@ -441,7 +444,7 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
             f"  {action} punt release run again."
         )
         ReleasePipeline.print_manual_actions(_skips)
-        return
+        return {}
     phase_label = PhaseOrder.name_of(current_phase_num)
     resume_label = PhaseOrder.name_of(resume_phase_num)
     unlanded = PhaseOrder.unlanded_from(resume_phase_num)
@@ -459,6 +462,7 @@ def _print_incomplete_release(current_phase_num: int, resume_phase_num: int) -> 
     else:
         console.print(f"  Resume with: punt release run --resume-from {resume_label}")
     ReleasePipeline.print_manual_actions(_skips)
+    return {} if resume_label == "unknown" else {"resume_from": resume_label}
 
 
 def run_release(
@@ -502,9 +506,7 @@ def run_release(
         # points back at the phase that needs re-running (post-release re-enters
         # both P9 and P10): re-running verify alone would never retry the
         # propagation that verify's own checks are reporting on.
-        if propagation_failures:
-            return min(n for n, _ in propagation_failures)
-        return current_phase_num
+        return min((n for n, _ in propagation_failures), default=current_phase_num)
 
     try:
         if not root.is_dir():
@@ -551,19 +553,10 @@ def run_release(
         # the try, a Ctrl-C during preflight would surface as a raw
         # KeyboardInterrupt with no report and no --resume-from hint.
         try:
-            # Run preflight before version detection (need clean tree for
-            # accurate reads)
+            # Attribute version detection and any interrupt to the entry phase.
+            current_phase_num = start
             if start <= 1:
-                current_phase_num = 1
                 _phase1_preflight(info, dry_run=dry_run)
-            else:
-                # A resumed run still does pre-pipeline work below (version
-                # detection) before any phase step updates the tracker.
-                # Credit that window to the phase the operator asked to
-                # resume from, so an interrupt there reports the exact
-                # --resume-from command they already ran instead of phase 0
-                # ("unknown") with no recovery advice.
-                current_phase_num = start
 
             if version is None:
                 if start == 1:
@@ -739,8 +732,9 @@ def run_release(
         # Reporter.fail printed its own message; any other ReleaseError (an
         # unreadable file, a failed detection) reaches here unprinted.
         ReleasePipeline.print_unreported(exc)
-        _print_incomplete_release(current_phase_num, _resume_at())
-        raise CommandFailure(str(exc)) from None
+        raise CommandFailure(
+            str(exc), _print_incomplete_release(current_phase_num, _resume_at())
+        ) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
         # subprocess wedge — must not exit the release in a traceback. Convert
@@ -758,5 +752,5 @@ def run_release(
         # line, bugs a traceback, then the same recap and --resume-from hint
         # every other stop-early path gives.
         failure = ReleasePipeline.print_crash(exc)
-        _print_incomplete_release(current_phase_num, _resume_at())
-        raise CommandFailure(failure) from None
+        details = _print_incomplete_release(current_phase_num, _resume_at())
+        raise CommandFailure(failure, details) from None

@@ -143,12 +143,12 @@ class PuntCli:
         ctx: typer.Context,
     ) -> None:
         """Set up the punt plugin in Claude Code at user scope."""
-        from punt_kit.install import run_install
+        from punt_kit.install import InstallError, PluginInstaller
 
         output = self._output.from_context(ctx)
         try:
-            report = run_install()
-        except ReleaseError as exc:
+            report = PluginInstaller.install()
+        except InstallError as exc:
             output.fail(str(exc))
         changes = list(report.changes)
         if report.error:

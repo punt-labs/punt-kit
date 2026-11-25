@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING
+from unittest.mock import patch
 
 import pytest
 from typer.testing import CliRunner
 
 from punt_kit.__main__ import app
+from punt_kit.phases.phase11_checks import VerificationCheck
+from punt_kit.phases.phase11_verify import Phase11Verify
+from tests.helpers import fake_which, make_release_project
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -39,6 +43,41 @@ def test_quiet_json_release_reports_the_unexpected_failure(
 
     assert result.exit_code == 1
     assert "disk full" in json.loads(result.stdout)["error"]
+
+
+def test_quiet_json_release_reports_failed_verification_and_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = make_release_project(tmp_path)
+    monkeypatch.setattr("shutil.which", fake_which)
+    with (
+        patch.object(
+            Phase11Verify,
+            "_local_checks",
+            return_value=[VerificationCheck("Git tag", False, "not found")],
+        ),
+        patch.object(Phase11Verify, "_remote_slug", return_value=(None, [])),
+        patch.object(Phase11Verify, "_pypi_checks", return_value=[]),
+    ):
+        result = runner.invoke(
+            app,
+            [
+                "release",
+                "run",
+                "-q",
+                "--json",
+                "--path",
+                str(project),
+                "0.2.0",
+                "--resume-from",
+                "verify",
+            ],
+        )
+
+    assert result.exit_code == 1
+    report = json.loads(result.stdout)
+    assert "Git tag" in report["error"]
+    assert report["resume_from"] == "verify"
 
 
 @pytest.mark.parametrize(

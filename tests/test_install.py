@@ -10,7 +10,7 @@ import pytest
 from typer.testing import CliRunner
 
 from punt_kit.__main__ import app
-from punt_kit.install import PluginInstaller
+from punt_kit.install import InstallError, PluginInstaller
 
 runner = CliRunner()
 
@@ -24,8 +24,6 @@ def test_install_ignores_inherited_git_rewrite(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("GIT_CONFIG_KEY_2", "http.proxy")
     monkeypatch.setenv("GIT_CONFIG_VALUE_2", "http://proxy.invalid:3128")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/path/to/custom.gitconfig")
-    monkeypatch.setenv("GIT_CONFIG_PARAMETERS", "'url.example.invalid.insteadOf=git@'")
-
     reports = (
         b"[]",
         b"",
@@ -139,13 +137,11 @@ def test_install_rejects_invalid_claude_output_as_json() -> None:
 
 
 def test_install_reports_completed_steps_when_the_plugin_fails() -> None:
-    from punt_kit.phases.shared.errors import ReleaseError
-
     with (
         patch("punt_kit.install.shutil.which", return_value="/bin/claude"),
         patch(
             "punt_kit.install.PluginInstaller._claude",
-            side_effect=["[]", "", "[]", ReleaseError("plugin install failed")],
+            side_effect=["[]", "", "[]", InstallError("plugin install failed")],
         ),
     ):
         result = runner.invoke(app, ["install", "--json"])

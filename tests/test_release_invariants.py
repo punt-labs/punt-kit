@@ -728,7 +728,7 @@ def test_the_slug_scan_ignores_everything_else(source: str) -> None:
 def test_only_repo_slug_reads_an_owner_and_repo_out_of_a_remote() -> None:
     # The plugin installer passes these literal prefixes to Git instead of parsing them.
     git_rewrites = {
-        "install.py": (
+        "install_git.py": (
             "url.https://github.com/punt-labs/.insteadOf",
             "git@github.com:punt-labs/",
         ),

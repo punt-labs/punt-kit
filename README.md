@@ -127,7 +127,7 @@ to override auto-detection.
 | `repo audit` | No failing finding remains after any requested fixes; informational checks may be unavailable | `passed`, `failed`, and `fixed` counts; failing `findings` (check, detail) |
 | `repo scan-pii` | No configured rule matched scanned content; `--staged` reads the Git index | `staged`, `files_scanned`, `findings` (file, line, category) |
 | `repo seed` | The target was rendered and any changes written; a dry run only computes changes | `target`, `dry_run`, and `changes` or `would_change` |
-| `release run` | The requested release phases finished, or the dry run finished without publishing; earlier phases are not rerun on resume | `version`, `dry_run` |
+| `release run` | The requested release phases finished, or the dry run finished without publishing; earlier phases are not rerun on resume | `version`, `dry_run`; verification failures include `resume_from` |
 | `enable` | Repository integration is in place, possibly unchanged | `changes` |
 | `disable` | Repository integration is dormant; the guide is retained if present | `changes` |
 | `status` | The checkout's state was read, not checked for installation health | Checkout and beads state |
@@ -184,7 +184,7 @@ Running `punt repo init` again updates the files it manages without overwriting 
 
 `punt repo scan-pii` reads optional lists from a `[tool.punt.pii]` table in `pyproject.toml`: `allow_emails` (addresses that are not reported), `allow_patterns` (regular expressions for matches that are not reported), and `deny` (extra strings that are always reported). `--config <file>` reads the table from another file.
 
-With `--staged`, the default rules are read from the Git index, just like the files being scanned. An explicit `--config` still reads the supplied file from disk.
+With `--staged`, the default rules must be regular files in the Git index. An explicit `--config` still reads the supplied file from disk.
 
 ### Release Options
 

@@ -106,16 +106,16 @@ class Phase11Verify:
             checks.extend(self._homebrew_checks(repo))
         checks.extend(self._pypi_checks())
 
-        all_pass = True
+        failures: list[str] = []
         for check in checks:
             if check.passed:
                 ops.ok(f"{check.name}: {check.detail}")
             else:
                 ops.error(f"{check.name}: {check.detail}")
-                all_pass = False
+                failures.append(check.name)
 
-        if not all_pass:
-            ops.fail("Some verification checks failed — see above")
+        if failures:
+            ops.fail(f"Some verification checks failed: {', '.join(failures)}")
 
     def _local_checks(self) -> list[VerificationCheck]:
         """Check the tag, the version in every file that pins it, and the changelog."""

@@ -114,6 +114,7 @@ adapters = [
     "punt_kit.detect",
     "punt_kit.git_checkout",
     "punt_kit.install",
+    "punt_kit.install_git",
     "punt_kit.init_beads",
     "punt_kit.logging_config",
     "punt_kit.paths",
