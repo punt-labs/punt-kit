@@ -1237,10 +1237,10 @@
   "src/punt_kit/phases/shared/workspace_versions.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 2.2,
+    "avg_params": 2.12,
     "max_complexity": 9.0,
-    "avg_complexity": 4.27,
-    "module_size": 205.0,
+    "avg_complexity": 4.53,
+    "module_size": 245.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
