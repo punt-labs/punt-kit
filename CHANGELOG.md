@@ -4,11 +4,6 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Changed
-
-- Separate status rendering and command telemetry from the CLI adapter
-  without changing existing commands, output, or telemetry (PL-1519).
-
 ### Fixed
 
 - Derive the telemetry configuration path from Punt's shared home resolver
@@ -53,6 +48,9 @@ All notable changes to this project will be documented in this file.
   and `TEL-*`.
 
 ### Changed
+
+- Separate status rendering and command telemetry from the CLI adapter
+  without changing existing commands, output, or telemetry (PL-1519).
 
 - The [CLI standard](standards/cli.md) defines approved command maps,
   finite JSON results, remote target selection, and per-command success.
