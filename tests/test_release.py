@@ -11725,7 +11725,7 @@ def test_run_release_reports_incomplete_release_on_interrupt(
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="ci")
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     normalized = " ".join(capsys.readouterr().out.split())
     assert "Release incomplete" in normalized
     assert "phase 6 (ci)" in normalized
@@ -12017,7 +12017,7 @@ def test_run_release_interrupt_mid_poll_reports_incomplete_release(
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
     elapsed = time.monotonic() - started
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     # Prompt: the run ends within seconds of the interrupt, not after the
     # (shrunk) poll deadline — the join was released by the interrupt check.
     assert elapsed < 10.0
@@ -12089,7 +12089,7 @@ def test_run_release_interrupt_mid_propagation_restores_owned_file_residue(
     with pytest.raises(SystemExit) as exc_info:
         run_release(str(root), version="0.2.0", dry_run=False, resume_from="propagate")
 
-    assert exc_info.value.code == 1
+    assert exc_info.value.code == 130
     # First call: Phase 10's entry auto-recovery, before any residue exists.
     # Second: the interrupt path — fail_on_error=False, residue on disk.
     assert reset_calls == [(True, False), (False, True)]

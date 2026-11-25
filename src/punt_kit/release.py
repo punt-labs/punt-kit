@@ -13,6 +13,7 @@ from typing import NoReturn, final
 from rich.console import Console
 
 from punt_kit.detect import ProjectInfo, detect
+from punt_kit.errors import CommandFailure, ReleaseError
 from punt_kit.phases.phase01_preflight import Phase1Preflight
 from punt_kit.phases.phase02_version_bump import Phase2VersionBump
 from punt_kit.phases.phase03_build import Phase3Build
@@ -33,7 +34,6 @@ from punt_kit.phases.phase11_verify import Phase11Verify
 from punt_kit.phases.shared import timeouts
 from punt_kit.phases.shared.changelog import Changelog
 from punt_kit.phases.shared.command_runner import CommandRunner
-from punt_kit.phases.shared.errors import ReleaseError
 from punt_kit.phases.shared.gh import RequiredChecksWaiter
 from punt_kit.phases.shared.github_repo import GithubRepo
 from punt_kit.phases.shared.phase_diagnostics import PhaseDiagnostics
@@ -496,7 +496,7 @@ def run_release(
     # report can recap them whichever exception ends the run.
     propagation_failures: list[tuple[int, str]] = []
 
-    def _resume_phase_num() -> int:
+    def _resume_at() -> int:
         # A later phase can stop the run on top of a recorded Phase 9/10
         # failure. The stop is reported where it happened, but --resume-from
         # points back at the phase that needs re-running (post-release re-enters
@@ -546,7 +546,7 @@ def run_release(
 
         # Phase 1 and version detection run INSIDE this try: its finally is
         # the interrupt path (cleanup, the incomplete-release report, the
-        # exit-1 conversion), and _print_incomplete_release's contract is
+        # exit-130 conversion), and _print_incomplete_release's contract is
         # "called from every stop-early path". With these blocks outside
         # the try, a Ctrl-C during preflight would surface as a raw
         # KeyboardInterrupt with no report and no --resume-from hint.
@@ -733,14 +733,14 @@ def run_release(
                 ReleasePipeline.print_in_flight(sys.exc_info()[1])
                 _info("Cleaning up after interrupt...")
                 _reset_propagation_siblings(info, fail_on_error=False)
-                _print_incomplete_release(current_phase_num, _resume_phase_num())
-                sys.exit(1)
+                _print_incomplete_release(current_phase_num, _resume_at())
+                sys.exit(130)
     except ReleaseError as exc:
         # Reporter.fail printed its own message; any other ReleaseError (an
         # unreadable file, a failed detection) reaches here unprinted.
         ReleasePipeline.print_unreported(exc)
-        _print_incomplete_release(current_phase_num, _resume_phase_num())
-        raise SystemExit(1) from None
+        _print_incomplete_release(current_phase_num, _resume_at())
+        raise CommandFailure(str(exc)) from None
     except subprocess.TimeoutExpired as exc:
         # A call site that forgets to opt into a longer budget — or a genuine
         # subprocess wedge — must not exit the release in a traceback. Convert
@@ -748,15 +748,15 @@ def run_release(
         # the operator the exact --resume-from string; a placeholder here is
         # advice that is not actionable, and resuming from the wrong phase
         # skips a gate.
-        ReleasePipeline.print_timeout(exc, current_phase_num, _resume_phase_num())
+        failure = ReleasePipeline.print_timeout(exc, current_phase_num, _resume_at())
         ReleasePipeline.print_manual_actions(_skips)
-        raise SystemExit(1) from None
+        raise CommandFailure(failure) from None
     except Exception as exc:
         # System boundary: whatever escaped a phase (a missing tool, a parse
         # error in a file a check read, a bug) must not leave the operator with
         # a bare traceback and no idea what landed. Operational errors get one
         # line, bugs a traceback, then the same recap and --resume-from hint
         # every other stop-early path gives.
-        ReleasePipeline.print_crash(exc)
-        _print_incomplete_release(current_phase_num, _resume_phase_num())
-        raise SystemExit(1) from None
+        failure = ReleasePipeline.print_crash(exc)
+        _print_incomplete_release(current_phase_num, _resume_at())
+        raise CommandFailure(failure) from None
